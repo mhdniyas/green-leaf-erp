@@ -6,6 +6,29 @@
 @source '../**/*.js';
 
 @theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-        'Segoe UI Symbol', 'Noto Color Emoji';
+    /* Typography */
+    --font-sans: 'Inter', 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+
+    /* Green Leaf Brand Colors */
+    --color-brand-50:  oklch(0.97 0.03 145);
+    --color-brand-100: oklch(0.93 0.07 145);
+    --color-brand-200: oklch(0.87 0.12 145);
+    --color-brand-300: oklch(0.78 0.17 145);
+    --color-brand-400: oklch(0.67 0.20 145);
+    --color-brand-500: oklch(0.56 0.22 145);
+    --color-brand-600: oklch(0.47 0.20 145);
+    --color-brand-700: oklch(0.39 0.17 145);
+    --color-brand-800: oklch(0.32 0.13 145);
+    --color-brand-900: oklch(0.25 0.09 145);
+    --color-brand-950: oklch(0.16 0.06 145);
+
+    /* Accent - warm amber for alerts/highlights */
+    --color-accent-400: oklch(0.85 0.16 70);
+    --color-accent-500: oklch(0.77 0.18 70);
+    --color-accent-600: oklch(0.67 0.18 70);
+
+    /* Surface colors */
+    --color-surface-50:  oklch(0.99 0.005 145);
+    --color-surface-100: oklch(0.97 0.008 145);
+    --color-surface-200: oklch(0.94 0.010 145);
 }

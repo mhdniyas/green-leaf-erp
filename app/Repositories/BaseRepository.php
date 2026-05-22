@@ -3,10 +3,10 @@
 namespace App\Repositories;
 
 use App\Contracts\BaseRepositoryContract;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Pagination\Paginator;
 
 abstract class BaseRepository implements BaseRepositoryContract
 {
@@ -29,7 +29,7 @@ abstract class BaseRepository implements BaseRepositoryContract
         return $this->query()->get();
     }
 
-    public function paginate(int $perPage = 15): Paginator
+    public function paginate(int $perPage = 15): LengthAwarePaginator
     {
         return $this->query()->paginate($perPage);
     }

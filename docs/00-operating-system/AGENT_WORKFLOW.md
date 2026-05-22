@@ -1,401 +1,401 @@
-# AGENT WORKFLOW GUIDE
+# AGENT WORKFLOW
 
-**Quick Reference for Development Agents**
+**Green Leaf ERP — Agent Operating Manual**
+**Version**: 2.0.0 | **Updated**: 2026-05-22 | **Status**: ACTIVE
 
----
-
-## 🎯 PRIMARY DIRECTIVE
-
-When working on this project:
-
-1. **Always read FIRST**: docs/00-operating-system/PROJECT_CONTEXT.md
-2. **Check status**: docs/00-operating-system/PROJECT_STATUS.md
-3. **Review decisions**: docs/00-operating-system/DECISIONS_LOG.md
+> This is the **first document** every agent must read before touching any code.
+> Not reading this causes broken architecture. Non-negotiable.
 
 ---
 
-## 📋 QUICK START
+## ⚡ MANDATORY STARTUP SEQUENCE
 
-### Before Coding
-```bash
-# Understand the architecture
-cat docs/00-operating-system/PROJECT_CONTEXT.md
+Every agent session MUST follow this exact order:
 
-# Check what's already done
-cat docs/00-operating-system/PROJECT_STATUS.md
-
-# Run the development environment
-npm run dev
+```
+1. Read this file (AGENT_WORKFLOW.md)
+2. Read PROJECT_STATUS.md          → What exists
+3. Read CURRENT_SPRINT.md          → What to build next
+4. Read docs/01-laravel-protocol/LARAVEL_ARCHITECTURE.md  → How to build it
+5. Read docs/01-laravel-protocol/FILE_CREATION_PROTOCOL.md → Where to put it
+6. THEN start coding
 ```
 
-### When Adding Features
-```bash
-# 1. Create Model (if needed)
-php artisan make:model ModuleName
-
-# 2. Create Repository
-app/Repositories/ModuleRepository.php
-// Extend BaseRepository
-
-# 3. Create Service
-app/Services/ModuleService.php
-// Extend BaseService
-
-# 4. Create Action (if one-off)
-app/Actions/ModuleAction.php
-// Extend BaseAction
-
-# 5. Create Controller
-app/Http/Controllers/Api/ModuleController.php
-// Extend BaseApiController
-
-# 6. Format Code
-vendor/bin/pint --format agent
-
-# 7. Create Tests
-php artisan make:test ModuleTest
-
-# 8. Run Tests
-php artisan test tests/Feature/ModuleTest.php
-```
+**Skipping any step = broken code. No exceptions.**
 
 ---
 
-## 🏗️ ARCHITECTURE LAYERS
+## 🏗️ ARCHITECTURE IN ONE DIAGRAM
 
 ```
-Controller (Thin - Validation + Response Only)
-    ↓
-Service/Action (Business Logic + Transactions)
-    ↓
-Repository (Database Access Only)
-    ↓
-Model (Data + Relationships Only)
+HTTP Request
+     │
+     ▼
+┌─────────────────────────────────────────────────────────┐
+│  FormRequest (Validate + Authorize)                      │
+└─────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌─────────────────────────────────────────────────────────┐
+│  Controller (Thin — receive, delegate, respond)          │
+│  extends BaseApiController                               │
+└─────────────────────────────────────────────────────────┘
+     │
+     ├──── Simple CRUD ──────────────────────────────────▶ Service
+     │
+     └──── Complex / Multi-step ────────────────────────▶ Action
+                                                              │
+                                                              ▼
+┌─────────────────────────────────────────────────────────┐
+│  Service (Business Logic — reusable across endpoints)    │
+│  extends BaseService                                     │
+└─────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌─────────────────────────────────────────────────────────┐
+│  Repository (Database access ONLY)                       │
+│  extends BaseRepository                                  │
+└─────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌─────────────────────────────────────────────────────────┐
+│  Model (Data + Relationships ONLY)                       │
+└─────────────────────────────────────────────────────────┘
+     │
+     ▼
+  Database (MySQL via Eloquent)
 ```
 
-### Rule: Never Break Layers
-- ❌ NO queries in controller
-- ❌ NO business logic in model
-- ❌ NO model relationships in controller
-- ✅ Always use repositories
-- ✅ Always use services
-- ✅ Always validate input
+**Golden Rule**: Data flows DOWN. Never skip a layer. Never query the DB from a controller.
 
 ---
 
-## 📁 WHERE TO PUT THINGS
+## 📁 WHERE EVERY FILE BELONGS
 
-| What | Where |
-|------|-------|
-| API endpoint | `app/Http/Controllers/Api/` |
-| Web page | `app/Http/Controllers/Web/` |
-| One-off operation | `app/Actions/` |
-| Reusable logic | `app/Services/` |
-| Database queries | `app/Repositories/` |
-| Data object | `app/DTOs/` |
-| Constant | `app/Enums/` |
-| Helper function | `app/Helpers/` |
+| What you're building | Where it goes |
+|---|---|
+| API endpoint handler | `app/Http/Controllers/Api/{Module}/` |
+| Web page handler | `app/Http/Controllers/Web/{Module}/` |
+| Request validation | `app/Http/Requests/Api/{Module}/` |
+| API response transformer | `app/Http/Resources/{Module}/` |
+| Business logic (reusable) | `app/Services/{Module}/` |
+| One-off operation (transaction) | `app/Actions/{Module}/` |
+| Database query | `app/Repositories/{Module}/` |
+| Data transfer object | `app/DTOs/{Module}/` |
+| Type-safe constant | `app/Enums/` |
 | Custom exception | `app/Exceptions/` |
-| API response | `app/Http/Resources/` |
-| Shared behavior | `app/Traits/` |
-| Interface | `app/Contracts/` |
+| Interface / Contract | `app/Contracts/` |
+| Shared trait | `app/Traits/` |
+| Helper function | `app/Helpers/` |
+| Complex query builder | `app/Queries/` |
+| Immutable value | `app/ValueObjects/` |
+| Domain concern | `app/Domains/{Domain}/` |
+| Migration | `database/migrations/` |
+| Factory | `database/factories/` |
+| Seeder | `database/seeders/` |
+| Feature test | `tests/Feature/{Module}/` |
+| Unit test | `tests/Unit/{Module}/` |
 
 ---
 
-## 🔒 SECURITY CHECKLIST
+## 🛠️ HOW TO BUILD A NEW FEATURE
 
-Before committing code:
-
-- [ ] Uses Form Request validation (never validate in controller)
-- [ ] Authorized with Gate/Policy (never skip authorization)
-- [ ] Uses repositories (never direct queries)
-- [ ] Activity is logged (if modifying data)
-- [ ] No secrets in code (check BLOCKERS.md)
-- [ ] Security headers enabled (already done globally)
-- [ ] CSRF protected (automatic on web routes)
-- [ ] XSS prevented (Blade auto-escapes)
-- [ ] Mass assignment protected (use $fillable)
-
----
-
-## 📝 TESTING PATTERN
-
-```php
-// tests/Feature/UserTest.php
-use Tests\TestCase;
-
-class UserTest extends TestCase
-{
-    public function test_user_can_be_created(): void
-    {
-        // Arrange
-        $data = ['name' => 'John', 'email' => 'john@example.com'];
-        
-        // Act
-        $response = $this->post('/api/v1/users', $data);
-        
-        // Assert
-        $response->assertStatus(201);
-        $this->assertDatabaseHas('users', $data);
-    }
-}
-```
-
----
-
-## 🚀 API ENDPOINT PATTERN
-
-```php
-// app/Http/Controllers/Api/UserController.php
-use App\Http\Requests\Api\StoreUserRequest;
-use App\Services\UserService;
-use App\Support\ApiResponse;
-
-class UserController extends BaseApiController
-{
-    public function __construct(private UserService $service)
-    {}
-
-    public function store(StoreUserRequest $request)
-    {
-        try {
-            $user = $this->service->create($request->validated());
-            return ApiResponse::success($user, 'User created', 201);
-        } catch (Exception $e) {
-            return ApiResponse::error($e->getMessage(), code: 422);
-        }
-    }
-}
-```
-
----
-
-## 🧪 TEST EXECUTION
+### Step 1: Create the Model + Migration + Factory
 
 ```bash
-# Run all tests
-php artisan test --compact
-
-# Run specific file
-php artisan test tests/Feature/UserTest.php
-
-# Run specific test
-php artisan test --filter=test_user_can_be_created
-
-# With coverage
-php artisan test --coverage
+php artisan make:model Product -mf --no-interaction
 ```
 
----
+This creates:
+- `app/Models/Product.php`
+- `database/migrations/xxxx_create_products_table.php`
+- `database/factories/ProductFactory.php`
 
-## 📊 CODE QUALITY
+### Step 2: Create the Repository
 
 ```bash
-# Format code (REQUIRED before commit)
-vendor/bin/pint --format agent
-
-# Check for issues
-vendor/bin/pint --test --format agent
-
-# Security audit
-composer audit
-
-# IDE helper update
-php artisan ide-helper:generate
-php artisan ide-helper:models
+php artisan make:class App/Repositories/Inventory/ProductRepository --no-interaction
 ```
 
----
-
-## 🐛 DEBUGGING
-
-```bash
-# View logs in real-time
-php artisan pail
-
-# Open Tinker REPL
-php artisan tinker
-
-# Execute PHP
-php artisan tinker --execute 'User::count();'
-
-# Database query profiling
-// In browser DevTools → Telescope
-```
-
----
-
-## 📚 IMPORTANT PATTERNS
-
-### Repository Pattern
 ```php
-class UserRepository extends BaseRepository
+<?php
+
+declare(strict_types=1);
+
+namespace App\Repositories\Inventory;
+
+use App\Models\Product;
+use App\Repositories\BaseRepository;
+use Illuminate\Database\Eloquent\Collection;
+
+class ProductRepository extends BaseRepository
 {
     protected function getModel(): string
     {
-        return User::class;
+        return Product::class;
     }
-    
-    public function findByEmail(string $email): ?User
+
+    public function findActiveProducts(): Collection
     {
-        return $this->query()->where('email', $email)->first();
+        return $this->query()->where('is_active', true)->get();
     }
 }
 ```
 
-### Service Pattern
+### Step 3: Create the Service
+
+```bash
+php artisan make:class App/Services/Inventory/ProductService --no-interaction
+```
+
 ```php
-class UserService extends BaseService
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services\Inventory;
+
+use App\DTOs\Inventory\ProductData;
+use App\Models\Product;
+use App\Repositories\Inventory\ProductRepository;
+use App\Services\BaseService;
+
+class ProductService extends BaseService
 {
-    public function __construct(private UserRepository $repo)
-    {}
-    
-    public function create(array $data): User
+    public function __construct(
+        private readonly ProductRepository $repository
+    ) {}
+
+    public function create(ProductData $data): Product
     {
-        $user = $this->repo->create($data);
-        $this->logActivity('created');
-        return $user;
+        $product = $this->repository->create($data->toArray());
+        $this->logActivity('product.created', $product);
+
+        return $product;
     }
 }
 ```
 
-### Action Pattern
+### Step 4: Create the FormRequest
+
+```bash
+php artisan make:request Api/Inventory/StoreProductRequest --no-interaction
+```
+
+### Step 5: Create the Controller
+
+```bash
+php artisan make:controller Api/Inventory/ProductController --no-interaction
+```
+
+Extend `BaseApiController`. Inject service. Delegate. Return response.
+
+### Step 6: Register the Route
+
+In `routes/api.php`, inside the appropriate version group.
+
+### Step 7: Format Code
+
+```bash
+vendor/bin/pint --dirty --format agent
+```
+
+### Step 8: Write Tests
+
+```bash
+php artisan make:test Feature/Inventory/ProductTest --no-interaction
+```
+
+### Step 9: Run Tests
+
+```bash
+php artisan test --compact --filter=ProductTest
+```
+
+---
+
+## ✅ PRE-COMMIT CHECKLIST
+
+Before finalizing any code, verify ALL of these:
+
+- [ ] **Thin controller** — no queries, no business logic
+- [ ] **FormRequest used** — never `$request->all()` directly
+- [ ] **Policy/Gate checked** — never skip authorization
+- [ ] **Repository used** — never `Model::query()` in controller or service
+- [ ] **Activity logged** — if data is mutated
+- [ ] **No secrets in code** — use `.env`
+- [ ] **Strict types declared** — `declare(strict_types=1);`
+- [ ] **Type hints on all methods** — parameters and return types
+- [ ] **PHPDoc on complex methods** — `@param`, `@return`, `@throws`
+- [ ] **Pint formatted** — `vendor/bin/pint --dirty --format agent`
+- [ ] **Tests written** — feature test for every endpoint
+- [ ] **Tests passing** — `php artisan test --compact`
+
+---
+
+## 🚫 THINGS THAT ARE NEVER ALLOWED
+
 ```php
-class RegisterUserAction extends BaseAction
+// ❌ NEVER: Direct query in controller
+public function index(): JsonResponse
 {
-    public function execute(RegistrationData $data): User
+    $products = Product::all(); // FORBIDDEN
+}
+
+// ❌ NEVER: $request->all() without validation
+$product = Product::create($request->all()); // FORBIDDEN
+
+// ❌ NEVER: Business logic in a model
+class Product extends Model
+{
+    public function processOrder(): void
     {
-        return $this->transaction(function () use ($data) {
-            // Multi-step operation with automatic rollback
-        });
+        // FORBIDDEN — business logic belongs in a service
     }
+}
+
+// ❌ NEVER: Skip authorization
+public function update(Request $request, Product $product): JsonResponse
+{
+    // Where is the Gate check? FORBIDDEN
+    $product->update($request->validated());
+}
+
+// ❌ NEVER: N+1 queries
+foreach ($orders as $order) {
+    echo $order->customer->name; // N+1 if customer not eager-loaded
+}
+
+// ❌ NEVER: return array from controller (use ApiResponse)
+return ['status' => 'ok']; // FORBIDDEN — use ApiResponse::success()
+```
+
+---
+
+## ✅ CANONICAL PATTERNS
+
+### Controller (correct)
+```php
+public function store(StoreProductRequest $request): JsonResponse
+{
+    $product = $this->productService->create(
+        ProductData::fromRequest($request)
+    );
+
+    return ApiResponse::created(
+        new ProductResource($product),
+        'Product created successfully'
+    );
+}
+```
+
+### Service (correct)
+```php
+public function create(ProductData $data): Product
+{
+    $product = $this->repository->create($data->toArray());
+    $this->logActivity('product.created', $product);
+
+    return $product;
+}
+```
+
+### Repository (correct)
+```php
+public function findBySku(string $sku): ?Product
+{
+    return $this->query()->where('sku', $sku)->first();
+}
+```
+
+### Test (correct)
+```php
+public function test_authenticated_user_can_create_product(): void
+{
+    $user = User::factory()->create();
+    $user->assignRole('admin');
+
+    $response = $this->actingAs($user, 'sanctum')
+        ->postJson('/api/v1/inventory/products', [
+            'name' => 'Test Product',
+            'sku'  => 'TST-001',
+            'price' => 99.99,
+        ]);
+
+    $response->assertCreated();
+    $this->assertDatabaseHas('products', ['sku' => 'TST-001']);
 }
 ```
 
 ---
 
-## 🚫 COMMON MISTAKES
+## 🔧 ARTISAN QUICK REFERENCE
 
-❌ **DON'T**:
-```php
-// Direct query in controller
-$users = User::all();
+| Task | Command |
+|---|---|
+| Create model + migration + factory | `php artisan make:model Name -mf` |
+| Create controller | `php artisan make:controller Api/Module/NameController` |
+| Create request | `php artisan make:request Api/Module/StoreNameRequest` |
+| Create policy | `php artisan make:policy NamePolicy --model=Name` |
+| Create test | `php artisan make:test Feature/Module/NameTest` |
+| Create migration | `php artisan make:migration create_table_name` |
+| Create seeder | `php artisan make:seeder NameSeeder` |
+| Create job | `php artisan make:job ProcessName` |
+| Create event | `php artisan make:event NameCreated` |
+| Create listener | `php artisan make:listener HandleNameCreated` |
+| Run migrations | `php artisan migrate` |
+| Rollback last | `php artisan migrate:rollback` |
+| List routes | `php artisan route:list --except-vendor` |
+| Format code | `vendor/bin/pint --dirty --format agent` |
+| Run all tests | `php artisan test --compact` |
+| Run one test file | `php artisan test tests/Feature/SomeTest.php` |
+| Run filtered test | `php artisan test --filter=test_name` |
+| View logs | `php artisan pail` |
+| Tinker | `php artisan tinker --execute 'Model::count();'` |
 
-// Business logic in model
-User::scope()->active();
+---
 
-// No validation
-$user = User::create($request->all());
+## 📚 DOCUMENTATION READING ORDER
 
-// Fat controller
-if ($condition) { /* complex logic */ }
+When starting a task, read these docs in order:
 
-// N+1 queries
-foreach ($users as $user) {
-    echo $user->posts->count();
-}
-```
-
-✅ **DO**:
-```php
-// Via repository
-$users = $this->repo->all();
-
-// Via service
-$user = $this->service->process($data);
-
-// With validation
-$user = $this->service->create($request->validated());
-
-// Thin controller
-return $this->service->process($request->validated());
-
-// Eager load
-User::with('posts')->get();
-```
+1. **`docs/00-operating-system/AGENT_WORKFLOW.md`** — This file
+2. **`docs/00-operating-system/PROJECT_STATUS.md`** — What is built
+3. **`docs/00-operating-system/CURRENT_SPRINT.md`** — What to build next
+4. **`docs/01-laravel-protocol/LARAVEL_ARCHITECTURE.md`** — Architecture rules
+5. **`docs/01-laravel-protocol/FILE_CREATION_PROTOCOL.md`** — Where files go
+6. **`docs/01-laravel-protocol/NAMING_CONVENTIONS.md`** — Naming rules
+7. **`docs/02-security/SECURITY_CHECKLIST.md`** — Security rules
+8. **`docs/05-green-leaf/BUSINESS_FLOW.md`** — ERP business logic
 
 ---
 
 ## 🔄 GIT WORKFLOW
 
 ```bash
-# Create feature branch
-git checkout -b feature/user-management
+# 1. Create feature branch
+git checkout -b feature/inventory-product-management
 
-# Format before commit
-vendor/bin/pint --format agent
+# 2. Build feature (follow 9-step workflow above)
 
-# Run tests
+# 3. Format code
+vendor/bin/pint --dirty --format agent
+
+# 4. Run tests
 php artisan test --compact
 
-# Commit with message
+# 5. Commit with conventional message
 git add .
-git commit -m "feat: add user management"
+git commit -m "feat(inventory): add product management endpoints"
 
-# Push
-git push origin feature/user-management
+# 6. Push
+git push origin feature/inventory-product-management
 ```
 
----
-
-## 📞 QUICK REFERENCE
-
-| Need | Command |
-|------|---------|
-| Create Model | `php artisan make:model User` |
-| Create Test | `php artisan make:test UserTest` |
-| Create Migration | `php artisan make:migration create_users_table` |
-| Create Controller | `php artisan make:controller UserController` |
-| Create Request | `php artisan make:request StoreUserRequest` |
-| Create Policy | `php artisan make:policy UserPolicy` |
-| Create Service | `mkdir app/Services` then create file |
-| Create Repository | `mkdir app/Repositories` then create file |
-| Format Code | `vendor/bin/pint --format agent` |
-| Run Tests | `php artisan test --compact` |
-| Show Routes | `php artisan route:list` |
-| Database Console | `mysql green_leaf_erp -u root` |
+**Commit message types**: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
 
 ---
 
-## 📖 DOCUMENTATION HIERARCHY
-
-Read in this order:
-
-1. **PROJECT_CONTEXT.md** - Architecture & structure
-2. **PROJECT_STATUS.md** - What's implemented
-3. **CURRENT_SPRINT.md** - Active work
-4. **DECISIONS_LOG.md** - Why things are designed this way
-5. **PHASES.md** - Timeline & phases
-6. **BLOCKERS.md** - Known issues
-
----
-
-## 🎓 LEARNING PATH
-
-For new team members:
-
-1. Read PROJECT_CONTEXT.md (30 min)
-2. Review DECISIONS_LOG.md (20 min)
-3. Look at existing UserRepository, UserService, UserController
-4. Follow patterns for new features
-5. Ask senior dev if unsure
-
----
-
-## ⚡ QUICK WINS
-
-Easy first features to implement:
-
-1. Create Profile endpoint
-2. Update Profile endpoint
-3. Delete Profile endpoint
-4. List Users endpoint
-5. User Activity endpoint
-6. Permission management endpoints
-7. Role management endpoints
-
----
-
-**Version**: 1.0.0  
-**Last Updated**: 2026-05-22  
-**For Questions**: Refer to PROJECT_CONTEXT.md
+**Maintained by**: Senior Engineering Team
+**Project**: Green Leaf ERP
+**Stack**: Laravel 13 + PHP 8.4 + MySQL + Redis

@@ -1,237 +1,157 @@
 # CURRENT SPRINT
 
-**Sprint Name**: Foundation Initialization  
-**Sprint Status**: ✅ COMPLETE  
-**Sprint Dates**: 2026-05-22 (Single Sprint - Foundation Build)  
+**Sprint**: Documentation & Foundation Hardening
+**Sprint Number**: 2
+**Status**: 🔄 IN PROGRESS
+**Start Date**: 2026-05-22
+**End Date**: TBD
 
 ---
 
-## Sprint Goal
+## 🎯 SPRINT GOAL
 
-Transform a fresh Laravel installation into a professional, reusable, enterprise-grade foundation ready for premium client projects.
+Build the complete **Engineering Documentation System** that will serve as the source of truth for all agents working on Green Leaf ERP.
 
----
-
-## Completed Stories
-
-### Story 1: Foundation Audit ✅
-**Status**: DONE  
-**Tasks**:
-- ✅ Audit Laravel version and dependencies
-- ✅ Validate PHP version
-- ✅ Review environment configuration
-- ✅ Update to Redis for queue/cache
-
-**Outcome**: Foundation validated, ready for packages
+Every agent that touches this codebase must be able to:
+1. Know exactly how to build anything (protocols)
+2. Know exactly where to put anything (architecture)
+3. Know exactly what to name anything (conventions)
+4. Know exactly what is safe (security)
+5. Know exactly what the business does (domain context)
 
 ---
 
-### Story 2: Install Enterprise Packages ✅
-**Status**: DONE  
-**Tasks**:
-- ✅ Install Sanctum for API authentication
-- ✅ Install Spatie Permission for RBAC
-- ✅ Install Spatie ActivityLog for activity tracking
-- ✅ Install Owen-it Auditing for audit trails
-- ✅ Install Spatie Backup for automated backups
-- ✅ Install Spatie MediaLibrary for media handling
-- ✅ Install Maatwebsite Excel for Excel support
-- ✅ Install IDE Helper for development
+## 📋 SPRINT TASKS
 
-**Outcome**: All enterprise packages installed and configured
+### Phase A — Agent Brain (OS Layer)
 
----
+| # | Task | File | Status |
+|---|---|---|---|
+| A1 | Rewrite AGENT_WORKFLOW.md | `docs/00-operating-system/AGENT_WORKFLOW.md` | ✅ Done |
+| A2 | Rewrite PROJECT_STATUS.md | `docs/00-operating-system/PROJECT_STATUS.md` | ✅ Done |
+| A3 | Rewrite CURRENT_SPRINT.md | `docs/00-operating-system/CURRENT_SPRINT.md` | ✅ Done |
+| A4 | Update PROJECT_CONTEXT.md | `docs/00-operating-system/PROJECT_CONTEXT.md` | 🔄 Pending |
+| A5 | Create PHASES.md | `docs/00-operating-system/PHASES.md` | 🔄 Pending |
+| A6 | Create DECISIONS_LOG.md | `docs/00-operating-system/DECISIONS_LOG.md` | ✅ Exists |
+| A7 | Create BLOCKERS.md | `docs/00-operating-system/BLOCKERS.md` | ✅ Exists |
+| A8 | Create CHANGELOG.md | `docs/00-operating-system/CHANGELOG.md` | ✅ Exists |
+| A9 | Create DEFINITION_OF_DONE.md | `docs/00-operating-system/DEFINITION_OF_DONE.md` | 🔄 Pending |
 
-### Story 3: Create Enterprise Folder Structure ✅
-**Status**: DONE  
-**Tasks**:
-- ✅ Create app/ subdirectories (Actions, Services, Repositories, etc.)
-- ✅ Create Http/ subdirectories (Web/Api controllers, requests, resources)
-- ✅ Create resources/views/ structure (layouts, components, pages, modules)
-- ✅ Create tests/ structure (Feature, Unit, Integration, Architecture, Security)
-- ✅ Create docs/ structure (7 documentation folders)
+### Phase B — Laravel Protocol
 
-**Outcome**: Professional, scalable directory structure
+| # | Task | File | Status |
+|---|---|---|---|
+| B1 | LARAVEL_ARCHITECTURE.md | `docs/01-laravel-protocol/LARAVEL_ARCHITECTURE.md` | ✅ Done |
+| B2 | FILE_CREATION_PROTOCOL.md | `docs/01-laravel-protocol/FILE_CREATION_PROTOCOL.md` | ✅ Done |
+| B3 | NAMING_CONVENTIONS.md | `docs/01-laravel-protocol/NAMING_CONVENTIONS.md` | ✅ Done |
+| B4 | CONTROLLER_PROTOCOL.md | `docs/01-laravel-protocol/CONTROLLER_PROTOCOL.md` | ✅ Done |
+| B5 | SERVICE_LAYER_PROTOCOL.md | `docs/01-laravel-protocol/SERVICE_LAYER_PROTOCOL.md` | ✅ Done |
+| B6 | REPOSITORY_PROTOCOL.md | `docs/01-laravel-protocol/REPOSITORY_PROTOCOL.md` | ✅ Done |
+| B7 | REQUEST_VALIDATION_PROTOCOL.md | `docs/01-laravel-protocol/REQUEST_VALIDATION_PROTOCOL.md` | 🔄 Pending |
+| B8 | POLICY_PROTOCOL.md | `docs/01-laravel-protocol/POLICY_PROTOCOL.md` | 🔄 Pending |
+| B9 | MODEL_PROTOCOL.md | `docs/01-laravel-protocol/MODEL_PROTOCOL.md` | ✅ Done |
+| B10 | API_PROTOCOL.md | `docs/01-laravel-protocol/API_PROTOCOL.md` | ✅ Done |
+| B11 | ROUTING_PROTOCOL.md | `docs/01-laravel-protocol/ROUTING_PROTOCOL.md` | 🔄 Pending |
+| B12 | DATABASE_PROTOCOL.md | `docs/01-laravel-protocol/DATABASE_PROTOCOL.md` | ✅ Done |
+| B13 | TESTING_PROTOCOL.md | `docs/01-laravel-protocol/TESTING_PROTOCOL.md` | ✅ Done |
+| B14 | EVENT_JOB_PROTOCOL.md | `docs/01-laravel-protocol/EVENT_JOB_PROTOCOL.md` | 🔄 Pending |
+| B15 | SECURITY_PROTOCOL.md | `docs/01-laravel-protocol/SECURITY_PROTOCOL.md` | ✅ Done |
+| B16 | ERROR_HANDLING_PROTOCOL.md | `docs/01-laravel-protocol/ERROR_HANDLING_PROTOCOL.md` | 🔄 Pending |
+| B17 | INVENTORY_TRANSACTION_PROTOCOL.md | `docs/01-laravel-protocol/INVENTORY_TRANSACTION_PROTOCOL.md` | 🔄 Pending |
+| B18 | LOGGING_AUDIT_PROTOCOL.md | `docs/01-laravel-protocol/LOGGING_AUDIT_PROTOCOL.md` | 🔄 Pending |
 
----
+### Phase C — Security Docs
 
-### Story 4: Security Foundation ✅
-**Status**: DONE  
-**Tasks**:
-- ✅ Integrate Sanctum for token authentication
-- ✅ Update User model with auth/authz traits
-- ✅ Create permission migrations
-- ✅ Add activity logging to models
-- ✅ Create ApiVersionMiddleware
-- ✅ Create SecureHeaders middleware
-- ✅ Register middleware in bootstrap/app.php
+| # | Task | File | Status |
+|---|---|---|---|
+| C1 | SECURITY_CHECKLIST.md | `docs/02-security/SECURITY_CHECKLIST.md` | 🔄 Pending |
+| C2 | AUTHENTICATION_SECURITY.md | `docs/02-security/AUTHENTICATION_SECURITY.md` | 🔄 Pending |
+| C3 | AUTHORIZATION_SECURITY.md | `docs/02-security/AUTHORIZATION_SECURITY.md` | 🔄 Pending |
+| C4 | API_SECURITY.md | `docs/02-security/API_SECURITY.md` | 🔄 Pending |
+| C5 | DATABASE_SECURITY.md | `docs/02-security/DATABASE_SECURITY.md` | 🔄 Pending |
+| C6 | FILE_UPLOAD_SECURITY.md | `docs/02-security/FILE_UPLOAD_SECURITY.md` | 🔄 Pending |
+| C7 | PRODUCTION_HARDENING.md | `docs/02-security/PRODUCTION_HARDENING.md` | 🔄 Pending |
+| C8 | SESSION_SECURITY.md | `docs/02-security/SESSION_SECURITY.md` | 🔄 Pending |
+| C9 | SANCTUM_PROTOCOL.md | `docs/02-security/SANCTUM_PROTOCOL.md` | 🔄 Pending |
+| C10 | RATE_LIMITING.md | `docs/02-security/RATE_LIMITING.md` | 🔄 Pending |
 
-**Outcome**: Production-grade security foundation
+### Phase D — Architecture Docs
 
----
+| # | Task | File | Status |
+|---|---|---|---|
+| D1 | SYSTEM_ARCHITECTURE.md | `docs/03-architecture/SYSTEM_ARCHITECTURE.md` | 🔄 Pending |
+| D2 | FOLDER_STRUCTURE.md | `docs/03-architecture/FOLDER_STRUCTURE.md` | 🔄 Pending |
+| D3 | DOMAIN_ARCHITECTURE.md | `docs/03-architecture/DOMAIN_ARCHITECTURE.md` | 🔄 Pending |
+| D4 | MODULE_ARCHITECTURE.md | `docs/03-architecture/MODULE_ARCHITECTURE.md` | 🔄 Pending |
+| D5 | SERVICE_FLOW.md | `docs/03-architecture/SERVICE_FLOW.md` | 🔄 Pending |
+| D6 | API_ARCHITECTURE.md | `docs/03-architecture/API_ARCHITECTURE.md` | 🔄 Pending |
+| D7 | ERP_ARCHITECTURE.md | `docs/03-architecture/ERP_ARCHITECTURE.md` | 🔄 Pending |
 
-### Story 5: Code Architecture Foundation ✅
-**Status**: DONE  
-**Tasks**:
-- ✅ Create BaseRepositoryContract
-- ✅ Create BaseRepository with CRUD operations
-- ✅ Create BaseService with activity logging
-- ✅ Create BaseAction with transactions
-- ✅ Create BaseDTO for data objects
-- ✅ Create BaseResource for API responses
-- ✅ Create exception classes
-- ✅ Create ApiResponse helper
+### Phase E — Database Docs
 
-**Outcome**: SOLID architecture foundation for all code
+| # | Task | File | Status |
+|---|---|---|---|
+| E1 | DATABASE_STANDARDS.md | `docs/04-database/DATABASE_STANDARDS.md` | 🔄 Pending |
+| E2 | MIGRATION_RULES.md | `docs/04-database/MIGRATION_RULES.md` | 🔄 Pending |
+| E3 | TABLE_NAMING.md | `docs/04-database/TABLE_NAMING.md` | 🔄 Pending |
+| E4 | RELATIONSHIP_RULES.md | `docs/04-database/RELATIONSHIP_RULES.md` | 🔄 Pending |
+| E5 | INDEXING_GUIDE.md | `docs/04-database/INDEXING_GUIDE.md` | 🔄 Pending |
+| E6 | SOFT_DELETE_POLICY.md | `docs/04-database/SOFT_DELETE_POLICY.md` | 🔄 Pending |
 
----
+### Phase F — Green Leaf Business Docs
 
-### Story 6: API Foundation ✅
-**Status**: DONE  
-**Tasks**:
-- ✅ Create versioned API routes (v1)
-- ✅ Create health check endpoint
-- ✅ Define standard response formats
-- ✅ Create BaseApiController
-- ✅ Add API version middleware
-
-**Outcome**: Professional, versioned API ready
-
----
-
-### Story 7: Documentation System ✅
-**Status**: DONE  
-**Tasks**:
-- ✅ Create PROJECT_CONTEXT.md
-- ✅ Create PROJECT_STATUS.md
-- ✅ Create PHASES.md
-- ✅ Create CURRENT_SPRINT.md
-- ✅ Create DECISIONS_LOG.md (in progress)
-- ✅ Create BLOCKERS.md (in progress)
-- ✅ Create CHANGELOG.md (in progress)
-
-**Outcome**: Complete operating system documentation
-
----
-
-## Next Sprint Goals
-
-### Sprint: Initial Module Development
-
-**Recommended Features**:
-1. **User Management**
-   - [ ] User registration
-   - [ ] User login/logout
-   - [ ] User profile
-   - [ ] Password reset
-
-2. **Permission System**
-   - [ ] Permission seeder
-   - [ ] Role seeder
-   - [ ] Admin role setup
-   - [ ] Permission tests
-
-3. **Admin Dashboard**
-   - [ ] Dashboard layout
-   - [ ] User management UI
-   - [ ] Permission management UI
-   - [ ] Activity log viewer
-
-4. **API Endpoints**
-   - [ ] Authentication endpoints
-   - [ ] User endpoints
-   - [ ] Permission endpoints
-   - [ ] Activity log endpoints
+| # | Task | File | Status |
+|---|---|---|---|
+| F1 | BUSINESS_FLOW.md | `docs/05-green-leaf/BUSINESS_FLOW.md` | 🔄 Pending |
+| F2 | PHASES.md | `docs/05-green-leaf/PHASES.md` | 🔄 Pending |
+| F3 | MODULE_DEPENDENCIES.md | `docs/05-green-leaf/MODULE_DEPENDENCIES.md` | 🔄 Pending |
+| F4 | PRD files | `docs/05-green-leaf/PRD/` | 🔄 Pending |
 
 ---
 
-## Sprint Metrics
+## 📊 SPRINT METRICS
 
-| Metric | Target | Actual |
-|--------|--------|--------|
-| Phases Completed | 7 | 7 ✅ |
-| Packages Installed | 8 | 8 ✅ |
-| Folders Created | 28+ | 28+ ✅ |
-| Base Classes | 9 | 9 ✅ |
-| Documentation Files | 7 | 7 ✅ |
-| **Overall** | **100%** | **100% ✅** |
+| Category | Total Tasks | Done | Pending |
+|---|---|---|---|
+| Phase A (Agent Brain) | 9 | 3 | 6 |
+| Phase B (Laravel Protocol) | 18 | 0 | 18 |
+| Phase C (Security) | 10 | 0 | 10 |
+| Phase D (Architecture) | 7 | 0 | 7 |
+| Phase E (Database) | 6 | 0 | 6 |
+| Phase F (Green Leaf) | 4+ | 0 | 4+ |
+| **TOTAL** | **54+** | **3** | **51+** |
 
----
-
-## Issues & Resolutions
-
-### Issue: Package Discovery
-**Status**: ✅ RESOLVED  
-**Resolution**: All 18 packages successfully discovered and configured
-
-### Issue: API Routes Configuration
-**Status**: ✅ RESOLVED  
-**Resolution**: API routes configured in bootstrap/app.php with v1 namespace
-
-### Issue: Middleware Registration
-**Status**: ✅ RESOLVED  
-**Resolution**: ApiVersionMiddleware and SecureHeaders middleware registered
+**Sprint Progress**: 6%
 
 ---
 
-## Blockers
+## 🚫 SPRINT BLOCKERS
 
-**None** - Foundation sprint completed successfully without blockers.
-
----
-
-## Code Review Checklist
-
-- ✅ All files follow PHP 8 standards
-- ✅ Type hints on all methods
-- ✅ PHPDoc blocks present
-- ✅ No deprecated patterns used
-- ✅ SOLID principles applied
-- ✅ Security best practices followed
-- ✅ Architecture consistent
+None currently.
 
 ---
 
-## Deployment Checklist
+## 📝 NOTES FOR AGENTS
 
-Before deploying to production:
-
-- [ ] Run migrations: `php artisan migrate`
-- [ ] Generate IDE helpers: `php artisan ide-helper:generate`
-- [ ] Seed permissions/roles: `php artisan db:seed`
-- [ ] Run tests: `php artisan test --compact`
-- [ ] Check code formatting: `vendor/bin/pint --test`
-- [ ] Run security audit: `composer audit`
-- [ ] Set proper env variables for production
-- [ ] Configure backup schedule
-- [ ] Set up monitoring/logging
+- All documentation must be written with **real, actionable content**
+- No placeholder text — if you write a protocol, it must have real code examples
+- Each protocol file must reference the actual base classes in this codebase
+- Security docs must reflect the actual packages installed (Sanctum, Spatie Permission)
+- After this sprint: Sprint 3 begins Authentication module development
 
 ---
 
-## Next Sprint Tasks
+## ✅ SPRINT DEFINITION OF DONE
 
-1. **Database Preparation**
-   - Run migrations
-   - Create seeders for permissions/roles
-
-2. **Testing Framework**
-   - Create feature tests
-   - Create unit tests
-   - Set up CI/CD
-
-3. **Module Development**
-   - Build user module
-   - Build permission module
-   - Build activity log viewer
-
-4. **Frontend Foundation**
-   - Create base Blade layout
-   - Create Tailwind components
-   - Set up Alpine.js interactions
+This sprint is complete when:
+- [ ] All 54+ documentation files are created
+- [ ] Every protocol file has real code examples from this codebase
+- [ ] All security docs are actionable checklists, not theory
+- [ ] Green Leaf business flow is documented
+- [ ] A new agent can onboard in under 30 minutes using these docs alone
 
 ---
 
-**Sprint Status**: ✅ COMPLETE  
-**Ready for**: Next sprint or client project customization  
-**Date Completed**: 2026-05-22  
-**Team Velocity**: 7 stories completed
+**Sprint Owner**: Engineering Lead
+**Project**: Green Leaf ERP
+**Next Sprint**: Authentication & User Management Module
