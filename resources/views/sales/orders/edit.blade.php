@@ -65,18 +65,13 @@
 
     @push('scripts')
     <script>
-    const products = @json($products->map(fn($p) => ['id' => $p->id, 'name' => $p->name]));
+    const products = @json($products->pluck('name', 'id'));
     const grades = [
         { value: 'A', label: 'Grade A — Premium' },
         { value: 'B', label: 'Grade B — Standard' },
         { value: 'C', label: 'Grade C — Economy' },
     ];
-    const existingItems = @json($order->items->map(fn($i) => [
-        'product_id' => $i->product_id,
-        'grade'      => $i->grade->value,
-        'quantity'   => (float) $i->quantity,
-        'unit_price' => (float) $i->unit_price,
-    ]));
+    const existingItems = @json($order->items->toArray());
 
     let itemCount = 0;
 

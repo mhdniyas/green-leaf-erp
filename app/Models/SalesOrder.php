@@ -37,6 +37,11 @@ class SalesOrder extends Model
         'deleted_at' => 'datetime',
     ];
 
+    public function getRouteKeyName(): string
+    {
+        return 'so_number';
+    }
+
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()

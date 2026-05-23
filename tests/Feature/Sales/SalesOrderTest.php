@@ -70,6 +70,23 @@ class SalesOrderTest extends TestCase
         $response->assertSee($order->so_number);
     }
 
+    public function test_authorized_user_can_view_edit_order_page(): void
+    {
+        $product = Product::factory()->create();
+        $order = SalesOrder::factory()->create(['created_by' => $this->salesManager->id]);
+        $order->items()->create([
+            'product_id' => $product->id,
+            'grade' => ProductGrade::GradeA,
+            'quantity' => 10,
+            'unit_price' => 50,
+        ]);
+
+        $response = $this->actingAs($this->salesManager)
+            ->get(route('sales.orders.edit', $order));
+
+        $response->assertOk();
+    }
+
     public function test_unauthorized_user_cannot_view_orders(): void
     {
         $user = User::factory()->create();
