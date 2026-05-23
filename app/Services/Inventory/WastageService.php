@@ -7,12 +7,15 @@ namespace App\Services\Inventory;
 use App\DTOs\Inventory\WastageEntryData;
 use App\Models\WastageEntry;
 use App\Repositories\Inventory\WastageEntryRepository;
+use App\Services\Finance\JournalService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 
 class WastageService
 {
     public function __construct(
         private readonly WastageEntryRepository $repository,
+        private readonly JournalService $journalService,
     ) {}
 
     public function paginate(int $perPage = 15, ?int $productId = null, ?string $date = null): LengthAwarePaginator
@@ -22,10 +25,18 @@ class WastageService
 
     public function record(WastageEntryData $data, int $userId): WastageEntry
     {
-        return $this->repository->create(array_merge(
-            $data->toArray(),
-            ['recorded_by' => $userId]
-        ));
+        return DB::transaction(function () use ($data, $userId) {
+            /** @var WastageEntry $wastage */
+            $wastage = $this->repository->create(array_merge(
+                $data->toArray(),
+                ['recorded_by' => $userId]
+            ));
+
+            // Post General Ledger entries
+            $this->journalService->recordWastage($wastage);
+
+            return $wastage;
+        });
     }
 
     public function todayTotalCost(): float

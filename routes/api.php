@@ -8,6 +8,10 @@ use App\Http\Controllers\Api\Inventory\SortBatchController;
 use App\Http\Controllers\Api\Inventory\StockBatchController;
 use App\Http\Controllers\Api\Inventory\StockController;
 use App\Http\Controllers\Api\Inventory\WastageController;
+use App\Http\Controllers\Api\Purchasing\GoodsReceivedController;
+use App\Http\Controllers\Api\Purchasing\PurchaseInvoiceController;
+use App\Http\Controllers\Api\Purchasing\PurchaseOrderController;
+use App\Http\Controllers\Api\Purchasing\SupplierController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
@@ -47,6 +51,23 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
             // Wastage
             Route::get('wastage', [WastageController::class, 'index'])->name('wastage.index');
             Route::post('wastage', [WastageController::class, 'store'])->name('wastage.store');
+        });
+
+        // ── Purchasing ────────────────────────────────────────────────────────
+        Route::prefix('purchasing')->name('purchasing.')->group(function () {
+            // Suppliers
+            Route::apiResource('suppliers', SupplierController::class);
+
+            // Purchase Orders
+            Route::apiResource('orders', PurchaseOrderController::class);
+            Route::post('orders/{order}/approve', [PurchaseOrderController::class, 'approve'])->name('orders.approve');
+
+            // Goods Received
+            Route::apiResource('grns', GoodsReceivedController::class)->only(['index', 'store', 'show']);
+
+            // Purchase Invoices
+            Route::apiResource('invoices', PurchaseInvoiceController::class)->only(['index', 'store', 'show']);
+            Route::patch('invoices/{invoice}/status', [PurchaseInvoiceController::class, 'updateStatus'])->name('invoices.update-status');
         });
     });
 });

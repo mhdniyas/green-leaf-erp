@@ -58,24 +58,50 @@ $modules = [
         'color'       => 'bg-red-50 text-red-600 border-red-100',
         'badge'       => null,
     ],
-    // Coming-soon modules — admin/manager only, always shown grayed out
     [
         'title'       => 'Purchase Orders',
-        'description' => 'Manage suppliers and procurement.',
-        'href'        => '#',
+        'description' => 'Manage suppliers, orders, and receive goods.',
+        'href'        => route('purchasing.orders.index'),
         'permission'  => 'purchasing.order.view',
         'icon'        => 'M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z',
-        'color'       => 'bg-gray-50 text-gray-400 border-gray-100',
-        'badge'       => 'Coming Soon',
+        'color'       => 'bg-amber-50 text-amber-700 border-amber-100',
+        'badge'       => $purchasingStats && $purchasingStats['pending_pos'] > 0 ? ($purchasingStats['pending_pos'] . ' pending') : null,
+    ],
+    [
+        'title'       => 'Customers',
+        'description' => 'Manage customer records and active status.',
+        'href'        => route('sales.customers.index'),
+        'permission'  => 'sales.customer.view',
+        'icon'        => 'M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z',
+        'color'       => 'bg-blue-50 text-blue-700 border-blue-100',
+        'badge'       => $salesStats && $salesStats['active_customers'] > 0 ? ($salesStats['active_customers'] . ' active') : null,
     ],
     [
         'title'       => 'Sales Orders',
         'description' => 'Manage customers, orders, and invoices.',
-        'href'        => '#',
+        'href'        => route('sales.orders.index'),
         'permission'  => 'sales.order.view',
         'icon'        => 'M9 14.25l6-6m4.5-3.493V21.75l-3.75-1.5-3.75 1.5-3.75-1.5-3.75 1.5V4.757c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0c1.1.128 1.907 1.077 1.907 2.185zM9.75 9h.008v.008H9.75V9zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 4.5h.008v.008h-.008V13.5zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z',
-        'color'       => 'bg-gray-50 text-gray-400 border-gray-100',
-        'badge'       => 'Coming Soon',
+        'color'       => 'bg-blue-50 text-blue-700 border-blue-100',
+        'badge'       => $salesStats && $salesStats['pending_sos'] > 0 ? ($salesStats['pending_sos'] . ' pending') : null,
+    ],
+    [
+        'title'       => 'Sales Invoices',
+        'description' => 'Generate sales invoices, log payments, and track receivables.',
+        'href'        => route('sales.invoices.index'),
+        'permission'  => 'sales.invoice.view',
+        'icon'        => 'M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m3.75 9v7.5m2.25-6.466a9.016 9.016 0 0 0-3.461-.203c-.536.072-.974.478-1.021 1.017a4.559 4.559 0 0 0-.018.402c0 .464.336.844.775.994l2.95 1.012c.44.15.775.53.775.994 0 .136-.006.27-.018.402-.047.539-.485.945-1.021 1.017a9.077 9.077 0 0 1-3.461-.203M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z',
+        'color'       => 'bg-blue-50 text-blue-700 border-blue-100',
+        'badge'       => null,
+    ],
+    [
+        'title'       => 'Users & Roles',
+        'description' => 'Manage administrative user accounts, roles, and permissions.',
+        'href'        => route('admin.users.index'),
+        'permission'  => 'admin.user.view',
+        'icon'        => 'M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z',
+        'color'       => 'bg-purple-50 text-purple-700 border-purple-100',
+        'badge'       => null,
     ],
     [
         'title'       => 'Accounting',
@@ -164,9 +190,119 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
             <div>
                 <p class="text-xs text-gray-500 font-medium">Today's Wastage</p>
                 <p class="text-2xl font-bold {{ $inventoryStats['today_wastage'] > 0 ? 'text-red-700' : 'text-gray-900' }} mt-0.5">
-                    RM {{ number_format($inventoryStats['today_wastage'], 2) }}
+                    INR {{ number_format($inventoryStats['today_wastage'], 2) }}
                 </p>
                 <a href="{{ route('inventory.wastage.index') }}" class="text-xs text-gray-500 font-medium hover:underline mt-0.5 block">View log →</a>
+            </div>
+        </div>
+
+    </div>
+    @endif
+
+    {{-- Purchasing stats row (only for users with purchasing access) --}}
+    @if($purchasingStats)
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+
+        {{-- Active Suppliers --}}
+        <div class="bg-white rounded-2xl border border-gray-200 p-5 flex items-start gap-4">
+            <div class="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                <svg class="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 0 1-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124l-.318-5.085a1.5 1.5 0 0 0-1.496-1.408h-2.483c-.767 0-1.42.545-1.5 1.3L12.5 14.25m0 0v-4.5m0 4.5h6.75m-6.75-4.5H8.25M6.75 8.25h.008v.008H6.75V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-xs text-gray-500 font-medium">Active Suppliers</p>
+                <p class="text-2xl font-bold text-gray-900 mt-0.5">{{ $purchasingStats['active_suppliers'] }}</p>
+                @can('purchasing.supplier.view')
+                <a href="{{ route('purchasing.suppliers.index') }}" class="text-xs text-amber-600 font-medium hover:underline mt-0.5 block">View suppliers →</a>
+                @endcan
+            </div>
+        </div>
+
+        {{-- Pending Purchase Orders --}}
+        <div class="bg-white rounded-2xl border border-gray-200 p-5 flex items-start gap-4">
+            <div class="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                <svg class="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-xs text-gray-500 font-medium">Pending POs</p>
+                <p class="text-2xl font-bold text-gray-900 mt-0.5">{{ $purchasingStats['pending_pos'] }}</p>
+                @can('purchasing.order.view')
+                <a href="{{ route('purchasing.orders.index') }}" class="text-xs text-amber-600 font-medium hover:underline mt-0.5 block">View orders →</a>
+                @endcan
+            </div>
+        </div>
+
+        {{-- Monthly Purchases --}}
+        <div class="bg-white rounded-2xl border border-gray-200 p-5 flex items-start gap-4">
+            <div class="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center shrink-0">
+                <svg class="w-5 h-5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-xs text-gray-500 font-medium">Monthly Procurement</p>
+                <p class="text-2xl font-bold text-gray-900 mt-0.5">INR {{ number_format($purchasingStats['monthly_purchases'], 2) }}</p>
+                @can('viewAny', \App\Models\PurchaseInvoice::class)
+                <a href="{{ route('purchasing.invoices.index') }}" class="text-xs text-teal-600 font-medium hover:underline mt-0.5 block">View invoices →</a>
+                @endcan
+            </div>
+        </div>
+
+    </div>
+    @endif
+
+    {{-- Sales stats row (only for users with sales access) --}}
+    @if($salesStats)
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+
+        {{-- Active Customers --}}
+        <div class="bg-white rounded-2xl border border-gray-200 p-5 flex items-start gap-4">
+            <div class="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+                <svg class="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-xs text-gray-500 font-medium">Active Customers</p>
+                <p class="text-2xl font-bold text-gray-900 mt-0.5">{{ $salesStats['active_customers'] }}</p>
+                @can('sales.customer.view')
+                <a href="{{ route('sales.customers.index') }}" class="text-xs text-blue-600 font-medium hover:underline mt-0.5 block">View customers →</a>
+                @endcan
+            </div>
+        </div>
+
+        {{-- Pending Sales Orders --}}
+        <div class="bg-white rounded-2xl border border-gray-200 p-5 flex items-start gap-4">
+            <div class="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+                <svg class="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 14.25l6-6m4.5-3.493V21.75l-3.75-1.5-3.75 1.5-3.75-1.5-3.75 1.5V4.757c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0c1.1.128 1.907 1.077 1.907 2.185zM9.75 9h.008v.008H9.75V9zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 4.5h.008v.008h-.008V13.5zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-xs text-gray-500 font-medium">Pending Sales Orders</p>
+                <p class="text-2xl font-bold text-gray-900 mt-0.5">{{ $salesStats['pending_sos'] }}</p>
+                @can('sales.order.view')
+                <a href="{{ route('sales.orders.index') }}" class="text-xs text-blue-600 font-medium hover:underline mt-0.5 block">View orders →</a>
+                @endcan
+            </div>
+        </div>
+
+        {{-- Monthly Sales --}}
+        <div class="bg-white rounded-2xl border border-gray-200 p-5 flex items-start gap-4">
+            <div class="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center shrink-0">
+                <svg class="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m3.75 9v7.5m2.25-6.466a9.016 9.016 0 0 0-3.461-.203c-.536.072-.974.478-1.021 1.017a4.559 4.559 0 0 0-.018.402c0 .464.336.844.775.994l2.95 1.012c.44.15.775.53.775.994 0 .136-.006.27-.018.402-.047.539-.485.945-1.021 1.017a9.077 9.077 0 0 1-3.461-.203M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-xs text-gray-500 font-medium">Monthly Sales</p>
+                <p class="text-2xl font-bold text-gray-900 mt-0.5">INR {{ number_format($salesStats['monthly_sales'], 2) }}</p>
+                @can('sales.invoice.view')
+                <a href="{{ route('sales.invoices.index') }}" class="text-xs text-green-600 font-medium hover:underline mt-0.5 block">View invoices →</a>
+                @endcan
             </div>
         </div>
 

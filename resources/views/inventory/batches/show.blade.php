@@ -40,15 +40,15 @@ $statusColor = $statusColors[$batch->status->value] ?? 'bg-gray-100 text-gray-60
                 </div>
                 <div>
                     <p class="text-xs text-gray-500">Cost / kg</p>
-                    <p class="text-xl font-bold text-gray-900 mt-1">RM {{ number_format($batch->cost_per_kg, 4) }}</p>
+                    <p class="text-xl font-bold text-gray-900 mt-1">INR {{ number_format($batch->cost_per_kg, 4) }}</p>
                 </div>
                 <div>
                     <p class="text-xs text-gray-500">Transport</p>
-                    <p class="text-xl font-bold text-gray-900 mt-1">RM {{ number_format($batch->transport_cost, 2) }}</p>
+                    <p class="text-xl font-bold text-gray-900 mt-1">INR {{ number_format($batch->transport_cost, 2) }}</p>
                 </div>
                 <div>
                     <p class="text-xs text-gray-500">Landed Cost</p>
-                    <p class="text-xl font-bold text-brand-700 mt-1">RM {{ number_format($batch->total_landed_cost, 2) }}</p>
+                    <p class="text-xl font-bold text-brand-700 mt-1">INR {{ number_format($batch->total_landed_cost, 2) }}</p>
                 </div>
             </div>
 
@@ -83,8 +83,8 @@ $statusColor = $statusColors[$batch->status->value] ?? 'bg-gray-100 text-gray-60
                             <span class="inline-flex text-xs font-bold px-2 py-0.5 rounded-lg {{ $c }}">Grade {{ $mv->grade?->value }}</span>
                         </td>
                         <td class="px-6 py-3 text-right font-semibold">{{ number_format($mv->quantity, 3) }} kg</td>
-                        <td class="px-6 py-3 text-right text-gray-600">RM {{ number_format($mv->cost_per_unit, 4) }}</td>
-                        <td class="px-6 py-3 text-right font-semibold text-gray-900">RM {{ number_format($mv->total_value, 2) }}</td>
+                        <td class="px-6 py-3 text-right text-gray-600">INR {{ number_format($mv->cost_per_unit, 4) }}</td>
+                        <td class="px-6 py-3 text-right font-semibold text-gray-900">INR {{ number_format($mv->total_value, 2) }}</td>
                     </tr>
                     @endforeach
                 </tbody>
@@ -113,7 +113,7 @@ $statusColor = $statusColors[$batch->status->value] ?? 'bg-gray-100 text-gray-60
                         <td class="px-6 py-3"><span class="text-xs font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-lg">Damage</span></td>
                         <td class="px-6 py-3 text-gray-600">{{ $we->reason?->label() }}</td>
                         <td class="px-6 py-3 text-right font-semibold">{{ number_format($we->quantity, 3) }} kg</td>
-                        <td class="px-6 py-3 text-right text-red-700 font-semibold">RM {{ number_format($we->total_cost, 2) }}</td>
+                        <td class="px-6 py-3 text-right text-red-700 font-semibold">INR {{ number_format($we->total_cost, 2) }}</td>
                     </tr>
                     @endforeach
                 </tbody>

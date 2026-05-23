@@ -2,12 +2,25 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\Auth\LoginController;
 use App\Http\Controllers\Web\DashboardController;
+use App\Http\Controllers\Web\Finance\AccountController;
+use App\Http\Controllers\Web\Finance\ExpenseController;
+use App\Http\Controllers\Web\Finance\FinancialReportController;
+use App\Http\Controllers\Web\Finance\LedgerController;
 use App\Http\Controllers\Web\Inventory\BatchController;
 use App\Http\Controllers\Web\Inventory\ProductController;
 use App\Http\Controllers\Web\Inventory\StockController;
 use App\Http\Controllers\Web\Inventory\WastageController;
+use App\Http\Controllers\Web\Purchasing\GoodsReceivedController;
+use App\Http\Controllers\Web\Purchasing\PurchaseInvoiceController;
+use App\Http\Controllers\Web\Purchasing\PurchaseOrderController;
+use App\Http\Controllers\Web\Purchasing\SupplierController;
+use App\Http\Controllers\Web\Sales\CustomerController;
+use App\Http\Controllers\Web\Sales\PaymentController;
+use App\Http\Controllers\Web\Sales\SalesInvoiceController;
+use App\Http\Controllers\Web\Sales\SalesOrderController;
 use Illuminate\Support\Facades\Route;
 
 // Root redirect
@@ -51,5 +64,57 @@ Route::middleware('auth')->group(function () {
         Route::get('wastage', [WastageController::class, 'index'])->name('wastage.index');
         Route::get('wastage/create', [WastageController::class, 'create'])->name('wastage.create');
         Route::post('wastage', [WastageController::class, 'store'])->name('wastage.store');
+    });
+
+    // ── Purchasing ─────────────────────────────────────────────────────────
+    Route::prefix('purchasing')->name('purchasing.')->group(function () {
+        // Suppliers
+        Route::resource('suppliers', SupplierController::class);
+
+        // Purchase Orders
+        Route::resource('orders', PurchaseOrderController::class);
+        Route::post('orders/{order}/approve', [PurchaseOrderController::class, 'approve'])->name('orders.approve');
+
+        // Goods Receipts
+        Route::resource('grns', GoodsReceivedController::class)->only(['index', 'create', 'store', 'show']);
+
+        // Invoices
+        Route::resource('invoices', PurchaseInvoiceController::class)->only(['index', 'create', 'store', 'show']);
+        Route::post('invoices/{invoice}/status', [PurchaseInvoiceController::class, 'updateStatus'])->name('invoices.update-status');
+    });
+
+    // ── Sales ──────────────────────────────────────────────────────────────
+    Route::prefix('sales')->name('sales.')->group(function () {
+        // Customers
+        Route::resource('customers', CustomerController::class);
+
+        // Sales Orders
+        Route::resource('orders', SalesOrderController::class);
+        Route::post('orders/{order}/confirm', [SalesOrderController::class, 'confirm'])->name('orders.confirm');
+        Route::post('orders/{order}/dispatch', [SalesOrderController::class, 'dispatch'])->name('orders.dispatch');
+        Route::post('orders/{order}/cancel', [SalesOrderController::class, 'cancel'])->name('orders.cancel');
+
+        // Sales Invoices
+        Route::resource('invoices', SalesInvoiceController::class)->only(['index', 'create', 'store', 'show']);
+
+        // Payments
+        Route::post('invoices/{invoice}/payments', [PaymentController::class, 'store'])->name('invoices.payments.store');
+    });
+
+    // ── Finance & Accounting ────────────────────────────────────────────────
+    Route::prefix('finance')->name('finance.')->group(function () {
+        Route::get('accounts', [AccountController::class, 'index'])->name('accounts.index');
+        Route::get('ledger', [LedgerController::class, 'index'])->name('ledger.index');
+        Route::resource('expenses', ExpenseController::class);
+
+        // Reports
+        Route::get('reports/pnl', [FinancialReportController::class, 'pnl'])->name('reports.pnl');
+        Route::get('reports/balance-sheet', [FinancialReportController::class, 'balanceSheet'])->name('reports.balance-sheet');
+        Route::get('reports/cash-flow', [FinancialReportController::class, 'cashFlow'])->name('reports.cash-flow');
+    });
+
+    // ── Admin ──────────────────────────────────────────────────────────────
+    Route::prefix('admin')->name('admin.')->group(function () {
+        Route::resource('users', UserController::class);
     });
 });

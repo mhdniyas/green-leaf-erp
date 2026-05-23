@@ -1,7 +1,7 @@
 # GREEN LEAF ERP — PROJECT PHASES
 
 **Build Order for Green Leaf ERP**
-**Version**: 1.0.0 | **Current Phase**: Phase 1
+**Version**: 1.0.0 | **Current Phase**: Phase 4
 
 > Agents must build in this order. Each phase depends on the previous.
 > Do NOT start Phase 2 without Phase 1 being complete and tested.
@@ -14,8 +14,8 @@
 |---|---|---|---|
 | **Phase 1** | Foundation + Auth + User Management | ✅ COMPLETED | P0 |
 | **Phase 2** | Inventory + Sorting + Wastage | ✅ COMPLETED | P0 |
-| **Phase 3** | Purchase Management | 🔄 IN PROGRESS | P0 |
-| **Phase 4** | Sales Management | ⏳ Not Started | P0 |
+| **Phase 3** | Purchase Management | ✅ COMPLETED | P0 |
+| **Phase 4** | Sales Management | 🔄 IN PROGRESS | P0 |
 | **Phase 5** | Finance & Accounting | ⏳ Not Started | P1 |
 | **Phase 6** | Reports & Dashboard | ⏳ Not Started | P1 |
 | **Phase 7** | HR & Payroll | ⏳ Not Started | P2 |
@@ -25,7 +25,7 @@
 
 ## PHASE 1 — FOUNDATION + AUTH + USER MANAGEMENT
 
-**Status**: 🔄 IN PROGRESS
+**Status**: ✅ COMPLETED
 **Goal**: Secure, testable authentication with role-based access. Working login UI.
 
 ### What to Build
@@ -72,18 +72,18 @@
 - Authorization: each role can only access what they're allowed
 
 ### Definition of Done — Phase 1
-- [ ] All migrations run without error
-- [ ] Demo users exist (seeded)
-- [ ] Login/logout works via API + Web
-- [ ] Role-based access enforced
-- [ ] Login page renders on `/login` with demo credentials
-- [ ] All tests passing
+- [x] All migrations run without error
+- [x] Demo users exist (seeded)
+- [x] Login/logout works via API + Web
+- [x] Role-based access enforced
+- [x] Login page renders on `/login` with demo credentials
+- [x] All tests passing
 
 ---
 
 ## PHASE 2 — INVENTORY + SORTING + WASTAGE
 
-**Status**: ⏳ Not Started
+**Status**: ✅ COMPLETED
 **Depends On**: Phase 1 complete
 
 ### What to Build
@@ -133,18 +133,18 @@ WastageEntry     (id, product_id, grade, quantity, reason, cost, recorded_by)
 ```
 
 ### Definition of Done — Phase 2
-- [ ] Products and categories manageable
-- [ ] Sorting workflow creates graded inventory correctly
-- [ ] Stock levels accurate after sorting
-- [ ] Wastage entries tracked with cost
-- [ ] Inventory report shows stock by grade
-- [ ] All tests passing
+- [x] Products and categories manageable
+- [x] Sorting workflow creates graded inventory correctly
+- [x] Stock levels accurate after sorting
+- [x] Wastage entries tracked with cost
+- [x] Inventory report shows stock by grade
+- [x] All tests passing
 
 ---
 
 ## PHASE 3 — PURCHASE MANAGEMENT
 
-**Status**: ⏳ Not Started
+**Status**: ✅ COMPLETED
 **Depends On**: Phase 2 (Product catalog, Inventory)
 
 ### What to Build
@@ -181,18 +181,18 @@ PurchaseInvoice   (id, grn_id, supplier_id, invoice_number, amount, status)
 ```
 
 ### Definition of Done — Phase 3
-- [ ] Suppliers manageable
-- [ ] POs created and approved
-- [ ] GRN records actual received quantities
-- [ ] Landed cost calculated accurately
-- [ ] Purchase invoice matched and payable created
-- [ ] All tests passing
+- [x] Suppliers manageable
+- [x] POs created and approved
+- [x] GRN records actual received quantities
+- [x] Landed cost calculated accurately
+- [x] Purchase invoice matched and payable created
+- [x] All tests passing
 
 ---
 
 ## PHASE 4 — SALES MANAGEMENT
 
-**Status**: ⏳ Not Started
+**Status**: 🔄 IN PROGRESS
 **Depends On**: Phase 2 (Inventory + Grading), Phase 1 (Auth)
 
 ### What to Build

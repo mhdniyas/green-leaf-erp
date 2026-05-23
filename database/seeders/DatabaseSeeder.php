@@ -22,6 +22,10 @@ class DatabaseSeeder extends Seeder
             DemoUserSeeder::class,
             CategorySeeder::class,
             ProductSeeder::class,
+            SupplierSeeder::class,
+            CustomerSeeder::class,
+            ChartOfAccountsSeeder::class,
         ]);
+
     }
 }

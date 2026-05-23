@@ -17,7 +17,7 @@
         </div>
         <div>
             <p class="text-xs text-red-700">Today's Wastage Cost</p>
-            <p class="text-lg font-bold text-red-800 mt-0.5">RM {{ number_format($todayCost, 2) }}</p>
+            <p class="text-lg font-bold text-red-800 mt-0.5">INR {{ number_format($todayCost, 2) }}</p>
         </div>
     </div>
     @endif
@@ -66,7 +66,7 @@
                         </td>
                         <td class="px-6 py-4 hidden md:table-cell text-gray-600">{{ $entry->reason?->label() }}</td>
                         <td class="px-6 py-4 text-right font-semibold text-gray-900">{{ number_format($entry->quantity, 3) }}</td>
-                        <td class="px-6 py-4 text-right font-semibold text-red-700">RM {{ number_format($entry->total_cost, 2) }}</td>
+                        <td class="px-6 py-4 text-right font-semibold text-red-700">INR {{ number_format($entry->total_cost, 2) }}</td>
                     </tr>
                     @endforeach
                 </tbody>

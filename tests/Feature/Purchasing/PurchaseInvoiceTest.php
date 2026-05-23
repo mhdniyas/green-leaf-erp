@@ -1,0 +1,192 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature\Purchasing;
+
+use App\Enums\Purchasing\InvoiceStatus;
+use App\Enums\Purchasing\POStatus;
+use App\Models\Category;
+use App\Models\GoodsReceived;
+use App\Models\Product;
+use App\Models\PurchaseInvoice;
+use App\Models\PurchaseOrder;
+use App\Models\Supplier;
+use App\Models\User;
+use Database\Seeders\ChartOfAccountsSeeder;
+use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class PurchaseInvoiceTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private User $accountant;
+
+    private User $unauthorizedUser;
+
+    private Supplier $supplier;
+
+    private Product $product;
+
+    private GoodsReceived $grn;
+
+    private PurchaseOrder $po;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->seed([
+            RolePermissionSeeder::class,
+            ChartOfAccountsSeeder::class,
+        ]);
+
+        // User with accountant / accounting permissions
+        $this->accountant = User::factory()->create();
+        $this->accountant->givePermissionTo([
+            'accounting.ledger.view',
+            'accounting.entry.create',
+            'purchasing.order.view',
+            'purchasing.grn.view',
+        ]);
+
+        $this->unauthorizedUser = User::factory()->create();
+
+        $this->supplier = Supplier::factory()->create();
+        $category = Category::factory()->create();
+        $this->product = Product::factory()->create(['category_id' => $category->id]);
+
+        $this->po = PurchaseOrder::factory()->create([
+            'supplier_id' => $this->supplier->id,
+            'status' => POStatus::Approved,
+            'created_by' => $this->accountant->id,
+        ]);
+        $this->po->items()->create([
+            'product_id' => $this->product->id,
+            'quantity' => 50.000,
+            'unit_price' => 4.0000,
+        ]);
+
+        $this->grn = GoodsReceived::factory()->create([
+            'purchase_order_id' => $this->po->id,
+            'received_by' => $this->accountant->id,
+        ]);
+        $this->grn->items()->create([
+            'purchase_order_item_id' => $this->po->items->first()->id,
+            'product_id' => $this->product->id,
+            'received_qty' => 50.000,
+            'variance' => 0.000,
+        ]);
+    }
+
+    public function test_accountant_can_view_purchase_invoices_list(): void
+    {
+        $invoice = PurchaseInvoice::factory()->create([
+            'goods_received_id' => $this->grn->id,
+            'supplier_id' => $this->supplier->id,
+        ]);
+
+        $response = $this->actingAs($this->accountant)
+            ->get(route('purchasing.invoices.index'));
+
+        $response->assertOk();
+        $response->assertSee($invoice->invoice_number);
+    }
+
+    public function test_unauthorized_user_cannot_view_purchase_invoices_list(): void
+    {
+        $response = $this->actingAs($this->unauthorizedUser)
+            ->get(route('purchasing.invoices.index'));
+
+        $response->assertForbidden();
+    }
+
+    public function test_accountant_can_see_create_invoice_page_with_grn(): void
+    {
+        $response = $this->actingAs($this->accountant)
+            ->get(route('purchasing.invoices.create', ['goods_received_id' => $this->grn->id]));
+
+        $response->assertOk();
+        $response->assertSee($this->grn->grn_number);
+    }
+
+    public function test_accountant_can_store_purchase_invoice_and_closes_purchase_order(): void
+    {
+        // 50kg * INR 4/kg = INR 200.00 expected amount
+        $invoiceData = [
+            'goods_received_id' => $this->grn->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'INV-SUPP-999',
+            'amount' => 200.00,
+            'status' => 'pending',
+            'notes' => 'Matching invoice for testing',
+        ];
+
+        $response = $this->actingAs($this->accountant)
+            ->post(route('purchasing.invoices.store'), $invoiceData);
+
+        $invoice = PurchaseInvoice::latest('id')->first();
+        $response->assertRedirect(route('purchasing.invoices.show', $invoice));
+
+        $this->assertDatabaseHas('purchase_invoices', [
+            'id' => $invoice->id,
+            'invoice_number' => 'INV-SUPP-999',
+            'amount' => 200.00,
+            'status' => 'pending',
+        ]);
+
+        // Purchase order should now be closed
+        $this->po->refresh();
+        $this->assertEquals(POStatus::Closed, $this->po->status);
+    }
+
+    public function test_accountant_cannot_store_duplicate_invoice_for_same_grn(): void
+    {
+        // First invoice
+        PurchaseInvoice::factory()->create([
+            'goods_received_id' => $this->grn->id,
+            'supplier_id' => $this->supplier->id,
+        ]);
+
+        // Try creating a second one
+        $response = $this->actingAs($this->accountant)
+            ->get(route('purchasing.invoices.create', ['goods_received_id' => $this->grn->id]));
+
+        $response->assertRedirect(route('purchasing.invoices.show', PurchaseInvoice::first()));
+    }
+
+    public function test_accountant_can_update_invoice_status(): void
+    {
+        $invoice = PurchaseInvoice::factory()->create([
+            'goods_received_id' => $this->grn->id,
+            'supplier_id' => $this->supplier->id,
+            'status' => InvoiceStatus::Pending,
+        ]);
+
+        // Transition to approved
+        $response = $this->actingAs($this->accountant)
+            ->post(route('purchasing.invoices.update-status', $invoice), [
+                'status' => 'approved',
+            ]);
+
+        $response->assertRedirect(route('purchasing.invoices.show', $invoice));
+        $this->assertDatabaseHas('purchase_invoices', [
+            'id' => $invoice->id,
+            'status' => InvoiceStatus::Approved->value,
+        ]);
+
+        // Transition to paid
+        $response = $this->actingAs($this->accountant)
+            ->post(route('purchasing.invoices.update-status', $invoice), [
+                'status' => 'paid',
+            ]);
+
+        $response->assertRedirect(route('purchasing.invoices.show', $invoice));
+        $this->assertDatabaseHas('purchase_invoices', [
+            'id' => $invoice->id,
+            'status' => InvoiceStatus::Paid->value,
+        ]);
+    }
+}

@@ -10,6 +10,8 @@ enum StockMovementType: string
     case Out = 'out';
     case Adjustment = 'adjustment';
     case Wastage = 'wastage';
+    case Sale = 'sale';
+    case SaleReversal = 'sale_reversal';
 
     public function label(): string
     {
@@ -18,13 +20,15 @@ enum StockMovementType: string
             self::Out => 'Stock Out',
             self::Adjustment => 'Adjustment',
             self::Wastage => 'Wastage',
+            self::Sale => 'Sale',
+            self::SaleReversal => 'Sale Reversal',
         };
     }
 
     public function isDeduction(): bool
     {
         return match ($this) {
-            self::Out, self::Wastage => true,
+            self::Out, self::Wastage, self::Sale => true,
             default => false,
         };
     }

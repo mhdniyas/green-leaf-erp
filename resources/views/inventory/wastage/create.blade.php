@@ -55,7 +55,7 @@
                     <div class="space-y-1.5">
                         <label for="cost_per_kg" class="block text-sm font-medium text-gray-700">Cost / kg <span class="text-red-500">*</span></label>
                         <div class="relative">
-                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-medium">RM</span>
+                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-medium">INR</span>
                             <input id="cost_per_kg" name="cost_per_kg" type="number" step="0.0001" min="0.01" required
                                    value="{{ old('cost_per_kg') }}"
                                    placeholder="0.0000"

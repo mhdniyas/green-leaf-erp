@@ -54,7 +54,7 @@
                         <div class="space-y-1.5">
                             <label for="cost_per_kg" class="block text-xs font-medium text-gray-600">Purchase Cost / kg <span class="text-red-500">*</span></label>
                             <div class="relative">
-                                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-medium">RM</span>
+                                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-medium">INR</span>
                                 <input id="cost_per_kg" name="cost_per_kg" type="number" step="0.0001" min="0.01" required
                                        value="{{ old('cost_per_kg') }}"
                                        placeholder="0.0000"
@@ -64,7 +64,7 @@
                         <div class="space-y-1.5">
                             <label for="transport_cost" class="block text-xs font-medium text-gray-600">Transport Cost</label>
                             <div class="relative">
-                                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-medium">RM</span>
+                                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-medium">INR</span>
                                 <input id="transport_cost" name="transport_cost" type="number" step="0.01" min="0"
                                        value="{{ old('transport_cost', '0.00') }}"
                                        class="w-full border border-gray-200 rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
@@ -73,7 +73,7 @@
                         <div class="space-y-1.5">
                             <label for="labour_cost" class="block text-xs font-medium text-gray-600">Labour Cost</label>
                             <div class="relative">
-                                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-medium">RM</span>
+                                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-medium">INR</span>
                                 <input id="labour_cost" name="labour_cost" type="number" step="0.01" min="0"
                                        value="{{ old('labour_cost', '0.00') }}"
                                        class="w-full border border-gray-200 rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">

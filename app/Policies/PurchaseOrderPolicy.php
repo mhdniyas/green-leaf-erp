@@ -1,0 +1,42 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Policies;
+
+use App\Models\PurchaseOrder;
+use App\Models\User;
+
+class PurchaseOrderPolicy
+{
+    public function viewAny(User $user): bool
+    {
+        return $user->can('purchasing.order.view');
+    }
+
+    public function view(User $user, PurchaseOrder $po): bool
+    {
+        return $user->can('purchasing.order.view');
+    }
+
+    public function create(User $user): bool
+    {
+        return $user->can('purchasing.order.create');
+    }
+
+    public function update(User $user, PurchaseOrder $po): bool
+    {
+        // PO can only be updated if it is in draft status
+        return $user->can('purchasing.order.create') && $po->status->value === 'draft';
+    }
+
+    public function delete(User $user, PurchaseOrder $po): bool
+    {
+        return $user->can('purchasing.order.create') && $po->status->value === 'draft';
+    }
+
+    public function approve(User $user, PurchaseOrder $po): bool
+    {
+        return $user->can('purchasing.order.approve') && $po->status->value === 'draft';
+    }
+}
