@@ -1,4 +1,16 @@
 <x-layouts.app title="Requisition Details — {{ $order->order_number }}">
+    @php
+        $canApprove = auth()->user()->hasRole('purchasing-manager') || auth()->user()->can('purchasing.order.approve');
+        $isPendingApproval = in_array($order->state, ['submitted', 'update_requested']);
+        $showApprovalForm = $canApprove && $isPendingApproval;
+    @endphp
+
+    @if($showApprovalForm)
+        <form id="review-form" method="POST" action="{{ route('requisitions.review', $order->order_number) }}">
+            @csrf
+        </form>
+    @endif
+
     <div class="max-w-6xl mx-auto px-4 py-8">
         <!-- Breadcrumbs & Status Alert -->
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
@@ -63,6 +75,7 @@
                             <thead>
                                 <tr class="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/20">
                                     <th class="py-3 px-6">Product</th>
+                                    <th class="py-3 px-6 text-center">Fulfillment</th>
                                     <th class="py-3 px-6 text-right">Requested Qty</th>
                                     <th class="py-3 px-6 text-right">Approved Qty</th>
                                     <th class="py-3 px-6 text-center">Status</th>
@@ -75,11 +88,34 @@
                                             {{ $item->product->name }}
                                             <span class="block text-[10px] text-slate-400 font-normal mt-0.5">{{ $item->product->sku }}</span>
                                         </td>
+                                        <td class="py-4 px-6 text-center">
+                                            @if($showApprovalForm)
+                                                <select name="fulfillment_types[{{ $item->id }}]" form="review-form" class="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-bold cursor-pointer text-slate-700">
+                                                    <option value="warehouse" {{ ($item->fulfillment_type ?? 'warehouse') === 'warehouse' ? 'selected' : '' }}>Warehouse (Bulk)</option>
+                                                    <option value="selection" {{ ($item->fulfillment_type ?? 'warehouse') === 'selection' ? 'selected' : '' }}>Selection (Packet)</option>
+                                                </select>
+                                            @else
+                                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border {{ ($item->fulfillment_type ?? 'warehouse') === 'selection' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-slate-50 text-slate-700 border-slate-200' }}">
+                                                    {{ ($item->fulfillment_type ?? 'warehouse') === 'selection' ? 'Selection (Packet)' : 'Warehouse (Bulk)' }}
+                                                </span>
+                                            @endif
+                                        </td>
                                         <td class="py-4 px-6 text-right font-semibold text-slate-800">
                                             {{ $item->requested_qty }} {{ $item->unit }}
                                         </td>
                                         <td class="py-4 px-6 text-right font-black text-slate-900">
-                                            @if($item->approved_qty !== null)
+                                            @if($showApprovalForm)
+                                                <div class="flex items-center justify-end gap-2">
+                                                    <input type="number" 
+                                                           step="0.01" 
+                                                           min="0" 
+                                                           name="approved_qty[{{ $item->id }}]" 
+                                                           value="{{ $item->approved_qty !== null ? $item->approved_qty : $item->requested_qty }}" 
+                                                           form="review-form"
+                                                           class="w-24 rounded-lg border border-slate-200 px-2.5 py-1 text-slate-900 text-center font-black focus:border-emerald-500 focus:outline-none transition-all">
+                                                    <span class="text-slate-500 font-semibold">{{ $item->unit }}</span>
+                                                </div>
+                                            @elseif($item->approved_qty !== null)
                                                 {{ $item->approved_qty }} {{ $item->unit }}
                                             @else
                                                 <span class="text-slate-400 font-normal italic">Pending</span>
@@ -110,7 +146,7 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="4" class="py-8 text-center text-slate-400 font-medium italic bg-slate-50/10">No items found in this requisition.</td>
+                                        <td colspan="5" class="py-8 text-center text-slate-400 font-medium italic bg-slate-50/10">No items found in this requisition.</td>
                                     </tr>
                                 @endforelse
                             </tbody>
@@ -121,6 +157,35 @@
 
             <!-- Right Column: Status Summary & Update Requests -->
             <div class="space-y-6">
+                @if($showApprovalForm)
+                    <!-- Review Actions Card -->
+                    <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
+                        <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider pb-3 border-b border-slate-100">Review Actions</h2>
+                        
+                        @if($order->state === 'update_requested')
+                            <div class="bg-indigo-50 border border-indigo-100 text-indigo-800 text-xs rounded-2xl p-4 leading-normal">
+                                <span class="font-bold block mb-1">Update Request Justification:</span>
+                                <p class="font-medium italic text-indigo-900 bg-white/50 p-2 rounded-xl">"{{ $order->update_reason }}"</p>
+                            </div>
+                        @endif
+
+                        <div class="text-xs text-slate-500 leading-normal">
+                            Adjust the approved quantities in the table on the left if necessary, then choose an action below.
+                        </div>
+
+                        <div class="flex flex-col gap-2.5 pt-2">
+                            <button type="submit" form="review-form" name="action" value="approve" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-3 rounded-xl shadow-sm hover:shadow transition-all cursor-pointer focus:outline-none flex items-center justify-center gap-1.5 border-0">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                                Approve Requisition
+                            </button>
+                            <button type="submit" form="review-form" name="action" value="reject" class="w-full bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold py-3 rounded-xl border border-red-200 transition-all cursor-pointer focus:outline-none flex items-center justify-center gap-1.5">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                Reject Requisition
+                            </button>
+                        </div>
+                    </div>
+                @endif
+
                 <!-- Status & General Info Card -->
                 <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
                     <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider pb-3 border-b border-slate-100">Requisition Status</h2>

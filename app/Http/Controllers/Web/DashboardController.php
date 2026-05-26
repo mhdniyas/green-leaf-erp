@@ -80,6 +80,7 @@ class DashboardController extends Controller
         $recentRequisitions = collect();
         $presets = collect();
         $yesterdayOrder = null;
+        $allShopOrders = collect();
         if ($user->hasRole('shop-owner')) {
             $productsByCategory = Category::with(['products' => function ($q) {
                 $q->where('is_active', true)->orderBy('name');
@@ -112,8 +113,12 @@ class DashboardController extends Controller
                         ->first();
                 }
             }
+        } elseif ($user->hasRole('purchasing-manager') || $user->can('purchasing.order.approve')) {
+            $allShopOrders = ShopOrder::with(['shop', 'creator', 'items.product'])
+                ->orderBy('business_date', 'desc')
+                ->get();
         }
 
-        return view('dashboard', compact('inventoryStats', 'purchasingStats', 'salesStats', 'productsByCategory', 'recentRequisitions', 'presets', 'yesterdayOrder'));
+        return view('dashboard', compact('inventoryStats', 'purchasingStats', 'salesStats', 'productsByCategory', 'recentRequisitions', 'presets', 'yesterdayOrder', 'allShopOrders'));
     }
 }

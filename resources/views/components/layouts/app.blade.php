@@ -13,7 +13,7 @@
 </head>
 <body class="h-full bg-gray-50 font-sans antialiased">
 
-<div class="flex h-full">
+<div id="app-container" class="flex h-full">
 
     {{-- ── Sidebar ─────────────────────────────────────────────── --}}
     <aside
@@ -101,13 +101,14 @@
 
             {{-- Purchasing Group --}}
             @if(
+                auth()->user()->hasRole('purchasing-manager') ||
                 auth()->user()->can('purchasing.supplier.view') ||
                 auth()->user()->can('purchasing.order.view') ||
                 auth()->user()->can('purchasing.grn.view') ||
                 auth()->user()->can('viewAny', \App\Models\PurchaseInvoice::class)
             )
             @php
-                $isPurchasingActive = request()->routeIs('purchasing.*');
+                $isPurchasingActive = request()->routeIs('purchasing.*') || request()->routeIs('requisitions.board') || request()->routeIs('requisitions.approved_board');
             @endphp
             <div class="sidebar-group space-y-1">
                 <button
@@ -126,6 +127,14 @@
                     </svg>
                 </button>
                 <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isPurchasingActive ? '' : 'hidden' }}">
+                    @if(auth()->user()->hasRole('purchasing-manager') || auth()->user()->can('purchasing.order.approve'))
+                    <x-nav-item href="{{ route('requisitions.board') }}" :active="request()->routeIs('requisitions.board')" :sub="true">
+                        Requisition Board
+                    </x-nav-item>
+                    <x-nav-item href="{{ route('requisitions.approved_board') }}" :active="request()->routeIs('requisitions.approved_board')" :sub="true">
+                        Approved Board
+                    </x-nav-item>
+                    @endif
                     @can('purchasing.supplier.view')
                     <x-nav-item href="{{ route('purchasing.suppliers.index') }}" :active="request()->routeIs('purchasing.suppliers.*')" :sub="true">
                         Suppliers
@@ -306,12 +315,12 @@
     <div id="sidebar-overlay" class="fixed inset-0 z-40 bg-black/50 hidden lg:hidden" aria-hidden="true"></div>
 
     {{-- ── Main content ─────────────────────────────────────────── --}}
-    <div class="flex-1 flex flex-col lg:ml-64 min-w-0">
+    <div class="flex-1 flex flex-col lg:ml-64 min-w-0 main-content-wrapper transition-all duration-300">
 
         {{-- Top bar --}}
         <header class="sticky top-0 z-30 bg-white border-b border-gray-200 h-14 flex items-center px-4 sm:px-6 gap-4">
-            {{-- Mobile hamburger --}}
-            <button id="sidebar-open" class="lg:hidden -ml-1 p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg">
+            {{-- Collapse / open toggle --}}
+            <button id="sidebar-open" class="-ml-1 p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg cursor-pointer">
                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
                 </svg>
@@ -357,11 +366,17 @@
 </div>
 
 <script>
-    // Sidebar toggle for mobile
+    // Sidebar toggle and collapse logic
+    const appContainer = document.getElementById('app-container');
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('sidebar-overlay');
     const openBtn = document.getElementById('sidebar-open');
     const closeBtn = document.getElementById('sidebar-close');
+
+    // On load, restore desktop sidebar collapsed state
+    if (window.innerWidth >= 1024 && localStorage.getItem('sidebar-collapsed') === 'true') {
+        appContainer?.classList.add('sidebar-collapsed');
+    }
 
     function openSidebar() {
         sidebar?.classList.remove('-translate-x-full');
@@ -372,7 +387,18 @@
         overlay?.classList.add('hidden');
     }
 
-    openBtn?.addEventListener('click', openSidebar);
+    openBtn?.addEventListener('click', () => {
+        if (window.innerWidth >= 1024) {
+            // Desktop: toggle collapse
+            appContainer?.classList.toggle('sidebar-collapsed');
+            const isCollapsed = appContainer?.classList.contains('sidebar-collapsed');
+            localStorage.setItem('sidebar-collapsed', isCollapsed ? 'true' : 'false');
+        } else {
+            // Mobile: open side drawer
+            openSidebar();
+        }
+    });
+
     closeBtn?.addEventListener('click', closeSidebar);
     overlay?.addEventListener('click', closeSidebar);
 

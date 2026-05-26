@@ -2351,6 +2351,206 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
     </div>
     @endif
 
+    @if($role === 'purchasing-manager' || $user->can('purchasing.order.approve'))
+    {{-- ========================================================================= --}}
+    {{-- 🛒 SHOP REQUISITIONS APPROVAL CENTER (PURCHASE MANAGER)                    --}}
+    {{-- ========================================================================= --}}
+    <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-6">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-5 border-b border-slate-100">
+            <div>
+                <h2 class="text-lg font-black text-slate-800 tracking-tight">Shop Requisitions Approval Center</h2>
+                <p class="text-xs text-slate-400 mt-0.5">Review and approve daily order requests submitted by shop owners</p>
+            </div>
+            
+            {{-- Tabs --}}
+            <div class="flex bg-slate-100 p-1 rounded-xl shrink-0 self-start sm:self-auto">
+                <button type="button" onclick="switchApprovalTab('pending')" id="tab-btn-pending" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-800 shadow-sm cursor-pointer border-0">
+                    Pending Review
+                    <span class="ml-1 px-1.5 py-0.5 rounded-md bg-amber-500 text-white text-[10px] font-black" id="pending-count">0</span>
+                </button>
+                <button type="button" onclick="switchApprovalTab('all')" id="tab-btn-all" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-500 hover:text-slate-800 cursor-pointer border-0">
+                    All Requisitions
+                </button>
+            </div>
+        </div>
+
+        {{-- Filters & Search bar --}}
+        <div class="flex flex-col md:flex-row gap-3 py-4">
+            <div class="relative flex-1">
+                <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                    <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                </div>
+                <input type="text" id="requisition-search" oninput="filterRequisitions()" placeholder="Search by Shop name or Order ID..." class="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2.5 focus:bg-white focus:outline-none focus:border-slate-300 transition-all">
+            </div>
+        </div>
+
+        {{-- Table --}}
+        <div class="overflow-x-auto border border-slate-100 rounded-2xl">
+            <table class="w-full text-left border-collapse" id="approval-requisitions-table">
+                <thead>
+                    <tr class="bg-slate-50/50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        <th class="py-3 px-4">Target Date</th>
+                        <th class="py-3 px-4">Order ID</th>
+                        <th class="py-3 px-4">Shop</th>
+                        <th class="py-3 px-4 text-center">Items</th>
+                        <th class="py-3 px-4 text-center">Status</th>
+                        <th class="py-3 px-4 text-right">Submitted At</th>
+                        <th class="py-3 px-4 text-center w-[120px]">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-50 text-xs text-slate-700">
+                    @forelse($allShopOrders as $order)
+                        @php
+                            $isPending = in_array($order->state, ['submitted', 'update_requested']);
+                            $itemsCount = $order->items->count();
+                        @endphp
+                        <tr class="hover:bg-slate-50/20 transition-all requisition-row" 
+                            data-state="{{ $order->state }}" 
+                            data-pending="{{ $isPending ? 'true' : 'false' }}"
+                            data-shop="{{ strtolower($order->shop ? $order->shop->name : 'Casio Hypermarket') }}"
+                            data-id="{{ strtolower($order->order_number) }}">
+                            <td class="py-3.5 px-4 font-bold text-slate-900">
+                                {{ \Carbon\Carbon::parse($order->business_date)->format('d M Y') }}
+                            </td>
+                            <td class="py-3.5 px-4 font-mono font-bold text-slate-500">
+                                {{ $order->order_number }}
+                            </td>
+                            <td class="py-3.5 px-4">
+                                <div class="font-semibold text-slate-800">{{ $order->shop ? $order->shop->name : 'Casio Hypermarket' }}</div>
+                                <div class="text-[10px] text-slate-400 font-medium">Submitted by: {{ $order->creator ? $order->creator->name : 'N/A' }}</div>
+                            </td>
+                            <td class="py-3.5 px-4 text-center font-bold text-slate-600">
+                                {{ $itemsCount }}
+                            </td>
+                            <td class="py-3.5 px-4 text-center">
+                                @if($order->state === 'submitted')
+                                    <span class="inline-flex items-center gap-1 bg-amber-50 text-amber-700 px-2.5 py-0.5 rounded-full text-[9px] font-black border border-amber-100 uppercase tracking-wider">
+                                        Submitted
+                                    </span>
+                                @elseif($order->state === 'approved')
+                                    <span class="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded-full text-[9px] font-black border border-emerald-100 uppercase tracking-wider">
+                                        Approved
+                                    </span>
+                                @elseif($order->state === 'update_requested')
+                                    <span class="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 px-2.5 py-0.5 rounded-full text-[9px] font-black border border-indigo-100 uppercase tracking-wider animate-pulse">
+                                        Update Requested
+                                    </span>
+                                @elseif($order->state === 'rejected')
+                                    <span class="inline-flex items-center gap-1 bg-red-50 text-red-700 px-2.5 py-0.5 rounded-full text-[9px] font-black border border-red-100 uppercase tracking-wider">
+                                        Rejected
+                                    </span>
+                                @else
+                                    <span class="inline-flex items-center gap-1 bg-slate-50 text-slate-600 px-2.5 py-0.5 rounded-full text-[9px] font-black border border-slate-200 uppercase tracking-wider">
+                                        {{ $order->state }}
+                                    </span>
+                                @endif
+                            </td>
+                            <td class="py-3.5 px-4 text-right font-medium text-slate-500">
+                                {{ $order->submitted_at ? $order->submitted_at->format('d M Y, h:i A') : 'N/A' }}
+                            </td>
+                            <td class="py-3.5 px-4 text-center">
+                                <a href="{{ route('requisitions.show', $order->order_number) }}" class="inline-flex items-center gap-1.5 text-xs font-bold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-200 px-3 py-1.5 rounded-xl transition-all cursor-pointer">
+                                    {{ $isPending ? 'Review' : 'View' }}
+                                    <svg class="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+                                </a>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr id="no-requisitions-row">
+                            <td colspan="7" class="py-12 text-center text-slate-400 font-medium italic bg-slate-50/10">No requisitions found.</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let currentApprovalTab = 'pending';
+
+        function switchApprovalTab(tab) {
+            currentApprovalTab = tab;
+            
+            const btnPending = document.getElementById('tab-btn-pending');
+            const btnAll = document.getElementById('tab-btn-all');
+
+            if (tab === 'pending') {
+                btnPending.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-800 shadow-sm cursor-pointer border-0";
+                btnAll.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-500 hover:text-slate-800 cursor-pointer border-0";
+            } else {
+                btnAll.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all bg-white text-slate-800 shadow-sm cursor-pointer border-0";
+                btnPending.className = "px-4 py-1.5 rounded-lg text-xs font-bold transition-all text-slate-500 hover:text-slate-800 cursor-pointer border-0";
+            }
+
+            filterRequisitions();
+        }
+
+        function filterRequisitions() {
+            const query = document.getElementById('requisition-search').value.toLowerCase().trim();
+            const rows = document.querySelectorAll('.requisition-row');
+            let visibleCount = 0;
+            let totalPending = 0;
+
+            rows.forEach(row => {
+                const isPending = row.getAttribute('data-pending') === 'true';
+                const shop = row.getAttribute('data-shop');
+                const orderId = row.getAttribute('data-id');
+
+                if (isPending) {
+                    totalPending++;
+                }
+
+                // Filter by Tab
+                let matchesTab = true;
+                if (currentApprovalTab === 'pending') {
+                    matchesTab = isPending;
+                }
+
+                // Filter by Search Query
+                let matchesSearch = true;
+                if (query) {
+                    matchesSearch = shop.includes(query) || orderId.includes(query);
+                }
+
+                if (matchesTab && matchesSearch) {
+                    row.classList.remove('hidden');
+                    visibleCount++;
+                } else {
+                    row.classList.add('hidden');
+                }
+            });
+
+            // Update pending counter badge
+            const pendingCountEl = document.getElementById('pending-count');
+            if (pendingCountEl) {
+                pendingCountEl.textContent = totalPending;
+            }
+
+            // Show "no results" row if no rows are visible
+            const table = document.getElementById('approval-requisitions-table');
+            const noResultsRow = document.getElementById('no-requisitions-row');
+            
+            if (visibleCount === 0) {
+                if (!noResultsRow) {
+                    const tr = document.createElement('tr');
+                    tr.id = 'no-requisitions-row';
+                    tr.innerHTML = `<td colspan="7" class="py-12 text-center text-slate-400 font-medium italic bg-slate-50/10">No requisitions match your criteria.</td>`;
+                    table.querySelector('tbody').appendChild(tr);
+                } else {
+                    noResultsRow.classList.remove('hidden');
+                }
+            } else if (noResultsRow) {
+                noResultsRow.classList.add('hidden');
+            }
+        }
+
+        // Initialize counters and state on load
+        document.addEventListener('DOMContentLoaded', () => {
+            filterRequisitions();
+        });
+    </script>
+    @endif
+
     {{-- Module tiles grid --}}
     <h2 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Your Modules</h2>
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

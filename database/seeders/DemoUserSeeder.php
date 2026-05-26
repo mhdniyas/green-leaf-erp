@@ -10,6 +10,7 @@ use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
 
 class DemoUserSeeder extends Seeder
@@ -52,6 +53,11 @@ class DemoUserSeeder extends Seeder
             'role' => 'shop-owner',
         ],
         [
+            'name' => 'Purchase Manager',
+            'email' => 'purchasing@greenleaf.com',
+            'role' => 'purchasing-manager',
+        ],
+        [
             'name' => 'Viewer',
             'email' => 'viewer@greenleaf.com',
             'role' => 'viewer',
@@ -60,15 +66,41 @@ class DemoUserSeeder extends Seeder
 
     public function run(): void
     {
-        // 1. Seed default shop
-        $shop = Shop::updateOrCreate(
+        // 1. Seed shops
+        $shopsData = [
+            ['code' => 'SHOP_CASIO', 'name' => 'Casio'],
+            ['code' => 'SHOP_BUDEGERE', 'name' => 'Budegere'],
+            ['code' => 'SHOP_GRANCITY', 'name' => 'Grancity'],
+            ['code' => 'SHOP_ASHIRWAD', 'name' => 'Ashirwad'],
+            ['code' => 'SHOP_SANA', 'name' => 'Sana'],
+            ['code' => 'SHOP_BAZARO', 'name' => 'Bazaro'],
+            ['code' => 'SHOP_SANA_JP', 'name' => 'Sana JP'],
+            ['code' => 'SHOP_VARTHUR', 'name' => 'varthur'],
+            ['code' => 'SHOP_GM', 'name' => 'GM'],
+            ['code' => 'SHOP_HSR', 'name' => 'HSR'],
+            ['code' => 'SHOP_BEGUR', 'name' => 'Begur'],
+            ['code' => 'SHOP_JINDAL', 'name' => 'Jindal City'],
+            ['code' => 'SHOP_CARRY', 'name' => 'Carry Food'],
+            ['code' => 'SHOP_FORTUNE', 'name' => 'Fortune SM'],
+        ];
+
+        $seededShops = [];
+        foreach ($shopsData as $sData) {
+            $seededShops[] = Shop::updateOrCreate(
+                ['code' => $sData['code']],
+                [
+                    'name' => $sData['name'],
+                    'status' => 'active',
+                ]
+            );
+        }
+
+        // Keep SHOP_001 for legacy references
+        $legacyShop = Shop::updateOrCreate(
             ['code' => 'SHOP_001'],
             [
                 'name' => 'CASIO HYPERMARKET',
                 'status' => 'active',
-                'address' => 'Casio St, Kuala Lumpur',
-                'contact_name' => 'John Casio',
-                'contact_phone' => '+60123456789',
             ]
         );
 
@@ -79,7 +111,7 @@ class DemoUserSeeder extends Seeder
                     'name' => $demo['name'],
                     'password' => Hash::make('password'),
                     'email_verified_at' => now(),
-                    'shop_id' => $demo['role'] === 'shop-owner' ? $shop->id : null,
+                    'shop_id' => $demo['role'] === 'shop-owner' ? $seededShops[0]->id : null,
                 ]
             );
 
@@ -92,12 +124,12 @@ class DemoUserSeeder extends Seeder
         $products = Product::limit(5)->get();
         if ($products->isNotEmpty()) {
             $shopOwner = User::where('email', 'shop@greenleaf.com')->first();
-            // Seed a few past orders
+            // Seed a few past orders for Casio
             for ($i = 5; $i >= 1; $i--) {
                 $date = now()->subDays($i);
                 $order = ShopOrder::updateOrCreate(
                     [
-                        'shop_id' => $shop->id,
+                        'shop_id' => $seededShops[0]->id,
                         'business_date' => $date->format('Y-m-d'),
                     ],
                     [
@@ -119,6 +151,45 @@ class DemoUserSeeder extends Seeder
                             'approved_qty' => 12.00,
                             'unit' => $product->unit,
                             'notes' => 'Seeded automatically',
+                        ]
+                    );
+                }
+            }
+
+            // Seed tomorrow's requisitions for some shops
+            $tomorrow = Carbon::tomorrow()->format('Y-m-d');
+            foreach ($seededShops as $index => $shop) {
+                // Seed for roughly 75% of shops
+                if ($index % 4 === 3) {
+                    continue;
+                }
+
+                $order = ShopOrder::updateOrCreate(
+                    [
+                        'shop_id' => $shop->id,
+                        'business_date' => $tomorrow,
+                    ],
+                    [
+                        'state' => 'submitted',
+                        'submitted_at' => now()->setTime(19, 0, 0),
+                        'deadline_at' => Carbon::tomorrow()->subDay()->setTime(21, 30, 0),
+                        'created_by' => $shopOwner->id,
+                    ]
+                );
+
+                // Seed random quantities for 3-5 random products
+                $randomProducts = $products->random(min(3, $products->count()));
+                foreach ($randomProducts as $product) {
+                    $qty = (($shop->id * 3 + $product->id * 7) % 15) + 2.5;
+                    ShopOrderItem::updateOrCreate(
+                        [
+                            'shop_order_id' => $order->id,
+                            'product_id' => $product->id,
+                        ],
+                        [
+                            'requested_qty' => $qty,
+                            'unit' => $product->unit,
+                            'notes' => 'Auto-seeded',
                         ]
                     );
                 }

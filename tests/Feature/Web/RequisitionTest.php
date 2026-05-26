@@ -264,4 +264,305 @@ class RequisitionTest extends TestCase
         $response->assertOk();
         $response->assertSee('window.print()');
     }
+
+    public function test_purchase_manager_can_approve_requisition_with_adjusted_quantities(): void
+    {
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => Carbon::tomorrow()->format('Y-m-d'),
+            'state' => 'submitted',
+            'created_by' => $this->shopOwner->id,
+        ]);
+
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 10.00,
+            'unit' => $this->product->unit,
+        ]);
+
+        $manager = User::factory()->create();
+        $manager->assignRole('purchasing-manager');
+
+        $response = $this->actingAs($manager)
+            ->post(route('requisitions.review', $order->order_number), [
+                'action' => 'approve',
+                'approved_qty' => [
+                    $item->id => 8.50,
+                ],
+            ]);
+
+        $response->assertRedirect(route('requisitions.show', $order->order_number));
+        $response->assertSessionHas('success');
+
+        $this->assertDatabaseHas('shop_orders', [
+            'id' => $order->id,
+            'state' => 'approved',
+        ]);
+
+        $this->assertDatabaseHas('shop_order_items', [
+            'id' => $item->id,
+            'approved_qty' => 8.50,
+        ]);
+    }
+
+    public function test_purchase_manager_can_reject_requisition(): void
+    {
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => Carbon::tomorrow()->format('Y-m-d'),
+            'state' => 'submitted',
+            'created_by' => $this->shopOwner->id,
+        ]);
+
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 10.00,
+            'unit' => $this->product->unit,
+        ]);
+
+        $manager = User::factory()->create();
+        $manager->assignRole('purchasing-manager');
+
+        $response = $this->actingAs($manager)
+            ->post(route('requisitions.review', $order->order_number), [
+                'action' => 'reject',
+            ]);
+
+        $response->assertRedirect(route('requisitions.show', $order->order_number));
+        $response->assertSessionHas('success');
+
+        $this->assertDatabaseHas('shop_orders', [
+            'id' => $order->id,
+            'state' => 'rejected',
+        ]);
+
+        $this->assertDatabaseHas('shop_order_items', [
+            'id' => $item->id,
+            'approved_qty' => 0.00,
+        ]);
+    }
+
+    public function test_unauthorized_user_cannot_submit_review(): void
+    {
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => Carbon::tomorrow()->format('Y-m-d'),
+            'state' => 'submitted',
+            'created_by' => $this->shopOwner->id,
+        ]);
+
+        $response = $this->actingAs($this->shopOwner)
+            ->post(route('requisitions.review', $order->order_number), [
+                'action' => 'approve',
+            ]);
+
+        $response->assertStatus(403);
+    }
+
+    public function test_requisitions_board_page_is_accessible_to_purchase_manager(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchasing-manager');
+
+        $response = $this->actingAs($manager)
+            ->get(route('requisitions.board'));
+
+        $response->assertOk();
+        $response->assertSee('Consolidated Requisitions Board');
+    }
+
+    public function test_requisitions_board_page_is_forbidden_to_shop_owner(): void
+    {
+        $response = $this->actingAs($this->shopOwner)
+            ->get(route('requisitions.board'));
+
+        $response->assertStatus(403);
+    }
+
+    public function test_purchase_manager_can_save_requisition_board_quantities(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchasing-manager');
+
+        $date = Carbon::tomorrow()->format('Y-m-d');
+
+        $response = $this->actingAs($manager)
+            ->post(route('requisitions.board.save'), [
+                'date' => $date,
+                'quantities' => [
+                    $this->product->id => [
+                        $this->shop->id => 25.00,
+                    ],
+                ],
+            ]);
+
+        $response->assertRedirect(route('requisitions.board', ['date' => $date]));
+        $response->assertSessionHas('success');
+
+        // Order and item should be created in approved state
+        $this->assertDatabaseHas('shop_orders', [
+            'shop_id' => $this->shop->id,
+            'state' => 'approved',
+        ]);
+
+        $order = ShopOrder::where('shop_id', $this->shop->id)->first();
+        $this->assertNotNull($order);
+
+        $this->assertDatabaseHas('shop_order_items', [
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 25.00,
+            'approved_qty' => 25.00,
+        ]);
+    }
+
+    public function test_purchase_manager_can_save_requisition_board_fulfillment_types(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchasing-manager');
+
+        $date = Carbon::tomorrow()->format('Y-m-d');
+
+        $response = $this->actingAs($manager)
+            ->post(route('requisitions.board.save'), [
+                'date' => $date,
+                'quantities' => [
+                    $this->product->id => [
+                        $this->shop->id => 15.00,
+                    ],
+                ],
+                'fulfillment_types' => [
+                    $this->product->id => 'selection',
+                ],
+            ]);
+
+        $response->assertRedirect(route('requisitions.board', ['date' => $date]));
+
+        $order = ShopOrder::where('shop_id', $this->shop->id)->first();
+        $this->assertNotNull($order);
+
+        $this->assertDatabaseHas('shop_order_items', [
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'fulfillment_type' => 'selection',
+        ]);
+    }
+
+    public function test_purchase_manager_can_review_and_update_fulfillment_type(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchasing-manager');
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => Carbon::tomorrow()->format('Y-m-d'),
+            'state' => 'submitted',
+            'created_by' => $this->shopOwner->id,
+            'order_number' => 'ORD-TEST-FULFILL',
+        ]);
+
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 10.00,
+            'unit' => 'kg',
+            'fulfillment_type' => 'warehouse',
+        ]);
+
+        $response = $this->actingAs($manager)
+            ->post(route('requisitions.review', $order->order_number), [
+                'action' => 'approve',
+                'approved_qty' => [
+                    $item->id => 12.00,
+                ],
+                'fulfillment_types' => [
+                    $item->id => 'selection',
+                ],
+            ]);
+
+        $response->assertRedirect(route('requisitions.show', $order->order_number));
+
+        $this->assertDatabaseHas('shop_order_items', [
+            'id' => $item->id,
+            'approved_qty' => 12.00,
+            'fulfillment_type' => 'selection',
+        ]);
+    }
+
+    public function test_approved_requisitions_board_page_is_accessible_to_purchase_manager(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchasing-manager');
+
+        $response = $this->actingAs($manager)
+            ->get(route('requisitions.approved_board'));
+
+        $response->assertOk();
+        $response->assertSee('Approved Requisitions Board');
+    }
+
+    public function test_purchase_manager_can_save_approved_requisition_board_quantities(): void
+    {
+        $this->withoutExceptionHandling();
+        $manager = User::factory()->create();
+        $manager->assignRole('purchasing-manager');
+
+        $date = Carbon::tomorrow()->format('Y-m-d');
+
+        $response = $this->actingAs($manager)
+            ->post(route('requisitions.approved_board.save'), [
+                'date' => $date,
+                'quantities' => [
+                    $this->product->id => [
+                        $this->shop->id => 30.00,
+                    ],
+                ],
+                'fulfillment_types' => [
+                    $this->product->id => 'selection',
+                ],
+            ]);
+
+        $response->assertRedirect(route('requisitions.approved_board', ['date' => $date]));
+        $response->assertSessionHas('success');
+
+        $order = ShopOrder::where('shop_id', $this->shop->id)
+            ->where('business_date', $date)
+            ->where('state', 'approved')
+            ->first();
+        $this->assertNotNull($order);
+
+        $this->assertDatabaseHas('shop_order_items', [
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'approved_qty' => 30.00,
+            'fulfillment_type' => 'selection',
+        ]);
+    }
+
+    public function test_purchase_manager_can_export_approved_board_csv(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchasing-manager');
+
+        $response = $this->actingAs($manager)
+            ->get(route('requisitions.approved_board.export.csv', ['date' => Carbon::tomorrow()->format('Y-m-d')]));
+
+        $response->assertOk();
+        $response->assertHeader('Content-Type', 'text/csv; charset=UTF-8');
+    }
+
+    public function test_purchase_manager_can_export_approved_board_pdf(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchasing-manager');
+
+        $response = $this->actingAs($manager)
+            ->get(route('requisitions.approved_board.export.pdf', ['date' => Carbon::tomorrow()->format('Y-m-d')]));
+
+        $response->assertOk();
+        $response->assertSee('GREEN LEAF ERP');
+        $response->assertSee('Approved Consolidated Requisitions Board');
+    }
 }

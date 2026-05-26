@@ -32,3 +32,13 @@
     --color-surface-100: oklch(0.97 0.008 145);
     --color-surface-200: oklch(0.94 0.010 145);
 }
+
+/* Sidebar Collapse on Desktop */
+@media (min-width: 1024px) {
+    #app-container.sidebar-collapsed aside#sidebar {
+        transform: translateX(-100%) !important;
+    }
+    #app-container.sidebar-collapsed .main-content-wrapper {
+        margin-left: 0 !important;
+    }
+}

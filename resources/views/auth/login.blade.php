@@ -126,9 +126,10 @@
                 <div class="space-y-1.5">
                     @foreach([
                         ['role' => 'Admin', 'email' => 'admin@greenleaf.com', 'password' => 'password', 'color' => 'text-brand-700'],
-                        ['role' => 'Manager', 'email' => 'manager@greenleaf.com', 'password' => 'password', 'color' => 'text-blue-700'],
+                        ['role' => 'Purchase Manager', 'email' => 'purchasing@greenleaf.com', 'password' => 'password', 'color' => 'text-amber-700'],
                         ['role' => 'Shop Owner', 'email' => 'shop@greenleaf.com', 'password' => 'password', 'color' => 'text-emerald-700'],
                         ['role' => 'Cashier', 'email' => 'cashier@greenleaf.com', 'password' => 'password', 'color' => 'text-purple-700'],
+                        ['role' => 'Inventory Manager', 'email' => 'manager@greenleaf.com', 'password' => 'password', 'color' => 'text-blue-700'],
                     ] as $demo)
                     <button
                         type="button"

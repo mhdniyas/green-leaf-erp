@@ -19,6 +19,7 @@ class ShopOrderItem extends Model
         'approved_qty',
         'unit',
         'notes',
+        'fulfillment_type',
     ];
 
     protected $casts = [
