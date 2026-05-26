@@ -12,14 +12,17 @@ class CategorySeeder extends Seeder
     public function run(): void
     {
         $categories = [
-            ['name' => 'Leafy Vegetables', 'description' => 'Spinach, lettuce, coriander, mint, etc.'],
-            ['name' => 'Root Vegetables', 'description' => 'Carrot, radish, beetroot, turnip, etc.'],
-            ['name' => 'Fruit Vegetables', 'description' => 'Tomato, brinjal, capsicum, chilli, etc.'],
-            ['name' => 'Cruciferous', 'description' => 'Cauliflower, broccoli, cabbage, etc.'],
-            ['name' => 'Alliums', 'description' => 'Onion, garlic, leek, spring onion, etc.'],
-            ['name' => 'Gourds', 'description' => 'Bitter gourd, bottle gourd, ridge gourd, etc.'],
-            ['name' => 'Tubers', 'description' => 'Potato, sweet potato, taro, etc.'],
-            ['name' => 'Beans & Legumes', 'description' => 'Beans, peas, drumstick, etc.'],
+            ['name' => 'Supply', 'description' => 'Primary supply items like tomatoes.'],
+            ['name' => 'VEG', 'description' => 'Regular vegetables.'],
+            ['name' => 'HAL', 'description' => 'Special selection items.'],
+            ['name' => 'Leaf', 'description' => 'Leafy greens and herbs.'],
+            ['name' => 'English', 'description' => 'English and premium vegetables.'],
+            ['name' => 'Kolkata', 'description' => 'Special Kolkata produce items.'],
+            ['name' => 'Banana', 'description' => 'Banana varieties.'],
+            ['name' => 'Onion', 'description' => 'Onions, garlic, potatoes.'],
+            ['name' => 'C', 'description' => 'Coconut and derivatives.'],
+            ['name' => 'Frut', 'description' => 'Fruits catalog.'],
+            ['name' => 'Stationory', 'description' => 'Packaging materials and stationary.'],
         ];
 
         foreach ($categories as $category) {

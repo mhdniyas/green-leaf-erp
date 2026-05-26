@@ -6,9 +6,15 @@ namespace Tests\Feature\Web;
 
 use App\Enums\Sales\SOStatus;
 use App\Models\Customer;
+use App\Models\Product;
 use App\Models\SalesInvoice;
 use App\Models\SalesOrder;
+use App\Models\Shop;
+use App\Models\ShopOrder;
+use App\Models\ShopOrderItem;
 use App\Models\User;
+use Database\Seeders\CategorySeeder;
+use Database\Seeders\ProductSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -90,5 +96,58 @@ class DashboardTest extends TestCase
         // Should not see sales orders or invoices as they are not permitted
         $response->assertDontSee('Sales Orders');
         $response->assertDontSee('Sales Invoices');
+    }
+
+    public function test_dashboard_renders_yesterday_order_quantities_for_shop_owner(): void
+    {
+        $this->seed(CategorySeeder::class);
+        $this->seed(ProductSeeder::class);
+
+        $shop = Shop::create([
+            'code' => 'SHOP_DASHBOARD_TEST',
+            'name' => 'Dashboard Shop Test',
+        ]);
+
+        $shopOwner = User::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+        $shopOwner->assignRole('shop-owner');
+
+        $product1 = Product::first();
+        $product2 = Product::skip(1)->first();
+
+        // Create a yesterday's order for the shop
+        $yesterdayOrder = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'submitted',
+            'business_date' => today()->subDay()->toDateString(),
+            'created_by' => $shopOwner->id,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $yesterdayOrder->id,
+            'product_id' => $product1->id,
+            'requested_qty' => 15.50,
+            'unit' => $product1->unit,
+        ]);
+
+        // When accessing the dashboard
+        $response = $this->actingAs($shopOwner)
+            ->get(route('dashboard'));
+
+        $response->assertOk();
+
+        // Check that the output HTML contains the flatProducts array with correct yesterday and suggested quantities
+        $html = $response->getContent();
+
+        // Product 1 was in yesterday's order, so it should have 15.5 for yesterday and suggested
+        $this->assertStringContainsString('"sku":"'.$product1->sku.'"', $html);
+        $this->assertStringContainsString('"yesterday":15.5', $html);
+        $this->assertStringContainsString('"suggested":15.5', $html);
+
+        // Product 2 was NOT in yesterday's order, so it should have 0 for yesterday and suggested
+        $this->assertStringContainsString('"sku":"'.$product2->sku.'"', $html);
+        $this->assertStringContainsString('"yesterday":0', $html);
+        $this->assertStringContainsString('"suggested":0', $html);
     }
 }

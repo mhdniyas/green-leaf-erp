@@ -147,6 +147,11 @@ class RolePermissionSeeder extends Seeder
                 'hr.payroll.view', 'hr.payroll.process',
             ],
 
+            'shop-owner' => [
+                'inventory.product.view',
+                'sales.order.view', 'sales.order.create', 'sales.order.cancel',
+            ],
+
             'viewer' => [
                 'inventory.product.view', 'inventory.stock.view',
                 'sales.order.view', 'sales.invoice.view',

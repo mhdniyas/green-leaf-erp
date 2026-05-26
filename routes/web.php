@@ -17,10 +17,12 @@ use App\Http\Controllers\Web\Purchasing\GoodsReceivedController;
 use App\Http\Controllers\Web\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Web\Purchasing\PurchaseOrderController;
 use App\Http\Controllers\Web\Purchasing\SupplierController;
+use App\Http\Controllers\Web\RequisitionController;
 use App\Http\Controllers\Web\Sales\CustomerController;
 use App\Http\Controllers\Web\Sales\PaymentController;
 use App\Http\Controllers\Web\Sales\SalesInvoiceController;
 use App\Http\Controllers\Web\Sales\SalesOrderController;
+use App\Http\Controllers\Web\ShopPresetController;
 use Illuminate\Support\Facades\Route;
 
 // Root redirect
@@ -112,6 +114,18 @@ Route::middleware('auth')->group(function () {
         Route::get('reports/balance-sheet', [FinancialReportController::class, 'balanceSheet'])->name('reports.balance-sheet');
         Route::get('reports/cash-flow', [FinancialReportController::class, 'cashFlow'])->name('reports.cash-flow');
     });
+
+    // ── Requisition Presets ────────────────────────────────────────────────
+    Route::resource('requisitions/presets', ShopPresetController::class)->names('requisitions.presets');
+
+    // ── Requisitions ───────────────────────────────────────────────────────
+    Route::get('/requisitions/{order_number}', [RequisitionController::class, 'show'])->name('requisitions.show');
+    Route::get('/requisitions/{order_number}/edit', [RequisitionController::class, 'edit'])->name('requisitions.edit');
+    Route::post('/requisitions/{order_number}/edit', [RequisitionController::class, 'update'])->name('requisitions.update');
+    Route::post('/requisitions/{order_number}/update-request', [RequisitionController::class, 'requestUpdate'])->name('requisitions.update-request');
+    Route::get('/requisitions/{order_number}/export/csv', [RequisitionController::class, 'exportCsv'])->name('requisitions.export.csv');
+    Route::get('/requisitions/{order_number}/export/pdf', [RequisitionController::class, 'exportPdf'])->name('requisitions.export.pdf');
+    Route::post('/requisitions', [RequisitionController::class, 'store'])->name('requisitions.store');
 
     // ── Admin ──────────────────────────────────────────────────────────────
     Route::prefix('admin')->name('admin.')->group(function () {

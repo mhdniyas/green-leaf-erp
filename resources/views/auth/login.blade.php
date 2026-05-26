@@ -101,6 +101,19 @@
                 <p class="mt-1 text-gray-500 text-sm">Sign in to your Green Leaf account</p>
             </div>
 
+            {{-- 📢 SHOP OWNER REQUISITION ALERT --}}
+            <div class="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 flex gap-3">
+                <svg class="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div class="space-y-1">
+                    <h4 class="text-xs font-bold text-emerald-900 tracking-wide uppercase">Shop Requisition Rules</h4>
+                    <p class="text-emerald-800 text-xs leading-relaxed">
+                        Daily orders submitted before the **9:30 PM** deadline are automatically validated. Late submissions require Purchase Manager approval to be consolidated.
+                    </p>
+                </div>
+            </div>
+
             {{-- ✅ DEMO CREDENTIALS BANNER (Testing Phase) --}}
             <div class="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3" id="demo-credentials-banner">
                 <div class="flex items-center gap-2">
@@ -114,6 +127,7 @@
                     @foreach([
                         ['role' => 'Admin', 'email' => 'admin@greenleaf.com', 'password' => 'password', 'color' => 'text-brand-700'],
                         ['role' => 'Manager', 'email' => 'manager@greenleaf.com', 'password' => 'password', 'color' => 'text-blue-700'],
+                        ['role' => 'Shop Owner', 'email' => 'shop@greenleaf.com', 'password' => 'password', 'color' => 'text-emerald-700'],
                         ['role' => 'Cashier', 'email' => 'cashier@greenleaf.com', 'password' => 'password', 'color' => 'text-purple-700'],
                     ] as $demo)
                     <button

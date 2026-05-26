@@ -7,12 +7,15 @@ namespace App\Http\Controllers\Web;
 use App\Enums\Purchasing\POStatus;
 use App\Enums\Sales\SOStatus;
 use App\Http\Controllers\Controller;
+use App\Models\Category;
 use App\Models\Customer;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\SalesInvoice;
 use App\Models\SalesOrder;
+use App\Models\ShopOrder;
+use App\Models\ShopPreset;
 use App\Models\StockBatch;
 use App\Models\Supplier;
 use App\Models\WastageEntry;
@@ -73,6 +76,44 @@ class DashboardController extends Controller
             ];
         }
 
-        return view('dashboard', compact('inventoryStats', 'purchasingStats', 'salesStats'));
+        $productsByCategory = null;
+        $recentRequisitions = collect();
+        $presets = collect();
+        $yesterdayOrder = null;
+        if ($user->hasRole('shop-owner')) {
+            $productsByCategory = Category::with(['products' => function ($q) {
+                $q->where('is_active', true)->orderBy('name');
+            }])
+                ->where('is_active', true)
+                ->get()
+                ->filter(fn ($cat) => $cat->products->count() > 0);
+
+            if ($user->shop_id) {
+                $recentRequisitions = ShopOrder::where('shop_id', $user->shop_id)
+                    ->with('items')
+                    ->orderBy('business_date', 'desc')
+                    ->limit(7)
+                    ->get();
+
+                $presets = ShopPreset::where('shop_id', $user->shop_id)
+                    ->with('items.product')
+                    ->get();
+
+                $yesterdayOrder = ShopOrder::where('shop_id', $user->shop_id)
+                    ->where('business_date', today()->subDay())
+                    ->with('items')
+                    ->first();
+
+                if (! $yesterdayOrder) {
+                    $yesterdayOrder = ShopOrder::where('shop_id', $user->shop_id)
+                        ->where('business_date', '<', today())
+                        ->with('items')
+                        ->orderBy('business_date', 'desc')
+                        ->first();
+                }
+            }
+        }
+
+        return view('dashboard', compact('inventoryStats', 'purchasingStats', 'salesStats', 'productsByCategory', 'recentRequisitions', 'presets', 'yesterdayOrder'));
     }
 }

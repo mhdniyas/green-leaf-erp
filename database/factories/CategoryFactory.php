@@ -17,8 +17,14 @@ class CategoryFactory extends Factory
     public function definition(): array
     {
         $categories = [
-            'Leafy Vegetables', 'Root Vegetables', 'Fruit Vegetables',
-            'Cruciferous', 'Alliums', 'Gourds', 'Tubers', 'Beans & Legumes',
+            'Leafy Vegetables',
+            'Root Vegetables',
+            'Fruit Vegetables',
+            'Cruciferous',
+            'Alliums',
+            'Gourds',
+            'Tubers',
+            'Beans & Legumes',
         ];
 
         return [
