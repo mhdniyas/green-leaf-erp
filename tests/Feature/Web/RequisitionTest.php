@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Web;
 
+use App\Enums\Purchasing\POStatus;
 use App\Models\Product;
+use App\Models\PurchaseOrder;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Models\Supplier;
 use App\Models\User;
 use Database\Seeders\CategorySeeder;
 use Database\Seeders\ProductSeeder;
@@ -510,6 +513,14 @@ class RequisitionTest extends TestCase
         $manager->assignRole('purchasing-manager');
 
         $date = Carbon::tomorrow()->format('Y-m-d');
+        $supplier = Supplier::create([
+            'name' => 'Test Supplier',
+            'type' => 'Farmer',
+            'category' => 'own_purchase',
+            'contact' => '1234567890',
+            'payment_terms' => 'COD',
+            'quality_score' => 100.00,
+        ]);
 
         $response = $this->actingAs($manager)
             ->post(route('requisitions.approved_board.save'), [
@@ -522,13 +533,16 @@ class RequisitionTest extends TestCase
                 'fulfillment_types' => [
                     $this->product->id => 'selection',
                 ],
+                'suppliers' => [
+                    $this->product->id => $supplier->id,
+                ],
             ]);
 
         $response->assertRedirect(route('requisitions.approved_board', ['date' => $date]));
         $response->assertSessionHas('success');
 
         $order = ShopOrder::where('shop_id', $this->shop->id)
-            ->where('business_date', $date)
+            ->whereDate('business_date', $date)
             ->where('state', 'approved')
             ->first();
         $this->assertNotNull($order);
@@ -539,6 +553,169 @@ class RequisitionTest extends TestCase
             'approved_qty' => 30.00,
             'fulfillment_type' => 'selection',
         ]);
+
+        // Assert that the Purchase Order was generated
+        $po = PurchaseOrder::where('supplier_id', $supplier->id)
+            ->whereDate('order_date', $date)
+            ->where('fulfillment_type', 'selection')
+            ->first();
+        $this->assertNotNull($po);
+        $this->assertEquals(POStatus::Approved, $po->status);
+
+        $this->assertDatabaseHas('purchase_order_items', [
+            'purchase_order_id' => $po->id,
+            'product_id' => $this->product->id,
+            'quantity' => 30.00,
+        ]);
+    }
+
+    public function test_approved_board_shows_purchase_order_handoff_after_generation(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchasing-manager');
+
+        $date = Carbon::tomorrow()->format('Y-m-d');
+        $supplier = Supplier::create([
+            'name' => 'Board Handoff Supplier',
+            'type' => 'Farmer',
+            'category' => 'own_purchase',
+        ]);
+
+        $po = PurchaseOrder::create([
+            'supplier_id' => $supplier->id,
+            'po_number' => 'PO-BOARD-HANDOFF',
+            'status' => POStatus::Approved,
+            'order_date' => $date,
+            'created_by' => $manager->id,
+            'notes' => 'Auto-generated from Requisitions System',
+        ]);
+        $po->items()->create([
+            'product_id' => $this->product->id,
+            'quantity' => 10.00,
+            'unit_price' => 1.00,
+        ]);
+
+        $response = $this->actingAs($manager)
+            ->get(route('requisitions.approved_board', ['date' => $date]));
+
+        $response->assertOk();
+        $response->assertSee('Purchase Orders generated');
+        $response->assertSee('PO-BOARD-HANDOFF');
+        $response->assertDontSee('Generate Purchase Orders');
+    }
+
+    public function test_purchase_manager_cannot_resubmit_approved_board_after_purchase_orders_are_generated(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchasing-manager');
+
+        $date = Carbon::tomorrow()->format('Y-m-d');
+        $supplier = Supplier::create([
+            'name' => 'Test Supplier 2',
+            'type' => 'Farmer',
+            'category' => 'own_purchase',
+        ]);
+
+        // First save: 30.00 kg
+        $this->actingAs($manager)
+            ->post(route('requisitions.approved_board.save'), [
+                'date' => $date,
+                'quantities' => [
+                    $this->product->id => [
+                        $this->shop->id => 30.00,
+                    ],
+                ],
+                'fulfillment_types' => [
+                    $this->product->id => 'warehouse',
+                ],
+                'suppliers' => [
+                    $this->product->id => $supplier->id,
+                ],
+            ]);
+
+        // Second save should be blocked because the board has moved to Purchase Orders.
+        $response = $this->actingAs($manager)
+            ->post(route('requisitions.approved_board.save'), [
+                'date' => $date,
+                'quantities' => [
+                    $this->product->id => [
+                        $this->shop->id => 45.00,
+                    ],
+                ],
+                'fulfillment_types' => [
+                    $this->product->id => 'warehouse',
+                ],
+                'suppliers' => [
+                    $this->product->id => $supplier->id,
+                ],
+            ]);
+
+        $response->assertRedirect(route('requisitions.approved_board', ['date' => $date]));
+        $response->assertSessionHas('error');
+
+        $po = PurchaseOrder::where('supplier_id', $supplier->id)
+            ->whereDate('order_date', $date)
+            ->where('fulfillment_type', 'warehouse')
+            ->first();
+        $this->assertNotNull($po);
+        $this->assertCount(1, $po->items);
+        $this->assertEquals(30.00, $po->items->first()->quantity);
+    }
+
+    public function test_purchase_manager_cannot_clear_approved_board_after_purchase_orders_are_generated(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchasing-manager');
+
+        $date = Carbon::tomorrow()->format('Y-m-d');
+        $supplier = Supplier::create([
+            'name' => 'Test Supplier 3',
+            'type' => 'Farmer',
+            'category' => 'own_purchase',
+        ]);
+
+        // Save initial quantity
+        $this->actingAs($manager)
+            ->post(route('requisitions.approved_board.save'), [
+                'date' => $date,
+                'quantities' => [
+                    $this->product->id => [
+                        $this->shop->id => 30.00,
+                    ],
+                ],
+                'fulfillment_types' => [
+                    $this->product->id => 'warehouse',
+                ],
+                'suppliers' => [
+                    $this->product->id => $supplier->id,
+                ],
+            ]);
+
+        $po = PurchaseOrder::where('supplier_id', $supplier->id)->first();
+        $this->assertNotNull($po);
+
+        // Clear quantity should be blocked after PO generation.
+        $response = $this->actingAs($manager)
+            ->post(route('requisitions.approved_board.save'), [
+                'date' => $date,
+                'quantities' => [
+                    $this->product->id => [
+                        $this->shop->id => '',
+                    ],
+                ],
+                'fulfillment_types' => [
+                    $this->product->id => 'warehouse',
+                ],
+                'suppliers' => [
+                    $this->product->id => $supplier->id,
+                ],
+            ]);
+
+        $response->assertRedirect(route('requisitions.approved_board', ['date' => $date]));
+        $response->assertSessionHas('error');
+
+        $poFresh = PurchaseOrder::where('supplier_id', $supplier->id)->first();
+        $this->assertNotNull($poFresh);
     }
 
     public function test_purchase_manager_can_export_approved_board_csv(): void
@@ -564,5 +741,183 @@ class RequisitionTest extends TestCase
         $response->assertOk();
         $response->assertSee('GREEN LEAF ERP');
         $response->assertSee('Approved Consolidated Requisitions Board');
+    }
+
+    public function test_purchase_manager_can_selectively_generate_purchase_orders(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchasing-manager');
+
+        $date = Carbon::tomorrow()->format('Y-m-d');
+        $supplier = Supplier::create([
+            'name' => 'Test Supplier 3',
+            'type' => 'Farmer',
+            'category' => 'own_purchase',
+        ]);
+
+        $product1 = $this->product;
+        $product2 = Product::factory()->create();
+
+        $response = $this->actingAs($manager)
+            ->post(route('requisitions.approved_board.save'), [
+                'date' => $date,
+                'po_selection_enabled' => '1',
+                'selected_products' => [
+                    $product1->id,
+                ],
+                'quantities' => [
+                    $product1->id => [
+                        $this->shop->id => 10.00,
+                    ],
+                    $product2->id => [
+                        $this->shop->id => 20.00,
+                    ],
+                ],
+                'fulfillment_types' => [
+                    $product1->id => 'warehouse',
+                    $product2->id => 'warehouse',
+                ],
+                'suppliers' => [
+                    $product1->id => $supplier->id,
+                    $product2->id => $supplier->id,
+                ],
+            ]);
+
+        $response->assertRedirect();
+
+        // Shop order items should be saved for BOTH products
+        $this->assertDatabaseHas('shop_order_items', [
+            'product_id' => $product1->id,
+            'approved_qty' => 10.00,
+        ]);
+        $this->assertDatabaseHas('shop_order_items', [
+            'product_id' => $product2->id,
+            'approved_qty' => 20.00,
+        ]);
+
+        // Purchase Order items should only contain product1
+        $po = PurchaseOrder::where('supplier_id', $supplier->id)
+            ->whereDate('order_date', $date)
+            ->first();
+        $this->assertNotNull($po);
+
+        $this->assertDatabaseHas('purchase_order_items', [
+            'purchase_order_id' => $po->id,
+            'product_id' => $product1->id,
+            'quantity' => 10.00,
+        ]);
+        $this->assertDatabaseMissing('purchase_order_items', [
+            'purchase_order_id' => $po->id,
+            'product_id' => $product2->id,
+        ]);
+
+        // Once POs exist, saving again with no products selected should not delete generated POs.
+        $response = $this->actingAs($manager)
+            ->post(route('requisitions.approved_board.save'), [
+                'date' => $date,
+                'po_selection_enabled' => '1',
+                'selected_products' => [], // Empty selection
+                'quantities' => [
+                    $product1->id => [
+                        $this->shop->id => 10.00,
+                    ],
+                    $product2->id => [
+                        $this->shop->id => 20.00,
+                    ],
+                ],
+                'fulfillment_types' => [
+                    $product1->id => 'warehouse',
+                    $product2->id => 'warehouse',
+                ],
+                'suppliers' => [
+                    $product1->id => $supplier->id,
+                    $product2->id => $supplier->id,
+                ],
+            ]);
+
+        $response->assertRedirect(route('requisitions.approved_board', ['date' => $date]));
+        $response->assertSessionHas('error');
+
+        $poFresh = PurchaseOrder::where('supplier_id', $supplier->id)
+            ->whereDate('order_date', $date)
+            ->first();
+        $this->assertNotNull($poFresh);
+    }
+
+    public function test_single_requisition_approval_dynamically_generates_purchase_order(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchasing-manager');
+
+        $date = Carbon::tomorrow()->format('Y-m-d');
+        $supplier = Supplier::create([
+            'name' => 'Test Supplier 4',
+            'type' => 'Farmer',
+            'category' => 'own_purchase',
+        ]);
+
+        // Create a submitted shop order
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => $date,
+            'state' => 'submitted',
+            'submitted_at' => now(),
+            'created_by' => $this->shopOwner->id,
+        ]);
+
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 15.00,
+            'unit' => $this->product->unit,
+        ]);
+
+        // Mock a previous purchase order item to set this supplier as fallback for the product
+        $oldPo = PurchaseOrder::create([
+            'supplier_id' => $supplier->id,
+            'po_number' => 'PO-OLD-1234',
+            'status' => POStatus::Approved,
+            'order_date' => Carbon::yesterday()->format('Y-m-d'),
+            'created_by' => $manager->id,
+        ]);
+        $oldPo->items()->create([
+            'product_id' => $this->product->id,
+            'quantity' => 5.00,
+            'unit_price' => 10.00,
+        ]);
+
+        $response = $this->actingAs($manager)
+            ->post(route('requisitions.review', $order->order_number), [
+                'action' => 'approve',
+                'approved_qty' => [
+                    $item->id => 12.00,
+                ],
+                'fulfillment_types' => [
+                    $item->id => 'warehouse',
+                ],
+            ]);
+
+        $response->assertRedirect(route('requisitions.show', $order->order_number));
+
+        // Requisition state must be approved
+        $order->refresh();
+        $this->assertEquals('approved', $order->state);
+
+        // Requisition item approved qty must be updated
+        $item->refresh();
+        $this->assertEquals(12.00, $item->approved_qty);
+
+        // Purchase Order must be created for the supplier and product
+        $po = PurchaseOrder::where('supplier_id', $supplier->id)
+            ->whereDate('order_date', $date)
+            ->first();
+        $this->assertNotNull($po);
+        $this->assertEquals(POStatus::Approved, $po->status);
+
+        $this->assertDatabaseHas('purchase_order_items', [
+            'purchase_order_id' => $po->id,
+            'product_id' => $this->product->id,
+            'quantity' => 12.00,
+        ]);
     }
 }

@@ -20,6 +20,7 @@ class Supplier extends Model
     protected $fillable = [
         'name',
         'type',
+        'category',
         'contact',
         'payment_terms',
         'quality_score',

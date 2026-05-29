@@ -76,6 +76,7 @@ Route::middleware('auth')->group(function () {
         // Purchase Orders
         Route::resource('orders', PurchaseOrderController::class);
         Route::post('orders/{order}/approve', [PurchaseOrderController::class, 'approve'])->name('orders.approve');
+        Route::put('orders/{order}/items', [PurchaseOrderController::class, 'updateItems'])->name('orders.items.update');
 
         // Goods Receipts
         Route::resource('grns', GoodsReceivedController::class)->only(['index', 'create', 'store', 'show']);

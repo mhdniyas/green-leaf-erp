@@ -26,6 +26,7 @@ class PurchaseOrder extends Model
         'order_date',
         'created_by',
         'notes',
+        'fulfillment_type',
     ];
 
     protected $casts = [
@@ -65,9 +66,14 @@ class PurchaseOrder extends Model
         return $this->hasMany(GoodsReceived::class);
     }
 
+    public function getRouteKeyName(): string
+    {
+        return 'po_number';
+    }
+
     // Computed
     public function getTotalAmountAttribute(): float
     {
-        return $this->items->sum(fn ($item) => (float) $item->quantity * (float) $item->unit_price);
+        return $this->items->sum(fn ($item) => (float) $item->subtotal);
     }
 }

@@ -63,7 +63,7 @@
 
             <div class="flex items-center gap-4 self-stretch md:self-auto shrink-0 pl-2">
                 <label class="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none">
-                    <input type="checkbox" id="filter-has-orders" onchange="filterBoardRows()" class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer">
+                    <input type="checkbox" id="filter-has-orders" onchange="filterBoardRows()" checked class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer">
                     Show only items with orders
                 </label>
             </div>
@@ -88,7 +88,7 @@
                             <tr class="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                 <th class="py-4 px-4 text-center sticky left-0 bg-slate-50 z-20 w-[60px]">SL NO</th>
                                 <th class="py-4 px-4 sticky left-[60px] bg-slate-50 z-20 min-w-[200px] border-r border-slate-200">Item</th>
-                                <th class="py-4 px-3 text-center min-w-[120px] border-r border-slate-200 text-slate-700 uppercase font-black text-[9px] tracking-wider bg-slate-50 z-20">Fulfillment</th>
+                                <th class="py-4 px-3 text-center min-w-[140px] border-r border-slate-200 text-slate-700 uppercase font-black text-[9px] tracking-wider bg-slate-50 z-20">Fulfillment</th>
                                 @foreach($shops as $shop)
                                     <th class="py-4 px-3 text-center min-w-[90px] border-r border-slate-100 font-extrabold text-slate-700 uppercase tracking-widest text-[9px] hover:bg-slate-100/50 transition-colors">
                                         {{ str_replace([' HYPERMARKET', ' SUPERMARKET', ' STORE', ' SHOP'], '', strtoupper($shop->name)) }}
@@ -126,12 +126,22 @@
                                         <span class="block text-[9px] text-slate-400 font-bold tracking-wider mt-0.5">{{ $product->sku }}</span>
                                     </td>
 
-                                    {{-- Fulfillment Select --}}
+                                    {{-- Fulfillment Toggle --}}
                                     <td class="py-3 px-3 border-r border-slate-200 text-center">
-                                        <select name="fulfillment_types[{{ $product->id }}]" onchange="onFulfillmentTypeChange(this)" class="text-[10px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-black cursor-pointer text-slate-700">
-                                            <option value="warehouse" {{ ($productFulfillmentTypes[$product->id] ?? 'warehouse') === 'warehouse' ? 'selected' : '' }}>Warehouse (Bulk)</option>
-                                            <option value="selection" {{ ($productFulfillmentTypes[$product->id] ?? 'warehouse') === 'selection' ? 'selected' : '' }}>Selection (Packet)</option>
-                                        </select>
+                                        <div class="inline-flex rounded-lg p-0.5 bg-slate-100 border border-slate-200">
+                                            <label class="cursor-pointer">
+                                                <input type="radio" name="fulfillment_types[{{ $product->id }}]" value="warehouse" @checked(($productFulfillmentTypes[$product->id] ?? 'warehouse') === 'warehouse') onchange="onFulfillmentRadioChange(this)" class="sr-only peer">
+                                                <span class="inline-block px-2.5 py-1 rounded-md text-[10px] font-bold text-slate-500 peer-checked:bg-white peer-checked:text-slate-800 peer-checked:shadow-sm transition-all select-none">
+                                                    Warehouse
+                                                </span>
+                                            </label>
+                                            <label class="cursor-pointer">
+                                                <input type="radio" name="fulfillment_types[{{ $product->id }}]" value="selection" @checked(($productFulfillmentTypes[$product->id] ?? 'warehouse') === 'selection') onchange="onFulfillmentRadioChange(this)" class="sr-only peer">
+                                                <span class="inline-block px-2.5 py-1 rounded-md text-[10px] font-bold text-slate-500 peer-checked:bg-white peer-checked:text-slate-800 peer-checked:shadow-sm transition-all select-none">
+                                                    Selection
+                                                </span>
+                                            </label>
+                                        </div>
                                     </td>
                                     
                                     {{-- Shops Inputs --}}
@@ -215,6 +225,7 @@
         // Dynamically calculate column totals and grand total on load
         document.addEventListener('DOMContentLoaded', () => {
             calculateColumnTotals();
+            filterBoardRows();
         });
 
         // Filter product rows by search query, order presence, and fulfillment type
@@ -252,9 +263,9 @@
         }
 
         // Action when fulfillment type changes on a row
-        function onFulfillmentTypeChange(select) {
-            const row = select.closest('tr');
-            row.setAttribute('data-fulfillment-type', select.value);
+        function onFulfillmentRadioChange(radio) {
+            const row = radio.closest('tr');
+            row.setAttribute('data-fulfillment-type', radio.value);
             filterBoardRows();
         }
 

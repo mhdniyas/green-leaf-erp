@@ -21,6 +21,7 @@ use App\Models\Supplier;
 use App\Models\WastageEntry;
 use App\Repositories\Inventory\StockMovementRepository;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\View\View;
 
 class DashboardController extends Controller
@@ -81,6 +82,7 @@ class DashboardController extends Controller
         $presets = collect();
         $yesterdayOrder = null;
         $allShopOrders = collect();
+        $dailyOrderStatuses = collect();
         if ($user->hasRole('shop-owner')) {
             $productsByCategory = Category::with(['products' => function ($q) {
                 $q->where('is_active', true)->orderBy('name');
@@ -117,8 +119,73 @@ class DashboardController extends Controller
             $allShopOrders = ShopOrder::with(['shop', 'creator', 'items.product'])
                 ->orderBy('business_date', 'desc')
                 ->get();
+
+            $trackedDates = collect([
+                today()->addDay()->toDateString(),
+                today()->toDateString(),
+            ])
+                ->merge($allShopOrders->pluck('business_date')->map(fn ($date) => $date->format('Y-m-d')))
+                ->merge(PurchaseOrder::query()
+                    ->orderByDesc('order_date')
+                    ->limit(10)
+                    ->pluck('order_date')
+                    ->map(fn ($date) => Carbon::parse($date)->format('Y-m-d')))
+                ->unique()
+                ->sortDesc()
+                ->take(7)
+                ->values();
+
+            $dailyOrderStatuses = $trackedDates->map(function (string $date) use ($allShopOrders): array {
+                $shopOrdersForDate = $allShopOrders->filter(fn (ShopOrder $order) => $order->business_date->format('Y-m-d') === $date);
+                $purchaseOrdersForDate = PurchaseOrder::whereDate('order_date', $date)
+                    ->with(['supplier', 'goodsReceiveds'])
+                    ->orderByDesc('id')
+                    ->get();
+
+                $submittedCount = $shopOrdersForDate->whereIn('state', ['submitted', 'update_requested'])->count();
+                $approvedCount = $shopOrdersForDate->where('state', 'approved')->count();
+                $poCount = $purchaseOrdersForDate->count();
+                $receivedPoCount = $purchaseOrdersForDate
+                    ->filter(fn (PurchaseOrder $order) => in_array($order->status, [POStatus::Received, POStatus::Closed], true))
+                    ->count();
+
+                if ($poCount > 0 && $receivedPoCount === $poCount) {
+                    $stage = 'received';
+                    $label = 'Receiving / Warehouse';
+                    $description = "{$receivedPoCount} PO received";
+                } elseif ($poCount > 0) {
+                    $stage = 'purchase_order';
+                    $label = 'Purchase Order';
+                    $description = "{$poCount} PO generated";
+                } elseif ($approvedCount > 0) {
+                    $stage = 'approved_board';
+                    $label = 'Approved Board';
+                    $description = "{$approvedCount} approved requisitions";
+                } elseif ($submittedCount > 0) {
+                    $stage = 'requisition';
+                    $label = 'Requisition Review';
+                    $description = "{$submittedCount} pending review";
+                } else {
+                    $stage = 'not_started';
+                    $label = 'Not Started';
+                    $description = 'No shop requisitions yet';
+                }
+
+                return [
+                    'date' => $date,
+                    'label' => $label,
+                    'stage' => $stage,
+                    'description' => $description,
+                    'shop_orders_count' => $shopOrdersForDate->count(),
+                    'submitted_count' => $submittedCount,
+                    'approved_count' => $approvedCount,
+                    'purchase_orders' => $purchaseOrdersForDate,
+                    'po_count' => $poCount,
+                    'received_po_count' => $receivedPoCount,
+                ];
+            });
         }
 
-        return view('dashboard', compact('inventoryStats', 'purchasingStats', 'salesStats', 'productsByCategory', 'recentRequisitions', 'presets', 'yesterdayOrder', 'allShopOrders'));
+        return view('dashboard', compact('inventoryStats', 'purchasingStats', 'salesStats', 'productsByCategory', 'recentRequisitions', 'presets', 'yesterdayOrder', 'allShopOrders', 'dailyOrderStatuses'));
     }
 }

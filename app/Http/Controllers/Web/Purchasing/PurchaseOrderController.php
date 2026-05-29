@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\StorePurchaseOrderRequest;
 use App\Http\Requests\Web\Purchasing\UpdatePurchaseOrderRequest;
 use App\Models\PurchaseOrder;
+use App\Models\PurchaseOrderItem;
 use App\Repositories\Inventory\ProductRepository;
 use App\Services\Purchasing\PurchaseOrderService;
 use App\Services\Purchasing\SupplierService;
@@ -29,9 +30,15 @@ class PurchaseOrderController extends Controller
     {
         Gate::authorize('viewAny', PurchaseOrder::class);
 
-        $orders = $this->service->paginate(20);
+        $activeTab = $request->input('tab', 'warehouse');
 
-        return view('purchasing.orders.index', compact('orders'));
+        $orders = PurchaseOrder::where('fulfillment_type', $activeTab)
+            ->with(['supplier', 'createdBy'])
+            ->orderByDesc('order_date')
+            ->orderByDesc('id')
+            ->paginate(20);
+
+        return view('purchasing.orders.index', compact('orders', 'activeTab'));
     }
 
     public function create(): View
@@ -61,7 +68,71 @@ class PurchaseOrderController extends Controller
 
         $order->load(['supplier', 'items.product', 'createdBy']);
 
-        return view('purchasing.orders.show', compact('order'));
+        // Query the most recent prior PO unit price for each product in the order
+        $previousPrices = PurchaseOrderItem::join('purchase_orders', 'purchase_orders.id', '=', 'purchase_order_items.purchase_order_id')
+            ->whereIn('purchase_order_items.product_id', $order->items->pluck('product_id'))
+            ->where('purchase_orders.id', '<', $order->id)
+            ->whereIn('purchase_order_items.id', function ($query) use ($order) {
+                $query->selectRaw('MAX(poi.id)')
+                    ->from('purchase_order_items as poi')
+                    ->join('purchase_orders as po', 'po.id', '=', 'poi.purchase_order_id')
+                    ->where('po.id', '<', $order->id)
+                    ->groupBy('poi.product_id');
+            })
+            ->pluck('unit_price', 'product_id');
+
+        $products = $this->productRepository->findAllActive();
+
+        return view('purchasing.orders.show', compact('order', 'previousPrices', 'products'));
+    }
+
+    public function updateItems(Request $request, PurchaseOrder $order): RedirectResponse
+    {
+        Gate::authorize('updateItems', $order);
+
+        if (in_array($order->status->value, ['received', 'closed'])) {
+            return redirect()->back()->with('error', 'Cannot update items on a received or closed purchase order.');
+        }
+
+        $data = $request->validate([
+            'items' => ['required', 'array'],
+            'items.*.id' => ['required', 'exists:purchase_order_items,id'],
+            'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'items.*.purchase_unit' => ['required', 'string', 'in:kg,packet,bag,box'],
+            'items.*.packet_qty' => ['nullable', 'numeric', 'min:0'],
+            'items.*.weight_per_packet' => ['nullable', 'numeric', 'min:0'],
+            'items.*.actual_weight' => ['nullable', 'numeric', 'min:0'],
+            'items.*.unit_price' => ['required', 'numeric', 'min:0'],
+            'items.*.price_basis' => ['required', 'string', 'in:per_kg,per_unit'],
+            'items.*.quantity' => ['required', 'numeric', 'min:0'],
+        ]);
+
+        foreach ($data['items'] as $itemData) {
+            $item = $order->items()->findOrFail($itemData['id']);
+
+            $updateFields = [
+                'product_id' => (int) $itemData['product_id'],
+                'purchase_unit' => $itemData['purchase_unit'],
+                'unit_price' => $itemData['unit_price'],
+                'price_basis' => $itemData['price_basis'],
+                'actual_weight' => ($itemData['actual_weight'] !== null && $itemData['actual_weight'] !== '') ? (float) $itemData['actual_weight'] : null,
+            ];
+
+            if ($itemData['purchase_unit'] === 'kg') {
+                $updateFields['packet_qty'] = null;
+                $updateFields['weight_per_packet'] = null;
+                $updateFields['quantity'] = (float) $itemData['quantity'];
+            } else {
+                $updateFields['packet_qty'] = ($itemData['packet_qty'] !== null && $itemData['packet_qty'] !== '') ? (float) $itemData['packet_qty'] : null;
+                $updateFields['weight_per_packet'] = ($itemData['weight_per_packet'] !== null && $itemData['weight_per_packet'] !== '') ? (float) $itemData['weight_per_packet'] : null;
+                $updateFields['quantity'] = ((float) ($itemData['packet_qty'] ?? 0)) * ((float) ($itemData['weight_per_packet'] ?? 0));
+            }
+
+            $item->update($updateFields);
+        }
+
+        return redirect()->route('purchasing.orders.show', $order)
+            ->with('success', 'Purchase order items updated successfully.');
     }
 
     public function edit(PurchaseOrder $order): View

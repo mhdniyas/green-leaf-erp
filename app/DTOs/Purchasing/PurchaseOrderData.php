@@ -9,12 +9,13 @@ use Illuminate\Http\Request;
 final readonly class PurchaseOrderData
 {
     /**
-     * @param  array<int, array{product_id: int, quantity: float, unit_price: float}>  $items
+     * @param  array<int, array{product_id: int, quantity: float, unit_price: float, price_basis: string}>  $items
      */
     public function __construct(
         public int $supplierId,
         public string $orderDate,
         public ?string $notes,
+        public string $fulfillmentType,
         public array $items,
     ) {}
 
@@ -28,6 +29,7 @@ final readonly class PurchaseOrderData
                 'product_id' => (int) ($item['product_id'] ?? 0),
                 'quantity' => (float) ($item['quantity'] ?? 0.000),
                 'unit_price' => (float) ($item['unit_price'] ?? 0.0000),
+                'price_basis' => (string) ($item['price_basis'] ?? 'per_kg'),
             ];
         }
 
@@ -35,6 +37,7 @@ final readonly class PurchaseOrderData
             supplierId: (int) $request->input('supplier_id'),
             orderDate: $request->string('order_date')->toString() ?: now()->format('Y-m-d'),
             notes: $request->string('notes')->toString() ?: null,
+            fulfillmentType: $request->string('fulfillment_type')->toString() ?: 'warehouse',
             items: $items,
         );
     }
@@ -45,6 +48,7 @@ final readonly class PurchaseOrderData
             'supplier_id' => $this->supplierId,
             'order_date' => $this->orderDate,
             'notes' => $this->notes,
+            'fulfillment_type' => $this->fulfillmentType,
         ];
     }
 }

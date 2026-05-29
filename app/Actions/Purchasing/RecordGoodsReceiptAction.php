@@ -77,7 +77,7 @@ class RecordGoodsReceiptAction
                     'reference' => $this->stockBatchRepository->generateReference(),
                     'received_at' => $data->receivedAt,
                     'total_kg' => $item['received_qty'],
-                    'cost_per_kg' => $poItem->unit_price,
+                    'cost_per_kg' => $poItem->costPerKgForReceivedQuantity((float) $item['received_qty']),
                     'transport_cost' => round($allocatedTransport, 2),
                     'labour_cost' => round($allocatedLabour, 2),
                     'status' => BatchStatus::Pending,

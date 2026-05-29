@@ -414,12 +414,12 @@
             if (isExpanded) {
                 button.setAttribute('aria-expanded', 'false');
                 items.classList.add('hidden');
-                chevron.classList.remove('rotate-90 opacity-100');
+                chevron.classList.remove('rotate-90', 'opacity-100');
                 chevron.classList.add('opacity-50');
             } else {
                 button.setAttribute('aria-expanded', 'true');
                 items.classList.remove('hidden');
-                chevron.classList.add('rotate-90 opacity-100');
+                chevron.classList.add('rotate-90', 'opacity-100');
                 chevron.classList.remove('opacity-50');
             }
         });

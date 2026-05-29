@@ -90,10 +90,20 @@
                                         </td>
                                         <td class="py-4 px-6 text-center">
                                             @if($showApprovalForm)
-                                                <select name="fulfillment_types[{{ $item->id }}]" form="review-form" class="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-bold cursor-pointer text-slate-700">
-                                                    <option value="warehouse" {{ ($item->fulfillment_type ?? 'warehouse') === 'warehouse' ? 'selected' : '' }}>Warehouse (Bulk)</option>
-                                                    <option value="selection" {{ ($item->fulfillment_type ?? 'warehouse') === 'selection' ? 'selected' : '' }}>Selection (Packet)</option>
-                                                </select>
+                                                <div class="inline-flex rounded-lg p-0.5 bg-slate-100 border border-slate-200">
+                                                    <label class="cursor-pointer">
+                                                        <input type="radio" name="fulfillment_types[{{ $item->id }}]" value="warehouse" @checked(($item->fulfillment_type ?? 'warehouse') === 'warehouse') form="review-form" class="sr-only peer">
+                                                        <span class="inline-block px-3 py-1 rounded-md text-[10px] font-bold text-slate-500 peer-checked:bg-white peer-checked:text-slate-800 peer-checked:shadow-sm transition-all select-none">
+                                                            Warehouse
+                                                        </span>
+                                                    </label>
+                                                    <label class="cursor-pointer">
+                                                        <input type="radio" name="fulfillment_types[{{ $item->id }}]" value="selection" @checked(($item->fulfillment_type ?? 'warehouse') === 'selection') form="review-form" class="sr-only peer">
+                                                        <span class="inline-block px-3 py-1 rounded-md text-[10px] font-bold text-slate-500 peer-checked:bg-white peer-checked:text-slate-800 peer-checked:shadow-sm transition-all select-none">
+                                                            Selection
+                                                        </span>
+                                                    </label>
+                                                </div>
                                             @else
                                                 <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border {{ ($item->fulfillment_type ?? 'warehouse') === 'selection' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-slate-50 text-slate-700 border-slate-200' }}">
                                                     {{ ($item->fulfillment_type ?? 'warehouse') === 'selection' ? 'Selection (Packet)' : 'Warehouse (Bulk)' }}
@@ -194,8 +204,8 @@
                         <span class="text-xs text-slate-400 font-bold">Status Badge</span>
                         <div>
                             @if($order->state === 'submitted')
-                                <span class="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-black border border-emerald-100">
-                                    <svg class="w-4 h-4 stroke-current" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                <span class="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-xs font-black border border-amber-100">
+                                    <svg class="w-4 h-4 stroke-current" fill="none" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                     Submitted
                                 </span>
                             @elseif($order->state === 'approved')

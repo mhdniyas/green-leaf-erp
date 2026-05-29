@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Enums\Purchasing\POStatus;
 use App\Models\Product;
+use App\Models\PurchaseOrder;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Models\Supplier;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
@@ -194,8 +197,69 @@ class DemoUserSeeder extends Seeder
                     );
                 }
             }
+
+            // 3. Seed some sample Purchase Orders
+            $supplier1 = Supplier::where('name', 'Green Valley Farm')->first();
+            $supplier2 = Supplier::where('name', 'Global Produce Direct')->first();
+            $purchaseManager = User::where('email', 'purchasing@greenleaf.com')->first();
+
+            if ($supplier1 && $purchaseManager) {
+                // PO 1: Warehouse (Bulk)
+                $po1 = PurchaseOrder::updateOrCreate(
+                    [
+                        'po_number' => 'PO-'.now()->format('Ymd').'-W1',
+                    ],
+                    [
+                        'supplier_id' => $supplier1->id,
+                        'status' => POStatus::Approved,
+                        'order_date' => now()->format('Y-m-d'),
+                        'created_by' => $purchaseManager->id,
+                        'fulfillment_type' => 'warehouse',
+                        'notes' => 'Auto-seeded for testing',
+                    ]
+                );
+
+                $product = Product::first();
+                if ($product) {
+                    $po1->items()->updateOrCreate(
+                        ['product_id' => $product->id],
+                        [
+                            'quantity' => 150.00,
+                            'unit_price' => 12.50,
+                        ]
+                    );
+                }
+            }
+
+            if ($supplier2 && $purchaseManager) {
+                // PO 2: Selection (Packet)
+                $po2 = PurchaseOrder::updateOrCreate(
+                    [
+                        'po_number' => 'PO-'.now()->format('Ymd').'-S1',
+                    ],
+                    [
+                        'supplier_id' => $supplier2->id,
+                        'status' => POStatus::Approved,
+                        'order_date' => now()->format('Y-m-d'),
+                        'created_by' => $purchaseManager->id,
+                        'fulfillment_type' => 'selection',
+                        'notes' => 'Auto-seeded for testing',
+                    ]
+                );
+
+                $product = Product::skip(1)->first();
+                if ($product) {
+                    $po2->items()->updateOrCreate(
+                        ['product_id' => $product->id],
+                        [
+                            'quantity' => 80.00,
+                            'unit_price' => 24.00,
+                        ]
+                    );
+                }
+            }
         }
 
-        $this->command->info('✅ Demo users and shop orders seeded successfully. Password: password');
+        $this->command->info('✅ Demo users, shop orders, and purchase orders seeded successfully. Password: password');
     }
 }

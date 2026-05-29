@@ -13,10 +13,24 @@
         @endcan
     </x-slot:actions>
 
+    {{-- Tabs --}}
+    <div class="flex border-b border-gray-200 mb-6 gap-6">
+        <a href="{{ route('purchasing.orders.index', ['tab' => 'warehouse']) }}" 
+           class="pb-3 text-sm font-bold border-b-2 transition-all {{ $activeTab === 'warehouse' ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-900' }}">
+            Warehouse (Bulk) Orders
+        </a>
+        <a href="{{ route('purchasing.orders.index', ['tab' => 'selection']) }}" 
+           class="pb-3 text-sm font-bold border-b-2 transition-all {{ $activeTab === 'selection' ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-900' }}">
+            Selection (Packet) Orders
+        </a>
+    </div>
+
     {{-- Table --}}
     <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
         <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-            <h2 class="text-sm font-semibold text-gray-900">Purchase Orders Log</h2>
+            <h2 class="text-sm font-semibold text-gray-900">
+                {{ $activeTab === 'selection' ? 'Selection (Packet) Orders' : 'Warehouse (Bulk) Orders' }} Log
+            </h2>
             <span class="text-xs text-gray-500">{{ $orders->total() }} orders</span>
         </div>
 

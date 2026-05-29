@@ -23,6 +23,7 @@ class GoodsReceived extends Model
     protected $fillable = [
         'purchase_order_id',
         'grn_number',
+        'status',
         'received_by',
         'received_at',
         'transport_cost',

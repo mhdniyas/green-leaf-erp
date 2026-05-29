@@ -127,7 +127,7 @@
             text-transform: uppercase;
         }
 
-        .badge-submitted { background-color: #d1fae5; color: #065f46; }
+        .badge-submitted { background-color: #fef3c7; color: #92400e; }
         .badge-approved { background-color: #d1fae5; color: #065f46; }
         .badge-pending { background-color: #fef3c7; color: #92400e; }
         .badge-update_requested { background-color: #e0f2fe; color: #075985; }

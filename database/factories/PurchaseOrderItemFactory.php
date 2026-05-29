@@ -28,6 +28,7 @@ class PurchaseOrderItemFactory extends Factory
             'product_id' => Product::factory(),
             'quantity' => $this->faker->randomFloat(3, 50, 1000), // in kg
             'unit_price' => $this->faker->randomFloat(4, 0.50, 15.00), // per kg
+            'price_basis' => 'per_kg',
         ];
     }
 }

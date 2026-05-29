@@ -30,6 +30,11 @@ class PurchaseOrderPolicy
         return $user->can('purchasing.order.create') && $po->status->value === 'draft';
     }
 
+    public function updateItems(User $user, PurchaseOrder $po): bool
+    {
+        return $user->can('purchasing.order.create') && in_array($po->status->value, ['draft', 'approved']);
+    }
+
     public function delete(User $user, PurchaseOrder $po): bool
     {
         return $user->can('purchasing.order.create') && $po->status->value === 'draft';

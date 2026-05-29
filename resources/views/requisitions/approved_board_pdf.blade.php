@@ -131,7 +131,15 @@
     <div class="header">
         <div class="logo-section">
             <h1>GREEN LEAF ERP</h1>
-            <p>Approved Consolidated Requisitions Board</p>
+            <p>
+                @if(($type ?? 'both') === 'warehouse')
+                    Approved Warehouse (Bulk) Requisitions Board
+                @elseif(($type ?? 'both') === 'selection')
+                    Approved Selection (Packet) Requisitions Board
+                @else
+                    Approved Consolidated Requisitions Board
+                @endif
+            </p>
         </div>
         <div class="meta-section">
             <h2>Allocations Grid</h2>
@@ -155,9 +163,15 @@
         <tbody>
             @php
                 $colTotals = array_fill_keys($shops->pluck('id')->toArray(), 0);
+                $slNo = 1;
             @endphp
-            @foreach($products as $index => $product)
+            @foreach($products as $product)
                 @php
+                    $fulfillment = $productFulfillmentTypes[$product->id] ?? 'warehouse';
+                    if (($type ?? 'both') !== 'both' && $fulfillment !== $type) {
+                        continue;
+                    }
+
                     $rowTotal = 0;
                     $hasQty = false;
                     foreach ($shops as $shop) {
@@ -171,12 +185,12 @@
                 @endphp
                 @if($hasQty)
                     <tr>
-                        <td>{{ $index + 1 }}</td>
+                        <td>{{ $slNo++ }}</td>
                         <td class="text-left">
                             <span class="product-name">{{ $product->name }}</span><br>
                             <span class="sku">{{ $product->sku }}</span>
                         </td>
-                        <td>{{ ucfirst($productFulfillmentTypes[$product->id] ?? 'warehouse') }}</td>
+                        <td>{{ ucfirst($fulfillment) }}</td>
                         @foreach($shops as $shop)
                             @php
                                 $qty = $matrix[$product->id][$shop->id]['approved_qty'] ?? 0;

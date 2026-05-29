@@ -24,11 +24,13 @@ class UpdatePurchaseOrderRequest extends FormRequest
         return [
             'supplier_id' => ['required', 'integer', 'exists:suppliers,id'],
             'order_date' => ['required', 'date'],
+            'fulfillment_type' => ['required', 'string', 'in:warehouse,selection'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
             'items.*.quantity' => ['required', 'numeric', 'min:0.001'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0.0001'],
+            'items.*.price_basis' => ['nullable', 'string', 'in:per_kg,per_unit'],
         ];
     }
 }

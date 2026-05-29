@@ -2352,6 +2352,113 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
     @endif
 
     @if($role === 'purchasing-manager' || $user->can('purchasing.order.approve'))
+    {{-- Daily order progress timeline --}}
+    <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-6">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-5 border-b border-slate-100">
+            <div>
+                <h2 class="text-lg font-black text-slate-800 tracking-tight">Daily Order Progress</h2>
+                <p class="text-xs text-slate-400 mt-0.5">Track each delivery date from requisition to approved board, purchase order, and warehouse receiving</p>
+            </div>
+            <a href="{{ route('requisitions.approved_board') }}" class="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-black text-white hover:bg-slate-800 transition-colors">
+                Open Approved Board
+            </a>
+        </div>
+
+        <div class="divide-y divide-slate-100">
+            @forelse($dailyOrderStatuses as $status)
+                @php
+                    $stageIndex = match ($status['stage']) {
+                        'not_started' => 0,
+                        'requisition' => 1,
+                        'approved_board' => 2,
+                        'purchase_order' => 3,
+                        'received' => 4,
+                        default => 0,
+                    };
+                    $stages = [
+                        ['key' => 'requisition', 'label' => 'Requisition'],
+                        ['key' => 'approved_board', 'label' => 'Approved'],
+                        ['key' => 'purchase_order', 'label' => 'Purchase'],
+                        ['key' => 'received', 'label' => 'Received'],
+                    ];
+                    $stageColor = match ($status['stage']) {
+                        'received' => 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                        'purchase_order' => 'bg-blue-50 text-blue-700 border-blue-200',
+                        'approved_board' => 'bg-violet-50 text-violet-700 border-violet-200',
+                        'requisition' => 'bg-amber-50 text-amber-700 border-amber-200',
+                        default => 'bg-slate-50 text-slate-600 border-slate-200',
+                    };
+                @endphp
+                <div class="py-4 flex flex-col xl:flex-row xl:items-center gap-4">
+                    <div class="xl:w-64 shrink-0">
+                        <div class="flex items-center gap-2">
+                            <p class="text-sm font-black text-slate-900">{{ \Carbon\Carbon::parse($status['date'])->format('d M Y') }}</p>
+                            @if($status['date'] === today()->addDay()->toDateString())
+                                <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-700">Tomorrow</span>
+                            @elseif($status['date'] === today()->toDateString())
+                                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-600">Today</span>
+                            @endif
+                        </div>
+                        <div class="mt-1 flex items-center gap-2">
+                            <span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider {{ $stageColor }}">
+                                {{ $status['label'] }}
+                            </span>
+                            <span class="text-[11px] font-semibold text-slate-500">{{ $status['description'] }}</span>
+                        </div>
+                    </div>
+
+                    <div class="flex-1 min-w-0">
+                        <div class="grid grid-cols-4 gap-2">
+                            @foreach($stages as $index => $step)
+                                @php
+                                    $isComplete = ($index + 1) <= $stageIndex;
+                                    $isCurrent = $step['key'] === $status['stage'];
+                                @endphp
+                                <div @class([
+                                    'rounded-xl border px-3 py-2 text-center transition-colors',
+                                    'bg-slate-900 border-slate-900 text-white' => $isCurrent,
+                                    'bg-emerald-50 border-emerald-200 text-emerald-700' => $isComplete && ! $isCurrent,
+                                    'bg-slate-50 border-slate-200 text-slate-400' => ! $isComplete && ! $isCurrent,
+                                ])>
+                                    <p class="text-[10px] font-black uppercase tracking-wider">{{ $step['label'] }}</p>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap gap-2 xl:w-72 xl:justify-end shrink-0">
+                        @if($status['po_count'] > 0)
+                            @foreach($status['purchase_orders']->take(2) as $po)
+                                <a href="{{ route('purchasing.orders.show', $po) }}" class="inline-flex items-center rounded-xl bg-blue-600 px-3 py-2 text-[11px] font-black text-white hover:bg-blue-700 transition-colors">
+                                    {{ $po->po_number }}
+                                </a>
+                            @endforeach
+                            @if($status['po_count'] > 2)
+                                <a href="{{ route('purchasing.orders.index') }}" class="inline-flex items-center rounded-xl bg-blue-50 px-3 py-2 text-[11px] font-black text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors">
+                                    +{{ $status['po_count'] - 2 }} more
+                                </a>
+                            @endif
+                        @elseif($status['approved_count'] > 0)
+                            <a href="{{ route('requisitions.approved_board', ['date' => $status['date']]) }}" class="inline-flex items-center rounded-xl bg-violet-600 px-3 py-2 text-[11px] font-black text-white hover:bg-violet-700 transition-colors">
+                                Open Approved Board
+                            </a>
+                        @elseif($status['submitted_count'] > 0)
+                            <a href="{{ route('requisitions.board', ['date' => $status['date']]) }}" class="inline-flex items-center rounded-xl bg-amber-500 px-3 py-2 text-[11px] font-black text-white hover:bg-amber-600 transition-colors">
+                                Review Requisitions
+                            </a>
+                        @else
+                            <span class="inline-flex items-center rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-black text-slate-400 border border-slate-200">
+                                Waiting for shops
+                            </span>
+                        @endif
+                    </div>
+                </div>
+            @empty
+                <div class="py-8 text-center text-xs font-semibold text-slate-400">No daily order activity yet.</div>
+            @endforelse
+        </div>
+    </div>
+
     {{-- ========================================================================= --}}
     {{-- 🛒 SHOP REQUISITIONS APPROVAL CENTER (PURCHASE MANAGER)                    --}}
     {{-- ========================================================================= --}}

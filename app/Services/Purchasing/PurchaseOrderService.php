@@ -39,6 +39,7 @@ class PurchaseOrderService
                 'order_date' => $data->orderDate,
                 'created_by' => $userId,
                 'notes' => $data->notes,
+                'fulfillment_type' => $data->fulfillmentType,
             ]);
 
             foreach ($data->items as $item) {
@@ -46,6 +47,7 @@ class PurchaseOrderService
                     'product_id' => $item['product_id'],
                     'quantity' => $item['quantity'],
                     'unit_price' => $item['unit_price'],
+                    'price_basis' => $item['price_basis'],
                 ]);
             }
 
@@ -60,6 +62,7 @@ class PurchaseOrderService
                 'supplier_id' => $data->supplierId,
                 'order_date' => $data->orderDate,
                 'notes' => $data->notes,
+                'fulfillment_type' => $data->fulfillmentType,
             ]);
 
             // Sync items (delete existing, create new)
@@ -69,6 +72,7 @@ class PurchaseOrderService
                     'product_id' => $item['product_id'],
                     'quantity' => $item['quantity'],
                     'unit_price' => $item['unit_price'],
+                    'price_basis' => $item['price_basis'],
                 ]);
             }
 

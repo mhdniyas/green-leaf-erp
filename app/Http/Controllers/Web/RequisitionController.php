@@ -4,11 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web;
 
+use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Product;
+use App\Models\PurchaseOrder;
+use App\Models\PurchaseOrderItem;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Models\Supplier;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -295,10 +300,13 @@ class RequisitionController extends Controller
                 ]);
             }
             $order->update(['state' => 'approved']);
+
+            // Sync Purchase Orders dynamically for this requisition's business date
+            $this->syncPurchaseOrdersForDate($order->business_date);
         });
 
         return redirect()->route('requisitions.show', $order->order_number)
-            ->with('success', 'Requisition approved and quantities updated successfully.');
+            ->with('success', 'Requisition approved, quantities updated, and Purchase Orders synced successfully.');
     }
 
     /**
@@ -499,7 +507,45 @@ class RequisitionController extends Controller
             }
         }
 
-        return view('requisitions.approved_board', compact('date', 'shops', 'products', 'matrix', 'productFulfillmentTypes'));
+        // Load categorized suppliers
+        $ownPurchaseSuppliers = Supplier::where('category', 'own_purchase')->orderBy('name')->get();
+        $b2bSuppliers = Supplier::where('category', 'b2b')->orderBy('name')->get();
+
+        // Build product supplier map based on existing POs for this date
+        $existingPos = PurchaseOrder::whereDate('order_date', $date)->with(['items', 'supplier'])->get();
+        $approvedBoardSynced = $existingPos->isNotEmpty();
+        $productSupplierMap = [];
+        foreach ($existingPos as $po) {
+            foreach ($po->items as $item) {
+                $productSupplierMap[$item->product_id] = $po->supplier_id;
+            }
+        }
+
+        // Fall back to the last supplier used overall for each product
+        $lastPoItems = PurchaseOrderItem::whereIn('product_id', $products->pluck('id'))
+            ->with('purchaseOrder')
+            ->orderBy('id', 'desc')
+            ->get()
+            ->unique('product_id');
+
+        foreach ($lastPoItems as $item) {
+            if (! isset($productSupplierMap[$item->product_id]) && $item->purchaseOrder) {
+                $productSupplierMap[$item->product_id] = $item->purchaseOrder->supplier_id;
+            }
+        }
+
+        return view('requisitions.approved_board', compact(
+            'date',
+            'shops',
+            'products',
+            'matrix',
+            'productFulfillmentTypes',
+            'ownPurchaseSuppliers',
+            'b2bSuppliers',
+            'productSupplierMap',
+            'approvedBoardSynced',
+            'existingPos'
+        ));
     }
 
     /**
@@ -517,14 +563,21 @@ class RequisitionController extends Controller
             return redirect()->back()->with('error', 'Invalid date selected.');
         }
 
+        if (PurchaseOrder::whereDate('order_date', $date)->exists()) {
+            return redirect()->route('requisitions.approved_board', ['date' => $date])
+                ->with('error', 'Purchase Orders have already been generated for this date. Continue from the Purchase Orders screen.');
+        }
+
         // quantities is a 2D array: [product_id][shop_id] => value
         $quantities = $request->input('quantities', []);
         $fulfillmentTypes = $request->input('fulfillment_types', []);
+        $suppliers = $request->input('suppliers', []);
+        $poSelectionEnabled = $request->has('po_selection_enabled');
+        $selectedProductIds = $request->input('selected_products', []);
 
-        DB::transaction(function () use ($date, $quantities, $fulfillmentTypes, $request) {
+        DB::transaction(function () use ($date, $quantities, $fulfillmentTypes, $suppliers, $poSelectionEnabled, $selectedProductIds, $request): void {
             // Find all active shops to know who we might need to create orders for
             $shops = Shop::where('status', 'active')->get();
-            throw new \Exception("Shops: " . json_encode($shops->toArray()) . ", Quantities: " . json_encode($quantities));
 
             foreach ($shops as $shop) {
                 // Check if any product has a quantity for this shop
@@ -538,7 +591,7 @@ class RequisitionController extends Controller
 
                 // Find or create the shop order for this shop and date
                 $order = ShopOrder::where('shop_id', $shop->id)
-                    ->where('business_date', $date)
+                    ->whereDate('business_date', $date)
                     ->first();
 
                 if (! $order && $hasQty) {
@@ -599,10 +652,13 @@ class RequisitionController extends Controller
                     }
                 }
             }
+
+            // --- Generate and Sync Purchase Orders to Suppliers ---
+            $this->syncPurchaseOrdersForDate($date, $suppliers, $poSelectionEnabled, $selectedProductIds);
         });
 
         return redirect()->route('requisitions.approved_board', ['date' => $date])
-            ->with('success', 'Approved requisitions updated successfully.');
+            ->with('success', 'Approved requisitions updated and Purchase Orders generated successfully.');
     }
 
     /**
@@ -691,6 +747,7 @@ class RequisitionController extends Controller
         }
 
         $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
+        $type = $request->input('type', 'both');
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
         $products = Product::where('is_active', true)->orderBy('name')->get();
         $orders = ShopOrder::where('business_date', $date)
@@ -715,6 +772,155 @@ class RequisitionController extends Controller
             }
         }
 
-        return view('requisitions.approved_board_pdf', compact('date', 'shops', 'products', 'matrix', 'productFulfillmentTypes'));
+        return view('requisitions.approved_board_pdf', compact('date', 'shops', 'products', 'matrix', 'productFulfillmentTypes', 'type'));
+    }
+
+    /**
+     * Synchronize and generate/update Purchase Orders for a given business date.
+     */
+    private function syncPurchaseOrdersForDate(
+        string|Carbon $date,
+        array $suppliers = [],
+        bool $poSelectionEnabled = false,
+        array $selectedProductIds = []
+    ): void {
+        $dateStr = $date instanceof \Carbon\Carbon ? $date->format('Y-m-d') : (string) $date;
+
+        // Group approved product quantities by supplier and fulfillment type
+        $poGroups = []; // Format: [supplier_id][fulfillment_type][product_id] => total_qty
+
+        // We can query all approved shop order items for this date
+        $approvedItems = ShopOrderItem::whereHas('order', function ($query) use ($dateStr): void {
+            $query->whereDate('business_date', $dateStr)
+                ->where('state', 'approved');
+        })->get();
+
+        // Load all active products to resolve fallback suppliers if needed
+        $products = Product::where('is_active', true)->get();
+
+        // Get fallback suppliers (last PO supplier used overall for each product)
+        $productSupplierMap = [];
+        $lastPoItems = PurchaseOrderItem::whereIn('product_id', $products->pluck('id'))
+            ->with('purchaseOrder')
+            ->orderBy('id', 'desc')
+            ->get()
+            ->unique('product_id');
+
+        foreach ($lastPoItems as $item) {
+            if ($item->purchaseOrder) {
+                $productSupplierMap[$item->product_id] = $item->purchaseOrder->supplier_id;
+            }
+        }
+
+        // Aggregate them by product
+        $productTotals = [];
+        foreach ($approvedItems as $item) {
+            // Filter by selection if enabled
+            if (! $poSelectionEnabled || in_array($item->product_id, $selectedProductIds)) {
+                if (! isset($productTotals[$item->product_id])) {
+                    $productTotals[$item->product_id] = 0.00;
+                }
+                $productTotals[$item->product_id] += (float) ($item->approved_qty ?? $item->requested_qty);
+            }
+        }
+
+        // Group by supplier and fulfillment type
+        foreach ($productTotals as $productId => $totalQty) {
+            if ($totalQty <= 0) {
+                continue;
+            }
+
+            $supplierId = isset($suppliers[$productId]) ? (int) $suppliers[$productId] : ($productSupplierMap[$productId] ?? null);
+
+            if (! $supplierId) {
+                // Default to the first own_purchase supplier as a final fallback
+                $firstSupplier = Supplier::where('category', 'own_purchase')->first() ?? Supplier::first();
+                if ($firstSupplier) {
+                    $supplierId = $firstSupplier->id;
+                }
+            }
+
+            $fulfillmentType = ShopOrderItem::whereHas('order', function ($query) use ($dateStr): void {
+                $query->whereDate('business_date', $dateStr)
+                    ->where('state', 'approved');
+            })->where('product_id', $productId)->value('fulfillment_type') ?? 'warehouse';
+
+            if ($supplierId) {
+                $poGroups[$supplierId][$fulfillmentType][$productId] = $totalQty;
+            }
+        }
+
+        // Track which PO IDs we touched or created
+        $activePoIds = [];
+
+        foreach ($poGroups as $supplierId => $types) {
+            foreach ($types as $fulfillmentType => $items) {
+                // Find or create the PO for this supplier, date, and fulfillment type
+                $po = PurchaseOrder::whereDate('order_date', $dateStr)
+                    ->where('supplier_id', $supplierId)
+                    ->where('fulfillment_type', $fulfillmentType)
+                    ->first();
+
+                if (! $po) {
+                    // Generate PO number
+                    $dateStrStr = Carbon::parse($dateStr)->format('Ymd');
+                    do {
+                        $suffix = strtoupper(bin2hex(random_bytes(2)));
+                        $poNumber = "PO-{$dateStrStr}-{$suffix}";
+                    } while (PurchaseOrder::where('po_number', $poNumber)->exists());
+
+                    $po = PurchaseOrder::create([
+                        'supplier_id' => $supplierId,
+                        'po_number' => $poNumber,
+                        'status' => POStatus::Approved, // Directly approved
+                        'order_date' => $dateStr,
+                        'created_by' => auth()->id() ?? User::role('purchasing-manager')->first()?->id ?? 1,
+                        'fulfillment_type' => $fulfillmentType,
+                        'notes' => 'Auto-generated from Requisitions System',
+                    ]);
+                } else {
+                    // If it exists, clear existing items so we can recreate them
+                    $po->items()->delete();
+                    // If it's a draft, make sure to set it to Approved
+                    if ($po->status !== POStatus::Approved) {
+                        $po->update(['status' => POStatus::Approved]);
+                    }
+                }
+
+                $activePoIds[] = $po->id;
+
+                // Create items
+                foreach ($items as $productId => $qty) {
+                    $product = Product::find($productId);
+                    if ($product) {
+                        // Find the last purchase price for this product
+                        $lastPrice = PurchaseOrderItem::where('product_id', $productId)
+                            ->latest('id')
+                            ->value('unit_price') ?? 1.00;
+
+                        $po->items()->create([
+                            'product_id' => $productId,
+                            'quantity' => $qty,
+                            'unit_price' => $lastPrice,
+                        ]);
+                    }
+                }
+            }
+        }
+
+        // Clean up any empty POs that were generated for this date but are no longer in our active list
+        $allGeneratedPos = PurchaseOrder::whereDate('order_date', $dateStr)
+            ->where(function ($q) {
+                $q->where('notes', 'Auto-generated from Approved Requisitions Board')
+                    ->orWhere('notes', 'Auto-generated from Requisitions System');
+            })
+            ->get();
+
+        foreach ($allGeneratedPos as $po) {
+            if (! in_array($po->id, $activePoIds, true)) {
+                $po->items()->delete();
+                $po->forceDelete(); // Force delete empty auto-generated POs
+            }
+        }
     }
 }

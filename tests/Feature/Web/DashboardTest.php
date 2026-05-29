@@ -5,13 +5,16 @@ declare(strict_types=1);
 namespace Tests\Feature\Web;
 
 use App\Enums\Sales\SOStatus;
+use App\Enums\Purchasing\POStatus;
 use App\Models\Customer;
 use App\Models\Product;
+use App\Models\PurchaseOrder;
 use App\Models\SalesInvoice;
 use App\Models\SalesOrder;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Models\Supplier;
 use App\Models\User;
 use Database\Seeders\CategorySeeder;
 use Database\Seeders\ProductSeeder;

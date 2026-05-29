@@ -74,6 +74,7 @@ class PurchaseOrderTest extends TestCase
         $orderData = [
             'supplier_id' => $this->supplier->id,
             'order_date' => now()->toDateString(),
+            'fulfillment_type' => 'warehouse',
             'notes' => 'Some test notes for PO',
             'items' => [
                 [
@@ -123,6 +124,7 @@ class PurchaseOrderTest extends TestCase
         $updateData = [
             'supplier_id' => $this->supplier->id,
             'order_date' => now()->toDateString(),
+            'fulfillment_type' => 'warehouse',
             'notes' => 'Updated notes',
             'items' => [
                 [
@@ -180,5 +182,190 @@ class PurchaseOrderTest extends TestCase
         $this->assertSoftDeleted('purchase_orders', [
             'id' => $order->id,
         ]);
+    }
+
+    public function test_routes_use_po_number_instead_of_id(): void
+    {
+        $order = PurchaseOrder::factory()->create([
+            'supplier_id' => $this->supplier->id,
+            'created_by' => $this->authorizedUser->id,
+            'po_number' => 'PO-2026-TEST-99',
+        ]);
+
+        $showUrl = route('purchasing.orders.show', $order);
+        $this->assertStringContainsString('PO-2026-TEST-99', $showUrl);
+        $this->assertStringNotContainsString("/{$order->id}", $showUrl);
+
+        $response = $this->actingAs($this->authorizedUser)->get($showUrl);
+        $response->assertOk();
+    }
+
+    public function test_can_update_purchase_order_items(): void
+    {
+        $order = PurchaseOrder::factory()->create([
+            'supplier_id' => $this->supplier->id,
+            'created_by' => $this->authorizedUser->id,
+            'status' => POStatus::Approved,
+        ]);
+        $item = $order->items()->create([
+            'product_id' => $this->product->id,
+            'quantity' => 10.00,
+            'unit_price' => 5.00,
+            'purchase_unit' => 'kg',
+        ]);
+
+        $updateData = [
+            'items' => [
+                [
+                    'id' => $item->id,
+                    'product_id' => $this->product->id,
+                    'purchase_unit' => 'packet',
+                    'packet_qty' => 5.00,
+                    'weight_per_packet' => 2.50,
+                    'actual_weight' => 12.00,
+                    'unit_price' => 6.00,
+                    'price_basis' => 'per_kg',
+                    'quantity' => 12.50, // expected quantity
+                ],
+            ],
+        ];
+
+        $response = $this->actingAs($this->authorizedUser)
+            ->put(route('purchasing.orders.items.update', $order), $updateData);
+
+        $response->assertRedirect(route('purchasing.orders.show', $order));
+
+        $item->refresh();
+        $this->assertEquals('packet', $item->purchase_unit);
+        $this->assertEquals(5.00, (float) $item->packet_qty);
+        $this->assertEquals(2.50, (float) $item->weight_per_packet);
+        $this->assertEquals(12.00, (float) $item->actual_weight);
+        $this->assertEquals(12.50, (float) $item->quantity);
+        $this->assertEquals(6.00, (float) $item->unit_price);
+        $this->assertEquals(72.00, $item->subtotal);
+
+        $order->refresh();
+        $this->assertEquals(72.00, $order->total_amount);
+    }
+
+    public function test_purchase_order_item_can_be_priced_per_packet_or_bag(): void
+    {
+        $order = PurchaseOrder::factory()->create([
+            'supplier_id' => $this->supplier->id,
+            'created_by' => $this->authorizedUser->id,
+            'status' => POStatus::Approved,
+        ]);
+        $item = $order->items()->create([
+            'product_id' => $this->product->id,
+            'quantity' => 100.00,
+            'unit_price' => 750.00,
+            'purchase_unit' => 'bag',
+            'price_basis' => 'per_kg',
+        ]);
+
+        $updateData = [
+            'items' => [
+                [
+                    'id' => $item->id,
+                    'product_id' => $this->product->id,
+                    'purchase_unit' => 'bag',
+                    'packet_qty' => 4.00,
+                    'weight_per_packet' => 25.00,
+                    'actual_weight' => 96.00,
+                    'unit_price' => 750.00,
+                    'price_basis' => 'per_unit',
+                    'quantity' => 100.00,
+                ],
+            ],
+        ];
+
+        $response = $this->actingAs($this->authorizedUser)
+            ->put(route('purchasing.orders.items.update', $order), $updateData);
+
+        $response->assertRedirect(route('purchasing.orders.show', $order));
+
+        $item->refresh();
+        $this->assertEquals('per_unit', $item->price_basis);
+        $this->assertEquals(3000.00, $item->subtotal);
+
+        $order->refresh();
+        $this->assertEquals(3000.00, $order->total_amount);
+    }
+
+    public function test_purchase_order_item_product_can_be_changed_from_dynamic_table(): void
+    {
+        $replacementProduct = Product::factory()->create([
+            'category_id' => $this->product->category_id,
+            'name' => 'Replacement Leaf',
+        ]);
+
+        $order = PurchaseOrder::factory()->create([
+            'supplier_id' => $this->supplier->id,
+            'created_by' => $this->authorizedUser->id,
+            'status' => POStatus::Approved,
+        ]);
+        $item = $order->items()->create([
+            'product_id' => $this->product->id,
+            'quantity' => 10.00,
+            'unit_price' => 5.00,
+            'purchase_unit' => 'kg',
+        ]);
+
+        $response = $this->actingAs($this->authorizedUser)
+            ->put(route('purchasing.orders.items.update', $order), [
+                'items' => [
+                    [
+                        'id' => $item->id,
+                        'product_id' => $replacementProduct->id,
+                        'purchase_unit' => 'kg',
+                        'packet_qty' => null,
+                        'weight_per_packet' => null,
+                        'actual_weight' => null,
+                        'unit_price' => 8.00,
+                        'price_basis' => 'per_kg',
+                        'quantity' => 12.00,
+                    ],
+                ],
+            ]);
+
+        $response->assertRedirect(route('purchasing.orders.show', $order));
+
+        $item->refresh();
+        $this->assertEquals($replacementProduct->id, $item->product_id);
+        $this->assertEquals(12.00, (float) $item->quantity);
+        $this->assertEquals(96.00, $item->subtotal);
+    }
+
+    public function test_previous_day_price_is_displayed_correctly(): void
+    {
+        $order1 = PurchaseOrder::factory()->create([
+            'supplier_id' => $this->supplier->id,
+            'created_by' => $this->authorizedUser->id,
+            'status' => POStatus::Approved,
+            'order_date' => now()->subDays(2)->toDateString(),
+        ]);
+        $order1->items()->create([
+            'product_id' => $this->product->id,
+            'quantity' => 10.00,
+            'unit_price' => 4.50,
+        ]);
+
+        $order2 = PurchaseOrder::factory()->create([
+            'supplier_id' => $this->supplier->id,
+            'created_by' => $this->authorizedUser->id,
+            'status' => POStatus::Draft,
+            'order_date' => now()->toDateString(),
+        ]);
+        $order2->items()->create([
+            'product_id' => $this->product->id,
+            'quantity' => 10.00,
+            'unit_price' => 5.00,
+        ]);
+
+        $response = $this->actingAs($this->authorizedUser)
+            ->get(route('purchasing.orders.show', $order2));
+
+        $response->assertOk();
+        $response->assertSee('Prev. Price: INR 4.5000');
     }
 }

@@ -207,4 +207,49 @@ class GoodsReceivedTest extends TestCase
         $po->refresh();
         $this->assertEquals(POStatus::Received, $po->status);
     }
+
+    public function test_grn_converts_per_unit_purchase_price_to_warehouse_cost_per_kg(): void
+    {
+        $po = PurchaseOrder::factory()->create([
+            'supplier_id' => $this->supplier->id,
+            'status' => POStatus::Approved,
+            'created_by' => $this->authorizedUser->id,
+        ]);
+
+        $poItem = $po->items()->create([
+            'product_id' => $this->product1->id,
+            'purchase_unit' => 'bag',
+            'packet_qty' => 4.000,
+            'weight_per_packet' => 25.000,
+            'actual_weight' => 96.000,
+            'quantity' => 100.000,
+            'unit_price' => 750.0000,
+            'price_basis' => 'per_unit',
+        ]);
+
+        $response = $this->actingAs($this->authorizedUser)
+            ->post(route('purchasing.grns.store'), [
+                'purchase_order_id' => $po->id,
+                'received_at' => now()->toDateString(),
+                'transport_cost' => 0.00,
+                'labour_cost' => 0.00,
+                'items' => [
+                    [
+                        'purchase_order_item_id' => $poItem->id,
+                        'product_id' => $this->product1->id,
+                        'received_qty' => 96.000,
+                    ],
+                ],
+            ]);
+
+        $grn = GoodsReceived::latest('id')->first();
+        $response->assertRedirect(route('purchasing.grns.show', $grn));
+
+        $this->assertDatabaseHas('stock_batches', [
+            'product_id' => $this->product1->id,
+            'total_kg' => 96.000,
+            'cost_per_kg' => 31.2500,
+            'status' => BatchStatus::Pending->value,
+        ]);
+    }
 }

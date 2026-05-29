@@ -9,7 +9,7 @@
         <form method="POST" action="{{ route('purchasing.orders.store') }}" class="p-6 space-y-6">
             @csrf
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-5">
                 <div class="space-y-1.5">
                     <label for="supplier_id" class="block text-sm font-medium text-gray-700">Supplier <span class="text-red-500">*</span></label>
                     <select id="supplier_id" name="supplier_id" required
@@ -28,6 +28,16 @@
                            value="{{ old('order_date', today()->toDateString()) }}"
                            class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 @error('order_date') border-red-300 @enderror">
                     @error('order_date') <p class="text-red-600 text-xs mt-1">{{ $message }}</p> @enderror
+                </div>
+
+                <div class="space-y-1.5">
+                    <label for="fulfillment_type" class="block text-sm font-medium text-gray-700">Fulfillment <span class="text-red-500">*</span></label>
+                    <select id="fulfillment_type" name="fulfillment_type" required
+                            class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white @error('fulfillment_type') border-red-300 @enderror">
+                        <option value="warehouse" @selected(old('fulfillment_type', 'warehouse') === 'warehouse')>Warehouse (Bulk)</option>
+                        <option value="selection" @selected(old('fulfillment_type') === 'selection')>Selection (Packet)</option>
+                    </select>
+                    @error('fulfillment_type') <p class="text-red-600 text-xs mt-1">{{ $message }}</p> @enderror
                 </div>
             </div>
 
@@ -78,6 +88,7 @@
                                             <option value="{{ $prod->id }}" @selected(($oldItem['product_id'] ?? '') == $prod->id)>{{ $prod->name }} ({{ $prod->sku }})</option>
                                         @endforeach
                                     </select>
+                                    <input type="hidden" name="items[{{ $index }}][price_basis]" value="{{ $oldItem['price_basis'] ?? 'per_kg' }}">
                                     @error("items.{$index}.product_id") <p class="text-red-600 text-[10px] mt-0.5">{{ $message }}</p> @enderror
                                 </td>
                                 <td class="p-3">
@@ -154,6 +165,7 @@
                         <option value="">Select vegetable…</option>
                         \${productOptions}
                     </select>
+                    <input type="hidden" name="items[\${newIndex}][price_basis]" value="per_kg">
                 </td>
                 <td class="p-3">
                     <input name="items[\${newIndex}][quantity]" type="number" step="0.001" min="0.001" required
