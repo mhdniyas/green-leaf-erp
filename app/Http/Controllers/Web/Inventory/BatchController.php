@@ -16,6 +16,7 @@ use App\Models\StockBatch;
 use App\Repositories\Inventory\ProductRepository;
 use App\Services\Inventory\StockBatchService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 class BatchController extends Controller
@@ -26,11 +27,18 @@ class BatchController extends Controller
         private readonly ProcessBatchSortingAction $sortingAction,
     ) {}
 
-    public function index(): View
+    public function index(Request $request): View
     {
-        $batches = $this->service->paginate(20);
+        $date = $request->input('date');
 
-        return view('inventory.batches.index', compact('batches'));
+        $query = StockBatch::with(['product', 'createdBy', 'wastageEntries']);
+        if ($date) {
+            $query->whereDate('received_at', $date);
+        }
+
+        $batches = $query->orderByDesc('received_at')->paginate(20);
+
+        return view('inventory.batches.index', compact('batches', 'date'));
     }
 
     public function create(): View

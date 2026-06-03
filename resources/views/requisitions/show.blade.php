@@ -1,6 +1,6 @@
 <x-layouts.app title="Requisition Details — {{ $order->order_number }}">
     @php
-        $canApprove = auth()->user()->hasRole('purchasing-manager') || auth()->user()->can('purchasing.order.approve');
+        $canApprove = auth()->user()->hasRole('purchasing-manager') || auth()->user()->hasRole('purchase') || auth()->user()->can('purchasing.order.approve');
         $isPendingApproval = in_array($order->state, ['submitted', 'update_requested']);
         $showApprovalForm = $canApprove && $isPendingApproval;
     @endphp
@@ -75,10 +75,18 @@
                             <thead>
                                 <tr class="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/20">
                                     <th class="py-3 px-6">Product</th>
-                                    <th class="py-3 px-6 text-center">Fulfillment</th>
-                                    <th class="py-3 px-6 text-right">Requested Qty</th>
-                                    <th class="py-3 px-6 text-right">Approved Qty</th>
-                                    <th class="py-3 px-6 text-center">Status</th>
+                                    @if($order->is_delivered)
+                                        <th class="py-3 px-6 text-right">Approved Qty</th>
+                                        <th class="py-3 px-6 text-right">Delivered Qty</th>
+                                        <th class="py-3 px-6 text-right">Shortage Qty</th>
+                                        <th class="py-3 px-6 text-right">Unit Cost</th>
+                                        <th class="py-3 px-6 text-right">Shortage Value</th>
+                                    @else
+                                        <th class="py-3 px-6 text-center">Fulfillment</th>
+                                        <th class="py-3 px-6 text-right">Requested Qty</th>
+                                        <th class="py-3 px-6 text-right">Approved Qty</th>
+                                        <th class="py-3 px-6 text-center">Status</th>
+                                    @endif
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100 text-xs text-slate-700">
@@ -88,75 +96,93 @@
                                             {{ $item->product->name }}
                                             <span class="block text-[10px] text-slate-400 font-normal mt-0.5">{{ $item->product->sku }}</span>
                                         </td>
-                                        <td class="py-4 px-6 text-center">
-                                            @if($showApprovalForm)
-                                                <div class="inline-flex rounded-lg p-0.5 bg-slate-100 border border-slate-200">
-                                                    <label class="cursor-pointer">
-                                                        <input type="radio" name="fulfillment_types[{{ $item->id }}]" value="warehouse" @checked(($item->fulfillment_type ?? 'warehouse') === 'warehouse') form="review-form" class="sr-only peer">
-                                                        <span class="inline-block px-3 py-1 rounded-md text-[10px] font-bold text-slate-500 peer-checked:bg-white peer-checked:text-slate-800 peer-checked:shadow-sm transition-all select-none">
-                                                            Warehouse
-                                                        </span>
-                                                    </label>
-                                                    <label class="cursor-pointer">
-                                                        <input type="radio" name="fulfillment_types[{{ $item->id }}]" value="selection" @checked(($item->fulfillment_type ?? 'warehouse') === 'selection') form="review-form" class="sr-only peer">
-                                                        <span class="inline-block px-3 py-1 rounded-md text-[10px] font-bold text-slate-500 peer-checked:bg-white peer-checked:text-slate-800 peer-checked:shadow-sm transition-all select-none">
-                                                            Selection
-                                                        </span>
-                                                    </label>
-                                                </div>
-                                            @else
-                                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border {{ ($item->fulfillment_type ?? 'warehouse') === 'selection' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-slate-50 text-slate-700 border-slate-200' }}">
-                                                    {{ ($item->fulfillment_type ?? 'warehouse') === 'selection' ? 'Selection (Packet)' : 'Warehouse (Bulk)' }}
-                                                </span>
-                                            @endif
-                                        </td>
-                                        <td class="py-4 px-6 text-right font-semibold text-slate-800">
-                                            {{ $item->requested_qty }} {{ $item->unit }}
-                                        </td>
-                                        <td class="py-4 px-6 text-right font-black text-slate-900">
-                                            @if($showApprovalForm)
-                                                <div class="flex items-center justify-end gap-2">
-                                                    <input type="number" 
-                                                           step="0.01" 
-                                                           min="0" 
-                                                           name="approved_qty[{{ $item->id }}]" 
-                                                           value="{{ $item->approved_qty !== null ? $item->approved_qty : $item->requested_qty }}" 
-                                                           form="review-form"
-                                                           class="w-24 rounded-lg border border-slate-200 px-2.5 py-1 text-slate-900 text-center font-black focus:border-emerald-500 focus:outline-none transition-all">
-                                                    <span class="text-slate-500 font-semibold">{{ $item->unit }}</span>
-                                                </div>
-                                            @elseif($item->approved_qty !== null)
-                                                {{ $item->approved_qty }} {{ $item->unit }}
-                                            @else
-                                                <span class="text-slate-400 font-normal italic">Pending</span>
-                                            @endif
-                                        </td>
-                                        <td class="py-4 px-6 text-center">
-                                            @if($order->state === 'approved')
-                                                @if($item->approved_qty === $item->requested_qty)
-                                                    <span class="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded-full text-[9px] font-black border border-emerald-100">
-                                                        <svg class="w-3.5 h-3.5 stroke-current" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                                        Approved
-                                                    </span>
-                                                @elseif($item->approved_qty > 0)
-                                                    <span class="inline-flex items-center gap-1 bg-amber-50 text-amber-700 px-2.5 py-0.5 rounded-full text-[9px] font-black border border-amber-100">
-                                                        <svg class="w-3.5 h-3.5 stroke-current" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                                                        Partial
-                                                    </span>
+                                        @if($order->is_delivered)
+                                            <td class="py-4 px-6 text-right font-semibold text-slate-700">
+                                                {{ number_format((float) ($item->approved_qty ?? 0.00), 2) }} {{ $item->unit }}
+                                            </td>
+                                            <td class="py-4 px-6 text-right font-black text-slate-900">
+                                                {{ number_format((float) ($item->delivered_qty ?? 0.00), 2) }} {{ $item->unit }}
+                                            </td>
+                                            <td class="py-4 px-6 text-right font-semibold {{ (float) $item->shortage_qty > 0.01 ? 'text-red-600 font-bold' : 'text-slate-400' }}">
+                                                {{ number_format((float) ($item->shortage_qty ?? 0.00), 2) }} {{ $item->unit }}
+                                            </td>
+                                            <td class="py-4 px-6 text-right text-slate-500 font-medium">
+                                                Rs. {{ number_format((float) ($item->unit_cost ?? 0.00), 4) }}/{{ $item->unit }}
+                                            </td>
+                                            <td class="py-4 px-6 text-right font-black {{ (float) $item->shortage_qty > 0.01 ? 'text-red-600' : 'text-slate-400' }}">
+                                                Rs. {{ number_format((float) ($item->shortage_value ?? 0.00), 2) }}
+                                            </td>
+                                        @else
+                                            <td class="py-4 px-6 text-center">
+                                                @if($showApprovalForm)
+                                                    <div class="inline-flex rounded-lg p-0.5 bg-slate-100 border border-slate-200">
+                                                        <label class="cursor-pointer">
+                                                            <input type="radio" name="fulfillment_types[{{ $item->id }}]" value="warehouse" @checked(($item->fulfillment_type ?? 'warehouse') === 'warehouse') form="review-form" class="sr-only peer">
+                                                            <span class="inline-block px-3 py-1 rounded-md text-[10px] font-bold text-slate-500 peer-checked:bg-white peer-checked:text-slate-800 peer-checked:shadow-sm transition-all select-none">
+                                                                Warehouse
+                                                            </span>
+                                                        </label>
+                                                        <label class="cursor-pointer">
+                                                            <input type="radio" name="fulfillment_types[{{ $item->id }}]" value="selection" @checked(($item->fulfillment_type ?? 'warehouse') === 'selection') form="review-form" class="sr-only peer">
+                                                            <span class="inline-block px-3 py-1 rounded-md text-[10px] font-bold text-slate-500 peer-checked:bg-white peer-checked:text-slate-800 peer-checked:shadow-sm transition-all select-none">
+                                                                Selection
+                                                            </span>
+                                                        </label>
+                                                    </div>
                                                 @else
-                                                    <span class="inline-flex items-center gap-1 bg-red-50 text-red-700 px-2.5 py-0.5 rounded-full text-[9px] font-black border border-red-100">
-                                                        <svg class="w-3.5 h-3.5 stroke-current" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                                        Rejected
+                                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border {{ ($item->fulfillment_type ?? 'warehouse') === 'selection' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-slate-50 text-slate-700 border-slate-200' }}">
+                                                        {{ ($item->fulfillment_type ?? 'warehouse') === 'selection' ? 'Selection (Packet)' : 'Warehouse (Bulk)' }}
                                                     </span>
                                                 @endif
-                                            @else
-                                                <span class="text-slate-400 italic">Pending Review</span>
-                                            @endif
-                                        </td>
+                                            </td>
+                                            <td class="py-4 px-6 text-right font-semibold text-slate-800">
+                                                {{ $item->requested_qty }} {{ $item->unit }}
+                                            </td>
+                                            <td class="py-4 px-6 text-right font-black text-slate-900">
+                                                @if($showApprovalForm)
+                                                    <div class="flex items-center justify-end gap-2">
+                                                        <input type="number" 
+                                                               step="0.01" 
+                                                               min="0" 
+                                                               name="approved_qty[{{ $item->id }}]" 
+                                                               value="{{ $item->approved_qty !== null ? $item->approved_qty : $item->requested_qty }}" 
+                                                               form="review-form"
+                                                               class="w-24 rounded-lg border border-slate-200 px-2.5 py-1 text-slate-900 text-center font-black focus:border-emerald-500 focus:outline-none transition-all">
+                                                        <span class="text-slate-500 font-semibold">{{ $item->unit }}</span>
+                                                    </div>
+                                                @elseif($item->approved_qty !== null)
+                                                    {{ $item->approved_qty }} {{ $item->unit }}
+                                                @else
+                                                    <span class="text-slate-400 font-normal italic">Pending</span>
+                                                @endif
+                                            </td>
+                                            <td class="py-4 px-6 text-center">
+                                                @if($order->state === 'approved')
+                                                    @if($item->approved_qty === $item->requested_qty)
+                                                        <span class="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded-full text-[9px] font-black border border-emerald-100">
+                                                            <svg class="w-3.5 h-3.5 stroke-current" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                                            Approved
+                                                        </span>
+                                                    @elseif($item->approved_qty > 0)
+                                                        <span class="inline-flex items-center gap-1 bg-amber-50 text-amber-700 px-2.5 py-0.5 rounded-full text-[9px] font-black border border-amber-100">
+                                                            <svg class="w-3.5 h-3.5 stroke-current" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                                            Partial
+                                                        </span>
+                                                    @else
+                                                        <span class="inline-flex items-center gap-1 bg-red-50 text-red-700 px-2.5 py-0.5 rounded-full text-[9px] font-black border border-red-100">
+                                                            <svg class="w-3.5 h-3.5 stroke-current" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                                            Rejected
+                                                        </span>
+                                                    @endif
+                                                @else
+                                                    <span class="text-slate-400 italic">Pending Review</span>
+                                                @endif
+                                            </td>
+                                        @endif
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="5" class="py-8 text-center text-slate-400 font-medium italic bg-slate-50/10">No items found in this requisition.</td>
+                                        <td colspan="{{ $order->is_delivered ? 6 : 5 }}" class="py-8 text-center text-slate-400 font-medium italic bg-slate-50/10">No items found in this requisition.</td>
                                     </tr>
                                 @endforelse
                             </tbody>
@@ -203,7 +229,17 @@
                     <div class="flex items-center justify-between">
                         <span class="text-xs text-slate-400 font-bold">Status Badge</span>
                         <div>
-                            @if($order->state === 'submitted')
+                            @if($order->is_delivered)
+                                <span class="inline-flex items-center gap-1.5 bg-teal-50 text-teal-700 px-3 py-1 rounded-full text-xs font-black border border-teal-100">
+                                    <svg class="w-4 h-4 stroke-current" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296a3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0110 21.036 3.745 3.745 0 016.704 19.4a3.745 3.745 0 01-1.043-3.296a3.745 3.745 0 01-3.296-1.043A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296a3.745 3.745 0 013.296-1.043A3.745 3.745 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043a3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" /></svg>
+                                    Delivered
+                                </span>
+                            @elseif($order->is_allocation_completed)
+                                <span class="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-xs font-black border border-indigo-100">
+                                    <svg class="w-4 h-4 stroke-current" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.024a1.794 1.794 0 00-3.587 0v.024m-4.5 0h9.75M8.25 7.5H21m-6 3H9" /></svg>
+                                    Loaded & Shipped
+                                </span>
+                            @elseif($order->state === 'submitted')
                                 <span class="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-xs font-black border border-amber-100">
                                     <svg class="w-4 h-4 stroke-current" fill="none" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                     Submitted
@@ -247,49 +283,121 @@
                     </div>
                 </div>
 
-                <!-- Update Request Form (After Cutoff Lock) -->
-                @if(!$order->canEditDirectly())
-                    <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-                        <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider pb-3 border-b border-slate-100 mb-4">Request Requisition Update</h2>
-                        
-                        @if($order->state === 'update_requested')
-                            <div class="bg-indigo-50 border border-indigo-100 text-indigo-800 text-xs rounded-2xl p-4 leading-normal">
-                                <span class="font-bold block mb-1">Status: Pending Review</span>
-                                You requested an update with the following message:
-                                <p class="mt-2 font-medium italic text-indigo-900 bg-white/50 p-2 rounded-xl">"{{ $order->update_reason }}"</p>
-                                <p class="mt-2 text-[10px] text-indigo-500">The Purchase Manager has been notified and will review your request.</p>
+                <!-- Delivery & Check-in Details / Actions -->
+                @if($order->is_delivered)
+                    <div class="bg-slate-50 border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
+                        <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider pb-3 border-b border-slate-200">Delivery Receipt</h2>
+                        <div class="space-y-3 text-xs">
+                            <div class="flex items-center justify-between">
+                                <span class="text-slate-400 font-bold">Checked-in By</span>
+                                <span class="font-semibold text-slate-800">{{ $order->deliveredBy ? $order->deliveredBy->name : 'Shop Owner' }}</span>
                             </div>
-                        @else
-                            <div class="mb-4 text-xs text-slate-500 leading-normal">
-                                The 9:30 PM cutoff deadline has passed. To make changes, you must submit an update request with a justification.
+                            <div class="flex items-center justify-between">
+                                <span class="text-slate-400 font-bold">Received At</span>
+                                <span class="font-semibold text-slate-800">{{ $order->delivered_at ? $order->delivered_at->format('d M Y, h:i A') : 'N/A' }}</span>
                             </div>
-
-                            <form action="{{ route('requisitions.update-request', $order->order_number) }}" method="POST" class="space-y-4">
-                                @csrf
-                                <div>
-                                    <label for="reason" class="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Reason for Update</label>
-                                    <textarea id="reason" name="reason" rows="3" required class="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 focus:outline-none focus:border-slate-300 resize-none" placeholder="Explain what needs to be changed (e.g. Add 5 kg Tomato H)..."></textarea>
+                            <div class="flex items-center justify-between text-red-600 border-t border-dashed border-slate-200 pt-3">
+                                <span class="font-bold">Total Shortage Value</span>
+                                <span class="font-black">Rs. {{ number_format((float) $order->total_shortage_value, 2) }}</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-slate-400 font-bold">Cash Collected</span>
+                                <span class="font-semibold text-slate-800">Rs. {{ number_format((float) $order->cash_collected, 2) }}</span>
+                            </div>
+                            
+                            @php
+                                $disc = (float) $order->cash_discrepancy;
+                                if (abs($disc) < 0.01) {
+                                    $discClasses = 'bg-emerald-50 text-emerald-800 border-emerald-100';
+                                } elseif ($disc > 0) {
+                                    $discClasses = 'bg-red-50 text-red-800 border-red-100';
+                                } else {
+                                    $discClasses = 'bg-blue-50 text-blue-800 border-blue-100';
+                                }
+                            @endphp
+                            <div class="flex items-center justify-between p-2.5 rounded-xl border {{ $discClasses }}">
+                                <span class="font-bold">Cash Discrepancy</span>
+                                <span class="font-black">
+                                    @if(abs($disc) < 0.01)
+                                        Rs. 0.00 (Balanced)
+                                    @elseif($disc > 0)
+                                        Rs. {{ number_format($disc, 2) }} (Shortage)
+                                    @else
+                                        Rs. {{ number_format(abs($disc), 2) }} (Surplus)
+                                    @endif
+                                </span>
+                            </div>
+                            
+                            @if($order->delivery_notes)
+                                <div class="border-t border-dashed border-slate-200 pt-3">
+                                    <span class="text-slate-400 font-bold block mb-1">Notes:</span>
+                                    <p class="italic text-slate-600 bg-white p-2 rounded-lg border border-slate-100">{{ $order->delivery_notes }}</p>
                                 </div>
-
-                                <button type="submit" class="w-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold py-2.5 rounded-xl shadow-sm transition-all cursor-pointer focus:outline-none">
-                                    Submit Request
-                                </button>
-                            </form>
-                        @endif
+                            @endif
+                        </div>
+                    </div>
+                @elseif($order->is_allocation_completed)
+                    <div class="bg-emerald-50 border border-emerald-200 rounded-3xl p-6 shadow-sm space-y-4">
+                        <div class="flex items-start gap-4">
+                            <div class="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.024a1.794 1.794 0 00-3.587 0v.024m-4.5 0h9.75M8.25 7.5H21m-6 3H9" /></svg>
+                            </div>
+                            <div>
+                                <h3 class="text-xs font-black text-emerald-800 uppercase tracking-wider mb-1">Verify Delivery</h3>
+                                <p class="text-xs text-emerald-700 leading-normal">
+                                    Warehouse allocation has completed. Please verify physical receipt & check-in.
+                                </p>
+                            </div>
+                        </div>
+                        <a href="{{ route('requisitions.delivery.show', $order->order_number) }}" class="w-full inline-flex bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-3 rounded-xl shadow-sm hover:shadow transition-all cursor-pointer focus:outline-none items-center justify-center gap-1.5">
+                            Verify & Check-in Delivery
+                        </a>
                     </div>
                 @else
-                    <!-- Cutoff Countdown Alert Card (Before Cutoff) -->
-                    <div class="bg-emerald-50 border border-emerald-100 rounded-3xl p-6 flex items-start gap-4">
-                        <div class="w-10 h-10 rounded-2xl bg-emerald-100/50 text-emerald-600 flex items-center justify-center shrink-0">
-                            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <!-- Update Request Form (After Cutoff Lock) -->
+                    @if(!$order->canEditDirectly())
+                        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+                            <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider pb-3 border-b border-slate-100 mb-4">Request Requisition Update</h2>
+                            
+                            @if($order->state === 'update_requested')
+                                <div class="bg-indigo-50 border border-indigo-100 text-indigo-800 text-xs rounded-2xl p-4 leading-normal">
+                                    <span class="font-bold block mb-1">Status: Pending Review</span>
+                                    You requested an update with the following message:
+                                    <p class="mt-2 font-medium italic text-indigo-900 bg-white/50 p-2 rounded-xl">"{{ $order->update_reason }}"</p>
+                                    <p class="mt-2 text-[10px] text-indigo-500">The Purchase Manager has been notified and will review your request.</p>
+                                </div>
+                            @else
+                                <div class="mb-4 text-xs text-slate-500 leading-normal">
+                                    The 9:30 PM cutoff deadline has passed. To make changes, you must submit an update request with a justification.
+                                </div>
+
+                                <form action="{{ route('requisitions.update-request', $order->order_number) }}" method="POST" class="space-y-4">
+                                    @csrf
+                                    <div>
+                                        <label for="reason" class="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Reason for Update</label>
+                                        <textarea id="reason" name="reason" rows="3" required class="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 focus:outline-none focus:border-slate-300 resize-none" placeholder="Explain what needs to be changed (e.g. Add 5 kg Tomato H)..."></textarea>
+                                    </div>
+
+                                    <button type="submit" class="w-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold py-2.5 rounded-xl shadow-sm transition-all cursor-pointer focus:outline-none">
+                                        Submit Request
+                                    </button>
+                                </form>
+                            @endif
                         </div>
-                        <div>
-                            <h3 class="text-xs font-black text-emerald-800 uppercase tracking-wider mb-1">Requisition Window Open</h3>
-                            <p class="text-xs text-emerald-700 leading-normal">
-                                You can edit this requisition directly until the **9:30 PM** cutoff time tonight.
-                            </p>
+                    @else
+                        <!-- Cutoff Countdown Alert Card (Before Cutoff) -->
+                        <div class="bg-emerald-50 border border-emerald-100 rounded-3xl p-6 flex items-start gap-4">
+                            <div class="w-10 h-10 rounded-2xl bg-emerald-100/50 text-emerald-600 flex items-center justify-center shrink-0">
+                                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            </div>
+                            <div>
+                                <h3 class="text-xs font-black text-emerald-800 uppercase tracking-wider mb-1">Requisition Window Open</h3>
+                                <p class="text-xs text-emerald-700 leading-normal">
+                                    You can edit this requisition directly until the **9:30 PM** cutoff time tonight.
+                                </p>
+                            </div>
                         </div>
-                    </div>
+                    @endif
                 @endif
             </div>
         </div>

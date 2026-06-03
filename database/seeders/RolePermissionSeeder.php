@@ -82,6 +82,12 @@ class RolePermissionSeeder extends Seeder
             'admin.role.manage',
             'admin.settings.view',
             'admin.settings.update',
+            'admin.daily-progress.view',
+            'admin.activity-log.view',
+
+            // Warehouse checklist
+            'warehouse.checklist.view',
+            'warehouse.checklist.toggle',
         ];
 
         foreach ($permissions as $permission) {
@@ -93,6 +99,8 @@ class RolePermissionSeeder extends Seeder
             'super-admin' => $permissions, // All permissions
 
             'admin' => $permissions, // All permissions (same as super-admin, but super-admin can forceDelete)
+
+            'legacy-admin' => $permissions,
 
             'inventory-manager' => [
                 'inventory.product.view', 'inventory.product.create', 'inventory.product.update',
@@ -157,6 +165,37 @@ class RolePermissionSeeder extends Seeder
                 'sales.order.view', 'sales.invoice.view',
                 'purchasing.order.view',
                 'accounting.report.view',
+            ],
+
+            'warehouse-operations-manager' => [
+                'inventory.product.view', 'inventory.stock.view',
+                'inventory.sorting.view', 'inventory.sorting.process',
+                'inventory.wastage.view', 'inventory.wastage.record',
+                'purchasing.grn.view', 'purchasing.grn.create',
+                'sales.order.view',
+                'warehouse.checklist.view', 'warehouse.checklist.toggle',
+            ],
+
+            'shop' => [
+                'inventory.product.view',
+                'sales.order.view', 'sales.order.create', 'sales.order.cancel',
+            ],
+
+            'purchase' => [
+                'inventory.product.view', 'inventory.stock.view',
+                'purchasing.supplier.view', 'purchasing.supplier.create', 'purchasing.supplier.update',
+                'purchasing.order.view', 'purchasing.order.create', 'purchasing.order.approve',
+                'purchasing.grn.view', 'purchasing.grn.create',
+                'accounting.report.view',
+            ],
+
+            'warehouse' => [
+                'inventory.product.view', 'inventory.stock.view',
+                'inventory.sorting.view', 'inventory.sorting.process',
+                'inventory.wastage.view', 'inventory.wastage.record',
+                'purchasing.grn.view', 'purchasing.grn.create',
+                'sales.order.view',
+                'warehouse.checklist.view', 'warehouse.checklist.toggle',
             ],
         ];
 

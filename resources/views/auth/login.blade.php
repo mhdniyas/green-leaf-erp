@@ -123,28 +123,63 @@
                     <p class="text-amber-800 text-xs font-semibold tracking-wide uppercase">Testing Mode — Demo Accounts</p>
                 </div>
 
-                <div class="space-y-1.5">
+                {{-- Tabs Toggle buttons --}}
+                <div class="flex gap-1.5 border-b border-amber-200/60 pb-2">
+                    <button type="button" id="tab-primary-btn" class="px-2.5 py-1 text-[11px] font-bold rounded-md bg-amber-200 text-amber-900 transition-all cursor-pointer focus:outline-none">
+                        Core Roles
+                    </button>
+                    <button type="button" id="tab-legacy-btn" class="px-2.5 py-1 text-[11px] font-medium rounded-md text-amber-700 hover:bg-amber-100 hover:text-amber-800 transition-all cursor-pointer focus:outline-none">
+                        Legacy & Custom Roles
+                    </button>
+                </div>
+
+                {{-- Tab Content: Core Roles --}}
+                <div id="tab-primary-content" class="space-y-1.5">
                     @foreach([
-                        ['role' => 'Admin', 'email' => 'admin@greenleaf.com', 'password' => 'password', 'color' => 'text-brand-700'],
-                        ['role' => 'Purchase Manager', 'email' => 'purchasing@greenleaf.com', 'password' => 'password', 'color' => 'text-amber-700'],
-                        ['role' => 'Shop Owner', 'email' => 'shop@greenleaf.com', 'password' => 'password', 'color' => 'text-emerald-700'],
-                        ['role' => 'Cashier', 'email' => 'cashier@greenleaf.com', 'password' => 'password', 'color' => 'text-purple-700'],
-                        ['role' => 'Inventory Manager', 'email' => 'manager@greenleaf.com', 'password' => 'password', 'color' => 'text-blue-700'],
+                        ['role' => 'Purchase Manager', 'email' => 'purchasing@greenleaf.com', 'password' => 'password', 'color' => 'text-amber-700', 'initial' => 'PM'],
+                        ['role' => 'Shop Owner', 'email' => 'shop@greenleaf.com', 'password' => 'password', 'color' => 'text-emerald-700', 'initial' => 'SO'],
+                        ['role' => 'Warehouse Manager', 'email' => 'warehouse@greenleaf.com', 'password' => 'password', 'color' => 'text-pink-700', 'initial' => 'WM'],
                     ] as $demo)
                     <button
                         type="button"
                         onclick="fillCredentials('{{ $demo['email'] }}')"
                         class="w-full flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-amber-200/60 hover:border-amber-300 hover:bg-amber-50/50 transition-all group cursor-pointer"
-                        title="Click to fill credentials"
+                        title="Click to log in instantly"
                     >
                         <div class="flex items-center gap-2.5 min-w-0">
-                            <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 {{ $demo['color'] }} text-[10px] font-bold shrink-0">{{ $demo['role'][0] }}</span>
+                            <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 {{ $demo['color'] }} text-[9px] font-bold shrink-0">{{ $demo['initial'] }}</span>
                             <div class="text-left min-w-0">
                                 <span class="text-amber-900 text-xs font-semibold block">{{ $demo['role'] }}</span>
                                 <span class="text-amber-700 text-[11px] font-mono truncate block">{{ $demo['email'] }}</span>
                             </div>
                         </div>
-                        <span class="text-amber-500 text-[10px] font-medium shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">click to fill →</span>
+                        <span class="text-amber-500 text-[10px] font-medium shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">one-click login →</span>
+                    </button>
+                    @endforeach
+                </div>
+
+                {{-- Tab Content: Legacy & Custom Roles --}}
+                <div id="tab-legacy-content" class="space-y-1.5 hidden">
+                    @foreach([
+                        ['role' => 'Legacy Admin', 'email' => 'legacy@greenleaf.com', 'password' => 'password', 'color' => 'text-indigo-700', 'initial' => 'LA'],
+                        ['role' => 'Legacy Shop Owner', 'email' => 'shop-legacy@greenleaf.com', 'password' => 'password', 'color' => 'text-emerald-700', 'initial' => 'LS'],
+                        ['role' => 'Legacy Purchase Manager', 'email' => 'purchase-legacy@greenleaf.com', 'password' => 'password', 'color' => 'text-amber-700', 'initial' => 'LP'],
+                        ['role' => 'Legacy Warehouse Operator', 'email' => 'warehouse-legacy@greenleaf.com', 'password' => 'password', 'color' => 'text-pink-700', 'initial' => 'LW'],
+                    ] as $demo)
+                    <button
+                        type="button"
+                        onclick="fillCredentials('{{ $demo['email'] }}')"
+                        class="w-full flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-amber-200/60 hover:border-amber-300 hover:bg-amber-50/50 transition-all group cursor-pointer"
+                        title="Click to log in instantly"
+                    >
+                        <div class="flex items-center gap-2.5 min-w-0">
+                            <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 {{ $demo['color'] }} text-[9px] font-bold shrink-0">{{ $demo['initial'] }}</span>
+                            <div class="text-left min-w-0">
+                                <span class="text-amber-900 text-xs font-semibold block">{{ $demo['role'] }}</span>
+                                <span class="text-amber-700 text-[11px] font-mono truncate block">{{ $demo['email'] }}</span>
+                            </div>
+                        </div>
+                        <span class="text-amber-500 text-[10px] font-medium shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">one-click login →</span>
                     </button>
                     @endforeach
                 </div>
@@ -290,15 +325,46 @@
 </div>
 
 <script>
-    // Fill demo credentials on click
+    // Tabs switcher
+    const primaryBtn = document.getElementById('tab-primary-btn');
+    const legacyBtn = document.getElementById('tab-legacy-btn');
+    const primaryContent = document.getElementById('tab-primary-content');
+    const legacyContent = document.getElementById('tab-legacy-content');
+
+    if (primaryBtn && legacyBtn) {
+        primaryBtn.addEventListener('click', () => {
+            primaryBtn.classList.add('bg-amber-200', 'text-amber-900', 'font-bold');
+            primaryBtn.classList.remove('text-amber-700', 'font-medium');
+            legacyBtn.classList.remove('bg-amber-200', 'text-amber-900', 'font-bold');
+            legacyBtn.classList.add('text-amber-700', 'font-medium');
+            
+            primaryContent.classList.remove('hidden');
+            legacyContent.classList.add('hidden');
+        });
+
+        legacyBtn.addEventListener('click', () => {
+            legacyBtn.classList.add('bg-amber-200', 'text-amber-900', 'font-bold');
+            legacyBtn.classList.remove('text-amber-700', 'font-medium');
+            primaryBtn.classList.remove('bg-amber-200', 'text-amber-900', 'font-bold');
+            primaryBtn.classList.add('text-amber-700', 'font-medium');
+            
+            legacyContent.classList.remove('hidden');
+            primaryContent.classList.add('hidden');
+        });
+    }
+
+    // Fill demo credentials on click and log in automatically
     function fillCredentials(email) {
         document.getElementById('email').value = email;
         document.getElementById('password').value = 'password';
-        document.getElementById('email').focus();
-        // Visual feedback
-        const form = document.getElementById('login-form');
-        form.classList.add('opacity-90');
-        setTimeout(() => form.classList.remove('opacity-90'), 300);
+        
+        // Auto-submit by programmatically clicking the sign in button
+        const submitBtn = document.getElementById('submit-btn');
+        if (submitBtn) {
+            submitBtn.click();
+        } else {
+            document.getElementById('login-form').submit();
+        }
     }
 
     // Password toggle

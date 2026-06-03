@@ -8,6 +8,13 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ $title }} — Green Leaf ERP</title>
     <meta name="description" content="Green Leaf ERP — Vegetable Trading & Distribution Management System">
+    <script>
+        if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+    </script>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @stack('styles')
 </head>
@@ -53,7 +60,8 @@
                 auth()->user()->can('inventory.product.view') ||
                 auth()->user()->can('inventory.stock.view') ||
                 auth()->user()->can('inventory.sorting.view') ||
-                auth()->user()->can('inventory.wastage.view')
+                auth()->user()->can('inventory.wastage.view') ||
+                auth()->user()->can('warehouse.checklist.view')
             )
             @php
                 $isInventoryActive = request()->routeIs('inventory.*');
@@ -95,6 +103,20 @@
                         Wastage Log
                     </x-nav-item>
                     @endcan
+                    @can('warehouse.checklist.view')
+                    <x-nav-item href="{{ route('inventory.sorting.checklist') }}" :active="request()->routeIs('inventory.sorting.checklist')" :sub="true">
+                        Sorting Checklist
+                    </x-nav-item>
+                    <x-nav-item href="{{ route('inventory.sorting.shop-orders') }}" :active="request()->routeIs('inventory.sorting.shop-orders')" :sub="true">
+                        Shop Orders
+                    </x-nav-item>
+                    @endcan
+                    <x-nav-item href="{{ route('inventory.deliveries.dashboard') }}" :active="request()->routeIs('inventory.deliveries.dashboard')" :sub="true">
+                        Delivery Dashboard
+                    </x-nav-item>
+                    <x-nav-item href="{{ route('inventory.reports.fulfillment') }}" :active="request()->routeIs('inventory.reports.fulfillment')" :sub="true">
+                        Fulfillment Report
+                    </x-nav-item>
                 </div>
             </div>
             @endif
@@ -102,6 +124,7 @@
             {{-- Purchasing Group --}}
             @if(
                 auth()->user()->hasRole('purchasing-manager') ||
+                auth()->user()->hasRole('purchase') ||
                 auth()->user()->can('purchasing.supplier.view') ||
                 auth()->user()->can('purchasing.order.view') ||
                 auth()->user()->can('purchasing.grn.view') ||
@@ -127,7 +150,7 @@
                     </svg>
                 </button>
                 <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isPurchasingActive ? '' : 'hidden' }}">
-                    @if(auth()->user()->hasRole('purchasing-manager') || auth()->user()->can('purchasing.order.approve'))
+                    @if(auth()->user()->hasRole('purchasing-manager') || auth()->user()->hasRole('purchase') || auth()->user()->can('purchasing.order.approve'))
                     <x-nav-item href="{{ route('requisitions.board') }}" :active="request()->routeIs('requisitions.board')" :sub="true">
                         Requisition Board
                     </x-nav-item>
@@ -259,7 +282,11 @@
             @endif
 
             {{-- Admin Group --}}
-            @can('admin.user.view')
+            @if(
+                auth()->user()->can('admin.user.view') ||
+                auth()->user()->can('admin.daily-progress.view') ||
+                auth()->user()->can('admin.activity-log.view')
+            )
             @php
                 $isAdminActive = request()->routeIs('admin.*');
             @endphp
@@ -280,12 +307,24 @@
                     </svg>
                 </button>
                 <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isAdminActive ? '' : 'hidden' }}">
+                    @can('admin.user.view')
                     <x-nav-item href="{{ route('admin.users.index') }}" :active="request()->routeIs('admin.users.*')" :sub="true">
                         Users & Roles
                     </x-nav-item>
+                    @endcan
+                    @can('admin.daily-progress.view')
+                    <x-nav-item href="{{ route('admin.daily-progress') }}" :active="request()->routeIs('admin.daily-progress')" :sub="true">
+                        Daily Progress
+                    </x-nav-item>
+                    @endcan
+                    @can('admin.activity-log.view')
+                    <x-nav-item href="{{ route('admin.activity-logs.index') }}" :active="request()->routeIs('admin.activity-logs.index')" :sub="true">
+                        Activity Log
+                    </x-nav-item>
+                    @endcan
                 </div>
             </div>
-            @endcan
+            @endif
 
         </nav>
 
@@ -331,12 +370,31 @@
                 <h1 class="text-sm font-semibold text-gray-900 truncate">{{ $title }}</h1>
             </div>
 
-            {{-- Right actions slot --}}
-            @if(isset($actions))
-                <div class="flex items-center gap-2 shrink-0">
-                    {{ $actions }}
-                </div>
-            @endif
+            {{-- Header Actions Container --}}
+            <div class="flex items-center gap-3 shrink-0 ml-auto">
+                {{-- Theme Toggle Switch --}}
+                <button
+                    id="theme-toggle"
+                    type="button"
+                    class="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer focus:outline-none transition-colors duration-200"
+                    title="Toggle dark/light theme"
+                >
+                    {{-- Moon Icon (for Light Mode) --}}
+                    <svg id="theme-toggle-moon" class="w-5 h-5 hidden" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75C12.365 15.75 8 11.385 8 5.75c0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
+                    </svg>
+                    {{-- Sun Icon (for Dark Mode) --}}
+                    <svg id="theme-toggle-sun" class="w-5 h-5 hidden" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1.5m0 15V21m-9-9h1.5m15 0H21m-2.121-6.879l-1.061 1.061m-10.606 10.606l-1.061 1.061M6.343 6.343l1.061 1.061m10.606 10.606l1.061 1.061M12 7.5a4.5 4.5 0 100 9 4.5 4.5 0 000-9z" />
+                    </svg>
+                </button>
+
+                @if(isset($actions))
+                    <div class="flex items-center gap-2">
+                        {{ $actions }}
+                    </div>
+                @endif
+            </div>
         </header>
 
         {{-- Flash messages --}}
@@ -424,6 +482,35 @@
             }
         });
     });
+
+    // Theme Toggle Functionality
+    const themeToggleBtn = document.getElementById('theme-toggle');
+    const moonIcon = document.getElementById('theme-toggle-moon');
+    const sunIcon = document.getElementById('theme-toggle-sun');
+
+    if (themeToggleBtn && moonIcon && sunIcon) {
+        // Initialize visible icon
+        if (document.documentElement.classList.contains('dark')) {
+            sunIcon.classList.remove('hidden');
+        } else {
+            moonIcon.classList.remove('hidden');
+        }
+
+        // Toggle theme on click
+        themeToggleBtn.addEventListener('click', () => {
+            if (document.documentElement.classList.contains('dark')) {
+                document.documentElement.classList.remove('dark');
+                localStorage.setItem('theme', 'light');
+                sunIcon.classList.add('hidden');
+                moonIcon.classList.remove('hidden');
+            } else {
+                document.documentElement.classList.add('dark');
+                localStorage.setItem('theme', 'dark');
+                moonIcon.classList.add('hidden');
+                sunIcon.classList.remove('hidden');
+            }
+        });
+    }
 </script>
 @stack('scripts')
 </body>

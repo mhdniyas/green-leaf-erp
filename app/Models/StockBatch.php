@@ -95,6 +95,65 @@ class StockBatch extends Model
             + (float) $this->labour_cost;
     }
 
+    /**
+     * Get the allocated quantity for this specific batch based on daily shop order allocations.
+     */
+    public function getAllocatedQtyAttribute(): float
+    {
+        $date = $this->received_at->format('Y-m-d');
+
+        // Find the total allocated quantity of this product for this business date
+        $totalAllocated = (float) ShopOrderItem::where('product_id', $this->product_id)
+            ->whereHas('order', function ($query) use ($date) {
+                $query->whereDate('business_date', $date)
+                    ->where('state', 'approved');
+            })
+            ->whereIn('sorting_status', ['allocated', 'loaded'])
+            ->sum('approved_qty');
+
+        if ($totalAllocated <= 0) {
+            return 0.0;
+        }
+
+        // Fetch all batches of this product received on this date, ordered by ID (FIFO)
+        $batches = self::where('product_id', $this->product_id)
+            ->whereDate('received_at', $date)
+            ->orderBy('id', 'asc')
+            ->get();
+
+        $allocatedForThisBatch = 0.0;
+        $remainingAllocated = $totalAllocated;
+
+        foreach ($batches as $b) {
+            $wasted = (float) $b->wastageEntries()->sum('quantity');
+            $maxAllocatable = max(0.0, (float) $b->total_kg - $wasted);
+            $allocated = min($maxAllocatable, $remainingAllocated);
+
+            if ($b->id === $this->id) {
+                $allocatedForThisBatch = $allocated;
+                break;
+            }
+
+            $remainingAllocated -= $allocated;
+            if ($remainingAllocated <= 0) {
+                break;
+            }
+        }
+
+        return $allocatedForThisBatch;
+    }
+
+    /**
+     * Get the remaining quantity of this batch.
+     */
+    public function getRemainingQtyAttribute(): float
+    {
+        $wasted = (float) $this->wastageEntries()->sum('quantity');
+        $allocated = $this->allocated_qty;
+
+        return max(0.0, (float) $this->total_kg - $wasted - $allocated);
+    }
+
     public function canBeSorted(): bool
     {
         return $this->status->canBeSorted();

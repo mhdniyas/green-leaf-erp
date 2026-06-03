@@ -65,6 +65,31 @@ class DemoUserSeeder extends Seeder
             'email' => 'viewer@greenleaf.com',
             'role' => 'viewer',
         ],
+        [
+            'name' => 'Warehouse Manager',
+            'email' => 'warehouse@greenleaf.com',
+            'role' => 'warehouse-operations-manager',
+        ],
+        [
+            'name' => 'Legacy Admin User',
+            'email' => 'legacy@greenleaf.com',
+            'role' => 'legacy-admin',
+        ],
+        [
+            'name' => 'Legacy Shop Owner',
+            'email' => 'shop-legacy@greenleaf.com',
+            'role' => 'shop',
+        ],
+        [
+            'name' => 'Legacy Purchase Manager',
+            'email' => 'purchase-legacy@greenleaf.com',
+            'role' => 'purchase',
+        ],
+        [
+            'name' => 'Legacy Warehouse Operator',
+            'email' => 'warehouse-legacy@greenleaf.com',
+            'role' => 'warehouse',
+        ],
     ];
 
     public function run(): void
@@ -114,7 +139,7 @@ class DemoUserSeeder extends Seeder
                     'name' => $demo['name'],
                     'password' => Hash::make('password'),
                     'email_verified_at' => now(),
-                    'shop_id' => $demo['role'] === 'shop-owner' ? $seededShops[0]->id : null,
+                    'shop_id' => in_array($demo['role'], ['shop-owner', 'shop'], true) ? $seededShops[0]->id : null,
                 ]
             );
 

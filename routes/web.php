@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Web\Admin\ActivityLogController;
+use App\Http\Controllers\Web\Admin\DailyProgressController;
 use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\Auth\LoginController;
 use App\Http\Controllers\Web\DashboardController;
@@ -10,8 +12,11 @@ use App\Http\Controllers\Web\Finance\ExpenseController;
 use App\Http\Controllers\Web\Finance\FinancialReportController;
 use App\Http\Controllers\Web\Finance\LedgerController;
 use App\Http\Controllers\Web\Inventory\BatchController;
+use App\Http\Controllers\Web\Inventory\DeliveryDashboardController;
+use App\Http\Controllers\Web\Inventory\FulfillmentReportController;
 use App\Http\Controllers\Web\Inventory\ProductController;
 use App\Http\Controllers\Web\Inventory\StockController;
+use App\Http\Controllers\Web\Inventory\WarehouseSortingController;
 use App\Http\Controllers\Web\Inventory\WastageController;
 use App\Http\Controllers\Web\Purchasing\GoodsReceivedController;
 use App\Http\Controllers\Web\Purchasing\PurchaseInvoiceController;
@@ -66,6 +71,17 @@ Route::middleware('auth')->group(function () {
         Route::get('wastage', [WastageController::class, 'index'])->name('wastage.index');
         Route::get('wastage/create', [WastageController::class, 'create'])->name('wastage.create');
         Route::post('wastage', [WastageController::class, 'store'])->name('wastage.store');
+
+        // Warehouse Sorting Checklist
+        Route::get('sorting-checklist', [WarehouseSortingController::class, 'index'])->name('sorting.checklist');
+        Route::get('sorting-checklist/shop-orders', [WarehouseSortingController::class, 'shopOrders'])->name('sorting.shop-orders');
+        Route::post('sorting-checklist/toggle/{item}', [WarehouseSortingController::class, 'toggle'])->name('sorting.checklist.toggle');
+        Route::post('sorting-checklist/grn', [WarehouseSortingController::class, 'storeGrn'])->name('sorting.checklist.grn');
+        Route::post('sorting-checklist/carry-over/{batch}', [WarehouseSortingController::class, 'carryOver'])->name('sorting.checklist.carry-over');
+        Route::post('sorting-checklist/wastage/{batch}', [WarehouseSortingController::class, 'recordWastage'])->name('sorting.checklist.wastage');
+        Route::post('sorting-checklist/complete-order/{order}', [WarehouseSortingController::class, 'completeAllocation'])->name('sorting.checklist.complete-order');
+        Route::get('deliveries/dashboard', DeliveryDashboardController::class)->name('deliveries.dashboard');
+        Route::get('reports/fulfillment', FulfillmentReportController::class)->name('reports.fulfillment');
     });
 
     // ── Purchasing ─────────────────────────────────────────────────────────
@@ -125,6 +141,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/requisitions/{order_number}/edit', [RequisitionController::class, 'update'])->name('requisitions.update');
     Route::post('/requisitions/{order_number}/update-request', [RequisitionController::class, 'requestUpdate'])->name('requisitions.update-request');
     Route::post('/requisitions/{order_number}/review', [RequisitionController::class, 'review'])->name('requisitions.review');
+    Route::get('/requisitions/{order_number}/delivery', [RequisitionController::class, 'showDelivery'])->name('requisitions.delivery.show');
+    Route::post('/requisitions/{order_number}/delivery', [RequisitionController::class, 'recordDelivery'])->name('requisitions.delivery.record');
     Route::get('/requisitions-board', [RequisitionController::class, 'board'])->name('requisitions.board');
     Route::post('/requisitions-board', [RequisitionController::class, 'saveBoard'])->name('requisitions.board.save');
     Route::get('/approved-board', [RequisitionController::class, 'approvedBoard'])->name('requisitions.approved_board');
@@ -138,5 +156,7 @@ Route::middleware('auth')->group(function () {
     // ── Admin ──────────────────────────────────────────────────────────────
     Route::prefix('admin')->name('admin.')->group(function () {
         Route::resource('users', UserController::class);
+        Route::get('daily-progress', DailyProgressController::class)->name('daily-progress');
+        Route::get('activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
     });
 });

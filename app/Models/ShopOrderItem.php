@@ -20,11 +20,25 @@ class ShopOrderItem extends Model
         'unit',
         'notes',
         'fulfillment_type',
+        'is_sorted',
+        'sorted_at',
+        'sorted_by',
+        'sorting_status',
+        'delivered_qty',
+        'shortage_qty',
+        'unit_cost',
+        'shortage_value',
     ];
 
     protected $casts = [
         'requested_qty' => 'decimal:2',
         'approved_qty' => 'decimal:2',
+        'is_sorted' => 'boolean',
+        'sorted_at' => 'datetime',
+        'delivered_qty' => 'decimal:2',
+        'shortage_qty' => 'decimal:2',
+        'unit_cost' => 'decimal:4',
+        'shortage_value' => 'decimal:2',
     ];
 
     /**
@@ -45,5 +59,15 @@ class ShopOrderItem extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    /**
+     * Get the user who sorted this item.
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function sortedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'sorted_by');
     }
 }

@@ -102,7 +102,7 @@ class RequisitionController extends Controller
             ->firstOrFail();
 
         // Access control: Shop Owner can only see their own shop orders
-        if ($request->user()->hasRole('shop-owner') && $order->shop_id !== $request->user()->shop_id) {
+        if (($request->user()->hasRole('shop-owner') || $request->user()->hasRole('shop')) && $order->shop_id !== $request->user()->shop_id) {
             abort(403, 'Unauthorized access to shop order.');
         }
 
@@ -120,7 +120,7 @@ class RequisitionController extends Controller
             ->with(['items.product'])
             ->firstOrFail();
 
-        if ($request->user()->hasRole('shop-owner') && $order->shop_id !== $request->user()->shop_id) {
+        if (($request->user()->hasRole('shop-owner') || $request->user()->hasRole('shop')) && $order->shop_id !== $request->user()->shop_id) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -139,7 +139,7 @@ class RequisitionController extends Controller
     {
         $order = ShopOrder::where('order_number', $orderNumber)->firstOrFail();
 
-        if ($request->user()->hasRole('shop-owner') && $order->shop_id !== $request->user()->shop_id) {
+        if (($request->user()->hasRole('shop-owner') || $request->user()->hasRole('shop')) && $order->shop_id !== $request->user()->shop_id) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -181,7 +181,7 @@ class RequisitionController extends Controller
     {
         $order = ShopOrder::where('order_number', $orderNumber)->firstOrFail();
 
-        if ($request->user()->hasRole('shop-owner') && $order->shop_id !== $request->user()->shop_id) {
+        if (($request->user()->hasRole('shop-owner') || $request->user()->hasRole('shop')) && $order->shop_id !== $request->user()->shop_id) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -208,7 +208,7 @@ class RequisitionController extends Controller
             ->with(['items.product', 'shop'])
             ->firstOrFail();
 
-        if ($request->user()->hasRole('shop-owner') && $order->shop_id !== $request->user()->shop_id) {
+        if (($request->user()->hasRole('shop-owner') || $request->user()->hasRole('shop')) && $order->shop_id !== $request->user()->shop_id) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -253,7 +253,7 @@ class RequisitionController extends Controller
             ->with(['items.product', 'shop', 'creator'])
             ->firstOrFail();
 
-        if ($request->user()->hasRole('shop-owner') && $order->shop_id !== $request->user()->shop_id) {
+        if (($request->user()->hasRole('shop-owner') || $request->user()->hasRole('shop')) && $order->shop_id !== $request->user()->shop_id) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -922,5 +922,154 @@ class RequisitionController extends Controller
                 $po->forceDelete(); // Force delete empty auto-generated POs
             }
         }
+    }
+
+    /**
+     * Show the delivery check-in form.
+     */
+    public function showDelivery(Request $request, string $orderNumber): View|RedirectResponse
+    {
+        $order = ShopOrder::where('order_number', $orderNumber)
+            ->with(['items.product', 'shop'])
+            ->firstOrFail();
+
+        // Access control: Shop Owner can only see their own shop orders
+        if (($request->user()->hasRole('shop-owner') || $request->user()->hasRole('shop')) && $order->shop_id !== $request->user()->shop_id) {
+            abort(403, 'Unauthorized access to shop order.');
+        }
+
+        if (! $order->is_allocation_completed) {
+            return redirect()->route('requisitions.show', $orderNumber)
+                ->with('error', 'This order has not been dispatched/allocated from the warehouse yet.');
+        }
+
+        if ($order->is_delivered) {
+            return redirect()->route('requisitions.show', $orderNumber)
+                ->with('error', 'This order has already been checked-in and marked as delivered.');
+        }
+
+        // Resolve unit cost for each item
+        foreach ($order->items as $item) {
+            $item->resolved_unit_cost = $this->resolveProductUnitCost(
+                $item->product_id,
+                $order->business_date->format('Y-m-d')
+            );
+        }
+
+        return view('requisitions.delivery', compact('order'));
+    }
+
+    /**
+     * Record delivery check-in and verify discrepancies.
+     */
+    public function recordDelivery(Request $request, string $orderNumber): RedirectResponse
+    {
+        $order = ShopOrder::where('order_number', $orderNumber)
+            ->with(['items'])
+            ->firstOrFail();
+
+        // Access control: Shop Owner can only see their own shop orders
+        if (($request->user()->hasRole('shop-owner') || $request->user()->hasRole('shop')) && $order->shop_id !== $request->user()->shop_id) {
+            abort(403, 'Unauthorized access to shop order.');
+        }
+
+        if (! $order->is_allocation_completed) {
+            return redirect()->route('requisitions.show', $orderNumber)
+                ->with('error', 'This order has not been dispatched/allocated from the warehouse yet.');
+        }
+
+        if ($order->is_delivered) {
+            return redirect()->route('requisitions.show', $orderNumber)
+                ->with('error', 'This order has already been checked-in and marked as delivered.');
+        }
+
+        $request->validate([
+            'delivered_qty' => ['required', 'array'],
+            'delivered_qty.*' => ['required', 'numeric', 'min:0'],
+            'cash_collected' => ['required', 'numeric', 'min:0'],
+            'delivery_notes' => ['nullable', 'string'],
+        ]);
+
+        $deliveredQtys = $request->input('delivered_qty', []);
+        $cashCollected = (float) $request->input('cash_collected', 0.00);
+
+        DB::transaction(function () use ($order, $deliveredQtys, $cashCollected, $request): void {
+            $totalShortageValue = 0.00;
+            $expectedDeliveredValue = 0.00;
+
+            foreach ($order->items as $item) {
+                $deliveredQty = (float) ($deliveredQtys[$item->id] ?? 0.00);
+                $approvedQty = (float) ($item->approved_qty ?? 0.00);
+
+                // shortage_qty = approved_qty - delivered_qty (shorted amount)
+                $shortageQty = max(0.00, $approvedQty - $deliveredQty);
+
+                // Fetch unit cost
+                $unitCost = $this->resolveProductUnitCost(
+                    $item->product_id,
+                    $order->business_date->format('Y-m-d')
+                );
+
+                $shortageValue = $shortageQty * $unitCost;
+                $itemExpectedValue = $deliveredQty * $unitCost;
+
+                $item->update([
+                    'delivered_qty' => $deliveredQty,
+                    'shortage_qty' => $shortageQty,
+                    'unit_cost' => $unitCost,
+                    'shortage_value' => $shortageValue,
+                ]);
+
+                $totalShortageValue += $shortageValue;
+                $expectedDeliveredValue += $itemExpectedValue;
+            }
+
+            // cash_discrepancy = Expected Delivered Value - cash_collected
+            $cashDiscrepancy = $expectedDeliveredValue - $cashCollected;
+
+            $order->update([
+                'is_delivered' => true,
+                'delivered_at' => now(),
+                'delivered_by' => $request->user()->id,
+                'delivery_notes' => $request->input('delivery_notes'),
+                'cash_collected' => $cashCollected,
+                'cash_discrepancy' => $cashDiscrepancy,
+                'total_shortage_value' => $totalShortageValue,
+            ]);
+
+            activity()
+                ->performedOn($order)
+                ->causedBy($request->user())
+                ->log('delivered');
+        });
+
+        return redirect()->route('requisitions.show', $order->order_number)
+            ->with('success', 'Delivery checked-in and discrepancies recorded successfully.');
+    }
+
+    /**
+     * Resolve the unit cost (cost_per_kg) for a product from the daily StockBatch or latest overall.
+     */
+    private function resolveProductUnitCost(int $productId, string $businessDate): float
+    {
+        $cost = DB::table('stock_batches')
+            ->where('product_id', $productId)
+            ->whereDate('received_at', $businessDate)
+            ->whereNull('deleted_at')
+            ->latest('id')
+            ->value('cost_per_kg');
+
+        if ($cost !== null) {
+            return (float) $cost;
+        }
+
+        $cost = DB::table('stock_batches')
+            ->where('product_id', $productId)
+            ->whereNull('deleted_at')
+            ->latest('received_at')
+            ->latest('id')
+            ->value('cost_per_kg');
+
+        return $cost !== null ? (float) $cost : 0.00;
     }
 }

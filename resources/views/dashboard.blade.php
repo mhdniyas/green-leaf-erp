@@ -50,6 +50,7 @@ $roleConfig = [
     'hr-manager'          => ['label' => 'HR Manager',          'color' => 'bg-pink-100 text-pink-700 border-pink-200'],
     'shop-owner'          => ['label' => 'Shop Owner',          'color' => 'bg-emerald-100 text-emerald-700 border-emerald-200'],
     'viewer'              => ['label' => 'Read-only Viewer',    'color' => 'bg-gray-100 text-gray-600 border-gray-200'],
+    'warehouse-operations-manager' => ['label' => 'Warehouse Manager', 'color' => 'bg-pink-100 text-pink-700 border-pink-200'],
 ];
 $rc = $roleConfig[$role] ?? ['label' => ucfirst($role), 'color' => 'bg-gray-100 text-gray-600 border-gray-200'];
 
@@ -2153,6 +2154,66 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
         </span>
     </div>
 
+    {{-- Warehouse daily operational window: Receive Goods to Start Process --}}
+    @if($user->hasRole(['warehouse-operations-manager', 'admin', 'super-admin']))
+    <div class="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 mb-6">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-5 border-b border-gray-100">
+            <div>
+                <h2 class="text-base font-black text-slate-800 tracking-tight flex items-center gap-2">
+                    <span class="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
+                    Daily Operational Gateway: Receive Goods to Start Process
+                </h2>
+                <p class="text-xs text-slate-400 mt-1">Receive approved purchase orders into the warehouse to automatically populate daily stock batches and checklists.</p>
+            </div>
+            <a href="{{ route('inventory.sorting.checklist') }}" class="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-xs font-black text-white hover:bg-brand-700 transition-colors shadow-sm cursor-pointer">
+                Open Sorting Checklist Board
+            </a>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-5">
+            @forelse($pendingPOsForReceipt ?? [] as $po)
+                <div class="bg-slate-50 border border-slate-200/80 rounded-2xl p-5 flex flex-col justify-between hover:shadow-xs transition-all">
+                    <div>
+                        <div class="flex items-start justify-between gap-2">
+                            <div>
+                                <h4 class="text-sm font-black text-slate-800">{{ $po->po_number }}</h4>
+                                <p class="text-[10px] text-slate-500 font-bold mt-0.5">{{ $po->supplier->name }}</p>
+                            </div>
+                            <span class="inline-flex items-center rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider border border-blue-200">
+                                Approved
+                            </span>
+                        </div>
+                        <div class="divide-y divide-slate-100 mt-4">
+                            @foreach($po->items->take(3) as $poItem)
+                                <div class="py-1.5 flex items-center justify-between text-[10px]">
+                                    <span class="font-bold text-slate-600 truncate max-w-[150px]">{{ $poItem->product->name }}</span>
+                                    <span class="font-mono text-slate-500">{{ number_format((float)$poItem->quantity, 2) }} {{ $poItem->purchase_unit }}</span>
+                                </div>
+                            @endforeach
+                            @if($po->items->count() > 3)
+                                <div class="pt-1.5 text-[9px] font-black text-slate-400 text-right">+{{ $po->items->count() - 3 }} more items</div>
+                            @endif
+                        </div>
+                    </div>
+                    <div class="mt-5 pt-3 border-t border-slate-100/50 flex justify-end">
+                        <a href="{{ route('inventory.sorting.checklist') }}" class="px-3.5 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-[10px] font-bold shadow-xs transition-colors cursor-pointer text-center">
+                            Receive & Verify Goods
+                        </a>
+                    </div>
+                </div>
+            @empty
+                <div class="col-span-full py-8 text-center bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+                    <div class="w-10 h-10 rounded-2xl bg-white flex items-center justify-center mx-auto mb-2 text-slate-400 shadow-xs">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                    </div>
+                    <p class="text-xs font-bold text-slate-700">All Goods Received</p>
+                    <p class="text-[10px] text-slate-400 mt-0.5">There are no approved purchase orders awaiting receipt today.</p>
+                </div>
+            @endforelse
+        </div>
+    </div>
+    @endif
+
     {{-- Inventory stats row (only for users with inventory access) --}}
     @if($inventoryStats)
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -2351,6 +2412,55 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
     </div>
     @endif
 
+    @if($sortingProgress)
+    {{-- Warehouse Dispatch Sorting Progress --}}
+    <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-6">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-5 border-b border-slate-100">
+            <div>
+                <h2 class="text-lg font-black text-slate-800 tracking-tight">Warehouse Dispatch Sorting Progress</h2>
+                <p class="text-xs text-slate-400 mt-0.5">Live shopwise sorting checklist progress in the warehouse</p>
+            </div>
+            <a href="{{ route('inventory.sorting.checklist') }}" class="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-xs font-black text-white hover:bg-brand-700 transition-colors shadow-sm">
+                Open Sorting Checklist
+            </a>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-5">
+            {{-- Today's Progress --}}
+            <div class="bg-slate-50/50 rounded-2xl border border-slate-100 p-5 flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Today's Orders ({{ today()->format('d M Y') }})</span>
+                        <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-600 border border-slate-200">
+                            {{ $sortingProgress['today']['sorted'] }} / {{ $sortingProgress['today']['total'] }} items
+                        </span>
+                    </div>
+                    <p class="text-3xl font-black text-slate-800 mt-2">{{ $sortingProgress['today']['percentage'] }}%</p>
+                </div>
+                <div class="w-full bg-slate-200 h-2 rounded-full mt-4 overflow-hidden">
+                    <div class="h-full bg-brand-500 rounded-full transition-all duration-505" style="width: {{ $sortingProgress['today']['percentage'] }}%;"></div>
+                </div>
+            </div>
+
+            {{-- Tomorrow's Progress --}}
+            <div class="bg-slate-50/50 rounded-2xl border border-slate-100 p-5 flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Tomorrow's Orders ({{ \Illuminate\Support\Carbon::tomorrow()->format('d M Y') }})</span>
+                        <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-600 border border-slate-200">
+                            {{ $sortingProgress['tomorrow']['sorted'] }} / {{ $sortingProgress['tomorrow']['total'] }} items
+                        </span>
+                    </div>
+                    <p class="text-3xl font-black text-slate-800 mt-2">{{ $sortingProgress['tomorrow']['percentage'] }}%</p>
+                </div>
+                <div class="w-full bg-slate-200 h-2 rounded-full mt-4 overflow-hidden">
+                    <div class="h-full bg-brand-500 rounded-full transition-all duration-505" style="width: {{ $sortingProgress['tomorrow']['percentage'] }}%;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    @endif
+
     @if($role === 'purchasing-manager' || $user->can('purchasing.order.approve'))
     {{-- Daily order progress timeline --}}
     <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-6">
@@ -2427,14 +2537,29 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
                     </div>
 
                     <div class="flex flex-wrap gap-2 xl:w-72 xl:justify-end shrink-0">
-                        @if($status['po_count'] > 0)
+                        @if($status['stage'] === 'purchase_order')
+                            <a href="{{ route('purchasing.orders.index') }}" class="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-[11px] font-black text-white hover:bg-blue-700 transition-colors">
+                                <svg class="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272" /></svg>
+                                Continue in Purchase Orders
+                            </a>
                             @foreach($status['purchase_orders']->take(2) as $po)
-                                <a href="{{ route('purchasing.orders.show', $po) }}" class="inline-flex items-center rounded-xl bg-blue-600 px-3 py-2 text-[11px] font-black text-white hover:bg-blue-700 transition-colors">
+                                <a href="{{ route('purchasing.orders.show', $po) }}" class="inline-flex items-center rounded-xl bg-blue-50 px-3 py-2 text-[11px] font-black text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors">
                                     {{ $po->po_number }}
                                 </a>
                             @endforeach
                             @if($status['po_count'] > 2)
-                                <a href="{{ route('purchasing.orders.index') }}" class="inline-flex items-center rounded-xl bg-blue-50 px-3 py-2 text-[11px] font-black text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors">
+                                <span class="inline-flex items-center rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-black text-slate-500 border border-slate-200">
+                                    +{{ $status['po_count'] - 2 }} more
+                                </span>
+                            @endif
+                        @elseif($status['po_count'] > 0)
+                            @foreach($status['purchase_orders']->take(2) as $po)
+                                <a href="{{ route('purchasing.orders.show', $po) }}" class="inline-flex items-center rounded-xl bg-emerald-600 px-3 py-2 text-[11px] font-black text-white hover:bg-emerald-700 transition-colors">
+                                    {{ $po->po_number }}
+                                </a>
+                            @endforeach
+                            @if($status['po_count'] > 2)
+                                <a href="{{ route('purchasing.orders.index') }}" class="inline-flex items-center rounded-xl bg-emerald-50 px-3 py-2 text-[11px] font-black text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors">
                                     +{{ $status['po_count'] - 2 }} more
                                 </a>
                             @endif

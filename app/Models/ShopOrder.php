@@ -23,13 +23,30 @@ class ShopOrder extends Model
         'deadline_at',
         'update_reason',
         'created_by',
+        'is_allocation_completed',
+        'sorting_notes',
+        'is_delivered',
+        'delivered_at',
+        'delivered_by',
+        'delivery_notes',
+        'cash_collected',
+        'cash_discrepancy',
+        'total_shortage_value',
     ];
 
     protected $casts = [
         'business_date' => 'date',
         'submitted_at' => 'datetime',
         'deadline_at' => 'datetime',
+        'is_allocation_completed' => 'boolean',
+        'is_delivered' => 'boolean',
+        'delivered_at' => 'datetime',
     ];
+
+    public function deliveredBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'delivered_by');
+    }
 
     protected static function booted(): void
     {

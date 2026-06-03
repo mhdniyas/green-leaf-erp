@@ -15,6 +15,7 @@ use App\Models\PurchaseOrderItem;
 use App\Models\SalesInvoice;
 use App\Models\SalesOrder;
 use App\Models\ShopOrder;
+use App\Models\ShopOrderItem;
 use App\Models\ShopPreset;
 use App\Models\StockBatch;
 use App\Models\Supplier;
@@ -83,7 +84,7 @@ class DashboardController extends Controller
         $yesterdayOrder = null;
         $allShopOrders = collect();
         $dailyOrderStatuses = collect();
-        if ($user->hasRole('shop-owner')) {
+        if ($user->hasRole('shop-owner') || $user->hasRole('shop')) {
             $productsByCategory = Category::with(['products' => function ($q) {
                 $q->where('is_active', true)->orderBy('name');
             }])
@@ -115,7 +116,7 @@ class DashboardController extends Controller
                         ->first();
                 }
             }
-        } elseif ($user->hasRole('purchasing-manager') || $user->can('purchasing.order.approve')) {
+        } elseif ($user->hasRole('purchasing-manager') || $user->hasRole('purchase') || $user->can('purchasing.order.approve')) {
             $allShopOrders = ShopOrder::with(['shop', 'creator', 'items.product'])
                 ->orderBy('business_date', 'desc')
                 ->get();
@@ -186,6 +187,55 @@ class DashboardController extends Controller
             });
         }
 
-        return view('dashboard', compact('inventoryStats', 'purchasingStats', 'salesStats', 'productsByCategory', 'recentRequisitions', 'presets', 'yesterdayOrder', 'allShopOrders', 'dailyOrderStatuses'));
+        $sortingProgress = null;
+        if ($user->hasRole('admin') || $user->hasRole('super-admin') || $user->hasRole('legacy-admin') || $user->hasRole('purchasing-manager') || $user->hasRole('purchase') || $user->hasRole('inventory-manager') || $user->hasRole('warehouse-operations-manager') || $user->hasRole('warehouse')) {
+            $todayApprovedItems = ShopOrderItem::whereHas('order', function ($q) {
+                $q->whereDate('business_date', today())->where('state', 'approved');
+            })->get();
+            $todayTotal = $todayApprovedItems->count();
+            $todaySorted = $todayApprovedItems->where('is_sorted', true)->count();
+            $todayPercentage = $todayTotal > 0 ? (int) round(($todaySorted / $todayTotal) * 100) : 0;
+
+            $tomorrowApprovedItems = ShopOrderItem::whereHas('order', function ($q) {
+                $q->whereDate('business_date', Carbon::tomorrow())->where('state', 'approved');
+            })->get();
+            $tomorrowTotal = $tomorrowApprovedItems->count();
+            $tomorrowSorted = $tomorrowApprovedItems->where('is_sorted', true)->count();
+            $tomorrowPercentage = $tomorrowTotal > 0 ? (int) round(($tomorrowSorted / $tomorrowTotal) * 100) : 0;
+
+            $sortingProgress = [
+                'today' => [
+                    'total' => $todayTotal,
+                    'sorted' => $todaySorted,
+                    'percentage' => $todayPercentage,
+                ],
+                'tomorrow' => [
+                    'total' => $tomorrowTotal,
+                    'sorted' => $tomorrowSorted,
+                    'percentage' => $tomorrowPercentage,
+                ],
+            ];
+        }
+
+        $pendingPOsForReceipt = collect();
+        if ($user->hasRole('warehouse-operations-manager') || $user->hasRole('warehouse') || $user->hasRole('admin') || $user->hasRole('super-admin') || $user->hasRole('legacy-admin')) {
+            $pendingPOsForReceipt = PurchaseOrder::where('status', POStatus::Approved)
+                ->with(['supplier', 'items.product'])
+                ->get();
+        }
+
+        return view('dashboard', compact(
+            'inventoryStats',
+            'purchasingStats',
+            'salesStats',
+            'productsByCategory',
+            'recentRequisitions',
+            'presets',
+            'yesterdayOrder',
+            'allShopOrders',
+            'dailyOrderStatuses',
+            'sortingProgress',
+            'pendingPOsForReceipt'
+        ));
     }
 }

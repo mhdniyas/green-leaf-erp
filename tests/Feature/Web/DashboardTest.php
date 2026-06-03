@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Web;
 
-use App\Enums\Sales\SOStatus;
 use App\Enums\Purchasing\POStatus;
+use App\Enums\Sales\SOStatus;
 use App\Models\Customer;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
@@ -20,6 +20,7 @@ use Database\Seeders\CategorySeeder;
 use Database\Seeders\ProductSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class DashboardTest extends TestCase
@@ -152,5 +153,51 @@ class DashboardTest extends TestCase
         $this->assertStringContainsString('"sku":"'.$product2->sku.'"', $html);
         $this->assertStringContainsString('"yesterday":0', $html);
         $this->assertStringContainsString('"suggested":0', $html);
+    }
+
+    public function test_purchasing_manager_dashboard_shows_daily_order_progress_with_purchase_order_continue(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchasing-manager');
+
+        $orderDate = Carbon::tomorrow()->format('Y-m-d');
+        $supplier = Supplier::factory()->create();
+
+        PurchaseOrder::factory()->create([
+            'supplier_id' => $supplier->id,
+            'order_date' => $orderDate,
+            'status' => POStatus::Approved,
+            'fulfillment_type' => 'warehouse',
+            'created_by' => $manager->id,
+        ]);
+
+        $response = $this->actingAs($manager)
+            ->get(route('dashboard'));
+
+        $response->assertOk();
+        $response->assertSee('Daily Order Progress');
+        $response->assertSee('Continue in Purchase Orders');
+        $response->assertSee('Purchase Order');
+    }
+
+    public function test_warehouse_manager_dashboard_shows_receive_goods_gateway(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('warehouse-operations-manager');
+
+        $supplier = Supplier::factory()->create();
+        $po = PurchaseOrder::factory()->create([
+            'supplier_id' => $supplier->id,
+            'order_date' => today()->toDateString(),
+            'status' => POStatus::Approved,
+            'created_by' => $manager->id,
+        ]);
+
+        $response = $this->actingAs($manager)
+            ->get(route('dashboard'));
+
+        $response->assertOk();
+        $response->assertSee('Daily Operational Gateway: Receive Goods to Start Process');
+        $response->assertSee($po->po_number);
     }
 }
