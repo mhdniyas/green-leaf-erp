@@ -115,7 +115,7 @@ class DashboardTest extends TestCase
         $shopOwner = User::factory()->create([
             'shop_id' => $shop->id,
         ]);
-        $shopOwner->assignRole('shop-owner');
+        $shopOwner->assignRole('shop');
 
         $product1 = Product::first();
         $product2 = Product::skip(1)->first();
@@ -158,7 +158,7 @@ class DashboardTest extends TestCase
     public function test_purchasing_manager_dashboard_shows_daily_order_progress_with_purchase_order_continue(): void
     {
         $manager = User::factory()->create();
-        $manager->assignRole('purchasing-manager');
+        $manager->assignRole('purchase');
 
         $orderDate = Carbon::tomorrow()->format('Y-m-d');
         $supplier = Supplier::factory()->create();
@@ -183,7 +183,7 @@ class DashboardTest extends TestCase
     public function test_warehouse_manager_dashboard_shows_receive_goods_gateway(): void
     {
         $manager = User::factory()->create();
-        $manager->assignRole('warehouse-operations-manager');
+        $manager->assignRole('warehouse');
 
         $supplier = Supplier::factory()->create();
         $po = PurchaseOrder::factory()->create([

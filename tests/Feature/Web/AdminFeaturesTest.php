@@ -50,7 +50,7 @@ class AdminFeaturesTest extends TestCase
     public function test_legacy_admin_can_access_admin_dashboards(): void
     {
         $legacyAdmin = User::factory()->create();
-        $legacyAdmin->assignRole('legacy-admin');
+        $legacyAdmin->assignRole('admin');
 
         $response = $this->actingAs($legacyAdmin)->get(route('admin.daily-progress'));
         $response->assertOk();
@@ -64,7 +64,7 @@ class AdminFeaturesTest extends TestCase
     public function test_activity_log_displays_logs_correctly(): void
     {
         $legacyAdmin = User::factory()->create();
-        $legacyAdmin->assignRole('legacy-admin');
+        $legacyAdmin->assignRole('admin');
 
         // Trigger Spatie activity logging by updating a user
         $targetUser = User::factory()->create(['name' => 'Original Name']);
@@ -89,7 +89,7 @@ class AdminFeaturesTest extends TestCase
     public function test_daily_progress_displays_requisitions_correctly(): void
     {
         $legacyAdmin = User::factory()->create();
-        $legacyAdmin->assignRole('legacy-admin');
+        $legacyAdmin->assignRole('admin');
 
         $shop = Shop::create(['code' => 'S10', 'name' => 'Super Shop']);
 

@@ -22,9 +22,7 @@ class DailyProgressController extends Controller
     public function __invoke(Request $request): View
     {
         if (! $request->user()->can('admin.daily-progress.view') &&
-            ! $request->user()->hasRole('legacy-admin') &&
-            ! $request->user()->hasRole('admin') &&
-            ! $request->user()->hasRole('super-admin')) {
+            ! $request->user()->hasRole('admin')) {
             abort(403, 'Unauthorized access to daily progress tracker.');
         }
 

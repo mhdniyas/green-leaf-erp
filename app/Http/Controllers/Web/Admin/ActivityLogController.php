@@ -19,9 +19,7 @@ class ActivityLogController extends Controller
     public function index(Request $request): View
     {
         if (! $request->user()->can('admin.activity-log.view') &&
-            ! $request->user()->hasRole('legacy-admin') &&
-            ! $request->user()->hasRole('admin') &&
-            ! $request->user()->hasRole('super-admin')) {
+            ! $request->user()->hasRole('admin')) {
             abort(403, 'Unauthorized access to activity logs.');
         }
 

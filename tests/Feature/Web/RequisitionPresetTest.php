@@ -43,7 +43,7 @@ class RequisitionPresetTest extends TestCase
         $this->shopOwner = User::factory()->create([
             'shop_id' => $this->shop->id,
         ]);
-        $this->shopOwner->assignRole('shop-owner');
+        $this->shopOwner->assignRole('shop');
 
         $this->product1 = Product::first();
         $this->product2 = Product::skip(1)->first();

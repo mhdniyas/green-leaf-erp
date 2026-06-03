@@ -45,7 +45,7 @@ class RequisitionTest extends TestCase
         $this->shopOwner = User::factory()->create([
             'shop_id' => $this->shop->id,
         ]);
-        $this->shopOwner->assignRole('shop-owner');
+        $this->shopOwner->assignRole('shop');
 
         $this->product = Product::first();
     }
@@ -285,7 +285,7 @@ class RequisitionTest extends TestCase
         ]);
 
         $manager = User::factory()->create();
-        $manager->assignRole('purchasing-manager');
+        $manager->assignRole('purchase');
 
         $response = $this->actingAs($manager)
             ->post(route('requisitions.review', $order->order_number), [
@@ -326,7 +326,7 @@ class RequisitionTest extends TestCase
         ]);
 
         $manager = User::factory()->create();
-        $manager->assignRole('purchasing-manager');
+        $manager->assignRole('purchase');
 
         $response = $this->actingAs($manager)
             ->post(route('requisitions.review', $order->order_number), [
@@ -367,7 +367,7 @@ class RequisitionTest extends TestCase
     public function test_requisitions_board_page_is_accessible_to_purchase_manager(): void
     {
         $manager = User::factory()->create();
-        $manager->assignRole('purchasing-manager');
+        $manager->assignRole('purchase');
 
         $response = $this->actingAs($manager)
             ->get(route('requisitions.board'));
@@ -387,7 +387,7 @@ class RequisitionTest extends TestCase
     public function test_purchase_manager_can_save_requisition_board_quantities(): void
     {
         $manager = User::factory()->create();
-        $manager->assignRole('purchasing-manager');
+        $manager->assignRole('purchase');
 
         $date = Carbon::tomorrow()->format('Y-m-d');
 
@@ -424,7 +424,7 @@ class RequisitionTest extends TestCase
     public function test_purchase_manager_can_save_requisition_board_fulfillment_types(): void
     {
         $manager = User::factory()->create();
-        $manager->assignRole('purchasing-manager');
+        $manager->assignRole('purchase');
 
         $date = Carbon::tomorrow()->format('Y-m-d');
 
@@ -456,7 +456,7 @@ class RequisitionTest extends TestCase
     public function test_purchase_manager_can_review_and_update_fulfillment_type(): void
     {
         $manager = User::factory()->create();
-        $manager->assignRole('purchasing-manager');
+        $manager->assignRole('purchase');
 
         $order = ShopOrder::create([
             'shop_id' => $this->shop->id,
@@ -497,7 +497,7 @@ class RequisitionTest extends TestCase
     public function test_approved_requisitions_board_page_is_accessible_to_purchase_manager(): void
     {
         $manager = User::factory()->create();
-        $manager->assignRole('purchasing-manager');
+        $manager->assignRole('purchase');
 
         $response = $this->actingAs($manager)
             ->get(route('requisitions.approved_board'));
@@ -510,7 +510,7 @@ class RequisitionTest extends TestCase
     {
         $this->withoutExceptionHandling();
         $manager = User::factory()->create();
-        $manager->assignRole('purchasing-manager');
+        $manager->assignRole('purchase');
 
         $date = Carbon::tomorrow()->format('Y-m-d');
         $supplier = Supplier::create([
@@ -572,7 +572,7 @@ class RequisitionTest extends TestCase
     public function test_approved_board_shows_purchase_order_handoff_after_generation(): void
     {
         $manager = User::factory()->create();
-        $manager->assignRole('purchasing-manager');
+        $manager->assignRole('purchase');
 
         $date = Carbon::tomorrow()->format('Y-m-d');
         $supplier = Supplier::create([
@@ -607,7 +607,7 @@ class RequisitionTest extends TestCase
     public function test_purchase_manager_cannot_resubmit_approved_board_after_purchase_orders_are_generated(): void
     {
         $manager = User::factory()->create();
-        $manager->assignRole('purchasing-manager');
+        $manager->assignRole('purchase');
 
         $date = Carbon::tomorrow()->format('Y-m-d');
         $supplier = Supplier::create([
@@ -665,7 +665,7 @@ class RequisitionTest extends TestCase
     public function test_purchase_manager_cannot_clear_approved_board_after_purchase_orders_are_generated(): void
     {
         $manager = User::factory()->create();
-        $manager->assignRole('purchasing-manager');
+        $manager->assignRole('purchase');
 
         $date = Carbon::tomorrow()->format('Y-m-d');
         $supplier = Supplier::create([
@@ -721,7 +721,7 @@ class RequisitionTest extends TestCase
     public function test_purchase_manager_can_export_approved_board_csv(): void
     {
         $manager = User::factory()->create();
-        $manager->assignRole('purchasing-manager');
+        $manager->assignRole('purchase');
 
         $response = $this->actingAs($manager)
             ->get(route('requisitions.approved_board.export.csv', ['date' => Carbon::tomorrow()->format('Y-m-d')]));
@@ -733,7 +733,7 @@ class RequisitionTest extends TestCase
     public function test_purchase_manager_can_export_approved_board_pdf(): void
     {
         $manager = User::factory()->create();
-        $manager->assignRole('purchasing-manager');
+        $manager->assignRole('purchase');
 
         $response = $this->actingAs($manager)
             ->get(route('requisitions.approved_board.export.pdf', ['date' => Carbon::tomorrow()->format('Y-m-d')]));
@@ -746,7 +746,7 @@ class RequisitionTest extends TestCase
     public function test_purchase_manager_can_selectively_generate_purchase_orders(): void
     {
         $manager = User::factory()->create();
-        $manager->assignRole('purchasing-manager');
+        $manager->assignRole('purchase');
 
         $date = Carbon::tomorrow()->format('Y-m-d');
         $supplier = Supplier::create([
@@ -847,7 +847,7 @@ class RequisitionTest extends TestCase
     public function test_single_requisition_approval_dynamically_generates_purchase_order(): void
     {
         $manager = User::factory()->create();
-        $manager->assignRole('purchasing-manager');
+        $manager->assignRole('purchase');
 
         $date = Carbon::tomorrow()->format('Y-m-d');
         $supplier = Supplier::create([

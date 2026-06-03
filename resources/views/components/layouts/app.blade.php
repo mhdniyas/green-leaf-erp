@@ -123,7 +123,6 @@
 
             {{-- Purchasing Group --}}
             @if(
-                auth()->user()->hasRole('purchasing-manager') ||
                 auth()->user()->hasRole('purchase') ||
                 auth()->user()->can('purchasing.supplier.view') ||
                 auth()->user()->can('purchasing.order.view') ||
@@ -150,7 +149,7 @@
                     </svg>
                 </button>
                 <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isPurchasingActive ? '' : 'hidden' }}">
-                    @if(auth()->user()->hasRole('purchasing-manager') || auth()->user()->hasRole('purchase') || auth()->user()->can('purchasing.order.approve'))
+                    @if(auth()->user()->hasRole('purchase') || auth()->user()->can('purchasing.order.approve'))
                     <x-nav-item href="{{ route('requisitions.board') }}" :active="request()->routeIs('requisitions.board')" :sub="true">
                         Requisition Board
                     </x-nav-item>

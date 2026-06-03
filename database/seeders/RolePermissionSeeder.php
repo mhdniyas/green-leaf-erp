@@ -96,108 +96,46 @@ class RolePermissionSeeder extends Seeder
 
         // Define roles with their permissions
         $roles = [
-            'super-admin' => $permissions, // All permissions
-
-            'admin' => $permissions, // All permissions (same as super-admin, but super-admin can forceDelete)
-
-            'legacy-admin' => $permissions,
-
-            'inventory-manager' => [
-                'inventory.product.view', 'inventory.product.create', 'inventory.product.update',
-                'inventory.category.view', 'inventory.category.create', 'inventory.category.update',
-                'inventory.stock.view', 'inventory.stock.adjust',
-                'inventory.sorting.view', 'inventory.sorting.process',
-                'inventory.wastage.view', 'inventory.wastage.record',
-            ],
-
-            'inventory-staff' => [
-                'inventory.product.view',
-                'inventory.category.view',
-                'inventory.stock.view',
-                'inventory.sorting.view', 'inventory.sorting.process',
-                'inventory.wastage.view', 'inventory.wastage.record',
-            ],
-
-            'sales-manager' => [
-                'inventory.product.view', 'inventory.stock.view',
-                'sales.customer.view', 'sales.customer.create', 'sales.customer.update',
-                'sales.order.view', 'sales.order.create', 'sales.order.confirm', 'sales.order.cancel',
-                'sales.invoice.view', 'sales.invoice.create',
-                'sales.payment.record',
-                'accounting.report.view',
-            ],
-
-            'cashier' => [
-                'inventory.product.view', 'inventory.stock.view',
-                'sales.customer.view',
-                'sales.order.view', 'sales.order.create',
-                'sales.invoice.view',
-                'sales.payment.record',
-            ],
-
-            'purchasing-manager' => [
-                'inventory.product.view', 'inventory.stock.view',
-                'purchasing.supplier.view', 'purchasing.supplier.create', 'purchasing.supplier.update',
-                'purchasing.order.view', 'purchasing.order.create', 'purchasing.order.approve',
-                'purchasing.grn.view', 'purchasing.grn.create',
-                'accounting.report.view',
-            ],
-
-            'accountant' => [
-                'accounting.ledger.view', 'accounting.entry.create',
-                'accounting.report.view', 'accounting.report.export',
-                'sales.invoice.view', 'sales.payment.record',
-                'purchasing.order.view', 'purchasing.grn.view',
-            ],
-
-            'hr-manager' => [
-                'hr.employee.view', 'hr.employee.create', 'hr.employee.update',
-                'hr.payroll.view', 'hr.payroll.process',
-            ],
-
-            'shop-owner' => [
-                'inventory.product.view',
-                'sales.order.view', 'sales.order.create', 'sales.order.cancel',
-            ],
-
-            'viewer' => [
-                'inventory.product.view', 'inventory.stock.view',
-                'sales.order.view', 'sales.invoice.view',
-                'purchasing.order.view',
-                'accounting.report.view',
-            ],
-
-            'warehouse-operations-manager' => [
-                'inventory.product.view', 'inventory.stock.view',
-                'inventory.sorting.view', 'inventory.sorting.process',
-                'inventory.wastage.view', 'inventory.wastage.record',
-                'purchasing.grn.view', 'purchasing.grn.create',
-                'sales.order.view',
-                'warehouse.checklist.view', 'warehouse.checklist.toggle',
-            ],
+            'admin' => $permissions, // All permissions
 
             'shop' => [
                 'inventory.product.view',
-                'sales.order.view', 'sales.order.create', 'sales.order.cancel',
+                'sales.order.view',
+                'sales.order.create',
+                'sales.order.cancel',
             ],
 
             'purchase' => [
-                'inventory.product.view', 'inventory.stock.view',
-                'purchasing.supplier.view', 'purchasing.supplier.create', 'purchasing.supplier.update',
-                'purchasing.order.view', 'purchasing.order.create', 'purchasing.order.approve',
-                'purchasing.grn.view', 'purchasing.grn.create',
+                'inventory.product.view',
+                'inventory.stock.view',
+                'purchasing.supplier.view',
+                'purchasing.supplier.create',
+                'purchasing.supplier.update',
+                'purchasing.order.view',
+                'purchasing.order.create',
+                'purchasing.order.approve',
+                'purchasing.grn.view',
+                'purchasing.grn.create',
                 'accounting.report.view',
             ],
 
             'warehouse' => [
-                'inventory.product.view', 'inventory.stock.view',
-                'inventory.sorting.view', 'inventory.sorting.process',
-                'inventory.wastage.view', 'inventory.wastage.record',
-                'purchasing.grn.view', 'purchasing.grn.create',
+                'inventory.product.view',
+                'inventory.stock.view',
+                'inventory.sorting.view',
+                'inventory.sorting.process',
+                'inventory.wastage.view',
+                'inventory.wastage.record',
+                'purchasing.grn.view',
+                'purchasing.grn.create',
                 'sales.order.view',
-                'warehouse.checklist.view', 'warehouse.checklist.toggle',
+                'warehouse.checklist.view',
+                'warehouse.checklist.toggle',
             ],
         ];
+
+        // Clean up legacy roles that are no longer supported
+        Role::whereNotIn('name', array_keys($roles))->delete();
 
         foreach ($roles as $roleName => $rolePermissions) {
             $role = Role::firstOrCreate(['name' => $roleName, 'guard_name' => 'web']);

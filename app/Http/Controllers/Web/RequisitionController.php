@@ -102,7 +102,7 @@ class RequisitionController extends Controller
             ->firstOrFail();
 
         // Access control: Shop Owner can only see their own shop orders
-        if (($request->user()->hasRole('shop-owner') || $request->user()->hasRole('shop')) && $order->shop_id !== $request->user()->shop_id) {
+        if ($request->user()->hasRole('shop') && $order->shop_id !== $request->user()->shop_id) {
             abort(403, 'Unauthorized access to shop order.');
         }
 
@@ -120,7 +120,7 @@ class RequisitionController extends Controller
             ->with(['items.product'])
             ->firstOrFail();
 
-        if (($request->user()->hasRole('shop-owner') || $request->user()->hasRole('shop')) && $order->shop_id !== $request->user()->shop_id) {
+        if ($request->user()->hasRole('shop') && $order->shop_id !== $request->user()->shop_id) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -139,7 +139,7 @@ class RequisitionController extends Controller
     {
         $order = ShopOrder::where('order_number', $orderNumber)->firstOrFail();
 
-        if (($request->user()->hasRole('shop-owner') || $request->user()->hasRole('shop')) && $order->shop_id !== $request->user()->shop_id) {
+        if ($request->user()->hasRole('shop') && $order->shop_id !== $request->user()->shop_id) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -181,7 +181,7 @@ class RequisitionController extends Controller
     {
         $order = ShopOrder::where('order_number', $orderNumber)->firstOrFail();
 
-        if (($request->user()->hasRole('shop-owner') || $request->user()->hasRole('shop')) && $order->shop_id !== $request->user()->shop_id) {
+        if ($request->user()->hasRole('shop') && $order->shop_id !== $request->user()->shop_id) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -208,7 +208,7 @@ class RequisitionController extends Controller
             ->with(['items.product', 'shop'])
             ->firstOrFail();
 
-        if (($request->user()->hasRole('shop-owner') || $request->user()->hasRole('shop')) && $order->shop_id !== $request->user()->shop_id) {
+        if ($request->user()->hasRole('shop') && $order->shop_id !== $request->user()->shop_id) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -253,7 +253,7 @@ class RequisitionController extends Controller
             ->with(['items.product', 'shop', 'creator'])
             ->firstOrFail();
 
-        if (($request->user()->hasRole('shop-owner') || $request->user()->hasRole('shop')) && $order->shop_id !== $request->user()->shop_id) {
+        if ($request->user()->hasRole('shop') && $order->shop_id !== $request->user()->shop_id) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -267,8 +267,8 @@ class RequisitionController extends Controller
     {
         $order = ShopOrder::where('order_number', $orderNumber)->firstOrFail();
 
-        // Enforce authorization: only purchasing-manager or users with purchasing.order.approve permission
-        if (! $request->user()->hasRole('purchasing-manager') && ! $request->user()->can('purchasing.order.approve')) {
+        // Enforce authorization: only purchase or users with purchasing.order.approve permission
+        if (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve')) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -314,8 +314,8 @@ class RequisitionController extends Controller
      */
     public function board(Request $request): View
     {
-        // Enforce authorization: purchasing-manager or can approve orders
-        if (! $request->user()->hasRole('purchasing-manager') && ! $request->user()->can('purchasing.order.approve')) {
+        // Enforce authorization: purchase or can approve orders
+        if (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve')) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -364,7 +364,7 @@ class RequisitionController extends Controller
     public function saveBoard(Request $request): RedirectResponse
     {
         // Enforce authorization
-        if (! $request->user()->hasRole('purchasing-manager') && ! $request->user()->can('purchasing.order.approve')) {
+        if (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve')) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -465,8 +465,8 @@ class RequisitionController extends Controller
      */
     public function approvedBoard(Request $request): View
     {
-        // Enforce authorization: purchasing-manager or can approve orders
-        if (! $request->user()->hasRole('purchasing-manager') && ! $request->user()->can('purchasing.order.approve')) {
+        // Enforce authorization: purchase or can approve orders
+        if (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve')) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -554,7 +554,7 @@ class RequisitionController extends Controller
     public function saveApprovedBoard(Request $request): RedirectResponse
     {
         // Enforce authorization
-        if (! $request->user()->hasRole('purchasing-manager') && ! $request->user()->can('purchasing.order.approve')) {
+        if (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve')) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -666,7 +666,7 @@ class RequisitionController extends Controller
      */
     public function exportApprovedBoardCsv(Request $request): StreamedResponse
     {
-        if (! $request->user()->hasRole('purchasing-manager') && ! $request->user()->can('purchasing.order.approve')) {
+        if (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve')) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -742,7 +742,7 @@ class RequisitionController extends Controller
      */
     public function exportApprovedBoardPdf(Request $request): View
     {
-        if (! $request->user()->hasRole('purchasing-manager') && ! $request->user()->can('purchasing.order.approve')) {
+        if (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve')) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -874,7 +874,7 @@ class RequisitionController extends Controller
                         'po_number' => $poNumber,
                         'status' => POStatus::Approved, // Directly approved
                         'order_date' => $dateStr,
-                        'created_by' => auth()->id() ?? User::role('purchasing-manager')->first()?->id ?? 1,
+                        'created_by' => auth()->id() ?? User::role('purchase')->first()?->id ?? 1,
                         'fulfillment_type' => $fulfillmentType,
                         'notes' => 'Auto-generated from Requisitions System',
                     ]);
@@ -934,7 +934,7 @@ class RequisitionController extends Controller
             ->firstOrFail();
 
         // Access control: Shop Owner can only see their own shop orders
-        if (($request->user()->hasRole('shop-owner') || $request->user()->hasRole('shop')) && $order->shop_id !== $request->user()->shop_id) {
+        if ($request->user()->hasRole('shop') && $order->shop_id !== $request->user()->shop_id) {
             abort(403, 'Unauthorized access to shop order.');
         }
 
@@ -969,7 +969,7 @@ class RequisitionController extends Controller
             ->firstOrFail();
 
         // Access control: Shop Owner can only see their own shop orders
-        if (($request->user()->hasRole('shop-owner') || $request->user()->hasRole('shop')) && $order->shop_id !== $request->user()->shop_id) {
+        if ($request->user()->hasRole('shop') && $order->shop_id !== $request->user()->shop_id) {
             abort(403, 'Unauthorized access to shop order.');
         }
 

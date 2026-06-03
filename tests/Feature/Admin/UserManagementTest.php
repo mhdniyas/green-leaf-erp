@@ -59,7 +59,7 @@ class UserManagementTest extends TestCase
 
     public function test_authorized_user_can_create_user_with_roles_and_permissions(): void
     {
-        $role = Role::findByName('sales-manager');
+        $role = Role::findByName('shop');
         $permission = Permission::findByName('sales.order.create');
 
         $payload = [
@@ -105,7 +105,7 @@ class UserManagementTest extends TestCase
             'email' => 'old@example.com',
         ]);
 
-        $role = Role::findByName('cashier');
+        $role = Role::findByName('purchase');
         $permission = Permission::findByName('sales.customer.view');
 
         $payload = [

@@ -1,6 +1,6 @@
 <x-layouts.app title="Requisition Details — {{ $order->order_number }}">
     @php
-        $canApprove = auth()->user()->hasRole('purchasing-manager') || auth()->user()->hasRole('purchase') || auth()->user()->can('purchasing.order.approve');
+        $canApprove = auth()->user()->hasRole('purchase') || auth()->user()->can('purchasing.order.approve');
         $isPendingApproval = in_array($order->state, ['submitted', 'update_requested']);
         $showApprovalForm = $canApprove && $isPendingApproval;
     @endphp

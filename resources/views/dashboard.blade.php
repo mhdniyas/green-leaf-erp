@@ -39,18 +39,10 @@ if (isset($productsByCategory) && $productsByCategory) {
 
 
 $roleConfig = [
-    'super-admin'         => ['label' => 'Super Admin',         'color' => 'bg-purple-100 text-purple-700 border-purple-200'],
-    'admin'               => ['label' => 'Administrator',       'color' => 'bg-purple-100 text-purple-700 border-purple-200'],
-    'inventory-manager'   => ['label' => 'Inventory Manager',   'color' => 'bg-brand-100 text-brand-700 border-brand-200'],
-    'inventory-staff'     => ['label' => 'Inventory Staff',     'color' => 'bg-brand-100 text-brand-700 border-brand-200'],
-    'sales-manager'       => ['label' => 'Sales Manager',       'color' => 'bg-blue-100 text-blue-700 border-blue-200'],
-    'cashier'             => ['label' => 'Cashier',             'color' => 'bg-blue-100 text-blue-700 border-blue-200'],
-    'purchasing-manager'  => ['label' => 'Purchasing Manager',  'color' => 'bg-amber-100 text-amber-700 border-amber-200'],
-    'accountant'          => ['label' => 'Accountant',          'color' => 'bg-teal-100 text-teal-700 border-teal-200'],
-    'hr-manager'          => ['label' => 'HR Manager',          'color' => 'bg-pink-100 text-pink-700 border-pink-200'],
-    'shop-owner'          => ['label' => 'Shop Owner',          'color' => 'bg-emerald-100 text-emerald-700 border-emerald-200'],
-    'viewer'              => ['label' => 'Read-only Viewer',    'color' => 'bg-gray-100 text-gray-600 border-gray-200'],
-    'warehouse-operations-manager' => ['label' => 'Warehouse Manager', 'color' => 'bg-pink-100 text-pink-700 border-pink-200'],
+    'admin'     => ['label' => 'Administrator',     'color' => 'bg-purple-100 text-purple-700 border-purple-200'],
+    'shop'      => ['label' => 'Shop Owner',        'color' => 'bg-emerald-100 text-emerald-700 border-emerald-200'],
+    'purchase'  => ['label' => 'Purchase Manager',  'color' => 'bg-amber-100 text-amber-700 border-amber-200'],
+    'warehouse' => ['label' => 'Warehouse Manager', 'color' => 'bg-pink-100 text-pink-700 border-pink-200'],
 ];
 $rc = $roleConfig[$role] ?? ['label' => ucfirst($role), 'color' => 'bg-gray-100 text-gray-600 border-gray-200'];
 
@@ -158,11 +150,11 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
 
 <x-layouts.app title="Dashboard">
 
-    @if($role === 'shop-owner')
+    @if($role === 'shop')
     {{-- ========================================================================= --}}
     {{-- 🏪 SHOP OWNER - OPERATIONS CONTROL CENTER                                   --}}
     {{-- ========================================================================= --}}
-    <div class="space-y-6 animate-fade-in" id="shop-owner-dashboard-container">
+    <div class="space-y-6 animate-fade-in" id="shop-dashboard-container">
 
         {{-- 1. HEADER SECTION --}}
         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 bg-slate-950 text-white rounded-3xl p-6 md:p-8 shadow-xl border border-slate-800 relative overflow-hidden">
@@ -2155,7 +2147,7 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
     </div>
 
     {{-- Warehouse daily operational window: Receive Goods to Start Process --}}
-    @if($user->hasRole(['warehouse-operations-manager', 'admin', 'super-admin']))
+    @if($user->hasRole(['warehouse', 'admin']))
     <div class="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 mb-6">
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-5 border-b border-gray-100">
             <div>
@@ -2461,7 +2453,7 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
     </div>
     @endif
 
-    @if($role === 'purchasing-manager' || $user->can('purchasing.order.approve'))
+    @if($role === 'purchase' || $user->can('purchasing.order.approve'))
     {{-- Daily order progress timeline --}}
     <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-6">
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-5 border-b border-slate-100">
@@ -2838,18 +2830,15 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
     </div>
 
     {{-- User profile & role info (admin-only) --}}
-    @if($user->hasRole(['super-admin', 'admin']))
+    @if($user->hasRole('admin'))
     <div class="mt-6 bg-white rounded-2xl border border-gray-200 p-5">
         <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Demo Accounts</h3>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             @foreach([
-                ['email' => 'admin@greenleaf.com',   'role' => 'Administrator',       'color' => 'bg-purple-100 text-purple-700'],
-                ['email' => 'manager@greenleaf.com', 'role' => 'Inventory Manager',   'color' => 'bg-brand-100 text-brand-700'],
-                ['email' => 'shop@greenleaf.com',    'role' => 'Shop Owner',          'color' => 'bg-emerald-100 text-emerald-700'],
-                ['email' => 'cashier@greenleaf.com', 'role' => 'Cashier',             'color' => 'bg-blue-100 text-blue-700'],
-                ['email' => 'sales@greenleaf.com',   'role' => 'Sales Manager',       'color' => 'bg-blue-100 text-blue-700'],
-                ['email' => 'accounts@greenleaf.com','role' => 'Accountant',          'color' => 'bg-teal-100 text-teal-700'],
-                ['email' => 'viewer@greenleaf.com',  'role' => 'Viewer',              'color' => 'bg-gray-100 text-gray-600'],
+                ['email' => 'admin@greenleaf.com',     'role' => 'Administrator',       'color' => 'bg-purple-100 text-purple-700'],
+                ['email' => 'shop@greenleaf.com',      'role' => 'Shop Owner',          'color' => 'bg-emerald-100 text-emerald-700'],
+                ['email' => 'purchase@greenleaf.com',  'role' => 'Purchase Manager',    'color' => 'bg-amber-100 text-amber-700'],
+                ['email' => 'warehouse@greenleaf.com', 'role' => 'Warehouse Manager',   'color' => 'bg-pink-100 text-pink-700'],
             ] as $demo)
             <div class="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
                 <div class="w-7 h-7 rounded-lg {{ $demo['color'] }} flex items-center justify-center shrink-0">

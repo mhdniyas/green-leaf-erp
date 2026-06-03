@@ -24,7 +24,7 @@ class FulfillmentReportController extends Controller
         $shops = collect();
         $selectedShopId = null;
 
-        if ($user->hasRole('shop-owner') || $user->hasRole('shop')) {
+        if ($user->hasRole('shop')) {
             $selectedShopId = $user->shop_id;
         } else {
             // Admins/Managers can filter by any shop

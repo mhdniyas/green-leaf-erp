@@ -190,7 +190,7 @@ class WarehouseSortingTest extends TestCase
     public function test_warehouse_manager_can_access_dashboard(): void
     {
         $user = User::factory()->create();
-        $user->assignRole('warehouse-operations-manager');
+        $user->assignRole('warehouse');
 
         $response = $this->actingAs($user)
             ->get(route('dashboard'));
@@ -201,7 +201,7 @@ class WarehouseSortingTest extends TestCase
     public function test_warehouse_manager_can_receive_goods_and_create_grn(): void
     {
         $user = User::factory()->create();
-        $user->assignRole('warehouse-operations-manager');
+        $user->assignRole('warehouse');
 
         $supplier = Supplier::factory()->create();
         $po = PurchaseOrder::create([
@@ -263,7 +263,7 @@ class WarehouseSortingTest extends TestCase
     public function test_warehouse_manager_can_carry_over_stock_batch(): void
     {
         $user = User::factory()->create();
-        $user->assignRole('warehouse-operations-manager');
+        $user->assignRole('warehouse');
 
         $product = Product::factory()->create();
         $batch = StockBatch::create([
@@ -294,7 +294,7 @@ class WarehouseSortingTest extends TestCase
     public function test_warehouse_manager_can_record_wastage_for_stock_batch(): void
     {
         $user = User::factory()->create();
-        $user->assignRole('warehouse-operations-manager');
+        $user->assignRole('warehouse');
         // Give the role explicit permission to write wastage if not assigned via RolePermissionSeeder
         $user->givePermissionTo('inventory.wastage.record');
 
@@ -333,7 +333,7 @@ class WarehouseSortingTest extends TestCase
     public function test_warehouse_manager_can_complete_shop_order_allocation(): void
     {
         $user = User::factory()->create();
-        $user->assignRole('warehouse-operations-manager');
+        $user->assignRole('warehouse');
 
         $shop = Shop::create([
             'code' => 'TEST_SHOP_FINAL',

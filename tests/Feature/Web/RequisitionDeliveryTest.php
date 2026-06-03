@@ -54,7 +54,7 @@ class RequisitionDeliveryTest extends TestCase
         $shop2 = Shop::create(['code' => 'S2', 'name' => 'Shop 2']);
 
         $owner = User::factory()->create(['shop_id' => $shop1->id]);
-        $owner->assignRole('shop-owner');
+        $owner->assignRole('shop');
 
         $order = ShopOrder::create([
             'shop_id' => $shop2->id,
@@ -74,7 +74,7 @@ class RequisitionDeliveryTest extends TestCase
     {
         $shop = Shop::create(['code' => 'S1', 'name' => 'Shop 1']);
         $owner = User::factory()->create(['shop_id' => $shop->id]);
-        $owner->assignRole('shop-owner');
+        $owner->assignRole('shop');
 
         $order = ShopOrder::create([
             'shop_id' => $shop->id,
@@ -105,7 +105,7 @@ class RequisitionDeliveryTest extends TestCase
     {
         $shop = Shop::create(['code' => 'S1', 'name' => 'Shop 1']);
         $owner = User::factory()->create(['shop_id' => $shop->id]);
-        $owner->assignRole('shop-owner');
+        $owner->assignRole('shop');
 
         $order = ShopOrder::create([
             'shop_id' => $shop->id,
@@ -126,7 +126,7 @@ class RequisitionDeliveryTest extends TestCase
     {
         $shop = Shop::create(['code' => 'S1', 'name' => 'Shop 1']);
         $owner = User::factory()->create(['shop_id' => $shop->id]);
-        $owner->assignRole('shop-owner');
+        $owner->assignRole('shop');
 
         $order = ShopOrder::create([
             'shop_id' => $shop->id,
@@ -148,7 +148,7 @@ class RequisitionDeliveryTest extends TestCase
     {
         $shop = Shop::create(['code' => 'S1', 'name' => 'Shop 1']);
         $owner = User::factory()->create(['shop_id' => $shop->id]);
-        $owner->assignRole('shop-owner');
+        $owner->assignRole('shop');
 
         $order = ShopOrder::create([
             'shop_id' => $shop->id,

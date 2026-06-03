@@ -6,7 +6,7 @@
                 <div>
                     <h1 class="text-xl font-black text-slate-900 tracking-tight">
                         Fulfillment &amp; Delivery Report
-                        @if((auth()->user()->hasRole('shop-owner') || auth()->user()->hasRole('shop')) && auth()->user()->shop)
+                        @if(auth()->user()->hasRole('shop') && auth()->user()->shop)
                             <span class="text-emerald-600 font-bold text-sm block md:inline md:ml-2">— {{ auth()->user()->shop->name }}</span>
                         @endif
                     </h1>
@@ -27,7 +27,7 @@
                            class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-white shadow-sm">
                 </div>
                 
-                @if(!auth()->user()->hasRole('shop-owner') && !auth()->user()->hasRole('shop'))
+                @if(!auth()->user()->hasRole('shop'))
                     <div>
                         <label for="shop_id" class="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Shop</label>
                         <select name="shop_id" id="shop_id"
@@ -257,7 +257,7 @@
                         <tr class="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/20">
                             <th class="py-3 px-6">Delivery Date</th>
                             <th class="py-3 px-6">Order ID</th>
-                            @if(!auth()->user()->hasRole('shop-owner') && !auth()->user()->hasRole('shop'))
+                            @if(!auth()->user()->hasRole('shop'))
                                 <th class="py-3 px-6">Shop</th>
                             @endif
                             <th class="py-3 px-6 text-center">Delivery Status</th>
@@ -278,7 +278,7 @@
                                         {{ $order->order_number }}
                                     </a>
                                 </td>
-                                @if(!auth()->user()->hasRole('shop-owner') && !auth()->user()->hasRole('shop'))
+                                @if(!auth()->user()->hasRole('shop'))
                                     <td class="py-4 px-6 text-slate-700 font-semibold">
                                         {{ $order->shop->name }}
                                     </td>
@@ -319,7 +319,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="{{ (auth()->user()->hasRole('shop-owner') || auth()->user()->hasRole('shop')) ? 7 : 8 }}" class="py-12 text-center text-slate-400 font-medium italic bg-slate-50/10">
+                                <td colspan="{{ auth()->user()->hasRole('shop') ? 7 : 8 }}" class="py-12 text-center text-slate-400 font-medium italic bg-slate-50/10">
                                     No delivery logs found during this period.
                                 </td>
                             </tr>

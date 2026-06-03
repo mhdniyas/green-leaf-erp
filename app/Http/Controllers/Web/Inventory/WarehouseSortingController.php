@@ -34,8 +34,7 @@ class WarehouseSortingController extends Controller
     public function index(Request $request): View
     {
         if (! $request->user()->can('warehouse.checklist.view') &&
-            ! $request->user()->hasRole('warehouse-operations-manager') &&
-            ! $request->user()->hasRole('super-admin') &&
+            ! $request->user()->hasRole('warehouse') &&
             ! $request->user()->hasRole('admin')) {
             abort(403, 'Unauthorized.');
         }
@@ -105,8 +104,7 @@ class WarehouseSortingController extends Controller
     public function toggle(Request $request, ShopOrderItem $item): JsonResponse
     {
         // Require inventory sorting process permission
-        if (! $request->user()->hasRole('warehouse-operations-manager') &&
-            ! $request->user()->hasRole('super-admin') &&
+        if (! $request->user()->hasRole('warehouse') &&
             ! $request->user()->hasRole('admin') &&
             ! $request->user()->can('inventory.sorting.process')) {
             abort(403, 'Unauthorized.');
@@ -182,8 +180,7 @@ class WarehouseSortingController extends Controller
      */
     public function storeGrn(Request $request): JsonResponse
     {
-        if (! $request->user()->hasRole('warehouse-operations-manager') &&
-            ! $request->user()->hasRole('super-admin') &&
+        if (! $request->user()->hasRole('warehouse') &&
             ! $request->user()->hasRole('admin') &&
             ! $request->user()->can('purchasing.grn.create')) {
             return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
@@ -222,11 +219,8 @@ class WarehouseSortingController extends Controller
      */
     public function carryOver(Request $request, StockBatch $batch): JsonResponse
     {
-        if (! $request->user()->hasRole('warehouse-operations-manager') &&
-            ! $request->user()->hasRole('warehouse') &&
-            ! $request->user()->hasRole('super-admin') &&
-            ! $request->user()->hasRole('admin') &&
-            ! $request->user()->hasRole('legacy-admin')) {
+        if (! $request->user()->hasRole('warehouse') &&
+            ! $request->user()->hasRole('admin')) {
             return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
         }
 
@@ -260,8 +254,7 @@ class WarehouseSortingController extends Controller
      */
     public function recordWastage(Request $request, StockBatch $batch): JsonResponse
     {
-        if (! $request->user()->hasRole('warehouse-operations-manager') &&
-            ! $request->user()->hasRole('super-admin') &&
+        if (! $request->user()->hasRole('warehouse') &&
             ! $request->user()->hasRole('admin') &&
             ! $request->user()->can('inventory.wastage.record')) {
             return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
@@ -303,8 +296,7 @@ class WarehouseSortingController extends Controller
      */
     public function completeAllocation(Request $request, ShopOrder $order): JsonResponse
     {
-        if (! $request->user()->hasRole('warehouse-operations-manager') &&
-            ! $request->user()->hasRole('super-admin') &&
+        if (! $request->user()->hasRole('warehouse') &&
             ! $request->user()->hasRole('admin') &&
             ! $request->user()->can('inventory.sorting.process')) {
             return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
@@ -338,8 +330,7 @@ class WarehouseSortingController extends Controller
     public function shopOrders(Request $request): View
     {
         if (! $request->user()->can('warehouse.checklist.view') &&
-            ! $request->user()->hasRole('warehouse-operations-manager') &&
-            ! $request->user()->hasRole('super-admin') &&
+            ! $request->user()->hasRole('warehouse') &&
             ! $request->user()->hasRole('admin')) {
             abort(403, 'Unauthorized.');
         }

@@ -57,7 +57,7 @@ class FulfillmentReportTest extends TestCase
         $shop2 = Shop::create(['code' => 'S2', 'name' => 'Budegere Point']);
 
         $owner = User::factory()->create(['shop_id' => $shop1->id]);
-        $owner->assignRole('shop-owner');
+        $owner->assignRole('shop');
 
         // Create orders for both shops
         ShopOrder::create([

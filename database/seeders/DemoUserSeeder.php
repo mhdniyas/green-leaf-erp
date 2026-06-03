@@ -15,6 +15,7 @@ use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 
 class DemoUserSeeder extends Seeder
 {
@@ -26,68 +27,23 @@ class DemoUserSeeder extends Seeder
      */
     private array $demoUsers = [
         [
-            'name' => 'Admin User',
+            'name' => 'Administrator',
             'email' => 'admin@greenleaf.com',
             'role' => 'admin',
         ],
         [
-            'name' => 'Inventory Manager',
-            'email' => 'manager@greenleaf.com',
-            'role' => 'inventory-manager',
-        ],
-        [
-            'name' => 'Cashier',
-            'email' => 'cashier@greenleaf.com',
-            'role' => 'cashier',
-        ],
-        [
-            'name' => 'Sales Manager',
-            'email' => 'sales@greenleaf.com',
-            'role' => 'sales-manager',
-        ],
-        [
-            'name' => 'Accountant',
-            'email' => 'accounts@greenleaf.com',
-            'role' => 'accountant',
-        ],
-        [
             'name' => 'Shop Owner',
             'email' => 'shop@greenleaf.com',
-            'role' => 'shop-owner',
+            'role' => 'shop',
         ],
         [
             'name' => 'Purchase Manager',
-            'email' => 'purchasing@greenleaf.com',
-            'role' => 'purchasing-manager',
-        ],
-        [
-            'name' => 'Viewer',
-            'email' => 'viewer@greenleaf.com',
-            'role' => 'viewer',
+            'email' => 'purchase@greenleaf.com',
+            'role' => 'purchase',
         ],
         [
             'name' => 'Warehouse Manager',
             'email' => 'warehouse@greenleaf.com',
-            'role' => 'warehouse-operations-manager',
-        ],
-        [
-            'name' => 'Legacy Admin User',
-            'email' => 'legacy@greenleaf.com',
-            'role' => 'legacy-admin',
-        ],
-        [
-            'name' => 'Legacy Shop Owner',
-            'email' => 'shop-legacy@greenleaf.com',
-            'role' => 'shop',
-        ],
-        [
-            'name' => 'Legacy Purchase Manager',
-            'email' => 'purchase-legacy@greenleaf.com',
-            'role' => 'purchase',
-        ],
-        [
-            'name' => 'Legacy Warehouse Operator',
-            'email' => 'warehouse-legacy@greenleaf.com',
             'role' => 'warehouse',
         ],
     ];
@@ -132,6 +88,11 @@ class DemoUserSeeder extends Seeder
             ]
         );
 
+        // Clean up any extra/old demo users
+        Schema::disableForeignKeyConstraints();
+        User::whereNotIn('email', array_column($this->demoUsers, 'email'))->delete();
+        Schema::enableForeignKeyConstraints();
+
         foreach ($this->demoUsers as $demo) {
             $user = User::updateOrCreate(
                 ['email' => $demo['email']],
@@ -139,7 +100,7 @@ class DemoUserSeeder extends Seeder
                     'name' => $demo['name'],
                     'password' => Hash::make('password'),
                     'email_verified_at' => now(),
-                    'shop_id' => in_array($demo['role'], ['shop-owner', 'shop'], true) ? $seededShops[0]->id : null,
+                    'shop_id' => in_array($demo['role'], ['shop'], true) ? $seededShops[0]->id : null,
                 ]
             );
 
@@ -226,7 +187,7 @@ class DemoUserSeeder extends Seeder
             // 3. Seed some sample Purchase Orders
             $supplier1 = Supplier::where('name', 'Green Valley Farm')->first();
             $supplier2 = Supplier::where('name', 'Global Produce Direct')->first();
-            $purchaseManager = User::where('email', 'purchasing@greenleaf.com')->first();
+            $purchaseManager = User::where('email', 'purchase@greenleaf.com')->first();
 
             if ($supplier1 && $purchaseManager) {
                 // PO 1: Warehouse (Bulk)

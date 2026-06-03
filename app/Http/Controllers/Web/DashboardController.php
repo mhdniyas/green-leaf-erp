@@ -84,7 +84,7 @@ class DashboardController extends Controller
         $yesterdayOrder = null;
         $allShopOrders = collect();
         $dailyOrderStatuses = collect();
-        if ($user->hasRole('shop-owner') || $user->hasRole('shop')) {
+        if ($user->hasRole('shop')) {
             $productsByCategory = Category::with(['products' => function ($q) {
                 $q->where('is_active', true)->orderBy('name');
             }])
@@ -116,7 +116,7 @@ class DashboardController extends Controller
                         ->first();
                 }
             }
-        } elseif ($user->hasRole('purchasing-manager') || $user->hasRole('purchase') || $user->can('purchasing.order.approve')) {
+        } elseif ($user->hasRole('purchase') || $user->can('purchasing.order.approve')) {
             $allShopOrders = ShopOrder::with(['shop', 'creator', 'items.product'])
                 ->orderBy('business_date', 'desc')
                 ->get();
@@ -188,7 +188,7 @@ class DashboardController extends Controller
         }
 
         $sortingProgress = null;
-        if ($user->hasRole('admin') || $user->hasRole('super-admin') || $user->hasRole('legacy-admin') || $user->hasRole('purchasing-manager') || $user->hasRole('purchase') || $user->hasRole('inventory-manager') || $user->hasRole('warehouse-operations-manager') || $user->hasRole('warehouse')) {
+        if ($user->hasRole(['admin', 'purchase', 'warehouse'])) {
             $todayApprovedItems = ShopOrderItem::whereHas('order', function ($q) {
                 $q->whereDate('business_date', today())->where('state', 'approved');
             })->get();
@@ -218,7 +218,7 @@ class DashboardController extends Controller
         }
 
         $pendingPOsForReceipt = collect();
-        if ($user->hasRole('warehouse-operations-manager') || $user->hasRole('warehouse') || $user->hasRole('admin') || $user->hasRole('super-admin') || $user->hasRole('legacy-admin')) {
+        if ($user->hasRole(['warehouse', 'admin'])) {
             $pendingPOsForReceipt = PurchaseOrder::where('status', POStatus::Approved)
                 ->with(['supplier', 'items.product'])
                 ->get();
