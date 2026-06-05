@@ -38,6 +38,10 @@ class DashboardController extends Controller
             return redirect()->route('shop-owner.dashboard');
         }
 
+        if ($user->hasRole('purchase')) {
+            return redirect()->route('purchasing.orders.index');
+        }
+
         // Stats visible to inventory roles
         $inventoryStats = null;
         if ($user->hasAnyPermission(['inventory.stock.view', 'inventory.product.view'])) {

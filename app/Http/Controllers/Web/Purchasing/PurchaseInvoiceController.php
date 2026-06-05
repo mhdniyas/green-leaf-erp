@@ -27,7 +27,7 @@ class PurchaseInvoiceController extends Controller
 
         $invoices = $this->service->paginate(20);
 
-        return view('purchasing.invoices.index', compact('invoices'));
+        return view('purchase-manager.invoices.index', compact('invoices'));
     }
 
     public function create(Request $request): View|RedirectResponse
@@ -51,7 +51,7 @@ class PurchaseInvoiceController extends Controller
                 ->with('warning', 'An invoice has already been created for this Goods Received Note.');
         }
 
-        return view('purchasing.invoices.create', compact('grn'));
+        return view('purchase-manager.invoices.create', compact('grn'));
     }
 
     public function store(StorePurchaseInvoiceRequest $request): RedirectResponse
@@ -68,7 +68,7 @@ class PurchaseInvoiceController extends Controller
 
         $invoice->load(['goodsReceived.purchaseOrder', 'supplier']);
 
-        return view('purchasing.invoices.show', compact('invoice'));
+        return view('purchase-manager.invoices.show', compact('invoice'));
     }
 
     public function updateStatus(Request $request, PurchaseInvoice $invoice): RedirectResponse

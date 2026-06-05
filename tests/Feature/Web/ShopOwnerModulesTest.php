@@ -42,12 +42,12 @@ class ShopOwnerModulesTest extends TestCase
         ]);
         $shopOwner->assignRole('shop');
 
-        $response = $this->actingAs($shopOwner)->get(route('dashboard'));
+        $response = $this->actingAs($shopOwner)->get(route('shop-owner.dashboard'));
 
         $response->assertOk();
         // Should see dashboard, PO, Deliveries, and Finance
         $response->assertSee('Dashboard');
-        $response->assertSee('Purchase Orders');
+        $response->assertSee('Daily Orders');
         $response->assertSee('Deliveries');
         $response->assertSee('Finance');
 
@@ -88,7 +88,7 @@ class ShopOwnerModulesTest extends TestCase
         $response->assertSee('All Orders');
         $response->assertSee('Pending Approval');
         $response->assertSee('Approval History');
-        $response->assertSee('Order Analytics');
+        $response->assertSee('Analytics');
         $response->assertSee('PO-TEST-DRAFT');
 
         // Approve order

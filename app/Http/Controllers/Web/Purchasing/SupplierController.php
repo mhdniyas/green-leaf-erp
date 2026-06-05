@@ -27,14 +27,14 @@ class SupplierController extends Controller
 
         $suppliers = $this->service->paginate(20);
 
-        return view('purchasing.suppliers.index', compact('suppliers'));
+        return view('purchase-manager.suppliers.index', compact('suppliers'));
     }
 
     public function create(): View
     {
         Gate::authorize('create', Supplier::class);
 
-        return view('purchasing.suppliers.create');
+        return view('purchase-manager.suppliers.create');
     }
 
     public function store(StoreSupplierRequest $request): RedirectResponse
@@ -49,7 +49,7 @@ class SupplierController extends Controller
     {
         Gate::authorize('update', $supplier);
 
-        return view('purchasing.suppliers.edit', compact('supplier'));
+        return view('purchase-manager.suppliers.edit', compact('supplier'));
     }
 
     public function update(UpdateSupplierRequest $request, Supplier $supplier): RedirectResponse

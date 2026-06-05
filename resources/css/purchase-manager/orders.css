@@ -1,0 +1,9 @@
+@layer components {
+    .purchase-manager-panel {
+        @apply rounded-[2rem] border border-slate-200 bg-white shadow-sm;
+    }
+
+    .purchase-manager-stat-card {
+        @apply rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm;
+    }
+}

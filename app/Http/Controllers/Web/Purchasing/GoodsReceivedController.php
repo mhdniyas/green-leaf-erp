@@ -28,7 +28,7 @@ class GoodsReceivedController extends Controller
 
         $grns = $this->service->paginate(20);
 
-        return view('purchasing.grns.index', compact('grns'));
+        return view('purchase-manager.grns.index', compact('grns'));
     }
 
     public function create(Request $request): View|RedirectResponse
@@ -49,7 +49,7 @@ class GoodsReceivedController extends Controller
         ])->findOrFail($poId);
         $po->load(['supplier', 'items.product']);
 
-        return view('purchasing.grns.create', compact('po'));
+        return view('purchase-manager.grns.create', compact('po'));
     }
 
     public function store(StoreGoodsReceivedRequest $request): RedirectResponse
@@ -76,7 +76,7 @@ class GoodsReceivedController extends Controller
 
         $grn->load(['purchaseOrder.supplier', 'items.product', 'receivedBy']);
 
-        return view('purchasing.grns.show', compact('grn'));
+        return view('purchase-manager.grns.show', compact('grn'));
     }
 
     public function approve(GoodsReceived $grn, Request $request): RedirectResponse
@@ -109,7 +109,7 @@ class GoodsReceivedController extends Controller
 
         $grn->load(['purchaseOrder.supplier', 'purchaseOrder.items.product', 'items']);
 
-        return view('purchasing.grns.edit', compact('grn'));
+        return view('purchase-manager.grns.edit', compact('grn'));
     }
 
     public function update(GoodsReceived $grn, StoreGoodsReceivedRequest $request): RedirectResponse

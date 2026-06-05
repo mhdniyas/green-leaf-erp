@@ -219,7 +219,7 @@ class DashboardTest extends TestCase
         $response->assertRedirect(route('shop-owner.dashboard'));
     }
 
-    public function test_purchasing_manager_dashboard_shows_daily_order_progress_with_purchase_order_continue(): void
+    public function test_purchasing_manager_is_redirected_from_main_dashboard_to_purchase_orders_workspace(): void
     {
         $manager = User::factory()->create();
         $manager->assignRole('purchase');
@@ -238,10 +238,7 @@ class DashboardTest extends TestCase
         $response = $this->actingAs($manager)
             ->get(route('dashboard'));
 
-        $response->assertOk();
-        $response->assertSee('Daily Order Progress');
-        $response->assertSee('Continue in Purchase Orders');
-        $response->assertSee('Purchase Order');
+        $response->assertRedirect(route('purchasing.orders.index'));
     }
 
     public function test_warehouse_manager_dashboard_shows_receive_goods_gateway(): void

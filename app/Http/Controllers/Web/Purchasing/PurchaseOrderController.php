@@ -120,7 +120,7 @@ class PurchaseOrderController extends Controller
 
         $suppliers = Supplier::orderBy('name')->get();
 
-        return view('purchasing.orders.index', compact(
+        return view('purchase-manager.orders.index', compact(
             'allOrders',
             'pendingOrders',
             'approvalHistory',
@@ -141,7 +141,7 @@ class PurchaseOrderController extends Controller
         $suppliers = $this->supplierService->all();
         $products = $this->productRepository->findAllActive();
 
-        return view('purchasing.orders.create', compact('suppliers', 'products'));
+        return view('purchase-manager.orders.create', compact('suppliers', 'products'));
     }
 
     public function store(StorePurchaseOrderRequest $request): RedirectResponse
@@ -176,7 +176,7 @@ class PurchaseOrderController extends Controller
 
         $products = $this->productRepository->findAllActive();
 
-        return view('purchasing.orders.show', compact('order', 'previousPrices', 'products'));
+        return view('purchase-manager.orders.show', compact('order', 'previousPrices', 'products'));
     }
 
     public function updateItems(Request $request, PurchaseOrder $order): RedirectResponse
@@ -236,7 +236,7 @@ class PurchaseOrderController extends Controller
         $products = $this->productRepository->findAllActive();
         $order->load('items');
 
-        return view('purchasing.orders.edit', compact('order', 'suppliers', 'products'));
+        return view('purchase-manager.orders.edit', compact('order', 'suppliers', 'products'));
     }
 
     public function update(UpdatePurchaseOrderRequest $request, PurchaseOrder $order): RedirectResponse

@@ -57,33 +57,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 const input = masterInputsById.get(String(product.id));
                 const quantity = input ? Number.parseFloat(input.value) : 0;
                 const article = document.createElement('article');
-                article.className = 'rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid md:grid-cols-[minmax(0,1.6fr)_140px_120px_88px] md:items-center md:gap-3 md:rounded-none md:border-0 md:border-b md:border-slate-100 md:bg-transparent md:px-0 md:py-3';
+                article.className = 'grid grid-cols-[1.5fr_90px_70px_36px] gap-2 items-center py-2.5 border-b border-slate-100 hover:bg-slate-50/50 transition sm:grid-cols-[1.5fr_110px_90px_48px]';
                 article.setAttribute('data-selected-row', String(product.id));
                 article.innerHTML = `
-                    <div class="flex items-start justify-between gap-3 md:block">
-                        <div>
-                            <p class="font-bold text-slate-900">${product.name}</p>
-                            <p class="mt-1 text-xs text-slate-500">${product.sku} · ${product.category}</p>
-                        </div>
-                        <button type="button" data-remove-product="${product.id}" class="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-black text-slate-600 md:hidden">Remove</button>
+                    <div class="min-w-0">
+                        <p class="font-bold text-slate-900 text-xs sm:text-sm truncate" title="${product.name}">${product.name}</p>
+                        <p class="text-[10px] text-slate-500 truncate">${product.sku} · <span class="uppercase">${product.unit}</span></p>
                     </div>
-                    <div class="mt-4 md:mt-0">
-                        <label class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 md:hidden">Qty</label>
-                        <div class="mt-1 flex items-center gap-3 md:mt-0 md:justify-end">
-                            <div class="inline-flex items-center rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
-                                <button type="button" data-qty-step="${product.id}" data-step="-1" class="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-xl font-black text-slate-700 transition hover:bg-slate-200">-</button>
-                                <input type="number" step="0.01" min="0" value="${Number.isFinite(quantity) ? quantity.toFixed(2) : ''}" data-selected-qty-input="${product.id}" class="shop-owner-qty-input w-28 border-0 bg-transparent px-2 text-center text-2xl font-black text-slate-900 focus:outline-none md:w-24">
-                                <button type="button" data-qty-step="${product.id}" data-step="1" class="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-xl font-black text-slate-700 transition hover:bg-slate-200">+</button>
-                            </div>
-                            <span class="min-w-10 text-sm font-black uppercase tracking-[0.12em] text-slate-500">${product.unit}</span>
-                        </div>
+                    <div>
+                        <input type="number" step="0.01" min="0" value="${Number.isFinite(quantity) ? quantity.toFixed(2) : ''}" data-selected-qty-input="${product.id}" class="shop-owner-qty-input w-full border border-slate-200 rounded-lg bg-white px-2 py-1 text-right font-black text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs sm:text-sm" placeholder="0.00">
                     </div>
-                    <div class="mt-4 md:mt-0 md:text-right">
-                        <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 md:hidden">Suggested</p>
-                        <p class="mt-1 text-sm font-bold text-slate-900 md:mt-0">${Number(product.suggested_qty ?? 0).toFixed(2)} ${product.unit}</p>
+                    <div class="text-right text-xs font-bold text-slate-600">
+                        ${Number(product.suggested_qty ?? 0).toFixed(2)}
                     </div>
-                    <div class="mt-4 hidden items-center justify-end gap-2 md:mt-0 md:flex">
-                        <button type="button" data-remove-product="${product.id}" class="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-black text-slate-600">Remove</button>
+                    <div class="flex justify-end">
+                        <button type="button" data-remove-product="${product.id}" class="text-slate-400 hover:text-rose-600 p-1 rounded transition" title="Remove">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                        </button>
                     </div>
                 `;
 
@@ -161,21 +153,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         matchedProducts.forEach((product) => {
             const article = document.createElement('article');
-            article.className = 'rounded-2xl border border-slate-200 bg-slate-50 p-4';
+            article.className = 'flex items-center justify-between py-2.5';
             article.innerHTML = `
-                <div class="flex items-start justify-between gap-3">
-                    <div>
-                        <p class="font-bold text-slate-900">${product.name}</p>
-                        <p class="mt-1 text-xs text-slate-500">${product.sku} · ${product.category}</p>
-                    </div>
-                    <span class="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-600">${product.unit}</span>
+                <div class="min-w-0 flex-1">
+                    <p class="font-bold text-slate-900 text-xs sm:text-sm truncate">${product.name}</p>
+                    <p class="text-[10px] text-slate-500 truncate">${product.sku} · ${product.category} · <span class="uppercase">${product.unit}</span></p>
                 </div>
-                <div class="mt-4 flex items-center justify-between gap-3">
-                    <div>
-                        <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Suggested</p>
-                        <p class="mt-1 text-sm font-bold text-slate-900">${Number(product.suggested_qty ?? 0).toFixed(2)} ${product.unit}</p>
+                <div class="flex items-center gap-4 shrink-0 pl-3">
+                    <div class="text-right">
+                        <p class="text-[9px] font-bold uppercase tracking-wider text-slate-400">Sug.</p>
+                        <p class="text-xs font-bold text-slate-700">${Number(product.suggested_qty ?? 0).toFixed(2)}</p>
                     </div>
-                    <button type="button" data-search-add-product="${product.id}" class="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white">
+                    <button type="button" data-search-add-product="${product.id}" class="rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition text-xs font-black text-white px-3 py-1.5 shadow-sm">
                         Add
                     </button>
                 </div>

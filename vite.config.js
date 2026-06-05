@@ -11,6 +11,8 @@ export default defineConfig({
                 'resources/js/app.js',
                 'resources/css/shop-owner/app.css',
                 'resources/js/shop-owner/app.js',
+                'resources/css/purchase-manager/app.css',
+                'resources/js/purchase-manager/app.js',
             ],
             refresh: true,
             fonts: [
