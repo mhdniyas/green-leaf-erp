@@ -44,4 +44,14 @@ class PurchaseOrderPolicy
     {
         return $user->can('purchasing.order.approve') && $po->status->value === 'draft';
     }
+
+    public function reject(User $user, PurchaseOrder $po): bool
+    {
+        return $user->can('purchasing.order.approve') && $po->status->value === 'draft';
+    }
+
+    public function send(User $user, PurchaseOrder $po): bool
+    {
+        return $user->can('purchasing.order.approve') && $po->status->value === 'approved';
+    }
 }

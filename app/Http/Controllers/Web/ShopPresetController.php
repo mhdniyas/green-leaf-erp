@@ -105,6 +105,11 @@ class ShopPresetController extends Controller
             ]);
         }
 
+        if ($request->input('redirect_to') === 'shop-owner-orders-create') {
+            return redirect()->route('shop-owner.orders.create')
+                ->with('success', 'Custom list saved successfully.');
+        }
+
         return redirect()->route('requisitions.presets.index')
             ->with('success', 'Preset created successfully.');
     }

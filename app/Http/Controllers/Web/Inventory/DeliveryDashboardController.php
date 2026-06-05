@@ -21,10 +21,19 @@ class DeliveryDashboardController extends Controller
         $dateInput = $request->input('date');
         $date = $dateInput ? Carbon::parse($dateInput)->format('Y-m-d') : Carbon::today()->format('Y-m-d');
 
+        $user = $request->user();
+        $isShop = $user->hasRole('shop');
+        $shopId = $user->shop_id;
+
         // Fetch all shop orders for the selected business date
-        $orders = ShopOrder::whereDate('business_date', $date)
-            ->with(['shop', 'items.product', 'deliveredBy'])
-            ->get();
+        $ordersQuery = ShopOrder::whereDate('business_date', $date)
+            ->with(['shop', 'items.product', 'deliveredBy']);
+
+        if ($isShop && $shopId) {
+            $ordersQuery->where('shop_id', $shopId);
+        }
+
+        $orders = $ordersQuery->get();
 
         // Calculate summary metrics
         $totalOrdersCount = $orders->count();
@@ -38,12 +47,16 @@ class DeliveryDashboardController extends Controller
         $totalCashDiscrepancy = (float) $orders->sum('cash_discrepancy');
 
         // Itemized shortages: ShopOrderItems with shortage_qty > 0 on this date
-        $shortageItems = ShopOrderItem::whereHas('order', function ($query) use ($date): void {
+        $shortageQuery = ShopOrderItem::whereHas('order', function ($query) use ($date, $isShop, $shopId): void {
             $query->whereDate('business_date', $date);
+            if ($isShop && $shopId) {
+                $query->where('shop_id', $shopId);
+            }
         })
             ->where('shortage_qty', '>', 0.00)
-            ->with(['order.shop', 'product'])
-            ->get();
+            ->with(['order.shop', 'product']);
+
+        $shortageItems = $shortageQuery->get();
 
         // Cash discrepancies: Delivered shop orders with non-zero cash discrepancy
         $discrepancyOrders = $orders->filter(function (ShopOrder $order): bool {

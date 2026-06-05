@@ -7,6 +7,7 @@ namespace Tests\Feature\Web;
 use App\Enums\Inventory\BatchStatus;
 use App\Enums\Inventory\WastageReason;
 use App\Enums\Purchasing\POStatus;
+use App\Models\GoodsReceived;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
@@ -207,7 +208,7 @@ class WarehouseSortingTest extends TestCase
         $po = PurchaseOrder::create([
             'supplier_id' => $supplier->id,
             'po_number' => 'PO-'.time(),
-            'status' => POStatus::Approved,
+            'status' => POStatus::SentToSupplier,
             'order_date' => today()->toDateString(),
             'created_by' => $user->id,
         ]);
@@ -252,8 +253,26 @@ class WarehouseSortingTest extends TestCase
             'purchase_order_id' => $po->id,
             'received_by' => $user->id,
             'notes' => 'Received with some shortage',
+            'status' => 'pending_approval',
         ]);
 
+        // Assert that Stock Batch was NOT created yet
+        $this->assertDatabaseMissing('stock_batches', [
+            'product_id' => $product->id,
+        ]);
+
+        // Create a manager and approve the GRN
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $grn = GoodsReceived::latest('id')->first();
+        $approveResponse = $this->actingAs($manager)
+            ->post(route('purchasing.grns.approve', $grn));
+
+        $approveResponse->assertRedirect(route('purchasing.grns.show', $grn));
+        $this->assertEquals('approved', $grn->fresh()->status);
+
+        // Check Stock Batch was created now
         $this->assertDatabaseHas('stock_batches', [
             'product_id' => $product->id,
             'total_kg' => 45.0,

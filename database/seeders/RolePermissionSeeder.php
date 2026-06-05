@@ -59,6 +59,7 @@ class RolePermissionSeeder extends Seeder
             'purchasing.order.approve',
             'purchasing.grn.view',
             'purchasing.grn.create',
+            'purchasing.grn.approve',
 
             // Accounting
             'accounting.ledger.view',
@@ -103,6 +104,11 @@ class RolePermissionSeeder extends Seeder
                 'sales.order.view',
                 'sales.order.create',
                 'sales.order.cancel',
+                'purchasing.order.view',
+                'purchasing.order.create',
+                'purchasing.order.approve',
+                'accounting.ledger.view',
+                'accounting.report.view',
             ],
 
             'purchase' => [
@@ -116,6 +122,7 @@ class RolePermissionSeeder extends Seeder
                 'purchasing.order.approve',
                 'purchasing.grn.view',
                 'purchasing.grn.create',
+                'purchasing.grn.approve',
                 'accounting.report.view',
             ],
 

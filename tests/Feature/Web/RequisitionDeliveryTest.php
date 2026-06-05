@@ -96,9 +96,7 @@ class RequisitionDeliveryTest extends TestCase
         $response = $this->actingAs($owner)
             ->get(route('requisitions.delivery.show', $order->order_number));
 
-        $response->assertOk();
-        $response->assertSee($order->order_number);
-        $response->assertSee('Verify Delivery');
+        $response->assertRedirect(route('shop-owner.deliveries.show', $order->order_number));
     }
 
     public function test_cannot_access_delivery_checkin_if_allocation_not_completed(): void
@@ -118,7 +116,7 @@ class RequisitionDeliveryTest extends TestCase
         $response = $this->actingAs($owner)
             ->get(route('requisitions.delivery.show', $order->order_number));
 
-        $response->assertRedirect(route('requisitions.show', $order->order_number));
+        $response->assertRedirect(route('shop-owner.deliveries.show', $order->order_number));
         $response->assertSessionHas('error', 'This order has not been dispatched/allocated from the warehouse yet.');
     }
 
@@ -140,7 +138,7 @@ class RequisitionDeliveryTest extends TestCase
         $response = $this->actingAs($owner)
             ->get(route('requisitions.delivery.show', $order->order_number));
 
-        $response->assertRedirect(route('requisitions.show', $order->order_number));
+        $response->assertRedirect(route('shop-owner.deliveries.show', $order->order_number));
         $response->assertSessionHas('error', 'This order has already been checked-in and marked as delivered.');
     }
 
@@ -184,12 +182,13 @@ class RequisitionDeliveryTest extends TestCase
             ],
             'cash_collected' => 100.00, // Expected Delivered Value: 12 * 10 = 120.00. Discrepancy: 120 - 100 = 20.00 shortage.
             'delivery_notes' => 'Some minor shortages, cash collected is Rs. 100.',
+            'finance_note' => 'UPI settled partially, remaining balance to be cleared tomorrow.',
         ];
 
         $response = $this->actingAs($owner)
             ->post(route('requisitions.delivery.record', $order->order_number), $payload);
 
-        $response->assertRedirect(route('requisitions.show', $order->order_number));
+        $response->assertRedirect(route('shop-owner.deliveries.show', $order->order_number));
         $response->assertSessionHas('success');
 
         $order->refresh();
@@ -199,15 +198,70 @@ class RequisitionDeliveryTest extends TestCase
         $this->assertTrue($order->is_delivered);
         $this->assertNotNull($order->delivered_at);
         $this->assertEquals($owner->id, $order->delivered_by);
+        $this->assertEquals('partially_delivered', $order->delivery_status);
         $this->assertEquals(100.00, (float) $order->cash_collected);
         $this->assertEquals(20.00, (float) $order->cash_discrepancy);
+        $this->assertEquals('partially_paid', $order->payment_status);
+        $this->assertEquals(20.00, (float) $order->balance_amount);
         $this->assertEquals(30.00, (float) $order->total_shortage_value); // 3 kg shortage * Rs 10 = 30.00
         $this->assertEquals('Some minor shortages, cash collected is Rs. 100.', $order->delivery_notes);
+        $this->assertEquals('UPI settled partially, remaining balance to be cleared tomorrow.', $order->finance_note);
 
         // Verify Item updates
         $this->assertEquals(12.00, (float) $item->delivered_qty);
         $this->assertEquals(3.00, (float) $item->shortage_qty);
         $this->assertEquals(10.00, (float) $item->unit_cost);
         $this->assertEquals(30.00, (float) $item->shortage_value);
+    }
+
+    public function test_delivery_checkin_rejects_received_quantity_above_approved_quantity(): void
+    {
+        $shop = Shop::create(['code' => 'S1', 'name' => 'Shop 1']);
+        $owner = User::factory()->create(['shop_id' => $shop->id]);
+        $owner->assignRole('shop');
+
+        $order = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => today()->toDateString(),
+            'is_allocation_completed' => true,
+            'created_by' => $owner->id,
+        ]);
+
+        $product = Product::factory()->create();
+
+        StockBatch::create([
+            'product_id' => $product->id,
+            'created_by' => $owner->id,
+            'reference' => 'B-02',
+            'received_at' => today()->toDateString(),
+            'total_kg' => 100,
+            'cost_per_kg' => 10.00,
+        ]);
+
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'requested_qty' => 15,
+            'approved_qty' => 15,
+            'unit' => 'kg',
+        ]);
+
+        $response = $this->from(route('requisitions.delivery.show', $order->order_number))
+            ->actingAs($owner)
+            ->post(route('requisitions.delivery.record', $order->order_number), [
+                'delivered_qty' => [
+                    $item->id => 18,
+                ],
+                'cash_collected' => 180.00,
+            ]);
+
+        $response->assertRedirect(route('requisitions.delivery.show', $order->order_number));
+        $response->assertSessionHasErrors("delivered_qty.{$item->id}");
+
+        $order->refresh();
+
+        $this->assertFalse($order->is_delivered);
+        $this->assertNull($item->fresh()->delivered_qty);
     }
 }

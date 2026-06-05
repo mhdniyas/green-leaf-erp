@@ -42,7 +42,11 @@ class GoodsReceivedController extends Controller
         }
 
         /** @var PurchaseOrder $po */
-        $po = PurchaseOrder::where('status', POStatus::Approved)->findOrFail($poId);
+        $po = PurchaseOrder::whereIn('status', [
+            POStatus::SentToSupplier,
+            POStatus::PartiallyReceived,
+            POStatus::Received,
+        ])->findOrFail($poId);
         $po->load(['supplier', 'items.product']);
 
         return view('purchasing.grns.create', compact('po'));
@@ -50,6 +54,13 @@ class GoodsReceivedController extends Controller
 
     public function store(StoreGoodsReceivedRequest $request): RedirectResponse
     {
+        $poId = (int) $request->input('purchase_order_id');
+        PurchaseOrder::whereIn('status', [
+            POStatus::SentToSupplier,
+            POStatus::PartiallyReceived,
+            POStatus::Received,
+        ])->findOrFail($poId);
+
         $grn = $this->service->create(
             GoodsReceivedData::fromRequest($request),
             (int) $request->user()->id
@@ -66,5 +77,52 @@ class GoodsReceivedController extends Controller
         $grn->load(['purchaseOrder.supplier', 'items.product', 'receivedBy']);
 
         return view('purchasing.grns.show', compact('grn'));
+    }
+
+    public function approve(GoodsReceived $grn, Request $request): RedirectResponse
+    {
+        Gate::authorize('approve', $grn);
+
+        $this->service->approve($grn, (int) $request->user()->id);
+
+        return redirect()->route('purchasing.grns.show', $grn)
+            ->with('success', 'Goods Received Note approved successfully and stock updated in inventory.');
+    }
+
+    public function reject(GoodsReceived $grn, Request $request): RedirectResponse
+    {
+        Gate::authorize('reject', $grn);
+
+        $request->validate([
+            'remarks' => ['required', 'string', 'max:1000'],
+        ]);
+
+        $this->service->reject($grn, $request->input('remarks'), (int) $request->user()->id);
+
+        return redirect()->route('purchasing.grns.show', $grn)
+            ->with('warning', 'Goods Received Note rejected and returned to warehouse.');
+    }
+
+    public function edit(GoodsReceived $grn): View
+    {
+        Gate::authorize('update', $grn);
+
+        $grn->load(['purchaseOrder.supplier', 'purchaseOrder.items.product', 'items']);
+
+        return view('purchasing.grns.edit', compact('grn'));
+    }
+
+    public function update(GoodsReceived $grn, StoreGoodsReceivedRequest $request): RedirectResponse
+    {
+        Gate::authorize('update', $grn);
+
+        $this->service->update(
+            $grn,
+            GoodsReceivedData::fromRequest($request),
+            (int) $request->user()->id
+        );
+
+        return redirect()->route('purchasing.grns.show', $grn)
+            ->with('success', 'Goods Received Note updated successfully.');
     }
 }

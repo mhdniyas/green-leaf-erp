@@ -1,0 +1,5 @@
+@layer components {
+    .shop-owner-delivery-card {
+        @apply rounded-[2rem] border border-slate-200 bg-white shadow-sm;
+    }
+}

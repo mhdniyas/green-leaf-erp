@@ -1,0 +1,16 @@
+@layer components {
+    .shop-owner-order-grid {
+        @apply grid gap-5;
+    }
+
+    .shop-owner-qty-input {
+        appearance: textfield;
+        -moz-appearance: textfield;
+    }
+
+    .shop-owner-qty-input::-webkit-inner-spin-button,
+    .shop-owner-qty-input::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+}

@@ -18,6 +18,13 @@
         <form action="{{ route('requisitions.delivery.record', $order->order_number) }}" method="POST" id="delivery-form" class="space-y-6">
             @csrf
 
+            @if($errors->any())
+                <div class="rounded-3xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-800 shadow-sm">
+                    <p class="font-black uppercase tracking-wider text-[11px]">Please fix the highlighted delivery issues.</p>
+                    <p class="mt-1 text-xs">{{ $errors->first() }}</p>
+                </div>
+            @endif
+
             <!-- Main Checklist Card -->
             <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
                 <div class="p-6 border-b border-slate-100 bg-slate-50/50">
@@ -64,8 +71,12 @@
                                                    step="0.01" 
                                                    min="0" 
                                                    name="delivered_qty[{{ $item->id }}]" 
-                                                   value="{{ number_format($approvedQty, 2, '.', '') }}" 
-                                                   class="delivered-qty-input w-24 rounded-lg border border-slate-200 px-2.5 py-1 text-slate-900 text-center font-black focus:border-emerald-500 focus:outline-none transition-all">
+                                                   value="{{ old("delivered_qty.{$item->id}", number_format($approvedQty, 2, '.', '')) }}" 
+                                                   @class([
+                                                       'delivered-qty-input w-24 rounded-lg px-2.5 py-1 text-center font-black focus:border-emerald-500 focus:outline-none transition-all',
+                                                       'border border-red-300 bg-red-50 text-red-700' => $errors->has("delivered_qty.{$item->id}"),
+                                                       'border border-slate-200 text-slate-900' => ! $errors->has("delivered_qty.{$item->id}"),
+                                                   ])>
                                             <span class="text-slate-500 font-semibold w-8 text-left">{{ $item->unit }}</span>
                                         </div>
                                     </td>
@@ -99,7 +110,11 @@
                     <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider pb-3 border-b border-slate-100">Delivery Notes</h2>
                     <div>
                         <label for="delivery_notes" class="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Check-in Remarks</label>
-                        <textarea id="delivery_notes" name="delivery_notes" rows="4" class="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 focus:outline-none focus:border-emerald-500 resize-none transition-colors" placeholder="Enter comments about the delivery condition, reasons for shortages, etc. (optional)..."></textarea>
+                        <textarea id="delivery_notes" name="delivery_notes" rows="4" class="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 focus:outline-none focus:border-emerald-500 resize-none transition-colors" placeholder="Enter comments about the delivery condition, reasons for shortages, etc. (optional)...">{{ old('delivery_notes') }}</textarea>
+                    </div>
+                    <div>
+                        <label for="finance_note" class="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Finance Note</label>
+                        <textarea id="finance_note" name="finance_note" rows="4" class="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 focus:outline-none focus:border-emerald-500 resize-none transition-colors" placeholder="Add payment mode, balance note, deduction note, or any delivery-related finance remarks...">{{ old('finance_note') }}</textarea>
                     </div>
                 </div>
 
@@ -127,20 +142,20 @@
                     <!-- Cash Input Block -->
                     <div class="border-t border-slate-100 pt-4 space-y-3">
                         <div>
-                            <label for="cash_collected" class="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Cash Collected from Shop (Rs.)</label>
+                            <label for="cash_collected" class="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Amount Paid / Confirmed (Rs.)</label>
                             <input type="number" 
                                    step="0.01" 
                                    min="0" 
                                    id="cash_collected" 
                                    name="cash_collected" 
-                                   value="0.00" 
+                                   value="{{ old('cash_collected', '0.00') }}" 
                                    class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-slate-900 font-black text-sm focus:border-emerald-500 focus:outline-none transition-all">
                         </div>
 
                         <!-- Cash Discrepancy Status -->
                         <div class="rounded-2xl p-4 flex items-center justify-between transition-colors duration-200" id="discrepancy-panel">
                             <div>
-                                <span class="block text-[9px] font-black uppercase tracking-wider" id="discrepancy-label">Cash Discrepancy</span>
+                                <span class="block text-[9px] font-black uppercase tracking-wider" id="discrepancy-label">Balance / Variance</span>
                                 <span class="text-sm font-black" id="discrepancy-value-display">Rs. 0.00</span>
                             </div>
                             <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black border uppercase tracking-wider" id="discrepancy-badge">

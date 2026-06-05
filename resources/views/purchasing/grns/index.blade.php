@@ -32,6 +32,7 @@
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Supplier</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Received At</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Received By</th>
+                        <th class="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
                         <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Landed Costs</th>
                         <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
                     </tr>
@@ -57,6 +58,15 @@
                         </td>
                         <td class="px-6 py-4 text-gray-600">
                             {{ $grn->receivedBy?->name ?? '—' }}
+                        </td>
+                        <td class="px-6 py-4 text-center">
+                            @if($grn->status === 'pending_approval')
+                                <span class="inline-flex items-center text-xs font-semibold border px-2.5 py-0.5 rounded-full text-amber-700 bg-amber-50 border-amber-200">Pending Approval</span>
+                            @elseif($grn->status === 'approved')
+                                <span class="inline-flex items-center text-xs font-semibold border px-2.5 py-0.5 rounded-full text-green-700 bg-green-50 border-green-200">Approved</span>
+                            @else
+                                <span class="inline-flex items-center text-xs font-semibold border px-2.5 py-0.5 rounded-full text-gray-700 bg-gray-50 border-gray-200">{{ ucfirst($grn->status ?? 'Pending') }}</span>
+                            @endif
                         </td>
                         <td class="px-6 py-4 text-right font-medium text-gray-900">
                             INR {{ number_format((float) $grn->transport_cost + (float) $grn->labour_cost, 2) }}

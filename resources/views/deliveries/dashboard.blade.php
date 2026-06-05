@@ -159,8 +159,16 @@
                                 </td>
                                 <td class="py-4 px-6 text-center">
                                     @if($order->is_delivered)
-                                        <span class="inline-flex items-center gap-1 bg-teal-50 text-teal-700 px-2.5 py-0.5 rounded-full text-[9px] font-black border border-teal-100">
-                                            Delivered
+                                        @php
+                                            $deliveryStatus = $order->delivery_status ?? 'delivered';
+                                            $deliveryClasses = match ($deliveryStatus) {
+                                                'partially_delivered' => 'bg-amber-50 text-amber-700 border-amber-100',
+                                                'delivery_issue' => 'bg-red-50 text-red-700 border-red-100',
+                                                default => 'bg-teal-50 text-teal-700 border-teal-100',
+                                            };
+                                        @endphp
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black border {{ $deliveryClasses }}">
+                                            {{ str($deliveryStatus)->replace('_', ' ')->title() }}
                                         </span>
                                     @else
                                         <span class="inline-flex items-center gap-1 bg-slate-50 text-slate-400 px-2.5 py-0.5 rounded-full text-[9px] font-bold border border-slate-200">

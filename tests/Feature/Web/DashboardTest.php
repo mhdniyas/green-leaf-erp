@@ -102,7 +102,7 @@ class DashboardTest extends TestCase
         $response->assertDontSee('Sales Invoices');
     }
 
-    public function test_dashboard_renders_yesterday_order_quantities_for_shop_owner(): void
+    public function test_shop_owner_order_create_page_renders_yesterday_order_quantities(): void
     {
         $this->seed(CategorySeeder::class);
         $this->seed(ProductSeeder::class);
@@ -137,22 +137,86 @@ class DashboardTest extends TestCase
 
         // When accessing the dashboard
         $response = $this->actingAs($shopOwner)
-            ->get(route('dashboard'));
+            ->get(route('shop-owner.orders.create'));
 
         $response->assertOk();
+        $response->assertSee('Create Tomorrow Order');
+        $response->assertSee(number_format(15.50, 2));
+        $response->assertSee($product1->unit);
+        $response->assertSee($product2->sku);
+    }
 
-        // Check that the output HTML contains the flatProducts array with correct yesterday and suggested quantities
-        $html = $response->getContent();
+    public function test_shop_owner_order_create_page_shows_update_request_form_after_cutoff_for_submitted_order(): void
+    {
+        Carbon::setTestNow(Carbon::today()->setTime(22, 0));
 
-        // Product 1 was in yesterday's order, so it should have 15.5 for yesterday and suggested
-        $this->assertStringContainsString('"sku":"'.$product1->sku.'"', $html);
-        $this->assertStringContainsString('"yesterday":15.5', $html);
-        $this->assertStringContainsString('"suggested":15.5', $html);
+        $shop = Shop::create([
+            'code' => 'SHOP_DASHBOARD_LOCKED',
+            'name' => 'Locked Shop',
+        ]);
 
-        // Product 2 was NOT in yesterday's order, so it should have 0 for yesterday and suggested
-        $this->assertStringContainsString('"sku":"'.$product2->sku.'"', $html);
-        $this->assertStringContainsString('"yesterday":0', $html);
-        $this->assertStringContainsString('"suggested":0', $html);
+        $shopOwner = User::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+        $shopOwner->assignRole('shop');
+
+        ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'submitted',
+            'business_date' => Carbon::tomorrow()->toDateString(),
+            'created_by' => $shopOwner->id,
+        ]);
+
+        $response = $this->actingAs($shopOwner)->get(route('shop-owner.orders.create'));
+
+        $response->assertOk();
+        $response->assertSee('Order Locked After Cutoff');
+        $response->assertSee('Submit Modified Order Request');
+    }
+
+    public function test_shop_owner_dashboard_shows_today_delivery_check_action(): void
+    {
+        $shop = Shop::create([
+            'code' => 'SHOP_DASHBOARD_DELIVERY',
+            'name' => 'Delivery Shop',
+        ]);
+
+        $shopOwner = User::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+        $shopOwner->assignRole('shop');
+
+        $order = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => today()->toDateString(),
+            'is_allocation_completed' => true,
+            'created_by' => $shopOwner->id,
+        ]);
+
+        $response = $this->actingAs($shopOwner)->get(route('shop-owner.dashboard'));
+
+        $response->assertOk();
+        $response->assertSee('Pending Deliveries');
+        $response->assertSee($order->order_number);
+        $response->assertSee(route('shop-owner.deliveries.show', $order->order_number), false);
+    }
+
+    public function test_shop_user_is_redirected_from_main_dashboard_to_shop_owner_dashboard(): void
+    {
+        $shop = Shop::create([
+            'code' => 'SHOP_DASHBOARD_REDIRECT',
+            'name' => 'Redirect Shop',
+        ]);
+
+        $shopOwner = User::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+        $shopOwner->assignRole('shop');
+
+        $response = $this->actingAs($shopOwner)->get(route('dashboard'));
+
+        $response->assertRedirect(route('shop-owner.dashboard'));
     }
 
     public function test_purchasing_manager_dashboard_shows_daily_order_progress_with_purchase_order_continue(): void

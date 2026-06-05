@@ -206,19 +206,7 @@
             <div class="bg-white rounded-2xl border border-gray-200 p-6 space-y-6">
                 <div>
                     <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Order Status</h3>
-                    @php
-                        $status = $order->status;
-                        if ($status->value === 'draft') {
-                            $colorClass = 'text-gray-700 bg-gray-100 border-gray-200';
-                        } elseif ($status->value === 'approved') {
-                            $colorClass = 'text-blue-700 bg-blue-50 border-blue-200';
-                        } elseif ($status->value === 'received') {
-                            $colorClass = 'text-green-700 bg-green-50 border-green-200';
-                        } else { // closed
-                            $colorClass = 'text-gray-900 bg-gray-200 border-gray-300';
-                        }
-                    @endphp
-                    <span class="inline-flex items-center text-sm font-semibold border px-3 py-1 rounded-full {{ $colorClass }}">
+                    <span class="inline-flex items-center text-sm font-semibold border px-3 py-1 rounded-full {{ $status->color() }}">
                         {{ $status->label() }}
                     </span>
                 </div>
@@ -259,6 +247,20 @@
                     @endif
 
                     @if($status->value === 'approved')
+                        @can('send', $order)
+                        <form method="POST" action="{{ route('purchasing.orders.send', $order) }}">
+                            @csrf
+                            <button type="submit" class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors shadow-sm cursor-pointer">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                                </svg>
+                                Send to Supplier
+                            </button>
+                        </form>
+                        @endcan
+                    @endif
+
+                    @if(in_array($status->value, ['sent_to_supplier', 'partially_received', 'received']))
                         @can('purchasing.grn.create')
                         <a href="{{ route('purchasing.grns.create', ['purchase_order_id' => $order->id]) }}" class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition-colors shadow-sm">
                             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">

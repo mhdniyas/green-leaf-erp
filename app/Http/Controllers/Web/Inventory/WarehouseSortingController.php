@@ -72,8 +72,12 @@ class WarehouseSortingController extends Controller
         $sortedItems = $allApprovedItems->where('is_sorted', true)->count();
         $globalPercentage = $totalItems > 0 ? (int) round(($sortedItems / $totalItems) * 100) : 0;
 
-        // Fetch approved Purchase Orders (pending delivery receipt)
-        $purchaseOrders = PurchaseOrder::where('status', POStatus::Approved)
+        // Fetch Purchase Orders sent to supplier or partially received (pending delivery receipt)
+        $purchaseOrders = PurchaseOrder::whereIn('status', [
+            POStatus::SentToSupplier,
+            POStatus::PartiallyReceived,
+            POStatus::Received,
+        ])
             ->with(['supplier', 'items.product'])
             ->get();
 

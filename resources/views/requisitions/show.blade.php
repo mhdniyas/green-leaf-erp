@@ -281,6 +281,17 @@
                         <span class="text-slate-400 font-bold">Created By</span>
                         <span class="font-semibold text-slate-800">{{ $order->creator ? $order->creator->name : 'Shop Owner' }}</span>
                     </div>
+
+                    @if($order->is_delivered)
+                        <div class="flex items-center justify-between text-xs">
+                            <span class="text-slate-400 font-bold">Delivery Status</span>
+                            <span class="font-semibold text-slate-800">{{ str($order->delivery_status ?? 'delivered')->replace('_', ' ')->title() }}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-xs">
+                            <span class="text-slate-400 font-bold">Payment Status</span>
+                            <span class="font-semibold text-slate-800">{{ str($order->payment_status ?? 'unpaid')->replace('_', ' ')->title() }}</span>
+                        </div>
+                    @endif
                 </div>
 
                 <!-- Delivery & Check-in Details / Actions -->
@@ -301,8 +312,16 @@
                                 <span class="font-black">Rs. {{ number_format((float) $order->total_shortage_value, 2) }}</span>
                             </div>
                             <div class="flex items-center justify-between">
-                                <span class="text-slate-400 font-bold">Cash Collected</span>
+                                <span class="text-slate-400 font-bold">Amount Paid</span>
                                 <span class="font-semibold text-slate-800">Rs. {{ number_format((float) $order->cash_collected, 2) }}</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-slate-400 font-bold">Balance Amount</span>
+                                <span class="font-semibold text-slate-800">Rs. {{ number_format((float) $order->balance_amount, 2) }}</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-slate-400 font-bold">Payment Status</span>
+                                <span class="font-semibold text-slate-800">{{ str($order->payment_status ?? 'unpaid')->replace('_', ' ')->title() }}</span>
                             </div>
                             
                             @php
@@ -332,6 +351,13 @@
                                 <div class="border-t border-dashed border-slate-200 pt-3">
                                     <span class="text-slate-400 font-bold block mb-1">Notes:</span>
                                     <p class="italic text-slate-600 bg-white p-2 rounded-lg border border-slate-100">{{ $order->delivery_notes }}</p>
+                                </div>
+                            @endif
+
+                            @if($order->finance_note)
+                                <div class="border-t border-dashed border-slate-200 pt-3">
+                                    <span class="text-slate-400 font-bold block mb-1">Finance Note:</span>
+                                    <p class="italic text-slate-600 bg-white p-2 rounded-lg border border-slate-100">{{ $order->finance_note }}</p>
                                 </div>
                             @endif
                         </div>

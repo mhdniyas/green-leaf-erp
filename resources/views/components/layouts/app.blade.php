@@ -55,274 +55,288 @@
                 Dashboard
             </x-nav-item>
 
-            {{-- Inventory Group --}}
-            @if(
-                auth()->user()->can('inventory.product.view') ||
-                auth()->user()->can('inventory.stock.view') ||
-                auth()->user()->can('inventory.sorting.view') ||
-                auth()->user()->can('inventory.wastage.view') ||
-                auth()->user()->can('warehouse.checklist.view')
-            )
-            @php
-                $isInventoryActive = request()->routeIs('inventory.*');
-            @endphp
-            <div class="sidebar-group space-y-1">
-                <button
-                    type="button"
-                    class="sidebar-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all group cursor-pointer {{ $isInventoryActive ? 'text-white bg-brand-800/30' : 'text-brand-300 hover:bg-brand-800/60 hover:text-white' }}"
-                    aria-expanded="{{ $isInventoryActive ? 'true' : 'false' }}"
-                >
-                    <span class="flex items-center gap-3">
-                        <svg class="w-4 h-4 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
-                        </svg>
-                        <span>Inventory</span>
-                    </span>
-                    <svg class="w-3.5 h-3.5 transition-transform duration-200 chevron-icon {{ $isInventoryActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                    </svg>
-                </button>
-                <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isInventoryActive ? '' : 'hidden' }}">
-                    @can('inventory.product.view')
-                    <x-nav-item href="{{ route('inventory.products.index') }}" :active="request()->routeIs('inventory.products.*')" :sub="true">
-                        Products
-                    </x-nav-item>
-                    @endcan
-                    @can('inventory.stock.view')
-                    <x-nav-item href="{{ route('inventory.stock.index') }}" :active="request()->routeIs('inventory.stock.*')" :sub="true">
-                        Stock Levels
-                    </x-nav-item>
-                    @endcan
-                    @can('inventory.sorting.view')
-                    <x-nav-item href="{{ route('inventory.batches.index') }}" :active="request()->routeIs('inventory.batches.*')" :sub="true">
-                        Batches & Sorting
-                    </x-nav-item>
-                    @endcan
-                    @can('inventory.wastage.view')
-                    <x-nav-item href="{{ route('inventory.wastage.index') }}" :active="request()->routeIs('inventory.wastage.*')" :sub="true">
-                        Wastage Log
-                    </x-nav-item>
-                    @endcan
-                    @can('warehouse.checklist.view')
-                    <x-nav-item href="{{ route('inventory.sorting.checklist') }}" :active="request()->routeIs('inventory.sorting.checklist')" :sub="true">
-                        Sorting Checklist
-                    </x-nav-item>
-                    <x-nav-item href="{{ route('inventory.sorting.shop-orders') }}" :active="request()->routeIs('inventory.sorting.shop-orders')" :sub="true">
-                        Shop Orders
-                    </x-nav-item>
-                    @endcan
-                    <x-nav-item href="{{ route('inventory.deliveries.dashboard') }}" :active="request()->routeIs('inventory.deliveries.dashboard')" :sub="true">
-                        Delivery Dashboard
-                    </x-nav-item>
-                    <x-nav-item href="{{ route('inventory.reports.fulfillment') }}" :active="request()->routeIs('inventory.reports.fulfillment')" :sub="true">
-                        Fulfillment Report
-                    </x-nav-item>
-                </div>
-            </div>
-            @endif
+            @if(auth()->user()->hasRole('shop'))
+                <x-nav-item href="{{ route('purchasing.orders.index') }}" icon="shopping-cart" :active="request()->routeIs('purchasing.orders.*')">
+                    Purchase Orders
+                </x-nav-item>
 
-            {{-- Purchasing Group --}}
-            @if(
-                auth()->user()->hasRole('purchase') ||
-                auth()->user()->can('purchasing.supplier.view') ||
-                auth()->user()->can('purchasing.order.view') ||
-                auth()->user()->can('purchasing.grn.view') ||
-                auth()->user()->can('viewAny', \App\Models\PurchaseInvoice::class)
-            )
-            @php
-                $isPurchasingActive = request()->routeIs('purchasing.*') || request()->routeIs('requisitions.board') || request()->routeIs('requisitions.approved_board');
-            @endphp
-            <div class="sidebar-group space-y-1">
-                <button
-                    type="button"
-                    class="sidebar-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all group cursor-pointer {{ $isPurchasingActive ? 'text-white bg-brand-800/30' : 'text-brand-300 hover:bg-brand-800/60 hover:text-white' }}"
-                    aria-expanded="{{ $isPurchasingActive ? 'true' : 'false' }}"
-                >
-                    <span class="flex items-center gap-3">
-                        <svg class="w-4 h-4 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-                        </svg>
-                        <span>Purchasing</span>
-                    </span>
-                    <svg class="w-3.5 h-3.5 transition-transform duration-200 chevron-icon {{ $isPurchasingActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                    </svg>
-                </button>
-                <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isPurchasingActive ? '' : 'hidden' }}">
-                    @if(auth()->user()->hasRole('purchase') || auth()->user()->can('purchasing.order.approve'))
-                    <x-nav-item href="{{ route('requisitions.board') }}" :active="request()->routeIs('requisitions.board')" :sub="true">
-                        Requisition Board
-                    </x-nav-item>
-                    <x-nav-item href="{{ route('requisitions.approved_board') }}" :active="request()->routeIs('requisitions.approved_board')" :sub="true">
-                        Approved Board
-                    </x-nav-item>
-                    @endif
-                    @can('purchasing.supplier.view')
-                    <x-nav-item href="{{ route('purchasing.suppliers.index') }}" :active="request()->routeIs('purchasing.suppliers.*')" :sub="true">
-                        Suppliers
-                    </x-nav-item>
-                    @endcan
-                    @can('purchasing.order.view')
-                    <x-nav-item href="{{ route('purchasing.orders.index') }}" :active="request()->routeIs('purchasing.orders.*')" :sub="true">
-                        Purchase Orders
-                    </x-nav-item>
-                    @endcan
-                    @can('purchasing.grn.view')
-                    <x-nav-item href="{{ route('purchasing.grns.index') }}" :active="request()->routeIs('purchasing.grns.*')" :sub="true">
-                        Goods Receipts
-                    </x-nav-item>
-                    @endcan
-                    @can('viewAny', \App\Models\PurchaseInvoice::class)
-                    <x-nav-item href="{{ route('purchasing.invoices.index') }}" :active="request()->routeIs('purchasing.invoices.*')" :sub="true">
-                        Purchase Invoices
-                    </x-nav-item>
-                    @endcan
-                </div>
-            </div>
-            @endif
+                <x-nav-item href="{{ route('inventory.deliveries.dashboard') }}" icon="truck" :active="request()->routeIs('inventory.deliveries.*')">
+                    Deliveries
+                </x-nav-item>
 
-            {{-- Sales Group --}}
-            @if(
-                auth()->user()->can('sales.customer.view') ||
-                auth()->user()->can('sales.order.view') ||
-                auth()->user()->can('sales.invoice.view')
-            )
-            @php
-                $isSalesActive = request()->routeIs('sales.*');
-            @endphp
-            <div class="sidebar-group space-y-1">
-                <button
-                    type="button"
-                    class="sidebar-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all group cursor-pointer {{ $isSalesActive ? 'text-white bg-brand-800/30' : 'text-brand-300 hover:bg-brand-800/60 hover:text-white' }}"
-                    aria-expanded="{{ $isSalesActive ? 'true' : 'false' }}"
-                >
-                    <span class="flex items-center gap-3">
-                        <svg class="w-4 h-4 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
+                <x-nav-item href="{{ route('finance.index') }}" icon="document-currency-dollar" :active="request()->routeIs('finance.*')">
+                    Finance
+                </x-nav-item>
+            @else
+                {{-- Inventory Group --}}
+                @if(
+                    auth()->user()->can('inventory.product.view') ||
+                    auth()->user()->can('inventory.stock.view') ||
+                    auth()->user()->can('inventory.sorting.view') ||
+                    auth()->user()->can('inventory.wastage.view') ||
+                    auth()->user()->can('warehouse.checklist.view')
+                )
+                @php
+                    $isInventoryActive = request()->routeIs('inventory.*');
+                @endphp
+                <div class="sidebar-group space-y-1">
+                    <button
+                        type="button"
+                        class="sidebar-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all group cursor-pointer {{ $isInventoryActive ? 'text-white bg-brand-800/30' : 'text-brand-300 hover:bg-brand-800/60 hover:text-white' }}"
+                        aria-expanded="{{ $isInventoryActive ? 'true' : 'false' }}"
+                    >
+                        <span class="flex items-center gap-3">
+                            <svg class="w-4 h-4 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
+                            </svg>
+                            <span>Inventory</span>
+                        </span>
+                        <svg class="w-3.5 h-3.5 transition-transform duration-200 chevron-icon {{ $isInventoryActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
-                        <span>Sales</span>
-                    </span>
-                    <svg class="w-3.5 h-3.5 transition-transform duration-200 chevron-icon {{ $isSalesActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                    </svg>
-                </button>
-                <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isSalesActive ? '' : 'hidden' }}">
-                    @can('sales.customer.view')
-                    <x-nav-item href="{{ route('sales.customers.index') }}" :active="request()->routeIs('sales.customers.*')" :sub="true">
-                        Customers
-                    </x-nav-item>
-                    @endcan
-                    @can('sales.order.view')
-                    <x-nav-item href="{{ route('sales.orders.index') }}" :active="request()->routeIs('sales.orders.*')" :sub="true">
-                        Sales Orders
-                    </x-nav-item>
-                    @endcan
-                    @can('sales.invoice.view')
-                    <x-nav-item href="{{ route('sales.invoices.index') }}" :active="request()->routeIs('sales.invoices.*')" :sub="true">
-                        Sales Invoices
-                    </x-nav-item>
-                    @endcan
+                    </button>
+                    <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isInventoryActive ? '' : 'hidden' }}">
+                        @can('inventory.product.view')
+                        <x-nav-item href="{{ route('inventory.products.index') }}" :active="request()->routeIs('inventory.products.*')" :sub="true">
+                            Products
+                        </x-nav-item>
+                        @endcan
+                        @can('inventory.stock.view')
+                        <x-nav-item href="{{ route('inventory.stock.index') }}" :active="request()->routeIs('inventory.stock.*')" :sub="true">
+                            Stock Levels
+                        </x-nav-item>
+                        @endcan
+                        @can('inventory.sorting.view')
+                        <x-nav-item href="{{ route('inventory.batches.index') }}" :active="request()->routeIs('inventory.batches.*')" :sub="true">
+                            Batches & Sorting
+                        </x-nav-item>
+                        @endcan
+                        @can('inventory.wastage.view')
+                        <x-nav-item href="{{ route('inventory.wastage.index') }}" :active="request()->routeIs('inventory.wastage.*')" :sub="true">
+                            Wastage Log
+                        </x-nav-item>
+                        @endcan
+                        @can('warehouse.checklist.view')
+                        <x-nav-item href="{{ route('inventory.sorting.checklist') }}" :active="request()->routeIs('inventory.sorting.checklist')" :sub="true">
+                            Sorting Checklist
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('inventory.sorting.shop-orders') }}" :active="request()->routeIs('inventory.sorting.shop-orders')" :sub="true">
+                            Shop Orders
+                        </x-nav-item>
+                        @endcan
+                        <x-nav-item href="{{ route('inventory.deliveries.dashboard') }}" :active="request()->routeIs('inventory.deliveries.dashboard')" :sub="true">
+                            Delivery Dashboard
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('inventory.reports.fulfillment') }}" :active="request()->routeIs('inventory.reports.fulfillment')" :sub="true">
+                            Fulfillment Report
+                        </x-nav-item>
+                    </div>
                 </div>
-            </div>
-            @endif
+                @endif
 
-            {{-- Finance Group --}}
-            @if(
-                auth()->user()->can('accounting.ledger.view') ||
-                auth()->user()->can('accounting.report.view') ||
-                auth()->user()->can('accounting.entry.create')
-            )
-            @php
-                $isFinanceActive = request()->routeIs('finance.*');
-            @endphp
-            <div class="sidebar-group space-y-1">
-                <button
-                    type="button"
-                    class="sidebar-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all group cursor-pointer {{ $isFinanceActive ? 'text-white bg-brand-800/30' : 'text-brand-300 hover:bg-brand-800/60 hover:text-white' }}"
-                    aria-expanded="{{ $isFinanceActive ? 'true' : 'false' }}"
-                >
-                    <span class="flex items-center gap-3">
-                        <svg class="w-4 h-4 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.03 0 1.9.693 2.166 1.638m-7.377 0A48.536 48.536 0 0112 3.75c0 .08-.004.16-.01.238m-2.886 0c.385.023.77.05 1.154.08m-3.456 0A48.108 48.108 0 002.25 6.11v10.39a2.25 2.25 0 002.25 2.25h3" />
+                {{-- Purchasing Group --}}
+                @if(
+                    auth()->user()->hasRole('purchase') ||
+                    auth()->user()->can('purchasing.supplier.view') ||
+                    auth()->user()->can('purchasing.order.view') ||
+                    auth()->user()->can('purchasing.grn.view') ||
+                    auth()->user()->can('viewAny', \App\Models\PurchaseInvoice::class)
+                )
+                @php
+                    $isPurchasingActive = request()->routeIs('purchasing.*') || request()->routeIs('requisitions.board') || request()->routeIs('requisitions.approved_board');
+                @endphp
+                <div class="sidebar-group space-y-1">
+                    <button
+                        type="button"
+                        class="sidebar-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all group cursor-pointer {{ $isPurchasingActive ? 'text-white bg-brand-800/30' : 'text-brand-300 hover:bg-brand-800/60 hover:text-white' }}"
+                        aria-expanded="{{ $isPurchasingActive ? 'true' : 'false' }}"
+                    >
+                        <span class="flex items-center gap-3">
+                            <svg class="w-4 h-4 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+                            </svg>
+                            <span>Purchasing</span>
+                        </span>
+                        <svg class="w-3.5 h-3.5 transition-transform duration-200 chevron-icon {{ $isPurchasingActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
-                        <span>Finance</span>
-                    </span>
-                    <svg class="w-3.5 h-3.5 transition-transform duration-200 chevron-icon {{ $isFinanceActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                    </svg>
-                </button>
-                <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isFinanceActive ? '' : 'hidden' }}">
-                    @can('accounting.ledger.view')
-                    <x-nav-item href="{{ route('finance.accounts.index') }}" :active="request()->routeIs('finance.accounts.*')" :sub="true">
-                        Chart of Accounts
-                    </x-nav-item>
-                    <x-nav-item href="{{ route('finance.ledger.index') }}" :active="request()->routeIs('finance.ledger.*')" :sub="true">
-                        General Ledger
-                    </x-nav-item>
-                    @endcan
-                    @if(auth()->user()->can('accounting.report.view') || auth()->user()->can('accounting.entry.create'))
-                    <x-nav-item href="{{ route('finance.expenses.index') }}" :active="request()->routeIs('finance.expenses.*')" :sub="true">
-                        Expenses
-                    </x-nav-item>
-                    @endif
-                    @can('accounting.report.view')
-                    <x-nav-item href="{{ route('finance.reports.pnl') }}" :active="request()->routeIs('finance.reports.pnl')" :sub="true">
-                        P&L Statement
-                    </x-nav-item>
-                    <x-nav-item href="{{ route('finance.reports.balance-sheet') }}" :active="request()->routeIs('finance.reports.balance-sheet')" :sub="true">
-                        Balance Sheet
-                    </x-nav-item>
-                    <x-nav-item href="{{ route('finance.reports.cash-flow') }}" :active="request()->routeIs('finance.reports.cash-flow')" :sub="true">
-                        Cash Flow
-                    </x-nav-item>
-                    @endcan
+                    </button>
+                    <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isPurchasingActive ? '' : 'hidden' }}">
+                        @if(auth()->user()->hasRole('purchase') || auth()->user()->can('purchasing.order.approve'))
+                        <x-nav-item href="{{ route('requisitions.board') }}" :active="request()->routeIs('requisitions.board')" :sub="true">
+                            Requisition Board
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('requisitions.approved_board') }}" :active="request()->routeIs('requisitions.approved_board')" :sub="true">
+                            Approved Board
+                        </x-nav-item>
+                        @endif
+                        @can('purchasing.supplier.view')
+                        <x-nav-item href="{{ route('purchasing.suppliers.index') }}" :active="request()->routeIs('purchasing.suppliers.*')" :sub="true">
+                            Suppliers
+                        </x-nav-item>
+                        @endcan
+                        @can('purchasing.order.view')
+                        <x-nav-item href="{{ route('purchasing.orders.index') }}" :active="request()->routeIs('purchasing.orders.*')" :sub="true">
+                            Purchase Orders
+                        </x-nav-item>
+                        @endcan
+                        @can('purchasing.grn.view')
+                        <x-nav-item href="{{ route('purchasing.grns.index') }}" :active="request()->routeIs('purchasing.grns.*')" :sub="true">
+                            Goods Receipts
+                        </x-nav-item>
+                        @endcan
+                        @can('viewAny', \App\Models\PurchaseInvoice::class)
+                        <x-nav-item href="{{ route('purchasing.invoices.index') }}" :active="request()->routeIs('purchasing.invoices.*')" :sub="true">
+                            Purchase Invoices
+                        </x-nav-item>
+                        @endcan
+                    </div>
                 </div>
-            </div>
-            @endif
+                @endif
 
-            {{-- Admin Group --}}
-            @if(
-                auth()->user()->can('admin.user.view') ||
-                auth()->user()->can('admin.daily-progress.view') ||
-                auth()->user()->can('admin.activity-log.view')
-            )
-            @php
-                $isAdminActive = request()->routeIs('admin.*');
-            @endphp
-            <div class="sidebar-group space-y-1">
-                <button
-                    type="button"
-                    class="sidebar-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all group cursor-pointer {{ $isAdminActive ? 'text-white bg-brand-800/30' : 'text-brand-300 hover:bg-brand-800/60 hover:text-white' }}"
-                    aria-expanded="{{ $isAdminActive ? 'true' : 'false' }}"
-                >
-                    <span class="flex items-center gap-3">
-                        <svg class="w-4 h-4 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+                {{-- Sales Group --}}
+                @if(
+                    auth()->user()->can('sales.customer.view') ||
+                    auth()->user()->can('sales.order.view') ||
+                    auth()->user()->can('sales.invoice.view')
+                )
+                @php
+                    $isSalesActive = request()->routeIs('sales.*');
+                @endphp
+                <div class="sidebar-group space-y-1">
+                    <button
+                        type="button"
+                        class="sidebar-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all group cursor-pointer {{ $isSalesActive ? 'text-white bg-brand-800/30' : 'text-brand-300 hover:bg-brand-800/60 hover:text-white' }}"
+                        aria-expanded="{{ $isSalesActive ? 'true' : 'false' }}"
+                    >
+                        <span class="flex items-center gap-3">
+                            <svg class="w-4 h-4 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
+                            </svg>
+                            <span>Sales</span>
+                        </span>
+                        <svg class="w-3.5 h-3.5 transition-transform duration-200 chevron-icon {{ $isSalesActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
-                        <span>Admin</span>
-                    </span>
-                    <svg class="w-3.5 h-3.5 transition-transform duration-200 chevron-icon {{ $isAdminActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                    </svg>
-                </button>
-                <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isAdminActive ? '' : 'hidden' }}">
-                    @can('admin.user.view')
-                    <x-nav-item href="{{ route('admin.users.index') }}" :active="request()->routeIs('admin.users.*')" :sub="true">
-                        Users & Roles
-                    </x-nav-item>
-                    @endcan
-                    @can('admin.daily-progress.view')
-                    <x-nav-item href="{{ route('admin.daily-progress') }}" :active="request()->routeIs('admin.daily-progress')" :sub="true">
-                        Daily Progress
-                    </x-nav-item>
-                    @endcan
-                    @can('admin.activity-log.view')
-                    <x-nav-item href="{{ route('admin.activity-logs.index') }}" :active="request()->routeIs('admin.activity-logs.index')" :sub="true">
-                        Activity Log
-                    </x-nav-item>
-                    @endcan
+                    </button>
+                    <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isSalesActive ? '' : 'hidden' }}">
+                        @can('sales.customer.view')
+                        <x-nav-item href="{{ route('sales.customers.index') }}" :active="request()->routeIs('sales.customers.*')" :sub="true">
+                            Customers
+                        </x-nav-item>
+                        @endcan
+                        @can('sales.order.view')
+                        <x-nav-item href="{{ route('sales.orders.index') }}" :active="request()->routeIs('sales.orders.*')" :sub="true">
+                            Sales Orders
+                        </x-nav-item>
+                        @endcan
+                        @can('sales.invoice.view')
+                        <x-nav-item href="{{ route('sales.invoices.index') }}" :active="request()->routeIs('sales.invoices.*')" :sub="true">
+                            Sales Invoices
+                        </x-nav-item>
+                        @endcan
+                    </div>
                 </div>
-            </div>
+                @endif
+
+                {{-- Finance Group --}}
+                @if(
+                    auth()->user()->can('accounting.ledger.view') ||
+                    auth()->user()->can('accounting.report.view') ||
+                    auth()->user()->can('accounting.entry.create')
+                )
+                @php
+                    $isFinanceActive = request()->routeIs('finance.*');
+                @endphp
+                <div class="sidebar-group space-y-1">
+                    <button
+                        type="button"
+                        class="sidebar-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all group cursor-pointer {{ $isFinanceActive ? 'text-white bg-brand-800/30' : 'text-brand-300 hover:bg-brand-800/60 hover:text-white' }}"
+                        aria-expanded="{{ $isFinanceActive ? 'true' : 'false' }}"
+                    >
+                        <span class="flex items-center gap-3">
+                            <svg class="w-4 h-4 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.03 0 1.9.693 2.166 1.638m-7.377 0A48.536 48.536 0 0112 3.75c0 .08-.004.16-.01.238m-2.886 0c.385.023.77.05 1.154.08m-3.456 0A48.108 48.108 0 002.25 6.11v10.39a2.25 2.25 0 002.25 2.25h3" />
+                            </svg>
+                            <span>Finance</span>
+                        </span>
+                        <svg class="w-3.5 h-3.5 transition-transform duration-200 chevron-icon {{ $isFinanceActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
+                    </button>
+                    <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isFinanceActive ? '' : 'hidden' }}">
+                        @can('accounting.ledger.view')
+                        <x-nav-item href="{{ route('finance.accounts.index') }}" :active="request()->routeIs('finance.accounts.*')" :sub="true">
+                            Chart of Accounts
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('finance.ledger.index') }}" :active="request()->routeIs('finance.ledger.*')" :sub="true">
+                            General Ledger
+                        </x-nav-item>
+                        @endcan
+                        @if(auth()->user()->can('accounting.report.view') || auth()->user()->can('accounting.entry.create'))
+                        <x-nav-item href="{{ route('finance.expenses.index') }}" :active="request()->routeIs('finance.expenses.*')" :sub="true">
+                            Expenses
+                        </x-nav-item>
+                        @endif
+                        @can('accounting.report.view')
+                        <x-nav-item href="{{ route('finance.reports.pnl') }}" :active="request()->routeIs('finance.reports.pnl')" :sub="true">
+                            P&L Statement
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('finance.reports.balance-sheet') }}" :active="request()->routeIs('finance.reports.balance-sheet')" :sub="true">
+                            Balance Sheet
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('finance.reports.cash-flow') }}" :active="request()->routeIs('finance.reports.cash-flow')" :sub="true">
+                            Cash Flow
+                        </x-nav-item>
+                        @endcan
+                    </div>
+                </div>
+                @endif
+
+                {{-- Admin Group --}}
+                @if(
+                    auth()->user()->can('admin.user.view') ||
+                    auth()->user()->can('admin.daily-progress.view') ||
+                    auth()->user()->can('admin.activity-log.view')
+                )
+                @php
+                    $isAdminActive = request()->routeIs('admin.*');
+                @endphp
+                <div class="sidebar-group space-y-1">
+                    <button
+                        type="button"
+                        class="sidebar-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all group cursor-pointer {{ $isAdminActive ? 'text-white bg-brand-800/30' : 'text-brand-300 hover:bg-brand-800/60 hover:text-white' }}"
+                        aria-expanded="{{ $isAdminActive ? 'true' : 'false' }}"
+                    >
+                        <span class="flex items-center gap-3">
+                            <svg class="w-4 h-4 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+                            </svg>
+                            <span>Admin</span>
+                        </span>
+                        <svg class="w-3.5 h-3.5 transition-transform duration-200 chevron-icon {{ $isAdminActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
+                    </button>
+                    <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isAdminActive ? '' : 'hidden' }}">
+                        @can('admin.user.view')
+                        <x-nav-item href="{{ route('admin.users.index') }}" :active="request()->routeIs('admin.users.*')" :sub="true">
+                            Users & Roles
+                        </x-nav-item>
+                        @endcan
+                        @can('admin.daily-progress.view')
+                        <x-nav-item href="{{ route('admin.daily-progress') }}" :active="request()->routeIs('admin.daily-progress')" :sub="true">
+                            Daily Progress
+                        </x-nav-item>
+                        @endcan
+                        @can('admin.activity-log.view')
+                        <x-nav-item href="{{ route('admin.activity-logs.index') }}" :active="request()->routeIs('admin.activity-logs.index')" :sub="true">
+                            Activity Log
+                        </x-nav-item>
+                        @endcan
+                    </div>
+                </div>
+                @endif
             @endif
 
         </nav>

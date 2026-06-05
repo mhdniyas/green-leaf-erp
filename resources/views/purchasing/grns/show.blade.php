@@ -1,5 +1,32 @@
 <x-layouts.app title="Goods Received Note Details — {{ $grn->grn_number }}">
 
+    @if($grn->status === 'rejected')
+        <div class="mb-6 bg-red-50 border border-red-200 text-red-800 rounded-2xl p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div class="space-y-1">
+                <h3 class="text-base font-bold flex items-center gap-2">
+                    <svg class="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                    </svg>
+                    Goods Received Note Rejected
+                </h3>
+                <p class="text-sm text-red-700">
+                    <strong>Rejection Remarks:</strong> {{ $grn->rejection_remarks }}
+                </p>
+                <p class="text-xs text-red-600 font-medium">
+                    Returned to warehouse for corrections. Click the edit button to update quantity and resubmit.
+                </p>
+            </div>
+            @can('update', $grn)
+                <a href="{{ route('purchasing.grns.edit', $grn) }}" class="inline-flex items-center gap-2 rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-700 transition-colors shadow-sm whitespace-nowrap">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                    </svg>
+                    Edit & Correct GRN
+                </a>
+            @endcan
+        </div>
+    @endif
+
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         {{-- Left column - received items & notes --}}
@@ -157,15 +184,38 @@
 
                 {{-- Actions --}}
                 <div class="flex flex-col gap-2 pt-4 border-t border-gray-100">
+                    @can('approve', $grn)
+                        <form method="POST" action="{{ route('purchasing.grns.approve', $grn) }}" class="w-full">
+                            @csrf
+                            <button type="submit" class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors shadow-sm cursor-pointer">
+                                <svg class="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                </svg>
+                                Approve GRN
+                            </button>
+                        </form>
+                    @endcan
+
+                    @can('reject', $grn)
+                        <button type="button" onclick="document.getElementById('reject-modal').classList.remove('hidden')" class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-red-50 border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-100 transition-colors cursor-pointer">
+                            <svg class="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                            Reject GRN
+                        </button>
+                    @endcan
+
                     @if(!$invoice)
                         @can('create', \App\Models\PurchaseInvoice::class)
-                            <a href="{{ route('purchasing.invoices.create', ['goods_received_id' => $grn->id]) }}" 
-                               class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition-colors shadow-sm">
-                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                                </svg>
-                                Create & Match Invoice
-                            </a>
+                            @if($grn->status === 'approved')
+                                <a href="{{ route('purchasing.invoices.create', ['goods_received_id' => $grn->id]) }}" 
+                                   class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition-colors shadow-sm">
+                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                                    </svg>
+                                    Create & Match Invoice
+                                </a>
+                            @endif
                         @endcan
                     @else
                         <a href="{{ route('purchasing.invoices.show', $invoice) }}" 
@@ -184,6 +234,19 @@
             <div class="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Receipt Summary</h3>
                 <div class="grid grid-cols-2 gap-y-3 text-sm">
+                    <span class="text-gray-500">Status</span>
+                    <div class="text-right">
+                        @if($grn->status === 'pending_approval')
+                            <span class="inline-flex items-center text-xs font-semibold border px-2.5 py-0.5 rounded-full text-amber-700 bg-amber-50 border-amber-200">Pending Approval</span>
+                        @elseif($grn->status === 'approved')
+                            <span class="inline-flex items-center text-xs font-semibold border px-2.5 py-0.5 rounded-full text-green-700 bg-green-50 border-green-200">Approved</span>
+                        @elseif($grn->status === 'rejected')
+                            <span class="inline-flex items-center text-xs font-semibold border px-2.5 py-0.5 rounded-full text-red-700 bg-red-50 border-red-200">Rejected</span>
+                        @else
+                            <span class="inline-flex items-center text-xs font-semibold border px-2.5 py-0.5 rounded-full text-gray-700 bg-gray-50 border-gray-200">{{ ucfirst($grn->status) }}</span>
+                        @endif
+                    </div>
+
                     <span class="text-gray-500">GRN Number</span>
                     <span class="text-gray-900 font-mono font-bold text-right">{{ $grn->grn_number }}</span>
 
@@ -191,7 +254,7 @@
                     <span class="text-gray-900 font-medium text-right">{{ $grn->received_at->format('Y-m-d') }}</span>
 
                     <span class="text-gray-500">Received By</span>
-                    <span class="text-gray-900 text-right">{{ $grn->receivedBy?->name ?? '—' }}</span>
+                    <span class="text-gray-950 text-right">{{ $grn->receivedBy?->name ?? '—' }}</span>
 
                     <span class="text-gray-500">Purchase Order</span>
                     <a href="{{ route('purchasing.orders.show', $grn->purchaseOrder) }}" class="text-brand-600 font-mono font-bold text-right hover:underline">
@@ -232,6 +295,45 @@
             </div>
         </div>
 
+    </div>
+
+    {{-- Rejection Modal --}}
+    <div id="reject-modal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true" onclick="document.getElementById('reject-modal').classList.add('hidden')"></div>
+
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+            <div class="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <form method="POST" action="{{ route('purchasing.grns.reject', $grn) }}">
+                    @csrf
+                    <div class="bg-white px-6 pt-6 pb-4">
+                        <div class="sm:flex sm:items-start">
+                            <div class="mx-auto shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                                <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                            </div>
+                            <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+                                <h3 class="text-lg leading-6 font-bold text-gray-900" id="modal-title">Reject Goods Received Note</h3>
+                                <div class="mt-3">
+                                    <label for="remarks" class="block text-sm font-medium text-gray-700 mb-1">Rejection Remarks / Correction Remarks</label>
+                                    <textarea id="remarks" name="remarks" rows="4" required class="w-full border-gray-300 rounded-xl text-sm p-3 focus:border-brand-500 focus:ring-brand-500 bg-gray-50" placeholder="Please specify why this GRN is rejected and what needs to be corrected..."></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 px-6 py-4 flex flex-row-reverse gap-2">
+                        <button type="submit" class="inline-flex justify-center rounded-xl border border-transparent shadow-sm px-4 py-2 bg-red-600 text-sm font-semibold text-white hover:bg-red-700 focus:outline-none cursor-pointer">
+                            Reject & Return
+                        </button>
+                        <button type="button" onclick="document.getElementById('reject-modal').classList.add('hidden')" class="inline-flex justify-center rounded-xl border border-gray-200 shadow-sm px-4 py-2 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 focus:outline-none cursor-pointer">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
 
 </x-layouts.app>

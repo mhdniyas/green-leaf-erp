@@ -18,6 +18,8 @@ class ShopOrder extends Model
         'shop_id',
         'order_number',
         'state',
+        'delivery_status',
+        'payment_status',
         'business_date',
         'submitted_at',
         'deadline_at',
@@ -31,6 +33,8 @@ class ShopOrder extends Model
         'delivery_notes',
         'cash_collected',
         'cash_discrepancy',
+        'balance_amount',
+        'finance_note',
         'total_shortage_value',
     ];
 
@@ -41,6 +45,10 @@ class ShopOrder extends Model
         'is_allocation_completed' => 'boolean',
         'is_delivered' => 'boolean',
         'delivered_at' => 'datetime',
+        'cash_collected' => 'decimal:2',
+        'cash_discrepancy' => 'decimal:2',
+        'balance_amount' => 'decimal:2',
+        'total_shortage_value' => 'decimal:2',
     ];
 
     public function deliveredBy(): BelongsTo
@@ -67,6 +75,10 @@ class ShopOrder extends Model
      */
     public function canEditDirectly(): bool
     {
+        if (in_array($this->state, ['approved', 'rejected'], true) || $this->is_delivered) {
+            return false;
+        }
+
         // Cutoff is 9:30 PM (21:30) of the day before the target business date.
         $cutoff = Carbon::parse($this->business_date)->subDay()->setTime(21, 30, 0);
 

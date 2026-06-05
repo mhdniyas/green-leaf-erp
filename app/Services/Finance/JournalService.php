@@ -7,6 +7,7 @@ namespace App\Services\Finance;
 use App\DTOs\Finance\JournalEntryData;
 use App\Models\Account;
 use App\Models\Expense;
+use App\Models\GoodsReceived;
 use App\Models\JournalEntry;
 use App\Models\Payment;
 use App\Models\PurchaseInvoice;
@@ -229,6 +230,41 @@ class JournalService
         );
 
         return $this->createEntry($data, $expense->recorded_by);
+    }
+
+    /**
+     * Record Goods Received Note entry upon approval.
+     * Debit Graded Inventory (1200), Credit Accounts Payable (2100)
+     */
+    public function recordGoodsReceipt(GoodsReceived $grn): JournalEntry
+    {
+        $grn->load(['purchaseOrder.supplier', 'items.purchaseOrderItem']);
+
+        $inventoryAccountId = $this->getAccountIdByCode('1200');
+        $apAccountId = $this->getAccountIdByCode('2100');
+
+        // Calculate material cost of received items
+        $materialCost = 0.00;
+        foreach ($grn->items as $item) {
+            $unitPrice = $item->purchaseOrderItem ? (float) $item->purchaseOrderItem->unit_price : 0.00;
+            $materialCost += (float) $item->received_qty * $unitPrice;
+        }
+
+        $lines = [
+            ['account_id' => $inventoryAccountId, 'type' => 'debit', 'amount' => $materialCost],
+            ['account_id' => $apAccountId, 'type' => 'credit', 'amount' => $materialCost],
+        ];
+
+        $userId = auth()->id() ?? User::first()?->id ?? 1;
+
+        $data = new JournalEntryData(
+            entryDate: $grn->received_at->format('Y-m-d'),
+            reference: $grn->grn_number,
+            description: "Goods Received Note #{$grn->grn_number} approved for Supplier: {$grn->purchaseOrder->supplier->name}",
+            lines: $lines
+        );
+
+        return $this->createEntry($data, (int) $userId);
     }
 
     private function getAccountIdByCode(string $code): int

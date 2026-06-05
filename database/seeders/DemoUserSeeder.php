@@ -244,6 +244,91 @@ class DemoUserSeeder extends Seeder
                     );
                 }
             }
+
+            // Seed more POs for the redesigned shop owner dashboard/tabs
+            $adminUser = User::where('email', 'admin@greenleaf.com')->first();
+            if ($supplier1 && $purchaseManager && $adminUser) {
+                // Draft PO: PO-1022
+                $poDraft = PurchaseOrder::updateOrCreate(
+                    ['po_number' => 'PO-1022'],
+                    [
+                        'supplier_id' => $supplier1->id,
+                        'status' => POStatus::Draft,
+                        'order_date' => now()->subDay()->format('Y-m-d'),
+                        'created_by' => $purchaseManager->id,
+                        'fulfillment_type' => 'warehouse',
+                        'notes' => 'Awaiting owner approval',
+                    ]
+                );
+                $product = Product::first();
+                if ($product) {
+                    $poDraft->items()->updateOrCreate(
+                        ['product_id' => $product->id],
+                        [
+                            'quantity' => 200.00,
+                            'unit_price' => 15.00,
+                        ]
+                    );
+                }
+
+                // Approved PO: PO-1023
+                $poApproved = PurchaseOrder::updateOrCreate(
+                    ['po_number' => 'PO-1023'],
+                    [
+                        'supplier_id' => $supplier1->id,
+                        'status' => POStatus::Approved,
+                        'order_date' => now()->format('Y-m-d'),
+                        'created_by' => $purchaseManager->id,
+                        'fulfillment_type' => 'warehouse',
+                        'notes' => 'Stock Required',
+                    ]
+                );
+                if ($product) {
+                    $poApproved->items()->updateOrCreate(
+                        ['product_id' => $product->id],
+                        [
+                            'quantity' => 100.00,
+                            'unit_price' => 12.50,
+                        ]
+                    );
+                }
+
+                // Add activity log for PO-1023 approval
+                activity()
+                    ->performedOn($poApproved)
+                    ->causedBy($adminUser)
+                    ->withProperties(['status' => 'approved', 'remarks' => 'Stock Required'])
+                    ->log('Approved');
+
+                // Rejected PO: PO-1021
+                $poRejected = PurchaseOrder::updateOrCreate(
+                    ['po_number' => 'PO-1021'],
+                    [
+                        'supplier_id' => $supplier1->id,
+                        'status' => POStatus::Rejected,
+                        'order_date' => now()->subDays(2)->format('Y-m-d'),
+                        'created_by' => $purchaseManager->id,
+                        'fulfillment_type' => 'warehouse',
+                        'notes' => 'Duplicate Order',
+                    ]
+                );
+                if ($product) {
+                    $poRejected->items()->updateOrCreate(
+                        ['product_id' => $product->id],
+                        [
+                            'quantity' => 50.00,
+                            'unit_price' => 10.00,
+                        ]
+                    );
+                }
+
+                // Add activity log for PO-1021 rejection
+                activity()
+                    ->performedOn($poRejected)
+                    ->causedBy($adminUser)
+                    ->withProperties(['status' => 'rejected', 'remarks' => 'Duplicate Order'])
+                    ->log('Rejected');
+            }
         }
 
         $this->command->info('✅ Demo users, shop orders, and purchase orders seeded successfully. Password: password');

@@ -19,6 +19,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -32,13 +33,27 @@ class RequisitionController extends Controller
     public function store(Request $request)
     {
         $user = $request->user();
+
         if (! $user->shop_id) {
-            return response()->json(['error' => 'User is not associated with any shop.'], 400);
+            if ($request->expectsJson()) {
+                return response()->json(['error' => 'User is not associated with any shop.'], 400);
+            }
+
+            return redirect()->route('shop-owner.orders.create')
+                ->withErrors(['items' => 'User is not associated with any shop.'])
+                ->withInput();
         }
 
-        $items = $request->input('items', []);
-        if (empty($items)) {
-            return response()->json(['error' => 'Requisition cannot be empty.'], 400);
+        $items = $this->resolveRequestedProducts($request->input('items', []));
+
+        if ($items === []) {
+            if ($request->expectsJson()) {
+                return response()->json(['error' => 'Requisition cannot be empty.'], 400);
+            }
+
+            return redirect()->route('shop-owner.orders.create')
+                ->withErrors(['items' => 'Requisition cannot be empty.'])
+                ->withInput();
         }
 
         $businessDate = Carbon::tomorrow()->format('Y-m-d');
@@ -46,8 +61,15 @@ class RequisitionController extends Controller
         // Enforcement: check if cutoff has passed for tomorrow's date
         // Cutoff is today 9:30 PM.
         $cutoff = Carbon::today()->setTime(21, 30, 0);
+
         if (now()->greaterThan($cutoff)) {
-            return response()->json(['error' => 'Requisition submission window has closed (9:30 PM cutoff).'], 400);
+            if ($request->expectsJson()) {
+                return response()->json(['error' => 'Requisition submission window has closed (9:30 PM cutoff).'], 400);
+            }
+
+            return redirect()->route('shop-owner.orders.create')
+                ->withErrors(['items' => 'Requisition submission window has closed (9:30 PM cutoff).'])
+                ->withInput();
         }
 
         $order = DB::transaction(function () use ($user, $items, $businessDate) {
@@ -65,45 +87,45 @@ class RequisitionController extends Controller
                 'created_by' => $user->id,
             ]);
 
-            foreach ($items as $sku => $qty) {
-                $qtyVal = (float) $qty;
-                if ($qtyVal <= 0) {
-                    continue;
-                }
-
-                $product = Product::where('sku', $sku)->first();
-                if ($product) {
-                    ShopOrderItem::create([
-                        'shop_order_id' => $shopOrder->id,
-                        'product_id' => $product->id,
-                        'requested_qty' => $qtyVal,
-                        'unit' => $product->unit,
-                    ]);
-                }
-            }
+            $this->syncShopOrderItems($shopOrder, $items);
 
             return $shopOrder;
         });
 
-        return response()->json([
-            'success' => true,
-            'order_number' => $order->order_number,
-            'redirect_url' => route('requisitions.show', $order->order_number),
-        ]);
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'order_number' => $order->order_number,
+                'redirect_url' => $user->hasRole('shop')
+                    ? route('shop-owner.orders.show', $order->order_number)
+                    : route('requisitions.show', $order->order_number),
+            ]);
+        }
+
+        return redirect()->route(
+            $user->hasRole('shop') ? 'shop-owner.orders.show' : 'requisitions.show',
+            $order->order_number
+        )
+            ->with('success', 'Tomorrow order submitted successfully.');
     }
 
     /**
      * Display the specified requisition details.
      */
-    public function show(Request $request, string $orderNumber): View
+    public function show(Request $request, string $orderNumber): View|RedirectResponse
     {
         $order = ShopOrder::where('order_number', $orderNumber)
             ->with(['items.product', 'shop', 'creator'])
             ->firstOrFail();
 
-        // Access control: Shop Owner can only see their own shop orders
-        if ($request->user()->hasRole('shop') && $order->shop_id !== $request->user()->shop_id) {
+        $user = $request->user();
+
+        if ($user->hasRole('shop') && $order->shop_id !== $user->shop_id) {
             abort(403, 'Unauthorized access to shop order.');
+        }
+
+        if ($user->hasRole('shop')) {
+            return redirect()->route('shop-owner.orders.show', $order->order_number);
         }
 
         return view('requisitions.show', compact('order'));
@@ -124,8 +146,18 @@ class RequisitionController extends Controller
             abort(403, 'Unauthorized access.');
         }
 
+        if ($request->user()->hasRole('shop')) {
+            return redirect()->route(
+                $order->canEditDirectly() ? 'shop-owner.orders.create' : 'shop-owner.orders.show',
+                $order->canEditDirectly() ? [] : $order->order_number
+            );
+        }
+
         if (! $order->canEditDirectly()) {
-            return redirect()->route('requisitions.show', $orderNumber)
+            return redirect()->route(
+                $request->user()->hasRole('shop') ? 'shop-owner.orders.show' : 'requisitions.show',
+                $orderNumber
+            )
                 ->with('error', 'Requisition window has closed. You cannot edit this order directly.');
         }
 
@@ -144,7 +176,10 @@ class RequisitionController extends Controller
         }
 
         if (! $order->canEditDirectly()) {
-            return redirect()->route('requisitions.show', $orderNumber)
+            return redirect()->route(
+                $request->user()->hasRole('shop') ? 'shop-owner.orders.show' : 'requisitions.show',
+                $orderNumber
+            )
                 ->with('error', 'Requisition window has closed. You cannot edit this order directly.');
         }
 
@@ -170,7 +205,10 @@ class RequisitionController extends Controller
             ]);
         });
 
-        return redirect()->route('requisitions.show', $orderNumber)
+        return redirect()->route(
+            $request->user()->hasRole('shop') ? 'shop-owner.orders.show' : 'requisitions.show',
+            $orderNumber
+        )
             ->with('success', 'Requisition updated successfully.');
     }
 
@@ -185,18 +223,34 @@ class RequisitionController extends Controller
             abort(403, 'Unauthorized access.');
         }
 
-        $reason = $request->input('reason');
-        if (empty($reason)) {
-            return redirect()->back()->with('error', 'Please provide a reason for the update request.');
+        if (! in_array($order->state, ['submitted', 'update_requested'], true) || $order->is_delivered) {
+            return redirect()->route('shop-owner.orders.show', $orderNumber)
+                ->with('error', 'This order can no longer be modified from the shop owner workflow.');
         }
 
-        $order->update([
-            'state' => 'update_requested',
-            'update_reason' => $reason,
-        ]);
+        $items = $this->resolveRequestedProducts($request->input('items', []));
+        if ($items === []) {
+            return redirect()->route('shop-owner.orders.create')
+                ->withErrors(['items' => 'Updated order cannot be empty.']);
+        }
 
-        return redirect()->route('requisitions.show', $orderNumber)
-            ->with('success', 'Your update request has been submitted to the Purchase Manager.');
+        $reason = trim((string) $request->input('reason', ''));
+
+        DB::transaction(function () use ($order, $items, $reason): void {
+            $this->syncShopOrderItems($order, $items);
+
+            $order->update([
+                'state' => 'update_requested',
+                'update_reason' => $reason !== '' ? $reason : 'Shop owner requested quantity changes after cutoff.',
+                'submitted_at' => now(),
+            ]);
+        });
+
+        return redirect()->route(
+            $request->user()->hasRole('shop') ? 'shop-owner.orders.show' : 'requisitions.show',
+            $orderNumber
+        )
+            ->with('success', 'Your updated order request has been submitted to the Purchase Manager.');
     }
 
     /**
@@ -268,7 +322,7 @@ class RequisitionController extends Controller
         $order = ShopOrder::where('order_number', $orderNumber)->firstOrFail();
 
         // Enforce authorization: only purchase or users with purchasing.order.approve permission
-        if (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve')) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -315,7 +369,7 @@ class RequisitionController extends Controller
     public function board(Request $request): View
     {
         // Enforce authorization: purchase or can approve orders
-        if (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve')) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -364,7 +418,7 @@ class RequisitionController extends Controller
     public function saveBoard(Request $request): RedirectResponse
     {
         // Enforce authorization
-        if (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve')) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -466,7 +520,7 @@ class RequisitionController extends Controller
     public function approvedBoard(Request $request): View
     {
         // Enforce authorization: purchase or can approve orders
-        if (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve')) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -554,7 +608,7 @@ class RequisitionController extends Controller
     public function saveApprovedBoard(Request $request): RedirectResponse
     {
         // Enforce authorization
-        if (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve')) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -666,7 +720,7 @@ class RequisitionController extends Controller
      */
     public function exportApprovedBoardCsv(Request $request): StreamedResponse
     {
-        if (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve')) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -742,7 +796,7 @@ class RequisitionController extends Controller
      */
     public function exportApprovedBoardPdf(Request $request): View
     {
-        if (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve')) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -939,13 +993,23 @@ class RequisitionController extends Controller
         }
 
         if (! $order->is_allocation_completed) {
-            return redirect()->route('requisitions.show', $orderNumber)
+            return redirect()->route(
+                $request->user()->hasRole('shop') ? 'shop-owner.deliveries.show' : 'requisitions.show',
+                $orderNumber
+            )
                 ->with('error', 'This order has not been dispatched/allocated from the warehouse yet.');
         }
 
         if ($order->is_delivered) {
-            return redirect()->route('requisitions.show', $orderNumber)
+            return redirect()->route(
+                $request->user()->hasRole('shop') ? 'shop-owner.deliveries.show' : 'requisitions.show',
+                $orderNumber
+            )
                 ->with('error', 'This order has already been checked-in and marked as delivered.');
+        }
+
+        if ($request->user()->hasRole('shop')) {
+            return redirect()->route('shop-owner.deliveries.show', $order->order_number);
         }
 
         // Resolve unit cost for each item
@@ -988,6 +1052,7 @@ class RequisitionController extends Controller
             'delivered_qty.*' => ['required', 'numeric', 'min:0'],
             'cash_collected' => ['required', 'numeric', 'min:0'],
             'delivery_notes' => ['nullable', 'string'],
+            'finance_note' => ['nullable', 'string'],
         ]);
 
         $deliveredQtys = $request->input('delivered_qty', []);
@@ -996,10 +1061,18 @@ class RequisitionController extends Controller
         DB::transaction(function () use ($order, $deliveredQtys, $cashCollected, $request): void {
             $totalShortageValue = 0.00;
             $expectedDeliveredValue = 0.00;
+            $totalApprovedQuantity = 0.00;
+            $totalDeliveredQuantity = 0.00;
 
             foreach ($order->items as $item) {
                 $deliveredQty = (float) ($deliveredQtys[$item->id] ?? 0.00);
                 $approvedQty = (float) ($item->approved_qty ?? 0.00);
+
+                if ($deliveredQty > $approvedQty) {
+                    throw ValidationException::withMessages([
+                        "delivered_qty.{$item->id}" => 'Received quantity cannot be more than the approved warehouse quantity.',
+                    ]);
+                }
 
                 // shortage_qty = approved_qty - delivered_qty (shorted amount)
                 $shortageQty = max(0.00, $approvedQty - $deliveredQty);
@@ -1022,18 +1095,37 @@ class RequisitionController extends Controller
 
                 $totalShortageValue += $shortageValue;
                 $expectedDeliveredValue += $itemExpectedValue;
+                $totalApprovedQuantity += $approvedQty;
+                $totalDeliveredQuantity += $deliveredQty;
             }
 
             // cash_discrepancy = Expected Delivered Value - cash_collected
             $cashDiscrepancy = $expectedDeliveredValue - $cashCollected;
+            $balanceAmount = max(0.00, $cashDiscrepancy);
+
+            $deliveryStatus = match (true) {
+                $totalDeliveredQuantity <= 0.00 => 'delivery_issue',
+                $totalDeliveredQuantity < $totalApprovedQuantity => 'partially_delivered',
+                default => 'delivered',
+            };
+
+            $paymentStatus = match (true) {
+                $cashCollected <= 0.00 => 'unpaid',
+                $cashCollected + 0.01 < $expectedDeliveredValue => 'partially_paid',
+                default => 'paid',
+            };
 
             $order->update([
                 'is_delivered' => true,
                 'delivered_at' => now(),
                 'delivered_by' => $request->user()->id,
+                'delivery_status' => $deliveryStatus,
                 'delivery_notes' => $request->input('delivery_notes'),
                 'cash_collected' => $cashCollected,
                 'cash_discrepancy' => $cashDiscrepancy,
+                'payment_status' => $paymentStatus,
+                'balance_amount' => $balanceAmount,
+                'finance_note' => $request->input('finance_note'),
                 'total_shortage_value' => $totalShortageValue,
             ]);
 
@@ -1043,7 +1135,10 @@ class RequisitionController extends Controller
                 ->log('delivered');
         });
 
-        return redirect()->route('requisitions.show', $order->order_number)
+        return redirect()->route(
+            $request->user()->hasRole('shop') ? 'shop-owner.deliveries.show' : 'requisitions.show',
+            $order->order_number
+        )
             ->with('success', 'Delivery checked-in and discrepancies recorded successfully.');
     }
 
@@ -1071,5 +1166,88 @@ class RequisitionController extends Controller
             ->value('cost_per_kg');
 
         return $cost !== null ? (float) $cost : 0.00;
+    }
+
+    /**
+     * @param  array<string, mixed>  $rawItems
+     * @return array<int, array{product: Product, quantity: float}>
+     */
+    private function resolveRequestedProducts(array $rawItems): array
+    {
+        $requestedQuantities = [];
+
+        foreach ($rawItems as $sku => $quantity) {
+            $numericQuantity = (float) $quantity;
+
+            if (! is_string($sku) || $numericQuantity <= 0) {
+                continue;
+            }
+
+            $requestedQuantities[$sku] = $numericQuantity;
+        }
+
+        if ($requestedQuantities === []) {
+            return [];
+        }
+
+        $productsBySku = Product::query()
+            ->whereIn('sku', array_keys($requestedQuantities))
+            ->get()
+            ->keyBy('sku');
+
+        $resolvedItems = [];
+
+        foreach ($requestedQuantities as $sku => $quantity) {
+            /** @var Product|null $product */
+            $product = $productsBySku->get($sku);
+
+            if (! $product) {
+                continue;
+            }
+
+            $resolvedItems[] = [
+                'product' => $product,
+                'quantity' => $quantity,
+            ];
+        }
+
+        return $resolvedItems;
+    }
+
+    /**
+     * @param  array<int, array{product: Product, quantity: float}>  $items
+     */
+    private function syncShopOrderItems(ShopOrder $order, array $items): void
+    {
+        $existingItems = $order->items()->get()->keyBy('product_id');
+        $incomingProductIds = [];
+
+        foreach ($items as $item) {
+            $product = $item['product'];
+            $incomingProductIds[] = $product->id;
+
+            /** @var ShopOrderItem|null $existingItem */
+            $existingItem = $existingItems->get($product->id);
+
+            if ($existingItem) {
+                $existingItem->update([
+                    'requested_qty' => $item['quantity'],
+                    'unit' => $product->unit,
+                ]);
+
+                continue;
+            }
+
+            ShopOrderItem::create([
+                'shop_order_id' => $order->id,
+                'product_id' => $product->id,
+                'requested_qty' => $item['quantity'],
+                'unit' => $product->unit,
+            ]);
+        }
+
+        $order->items()
+            ->whereNotIn('product_id', $incomingProductIds)
+            ->delete();
     }
 }

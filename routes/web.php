@@ -9,6 +9,7 @@ use App\Http\Controllers\Web\Auth\LoginController;
 use App\Http\Controllers\Web\DashboardController;
 use App\Http\Controllers\Web\Finance\AccountController;
 use App\Http\Controllers\Web\Finance\ExpenseController;
+use App\Http\Controllers\Web\Finance\FinanceController;
 use App\Http\Controllers\Web\Finance\FinancialReportController;
 use App\Http\Controllers\Web\Finance\LedgerController;
 use App\Http\Controllers\Web\Inventory\BatchController;
@@ -27,6 +28,7 @@ use App\Http\Controllers\Web\Sales\CustomerController;
 use App\Http\Controllers\Web\Sales\PaymentController;
 use App\Http\Controllers\Web\Sales\SalesInvoiceController;
 use App\Http\Controllers\Web\Sales\SalesOrderController;
+use App\Http\Controllers\Web\ShopOwnerController;
 use App\Http\Controllers\Web\ShopPresetController;
 use Illuminate\Support\Facades\Route;
 
@@ -48,6 +50,18 @@ Route::middleware('auth')->group(function () {
 
     // Dashboard
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
+
+    Route::prefix('shop-owner')->name('shop-owner.')->group(function () {
+        Route::get('/dashboard', [ShopOwnerController::class, 'dashboard'])->name('dashboard');
+        Route::get('/orders', [ShopOwnerController::class, 'ordersIndex'])->name('orders.index');
+        Route::get('/orders/create', [ShopOwnerController::class, 'ordersCreate'])->name('orders.create');
+        Route::get('/orders/history', [ShopOwnerController::class, 'ordersHistory'])->name('orders.history');
+        Route::get('/orders/{order_number}', [ShopOwnerController::class, 'ordersShow'])->name('orders.show');
+        Route::get('/deliveries', [ShopOwnerController::class, 'deliveriesIndex'])->name('deliveries.index');
+        Route::get('/deliveries/{order_number}', [ShopOwnerController::class, 'deliveriesShow'])->name('deliveries.show');
+        Route::get('/finance', [ShopOwnerController::class, 'financeIndex'])->name('finance.index');
+        Route::get('/finance/{order_number}', [ShopOwnerController::class, 'financeShow'])->name('finance.show');
+    });
 
     // ── Inventory ──────────────────────────────────────────────────────────
     Route::prefix('inventory')->name('inventory.')->group(function () {
@@ -92,10 +106,14 @@ Route::middleware('auth')->group(function () {
         // Purchase Orders
         Route::resource('orders', PurchaseOrderController::class);
         Route::post('orders/{order}/approve', [PurchaseOrderController::class, 'approve'])->name('orders.approve');
+        Route::post('orders/{order}/reject', [PurchaseOrderController::class, 'reject'])->name('orders.reject');
+        Route::post('orders/{order}/send', [PurchaseOrderController::class, 'send'])->name('orders.send');
         Route::put('orders/{order}/items', [PurchaseOrderController::class, 'updateItems'])->name('orders.items.update');
 
         // Goods Receipts
-        Route::resource('grns', GoodsReceivedController::class)->only(['index', 'create', 'store', 'show']);
+        Route::resource('grns', GoodsReceivedController::class)->only(['index', 'create', 'store', 'show', 'edit', 'update']);
+        Route::post('grns/{grn}/approve', [GoodsReceivedController::class, 'approve'])->name('grns.approve');
+        Route::post('grns/{grn}/reject', [GoodsReceivedController::class, 'reject'])->name('grns.reject');
 
         // Invoices
         Route::resource('invoices', PurchaseInvoiceController::class)->only(['index', 'create', 'store', 'show']);
@@ -122,6 +140,9 @@ Route::middleware('auth')->group(function () {
 
     // ── Finance & Accounting ────────────────────────────────────────────────
     Route::prefix('finance')->name('finance.')->group(function () {
+        Route::get('/', [FinanceController::class, 'index'])->name('index');
+        Route::get('/statement/export/csv', [FinanceController::class, 'exportCsv'])->name('statement.export.csv');
+        Route::get('/statement/export/pdf', [FinanceController::class, 'exportPdf'])->name('statement.export.pdf');
         Route::get('accounts', [AccountController::class, 'index'])->name('accounts.index');
         Route::get('ledger', [LedgerController::class, 'index'])->name('ledger.index');
         Route::resource('expenses', ExpenseController::class);

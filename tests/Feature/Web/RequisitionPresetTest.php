@@ -113,6 +113,25 @@ class RequisitionPresetTest extends TestCase
         ]);
     }
 
+    public function test_shop_owner_can_store_preset_and_return_to_shop_owner_create_page(): void
+    {
+        $response = $this->actingAs($this->shopOwner)
+            ->from(route('shop-owner.orders.create'))
+            ->post(route('requisitions.presets.store'), [
+                'redirect_to' => 'shop-owner-orders-create',
+                'name' => 'Fast Movers',
+                'items' => [
+                    [
+                        'product_id' => $this->product1->id,
+                        'quantity' => 9.50,
+                    ],
+                ],
+            ]);
+
+        $response->assertRedirect(route('shop-owner.orders.create'));
+        $response->assertSessionHas('success', 'Custom list saved successfully.');
+    }
+
     public function test_shop_owner_can_edit_preset_page(): void
     {
         $preset = ShopPreset::create([

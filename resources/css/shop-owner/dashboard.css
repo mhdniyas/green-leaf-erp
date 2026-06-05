@@ -1,0 +1,5 @@
+@layer components {
+    .shop-owner-panel {
+        @apply rounded-[2rem] border border-slate-200 bg-white shadow-sm;
+    }
+}

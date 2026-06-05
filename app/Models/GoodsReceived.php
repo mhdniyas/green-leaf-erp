@@ -24,6 +24,7 @@ class GoodsReceived extends Model
         'purchase_order_id',
         'grn_number',
         'status',
+        'rejection_remarks',
         'received_by',
         'received_at',
         'transport_cost',

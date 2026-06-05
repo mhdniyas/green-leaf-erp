@@ -5,18 +5,22 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web\Purchasing;
 
 use App\DTOs\Purchasing\PurchaseOrderData;
+use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\StorePurchaseOrderRequest;
 use App\Http\Requests\Web\Purchasing\UpdatePurchaseOrderRequest;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
+use App\Models\Supplier;
 use App\Repositories\Inventory\ProductRepository;
 use App\Services\Purchasing\PurchaseOrderService;
 use App\Services\Purchasing\SupplierService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\View\View;
+use Spatie\Activitylog\Models\Activity;
 
 class PurchaseOrderController extends Controller
 {
@@ -30,15 +34,104 @@ class PurchaseOrderController extends Controller
     {
         Gate::authorize('viewAny', PurchaseOrder::class);
 
-        $activeTab = $request->input('tab', 'warehouse');
+        $activeTab = $request->input('tab', 'all');
 
-        $orders = PurchaseOrder::where('fulfillment_type', $activeTab)
+        // 1. All Orders tab query
+        $query = PurchaseOrder::query()->with(['supplier', 'createdBy', 'goodsReceiveds']);
+
+        // Filters for All Orders
+        $supplierId = $request->input('supplier_id');
+        if ($supplierId) {
+            $query->where('supplier_id', $supplierId);
+        }
+
+        $dateFilter = $request->input('date_filter');
+        if ($dateFilter === 'this_month') {
+            $query->whereYear('order_date', today()->year)
+                ->whereMonth('order_date', today()->month);
+        } elseif ($dateFilter === 'last_month') {
+            $lastMonth = today()->subMonth();
+            $query->whereYear('order_date', $lastMonth->year)
+                ->whereMonth('order_date', $lastMonth->month);
+        } elseif ($dateFilter === 'custom' && $request->filled('start_date') && $request->filled('end_date')) {
+            $query->whereBetween('order_date', [$request->input('start_date'), $request->input('end_date')]);
+        }
+
+        $allOrders = $query->orderByDesc('order_date')->orderByDesc('id')->paginate(15)->withQueryString();
+
+        // 2. Pending Approval tab query (Draft POs)
+        $pendingOrders = PurchaseOrder::where('status', POStatus::Draft)
             ->with(['supplier', 'createdBy'])
             ->orderByDesc('order_date')
             ->orderByDesc('id')
-            ->paginate(20);
+            ->get();
 
-        return view('purchasing.orders.index', compact('orders', 'activeTab'));
+        // 3. Approval History tab query (retrieved from Spatie Activity log)
+        $approvalHistory = Activity::where('subject_type', PurchaseOrder::class)
+            ->whereIn('description', ['Approved', 'Rejected'])
+            ->with(['causer', 'subject'])
+            ->orderByDesc('created_at')
+            ->get();
+
+        // 4. Order Analytics tab calculations
+        $thisMonthSpend = (float) PurchaseOrderItem::whereHas('purchaseOrder', function ($q) {
+            $q->whereYear('order_date', today()->year)
+                ->whereMonth('order_date', today()->month)
+                ->where('status', '!=', POStatus::Draft);
+        })->selectRaw('SUM(quantity * unit_price) as total')->value('total');
+
+        $thisMonthOrdersCount = PurchaseOrder::whereYear('order_date', today()->year)
+            ->whereMonth('order_date', today()->month)
+            ->where('status', '!=', POStatus::Draft)
+            ->count();
+
+        $avgOrderValue = $thisMonthOrdersCount > 0 ? $thisMonthSpend / $thisMonthOrdersCount : 0.0;
+
+        // Top Supplier
+        $topSupplierData = PurchaseOrder::join('purchase_order_items', 'purchase_orders.id', '=', 'purchase_order_items.purchase_order_id')
+            ->where('purchase_orders.status', '!=', POStatus::Draft)
+            ->select('purchase_orders.supplier_id', DB::raw('SUM(purchase_order_items.quantity * purchase_order_items.unit_price) as total_spend'))
+            ->groupBy('purchase_orders.supplier_id')
+            ->orderByDesc('total_spend')
+            ->first();
+        $topSupplier = $topSupplierData ? (Supplier::find($topSupplierData->supplier_id)?->name ?? 'N/A') : 'N/A';
+
+        // Monthly Purchase Trend (Jan - Dec)
+        $purchaseOrderItems = PurchaseOrderItem::whereHas('purchaseOrder', function ($q) {
+            $q->where('status', '!=', POStatus::Draft)
+                ->whereYear('order_date', today()->year);
+        })
+            ->with('purchaseOrder')
+            ->get();
+
+        $monthlyTrendRaw = [];
+        foreach ($purchaseOrderItems as $item) {
+            if ($item->purchaseOrder && $item->purchaseOrder->order_date) {
+                $monthName = $item->purchaseOrder->order_date->format('M');
+                $monthlyTrendRaw[$monthName] = ($monthlyTrendRaw[$monthName] ?? 0.0) + ((float) $item->quantity * (float) $item->unit_price);
+            }
+        }
+
+        $months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        $monthlyTrend = [];
+        foreach ($months as $m) {
+            $monthlyTrend[$m] = $monthlyTrendRaw[$m] ?? 0.0;
+        }
+
+        $suppliers = Supplier::orderBy('name')->get();
+
+        return view('purchasing.orders.index', compact(
+            'allOrders',
+            'pendingOrders',
+            'approvalHistory',
+            'thisMonthSpend',
+            'thisMonthOrdersCount',
+            'avgOrderValue',
+            'topSupplier',
+            'monthlyTrend',
+            'activeTab',
+            'suppliers'
+        ));
     }
 
     public function create(): View
@@ -154,14 +247,70 @@ class PurchaseOrderController extends Controller
             ->with('success', 'Purchase Order updated successfully.');
     }
 
-    public function approve(PurchaseOrder $order): RedirectResponse
+    public function approve(PurchaseOrder $order, Request $request): RedirectResponse
     {
         Gate::authorize('approve', $order);
 
-        $this->service->approve($order);
+        $remarks = $request->input('remarks', 'Stock Required');
+
+        DB::transaction(function () use ($order, $remarks) {
+            $order->update(['status' => POStatus::Approved]);
+
+            activity()
+                ->performedOn($order)
+                ->causedBy(auth()->user())
+                ->withProperties([
+                    'status' => 'approved',
+                    'remarks' => $remarks,
+                ])
+                ->log('Approved');
+        });
 
         return redirect()->route('purchasing.orders.show', $order)
-            ->with('success', 'Purchase Order approved successfully.');
+            ->with('success', 'Purchase Order Approved successfully.');
+    }
+
+    public function reject(PurchaseOrder $order, Request $request): RedirectResponse
+    {
+        Gate::authorize('reject', $order);
+
+        $remarks = $request->input('remarks', 'Duplicate Order');
+
+        DB::transaction(function () use ($order, $remarks) {
+            $order->update(['status' => POStatus::Rejected]);
+
+            activity()
+                ->performedOn($order)
+                ->causedBy(auth()->user())
+                ->withProperties([
+                    'status' => 'rejected',
+                    'remarks' => $remarks,
+                ])
+                ->log('Rejected');
+        });
+
+        return redirect()->route('purchasing.orders.index')
+            ->with('success', 'Purchase Order Rejected successfully.');
+    }
+
+    public function send(PurchaseOrder $order, Request $request): RedirectResponse
+    {
+        Gate::authorize('send', $order);
+
+        DB::transaction(function () use ($order) {
+            $order->update(['status' => POStatus::SentToSupplier]);
+
+            activity()
+                ->performedOn($order)
+                ->causedBy(auth()->user())
+                ->withProperties([
+                    'status' => 'sent_to_supplier',
+                ])
+                ->log('Sent to Supplier');
+        });
+
+        return redirect()->route('purchasing.orders.show', $order)
+            ->with('success', 'Purchase Order sent to supplier successfully.');
     }
 
     public function destroy(PurchaseOrder $order): RedirectResponse

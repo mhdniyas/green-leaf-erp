@@ -79,6 +79,47 @@ class RequisitionTest extends TestCase
         // Verify format: RQ-YYYYMMDD-XXXX
         $dateStr = Carbon::tomorrow()->format('Ymd');
         $this->assertMatchesRegularExpression("/^RQ-{$dateStr}-[A-Z0-9]{4}$/", $orderNumber);
+        $this->assertSame(route('shop-owner.orders.show', $orderNumber), $response->json('redirect_url'));
+    }
+
+    public function test_shop_owner_can_submit_requisition_from_dashboard_form_post(): void
+    {
+        Carbon::setTestNow(Carbon::today()->setTime(18, 0, 0));
+
+        $response = $this->actingAs($this->shopOwner)
+            ->post(route('requisitions.store'), [
+                'items' => [
+                    $this->product->sku => 11.25,
+                ],
+            ]);
+
+        $order = ShopOrder::where('shop_id', $this->shop->id)
+            ->whereDate('business_date', Carbon::tomorrow())
+            ->first();
+
+        $this->assertNotNull($order);
+
+        $response->assertRedirect(route('shop-owner.orders.show', $order->order_number));
+        $response->assertSessionHas('success');
+        $this->assertDatabaseHas('shop_order_items', [
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 11.25,
+        ]);
+    }
+
+    public function test_shop_owner_empty_order_submission_redirects_back_to_shop_owner_create_page(): void
+    {
+        Carbon::setTestNow(Carbon::today()->setTime(18, 0, 0));
+
+        $response = $this->actingAs($this->shopOwner)
+            ->from(route('shop-owner.orders.create'))
+            ->post(route('requisitions.store'), [
+                'items' => [],
+            ]);
+
+        $response->assertRedirect(route('shop-owner.orders.create'));
+        $response->assertSessionHasErrors('items');
     }
 
     public function test_shop_owner_can_view_own_requisition_details(): void
@@ -100,9 +141,7 @@ class RequisitionTest extends TestCase
         $response = $this->actingAs($this->shopOwner)
             ->get(route('requisitions.show', $order->order_number));
 
-        $response->assertOk();
-        $response->assertSee($order->order_number);
-        $response->assertSee($this->product->name);
+        $response->assertRedirect(route('shop-owner.orders.show', $order->order_number));
     }
 
     public function test_shop_owner_cannot_view_other_shops_requisition(): void
@@ -150,7 +189,7 @@ class RequisitionTest extends TestCase
 
         $response = $this->actingAs($this->shopOwner)
             ->get(route('requisitions.edit', $order->order_number));
-        $response->assertOk();
+        $response->assertRedirect(route('shop-owner.orders.create'));
 
         // Submit edit
         $response = $this->actingAs($this->shopOwner)
@@ -160,7 +199,7 @@ class RequisitionTest extends TestCase
                 ],
             ]);
 
-        $response->assertRedirect(route('requisitions.show', $order->order_number));
+        $response->assertRedirect(route('shop-owner.orders.show', $order->order_number));
         $this->assertDatabaseHas('shop_order_items', [
             'id' => $item->id,
             'requested_qty' => 20.00,
@@ -190,7 +229,7 @@ class RequisitionTest extends TestCase
         // Try getting edit view
         $response = $this->actingAs($this->shopOwner)
             ->get(route('requisitions.edit', $order->order_number));
-        $response->assertRedirect(route('requisitions.show', $order->order_number));
+        $response->assertRedirect(route('shop-owner.orders.show', $order->order_number));
 
         // Try updating quantities
         $response = $this->actingAs($this->shopOwner)
@@ -200,7 +239,7 @@ class RequisitionTest extends TestCase
                 ],
             ]);
 
-        $response->assertRedirect(route('requisitions.show', $order->order_number));
+        $response->assertRedirect(route('shop-owner.orders.show', $order->order_number));
         // Verify requested_qty is unchanged
         $this->assertDatabaseHas('shop_order_items', [
             'id' => $item->id,
@@ -222,13 +261,126 @@ class RequisitionTest extends TestCase
         $response = $this->actingAs($this->shopOwner)
             ->post(route('requisitions.update-request', $order->order_number), [
                 'reason' => 'Need to add 5 kg of Tomatoes.',
+                'items' => [
+                    $this->product->sku => 5.00,
+                ],
             ]);
 
-        $response->assertRedirect(route('requisitions.show', $order->order_number));
+        $response->assertRedirect(route('shop-owner.orders.show', $order->order_number));
         $this->assertDatabaseHas('shop_orders', [
             'id' => $order->id,
             'state' => 'update_requested',
             'update_reason' => 'Need to add 5 kg of Tomatoes.',
+        ]);
+    }
+
+    public function test_shop_owner_can_modify_quantities_and_add_items_in_update_request_after_cutoff(): void
+    {
+        Carbon::setTestNow(Carbon::today()->setTime(22, 0, 0));
+
+        $secondProduct = Product::skip(1)->firstOrFail();
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => Carbon::tomorrow()->format('Y-m-d'),
+            'state' => 'submitted',
+            'created_by' => $this->shopOwner->id,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 10.00,
+            'unit' => $this->product->unit,
+        ]);
+
+        $response = $this->actingAs($this->shopOwner)
+            ->post(route('requisitions.update-request', $order->order_number), [
+                'reason' => 'Need to rebalance tomorrow demand.',
+                'items' => [
+                    $this->product->sku => 16.50,
+                    $secondProduct->sku => 7.00,
+                ],
+            ]);
+
+        $response->assertRedirect(route('shop-owner.orders.show', $order->order_number));
+        $response->assertSessionHas('success', 'Your updated order request has been submitted to the Purchase Manager.');
+
+        $this->assertDatabaseHas('shop_orders', [
+            'id' => $order->id,
+            'state' => 'update_requested',
+            'update_reason' => 'Need to rebalance tomorrow demand.',
+        ]);
+
+        $this->assertDatabaseHas('shop_order_items', [
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 16.50,
+        ]);
+
+        $this->assertDatabaseHas('shop_order_items', [
+            'shop_order_id' => $order->id,
+            'product_id' => $secondProduct->id,
+            'requested_qty' => 7.00,
+        ]);
+    }
+
+    public function test_shop_owner_cannot_submit_requisition_after_cutoff_in_business_timezone(): void
+    {
+        Carbon::setTestNow(Carbon::today()->setTime(22, 0, 0));
+
+        $response = $this->actingAs($this->shopOwner)
+            ->from(route('shop-owner.orders.create'))
+            ->post(route('requisitions.store'), [
+                'items' => [
+                    $this->product->sku => 8.50,
+                ],
+            ]);
+
+        $response->assertRedirect(route('shop-owner.orders.create'));
+        $response->assertSessionHasErrors('items');
+
+        $this->assertDatabaseMissing('shop_order_items', [
+            'product_id' => $this->product->id,
+            'requested_qty' => 8.50,
+        ]);
+    }
+
+    public function test_shop_owner_cannot_edit_approved_requisition_even_before_cutoff(): void
+    {
+        Carbon::setTestNow(Carbon::today()->setTime(20, 0, 0));
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => Carbon::tomorrow()->format('Y-m-d'),
+            'state' => 'approved',
+            'created_by' => $this->shopOwner->id,
+        ]);
+
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 10.00,
+            'approved_qty' => 10.00,
+            'unit' => $this->product->unit,
+        ]);
+
+        $response = $this->actingAs($this->shopOwner)
+            ->get(route('requisitions.edit', $order->order_number));
+
+        $response->assertRedirect(route('shop-owner.orders.show', $order->order_number));
+
+        $updateResponse = $this->actingAs($this->shopOwner)
+            ->post(route('requisitions.update', $order->order_number), [
+                'items' => [
+                    $item->id => 20.00,
+                ],
+            ]);
+
+        $updateResponse->assertRedirect(route('shop-owner.orders.show', $order->order_number));
+        $this->assertDatabaseHas('shop_order_items', [
+            'id' => $item->id,
+            'requested_qty' => 10.00,
         ]);
     }
 

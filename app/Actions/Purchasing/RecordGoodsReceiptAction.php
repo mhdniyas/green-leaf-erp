@@ -5,12 +5,10 @@ declare(strict_types=1);
 namespace App\Actions\Purchasing;
 
 use App\DTOs\Purchasing\GoodsReceivedData;
-use App\Enums\Inventory\BatchStatus;
 use App\Enums\Purchasing\POStatus;
 use App\Models\GoodsReceived;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
-use App\Repositories\Inventory\StockBatchRepository;
 use App\Repositories\Purchasing\GoodsReceivedRepository;
 use Illuminate\Support\Facades\DB;
 
@@ -18,7 +16,6 @@ class RecordGoodsReceiptAction
 {
     public function __construct(
         private readonly GoodsReceivedRepository $grnRepository,
-        private readonly StockBatchRepository $stockBatchRepository,
     ) {}
 
     /**
@@ -35,6 +32,7 @@ class RecordGoodsReceiptAction
             $grn = $this->grnRepository->create([
                 'purchase_order_id' => $data->purchaseOrderId,
                 'grn_number' => $grnNumber,
+                'status' => 'pending_approval',
                 'received_by' => $userId,
                 'received_at' => $data->receivedAt,
                 'transport_cost' => $data->transportCost,
@@ -59,29 +57,6 @@ class RecordGoodsReceiptAction
                     'product_id' => $item['product_id'],
                     'received_qty' => $item['received_qty'],
                     'variance' => $variance,
-                ]);
-
-                // Proportional Landed Cost Allocation
-                $allocatedTransport = 0.00;
-                $allocatedLabour = 0.00;
-
-                if ($totalReceivedQty > 0) {
-                    $allocatedTransport = ($item['received_qty'] / $totalReceivedQty) * $data->transportCost;
-                    $allocatedLabour = ($item['received_qty'] / $totalReceivedQty) * $data->labourCost;
-                }
-
-                // Automatically generate StockBatch in inventory for each item received
-                $this->stockBatchRepository->create([
-                    'product_id' => $item['product_id'],
-                    'created_by' => $userId,
-                    'reference' => $this->stockBatchRepository->generateReference(),
-                    'received_at' => $data->receivedAt,
-                    'total_kg' => $item['received_qty'],
-                    'cost_per_kg' => $poItem->costPerKgForReceivedQuantity((float) $item['received_qty']),
-                    'transport_cost' => round($allocatedTransport, 2),
-                    'labour_cost' => round($allocatedLabour, 2),
-                    'status' => BatchStatus::Pending,
-                    'notes' => "Auto-created from GRN: {$grnNumber}",
                 ]);
             }
 

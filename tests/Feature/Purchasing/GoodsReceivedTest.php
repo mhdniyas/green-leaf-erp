@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
 use App\Models\User;
+use Database\Seeders\ChartOfAccountsSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -34,13 +35,17 @@ class GoodsReceivedTest extends TestCase
     {
         parent::setUp();
 
-        $this->seed(RolePermissionSeeder::class);
+        $this->seed([
+            RolePermissionSeeder::class,
+            ChartOfAccountsSeeder::class,
+        ]);
 
         // User with GRN permissions
         $this->authorizedUser = User::factory()->create();
         $this->authorizedUser->givePermissionTo([
             'purchasing.grn.view',
             'purchasing.grn.create',
+            'purchasing.grn.approve',
             'purchasing.order.view',
         ]);
 
@@ -80,11 +85,11 @@ class GoodsReceivedTest extends TestCase
         $response->assertForbidden();
     }
 
-    public function test_authorized_user_can_see_create_grn_page_for_approved_po(): void
+    public function test_authorized_user_can_see_create_grn_page_for_sent_to_supplier_po(): void
     {
         $po = PurchaseOrder::factory()->create([
             'supplier_id' => $this->supplier->id,
-            'status' => POStatus::Approved,
+            'status' => POStatus::SentToSupplier,
             'created_by' => $this->authorizedUser->id,
         ]);
 
@@ -113,7 +118,7 @@ class GoodsReceivedTest extends TestCase
     {
         $po = PurchaseOrder::factory()->create([
             'supplier_id' => $this->supplier->id,
-            'status' => POStatus::Approved,
+            'status' => POStatus::SentToSupplier,
             'created_by' => $this->authorizedUser->id,
         ]);
 
@@ -167,6 +172,7 @@ class GoodsReceivedTest extends TestCase
             'purchase_order_id' => $po->id,
             'transport_cost' => 30.00,
             'labour_cost' => 60.00,
+            'status' => 'pending_approval',
         ]);
 
         // Check GRN Items variance
@@ -183,6 +189,27 @@ class GoodsReceivedTest extends TestCase
             'received_qty' => 20.000,
             'variance' => 0.000,
         ]);
+
+        // Assert that NO Stock Batch has been created yet!
+        $this->assertDatabaseMissing('stock_batches', [
+            'product_id' => $this->product1->id,
+        ]);
+        $this->assertDatabaseMissing('stock_batches', [
+            'product_id' => $this->product2->id,
+        ]);
+
+        // Check PO status has transitioned to received
+        $po->refresh();
+        $this->assertEquals(POStatus::Received, $po->status);
+
+        // Act as manager to approve the GRN
+        $approveResponse = $this->actingAs($this->authorizedUser)
+            ->post(route('purchasing.grns.approve', $grn));
+
+        $approveResponse->assertRedirect(route('purchasing.grns.show', $grn));
+
+        // Check GRN status changed to approved
+        $this->assertEquals('approved', $grn->fresh()->status);
 
         // Check Stock Batch creation with correct allocated costs
         $this->assertDatabaseHas('stock_batches', [
@@ -203,16 +230,16 @@ class GoodsReceivedTest extends TestCase
             'status' => BatchStatus::Pending->value,
         ]);
 
-        // Check PO status has transitioned to received
+        // PO status should now be Closed
         $po->refresh();
-        $this->assertEquals(POStatus::Received, $po->status);
+        $this->assertEquals(POStatus::Closed, $po->status);
     }
 
     public function test_grn_converts_per_unit_purchase_price_to_warehouse_cost_per_kg(): void
     {
         $po = PurchaseOrder::factory()->create([
             'supplier_id' => $this->supplier->id,
-            'status' => POStatus::Approved,
+            'status' => POStatus::SentToSupplier,
             'created_by' => $this->authorizedUser->id,
         ]);
 
@@ -244,6 +271,14 @@ class GoodsReceivedTest extends TestCase
 
         $grn = GoodsReceived::latest('id')->first();
         $response->assertRedirect(route('purchasing.grns.show', $grn));
+
+        $this->assertDatabaseMissing('stock_batches', [
+            'product_id' => $this->product1->id,
+        ]);
+
+        // Approve the GRN
+        $approveResponse = $this->actingAs($this->authorizedUser)
+            ->post(route('purchasing.grns.approve', $grn));
 
         $this->assertDatabaseHas('stock_batches', [
             'product_id' => $this->product1->id,
