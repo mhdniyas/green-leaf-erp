@@ -19,6 +19,7 @@ use App\Http\Controllers\Web\Inventory\ProductController;
 use App\Http\Controllers\Web\Inventory\StockController;
 use App\Http\Controllers\Web\Inventory\WarehouseSortingController;
 use App\Http\Controllers\Web\Inventory\WastageController;
+use App\Http\Controllers\Web\Purchasing\DailyPriceBoardController;
 use App\Http\Controllers\Web\Purchasing\GoodsReceivedController;
 use App\Http\Controllers\Web\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Web\Purchasing\PurchaseOrderController;
@@ -56,6 +57,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/orders', [ShopOwnerController::class, 'ordersIndex'])->name('orders.index');
         Route::get('/orders/create', [ShopOwnerController::class, 'ordersCreate'])->name('orders.create');
         Route::get('/orders/history', [ShopOwnerController::class, 'ordersHistory'])->name('orders.history');
+        Route::get('/daily-prices', [ShopOwnerController::class, 'dailyPricesIndex'])->name('prices.index');
         Route::get('/orders/{order_number}', [ShopOwnerController::class, 'ordersShow'])->name('orders.show');
         Route::get('/deliveries', [ShopOwnerController::class, 'deliveriesIndex'])->name('deliveries.index');
         Route::get('/deliveries/{order_number}', [ShopOwnerController::class, 'deliveriesShow'])->name('deliveries.show');
@@ -102,6 +104,8 @@ Route::middleware('auth')->group(function () {
     Route::prefix('purchasing')->name('purchasing.')->group(function () {
         // Suppliers
         Route::resource('suppliers', SupplierController::class);
+        Route::get('prices', [DailyPriceBoardController::class, 'index'])->name('prices.index');
+        Route::post('prices', [DailyPriceBoardController::class, 'update'])->name('prices.update');
 
         // Purchase Orders
         Route::resource('orders', PurchaseOrderController::class);
@@ -166,6 +170,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/requisitions/{order_number}/delivery', [RequisitionController::class, 'recordDelivery'])->name('requisitions.delivery.record');
     Route::get('/requisitions-board', [RequisitionController::class, 'board'])->name('requisitions.board');
     Route::post('/requisitions-board', [RequisitionController::class, 'saveBoard'])->name('requisitions.board.save');
+    Route::get('/requisitions-board/export/csv', [RequisitionController::class, 'exportBoardCsv'])->name('requisitions.board.export.csv');
+    Route::get('/requisitions-board/export/pdf', [RequisitionController::class, 'exportBoardPdf'])->name('requisitions.board.export.pdf');
     Route::get('/approved-board', [RequisitionController::class, 'approvedBoard'])->name('requisitions.approved_board');
     Route::post('/approved-board', [RequisitionController::class, 'saveApprovedBoard'])->name('requisitions.approved_board.save');
     Route::get('/approved-board/export/csv', [RequisitionController::class, 'exportApprovedBoardCsv'])->name('requisitions.approved_board.export.csv');

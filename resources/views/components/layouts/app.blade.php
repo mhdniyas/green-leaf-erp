@@ -18,37 +18,43 @@
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @stack('styles')
 </head>
-<body class="h-full bg-gray-50 font-sans antialiased">
+<body class="h-full bg-slate-100 font-sans antialiased">
 
 <div id="app-container" class="flex h-full">
 
     {{-- ── Sidebar ─────────────────────────────────────────────── --}}
     <aside
         id="sidebar"
-        class="fixed inset-y-0 left-0 z-50 w-64 bg-brand-900 flex flex-col transition-transform duration-300 lg:translate-x-0 -translate-x-full"
+        class="fixed inset-y-0 left-0 z-50 flex w-72 flex-col bg-slate-950 text-white transition-transform duration-300 lg:translate-x-0 -translate-x-full"
         aria-label="Sidebar navigation"
     >
         {{-- Logo --}}
-        <div class="flex items-center gap-3 px-6 py-5 border-b border-brand-800">
-            <div class="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center shrink-0">
-                <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                </svg>
+        <div class="border-b border-white/10 px-6 py-6">
+            <div class="flex items-center gap-3">
+                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-cyan-400 text-slate-950 shadow-sm">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2.2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m8.25-9H21M3 12h.75m13.364 6.364.53.53M6.106 6.106l.53.53m10.728-.53-.53.53M6.106 17.894l-.53.53M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                </div>
+                <div class="min-w-0">
+                    <p class="truncate text-sm font-black leading-none text-white">Green Leaf ERP</p>
+                    <p class="mt-1 text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300">Operations Hub</p>
+                </div>
+                <button id="sidebar-close" class="ml-auto text-slate-400 transition hover:text-white lg:hidden">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
             </div>
-            <div class="min-w-0">
-                <p class="text-white font-bold text-sm leading-none truncate">Green Leaf ERP</p>
-                <p class="text-brand-400 text-[10px] font-medium tracking-wider uppercase mt-0.5">Trading Platform</p>
+            <div class="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Signed In</p>
+                <p class="mt-1 truncate text-sm font-bold text-white">{{ auth()->user()->name }}</p>
+                <p class="mt-1 truncate text-xs text-slate-400">{{ auth()->user()->email }}</p>
             </div>
-            {{-- Mobile close --}}
-            <button id="sidebar-close" class="lg:hidden ml-auto text-brand-400 hover:text-white">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-            </button>
         </div>
 
         {{-- Navigation --}}
-        <nav class="flex-1 overflow-y-auto py-4 space-y-3 px-3">
+        <nav class="flex-1 space-y-3 overflow-y-auto px-4 py-6">
 
             {{-- Dashboard --}}
             <x-nav-item href="{{ route('dashboard') }}" icon="squares-2x2" :active="request()->routeIs('dashboard')">
@@ -82,20 +88,20 @@
                 <div class="sidebar-group space-y-1">
                     <button
                         type="button"
-                        class="sidebar-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all group cursor-pointer {{ $isInventoryActive ? 'text-white bg-brand-800/30' : 'text-brand-300 hover:bg-brand-800/60 hover:text-white' }}"
+                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isInventoryActive ? 'bg-white/5 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}"
                         aria-expanded="{{ $isInventoryActive ? 'true' : 'false' }}"
                     >
                         <span class="flex items-center gap-3">
-                            <svg class="w-4 h-4 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <svg class="h-4 w-4 shrink-0 opacity-80 transition-opacity group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
                             </svg>
                             <span>Inventory</span>
                         </span>
-                        <svg class="w-3.5 h-3.5 transition-transform duration-200 chevron-icon {{ $isInventoryActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                        <svg class="chevron-icon h-3.5 w-3.5 transition-transform duration-200 {{ $isInventoryActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
                     </button>
-                    <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isInventoryActive ? '' : 'hidden' }}">
+                    <div class="sidebar-group-items space-y-1 pl-3 pr-1 transition-all duration-200 {{ $isInventoryActive ? '' : 'hidden' }}">
                         @can('inventory.product.view')
                         <x-nav-item href="{{ route('inventory.products.index') }}" :active="request()->routeIs('inventory.products.*')" :sub="true">
                             Products
@@ -148,20 +154,20 @@
                 <div class="sidebar-group space-y-1">
                     <button
                         type="button"
-                        class="sidebar-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all group cursor-pointer {{ $isPurchasingActive ? 'text-white bg-brand-800/30' : 'text-brand-300 hover:bg-brand-800/60 hover:text-white' }}"
+                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isPurchasingActive ? 'bg-white/5 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}"
                         aria-expanded="{{ $isPurchasingActive ? 'true' : 'false' }}"
                     >
                         <span class="flex items-center gap-3">
-                            <svg class="w-4 h-4 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <svg class="h-4 w-4 shrink-0 opacity-80 transition-opacity group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
                             </svg>
                             <span>Purchasing</span>
                         </span>
-                        <svg class="w-3.5 h-3.5 transition-transform duration-200 chevron-icon {{ $isPurchasingActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                        <svg class="chevron-icon h-3.5 w-3.5 transition-transform duration-200 {{ $isPurchasingActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
                     </button>
-                    <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isPurchasingActive ? '' : 'hidden' }}">
+                    <div class="sidebar-group-items space-y-1 pl-3 pr-1 transition-all duration-200 {{ $isPurchasingActive ? '' : 'hidden' }}">
                         @if(auth()->user()->hasRole('purchase') || auth()->user()->can('purchasing.order.approve'))
                         <x-nav-item href="{{ route('requisitions.board') }}" :active="request()->routeIs('requisitions.board')" :sub="true">
                             Requisition Board
@@ -175,6 +181,11 @@
                             Suppliers
                         </x-nav-item>
                         @endcan
+                        @if(auth()->user()->hasRole('purchase') || auth()->user()->hasRole('admin'))
+                        <x-nav-item href="{{ route('purchasing.prices.index') }}" :active="request()->routeIs('purchasing.prices.*')" :sub="true">
+                            Daily Price Board
+                        </x-nav-item>
+                        @endif
                         @can('purchasing.order.view')
                         <x-nav-item href="{{ route('purchasing.orders.index') }}" :active="request()->routeIs('purchasing.orders.*')" :sub="true">
                             Purchase Orders
@@ -206,20 +217,20 @@
                 <div class="sidebar-group space-y-1">
                     <button
                         type="button"
-                        class="sidebar-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all group cursor-pointer {{ $isSalesActive ? 'text-white bg-brand-800/30' : 'text-brand-300 hover:bg-brand-800/60 hover:text-white' }}"
+                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isSalesActive ? 'bg-white/5 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}"
                         aria-expanded="{{ $isSalesActive ? 'true' : 'false' }}"
                     >
                         <span class="flex items-center gap-3">
-                            <svg class="w-4 h-4 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <svg class="h-4 w-4 shrink-0 opacity-80 transition-opacity group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
                             </svg>
                             <span>Sales</span>
                         </span>
-                        <svg class="w-3.5 h-3.5 transition-transform duration-200 chevron-icon {{ $isSalesActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                        <svg class="chevron-icon h-3.5 w-3.5 transition-transform duration-200 {{ $isSalesActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
                     </button>
-                    <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isSalesActive ? '' : 'hidden' }}">
+                    <div class="sidebar-group-items space-y-1 pl-3 pr-1 transition-all duration-200 {{ $isSalesActive ? '' : 'hidden' }}">
                         @can('sales.customer.view')
                         <x-nav-item href="{{ route('sales.customers.index') }}" :active="request()->routeIs('sales.customers.*')" :sub="true">
                             Customers
@@ -251,20 +262,20 @@
                 <div class="sidebar-group space-y-1">
                     <button
                         type="button"
-                        class="sidebar-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all group cursor-pointer {{ $isFinanceActive ? 'text-white bg-brand-800/30' : 'text-brand-300 hover:bg-brand-800/60 hover:text-white' }}"
+                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isFinanceActive ? 'bg-white/5 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}"
                         aria-expanded="{{ $isFinanceActive ? 'true' : 'false' }}"
                     >
                         <span class="flex items-center gap-3">
-                            <svg class="w-4 h-4 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <svg class="h-4 w-4 shrink-0 opacity-80 transition-opacity group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.03 0 1.9.693 2.166 1.638m-7.377 0A48.536 48.536 0 0112 3.75c0 .08-.004.16-.01.238m-2.886 0c.385.023.77.05 1.154.08m-3.456 0A48.108 48.108 0 002.25 6.11v10.39a2.25 2.25 0 002.25 2.25h3" />
                             </svg>
                             <span>Finance</span>
                         </span>
-                        <svg class="w-3.5 h-3.5 transition-transform duration-200 chevron-icon {{ $isFinanceActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                        <svg class="chevron-icon h-3.5 w-3.5 transition-transform duration-200 {{ $isFinanceActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
                     </button>
-                    <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isFinanceActive ? '' : 'hidden' }}">
+                    <div class="sidebar-group-items space-y-1 pl-3 pr-1 transition-all duration-200 {{ $isFinanceActive ? '' : 'hidden' }}">
                         @can('accounting.ledger.view')
                         <x-nav-item href="{{ route('finance.accounts.index') }}" :active="request()->routeIs('finance.accounts.*')" :sub="true">
                             Chart of Accounts
@@ -305,20 +316,20 @@
                 <div class="sidebar-group space-y-1">
                     <button
                         type="button"
-                        class="sidebar-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all group cursor-pointer {{ $isAdminActive ? 'text-white bg-brand-800/30' : 'text-brand-300 hover:bg-brand-800/60 hover:text-white' }}"
+                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isAdminActive ? 'bg-white/5 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}"
                         aria-expanded="{{ $isAdminActive ? 'true' : 'false' }}"
                     >
                         <span class="flex items-center gap-3">
-                            <svg class="w-4 h-4 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <svg class="h-4 w-4 shrink-0 opacity-80 transition-opacity group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
                             </svg>
                             <span>Admin</span>
                         </span>
-                        <svg class="w-3.5 h-3.5 transition-transform duration-200 chevron-icon {{ $isAdminActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                        <svg class="chevron-icon h-3.5 w-3.5 transition-transform duration-200 {{ $isAdminActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
                     </button>
-                    <div class="sidebar-group-items pl-4 pr-1 space-y-1 transition-all duration-200 {{ $isAdminActive ? '' : 'hidden' }}">
+                    <div class="sidebar-group-items space-y-1 pl-3 pr-1 transition-all duration-200 {{ $isAdminActive ? '' : 'hidden' }}">
                         @can('admin.user.view')
                         <x-nav-item href="{{ route('admin.users.index') }}" :active="request()->routeIs('admin.users.*')" :sub="true">
                             Users & Roles
@@ -342,18 +353,18 @@
         </nav>
 
         {{-- User footer --}}
-        <div class="border-t border-brand-800 p-4">
-            <div class="flex items-center gap-3">
-                <div class="w-8 h-8 rounded-full bg-brand-700 flex items-center justify-center shrink-0">
-                    <span class="text-brand-300 text-xs font-bold">{{ strtoupper(substr(auth()->user()->name, 0, 1)) }}</span>
+        <div class="border-t border-white/10 px-4 py-4">
+            <div class="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
+                <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-800">
+                    <span class="text-xs font-bold text-cyan-300">{{ strtoupper(substr(auth()->user()->name, 0, 1)) }}</span>
                 </div>
                 <div class="min-w-0 flex-1">
-                    <p class="text-white text-xs font-semibold truncate">{{ auth()->user()->name }}</p>
-                    <p class="text-brand-400 text-[10px] truncate">{{ auth()->user()->email }}</p>
+                    <p class="truncate text-xs font-semibold text-white">{{ auth()->user()->name }}</p>
+                    <p class="truncate text-[10px] text-slate-400">{{ auth()->user()->email }}</p>
                 </div>
                 <form method="POST" action="{{ route('logout') }}">
                     @csrf
-                    <button type="submit" title="Sign out" class="text-brand-400 hover:text-red-400 transition-colors p-1">
+                    <button type="submit" title="Sign out" class="rounded-xl p-2 text-slate-400 transition hover:bg-white/5 hover:text-white">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
                         </svg>
@@ -367,12 +378,12 @@
     <div id="sidebar-overlay" class="fixed inset-0 z-40 bg-black/50 hidden lg:hidden" aria-hidden="true"></div>
 
     {{-- ── Main content ─────────────────────────────────────────── --}}
-    <div class="flex-1 flex flex-col lg:ml-64 min-w-0 main-content-wrapper transition-all duration-300">
+    <div class="main-content-wrapper flex min-w-0 flex-1 flex-col transition-all duration-300 lg:ml-72">
 
         {{-- Top bar --}}
-        <header class="sticky top-0 z-30 bg-white border-b border-gray-200 h-14 flex items-center px-4 sm:px-6 gap-4">
+        <header class="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6">
             {{-- Collapse / open toggle --}}
-            <button id="sidebar-open" class="-ml-1 p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg cursor-pointer">
+            <button id="sidebar-open" class="-ml-1 rounded-2xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 cursor-pointer">
                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
                 </svg>
@@ -380,7 +391,8 @@
 
             {{-- Page breadcrumb / title --}}
             <div class="min-w-0 flex-1">
-                <h1 class="text-sm font-semibold text-gray-900 truncate">{{ $title }}</h1>
+                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Green Leaf ERP</p>
+                <h1 class="truncate text-sm font-bold text-slate-900">{{ $title }}</h1>
             </div>
 
             {{-- Header Actions Container --}}
@@ -389,7 +401,7 @@
                 <button
                     id="theme-toggle"
                     type="button"
-                    class="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer focus:outline-none transition-colors duration-200"
+                    class="rounded-2xl p-2 text-slate-500 transition-colors duration-200 cursor-pointer hover:bg-slate-100 hover:text-slate-900 focus:outline-none dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
                     title="Toggle dark/light theme"
                 >
                     {{-- Moon Icon (for Light Mode) --}}
@@ -412,7 +424,7 @@
 
         {{-- Flash messages --}}
         @if (session('success'))
-        <div class="mx-4 sm:mx-6 mt-4 flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 px-4 py-3" role="alert">
+        <div class="mx-4 mt-4 flex items-center gap-3 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 sm:mx-6" role="alert">
             <svg class="w-4 h-4 text-green-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -421,7 +433,7 @@
         @endif
 
         @if (session('error'))
-        <div class="mx-4 sm:mx-6 mt-4 flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3" role="alert">
+        <div class="mx-4 mt-4 flex items-center gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 sm:mx-6" role="alert">
             <svg class="w-4 h-4 text-red-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
             </svg>

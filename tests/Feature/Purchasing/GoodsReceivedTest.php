@@ -77,6 +77,41 @@ class GoodsReceivedTest extends TestCase
         $response->assertSee($grn->grn_number);
     }
 
+    public function test_authorized_user_can_view_goods_received_details(): void
+    {
+        $po = PurchaseOrder::factory()->create([
+            'supplier_id' => $this->supplier->id,
+            'status' => POStatus::Approved,
+            'created_by' => $this->authorizedUser->id,
+        ]);
+
+        $poItem = $po->items()->create([
+            'product_id' => $this->product1->id,
+            'quantity' => 10.000,
+            'unit_price' => 5.0000,
+        ]);
+
+        $grn = GoodsReceived::factory()->create([
+            'purchase_order_id' => $po->id,
+            'received_by' => $this->authorizedUser->id,
+        ]);
+
+        $grn->items()->create([
+            'purchase_order_item_id' => $poItem->id,
+            'product_id' => $this->product1->id,
+            'received_qty' => 10.000,
+            'variance' => 0.000,
+        ]);
+
+        $response = $this->actingAs($this->authorizedUser)
+            ->get(route('purchasing.grns.show', $grn));
+
+        $response->assertOk();
+        $response->assertSee($grn->grn_number);
+        $response->assertSee($this->product1->name);
+        $this->assertStringContainsString('/purchasing/grns/'.$grn->public_uuid, route('purchasing.grns.show', $grn));
+    }
+
     public function test_unauthorized_user_cannot_view_goods_received_log(): void
     {
         $response = $this->actingAs($this->unauthorizedUser)
@@ -94,10 +129,25 @@ class GoodsReceivedTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->authorizedUser)
-            ->get(route('purchasing.grns.create', ['purchase_order_id' => $po->id]));
+            ->get(route('purchasing.grns.create', ['purchase_order' => $po]));
 
         $response->assertOk();
         $response->assertSee($po->po_number);
+        $this->assertStringContainsString('purchase_order='.$po->po_number, route('purchasing.grns.create', ['purchase_order' => $po]));
+    }
+
+    public function test_legacy_create_grn_url_redirects_to_canonical_purchase_order_reference(): void
+    {
+        $po = PurchaseOrder::factory()->create([
+            'supplier_id' => $this->supplier->id,
+            'status' => POStatus::SentToSupplier,
+            'created_by' => $this->authorizedUser->id,
+        ]);
+
+        $response = $this->actingAs($this->authorizedUser)
+            ->get(route('purchasing.grns.create', ['purchase_order_id' => $po->id]));
+
+        $response->assertRedirect(route('purchasing.grns.create', ['purchase_order' => $po]));
     }
 
     public function test_authorized_user_cannot_see_create_grn_page_for_draft_po(): void
@@ -109,7 +159,7 @@ class GoodsReceivedTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->authorizedUser)
-            ->get(route('purchasing.grns.create', ['purchase_order_id' => $po->id]));
+            ->get(route('purchasing.grns.create', ['purchase_order' => $po]));
 
         $response->assertNotFound();
     }

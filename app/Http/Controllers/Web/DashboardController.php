@@ -8,7 +8,9 @@ use App\Enums\Purchasing\POStatus;
 use App\Enums\Sales\SOStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
+use App\Models\GoodsReceived;
 use App\Models\Product;
+use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\SalesInvoice;
@@ -36,10 +38,6 @@ class DashboardController extends Controller
 
         if ($user->hasRole('shop')) {
             return redirect()->route('shop-owner.dashboard');
-        }
-
-        if ($user->hasRole('purchase')) {
-            return redirect()->route('purchasing.orders.index');
         }
 
         // Stats visible to inventory roles
@@ -87,14 +85,130 @@ class DashboardController extends Controller
 
         $allShopOrders = collect();
         $dailyOrderStatuses = collect();
+        $purchaseDashboard = null;
         if ($user->hasRole('purchase') || $user->can('purchasing.order.approve')) {
             $allShopOrders = ShopOrder::with(['shop', 'creator', 'items.product'])
                 ->orderBy('business_date', 'desc')
                 ->get();
 
+            $today = today()->toDateString();
+            $tomorrow = today()->addDay()->toDateString();
+
+            $pendingReviewOrders = $allShopOrders->whereIn('state', ['submitted', 'update_requested']);
+            $pendingTomorrowReviewOrders = $pendingReviewOrders
+                ->filter(fn (ShopOrder $order) => $order->business_date->format('Y-m-d') === $tomorrow);
+            $approvedTomorrowOrders = $allShopOrders
+                ->where('state', 'approved')
+                ->filter(fn (ShopOrder $order) => $order->business_date->format('Y-m-d') === $tomorrow);
+
+            $openPurchaseOrders = PurchaseOrder::query()
+                ->whereIn('status', [
+                    POStatus::Draft,
+                    POStatus::Approved,
+                    POStatus::SentToSupplier,
+                    POStatus::PartiallyReceived,
+                    POStatus::Received,
+                ])
+                ->with(['supplier', 'goodsReceiveds'])
+                ->orderByDesc('order_date')
+                ->get();
+
+            $grnsAwaitingApproval = GoodsReceived::query()
+                ->where('status', 'pending_approval')
+                ->with(['purchaseOrder.supplier', 'receivedBy'])
+                ->latest('received_at')
+                ->latest('id')
+                ->get();
+
+            $pendingInvoices = PurchaseInvoice::query()
+                ->where('status', 'pending')
+                ->with(['supplier', 'goodsReceived.purchaseOrder'])
+                ->latest('created_at')
+                ->get();
+
+            $purchaseDashboard = [
+                'headline' => [
+                    'pending_review' => $pendingReviewOrders->count(),
+                    'pending_review_tomorrow' => $pendingTomorrowReviewOrders->count(),
+                    'approved_tomorrow' => $approvedTomorrowOrders->count(),
+                    'open_purchase_orders' => $openPurchaseOrders->count(),
+                    'grns_awaiting_approval' => $grnsAwaitingApproval->count(),
+                    'pending_invoices' => $pendingInvoices->count(),
+                ],
+                'focus_cards' => [
+                    [
+                        'title' => 'Requisition Board',
+                        'count' => $pendingTomorrowReviewOrders->count(),
+                        'detail' => 'Shop requests waiting for first review for tomorrow',
+                        'href' => route('requisitions.board', ['date' => $tomorrow]),
+                        'action' => 'Review Requests',
+                        'tone' => 'amber',
+                    ],
+                    [
+                        'title' => 'Approved Board',
+                        'count' => $approvedTomorrowOrders->count(),
+                        'detail' => 'Approved requisitions ready for supplier split and PO handoff',
+                        'href' => route('requisitions.approved_board', ['date' => $tomorrow]),
+                        'action' => 'Open Approved Board',
+                        'tone' => 'violet',
+                    ],
+                    [
+                        'title' => 'Purchase Orders',
+                        'count' => $openPurchaseOrders->count(),
+                        'detail' => 'Draft, approved, sent, and receiving-stage purchase orders',
+                        'href' => route('purchasing.orders.index'),
+                        'action' => 'Manage Orders',
+                        'tone' => 'blue',
+                    ],
+                    [
+                        'title' => 'GRN Approval',
+                        'count' => $grnsAwaitingApproval->count(),
+                        'detail' => 'Warehouse receipts waiting for purchase-manager approval',
+                        'href' => route('purchasing.grns.index'),
+                        'action' => 'Review GRNs',
+                        'tone' => 'emerald',
+                    ],
+                    [
+                        'title' => 'Supplier Invoices',
+                        'count' => $pendingInvoices->count(),
+                        'detail' => 'Purchase invoices waiting for accounting/payment progress',
+                        'href' => route('purchasing.invoices.index'),
+                        'action' => 'Open Invoices',
+                        'tone' => 'slate',
+                    ],
+                ],
+                'today_tasks' => [
+                    [
+                        'title' => 'Handle shop updates first',
+                        'description' => $pendingReviewOrders->where('state', 'update_requested')->count().' updated requisitions need quantity review before PO finalization.',
+                        'href' => route('requisitions.board', ['date' => $tomorrow]),
+                    ],
+                    [
+                        'title' => 'Convert approved demand into supplier orders',
+                        'description' => $approvedTomorrowOrders->count().' approved requisitions are ready for supplier allocation and PO creation.',
+                        'href' => route('requisitions.approved_board', ['date' => $tomorrow]),
+                    ],
+                    [
+                        'title' => 'Approve warehouse receipts',
+                        'description' => $grnsAwaitingApproval->count().' GRNs are waiting before stock can move into inventory.',
+                        'href' => route('purchasing.grns.index'),
+                    ],
+                    [
+                        'title' => 'Follow invoice matching and payment handoff',
+                        'description' => $pendingInvoices->count().' purchase invoices still need finance-side follow-up.',
+                        'href' => route('purchasing.invoices.index'),
+                    ],
+                ],
+                'today' => $today,
+                'tomorrow' => $tomorrow,
+                'recent_grns' => $grnsAwaitingApproval->take(3),
+                'recent_purchase_orders' => $openPurchaseOrders->take(4),
+                'recent_invoices' => $pendingInvoices->take(3),
+            ];
+
             $trackedDates = collect([
-                today()->addDay()->toDateString(),
-                today()->toDateString(),
+                $tomorrow,
+                $today,
             ])
                 ->merge($allShopOrders->pluck('business_date')->map(fn ($date) => $date->format('Y-m-d')))
                 ->merge(PurchaseOrder::query()
@@ -200,6 +314,7 @@ class DashboardController extends Controller
             'purchasingStats',
             'salesStats',
             'allShopOrders',
+            'purchaseDashboard',
             'dailyOrderStatuses',
             'sortingProgress',
             'pendingPOsForReceipt'

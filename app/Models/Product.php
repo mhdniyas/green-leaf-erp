@@ -27,11 +27,13 @@ class Product extends Model implements AuditableContract
         'sku',
         'unit',
         'description',
+        'base_price',
         'image',
         'is_active',
     ];
 
     protected $casts = [
+        'base_price' => 'decimal:2',
         'is_active' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
@@ -65,6 +67,11 @@ class Product extends Model implements AuditableContract
     public function wastageEntries(): HasMany
     {
         return $this->hasMany(WastageEntry::class);
+    }
+
+    public function dailyPrices(): HasMany
+    {
+        return $this->hasMany(DailyProductPrice::class);
     }
 
     // Scopes

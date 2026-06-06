@@ -49,6 +49,8 @@ class DeliveryDashboardTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Daily Delivery');
+        $this->assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
+        $response->assertSee('Live data refreshes every 30s');
     }
 
     public function test_delivery_dashboard_metrics_and_tables_render_correctly(): void

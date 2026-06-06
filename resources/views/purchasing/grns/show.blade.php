@@ -208,7 +208,7 @@
                     @if(!$invoice)
                         @can('create', \App\Models\PurchaseInvoice::class)
                             @if($grn->status === 'approved')
-                                <a href="{{ route('purchasing.invoices.create', ['goods_received_id' => $grn->id]) }}" 
+                                <a href="{{ route('purchasing.invoices.create', ['goods_received' => $grn]) }}" 
                                    class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition-colors shadow-sm">
                                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />

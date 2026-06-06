@@ -1,30 +1,43 @@
-<x-layouts.app title="Consolidated Requisition Board">
+<x-layouts.app title="Consolidated Requisitions Board">
     <div class="mx-auto px-4 py-8">
-        {{-- Header Section --}}
-        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-8">
-            <div>
-                <a href="{{ route('dashboard') }}" class="text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1.5 transition-colors mb-2">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
-                    Back to Control Center
-                </a>
-                <h1 class="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-3">
-                    Consolidated Requisitions Board
-                </h1>
-                <p class="text-xs text-slate-500 mt-1">Review, adjust, and bulk approve requisitions across all shops</p>
-            </div>
+        <div class="mb-6">
+            <p class="text-xs font-black uppercase tracking-[0.18em] text-cyan-700">Purchasing</p>
+            <h1 class="mt-1 text-3xl font-black tracking-tight text-slate-950">Consolidated Requisitions Board</h1>
+            <p class="mt-2 max-w-3xl text-sm text-slate-600">Review, adjust, and bulk approve requisitions across all shops.</p>
+        </div>
 
+        <div class="mb-8 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-end">
             <div class="flex flex-wrap items-center gap-4">
-                {{-- Date selection form --}}
                 <form action="{{ route('requisitions.board') }}" method="GET" class="flex items-center gap-3 bg-white px-4 py-2 border border-slate-200 rounded-xl shadow-sm">
                     <label for="date-select" class="text-xs font-bold text-slate-400 uppercase tracking-wider">Delivery Date:</label>
                     <input type="date" id="date-select" name="date" value="{{ $date }}" onchange="this.form.submit()" class="text-xs font-bold text-slate-700 border-0 focus:outline-none focus:ring-0 p-0 cursor-pointer">
                 </form>
 
-                {{-- Save Button --}}
-                <button type="submit" form="board-form" class="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-5 py-3 rounded-xl transition-all cursor-pointer focus:outline-none shadow-md hover:shadow-lg border-0">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                    Save & Approve All
+                <button type="button" onclick="exportBoardCsv()" class="inline-flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-4 py-3 rounded-xl transition-all border border-slate-200 shadow-sm cursor-pointer">
+                    <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+                    Export CSV
                 </button>
+
+                <button type="button" onclick="exportBoardPdf()" class="inline-flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold px-4 py-3 rounded-xl transition-all border border-emerald-100 shadow-sm cursor-pointer">
+                    <svg class="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-8.25A3.375 3.375 0 004.5 11.625v2.625m15 0v3.375A2.625 2.625 0 0116.875 20.25H7.125A2.625 2.625 0 014.5 17.625V14.25m15 0h-15M15 6V3.75A1.125 1.125 0 0013.875 2.625h-3.75A1.125 1.125 0 009 3.75V6" /></svg>
+                    Print PDF
+                </button>
+
+                @if($boardFullyApproved)
+                    <button type="submit" form="board-form" class="inline-flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-4 py-3 rounded-xl transition-all cursor-pointer border border-slate-200 shadow-sm">
+                        <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m6-6H6" /></svg>
+                        Save Board Changes
+                    </button>
+                    <a href="{{ route('requisitions.approved_board', ['date' => $date]) }}" class="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-5 py-3 rounded-xl transition-all shadow-md hover:shadow-lg">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" /></svg>
+                        Continue to Approved Board
+                    </a>
+                @else
+                    <button type="submit" form="board-form" class="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-5 py-3 rounded-xl transition-all cursor-pointer focus:outline-none shadow-md hover:shadow-lg border-0">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                        Save & Approve All
+                    </button>
+                @endif
             </div>
         </div>
 
@@ -42,6 +55,40 @@
                 {{ session('error') }}
             </div>
         @endif
+
+        @php
+            $shopsWithUpdates = collect($shopUpdateMeta ?? [])->filter(fn (array $meta) => $meta['has_update_request']);
+        @endphp
+
+        @if($shopsWithUpdates->isNotEmpty())
+            <div class="mb-6 rounded-3xl border border-indigo-200 bg-indigo-50 px-5 py-4 text-indigo-900 shadow-sm">
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                        <p class="text-[11px] font-black uppercase tracking-[0.18em] text-indigo-700">Shop Owner Updates Waiting</p>
+                        <p class="mt-1 text-sm font-semibold">One or more shops changed their request after cutoff. Click the highlighted shop column to review the note and update quantities before moving to the approved board.</p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        @foreach($shops as $shop)
+                            @php
+                                $shopMeta = $shopUpdateMeta[$shop->id] ?? null;
+                            @endphp
+                            @if($shopMeta && $shopMeta['has_update_request'])
+                                <button type="button" onclick="focusShopColumn({{ $shop->id }})" class="rounded-full border border-indigo-200 bg-white px-3 py-1.5 text-[11px] font-black text-indigo-700 transition hover:bg-indigo-100">
+                                    {{ $shop->name }} · {{ $shopMeta['changed_items_count'] }} changes
+                                </button>
+                            @endif
+                        @endforeach
+                    </div>
+                </div>
+            </div>
+        @endif
+
+        <div id="shop-update-panel" class="mb-6 hidden rounded-3xl border border-cyan-200 bg-cyan-50 px-5 py-4 text-cyan-950 shadow-sm">
+            <p class="text-[11px] font-black uppercase tracking-[0.18em] text-cyan-700">Selected Shop Update</p>
+            <h3 id="shop-update-title" class="mt-1 text-base font-black"></h3>
+            <p id="shop-update-meta" class="mt-1 text-sm font-semibold text-cyan-800"></p>
+            <p id="shop-update-reason" class="mt-2 rounded-2xl bg-white/80 px-4 py-3 text-sm text-slate-700"></p>
+        </div>
 
         {{-- Filters & Search --}}
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-4 mb-6 flex flex-col md:flex-row items-center gap-4">
@@ -63,7 +110,7 @@
 
             <div class="flex items-center gap-4 self-stretch md:self-auto shrink-0 pl-2">
                 <label class="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none">
-                    <input type="checkbox" id="filter-has-orders" onchange="filterBoardRows()" checked class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer">
+                    <input type="checkbox" id="filter-has-orders" checked onchange="filterBoardRows()" class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer">
                     Show only items with orders
                 </label>
             </div>
@@ -90,8 +137,24 @@
                                 <th class="py-4 px-4 sticky left-[60px] bg-slate-50 z-20 min-w-[200px] border-r border-slate-200">Item</th>
                                 <th class="py-4 px-3 text-center min-w-[140px] border-r border-slate-200 text-slate-700 uppercase font-black text-[9px] tracking-wider bg-slate-50 z-20">Fulfillment</th>
                                 @foreach($shops as $shop)
-                                    <th class="py-4 px-3 text-center min-w-[90px] border-r border-slate-100 font-extrabold text-slate-700 uppercase tracking-widest text-[9px] hover:bg-slate-100/50 transition-colors">
-                                        {{ str_replace([' HYPERMARKET', ' SUPERMARKET', ' STORE', ' SHOP'], '', strtoupper($shop->name)) }}
+                                    @php
+                                        $shopMeta = $shopUpdateMeta[$shop->id] ?? null;
+                                    @endphp
+                                    <th @class([
+                                        'py-4 px-3 text-center min-w-[90px] border-r font-extrabold uppercase tracking-widest text-[9px] transition-colors',
+                                        'border-slate-100 text-slate-700 hover:bg-slate-100/50' => ! ($shopMeta['has_update_request'] ?? false),
+                                        'border-indigo-200 bg-indigo-50 text-indigo-900 hover:bg-indigo-100/80' => $shopMeta['has_update_request'] ?? false,
+                                    ])>
+                                        <button
+                                            type="button"
+                                            class="mx-auto flex flex-col items-center gap-1"
+                                            onclick="focusShopColumn({{ $shop->id }})"
+                                        >
+                                            <span>{{ str_replace([' HYPERMARKET', ' SUPERMARKET', ' STORE', ' SHOP'], '', strtoupper($shop->name)) }}</span>
+                                            @if($shopMeta && $shopMeta['has_update_request'])
+                                                <span class="rounded-full bg-indigo-600 px-2 py-0.5 text-[8px] font-black text-white">Update Requested</span>
+                                            @endif
+                                        </button>
                                     </th>
                                 @endforeach
                                 <th class="py-4 px-4 text-right min-w-[100px] bg-slate-50 font-black text-slate-900 tracking-wider">Total</th>
@@ -109,6 +172,7 @@
                                     }
                                 @endphp
                                 <tr class="hover:bg-slate-50/10 transition-colors product-row" 
+                                    data-product-id="{{ $product->id }}"
                                     data-sku="{{ strtolower($product->sku) }}" 
                                     data-name="{{ strtolower($product->name) }}"
                                     data-category="{{ strtolower($product->category ? $product->category->name : '') }}"
@@ -159,7 +223,11 @@
                                                 }
                                             }
                                         @endphp
-                                        <td class="py-2 px-2 text-center border-r border-slate-100 hover:bg-slate-50/5 hover:z-20 transition-colors">
+                                        <td @class([
+                                            'py-2 px-2 text-center border-r transition-colors',
+                                            'border-slate-100 hover:bg-slate-50/5 hover:z-20' => ! ($shopUpdateMeta[$shop->id]['has_update_request'] ?? false) && ! ($qtyData['needs_attention'] ?? false),
+                                            'border-indigo-100 bg-indigo-50/60 hover:bg-indigo-100/80 hover:z-20' => ($shopUpdateMeta[$shop->id]['has_update_request'] ?? false) || ($qtyData['needs_attention'] ?? false),
+                                        ]) data-shop-column-cell="{{ $shop->id }}">
                                             <div class="relative inline-flex items-center">
                                                 <input type="number" 
                                                        step="0.01" 
@@ -173,6 +241,7 @@
                                                            'w-16 rounded-lg border text-center py-1 text-xs font-black transition-all focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500',
                                                            'border-slate-200 text-slate-800 focus:bg-white bg-slate-50/30' => !$isAdjusted,
                                                            'border-amber-300 text-amber-900 bg-amber-50/50 focus:bg-white' => $isAdjusted,
+                                                           'ring-1 ring-indigo-300 border-indigo-300 bg-indigo-50 text-indigo-900' => $qtyData['needs_attention'] ?? false,
                                                        ])
                                                        placeholder="-">
                                             </div>
@@ -208,15 +277,26 @@
             </div>
 
             {{-- Floating controls --}}
-            <div class="flex items-center justify-end gap-3 pb-8">
-                <a href="{{ route('dashboard') }}" class="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all border-0 cursor-pointer">
-                    Cancel & Return
+        <div class="flex items-center justify-end gap-3 pb-8">
+            <a href="{{ route('dashboard') }}" class="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all border-0 cursor-pointer">
+                Cancel & Return
+            </a>
+            @if($boardFullyApproved)
+                <button type="submit" class="inline-flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-4 py-3 rounded-xl transition-all cursor-pointer border border-slate-200 shadow-sm">
+                    <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m6-6H6" /></svg>
+                    Save Board Changes
+                </button>
+                <a href="{{ route('requisitions.approved_board', ['date' => $date]) }}" class="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-5 py-3 rounded-xl transition-all shadow-md hover:shadow-lg">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" /></svg>
+                    Continue to Approved Board
                 </a>
+            @else
                 <button type="submit" class="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-5 py-3 rounded-xl transition-all cursor-pointer focus:outline-none shadow-md hover:shadow-lg border-0">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
                     Save Requisitions & Approve All
                 </button>
-            </div>
+            @endif
+        </div>
         </form>
     </div>
 
@@ -257,9 +337,33 @@
         // Clear filter
         function clearSearch() {
             document.getElementById('board-search').value = '';
-            document.getElementById('filter-has-orders').checked = false;
+            document.getElementById('filter-has-orders').checked = true;
             document.getElementById('filter-fulfillment').value = 'all';
             filterBoardRows();
+        }
+
+        function buildBoardExportUrl(baseUrl) {
+            const params = new URLSearchParams();
+            params.set('date', @json($date));
+            params.set('search', document.getElementById('board-search').value.trim());
+            params.set('fulfillment', document.getElementById('filter-fulfillment').value);
+            params.set('has_orders', document.getElementById('filter-has-orders').checked ? '1' : '0');
+
+            document.querySelectorAll('.product-row').forEach((row) => {
+                if (!row.classList.contains('hidden')) {
+                    params.append('ordered_product_ids[]', row.getAttribute('data-product-id'));
+                }
+            });
+
+            return `${baseUrl}?${params.toString()}`;
+        }
+
+        function exportBoardCsv() {
+            window.location.href = buildBoardExportUrl(@json(route('requisitions.board.export.csv')));
+        }
+
+        function exportBoardPdf() {
+            window.open(buildBoardExportUrl(@json(route('requisitions.board.export.pdf'))), '_blank', 'noopener');
         }
 
         // Action when fulfillment type changes on a row
@@ -328,6 +432,38 @@
             const grandCell = document.getElementById('grand-total');
             if (grandCell) {
                 grandCell.textContent = grandTotal.toFixed(2);
+            }
+        }
+
+        function focusShopColumn(shopId) {
+            document.querySelectorAll('[data-shop-column-cell]').forEach((cell) => {
+                cell.classList.remove('ring-2', 'ring-cyan-400', 'ring-inset');
+            });
+
+            document.querySelectorAll(`[data-shop-column-cell="${shopId}"]`).forEach((cell) => {
+                cell.classList.add('ring-2', 'ring-cyan-400', 'ring-inset');
+            });
+
+            const panel = document.getElementById('shop-update-panel');
+            const shopTitle = document.getElementById('shop-update-title');
+            const shopMeta = document.getElementById('shop-update-meta');
+            const shopReason = document.getElementById('shop-update-reason');
+            const updates = @json($shopUpdateMeta);
+            const shops = @json($shops->map(fn ($shop) => ['id' => $shop->id, 'name' => $shop->name])->values());
+            const selectedShop = shops.find((shop) => shop.id === shopId);
+            const selectedUpdate = updates[shopId];
+
+            if (panel && shopTitle && shopMeta && shopReason && selectedShop && selectedUpdate && selectedUpdate.has_update_request) {
+                panel.classList.remove('hidden');
+                shopTitle.textContent = selectedShop.name;
+                shopMeta.textContent = `${selectedUpdate.changed_items_count} item updates requested • ${selectedUpdate.order_number}`;
+                shopReason.textContent = selectedUpdate.update_reason || 'Shop owner requested an update.';
+                panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+
+            const firstInput = document.querySelector(`input[data-shop-id="${shopId}"]`);
+            if (firstInput) {
+                firstInput.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
             }
         }
     </script>

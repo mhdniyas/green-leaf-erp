@@ -5,7 +5,9 @@
 @section('page_description', 'Review received stock, quantity variance, landed costs, invoice matching, and approval actions.')
 
 @section('content')
-    @php($invoice = $grn->purchaseInvoices()->first())
+    @php
+        $invoice = $grn->purchaseInvoices()->first();
+    @endphp
 
     <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div class="space-y-6">
@@ -25,7 +27,9 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 text-sm">
-                            @php($totalReceived = $grn->items->sum(fn ($item) => (float) $item->received_qty))
+                            @php
+                                $totalReceived = $grn->items->sum(fn ($item) => (float) $item->received_qty);
+                            @endphp
                             @foreach ($grn->items as $item)
                                 @php
                                     $orderedQty = (float) ($item->purchaseOrderItem?->quantity ?? 0);
@@ -82,7 +86,7 @@
                     @endcan
                     @if (! $invoice && $grn->status === 'approved')
                         @can('create', \App\Models\PurchaseInvoice::class)
-                            <x-purchase-manager.components.action-button :href="route('purchasing.invoices.create', ['goods_received_id' => $grn->id])" variant="primary">Create Invoice</x-purchase-manager.components.action-button>
+                            <x-purchase-manager.components.action-button :href="route('purchasing.invoices.create', ['goods_received' => $grn])" variant="primary">Create Invoice</x-purchase-manager.components.action-button>
                         @endcan
                     @elseif ($invoice)
                         <x-purchase-manager.components.action-button :href="route('purchasing.invoices.show', $invoice)" variant="secondary">View Invoice</x-purchase-manager.components.action-button>

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Database\Factories\SupplierFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -21,12 +22,14 @@ class Supplier extends Model
         'name',
         'type',
         'category',
+        'is_default_purchase',
         'contact',
         'payment_terms',
         'quality_score',
     ];
 
     protected $casts = [
+        'is_default_purchase' => 'boolean',
         'quality_score' => 'decimal:2',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
@@ -50,5 +53,12 @@ class Supplier extends Model
     public function purchaseInvoices(): HasMany
     {
         return $this->hasMany(PurchaseInvoice::class);
+    }
+
+    public function scopeDefaultPurchase(Builder $query): Builder
+    {
+        return $query
+            ->where('category', 'own_purchase')
+            ->where('is_default_purchase', true);
     }
 }

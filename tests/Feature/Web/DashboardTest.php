@@ -7,7 +7,9 @@ namespace Tests\Feature\Web;
 use App\Enums\Purchasing\POStatus;
 use App\Enums\Sales\SOStatus;
 use App\Models\Customer;
+use App\Models\GoodsReceived;
 use App\Models\Product;
+use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
 use App\Models\SalesInvoice;
 use App\Models\SalesOrder;
@@ -144,6 +146,9 @@ class DashboardTest extends TestCase
         $response->assertSee(number_format(15.50, 2));
         $response->assertSee($product1->unit);
         $response->assertSee($product2->sku);
+        $response->assertSee('Price');
+        $response->assertSee('Estimated value');
+        $response->assertSee('INR '.number_format((float) $product1->base_price, 2));
     }
 
     public function test_shop_owner_order_create_page_shows_update_request_form_after_cutoff_for_submitted_order(): void
@@ -219,15 +224,26 @@ class DashboardTest extends TestCase
         $response->assertRedirect(route('shop-owner.dashboard'));
     }
 
-    public function test_purchasing_manager_is_redirected_from_main_dashboard_to_purchase_orders_workspace(): void
+    public function test_purchasing_manager_sees_daily_operations_dashboard(): void
     {
         $manager = User::factory()->create();
         $manager->assignRole('purchase');
 
-        $orderDate = Carbon::tomorrow()->format('Y-m-d');
+        $shop = Shop::create([
+            'code' => 'SHOP_PURCHASE_DASH',
+            'name' => 'Purchase Ops Shop',
+        ]);
         $supplier = Supplier::factory()->create();
+        $orderDate = Carbon::tomorrow()->format('Y-m-d');
 
-        PurchaseOrder::factory()->create([
+        ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'submitted',
+            'business_date' => $orderDate,
+            'created_by' => $manager->id,
+        ]);
+
+        $po = PurchaseOrder::factory()->create([
             'supplier_id' => $supplier->id,
             'order_date' => $orderDate,
             'status' => POStatus::Approved,
@@ -235,10 +251,55 @@ class DashboardTest extends TestCase
             'created_by' => $manager->id,
         ]);
 
+        $grn = GoodsReceived::factory()->create([
+            'purchase_order_id' => $po->id,
+            'received_by' => $manager->id,
+            'status' => 'pending_approval',
+        ]);
+
+        PurchaseInvoice::factory()->create([
+            'goods_received_id' => $grn->id,
+            'supplier_id' => $supplier->id,
+            'status' => 'pending',
+        ]);
+
         $response = $this->actingAs($manager)
             ->get(route('dashboard'));
 
-        $response->assertRedirect(route('purchasing.orders.index'));
+        $response->assertOk();
+        $response->assertSee('Purchase Manager Daily Desk');
+        $response->assertSee('What To Do Today');
+        $response->assertSee('Review Requests');
+        $response->assertSee('Review GRNs');
+        $response->assertSee('Open invoices');
+    }
+
+    public function test_dashboard_renders_requisition_and_approved_board_modules_for_purchase_approver(): void
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo(['purchasing.order.approve', 'purchasing.order.view']);
+
+        $response = $this->actingAs($user)
+            ->get(route('dashboard'));
+
+        $response->assertOk();
+        $response->assertSee('Requisition Board');
+        $response->assertSee('Approved Board');
+        $response->assertSee('Purchase Orders');
+    }
+
+    public function test_purchase_orders_workspace_navigation_prioritizes_requisition_boards(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $response = $this->actingAs($manager)
+            ->get(route('purchasing.orders.index'));
+
+        $response->assertOk();
+        $response->assertSee('Requisition Board');
+        $response->assertSee('Approved Board');
+        $response->assertSee('Purchase Orders');
     }
 
     public function test_warehouse_manager_dashboard_shows_receive_goods_gateway(): void

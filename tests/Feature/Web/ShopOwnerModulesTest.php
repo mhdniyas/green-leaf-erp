@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Web;
 
 use App\Enums\Purchasing\POStatus;
+use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\Shop;
 use App\Models\ShopOrder;
@@ -48,6 +49,7 @@ class ShopOwnerModulesTest extends TestCase
         // Should see dashboard, PO, Deliveries, and Finance
         $response->assertSee('Dashboard');
         $response->assertSee('Daily Orders');
+        $response->assertSee('Daily Price Board');
         $response->assertSee('Deliveries');
         $response->assertSee('Finance');
 
@@ -55,6 +57,36 @@ class ShopOwnerModulesTest extends TestCase
         $response->assertDontSee('Sorting Checklist');
         $response->assertDontSee('Requisition Board');
         $response->assertDontSee('Suppliers');
+    }
+
+    public function test_shop_owner_can_view_daily_price_board_and_product_shortcuts(): void
+    {
+        $shop = Shop::create([
+            'code' => 'SHOP_PRICE_TEST',
+            'name' => 'Price Board Shop',
+        ]);
+
+        $shopOwner = User::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+        $shopOwner->assignRole('shop');
+
+        $product = Product::factory()->create([
+            'name' => 'Daily Price Tomato',
+        ]);
+
+        $response = $this->actingAs($shopOwner)
+            ->get(route('shop-owner.prices.index'));
+
+        $response->assertOk();
+        $response->assertSee('Daily Price Board');
+        $response->assertSee('Daily Price Tomato');
+        $response->assertSee('Add To Tomorrow Order');
+        $response->assertSee('Search Products');
+        $response->assertSee('Sort By');
+        $response->assertSee('Frequently Ordered');
+        $response->assertSee('price-board-add-modal');
+        $response->assertSee('Add To Draft Order');
     }
 
     /**

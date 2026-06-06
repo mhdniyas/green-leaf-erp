@@ -262,7 +262,7 @@
 
                     @if(in_array($status->value, ['sent_to_supplier', 'partially_received', 'received']))
                         @can('purchasing.grn.create')
-                        <a href="{{ route('purchasing.grns.create', ['purchase_order_id' => $order->id]) }}" class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition-colors shadow-sm">
+                        <a href="{{ route('purchasing.grns.create', ['purchase_order' => $order]) }}" class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition-colors shadow-sm">
                             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 0 1-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124l-.318-5.085a1.5 1.5 0 0 0-1.496-1.408h-2.483c-.767 0-1.42.545-1.5 1.3L12.5 14.25m0 0v-4.5m0 4.5h6.75m-6.75-4.5H8.25M6.75 8.25h.008v.008H6.75V8.25Zm.375 0a.375 0 1 1-.75 0 .375 0 0 1 .75 0Z" />
                             </svg>

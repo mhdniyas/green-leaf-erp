@@ -28,9 +28,19 @@
                     <h1 class="text-xl font-black text-slate-900 tracking-tight">Daily Delivery & Check-in Dashboard</h1>
                     <p class="text-xs text-slate-500 mt-1">Track physical dispatches, load completion, shortage analytics, and shop cash reconciliation for the target date.</p>
                 </div>
-                <div class="flex items-center gap-3">
+                <div class="flex flex-wrap items-center gap-3">
+                    <span class="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3.5 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
+                        <span class="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        Live data refreshes every 30s
+                    </span>
                     <span class="inline-flex items-center rounded-full bg-slate-100 px-3.5 py-1 text-xs font-bold text-slate-700 border border-slate-200">
                         Date: {{ \Carbon\Carbon::parse($date)->format('d F Y') }}
+                    </span>
+                    <span class="inline-flex items-center rounded-full bg-white px-3.5 py-1 text-xs font-bold text-slate-700 border border-slate-200">
+                        Last update:
+                        <span id="delivery-dashboard-last-updated" class="ml-1 text-slate-900">
+                            {{ $lastUpdatedAt ? $lastUpdatedAt->setTimezone(config('app.timezone'))->format('Y-m-d h:i:s A') : 'No activity yet' }}
+                        </span>
                     </span>
                 </div>
             </div>
@@ -334,4 +344,14 @@
             </div>
         </div>
     </div>
+
+    @push('scripts')
+        <script>
+            setInterval(() => {
+                const refreshUrl = new URL(window.location.href);
+                refreshUrl.searchParams.set('_refresh', Date.now().toString());
+                window.location.replace(refreshUrl.toString());
+            }, 30000);
+        </script>
+    @endpush
 </x-layouts.app>

@@ -48,7 +48,7 @@
                                         <x-purchase-manager.components.action-button :href="route('purchasing.grns.show', $grn)" variant="secondary">View</x-purchase-manager.components.action-button>
                                         @if (! $grn->purchaseInvoices()->exists())
                                             @can('create', \App\Models\PurchaseInvoice::class)
-                                                <x-purchase-manager.components.action-button :href="route('purchasing.invoices.create', ['goods_received_id' => $grn->id])" variant="primary">Match Invoice</x-purchase-manager.components.action-button>
+                                                <x-purchase-manager.components.action-button :href="route('purchasing.invoices.create', ['goods_received' => $grn])" variant="primary">Match Invoice</x-purchase-manager.components.action-button>
                                             @endcan
                                         @endif
                                     </div>

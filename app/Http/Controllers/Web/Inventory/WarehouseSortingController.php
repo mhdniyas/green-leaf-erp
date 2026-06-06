@@ -10,6 +10,7 @@ use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\WastageReason;
 use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
+use App\Models\GoodsReceived;
 use App\Models\PurchaseOrder;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
@@ -86,6 +87,17 @@ class WarehouseSortingController extends Controller
             ->with(['product', 'wastageEntries'])
             ->get();
 
+        $submittedGrns = GoodsReceived::query()
+            ->whereDate('received_at', $date)
+            ->with(['purchaseOrder.supplier', 'receivedBy'])
+            ->latest('received_at')
+            ->latest('id')
+            ->get();
+
+        $pendingApprovalGrnCount = $submittedGrns->where('status', 'pending_approval')->count();
+        $rejectedGrnCount = $submittedGrns->where('status', 'rejected')->count();
+        $approvedGrnCount = $submittedGrns->where('status', 'approved')->count();
+
         $wastageReasons = WastageReason::cases();
         $productGrades = ProductGrade::cases();
 
@@ -97,6 +109,10 @@ class WarehouseSortingController extends Controller
             'globalPercentage',
             'purchaseOrders',
             'stockBatches',
+            'submittedGrns',
+            'pendingApprovalGrnCount',
+            'rejectedGrnCount',
+            'approvedGrnCount',
             'wastageReasons',
             'productGrades'
         ));
@@ -207,8 +223,10 @@ class WarehouseSortingController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Goods Received Note recorded successfully.',
+                'message' => 'Warehouse report submitted. Awaiting purchase manager approval.',
                 'grn_id' => $grn->id,
+                'grn_number' => $grn->grn_number,
+                'status' => $grn->status,
             ]);
         } catch (\Exception $e) {
             return response()->json([

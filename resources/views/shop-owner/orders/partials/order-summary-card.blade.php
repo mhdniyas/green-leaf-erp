@@ -14,6 +14,7 @@
             <span data-order-total-items>{{ $draftItems }}</span> items ·
             <span data-order-total-qty>{{ number_format($draftQuantity, 2, '.', '') }}</span> total qty
         </p>
+        <p class="mt-2 text-sm font-bold text-cyan-700">Estimated value · INR <span data-order-total-value>0.00</span></p>
         @if (isset($order) && $order)
             <div class="mt-4 flex flex-wrap gap-2">
                 @include('shop-owner.orders.partials.order-status-badge', ['order' => $order])
@@ -34,5 +35,6 @@
         @endphp
         <p class="mt-3 text-sm text-slate-600">Use yesterday’s order as the starting point for tomorrow’s demand.</p>
         <p class="mt-2 text-lg font-black text-slate-900">{{ $estimatedItems }} items · {{ number_format($estimatedQuantity, 2) }} suggested qty</p>
+        <p class="mt-2 text-sm font-bold text-cyan-700">Estimated value · INR <span data-order-total-value>0.00</span></p>
     @endif
 </div>

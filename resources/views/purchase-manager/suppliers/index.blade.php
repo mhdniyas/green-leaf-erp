@@ -28,8 +28,10 @@
                         <tr>
                             <th class="px-5 py-4">Supplier</th>
                             <th class="px-5 py-4">Type</th>
+                            <th class="px-5 py-4">Category</th>
                             <th class="px-5 py-4">Contact</th>
                             <th class="px-5 py-4">Payment Terms</th>
+                            <th class="px-5 py-4">Default</th>
                             <th class="px-5 py-4">Quality Score</th>
                             <th class="px-5 py-4 text-right">Actions</th>
                         </tr>
@@ -47,8 +49,14 @@
                                 <td class="px-5 py-4">
                                     <x-purchase-manager.components.status-badge :label="$supplier->type" tone="slate" />
                                 </td>
+                                <td class="px-5 py-4">
+                                    <x-purchase-manager.components.status-badge :label="$supplier->category === 'own_purchase' ? 'Own Purchase' : 'B2B'" :tone="$supplier->category === 'own_purchase' ? 'emerald' : 'cyan'" />
+                                </td>
                                 <td class="px-5 py-4 text-slate-600">{{ $supplier->contact }}</td>
                                 <td class="px-5 py-4 text-slate-600">{{ $supplier->payment_terms }}</td>
+                                <td class="px-5 py-4">
+                                    <x-purchase-manager.components.status-badge :label="$supplier->is_default_purchase ? 'Default' : 'Standard'" :tone="$supplier->is_default_purchase ? 'emerald' : 'slate'" />
+                                </td>
                                 <td class="px-5 py-4">
                                     <x-purchase-manager.components.status-badge :label="number_format($score, 2)" :tone="$tone" />
                                 </td>

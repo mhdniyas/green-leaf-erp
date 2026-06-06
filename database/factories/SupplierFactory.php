@@ -24,6 +24,8 @@ class SupplierFactory extends Factory
         return [
             'name' => $this->faker->company(),
             'type' => $this->faker->randomElement(['Farmer', 'Market Agent', 'Importer', 'Co-operative']),
+            'category' => 'own_purchase',
+            'is_default_purchase' => false,
             'contact' => $this->faker->name().' ('.$this->faker->phoneNumber().')',
             'payment_terms' => $this->faker->randomElement(['COD', 'Net 7', 'Net 15', 'Net 30']),
             'quality_score' => 100.00,

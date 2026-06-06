@@ -243,6 +243,8 @@ class WarehouseSortingTest extends TestCase
 
         $response->assertOk();
         $response->assertJsonPath('success', true);
+        $response->assertJsonPath('message', 'Warehouse report submitted. Awaiting purchase manager approval.');
+        $response->assertJsonPath('status', 'pending_approval');
 
         $this->assertDatabaseHas('purchase_orders', [
             'id' => $po->id,
@@ -277,6 +279,56 @@ class WarehouseSortingTest extends TestCase
             'product_id' => $product->id,
             'total_kg' => 45.0,
         ]);
+    }
+
+    public function test_warehouse_checklist_shows_submitted_grn_workflow_states(): void
+    {
+        $user = User::factory()->create();
+        $user->assignRole('warehouse');
+
+        $supplier = Supplier::factory()->create(['name' => 'Workflow Supplier']);
+
+        $pendingPo = PurchaseOrder::create([
+            'supplier_id' => $supplier->id,
+            'po_number' => 'PO-PENDING-001',
+            'status' => POStatus::Received,
+            'order_date' => today()->toDateString(),
+            'created_by' => $user->id,
+        ]);
+
+        $rejectedPo = PurchaseOrder::create([
+            'supplier_id' => $supplier->id,
+            'po_number' => 'PO-REJECTED-001',
+            'status' => POStatus::Received,
+            'order_date' => today()->toDateString(),
+            'created_by' => $user->id,
+        ]);
+
+        GoodsReceived::create([
+            'purchase_order_id' => $pendingPo->id,
+            'grn_number' => 'GRN-PENDING-001',
+            'status' => 'pending_approval',
+            'received_by' => $user->id,
+            'received_at' => today()->toDateString(),
+        ]);
+
+        GoodsReceived::create([
+            'purchase_order_id' => $rejectedPo->id,
+            'grn_number' => 'GRN-REJECTED-001',
+            'status' => 'rejected',
+            'rejection_remarks' => 'Quality issue found during manager review.',
+            'received_by' => $user->id,
+            'received_at' => today()->toDateString(),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->get(route('inventory.sorting.checklist', ['date' => today()->toDateString()]));
+
+        $response->assertOk();
+        $response->assertSee('Submitted GRN Reports');
+        $response->assertSee('Awaiting purchase manager review before inventory is updated.');
+        $response->assertSee('Quality issue found during manager review.');
+        $response->assertSeeText('Correct & Resubmit');
     }
 
     public function test_warehouse_manager_can_carry_over_stock_batch(): void

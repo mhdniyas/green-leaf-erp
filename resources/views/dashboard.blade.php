@@ -89,8 +89,26 @@ $modules = [
         'badge'       => null,
     ],
     [
+        'title'       => 'Requisition Board',
+        'description' => 'Primary purchasing review board for consolidating shop demand before approvals.',
+        'href'        => route('requisitions.board'),
+        'permission'  => 'purchasing.order.approve',
+        'icon'        => 'M9 5.25h6M9 9.75h6M9 14.25h6M5.25 5.25h.008v.008H5.25V5.25zm0 4.5h.008v.008H5.25V9.75zm0 4.5h.008v.008H5.25V14.25zm-1.5-9A2.25 2.25 0 016 3h12a2.25 2.25 0 012.25 2.25v13.5A2.25 2.25 0 0118 21H6a2.25 2.25 0 01-2.25-2.25V5.25z',
+        'color'       => 'bg-amber-50 text-amber-700 border-amber-100',
+        'badge'       => null,
+    ],
+    [
+        'title'       => 'Approved Board',
+        'description' => 'Finalize allocations, supplier selection, and purchase-order generation.',
+        'href'        => route('requisitions.approved_board'),
+        'permission'  => 'purchasing.order.approve',
+        'icon'        => 'M9 12.75 11.25 15 15 9.75m6 2.25a9 9 0 11-18 0 9 9 0 0118 0Z',
+        'color'       => 'bg-emerald-50 text-emerald-700 border-emerald-100',
+        'badge'       => null,
+    ],
+    [
         'title'       => 'Purchase Orders',
-        'description' => 'Manage suppliers, orders, and receive goods.',
+        'description' => 'Continue supplier buying after board approval and PO generation.',
         'href'        => route('purchasing.orders.index'),
         'permission'  => 'purchasing.order.view',
         'icon'        => 'M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z',
@@ -2454,6 +2472,161 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
     @endif
 
     @if($role === 'purchase' || $user->can('purchasing.order.approve'))
+    @php
+        $purchaseToneClasses = [
+            'amber' => 'border-amber-200 bg-amber-50 text-amber-800',
+            'violet' => 'border-violet-200 bg-violet-50 text-violet-800',
+            'blue' => 'border-blue-200 bg-blue-50 text-blue-800',
+            'emerald' => 'border-emerald-200 bg-emerald-50 text-emerald-800',
+            'slate' => 'border-slate-200 bg-slate-50 text-slate-800',
+        ];
+        $purchaseButtonClasses = [
+            'amber' => 'bg-amber-500 hover:bg-amber-600 text-white',
+            'violet' => 'bg-violet-600 hover:bg-violet-700 text-white',
+            'blue' => 'bg-blue-600 hover:bg-blue-700 text-white',
+            'emerald' => 'bg-emerald-600 hover:bg-emerald-700 text-white',
+            'slate' => 'bg-slate-900 hover:bg-slate-800 text-white',
+        ];
+    @endphp
+
+    <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-6">
+        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
+            <div>
+                <h2 class="text-xl font-black text-slate-900 tracking-tight">Purchase Manager Daily Desk</h2>
+                <p class="text-xs text-slate-500 mt-1">Start here for today’s approvals, supplier buying, GRN approvals, and invoice follow-up.</p>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-3 lg:w-[480px]">
+                <div class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-amber-700">Pending Review</p>
+                    <p class="mt-1 text-2xl font-black text-amber-900">{{ $purchaseDashboard['headline']['pending_review'] }}</p>
+                </div>
+                <div class="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-violet-700">Approved Tomorrow</p>
+                    <p class="mt-1 text-2xl font-black text-violet-900">{{ $purchaseDashboard['headline']['approved_tomorrow'] }}</p>
+                </div>
+                <div class="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-blue-700">Open POs</p>
+                    <p class="mt-1 text-2xl font-black text-blue-900">{{ $purchaseDashboard['headline']['open_purchase_orders'] }}</p>
+                </div>
+                <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-emerald-700">GRNs Waiting</p>
+                    <p class="mt-1 text-2xl font-black text-emerald-900">{{ $purchaseDashboard['headline']['grns_awaiting_approval'] }}</p>
+                </div>
+                <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-700">Pending Invoices</p>
+                    <p class="mt-1 text-2xl font-black text-slate-900">{{ $purchaseDashboard['headline']['pending_invoices'] }}</p>
+                </div>
+                <div class="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                    <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">Focus Date</p>
+                    <p class="mt-1 text-lg font-black text-slate-900">{{ \Carbon\Carbon::parse($purchaseDashboard['tomorrow'])->format('d M Y') }}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-6 grid grid-cols-1 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)] gap-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                @foreach($purchaseDashboard['focus_cards'] as $card)
+                    <div class="rounded-3xl border p-5 {{ $purchaseToneClasses[$card['tone']] ?? $purchaseToneClasses['slate'] }}">
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em]">{{ $card['title'] }}</p>
+                        <p class="mt-3 text-4xl font-black">{{ $card['count'] }}</p>
+                        <p class="mt-3 text-xs font-semibold leading-5 opacity-80">{{ $card['detail'] }}</p>
+                        <a href="{{ $card['href'] }}" class="mt-4 inline-flex items-center justify-center rounded-xl px-3.5 py-2 text-[11px] font-black transition-colors {{ $purchaseButtonClasses[$card['tone']] ?? $purchaseButtonClasses['slate'] }}">
+                            {{ $card['action'] }}
+                        </a>
+                    </div>
+                @endforeach
+            </div>
+
+            <div class="rounded-3xl border border-slate-200 bg-slate-950 p-5 text-white">
+                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-300">What To Do Today</p>
+                <div class="mt-4 space-y-3">
+                    @foreach($purchaseDashboard['today_tasks'] as $index => $task)
+                        <a href="{{ $task['href'] }}" class="block rounded-2xl border border-white/10 bg-white/5 px-4 py-3 hover:bg-white/10 transition-colors">
+                            <div class="flex items-start gap-3">
+                                <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-400 text-[10px] font-black text-slate-950">{{ $index + 1 }}</span>
+                                <div>
+                                    <p class="text-sm font-black text-white">{{ $task['title'] }}</p>
+                                    <p class="mt-1 text-xs leading-5 text-slate-300">{{ $task['description'] }}</p>
+                                </div>
+                            </div>
+                        </a>
+                    @endforeach
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                <div class="flex items-center justify-between gap-3">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Recent POs</p>
+                        <p class="mt-1 text-sm font-bold text-slate-900">Continue supplier workflow</p>
+                    </div>
+                    <a href="{{ route('purchasing.orders.index') }}" class="text-[11px] font-black text-blue-700 hover:text-blue-800">View all</a>
+                </div>
+                <div class="mt-4 space-y-2">
+                    @forelse($purchaseDashboard['recent_purchase_orders'] as $po)
+                        <a href="{{ route('purchasing.orders.show', $po) }}" class="flex items-center justify-between rounded-2xl bg-white px-4 py-3 border border-slate-200 hover:border-slate-300 transition-colors">
+                            <div>
+                                <p class="text-sm font-black text-slate-900">{{ $po->po_number }}</p>
+                                <p class="mt-0.5 text-[11px] font-semibold text-slate-500">{{ $po->supplier?->name ?? 'No Supplier' }}</p>
+                            </div>
+                            <span class="text-[10px] font-black uppercase text-slate-500">{{ str($po->status->value)->replace('_', ' ') }}</span>
+                        </a>
+                    @empty
+                        <p class="rounded-2xl bg-white px-4 py-4 text-xs font-semibold text-slate-400 border border-slate-200">No open purchase orders.</p>
+                    @endforelse
+                </div>
+            </div>
+
+            <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                <div class="flex items-center justify-between gap-3">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">GRN Queue</p>
+                        <p class="mt-1 text-sm font-bold text-slate-900">Warehouse receipts waiting</p>
+                    </div>
+                    <a href="{{ route('purchasing.grns.index') }}" class="text-[11px] font-black text-emerald-700 hover:text-emerald-800">Open queue</a>
+                </div>
+                <div class="mt-4 space-y-2">
+                    @forelse($purchaseDashboard['recent_grns'] as $grn)
+                        <a href="{{ route('purchasing.grns.show', $grn) }}" class="flex items-center justify-between rounded-2xl bg-white px-4 py-3 border border-slate-200 hover:border-slate-300 transition-colors">
+                            <div>
+                                <p class="text-sm font-black text-slate-900">{{ $grn->grn_number }}</p>
+                                <p class="mt-0.5 text-[11px] font-semibold text-slate-500">{{ $grn->purchaseOrder?->supplier?->name ?? 'No Supplier' }}</p>
+                            </div>
+                            <span class="text-[10px] font-black uppercase text-amber-600">Pending</span>
+                        </a>
+                    @empty
+                        <p class="rounded-2xl bg-white px-4 py-4 text-xs font-semibold text-slate-400 border border-slate-200">No GRNs awaiting approval.</p>
+                    @endforelse
+                </div>
+            </div>
+
+            <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                <div class="flex items-center justify-between gap-3">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Invoice Follow-up</p>
+                        <p class="mt-1 text-sm font-bold text-slate-900">Pending supplier invoices</p>
+                    </div>
+                    <a href="{{ route('purchasing.invoices.index') }}" class="text-[11px] font-black text-slate-700 hover:text-slate-900">Open invoices</a>
+                </div>
+                <div class="mt-4 space-y-2">
+                    @forelse($purchaseDashboard['recent_invoices'] as $invoice)
+                        <a href="{{ route('purchasing.invoices.show', $invoice) }}" class="flex items-center justify-between rounded-2xl bg-white px-4 py-3 border border-slate-200 hover:border-slate-300 transition-colors">
+                            <div>
+                                <p class="text-sm font-black text-slate-900">{{ $invoice->invoice_number }}</p>
+                                <p class="mt-0.5 text-[11px] font-semibold text-slate-500">{{ $invoice->supplier?->name ?? 'No Supplier' }}</p>
+                            </div>
+                            <span class="text-[10px] font-black uppercase text-slate-500">{{ str($invoice->status->value ?? $invoice->status)->replace('_', ' ') }}</span>
+                        </a>
+                    @empty
+                        <p class="rounded-2xl bg-white px-4 py-4 text-xs font-semibold text-slate-400 border border-slate-200">No pending supplier invoices.</p>
+                    @endforelse
+                </div>
+            </div>
+        </div>
+    </div>
+
     {{-- Daily order progress timeline --}}
     <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-6">
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-5 border-b border-slate-100">

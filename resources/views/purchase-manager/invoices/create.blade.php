@@ -26,7 +26,8 @@
                 <div class="grid gap-4 md:grid-cols-2">
                     <div>
                         <label for="invoice_number" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Invoice Number</label>
-                        <input id="invoice_number" type="text" name="invoice_number" value="{{ old('invoice_number') }}" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
+                        <input id="invoice_number" type="text" name="invoice_number" value="{{ old('invoice_number', $suggestedInvoiceNumber) }}" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
+                        <p class="mt-2 text-xs font-semibold text-slate-500">Generated with timestamp. You can replace it with the supplier's final invoice reference if needed.</p>
                     </div>
                     <div>
                         <label for="amount" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Invoice Amount</label>

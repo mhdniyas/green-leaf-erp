@@ -18,6 +18,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -223,7 +224,10 @@ class RequisitionController extends Controller
             abort(403, 'Unauthorized access.');
         }
 
-        if (! in_array($order->state, ['submitted', 'update_requested'], true) || $order->is_delivered) {
+        $canRequestApprovedUpdate = $order->state === 'approved'
+            && ! PurchaseOrder::whereDate('order_date', $order->business_date)->exists();
+
+        if ((! in_array($order->state, ['submitted', 'update_requested'], true) && ! $canRequestApprovedUpdate) || $order->is_delivered) {
             return redirect()->route('shop-owner.orders.show', $orderNumber)
                 ->with('error', 'This order can no longer be modified from the shop owner workflow.');
         }
@@ -382,34 +386,26 @@ class RequisitionController extends Controller
         $products = Product::with('category')->where('is_active', true)->orderBy('name')->get();
 
         // Load all shop orders for the selected date
-        $orders = ShopOrder::where('business_date', $date)
+        $orders = ShopOrder::whereDate('business_date', $date)
             ->with(['items'])
             ->get();
+        [
+            'matrix' => $matrix,
+            'productFulfillmentTypes' => $productFulfillmentTypes,
+            'shopUpdateMeta' => $shopUpdateMeta,
+        ] = $this->buildBoardPresentationData($orders, $products);
+        $boardFullyApproved = $orders->isNotEmpty()
+            && $orders->every(static fn (ShopOrder $order): bool => $order->state === 'approved');
 
-        // Build a grid of quantities: [product_id][shop_id] = approved_qty ?? requested_qty
-        $matrix = [];
-        $productFulfillmentTypes = [];
-        foreach ($orders as $order) {
-            foreach ($order->items as $item) {
-                $matrix[$item->product_id][$order->shop_id] = [
-                    'requested_qty' => (float) $item->requested_qty,
-                    'approved_qty' => $item->approved_qty !== null ? (float) $item->approved_qty : null,
-                    'fulfillment_type' => $item->fulfillment_type ?? 'warehouse',
-                ];
-                if (! isset($productFulfillmentTypes[$item->product_id])) {
-                    $productFulfillmentTypes[$item->product_id] = $item->fulfillment_type ?? 'warehouse';
-                }
-            }
-        }
-
-        // Set default 'warehouse' for any product not yet in $productFulfillmentTypes
-        foreach ($products as $product) {
-            if (! isset($productFulfillmentTypes[$product->id])) {
-                $productFulfillmentTypes[$product->id] = 'warehouse';
-            }
-        }
-
-        return view('requisitions.board', compact('date', 'shops', 'products', 'matrix', 'productFulfillmentTypes'));
+        return view('requisitions.board', compact(
+            'date',
+            'shops',
+            'products',
+            'matrix',
+            'productFulfillmentTypes',
+            'shopUpdateMeta',
+            'boardFullyApproved'
+        ));
     }
 
     /**
@@ -447,7 +443,7 @@ class RequisitionController extends Controller
 
                 // Find or create the shop order for this shop and date
                 $order = ShopOrder::where('shop_id', $shop->id)
-                    ->where('business_date', $date)
+                    ->whereDate('business_date', $date)
                     ->first();
 
                 if (! $order && $hasQty) {
@@ -464,8 +460,11 @@ class RequisitionController extends Controller
 
                 if ($order) {
                     // Update state to approved if not already
-                    if ($order->state !== 'approved') {
-                        $order->update(['state' => 'approved']);
+                    if ($order->state !== 'approved' || $order->update_reason !== null) {
+                        $order->update([
+                            'state' => 'approved',
+                            'update_reason' => null,
+                        ]);
                     }
 
                     // Process items
@@ -533,37 +532,20 @@ class RequisitionController extends Controller
         $products = Product::with('category')->where('is_active', true)->orderBy('name')->get();
 
         // Load only APPROVED shop orders for the selected date
-        $orders = ShopOrder::where('business_date', $date)
-            ->where('state', 'approved')
+        $orders = ShopOrder::whereDate('business_date', $date)
+            ->whereIn('state', ['approved', 'update_requested'])
             ->with(['items'])
             ->get();
-
-        // Build a grid of quantities: [product_id][shop_id] = approved_qty
-        $matrix = [];
-        $productFulfillmentTypes = [];
-        foreach ($orders as $order) {
-            foreach ($order->items as $item) {
-                $matrix[$item->product_id][$order->shop_id] = [
-                    'requested_qty' => (float) $item->requested_qty,
-                    'approved_qty' => $item->approved_qty !== null ? (float) $item->approved_qty : null,
-                    'fulfillment_type' => $item->fulfillment_type ?? 'warehouse',
-                ];
-                if (! isset($productFulfillmentTypes[$item->product_id])) {
-                    $productFulfillmentTypes[$item->product_id] = $item->fulfillment_type ?? 'warehouse';
-                }
-            }
-        }
-
-        // Set default 'warehouse' for any product not yet in $productFulfillmentTypes
-        foreach ($products as $product) {
-            if (! isset($productFulfillmentTypes[$product->id])) {
-                $productFulfillmentTypes[$product->id] = 'warehouse';
-            }
-        }
+        [
+            'matrix' => $matrix,
+            'productFulfillmentTypes' => $productFulfillmentTypes,
+            'shopUpdateMeta' => $shopUpdateMeta,
+        ] = $this->buildBoardPresentationData($orders, $products);
 
         // Load categorized suppliers
         $ownPurchaseSuppliers = Supplier::where('category', 'own_purchase')->orderBy('name')->get();
         $b2bSuppliers = Supplier::where('category', 'b2b')->orderBy('name')->get();
+        $defaultPurchaseSupplier = Supplier::defaultPurchase()->first();
 
         // Build product supplier map based on existing POs for this date
         $existingPos = PurchaseOrder::whereDate('order_date', $date)->with(['items', 'supplier'])->get();
@@ -575,16 +557,22 @@ class RequisitionController extends Controller
             }
         }
 
-        // Fall back to the last supplier used overall for each product
-        $lastPoItems = PurchaseOrderItem::whereIn('product_id', $products->pluck('id'))
-            ->with('purchaseOrder')
-            ->orderBy('id', 'desc')
-            ->get()
-            ->unique('product_id');
+        if ($defaultPurchaseSupplier) {
+            foreach ($products as $product) {
+                $productSupplierMap[$product->id] ??= $defaultPurchaseSupplier->id;
+            }
+        } else {
+            // Fall back to the last supplier used overall for each product when no global default is configured.
+            $lastPoItems = PurchaseOrderItem::whereIn('product_id', $products->pluck('id'))
+                ->with('purchaseOrder')
+                ->orderBy('id', 'desc')
+                ->get()
+                ->unique('product_id');
 
-        foreach ($lastPoItems as $item) {
-            if (! isset($productSupplierMap[$item->product_id]) && $item->purchaseOrder) {
-                $productSupplierMap[$item->product_id] = $item->purchaseOrder->supplier_id;
+            foreach ($lastPoItems as $item) {
+                if (! isset($productSupplierMap[$item->product_id]) && $item->purchaseOrder) {
+                    $productSupplierMap[$item->product_id] = $item->purchaseOrder->supplier_id;
+                }
             }
         }
 
@@ -598,7 +586,8 @@ class RequisitionController extends Controller
             'b2bSuppliers',
             'productSupplierMap',
             'approvedBoardSynced',
-            'existingPos'
+            'existingPos',
+            'shopUpdateMeta'
         ));
     }
 
@@ -628,6 +617,24 @@ class RequisitionController extends Controller
         $suppliers = $request->input('suppliers', []);
         $poSelectionEnabled = $request->has('po_selection_enabled');
         $selectedProductIds = $request->input('selected_products', []);
+
+        $selectedProductIds = array_map('intval', $selectedProductIds);
+        $missingSupplierProducts = Product::query()
+            ->whereIn('id', $this->resolveProductsMissingSuppliers(
+                $quantities,
+                $suppliers,
+                $poSelectionEnabled,
+                $selectedProductIds
+            ))
+            ->orderBy('name')
+            ->pluck('name')
+            ->all();
+
+        if ($missingSupplierProducts !== []) {
+            return redirect()->route('requisitions.approved_board', ['date' => $date])
+                ->withInput()
+                ->with('error', 'Select a supplier for every selected product before generating purchase orders. Missing suppliers: '.implode(', ', $missingSupplierProducts).'.');
+        }
 
         DB::transaction(function () use ($date, $quantities, $fulfillmentTypes, $suppliers, $poSelectionEnabled, $selectedProductIds, $request): void {
             // Find all active shops to know who we might need to create orders for
@@ -662,8 +669,11 @@ class RequisitionController extends Controller
 
                 if ($order) {
                     // Update state to approved if not already
-                    if ($order->state !== 'approved') {
-                        $order->update(['state' => 'approved']);
+                    if ($order->state !== 'approved' || $order->update_reason !== null) {
+                        $order->update([
+                            'state' => 'approved',
+                            'update_reason' => null,
+                        ]);
                     }
 
                     // Process items
@@ -726,29 +736,23 @@ class RequisitionController extends Controller
 
         $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
-        $products = Product::where('is_active', true)->orderBy('name')->get();
-        $orders = ShopOrder::where('business_date', $date)
-            ->where('state', 'approved')
+        $products = Product::with('category')->where('is_active', true)->orderBy('name')->get();
+        $orders = ShopOrder::whereDate('business_date', $date)
+            ->whereIn('state', ['approved', 'update_requested'])
             ->with(['items'])
             ->get();
-
-        $matrix = [];
-        $productFulfillmentTypes = [];
-        foreach ($orders as $order) {
-            foreach ($order->items as $item) {
-                $matrix[$item->product_id][$order->shop_id] = $item->approved_qty;
-                if (! isset($productFulfillmentTypes[$item->product_id])) {
-                    $productFulfillmentTypes[$item->product_id] = $item->fulfillment_type ?? 'warehouse';
-                }
-            }
-        }
+        [
+            'matrix' => $matrix,
+            'productFulfillmentTypes' => $productFulfillmentTypes,
+        ] = $this->buildBoardPresentationData($orders, $products);
+        $filteredProducts = $this->filterBoardProductsForExport($products, $matrix, $productFulfillmentTypes, $request);
 
         $headers = [
             'Content-Type' => 'text/csv',
             'Content-Disposition' => 'attachment; filename="approved_board_export_'.$date.'.csv"',
         ];
 
-        $callback = function () use ($shops, $products, $matrix, $productFulfillmentTypes, $date): void {
+        $callback = function () use ($shops, $filteredProducts, $matrix, $productFulfillmentTypes, $date): void {
             $file = fopen('php://output', 'w');
             if ($file) {
                 fputcsv($file, ['Approved Consolidated Requisitions Board', 'Date: '.$date]);
@@ -763,8 +767,8 @@ class RequisitionController extends Controller
                 fputcsv($file, $headerRow);
 
                 // Body Rows
-                foreach ($products as $index => $product) {
-                    $rowTotal = 0;
+                foreach ($filteredProducts->values() as $index => $product) {
+                    $rowTotal = 0.0;
                     $row = [
                         $index + 1,
                         $product->name,
@@ -773,7 +777,7 @@ class RequisitionController extends Controller
                     ];
 
                     foreach ($shops as $shop) {
-                        $qty = $matrix[$product->id][$shop->id] ?? 0;
+                        $qty = $this->resolveMatrixQuantity($matrix[$product->id][$shop->id] ?? null);
                         $row[] = $qty > 0 ? number_format((float) $qty, 2) : '-';
                         if ($qty > 0) {
                             $rowTotal += $qty;
@@ -801,32 +805,123 @@ class RequisitionController extends Controller
         }
 
         $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
-        $type = $request->input('type', 'both');
+        $type = (string) $request->input('type', 'both');
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
-        $products = Product::where('is_active', true)->orderBy('name')->get();
-        $orders = ShopOrder::where('business_date', $date)
-            ->where('state', 'approved')
+        $products = Product::with('category')->where('is_active', true)->orderBy('name')->get();
+        $orders = ShopOrder::whereDate('business_date', $date)
+            ->whereIn('state', ['approved', 'update_requested'])
             ->with(['items'])
             ->get();
+        [
+            'matrix' => $matrix,
+            'productFulfillmentTypes' => $productFulfillmentTypes,
+        ] = $this->buildBoardPresentationData($orders, $products);
+        $filteredProducts = $this->filterBoardProductsForExport($products, $matrix, $productFulfillmentTypes, $request);
 
-        $matrix = [];
-        $productFulfillmentTypes = [];
-        foreach ($orders as $order) {
-            foreach ($order->items as $item) {
-                $matrix[$item->product_id][$order->shop_id] = $item->approved_qty;
-                if (! isset($productFulfillmentTypes[$item->product_id])) {
-                    $productFulfillmentTypes[$item->product_id] = $item->fulfillment_type ?? 'warehouse';
+        return view('requisitions.board_pdf', [
+            'date' => $date,
+            'shops' => $shops,
+            'products' => $filteredProducts,
+            'matrix' => $matrix,
+            'productFulfillmentTypes' => $productFulfillmentTypes,
+            'boardTitle' => match ($type) {
+                'warehouse' => 'Approved Warehouse (Bulk) Requisitions Board',
+                'selection' => 'Approved Selection (Packet) Requisitions Board',
+                default => 'Approved Consolidated Requisitions Board',
+            },
+        ]);
+    }
+
+    public function exportBoardCsv(Request $request): StreamedResponse
+    {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+            abort(403, 'Unauthorized access.');
+        }
+
+        $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
+        $shops = Shop::where('status', 'active')->orderBy('name')->get();
+        $products = Product::with('category')->where('is_active', true)->orderBy('name')->get();
+        $orders = ShopOrder::whereDate('business_date', $date)
+            ->with(['items'])
+            ->get();
+        [
+            'matrix' => $matrix,
+            'productFulfillmentTypes' => $productFulfillmentTypes,
+        ] = $this->buildBoardPresentationData($orders, $products);
+        $filteredProducts = $this->filterBoardProductsForExport($products, $matrix, $productFulfillmentTypes, $request);
+
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="requisitions_board_export_'.$date.'.csv"',
+        ];
+
+        $callback = function () use ($shops, $filteredProducts, $matrix, $productFulfillmentTypes, $date): void {
+            $file = fopen('php://output', 'w');
+            if ($file) {
+                fputcsv($file, ['Consolidated Requisitions Board', 'Date: '.$date]);
+                fputcsv($file, []);
+
+                $headerRow = ['SL No', 'Item Name', 'SKU', 'Fulfillment'];
+                foreach ($shops as $shop) {
+                    $headerRow[] = $shop->name;
                 }
+                $headerRow[] = 'Total';
+                fputcsv($file, $headerRow);
+
+                foreach ($filteredProducts->values() as $index => $product) {
+                    $rowTotal = 0.0;
+                    $row = [
+                        $index + 1,
+                        $product->name,
+                        $product->sku,
+                        ucfirst($productFulfillmentTypes[$product->id] ?? 'warehouse'),
+                    ];
+
+                    foreach ($shops as $shop) {
+                        $qty = $this->resolveMatrixQuantity($matrix[$product->id][$shop->id] ?? null);
+                        $row[] = $qty > 0 ? number_format($qty, 2) : '-';
+                        if ($qty > 0) {
+                            $rowTotal += $qty;
+                        }
+                    }
+
+                    $row[] = number_format($rowTotal, 2).' '.$product->unit;
+                    fputcsv($file, $row);
+                }
+
+                fclose($file);
             }
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
+
+    public function exportBoardPdf(Request $request): View
+    {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+            abort(403, 'Unauthorized access.');
         }
 
-        foreach ($products as $product) {
-            if (! isset($productFulfillmentTypes[$product->id])) {
-                $productFulfillmentTypes[$product->id] = 'warehouse';
-            }
-        }
+        $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
+        $shops = Shop::where('status', 'active')->orderBy('name')->get();
+        $products = Product::with('category')->where('is_active', true)->orderBy('name')->get();
+        $orders = ShopOrder::whereDate('business_date', $date)
+            ->with(['items'])
+            ->get();
+        [
+            'matrix' => $matrix,
+            'productFulfillmentTypes' => $productFulfillmentTypes,
+        ] = $this->buildBoardPresentationData($orders, $products);
+        $filteredProducts = $this->filterBoardProductsForExport($products, $matrix, $productFulfillmentTypes, $request);
 
-        return view('requisitions.approved_board_pdf', compact('date', 'shops', 'products', 'matrix', 'productFulfillmentTypes', 'type'));
+        return view('requisitions.board_pdf', [
+            'date' => $date,
+            'shops' => $shops,
+            'products' => $filteredProducts,
+            'matrix' => $matrix,
+            'productFulfillmentTypes' => $productFulfillmentTypes,
+            'boardTitle' => 'Consolidated Requisitions Board',
+        ]);
     }
 
     /**
@@ -851,6 +946,7 @@ class RequisitionController extends Controller
 
         // Load all active products to resolve fallback suppliers if needed
         $products = Product::where('is_active', true)->get();
+        $defaultPurchaseSupplier = Supplier::defaultPurchase()->first();
 
         // Get fallback suppliers (last PO supplier used overall for each product)
         $productSupplierMap = [];
@@ -884,13 +980,20 @@ class RequisitionController extends Controller
                 continue;
             }
 
-            $supplierId = isset($suppliers[$productId]) ? (int) $suppliers[$productId] : ($productSupplierMap[$productId] ?? null);
+            $supplierId = isset($suppliers[$productId]) ? (int) $suppliers[$productId] : null;
+
+            if (! $supplierId && $defaultPurchaseSupplier) {
+                $supplierId = $defaultPurchaseSupplier->id;
+            }
 
             if (! $supplierId) {
-                // Default to the first own_purchase supplier as a final fallback
-                $firstSupplier = Supplier::where('category', 'own_purchase')->first() ?? Supplier::first();
-                if ($firstSupplier) {
-                    $supplierId = $firstSupplier->id;
+                $supplierId = $productSupplierMap[$productId] ?? null;
+            }
+
+            if (! $supplierId) {
+                $fallbackSupplier = Supplier::where('category', 'own_purchase')->first() ?? Supplier::first();
+                if ($fallbackSupplier) {
+                    $supplierId = $fallbackSupplier->id;
                 }
             }
 
@@ -976,6 +1079,44 @@ class RequisitionController extends Controller
                 $po->forceDelete(); // Force delete empty auto-generated POs
             }
         }
+    }
+
+    /**
+     * Resolve selected products that still have approved quantity but no explicit supplier selection.
+     *
+     * @param  array<int|string, array<int|string, mixed>>  $quantities
+     * @param  array<int|string, mixed>  $suppliers
+     * @param  array<int, int>  $selectedProductIds
+     * @return array<int, int>
+     */
+    private function resolveProductsMissingSuppliers(
+        array $quantities,
+        array $suppliers,
+        bool $poSelectionEnabled,
+        array $selectedProductIds
+    ): array {
+        $missingProductIds = [];
+
+        foreach ($quantities as $productId => $shopQuantities) {
+            $normalizedProductId = (int) $productId;
+
+            if ($poSelectionEnabled && ! in_array($normalizedProductId, $selectedProductIds, true)) {
+                continue;
+            }
+
+            $hasApprovedQuantity = collect($shopQuantities)
+                ->contains(fn ($quantity) => (float) $quantity > 0);
+
+            if (! $hasApprovedQuantity) {
+                continue;
+            }
+
+            if (! isset($suppliers[$productId]) || (int) $suppliers[$productId] <= 0) {
+                $missingProductIds[] = $normalizedProductId;
+            }
+        }
+
+        return array_values(array_unique($missingProductIds));
     }
 
     /**
@@ -1249,5 +1390,165 @@ class RequisitionController extends Controller
         $order->items()
             ->whereNotIn('product_id', $incomingProductIds)
             ->delete();
+    }
+
+    /**
+     * @param  Collection<int, ShopOrder>  $orders
+     * @param  Collection<int, Product>  $products
+     * @return array{matrix: array<int, array<int, array{requested_qty: float, approved_qty: ?float, fulfillment_type: string, needs_attention: bool, order_state: string}>>, productFulfillmentTypes: array<int, string>, shopUpdateMeta: array<int, array{has_update_request: bool, update_reason: ?string, order_number: ?string, changed_items_count: int}>}
+     */
+    private function buildBoardPresentationData($orders, $products): array
+    {
+        $matrix = [];
+        $productFulfillmentTypes = [];
+        $shopUpdateMeta = [];
+
+        foreach ($orders as $order) {
+            $changedItemsCount = 0;
+
+            foreach ($order->items as $item) {
+                $approvedQty = $item->approved_qty !== null ? (float) $item->approved_qty : null;
+                $requestedQty = (float) $item->requested_qty;
+                $needsAttention = $order->state === 'update_requested'
+                    && ($approvedQty === null || abs($requestedQty - $approvedQty) > 0.0001);
+
+                if ($needsAttention) {
+                    $changedItemsCount++;
+                }
+
+                $matrix[$item->product_id][$order->shop_id] = [
+                    'requested_qty' => $requestedQty,
+                    'approved_qty' => $approvedQty,
+                    'fulfillment_type' => $item->fulfillment_type ?? 'warehouse',
+                    'needs_attention' => $needsAttention,
+                    'order_state' => $order->state,
+                ];
+
+                if (! isset($productFulfillmentTypes[$item->product_id])) {
+                    $productFulfillmentTypes[$item->product_id] = $item->fulfillment_type ?? 'warehouse';
+                }
+            }
+
+            $existingShopMeta = $shopUpdateMeta[$order->shop_id] ?? [
+                'has_update_request' => false,
+                'update_reason' => null,
+                'order_number' => null,
+                'changed_items_count' => 0,
+            ];
+
+            if ($order->state === 'update_requested') {
+                $shopUpdateMeta[$order->shop_id] = [
+                    'has_update_request' => true,
+                    'update_reason' => $order->update_reason,
+                    'order_number' => $order->order_number,
+                    'changed_items_count' => max($existingShopMeta['changed_items_count'], $changedItemsCount),
+                ];
+            } else {
+                $shopUpdateMeta[$order->shop_id] = $existingShopMeta;
+            }
+        }
+
+        foreach ($products as $product) {
+            if (! isset($productFulfillmentTypes[$product->id])) {
+                $productFulfillmentTypes[$product->id] = 'warehouse';
+            }
+        }
+
+        return [
+            'matrix' => $matrix,
+            'productFulfillmentTypes' => $productFulfillmentTypes,
+            'shopUpdateMeta' => $shopUpdateMeta,
+        ];
+    }
+
+    /**
+     * @param  Collection<int, Product>  $products
+     * @param  array<int, array<int, array{requested_qty: float, approved_qty: ?float, fulfillment_type: string, needs_attention: bool, order_state: string}>>  $matrix
+     * @param  array<int, string>  $productFulfillmentTypes
+     * @return Collection<int, Product>
+     */
+    private function filterBoardProductsForExport(
+        Collection $products,
+        array $matrix,
+        array $productFulfillmentTypes,
+        Request $request
+    ): Collection {
+        $search = strtolower(trim((string) $request->input('search', '')));
+        $fulfillment = (string) $request->input('fulfillment', 'all');
+        $hasOrders = $request->boolean('has_orders', true);
+        $orderedProductIds = collect((array) $request->input('ordered_product_ids', []))
+            ->map(static fn ($productId): int => (int) $productId)
+            ->filter()
+            ->values()
+            ->all();
+
+        $filteredProducts = $products->filter(function (Product $product) use ($search, $fulfillment, $hasOrders, $matrix, $productFulfillmentTypes): bool {
+            $productFulfillment = $productFulfillmentTypes[$product->id] ?? 'warehouse';
+            if ($fulfillment !== 'all' && $productFulfillment !== $fulfillment) {
+                return false;
+            }
+
+            if ($search !== '') {
+                $haystacks = [
+                    strtolower($product->name),
+                    strtolower($product->sku),
+                    strtolower((string) optional($product->category)->name),
+                ];
+
+                $matchesSearch = collect($haystacks)->contains(
+                    static fn (string $value): bool => str_contains($value, $search)
+                );
+
+                if (! $matchesSearch) {
+                    return false;
+                }
+            }
+
+            if ($hasOrders && $this->calculateProductRowTotal($matrix[$product->id] ?? []) <= 0) {
+                return false;
+            }
+
+            return true;
+        });
+
+        if ($orderedProductIds === []) {
+            return $filteredProducts->values();
+        }
+
+        $orderMap = array_flip($orderedProductIds);
+
+        return $filteredProducts
+            ->sortBy(static fn (Product $product): int => $orderMap[$product->id] ?? PHP_INT_MAX)
+            ->values();
+    }
+
+    /**
+     * @param  array<int, array{requested_qty: float, approved_qty: ?float, fulfillment_type: string, needs_attention: bool, order_state: string}>  $productShopMatrix
+     */
+    private function calculateProductRowTotal(array $productShopMatrix): float
+    {
+        $rowTotal = 0.0;
+
+        foreach ($productShopMatrix as $qtyData) {
+            $rowTotal += $this->resolveMatrixQuantity($qtyData);
+        }
+
+        return $rowTotal;
+    }
+
+    /**
+     * @param  array{requested_qty?: float, approved_qty?: ?float}|null  $qtyData
+     */
+    private function resolveMatrixQuantity(?array $qtyData): float
+    {
+        if ($qtyData === null) {
+            return 0.0;
+        }
+
+        if (array_key_exists('approved_qty', $qtyData) && $qtyData['approved_qty'] !== null) {
+            return (float) $qtyData['approved_qty'];
+        }
+
+        return (float) ($qtyData['requested_qty'] ?? 0.0);
     }
 }

@@ -34,24 +34,46 @@ class PurchaseInvoiceController extends Controller
     {
         Gate::authorize('create', PurchaseInvoice::class);
 
-        $grnId = $request->integer('goods_received_id');
-        if (! $grnId) {
+        $goodsReceivedReference = trim((string) $request->string('goods_received'));
+
+        if ($goodsReceivedReference === '' && $request->filled('goods_received_id')) {
+            $legacyGoodsReceivedId = $request->integer('goods_received_id');
+
+            if ($legacyGoodsReceivedId > 0) {
+                /** @var GoodsReceived $legacyGrn */
+                $legacyGrn = GoodsReceived::findOrFail($legacyGoodsReceivedId);
+
+                return redirect()->route('purchasing.invoices.create', [
+                    'goods_received' => $legacyGrn,
+                ]);
+            }
+        }
+
+        if ($goodsReceivedReference === '') {
             return redirect()->route('purchasing.grns.index')
                 ->with('error', 'Please select a Goods Received Note to create an invoice.');
         }
 
         /** @var GoodsReceived $grn */
-        $grn = GoodsReceived::findOrFail($grnId);
+        $grn = GoodsReceived::query()
+            ->where((new GoodsReceived)->getRouteKeyName(), $goodsReceivedReference)
+            ->when(
+                GoodsReceived::hasPublicUuidColumn(),
+                fn ($query) => $query->orWhere('grn_number', $goodsReceivedReference)
+            )
+            ->firstOrFail();
         $grn->load(['purchaseOrder.supplier', 'items.product']);
 
         // Check if there is an existing invoice for this GRN
-        $existingInvoice = PurchaseInvoice::where('goods_received_id', $grnId)->first();
+        $existingInvoice = PurchaseInvoice::where('goods_received_id', $grn->id)->first();
         if ($existingInvoice) {
             return redirect()->route('purchasing.invoices.show', $existingInvoice)
                 ->with('warning', 'An invoice has already been created for this Goods Received Note.');
         }
 
-        return view('purchase-manager.invoices.create', compact('grn'));
+        $suggestedInvoiceNumber = 'PINV-'.now()->format('Ymd-Hisv');
+
+        return view('purchase-manager.invoices.create', compact('grn', 'suggestedInvoiceNumber'));
     }
 
     public function store(StorePurchaseInvoiceRequest $request): RedirectResponse

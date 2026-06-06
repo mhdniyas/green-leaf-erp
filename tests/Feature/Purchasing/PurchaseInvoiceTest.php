@@ -106,10 +106,12 @@ class PurchaseInvoiceTest extends TestCase
     public function test_accountant_can_see_create_invoice_page_with_grn(): void
     {
         $response = $this->actingAs($this->accountant)
-            ->get(route('purchasing.invoices.create', ['goods_received_id' => $this->grn->id]));
+            ->get(route('purchasing.invoices.create', ['goods_received' => $this->grn]));
 
         $response->assertOk();
         $response->assertSee($this->grn->grn_number);
+        $response->assertSee('Generated with timestamp');
+        $this->assertStringContainsString('goods_received='.$this->grn->public_uuid, route('purchasing.invoices.create', ['goods_received' => $this->grn]));
     }
 
     public function test_accountant_can_store_purchase_invoice_and_closes_purchase_order(): void
@@ -152,9 +154,28 @@ class PurchaseInvoiceTest extends TestCase
 
         // Try creating a second one
         $response = $this->actingAs($this->accountant)
-            ->get(route('purchasing.invoices.create', ['goods_received_id' => $this->grn->id]));
+            ->get(route('purchasing.invoices.create', ['goods_received' => $this->grn]));
 
         $response->assertRedirect(route('purchasing.invoices.show', PurchaseInvoice::first()));
+    }
+
+    public function test_legacy_invoice_create_url_redirects_to_canonical_grn_reference(): void
+    {
+        $response = $this->actingAs($this->accountant)
+            ->get(route('purchasing.invoices.create', ['goods_received_id' => $this->grn->id]));
+
+        $response->assertRedirect(route('purchasing.invoices.create', ['goods_received' => $this->grn]));
+    }
+
+    public function test_invoice_show_route_uses_invoice_number_reference(): void
+    {
+        $invoice = PurchaseInvoice::factory()->create([
+            'goods_received_id' => $this->grn->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'PINV-20260606-095606123',
+        ]);
+
+        $this->assertStringContainsString('/purchasing/invoices/'.$invoice->public_uuid, route('purchasing.invoices.show', $invoice));
     }
 
     public function test_accountant_can_update_invoice_status(): void

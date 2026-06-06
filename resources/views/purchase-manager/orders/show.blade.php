@@ -175,7 +175,7 @@
 
                     @if (in_array($status->value, ['sent_to_supplier', 'partially_received', 'received']))
                         @can('purchasing.grn.create')
-                            <x-purchase-manager.components.action-button :href="route('purchasing.grns.create', ['purchase_order_id' => $order->id])" variant="success">Receive Goods</x-purchase-manager.components.action-button>
+                            <x-purchase-manager.components.action-button :href="route('purchasing.grns.create', ['purchase_order' => $order])" variant="success">Receive Goods</x-purchase-manager.components.action-button>
                         @endcan
                     @endif
 

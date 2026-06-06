@@ -19,6 +19,7 @@ class SupplierSeeder extends Seeder
                 'name' => 'Green Valley Farm',
                 'type' => 'Farmer',
                 'category' => 'own_purchase',
+                'is_default_purchase' => true,
                 'contact' => 'John Doe (+61 412 345 678)',
                 'payment_terms' => 'COD',
                 'quality_score' => 100.00,
@@ -27,6 +28,7 @@ class SupplierSeeder extends Seeder
                 'name' => 'Sunset Organic Cultivators',
                 'type' => 'Farmer',
                 'category' => 'own_purchase',
+                'is_default_purchase' => false,
                 'contact' => 'Sarah Smith (contact@sunsetorganic.com)',
                 'payment_terms' => 'Net 7',
                 'quality_score' => 100.00,
@@ -35,6 +37,7 @@ class SupplierSeeder extends Seeder
                 'name' => 'Apex Fresh Produce',
                 'type' => 'Market Agent',
                 'category' => 'own_purchase',
+                'is_default_purchase' => false,
                 'contact' => 'David Lee (+61 498 765 432)',
                 'payment_terms' => 'Net 15',
                 'quality_score' => 100.00,
@@ -43,6 +46,7 @@ class SupplierSeeder extends Seeder
                 'name' => 'Global Produce Direct',
                 'type' => 'Importer',
                 'category' => 'b2b',
+                'is_default_purchase' => false,
                 'contact' => 'operations@globalproduce.com',
                 'payment_terms' => 'Net 30',
                 'quality_score' => 100.00,
@@ -51,6 +55,7 @@ class SupplierSeeder extends Seeder
                 'name' => 'Unity Growers Co-op',
                 'type' => 'Co-operative',
                 'category' => 'own_purchase',
+                'is_default_purchase' => false,
                 'contact' => 'Co-op Office (03 9876 5432)',
                 'payment_terms' => 'Net 15',
                 'quality_score' => 100.00,
@@ -59,6 +64,7 @@ class SupplierSeeder extends Seeder
                 'name' => 'B2B Partners Ltd',
                 'type' => 'B2B Supplier',
                 'category' => 'b2b',
+                'is_default_purchase' => false,
                 'contact' => 'b2b@partners.com',
                 'payment_terms' => 'Net 30',
                 'quality_score' => 100.00,
@@ -67,7 +73,10 @@ class SupplierSeeder extends Seeder
 
         foreach ($suppliers as $supplier) {
             $record = Supplier::firstOrCreate(['name' => $supplier['name']], $supplier);
-            $record->update(['category' => $supplier['category']]);
+            $record->update([
+                'category' => $supplier['category'],
+                'is_default_purchase' => $supplier['is_default_purchase'],
+            ]);
         }
     }
 }

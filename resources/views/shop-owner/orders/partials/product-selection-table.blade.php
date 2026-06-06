@@ -17,6 +17,7 @@
                 'current_qty' => $currentQuantity,
                 'suggested_qty' => $suggestedQuantity,
                 'yesterday_qty' => $suggestedQuantity,
+                'price' => (float) ($product->effective_price ?? $product->base_price ?? 0),
             ]);
         }
     }
@@ -48,9 +49,10 @@
                                 <p class="font-bold text-slate-900 text-xs truncate">{{ $product->name }}</p>
                                 <p class="mt-0.5 text-[10px] text-slate-400 truncate">{{ $product->sku }}</p>
                             </div>
-                            <span class="rounded-lg bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-700 shrink-0">
-                                {{ number_format((float) $frequentProduct['last_quantity'], 2) }} {{ $product->unit }}
-                            </span>
+                            <div class="shrink-0 text-right">
+                                <span class="rounded-lg bg-cyan-50 px-2 py-0.5 text-[10px] font-black text-cyan-700">INR {{ number_format((float) ($product->effective_price ?? $product->base_price ?? 0), 2) }}</span>
+                                <p class="mt-1 text-[10px] font-black text-emerald-700">{{ number_format((float) $frequentProduct['last_quantity'], 2) }} {{ $product->unit }}</p>
+                            </div>
                         </div>
                     </button>
                 @endforeach
@@ -73,10 +75,11 @@
             Search a product, tap a frequent item, or load a custom list to start the order.
         </div>
 
-        <div class="mt-4 hidden border-b border-slate-200 pb-2 text-[10px] md:text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 grid grid-cols-[1.5fr_90px_70px_36px] gap-2 sm:grid-cols-[1.5fr_110px_90px_48px]" data-selected-table-head>
+        <div class="mt-4 hidden border-b border-slate-200 pb-2 text-[10px] md:text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 grid grid-cols-[minmax(0,1.4fr)_90px_150px_90px_36px] gap-2 sm:grid-cols-[minmax(0,1.5fr)_100px_170px_110px_48px]" data-selected-table-head>
             <span>Product</span>
+            <span class="text-right">Price</span>
             <span class="text-right">Qty</span>
-            <span class="text-right">Sug.</span>
+            <span class="text-right">Total</span>
             <span></span>
         </div>
         <div data-selected-products class="mt-2 space-y-1"></div>
@@ -135,6 +138,10 @@
                         </div>
                         <div class="flex items-center gap-4 shrink-0 pl-3">
                             <div class="text-right">
+                                <p class="text-[9px] font-bold uppercase tracking-wider text-slate-400">Price</p>
+                                <p class="text-xs font-bold text-cyan-700">INR {{ number_format((float) $productData['price'], 2) }}</p>
+                            </div>
+                            <div class="text-right">
                                 <p class="text-[9px] font-bold uppercase tracking-wider text-slate-400">Sug.</p>
                                 <p class="text-xs font-bold text-slate-700">{{ number_format((float) $productData['suggested_qty'], 2) }}</p>
                             </div>
@@ -159,6 +166,7 @@
                 data-order-qty
                 data-master-qty
                 data-product-id="{{ $productData['id'] }}"
+                data-effective-price="{{ number_format((float) $productData['price'], 2, '.', '') }}"
             >
         @endforeach
     </div>

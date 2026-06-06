@@ -15,6 +15,8 @@ class SupplierResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'type' => $this->type,
+            'category' => $this->category,
+            'is_default_purchase' => $this->is_default_purchase,
             'contact' => $this->contact,
             'payment_terms' => $this->payment_terms,
             'quality_score' => $this->quality_score,

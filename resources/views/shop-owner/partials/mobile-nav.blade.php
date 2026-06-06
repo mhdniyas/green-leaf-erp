@@ -13,6 +13,12 @@
             'type' => 'link'
         ],
         [
+            'label' => 'Prices',
+            'route' => 'shop-owner.prices.index',
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m3.75-9.75h-6a2.25 2.25 0 100 4.5h4.5a2.25 2.25 0 110 4.5h-6" /></svg>',
+            'type' => 'link'
+        ],
+        [
             'label' => 'Orders',
             'route' => 'shop-owner.orders.index',
             'icon' => '<svg class="h-7 w-7 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22V12" /><path d="M12 12c-2-2.67-4.5-4-7.5-4s-3.5 1-3.5 3c0 3 2.5 5 7.5 5h3.5Z" /><path d="M12 12c2-2.67 4.5-4 7.5-4s-3.5 1-3.5 3c0 3-2.5 5-7.5 5H12Z" /><path d="M12 12c-1-3.5-2-6.5-.5-9.5 2.5 1.5 2.5 5.5.5 9.5Z" /></svg>',
@@ -24,12 +30,6 @@
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>',
             'type' => 'link'
         ],
-        [
-            'label' => 'Order History',
-            'route' => 'shop-owner.orders.history',
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>',
-            'type' => 'link'
-        ]
     ];
 @endphp
 

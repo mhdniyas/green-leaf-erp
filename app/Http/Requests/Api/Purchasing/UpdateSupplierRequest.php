@@ -20,9 +20,18 @@ class UpdateSupplierRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'min:2', 'max:255', 'unique:suppliers,name,'.$supplierId],
             'type' => ['required', 'string', 'in:Farmer,Market Agent,Importer,Co-operative'],
+            'category' => ['required', 'string', 'in:own_purchase,b2b'],
+            'is_default_purchase' => ['nullable', 'boolean'],
             'contact' => ['required', 'string', 'max:255'],
             'payment_terms' => ['required', 'string', 'in:COD,Net 7,Net 15,Net 30'],
             'quality_score' => ['sometimes', 'numeric', 'min:0', 'max:100'],
         ];
+    }
+
+    protected function prepareForValidation(): void
+    {
+        $this->merge([
+            'is_default_purchase' => $this->boolean('is_default_purchase'),
+        ]);
     }
 }

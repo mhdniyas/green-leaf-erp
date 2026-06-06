@@ -23,7 +23,7 @@
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
                 <h2 class="text-lg font-black text-slate-800 tracking-tight">Warehouse Dispatch Sorting Progress</h2>
-                <p class="text-xs text-slate-400 mt-1">Receive purchase orders, log wastage, carry over stock batches, and sort products into shop dispatch points.</p>
+                <p class="text-xs text-slate-400 mt-1">Warehouse receives supplier deliveries, submits GRN reports for manager approval, then sorts approved stock into shop dispatch points.</p>
             </div>
             <div class="flex items-center gap-4 shrink-0">
                 <div class="text-right">
@@ -56,8 +56,8 @@
             <div class="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden">
                 <div class="p-5 border-b border-gray-100 bg-slate-50/50 flex items-center justify-between">
                     <div>
-                        <h3 class="text-xs font-black text-slate-800 uppercase tracking-wider">Goods Receipt</h3>
-                        <p class="text-[10px] text-slate-400 mt-0.5">Approved POs awaiting warehouse check-in</p>
+                        <h3 class="text-xs font-black text-slate-800 uppercase tracking-wider">Warehouse Receiving Queue</h3>
+                        <p class="text-[10px] text-slate-400 mt-0.5">Purchase orders waiting for warehouse quantity and quality reporting</p>
                     </div>
                     <span class="inline-flex items-center rounded-full bg-blue-50 text-blue-700 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider border border-blue-200">
                         {{ $purchaseOrders->count() }} Awaiting
@@ -71,7 +71,7 @@
                                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
                             </div>
                             <p class="text-xs font-bold text-slate-600">All POs Received</p>
-                            <p class="text-[10px] text-slate-400 mt-0.5">No pending approved purchase orders.</p>
+                            <p class="text-[10px] text-slate-400 mt-0.5">No supplier deliveries are waiting for a warehouse GRN report.</p>
                         </div>
                     @else
                         @foreach($purchaseOrders as $po)
@@ -87,7 +87,7 @@
                                             data-supplier-name="{{ $po->supplier->name }}"
                                             data-items="{{ $po->items->toJson() }}"
                                             class="px-2.5 py-1 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-[10px] font-bold shadow-xs transition-colors cursor-pointer">
-                                        Receive Goods
+                                        Create GRN Report
                                     </button>
                                 </div>
                                 <div class="bg-slate-50 rounded-xl p-2.5 border border-slate-100 flex flex-col gap-1.5">
@@ -99,6 +99,91 @@
                                     @endforeach
                                     @if($po->items->count() > 3)
                                         <div class="text-[9px] font-bold text-slate-400 text-right">+{{ $po->items->count() - 3 }} more items</div>
+                                    @endif
+                                </div>
+                            </div>
+                        @endforeach
+                    @endif
+                </div>
+            </div>
+
+            <div class="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden">
+                <div class="p-5 border-b border-gray-100 bg-slate-50/50">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <h3 class="text-xs font-black text-slate-800 uppercase tracking-wider">Submitted GRN Reports</h3>
+                            <p class="text-[10px] text-slate-400 mt-0.5">Warehouse reports sent to purchase manager for approval or correction</p>
+                        </div>
+                        <span class="inline-flex items-center rounded-full bg-slate-100 text-slate-700 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider border border-slate-200">
+                            {{ $submittedGrns->count() }} Total
+                        </span>
+                    </div>
+                    <div class="mt-4 grid grid-cols-3 gap-2">
+                        <div class="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2">
+                            <p class="text-[9px] font-black uppercase tracking-wider text-amber-700">Pending</p>
+                            <p class="mt-1 text-lg font-black text-amber-900">{{ $pendingApprovalGrnCount }}</p>
+                        </div>
+                        <div class="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2">
+                            <p class="text-[9px] font-black uppercase tracking-wider text-rose-700">Rejected</p>
+                            <p class="mt-1 text-lg font-black text-rose-900">{{ $rejectedGrnCount }}</p>
+                        </div>
+                        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+                            <p class="text-[9px] font-black uppercase tracking-wider text-emerald-700">Approved</p>
+                            <p class="mt-1 text-lg font-black text-emerald-900">{{ $approvedGrnCount }}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-5 space-y-4 max-h-[360px] overflow-y-auto divide-y divide-slate-100">
+                    @if($submittedGrns->isEmpty())
+                        <div class="py-10 text-center">
+                            <div class="w-10 h-10 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-2 text-slate-400">
+                                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5h15m-15-15h15M6.75 16.5h10.5a.75.75 0 00.75-.75V8.25a.75.75 0 00-.75-.75H6.75a.75.75 0 00-.75.75v7.5a.75.75 0 00.75.75z" /></svg>
+                            </div>
+                            <p class="text-xs font-bold text-slate-600">No GRN reports yet</p>
+                            <p class="text-[10px] text-slate-400 mt-0.5">Create a warehouse report once a supplier delivery reaches the warehouse.</p>
+                        </div>
+                    @else
+                        @foreach($submittedGrns as $grn)
+                            @php
+                                $statusClasses = match ($grn->status) {
+                                    'approved' => 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                                    'rejected' => 'bg-rose-50 text-rose-700 border-rose-200',
+                                    default => 'bg-amber-50 text-amber-700 border-amber-200',
+                                };
+                                $statusMessage = match ($grn->status) {
+                                    'approved' => 'Approved by purchase manager. Stock is now available for allocation.',
+                                    'rejected' => $grn->rejection_remarks ?: 'Returned by purchase manager for warehouse correction.',
+                                    default => 'Awaiting purchase manager review before inventory is updated.',
+                                };
+                            @endphp
+                            <div class="pt-4 first:pt-0 space-y-2.5">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div class="min-w-0">
+                                        <p class="text-xs font-black text-slate-800">{{ $grn->grn_number }}</p>
+                                        <p class="mt-0.5 text-[10px] font-semibold text-slate-500">
+                                            {{ $grn->purchaseOrder->po_number }} · {{ $grn->purchaseOrder->supplier?->name ?? 'Unknown Supplier' }}
+                                        </p>
+                                    </div>
+                                    <span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider {{ $statusClasses }}">
+                                        {{ str($grn->status)->replace('_', ' ') }}
+                                    </span>
+                                </div>
+                                <p class="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-semibold leading-5 text-slate-600">
+                                    {{ $statusMessage }}
+                                </p>
+                                <div class="flex items-center justify-between gap-3 text-[10px] text-slate-500">
+                                    <span>Reported by {{ $grn->receivedBy?->name ?? 'Warehouse' }}</span>
+                                    <span>{{ $grn->received_at->format('Y-m-d') }}</span>
+                                </div>
+                                <div class="flex flex-wrap gap-2">
+                                    <a href="{{ route('purchasing.grns.show', $grn) }}" class="inline-flex items-center rounded-xl border border-slate-200 px-3 py-1.5 text-[10px] font-black text-slate-700 hover:bg-slate-50 transition-colors">
+                                        View Report
+                                    </a>
+                                    @if($grn->status === 'rejected')
+                                        <a href="{{ route('purchasing.grns.edit', $grn) }}" class="inline-flex items-center rounded-xl bg-rose-600 px-3 py-1.5 text-[10px] font-black text-white hover:bg-rose-700 transition-colors">
+                                            Correct & Resubmit
+                                        </a>
                                     @endif
                                 </div>
                             </div>
@@ -326,7 +411,7 @@
                     <div class="p-6 border-b border-slate-100 bg-slate-50/50">
                         <div class="flex items-center justify-between">
                             <div>
-                                <h3 class="text-base font-black text-slate-800">Receive Goods & Check Discrepancies</h3>
+                                <h3 class="text-base font-black text-slate-800">Warehouse GRN Report</h3>
                                 <p class="text-xs text-slate-400 mt-1" id="grn-modal-subtitle"></p>
                             </div>
                             <button type="button" onclick="closeGrnModal()" class="text-slate-400 hover:text-slate-600 cursor-pointer">
@@ -357,6 +442,10 @@
                                 <input type="number" step="0.01" min="0" name="labour_cost" value="0.00" class="w-full mt-1 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                             </div>
                         </div>
+
+                        <div class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[11px] font-semibold leading-5 text-amber-800">
+                            Submit the warehouse report after checking quantity and quality. Inventory will be added only after purchase manager approval.
+                        </div>
                         
                         <div class="mt-6">
                             <h4 class="text-xs font-bold text-slate-700 mb-3 uppercase tracking-wider">Discrepancy Check</h4>
@@ -368,7 +457,7 @@
                     
                     <div class="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3">
                         <button type="button" onclick="closeGrnModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer">Cancel</button>
-                        <button type="submit" class="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors cursor-pointer">Verify & Receive</button>
+                        <button type="submit" class="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors cursor-pointer">Submit for Manager Approval</button>
                     </div>
                 </form>
             </div>
@@ -560,7 +649,7 @@
                 const items = JSON.parse(btn.getAttribute('data-items'));
 
                 document.getElementById('grn-po-id').value = poId;
-                document.getElementById('grn-modal-subtitle').textContent = `PO: ${poNumber} · Supplier: ${supplierName}`;
+                document.getElementById('grn-modal-subtitle').textContent = `PO: ${poNumber} · Supplier: ${supplierName} · Record the warehouse check before manager approval.`;
                 
                 const container = document.getElementById('grn-items-container');
                 container.innerHTML = '';

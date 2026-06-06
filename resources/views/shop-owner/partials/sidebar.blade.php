@@ -2,6 +2,7 @@
     $shopOwnerNavItems = [
         ['label' => 'Dashboard', 'route' => 'shop-owner.dashboard'],
         ['label' => 'Daily Orders', 'route' => 'shop-owner.orders.index'],
+        ['label' => 'Daily Price Board', 'route' => 'shop-owner.prices.index'],
         ['label' => 'Deliveries', 'route' => 'shop-owner.deliveries.index'],
         ['label' => 'Finance', 'route' => 'shop-owner.finance.index'],
         ['label' => 'Order History', 'route' => 'shop-owner.orders.history'],

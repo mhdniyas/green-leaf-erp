@@ -10,6 +10,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Activitylog\Support\LogOptions;
 
@@ -18,7 +20,10 @@ class PurchaseInvoice extends Model
     /** @use HasFactory<PurchaseInvoiceFactory> */
     use HasFactory, LogsActivity, SoftDeletes;
 
+    private static ?bool $hasPublicUuidColumn = null;
+
     protected $fillable = [
+        'public_uuid',
         'goods_received_id',
         'supplier_id',
         'invoice_number',
@@ -34,6 +39,47 @@ class PurchaseInvoice extends Model
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
     ];
+
+    public function getRouteKeyName(): string
+    {
+        return static::hasPublicUuidColumn() ? 'public_uuid' : 'invoice_number';
+    }
+
+    public function getRouteKey(): mixed
+    {
+        if (static::hasPublicUuidColumn() && $this->public_uuid) {
+            return $this->public_uuid;
+        }
+
+        return $this->invoice_number ?: $this->getKey();
+    }
+
+    public function resolveRouteBinding($value, $field = null): ?Model
+    {
+        $field ??= $this->getRouteKeyName();
+
+        $query = $this->newQuery()->where($field, $value);
+
+        if ($field !== 'invoice_number') {
+            $query->orWhere('invoice_number', $value);
+        }
+
+        return $query->first();
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $purchaseInvoice): void {
+            if (! $purchaseInvoice->public_uuid) {
+                $purchaseInvoice->public_uuid = (string) Str::uuid();
+            }
+        });
+    }
+
+    public static function hasPublicUuidColumn(): bool
+    {
+        return self::$hasPublicUuidColumn ??= Schema::hasColumn('purchase_invoices', 'public_uuid');
+    }
 
     public function getActivitylogOptions(): LogOptions
     {

@@ -27,9 +27,10 @@
                         <div class="space-y-1.5">
                             <label for="invoice_number" class="block text-sm font-medium text-gray-700">Invoice Number <span class="text-red-500">*</span></label>
                             <input id="invoice_number" name="invoice_number" type="text" required
-                                   value="{{ old('invoice_number') }}"
+                                   value="{{ old('invoice_number', $suggestedInvoiceNumber ?? '') }}"
                                    placeholder="e.g. INV-2026-0001"
                                    class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 @error('invoice_number') border-red-300 @enderror">
+                            <p class="text-[10px] text-gray-500 mt-1">Generated with timestamp. Replace it only if the supplier provides a different invoice reference.</p>
                             @error('invoice_number') <p class="text-red-600 text-xs mt-1">{{ $message }}</p> @enderror
                         </div>
 

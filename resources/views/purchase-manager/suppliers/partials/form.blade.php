@@ -19,6 +19,13 @@
                 <input id="type" type="text" name="type" value="{{ old('type', $supplier?->type) }}" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
             </div>
             <div>
+                <label for="category" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Category</label>
+                <select id="category" name="category" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
+                    <option value="own_purchase" @selected(old('category', $supplier?->category ?? 'own_purchase') === 'own_purchase')>Own Purchase</option>
+                    <option value="b2b" @selected(old('category', $supplier?->category) === 'b2b')>B2B Supplier</option>
+                </select>
+            </div>
+            <div>
                 <label for="payment_terms" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Payment Terms</label>
                 <input id="payment_terms" type="text" name="payment_terms" value="{{ old('payment_terms', $supplier?->payment_terms) }}" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
             </div>
@@ -29,6 +36,15 @@
             <div>
                 <label for="quality_score" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Quality Score</label>
                 <input id="quality_score" type="number" step="0.01" min="0" max="100" name="quality_score" value="{{ old('quality_score', $supplier?->quality_score) }}" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
+            </div>
+            <div class="md:col-span-2">
+                <label class="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                    <input id="is_default_purchase" type="checkbox" name="is_default_purchase" value="1" @checked(old('is_default_purchase', $supplier?->is_default_purchase)) class="mt-1 h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500">
+                    <span>
+                        <span class="block text-sm font-black text-slate-900">Default purchase supplier</span>
+                        <span class="mt-1 block text-xs font-semibold text-slate-500">Use this supplier as the preselected default across purchasing boards when no product-specific supplier is already mapped.</span>
+                    </span>
+                </label>
             </div>
         </div>
 

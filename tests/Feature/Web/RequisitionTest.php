@@ -325,6 +325,92 @@ class RequisitionTest extends TestCase
         ]);
     }
 
+    public function test_shop_owner_can_request_update_after_approval_before_purchase_orders_are_generated(): void
+    {
+        Carbon::setTestNow(Carbon::today()->setTime(22, 0, 0));
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => Carbon::tomorrow()->format('Y-m-d'),
+            'state' => 'approved',
+            'created_by' => $this->shopOwner->id,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 10.00,
+            'approved_qty' => 8.00,
+            'unit' => $this->product->unit,
+        ]);
+
+        $response = $this->actingAs($this->shopOwner)
+            ->post(route('requisitions.update-request', $order->order_number), [
+                'reason' => 'Need 2 more kg after sales spike.',
+                'items' => [
+                    $this->product->sku => 12.00,
+                ],
+            ]);
+
+        $response->assertRedirect(route('shop-owner.orders.show', $order->order_number));
+
+        $this->assertDatabaseHas('shop_orders', [
+            'id' => $order->id,
+            'state' => 'update_requested',
+            'update_reason' => 'Need 2 more kg after sales spike.',
+        ]);
+
+        $this->assertDatabaseHas('shop_order_items', [
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 12.00,
+            'approved_qty' => 8.00,
+        ]);
+    }
+
+    public function test_shop_owner_cannot_request_update_after_purchase_orders_are_generated(): void
+    {
+        Carbon::setTestNow(Carbon::today()->setTime(22, 0, 0));
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => Carbon::tomorrow()->format('Y-m-d'),
+            'state' => 'approved',
+            'created_by' => $this->shopOwner->id,
+        ]);
+
+        $supplier = Supplier::create([
+            'name' => 'PO Lock Supplier',
+            'type' => 'Farmer',
+            'category' => 'own_purchase',
+        ]);
+
+        PurchaseOrder::create([
+            'supplier_id' => $supplier->id,
+            'po_number' => 'PO-LOCK-REQ',
+            'status' => POStatus::Approved,
+            'order_date' => Carbon::tomorrow()->format('Y-m-d'),
+            'created_by' => $this->shopOwner->id,
+            'fulfillment_type' => 'warehouse',
+        ]);
+
+        $response = $this->actingAs($this->shopOwner)
+            ->post(route('requisitions.update-request', $order->order_number), [
+                'reason' => 'Late update after purchase order.',
+                'items' => [
+                    $this->product->sku => 12.00,
+                ],
+            ]);
+
+        $response->assertRedirect(route('shop-owner.orders.show', $order->order_number));
+        $response->assertSessionHas('error');
+
+        $this->assertDatabaseHas('shop_orders', [
+            'id' => $order->id,
+            'state' => 'approved',
+        ]);
+    }
+
     public function test_shop_owner_cannot_submit_requisition_after_cutoff_in_business_timezone(): void
     {
         Carbon::setTestNow(Carbon::today()->setTime(22, 0, 0));
@@ -526,6 +612,75 @@ class RequisitionTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Consolidated Requisitions Board');
+        $response->assertSee('Purchasing');
+        $response->assertSee('Approved Board');
+    }
+
+    public function test_requisition_boards_highlight_shop_updates_before_purchase_orders(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => Carbon::tomorrow()->format('Y-m-d'),
+            'state' => 'update_requested',
+            'update_reason' => 'Need extra tomatoes before purchase.',
+            'created_by' => $this->shopOwner->id,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 15.00,
+            'approved_qty' => 10.00,
+            'unit' => $this->product->unit,
+        ]);
+
+        $boardResponse = $this->actingAs($manager)
+            ->get(route('requisitions.board', ['date' => $order->business_date->format('Y-m-d')]));
+
+        $boardResponse->assertOk();
+        $boardResponse->assertSee('Shop Owner Updates Waiting');
+        $boardResponse->assertSee('Update Requested');
+        $boardResponse->assertSee('Need extra tomatoes before purchase.');
+
+        $approvedBoardResponse = $this->actingAs($manager)
+            ->get(route('requisitions.approved_board', ['date' => $order->business_date->format('Y-m-d')]));
+
+        $approvedBoardResponse->assertOk();
+        $approvedBoardResponse->assertSee('Updated Shop Requests Pending');
+        $approvedBoardResponse->assertSee('Update Requested');
+        $approvedBoardResponse->assertSee('Need extra tomatoes before purchase.');
+    }
+
+    public function test_requisitions_board_shows_handoff_actions_once_all_orders_are_approved(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => Carbon::tomorrow()->format('Y-m-d'),
+            'state' => 'approved',
+            'created_by' => $this->shopOwner->id,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 12.00,
+            'approved_qty' => 12.00,
+            'unit' => $this->product->unit,
+        ]);
+
+        $response = $this->actingAs($manager)
+            ->get(route('requisitions.board', ['date' => $order->business_date->format('Y-m-d')]));
+
+        $response->assertOk();
+        $response->assertSee('Continue to Approved Board');
+        $response->assertSee('Save Board Changes');
+        $response->assertDontSee('Save &amp; Approve All', false);
     }
 
     public function test_requisitions_board_page_is_forbidden_to_shop_owner(): void
@@ -656,6 +811,8 @@ class RequisitionTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Approved Requisitions Board');
+        $response->assertSee('Purchasing');
+        $response->assertSee('Requisition Board');
     }
 
     public function test_purchase_manager_can_save_approved_requisition_board_quantities(): void
@@ -882,6 +1039,18 @@ class RequisitionTest extends TestCase
         $response->assertHeader('Content-Type', 'text/csv; charset=UTF-8');
     }
 
+    public function test_purchase_manager_can_export_requisitions_board_csv(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $response = $this->actingAs($manager)
+            ->get(route('requisitions.board.export.csv', ['date' => Carbon::tomorrow()->format('Y-m-d')]));
+
+        $response->assertOk();
+        $response->assertHeader('Content-Type', 'text/csv; charset=UTF-8');
+    }
+
     public function test_purchase_manager_can_export_approved_board_pdf(): void
     {
         $manager = User::factory()->create();
@@ -893,6 +1062,19 @@ class RequisitionTest extends TestCase
         $response->assertOk();
         $response->assertSee('GREEN LEAF ERP');
         $response->assertSee('Approved Consolidated Requisitions Board');
+    }
+
+    public function test_purchase_manager_can_export_requisitions_board_pdf(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $response = $this->actingAs($manager)
+            ->get(route('requisitions.board.export.pdf', ['date' => Carbon::tomorrow()->format('Y-m-d')]));
+
+        $response->assertOk();
+        $response->assertSee('GREEN LEAF ERP');
+        $response->assertSee('Consolidated Requisitions Board');
     }
 
     public function test_purchase_manager_can_selectively_generate_purchase_orders(): void
@@ -1071,5 +1253,78 @@ class RequisitionTest extends TestCase
             'product_id' => $this->product->id,
             'quantity' => 12.00,
         ]);
+    }
+
+    public function test_purchase_manager_cannot_generate_purchase_orders_when_selected_products_are_missing_suppliers(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $date = Carbon::tomorrow()->format('Y-m-d');
+        $supplier = Supplier::create([
+            'name' => 'Validation Supplier',
+            'type' => 'Farmer',
+            'category' => 'own_purchase',
+        ]);
+
+        $product2 = Product::factory()->create(['name' => 'Second Product Missing Supplier']);
+
+        $response = $this->actingAs($manager)
+            ->post(route('requisitions.approved_board.save'), [
+                'date' => $date,
+                'po_selection_enabled' => '1',
+                'selected_products' => [
+                    $this->product->id,
+                    $product2->id,
+                ],
+                'quantities' => [
+                    $this->product->id => [
+                        $this->shop->id => 10.00,
+                    ],
+                    $product2->id => [
+                        $this->shop->id => 15.00,
+                    ],
+                ],
+                'fulfillment_types' => [
+                    $this->product->id => 'warehouse',
+                    $product2->id => 'warehouse',
+                ],
+                'suppliers' => [
+                    $this->product->id => $supplier->id,
+                    $product2->id => '',
+                ],
+            ]);
+
+        $response->assertRedirect(route('requisitions.approved_board', ['date' => $date]));
+        $response->assertSessionHas('error');
+
+        $this->assertDatabaseMissing('purchase_orders', [
+            'supplier_id' => $supplier->id,
+            'order_date' => $date,
+        ]);
+    }
+
+    public function test_approved_board_prefills_global_default_purchase_supplier_for_unmapped_products(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $defaultSupplier = Supplier::factory()->create([
+            'name' => 'Default Purchase Supplier',
+            'category' => 'own_purchase',
+            'is_default_purchase' => true,
+        ]);
+
+        Supplier::factory()->create([
+            'name' => 'Secondary Purchase Supplier',
+            'category' => 'own_purchase',
+            'is_default_purchase' => false,
+        ]);
+
+        $response = $this->actingAs($manager)
+            ->get(route('requisitions.approved_board'));
+
+        $response->assertOk();
+        $response->assertSee('value="'.$defaultSupplier->id.'" selected', false);
     }
 }

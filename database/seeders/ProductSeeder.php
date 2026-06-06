@@ -281,11 +281,40 @@ class ProductSeeder extends Seeder
                     'name' => $data['name'],
                     'sku' => $data['sku'],
                     'unit' => $data['unit'],
+                    'base_price' => $this->resolveBasePrice($data['sku'], $data['unit']),
                     'is_active' => true,
                 ]
             );
         }
 
         $this->command->info('✅ '.Product::count().' products seeded successfully.');
+    }
+
+    private function resolveBasePrice(string $sku, string $unit): float
+    {
+        $skuOverrides = [
+            'APPLEPINKLADY-187' => 185.00,
+            'BABYPOTATO-007' => 42.00,
+            'PINEAPPLE-221' => 65.00,
+            'TOMATON-002' => 38.00,
+            'WRAPPINGROLL-302' => 48.00,
+            'CHERRYTMTOBOX-126' => 220.00,
+            'POTATOAGRA-005' => 34.00,
+            'TOMATOH-001' => 36.00,
+        ];
+
+        if (array_key_exists($sku, $skuOverrides)) {
+            return $skuOverrides[$sku];
+        }
+
+        return match ($unit) {
+            'kg' => 40.00,
+            'box' => 125.00,
+            'pcs' => 18.00,
+            'bag' => 260.00,
+            'roll' => 32.00,
+            'bunch' => 22.00,
+            default => 30.00,
+        };
     }
 }

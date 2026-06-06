@@ -68,6 +68,8 @@ class SupplierTest extends TestCase
         $supplierData = [
             'name' => 'New Supplier Corp',
             'type' => 'Farmer',
+            'category' => 'own_purchase',
+            'is_default_purchase' => '1',
             'contact' => 'John Doe (012-3456789)',
             'payment_terms' => 'Net 15',
         ];
@@ -79,6 +81,8 @@ class SupplierTest extends TestCase
         $this->assertDatabaseHas('suppliers', [
             'name' => 'New Supplier Corp',
             'type' => 'Farmer',
+            'category' => 'own_purchase',
+            'is_default_purchase' => true,
         ]);
     }
 
@@ -87,6 +91,7 @@ class SupplierTest extends TestCase
         $supplierData = [
             'name' => '', // Required
             'type' => 'InvalidType', // Must be one of Farmer, Market Agent, Importer, Co-operative
+            'category' => 'invalid',
             'contact' => '', // Required
             'payment_terms' => 'InvalidTerms', // Must be COD, Net 7, Net 15, Net 30
         ];
@@ -94,7 +99,7 @@ class SupplierTest extends TestCase
         $response = $this->actingAs($this->authorizedUser)
             ->post(route('purchasing.suppliers.store'), $supplierData);
 
-        $response->assertSessionHasErrors(['name', 'type', 'contact', 'payment_terms']);
+        $response->assertSessionHasErrors(['name', 'type', 'category', 'contact', 'payment_terms']);
     }
 
     public function test_authorized_user_can_see_edit_supplier_page(): void
@@ -117,6 +122,7 @@ class SupplierTest extends TestCase
         $updateData = [
             'name' => 'Updated Supplier Name',
             'type' => 'Importer',
+            'category' => 'b2b',
             'contact' => 'Jane Smith (012-9876543)',
             'payment_terms' => 'COD',
         ];
@@ -129,6 +135,38 @@ class SupplierTest extends TestCase
             'id' => $supplier->id,
             'name' => 'Updated Supplier Name',
             'type' => 'Importer',
+            'category' => 'b2b',
+            'is_default_purchase' => false,
+        ]);
+    }
+
+    public function test_new_default_purchase_supplier_replaces_previous_default(): void
+    {
+        $existingDefaultSupplier = Supplier::factory()->create([
+            'category' => 'own_purchase',
+            'is_default_purchase' => true,
+        ]);
+
+        $response = $this->actingAs($this->authorizedUser)
+            ->post(route('purchasing.suppliers.store'), [
+                'name' => 'Primary Farm Supplier',
+                'type' => 'Farmer',
+                'category' => 'own_purchase',
+                'is_default_purchase' => '1',
+                'contact' => 'Primary Contact',
+                'payment_terms' => 'COD',
+            ]);
+
+        $response->assertRedirect(route('purchasing.suppliers.index'));
+
+        $this->assertDatabaseHas('suppliers', [
+            'name' => 'Primary Farm Supplier',
+            'is_default_purchase' => true,
+        ]);
+
+        $this->assertDatabaseHas('suppliers', [
+            'id' => $existingDefaultSupplier->id,
+            'is_default_purchase' => false,
         ]);
     }
 

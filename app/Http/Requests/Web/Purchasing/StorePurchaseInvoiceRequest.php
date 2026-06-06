@@ -18,7 +18,7 @@ class StorePurchaseInvoiceRequest extends FormRequest
         return [
             'goods_received_id' => ['required', 'integer', 'exists:goods_received,id'],
             'supplier_id' => ['required', 'integer', 'exists:suppliers,id'],
-            'invoice_number' => ['required', 'string', 'max:100'],
+            'invoice_number' => ['required', 'string', 'max:100', 'unique:purchase_invoices,invoice_number'],
             'amount' => ['required', 'numeric', 'min:0.01'],
             'status' => ['required', 'string', 'in:pending,approved,paid'],
             'notes' => ['nullable', 'string', 'max:1000'],

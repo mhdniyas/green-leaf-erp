@@ -88,7 +88,7 @@
 
                                 @if(!$hasInvoice)
                                     @can('create', \App\Models\PurchaseInvoice::class)
-                                    <a href="{{ route('purchasing.invoices.create', ['goods_received_id' => $grn->id]) }}"
+                                    <a href="{{ route('purchasing.invoices.create', ['goods_received' => $grn]) }}"
                                        class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-lg transition-colors border border-brand-100 shadow-sm"
                                        title="Match Invoice">
                                         Match Invoice

@@ -33,6 +33,7 @@ class ProductFactory extends Factory
             'sku' => strtoupper(Str::slug($name, '-')).'-'.$this->faker->numerify('###'),
             'unit' => $this->faker->randomElement(['kg', 'kg', 'kg', 'box', 'bunch']),
             'description' => $this->faker->optional()->sentence(),
+            'base_price' => $this->faker->randomFloat(2, 10, 150),
             'is_active' => true,
         ];
     }

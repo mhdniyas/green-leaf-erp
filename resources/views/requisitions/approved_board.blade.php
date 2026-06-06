@@ -1,30 +1,23 @@
 <x-layouts.app title="Approved Requisitions Board">
     <div class="mx-auto px-4 py-8">
-        {{-- Header Section --}}
-        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-8">
-            <div>
-                <a href="{{ route('dashboard') }}" class="text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1.5 transition-colors mb-2">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
-                    Back to Control Center
-                </a>
-                <h1 class="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-3">
-                    Approved Requisitions Board
-                </h1>
-                <p class="text-xs text-slate-500 mt-1">View, edit, and export finalized daily allocations across all shops</p>
-            </div>
+        <div class="mb-6">
+            <p class="text-xs font-black uppercase tracking-[0.18em] text-cyan-700">Purchasing</p>
+            <h1 class="mt-1 text-3xl font-black tracking-tight text-slate-950">Approved Requisitions Board</h1>
+            <p class="mt-2 max-w-3xl text-sm text-slate-600">View, edit, and export finalized daily allocations across all shops.</p>
+        </div>
 
+        <div class="mb-8 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-end">
             <div class="flex flex-wrap items-center gap-4">
-                {{-- Date selection form --}}
                 <form action="{{ route('requisitions.approved_board') }}" method="GET" class="flex items-center gap-3 bg-white px-4 py-2 border border-slate-200 rounded-xl shadow-sm">
                     <label for="date-select" class="text-xs font-bold text-slate-400 uppercase tracking-wider">Delivery Date:</label>
                     <input type="date" id="date-select" name="date" value="{{ $date }}" onchange="this.form.submit()" class="text-xs font-bold text-slate-700 border-0 focus:outline-none focus:ring-0 p-0 cursor-pointer">
                 </form>
 
                 {{-- CSV Export --}}
-                <a href="{{ route('requisitions.approved_board.export.csv', ['date' => $date]) }}" class="inline-flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-4 py-3 rounded-xl transition-all border border-slate-200 shadow-sm">
+                <button type="button" onclick="exportApprovedBoardCsv()" class="inline-flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-4 py-3 rounded-xl transition-all border border-slate-200 shadow-sm cursor-pointer">
                     <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                     Export CSV
-                </a>
+                </button>
 
                 {{-- PDF Export Dropdown --}}
                 <div class="relative inline-block text-left" id="pdf-dropdown-container">
@@ -36,17 +29,17 @@
                     <div id="pdf-dropdown-menu" class="hidden absolute right-0 mt-2 w-56 rounded-xl bg-white border border-slate-200 shadow-lg z-50 py-1.5 divide-y divide-slate-100">
                         <div class="px-3 py-1.5 text-[9px] font-black text-slate-400 uppercase tracking-wider">Print Options</div>
                         <div class="py-1">
-                            <a href="{{ route('requisitions.approved_board.export.pdf', ['date' => $date, 'type' => 'warehouse']) }}" target="_blank" class="flex items-center px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors">
+                            <button type="button" onclick="exportApprovedBoardPdf('warehouse')" class="flex w-full items-center px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors cursor-pointer">
                                 Warehouse (Bulk) Only
-                            </a>
-                            <a href="{{ route('requisitions.approved_board.export.pdf', ['date' => $date, 'type' => 'selection']) }}" target="_blank" class="flex items-center px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors">
+                            </button>
+                            <button type="button" onclick="exportApprovedBoardPdf('selection')" class="flex w-full items-center px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors cursor-pointer">
                                 Selection (Packet) Only
-                            </a>
+                            </button>
                         </div>
                         <div class="py-1">
-                            <a href="{{ route('requisitions.approved_board.export.pdf', ['date' => $date, 'type' => 'both']) }}" target="_blank" class="flex items-center px-4 py-2 text-xs font-black text-emerald-700 hover:bg-emerald-50 hover:text-emerald-900 transition-colors">
+                            <button type="button" onclick="exportApprovedBoardPdf('both')" class="flex w-full items-center px-4 py-2 text-xs font-black text-emerald-700 hover:bg-emerald-50 hover:text-emerald-900 transition-colors cursor-pointer">
                                 Both (Consolidated)
-                            </a>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -99,6 +92,64 @@
             </div>
         @endif
 
+        @php
+            $shopsWithUpdates = collect($shopUpdateMeta ?? [])->filter(fn (array $meta) => $meta['has_update_request']);
+        @endphp
+
+        @if($shopsWithUpdates->isNotEmpty() && ! $approvedBoardSynced)
+            <div class="mb-6 rounded-3xl border border-indigo-200 bg-indigo-50 px-5 py-4 text-indigo-900 shadow-sm">
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                        <p class="text-[11px] font-black uppercase tracking-[0.18em] text-indigo-700">Updated Shop Requests Pending</p>
+                        <p class="mt-1 text-sm font-semibold">Approved allocations changed after shop-owner updates. Click a highlighted shop column to review the note and adjust approvals before generating purchase orders.</p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        @foreach($shops as $shop)
+                            @php
+                                $shopMeta = $shopUpdateMeta[$shop->id] ?? null;
+                            @endphp
+                            @if($shopMeta && $shopMeta['has_update_request'])
+                                <button type="button" onclick="focusShopColumn({{ $shop->id }})" class="rounded-full border border-indigo-200 bg-white px-3 py-1.5 text-[11px] font-black text-indigo-700 transition hover:bg-indigo-100">
+                                    {{ $shop->name }} · {{ $shopMeta['changed_items_count'] }} changes
+                                </button>
+                            @endif
+                        @endforeach
+                    </div>
+                </div>
+            </div>
+        @endif
+
+        <div id="shop-update-panel" class="mb-6 hidden rounded-3xl border border-cyan-200 bg-cyan-50 px-5 py-4 text-cyan-950 shadow-sm">
+            <p class="text-[11px] font-black uppercase tracking-[0.18em] text-cyan-700">Selected Shop Update</p>
+            <h3 id="shop-update-title" class="mt-1 text-base font-black"></h3>
+            <p id="shop-update-meta" class="mt-1 text-sm font-semibold text-cyan-800"></p>
+            <p id="shop-update-reason" class="mt-2 rounded-2xl bg-white/80 px-4 py-3 text-sm text-slate-700"></p>
+        </div>
+
+        <div id="supplier-warning-modal" class="fixed inset-0 z-50 hidden">
+            <div class="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" onclick="closeSupplierWarningModal()"></div>
+            <div class="relative flex min-h-full items-center justify-center px-4 py-8">
+                <div class="w-full max-w-2xl rounded-3xl border border-rose-200 bg-white shadow-2xl">
+                    <div class="border-b border-slate-100 px-6 py-5">
+                        <p class="text-[11px] font-black uppercase tracking-[0.18em] text-rose-700">Supplier Required</p>
+                        <h3 class="mt-1 text-xl font-black text-slate-950">Cannot generate purchase orders yet</h3>
+                        <p class="mt-2 text-sm font-semibold text-slate-600">Every selected product with approved quantity must have a supplier before purchase orders can be generated.</p>
+                    </div>
+                    <div class="px-6 py-5">
+                        <div class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-900">
+                            Missing suppliers for these products:
+                        </div>
+                        <ul id="supplier-warning-list" class="mt-4 space-y-2"></ul>
+                    </div>
+                    <div class="flex justify-end gap-3 border-t border-slate-100 px-6 py-5">
+                        <button type="button" onclick="closeSupplierWarningModal()" class="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-600 transition hover:bg-slate-100">
+                            Back To Board
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         {{-- Filters & Search --}}
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-4 mb-6 flex flex-col md:flex-row items-center gap-4">
             <div class="relative flex-1 w-full">
@@ -136,7 +187,7 @@
 
             <div class="flex items-center gap-4 self-stretch md:self-auto shrink-0 pl-2">
                 <label class="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none">
-                    <input type="checkbox" id="filter-has-orders" onchange="filterBoardRows()" checked class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer">
+                    <input type="checkbox" id="filter-has-orders" checked onchange="filterBoardRows()" class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer">
                     Show only items with orders
                 </label>
             </div>
@@ -192,8 +243,20 @@
                                 <th class="py-4 px-3 text-center min-w-[140px] border-r border-slate-200 text-slate-700 uppercase font-black text-[9px] tracking-wider bg-slate-50 z-20">Fulfillment</th>
                                 <th class="py-4 px-3 text-center min-w-[160px] border-r border-slate-200 text-slate-700 uppercase font-black text-[9px] tracking-wider bg-slate-50 z-20">Supplier</th>
                                 @foreach($shops as $shop)
-                                    <th class="py-4 px-3 text-center min-w-[90px] border-r border-slate-100 font-extrabold text-slate-700 uppercase tracking-widest text-[9px] hover:bg-slate-100/50 transition-colors">
-                                        {{ str_replace([' HYPERMARKET', ' SUPERMARKET', ' STORE', ' SHOP'], '', strtoupper($shop->name)) }}
+                                    @php
+                                        $shopMeta = $shopUpdateMeta[$shop->id] ?? null;
+                                    @endphp
+                                    <th @class([
+                                        'py-4 px-3 text-center min-w-[90px] border-r font-extrabold uppercase tracking-widest text-[9px] transition-colors',
+                                        'border-slate-100 text-slate-700 hover:bg-slate-100/50' => ! ($shopMeta['has_update_request'] ?? false),
+                                        'border-indigo-200 bg-indigo-50 text-indigo-900 hover:bg-indigo-100/80' => $shopMeta['has_update_request'] ?? false,
+                                    ])>
+                                        <button type="button" class="mx-auto flex flex-col items-center gap-1" onclick="focusShopColumn({{ $shop->id }})">
+                                            <span>{{ str_replace([' HYPERMARKET', ' SUPERMARKET', ' STORE', ' SHOP'], '', strtoupper($shop->name)) }}</span>
+                                            @if($shopMeta && $shopMeta['has_update_request'])
+                                                <span class="rounded-full bg-indigo-600 px-2 py-0.5 text-[8px] font-black text-white">Update Requested</span>
+                                            @endif
+                                        </button>
                                     </th>
                                 @endforeach
                                 <th class="py-4 px-4 text-right min-w-[100px] bg-slate-50 font-black text-slate-900 tracking-wider">Total</th>
@@ -214,6 +277,7 @@
                                         $selectedSupplierId = $productSupplierMap[$product->id] ?? null;
                                     @endphp
                                     <tr class="hover:bg-slate-50/10 transition-colors product-row" 
+                                        data-product-id="{{ $product->id }}"
                                         data-sku="{{ strtolower($product->sku) }}" 
                                         data-name="{{ strtolower($product->name) }}"
                                         data-category="{{ strtolower($product->category ? $product->category->name : '') }}"
@@ -290,7 +354,11 @@
                                                     }
                                                 }
                                             @endphp
-                                            <td class="py-2 px-2 text-center border-r border-slate-100 hover:bg-slate-50/5 hover:z-20 transition-colors">
+                                            <td @class([
+                                                'py-2 px-2 text-center border-r transition-colors',
+                                                'border-slate-100 hover:bg-slate-50/5 hover:z-20' => ! ($shopUpdateMeta[$shop->id]['has_update_request'] ?? false) && ! ($qtyData['needs_attention'] ?? false),
+                                                'border-indigo-100 bg-indigo-50/60 hover:bg-indigo-100/80 hover:z-20' => ($shopUpdateMeta[$shop->id]['has_update_request'] ?? false) || ($qtyData['needs_attention'] ?? false),
+                                            ]) data-shop-column-cell="{{ $shop->id }}">
                                                 <div class="relative inline-flex items-center">
                                                     <input type="number" 
                                                            step="0.01" 
@@ -304,6 +372,7 @@
                                                                'w-16 rounded-lg border text-center py-1 text-xs font-black transition-all focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500',
                                                                'border-slate-200 text-slate-800 focus:bg-white bg-slate-50/30' => !$isAdjusted,
                                                                'border-amber-300 text-amber-900 bg-amber-50/50 focus:bg-white' => $isAdjusted,
+                                                               'ring-1 ring-indigo-300 border-indigo-300 bg-indigo-50 text-indigo-900' => $qtyData['needs_attention'] ?? false,
                                                            ])
                                                            placeholder="-">
                                                 </div>
@@ -358,8 +427,20 @@
                                 <th class="py-4 px-3 text-center min-w-[140px] border-r border-slate-200 text-slate-700 uppercase font-black text-[9px] tracking-wider bg-slate-50 z-20">Fulfillment</th>
                                 <th class="py-4 px-3 text-center min-w-[160px] border-r border-slate-200 text-slate-700 uppercase font-black text-[9px] tracking-wider bg-slate-50 z-20">Supplier</th>
                                 @foreach($shops as $shop)
-                                    <th class="py-4 px-3 text-center min-w-[90px] border-r border-slate-100 font-extrabold text-slate-700 uppercase tracking-widest text-[9px] hover:bg-slate-100/50 transition-colors">
-                                        {{ str_replace([' HYPERMARKET', ' SUPERMARKET', ' STORE', ' SHOP'], '', strtoupper($shop->name)) }}
+                                    @php
+                                        $shopMeta = $shopUpdateMeta[$shop->id] ?? null;
+                                    @endphp
+                                    <th @class([
+                                        'py-4 px-3 text-center min-w-[90px] border-r font-extrabold uppercase tracking-widest text-[9px] transition-colors',
+                                        'border-slate-100 text-slate-700 hover:bg-slate-100/50' => ! ($shopMeta['has_update_request'] ?? false),
+                                        'border-indigo-200 bg-indigo-50 text-indigo-900 hover:bg-indigo-100/80' => $shopMeta['has_update_request'] ?? false,
+                                    ])>
+                                        <button type="button" class="mx-auto flex flex-col items-center gap-1" onclick="focusShopColumn({{ $shop->id }})">
+                                            <span>{{ str_replace([' HYPERMARKET', ' SUPERMARKET', ' STORE', ' SHOP'], '', strtoupper($shop->name)) }}</span>
+                                            @if($shopMeta && $shopMeta['has_update_request'])
+                                                <span class="rounded-full bg-indigo-600 px-2 py-0.5 text-[8px] font-black text-white">Update Requested</span>
+                                            @endif
+                                        </button>
                                     </th>
                                 @endforeach
                                 <th class="py-4 px-4 text-right min-w-[100px] bg-slate-50 font-black text-slate-900 tracking-wider">Total</th>
@@ -380,6 +461,7 @@
                                         $selectedSupplierId = $productSupplierMap[$product->id] ?? null;
                                     @endphp
                                     <tr class="hover:bg-slate-50/10 transition-colors product-row" 
+                                        data-product-id="{{ $product->id }}"
                                         data-sku="{{ strtolower($product->sku) }}" 
                                         data-name="{{ strtolower($product->name) }}"
                                         data-category="{{ strtolower($product->category ? $product->category->name : '') }}"
@@ -456,7 +538,11 @@
                                                     }
                                                 }
                                             @endphp
-                                            <td class="py-2 px-2 text-center border-r border-slate-100 hover:bg-slate-50/5 hover:z-20 transition-colors">
+                                            <td @class([
+                                                'py-2 px-2 text-center border-r transition-colors',
+                                                'border-slate-100 hover:bg-slate-50/5 hover:z-20' => ! ($shopUpdateMeta[$shop->id]['has_update_request'] ?? false) && ! ($qtyData['needs_attention'] ?? false),
+                                                'border-indigo-100 bg-indigo-50/60 hover:bg-indigo-100/80 hover:z-20' => ($shopUpdateMeta[$shop->id]['has_update_request'] ?? false) || ($qtyData['needs_attention'] ?? false),
+                                            ]) data-shop-column-cell="{{ $shop->id }}">
                                                 <div class="relative inline-flex items-center">
                                                     <input type="number" 
                                                            step="0.01" 
@@ -470,6 +556,7 @@
                                                                'w-16 rounded-lg border text-center py-1 text-xs font-black transition-all focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500',
                                                                'border-slate-200 text-slate-800 focus:bg-white bg-slate-50/30' => !$isAdjusted,
                                                                'border-amber-300 text-amber-900 bg-amber-50/50 focus:bg-white' => $isAdjusted,
+                                                               'ring-1 ring-indigo-300 border-indigo-300 bg-indigo-50 text-indigo-900' => $qtyData['needs_attention'] ?? false,
                                                            ])
                                                            placeholder="-">
                                                 </div>
@@ -548,16 +635,16 @@
 
         {{-- Floating Navigation Helper --}}
         <div class="fixed right-6 bottom-24 z-40 hidden lg:flex flex-col gap-2.5 bg-slate-900/90 backdrop-blur-md p-3 rounded-2xl border border-slate-800 shadow-2xl">
-            <button type="button" onclick="scrollToSection('warehouse-card')" title="Scroll to Warehouse" class="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-800 hover:bg-emerald-600 hover:text-white text-slate-350 transition-all shadow-md cursor-pointer border border-slate-700/50 text-xs font-black">
+            <button type="button" onclick="scrollToSection('warehouse-card')" title="Scroll to Warehouse" class="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-800 text-slate-100 hover:bg-emerald-600 hover:text-white transition-all shadow-md cursor-pointer border border-slate-700/50 text-xs font-black">
                 W
             </button>
-            <button type="button" onclick="scrollToSection('selection-card')" title="Scroll to Selection" class="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-800 hover:bg-emerald-600 hover:text-white text-slate-350 transition-all shadow-md cursor-pointer border border-slate-700/50 text-xs font-black">
+            <button type="button" onclick="scrollToSection('selection-card')" title="Scroll to Selection" class="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-800 text-slate-100 hover:bg-emerald-600 hover:text-white transition-all shadow-md cursor-pointer border border-slate-700/50 text-xs font-black">
                 S
             </button>
-            <button type="button" onclick="scrollToSection('board-form', true)" title="Scroll to Save Actions" class="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-800 hover:bg-emerald-600 hover:text-white text-slate-355 transition-all shadow-md cursor-pointer border border-slate-700/50 text-xs font-black">
+            <button type="button" onclick="scrollToSection('board-form', true)" title="Scroll to Save Actions" class="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-800 text-slate-100 hover:bg-emerald-600 hover:text-white transition-all shadow-md cursor-pointer border border-slate-700/50 text-xs font-black">
                 ↓
             </button>
-            <button type="button" onclick="window.scrollTo({ top: 0, behavior: 'smooth' })" title="Scroll to Top" class="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 transition-all shadow-md cursor-pointer border border-slate-700/50 text-xs font-black">
+            <button type="button" onclick="window.scrollTo({ top: 0, behavior: 'smooth' })" title="Scroll to Top" class="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white transition-all shadow-md cursor-pointer border border-slate-700/50 text-xs font-black">
                 ▲
             </button>
         </div>
@@ -603,7 +690,83 @@
         document.addEventListener('DOMContentLoaded', () => {
             calculateColumnTotals();
             filterBoardRows();
+            attachApprovedBoardSubmitGuard();
         });
+
+        function attachApprovedBoardSubmitGuard() {
+            const boardForm = document.getElementById('board-form');
+            if (!boardForm) {
+                return;
+            }
+
+            boardForm.addEventListener('submit', (event) => {
+                const missingSuppliers = collectMissingSupplierRows();
+
+                if (missingSuppliers.length === 0) {
+                    return;
+                }
+
+                event.preventDefault();
+                openSupplierWarningModal(missingSuppliers);
+            });
+        }
+
+        function collectMissingSupplierRows() {
+            const rows = document.querySelectorAll('.product-row');
+            const missingSuppliers = [];
+
+            rows.forEach((row) => {
+                const checkbox = row.querySelector('.product-select-checkbox');
+                if (!checkbox || !checkbox.checked) {
+                    return;
+                }
+
+                const inputs = row.querySelectorAll('input[type="number"][name^="quantities["]');
+                const hasApprovedQuantity = Array.from(inputs).some((input) => (parseFloat(input.value) || 0) > 0);
+
+                if (!hasApprovedQuantity) {
+                    return;
+                }
+
+                const supplierSelect = row.querySelector('select[name^="suppliers["]');
+                if (supplierSelect && supplierSelect.value) {
+                    return;
+                }
+
+                const productName = row.querySelector('td:nth-child(3) .truncate')?.textContent?.trim() || 'Unknown Product';
+                const sku = row.getAttribute('data-sku') || '';
+                missingSuppliers.push({
+                    name: productName,
+                    sku: sku.toUpperCase(),
+                });
+            });
+
+            return missingSuppliers;
+        }
+
+        function openSupplierWarningModal(missingSuppliers) {
+            const modal = document.getElementById('supplier-warning-modal');
+            const list = document.getElementById('supplier-warning-list');
+
+            if (!modal || !list) {
+                return;
+            }
+
+            list.innerHTML = '';
+
+            missingSuppliers.forEach((item) => {
+                const li = document.createElement('li');
+                li.className = 'rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black text-slate-900';
+                li.textContent = item.sku ? `${item.name} (${item.sku})` : item.name;
+                list.appendChild(li);
+            });
+
+            modal.classList.remove('hidden');
+        }
+
+        function closeSupplierWarningModal() {
+            document.getElementById('supplier-warning-modal')?.classList.add('hidden');
+        }
 
         // Filter product rows by search query, order presence, and fulfillment type
         function filterBoardRows() {
@@ -670,10 +833,36 @@
         // Clear filter
         function clearSearch() {
             document.getElementById('board-search').value = '';
-            document.getElementById('filter-has-orders').checked = false;
+            document.getElementById('filter-has-orders').checked = true;
             document.getElementById('filter-fulfillment').value = 'all';
             document.getElementById('bulk-supplier').value = '';
             filterBoardRows();
+        }
+
+        function buildApprovedBoardExportUrl(baseUrl, type = 'both') {
+            const params = new URLSearchParams();
+            const fulfillmentFilter = document.getElementById('filter-fulfillment').value;
+            params.set('date', @json($date));
+            params.set('search', document.getElementById('board-search').value.trim());
+            params.set('fulfillment', type === 'both' ? fulfillmentFilter : type);
+            params.set('has_orders', document.getElementById('filter-has-orders').checked ? '1' : '0');
+            params.set('type', type);
+
+            document.querySelectorAll('.product-row').forEach((row) => {
+                if (!row.classList.contains('hidden')) {
+                    params.append('ordered_product_ids[]', row.getAttribute('data-product-id'));
+                }
+            });
+
+            return `${baseUrl}?${params.toString()}`;
+        }
+
+        function exportApprovedBoardCsv() {
+            window.location.href = buildApprovedBoardExportUrl(@json(route('requisitions.approved_board.export.csv')));
+        }
+
+        function exportApprovedBoardPdf(type = 'both') {
+            window.open(buildApprovedBoardExportUrl(@json(route('requisitions.approved_board.export.pdf')), type), '_blank', 'noopener');
         }
 
         // Apply selected supplier to all items
@@ -799,6 +988,38 @@
             checkboxes.forEach(checkbox => {
                 checkbox.checked = checked;
             });
+        }
+
+        function focusShopColumn(shopId) {
+            document.querySelectorAll('[data-shop-column-cell]').forEach((cell) => {
+                cell.classList.remove('ring-2', 'ring-cyan-400', 'ring-inset');
+            });
+
+            document.querySelectorAll(`[data-shop-column-cell="${shopId}"]`).forEach((cell) => {
+                cell.classList.add('ring-2', 'ring-cyan-400', 'ring-inset');
+            });
+
+            const panel = document.getElementById('shop-update-panel');
+            const shopTitle = document.getElementById('shop-update-title');
+            const shopMeta = document.getElementById('shop-update-meta');
+            const shopReason = document.getElementById('shop-update-reason');
+            const updates = @json($shopUpdateMeta);
+            const shops = @json($shops->map(fn ($shop) => ['id' => $shop->id, 'name' => $shop->name])->values());
+            const selectedShop = shops.find((shop) => shop.id === shopId);
+            const selectedUpdate = updates[shopId];
+
+            if (panel && shopTitle && shopMeta && shopReason && selectedShop && selectedUpdate && selectedUpdate.has_update_request) {
+                panel.classList.remove('hidden');
+                shopTitle.textContent = selectedShop.name;
+                shopMeta.textContent = `${selectedUpdate.changed_items_count} item updates requested • ${selectedUpdate.order_number}`;
+                shopReason.textContent = selectedUpdate.update_reason || 'Shop owner requested an update.';
+                panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+
+            const firstInput = document.querySelector(`input[data-shop-id="${shopId}"]`);
+            if (firstInput) {
+                firstInput.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+            }
         }
     </script>
     @endpush

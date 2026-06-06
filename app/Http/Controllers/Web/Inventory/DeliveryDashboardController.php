@@ -8,15 +8,15 @@ use App\Http\Controllers\Controller;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Carbon;
-use Illuminate\View\View;
 
 class DeliveryDashboardController extends Controller
 {
     /**
      * Display the daily delivery dashboard.
      */
-    public function __invoke(Request $request): View
+    public function __invoke(Request $request): Response
     {
         $dateInput = $request->input('date');
         $date = $dateInput ? Carbon::parse($dateInput)->format('Y-m-d') : Carbon::today()->format('Y-m-d');
@@ -63,19 +63,34 @@ class DeliveryDashboardController extends Controller
             return $order->is_delivered && abs((float) $order->cash_discrepancy) > 0.01;
         });
 
-        return view('deliveries.dashboard', compact(
-            'date',
-            'orders',
-            'totalOrdersCount',
-            'allocationCompletedCount',
-            'awaitingAllocationCount',
-            'deliveredCount',
-            'awaitingDeliveryCount',
-            'totalShortageValue',
-            'totalCashCollected',
-            'totalCashDiscrepancy',
-            'shortageItems',
-            'discrepancyOrders'
-        ));
+        $latestOrderUpdateAt = $orders->max('updated_at');
+        $latestItemUpdateAt = $orders
+            ->flatMap(fn (ShopOrder $order) => $order->items)
+            ->max('updated_at');
+
+        $lastUpdatedAt = collect([$latestOrderUpdateAt, $latestItemUpdateAt])
+            ->filter()
+            ->sortDesc()
+            ->first();
+
+        return response()
+            ->view('deliveries.dashboard', compact(
+                'date',
+                'orders',
+                'totalOrdersCount',
+                'allocationCompletedCount',
+                'awaitingAllocationCount',
+                'deliveredCount',
+                'awaitingDeliveryCount',
+                'totalShortageValue',
+                'totalCashCollected',
+                'totalCashDiscrepancy',
+                'shortageItems',
+                'discrepancyOrders',
+                'lastUpdatedAt'
+            ))
+            ->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+            ->header('Pragma', 'no-cache')
+            ->header('Expires', 'Fri, 01 Jan 1990 00:00:00 GMT');
     }
 }

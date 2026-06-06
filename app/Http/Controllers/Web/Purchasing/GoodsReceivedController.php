@@ -35,8 +35,26 @@ class GoodsReceivedController extends Controller
     {
         Gate::authorize('create', GoodsReceived::class);
 
-        $poId = $request->integer('purchase_order_id');
-        if (! $poId) {
+        $purchaseOrderReference = trim((string) $request->string('purchase_order'));
+
+        if ($purchaseOrderReference === '' && $request->filled('purchase_order_id')) {
+            $legacyPurchaseOrderId = $request->integer('purchase_order_id');
+
+            if ($legacyPurchaseOrderId > 0) {
+                /** @var PurchaseOrder $legacyPurchaseOrder */
+                $legacyPurchaseOrder = PurchaseOrder::whereIn('status', [
+                    POStatus::SentToSupplier,
+                    POStatus::PartiallyReceived,
+                    POStatus::Received,
+                ])->findOrFail($legacyPurchaseOrderId);
+
+                return redirect()->route('purchasing.grns.create', [
+                    'purchase_order' => $legacyPurchaseOrder,
+                ]);
+            }
+        }
+
+        if ($purchaseOrderReference === '') {
             return redirect()->route('purchasing.orders.index')
                 ->with('error', 'Please select a Purchase Order to receive goods.');
         }
@@ -46,7 +64,10 @@ class GoodsReceivedController extends Controller
             POStatus::SentToSupplier,
             POStatus::PartiallyReceived,
             POStatus::Received,
-        ])->findOrFail($poId);
+        ])->where(
+            (new PurchaseOrder)->getRouteKeyName(),
+            $purchaseOrderReference
+        )->firstOrFail();
         $po->load(['supplier', 'items.product']);
 
         return view('purchase-manager.grns.create', compact('po'));

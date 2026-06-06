@@ -6,6 +6,9 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Models\DailyProductPrice;
+use App\Models\Product;
+use App\Models\PurchaseOrder;
 use App\Models\ShopOrder;
 use App\Models\ShopPreset;
 use App\Models\User;
@@ -52,6 +55,36 @@ class ShopOwnerController extends Controller
 
         return view('shop-owner.orders.history', [
             'orders' => $this->shopOrdersQuery($user)->latest('business_date')->paginate(12),
+        ]);
+    }
+
+    public function dailyPricesIndex(Request $request): View
+    {
+        $user = $this->shopUser($request);
+        $priceDate = Carbon::parse($request->input('date', Carbon::tomorrow()->toDateString()));
+        $frequentProducts = $this->frequentProducts($user)->keyBy(fn (array $item): int => (int) $item['product']->id);
+        $products = Product::query()
+            ->with('category')
+            ->active()
+            ->orderBy('name')
+            ->get();
+
+        $products->each(function (Product $product) use ($frequentProducts): void {
+            /** @var array<string, mixed>|null $frequentProduct */
+            $frequentProduct = $frequentProducts->get($product->id);
+
+            $product->setAttribute('order_count', (int) ($frequentProduct['order_count'] ?? 0));
+            $product->setAttribute('last_order_quantity', (float) ($frequentProduct['last_quantity'] ?? 0));
+            $product->setAttribute('total_ordered_quantity', (float) ($frequentProduct['total_quantity'] ?? 0));
+        });
+
+        return view('shop-owner.prices.index', [
+            'priceDate' => $priceDate,
+            'products' => $products,
+            'dailyPrices' => DailyProductPrice::query()
+                ->whereDate('price_date', $priceDate)
+                ->pluck('price', 'product_id'),
+            'frequentProducts' => $this->frequentProducts($user),
         ]);
     }
 
@@ -138,19 +171,39 @@ class ShopOwnerController extends Controller
      */
     private function buildOrderFormData(User $user): array
     {
+        $tomorrowDate = Carbon::tomorrow();
+        $dailyPriceMap = DailyProductPrice::query()
+            ->whereDate('price_date', $tomorrowDate)
+            ->pluck('price', 'product_id');
+
+        $productsByCategory = Category::with(['products' => function ($query): void {
+            $query->where('is_active', true)->orderBy('name');
+        }])
+            ->where('is_active', true)
+            ->get()
+            ->filter(fn (Category $category): bool => $category->products->isNotEmpty());
+
+        $productsByCategory->each(function (Category $category) use ($dailyPriceMap): void {
+            $category->products->each(function ($product) use ($dailyPriceMap): void {
+                $product->setAttribute('effective_price', (float) ($dailyPriceMap[$product->id] ?? $product->base_price));
+            });
+        });
+
+        $frequentProducts = $this->frequentProducts($user);
+        $frequentProducts->each(function (array $item) use ($dailyPriceMap): void {
+            $product = $item['product'];
+            $product->setAttribute('effective_price', (float) ($dailyPriceMap[$product->id] ?? $product->base_price));
+        });
+
         return [
-            'productsByCategory' => Category::with(['products' => function ($query): void {
-                $query->where('is_active', true)->orderBy('name');
-            }])
-                ->where('is_active', true)
-                ->get()
-                ->filter(fn (Category $category): bool => $category->products->isNotEmpty()),
-            'frequentProducts' => $this->frequentProducts($user),
+            'productsByCategory' => $productsByCategory,
+            'frequentProducts' => $frequentProducts,
             'presets' => ShopPreset::where('shop_id', $user->shop_id)->with('items.product')->get(),
             'yesterdayOrder' => $this->yesterdayOrder($user),
             'tomorrowOrder' => $this->tomorrowOrder($user),
-            'tomorrowDate' => Carbon::tomorrow(),
+            'tomorrowDate' => $tomorrowDate,
             'cutoffPassed' => now()->greaterThan(now()->copy()->setTime(21, 30)),
+            'purchaseOrdersGeneratedForTomorrow' => PurchaseOrder::whereDate('order_date', $tomorrowDate)->exists(),
         ];
     }
 

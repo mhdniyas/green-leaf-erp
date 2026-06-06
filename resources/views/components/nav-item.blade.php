@@ -22,12 +22,12 @@
 <a
     href="{{ $disabled ? '#' : $href }}"
     @class([
-        'flex items-center gap-3 px-3 rounded-lg text-sm font-medium transition-all group',
-        'py-1.5 text-[13px]' => $sub,
-        'py-2 text-sm' => !$sub,
-        'bg-brand-800 text-white font-semibold' => $active,
-        'text-brand-300 hover:bg-brand-800/60 hover:text-white' => !$active && !$disabled,
-        'text-brand-600 cursor-not-allowed pointer-events-none' => $disabled,
+        'group flex items-center gap-3 rounded-2xl px-4 transition-all',
+        'py-2 text-xs font-bold tracking-[0.08em] uppercase' => $sub,
+        'py-3 text-sm font-bold' => !$sub,
+        'bg-cyan-400 text-slate-950 shadow-sm' => $active,
+        'text-slate-300 hover:bg-white/5 hover:text-white' => !$active && !$disabled,
+        'pointer-events-none cursor-not-allowed text-slate-600' => $disabled,
     ])
     @if($disabled) aria-disabled="true" @endif
 >
@@ -36,7 +36,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="{{ $path }}" />
         </svg>
     @elseif($sub)
-        <div class="w-1.5 h-1.5 rounded-full bg-current shrink-0 ml-1.5 mr-1 opacity-60 group-hover:opacity-100 transition-opacity"></div>
+        <div class="ml-1.5 mr-1 h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-60 transition-opacity group-hover:opacity-100"></div>
     @endif
     {{ $slot }}
 </a>
