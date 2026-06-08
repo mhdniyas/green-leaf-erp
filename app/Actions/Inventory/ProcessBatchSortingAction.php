@@ -14,10 +14,15 @@ use App\Exceptions\Inventory\SortingQuantityMismatchException;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Models\WastageEntry;
+use App\Services\Pricing\PriceBoardService;
 use Illuminate\Support\Facades\DB;
 
 class ProcessBatchSortingAction
 {
+    public function __construct(
+        private readonly PriceBoardService $priceBoardService,
+    ) {}
+
     /**
      * Process the sorting of a batch into grades.
      *
@@ -88,6 +93,12 @@ class ProcessBatchSortingAction
                 'status' => BatchStatus::Sorted,
                 'sorted_at' => now(),
             ]);
+
+            $this->priceBoardService->refreshWholesalePricesForProducts(
+                [$batch->product_id],
+                'sorting',
+                $batch->reference
+            );
 
             activity()
                 ->performedOn($batch)

@@ -102,7 +102,7 @@
                         <div>
                             <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Current Status</p>
                             @if ($tomorrowOrder)
-                                <p class="mt-2 text-lg font-black text-slate-900">{{ str($tomorrowOrder->state)->replace('_', ' ')->title() }}</p>
+                                <p class="mt-2 text-lg font-black text-slate-900">{{ $tomorrowOrder->displayStateLabel() }}</p>
                                 <p class="text-sm text-slate-500">
                                     {{ $tomorrowOrder->items->count() }} items, {{ number_format((float) $tomorrowOrder->items->sum('requested_qty'), 2) }} total qty
                                 </p>
@@ -214,7 +214,7 @@
                         <div class="mt-4 space-y-3">
                             <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                                 <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Manager Status</p>
-                                <p class="mt-2 text-lg font-black text-slate-900">{{ str($tomorrowOrder->state)->replace('_', ' ')->title() }}</p>
+                                <p class="mt-2 text-lg font-black text-slate-900">{{ $tomorrowOrder->displayStateLabel() }}</p>
                             </div>
                             <div class="rounded-2xl border border-slate-200 bg-white px-4 py-3">
                                 <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Approved Quantity</p>

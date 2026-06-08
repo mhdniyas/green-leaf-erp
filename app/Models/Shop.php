@@ -6,6 +6,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Shop extends Model
@@ -15,11 +16,18 @@ class Shop extends Model
     protected $fillable = [
         'code',
         'name',
+        'warehouse_tag',
+        'shop_price_group_id',
         'status',
         'address',
         'contact_name',
         'contact_phone',
     ];
+
+    public function priceGroup(): BelongsTo
+    {
+        return $this->belongsTo(ShopPriceGroup::class, 'shop_price_group_id');
+    }
 
     /**
      * Get the users associated with the shop.

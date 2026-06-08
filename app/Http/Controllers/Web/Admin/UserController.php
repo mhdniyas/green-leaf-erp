@@ -8,6 +8,7 @@ use App\DTOs\Admin\UserData;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Admin\StoreUserRequest;
 use App\Http\Requests\Web\Admin\UpdateUserRequest;
+use App\Models\Shop;
 use App\Models\User;
 use App\Services\Admin\UserService;
 use Illuminate\Http\RedirectResponse;
@@ -38,8 +39,9 @@ class UserController extends Controller
 
         $roles = Role::orderBy('name')->get();
         $permissions = Permission::orderBy('name')->get();
+        $shops = Shop::orderBy('name')->get();
 
-        return view('admin.users.create', compact('roles', 'permissions'));
+        return view('admin.users.create', compact('roles', 'permissions', 'shops'));
     }
 
     public function store(StoreUserRequest $request): RedirectResponse
@@ -57,8 +59,9 @@ class UserController extends Controller
         $user->load(['roles', 'permissions']);
         $roles = Role::orderBy('name')->get();
         $permissions = Permission::orderBy('name')->get();
+        $shops = Shop::orderBy('name')->get();
 
-        return view('admin.users.edit', compact('user', 'roles', 'permissions'));
+        return view('admin.users.edit', compact('user', 'roles', 'permissions', 'shops'));
     }
 
     public function update(UpdateUserRequest $request, User $user): RedirectResponse

@@ -16,11 +16,17 @@ return new class extends Migration
         Schema::create('daily_product_prices', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('product_id')->constrained()->cascadeOnDelete();
-            $table->date('price_date')->index();
-            $table->decimal('price', 10, 2);
+            $table->foreignId('shop_price_group_id')->constrained()->cascadeOnDelete();
+            $table->string('grade', 5)->default('A')->index();
+            $table->decimal('selling_price', 10, 2)->default(0);
+            $table->string('price_source', 20)->default('margin');
+            $table->decimal('margin_percent', 6, 2)->nullable();
+            $table->boolean('manual_override')->default(false);
+            $table->text('override_reason')->nullable();
+            $table->foreignId('changed_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
 
-            $table->unique(['product_id', 'price_date']);
+            $table->unique(['product_id', 'shop_price_group_id', 'grade'], 'daily_product_prices_unique_current');
         });
     }
 

@@ -9,6 +9,7 @@ use App\Enums\Purchasing\POStatus;
 use App\Models\GoodsReceived;
 use App\Repositories\Inventory\StockBatchRepository;
 use App\Services\Finance\JournalService;
+use App\Services\Pricing\PriceBoardService;
 use Illuminate\Support\Facades\DB;
 
 class ApproveGoodsReceiptAction
@@ -16,6 +17,7 @@ class ApproveGoodsReceiptAction
     public function __construct(
         private readonly StockBatchRepository $stockBatchRepository,
         private readonly JournalService $journalService,
+        private readonly PriceBoardService $priceBoardService,
     ) {}
 
     /**
@@ -63,6 +65,12 @@ class ApproveGoodsReceiptAction
                     'notes' => "Auto-created from GRN: {$grn->grn_number}",
                 ]);
             }
+
+            $this->priceBoardService->refreshWholesalePricesForProducts(
+                $grn->items->pluck('product_id')->all(),
+                'grn',
+                $grn->grn_number
+            );
 
             // Update Purchase Order status to Closed
             $po = $grn->purchaseOrder;

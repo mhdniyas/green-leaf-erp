@@ -7,4 +7,4 @@
     };
 @endphp
 
-@include('shop-owner.components.status-badge', ['label' => str($order->state)->replace('_', ' ')->title(), 'tone' => $tone])
+@include('shop-owner.components.status-badge', ['label' => $order->displayStateLabel(), 'tone' => $tone])

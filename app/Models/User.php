@@ -33,6 +33,7 @@ class User extends Authenticatable implements AuditableContract
     {
         return [
             'email_verified_at' => 'datetime',
+            'last_seen_at' => 'datetime',
             'password' => 'hashed',
         ];
     }
@@ -45,5 +46,10 @@ class User extends Authenticatable implements AuditableContract
     public function shop(): BelongsTo
     {
         return $this->belongsTo(Shop::class);
+    }
+
+    public function isOnline(): bool
+    {
+        return $this->last_seen_at !== null && $this->last_seen_at->gte(now()->subMinutes(5));
     }
 }

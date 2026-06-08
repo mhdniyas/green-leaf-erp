@@ -92,7 +92,69 @@ class WarehouseSortingTest extends TestCase
             ->get(route('inventory.sorting.shop-orders'));
 
         $response->assertOk();
-        $response->assertSee('Shop Orders Allocation');
+        $response->assertSee('Shop Dispatch Cards');
+    }
+
+    public function test_authorized_user_can_access_worker_shop_sorting_page(): void
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('warehouse.checklist.view');
+
+        $shop = Shop::create([
+            'code' => 'WORKER_SORT_SHOP',
+            'name' => 'Worker Sort Shop',
+            'warehouse_tag' => 'A',
+        ]);
+
+        $order = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => today()->toDateString(),
+            'created_by' => $user->id,
+        ]);
+
+        $product = Product::factory()->create([
+            'name' => 'Worker Sort Tomato',
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'requested_qty' => 6,
+            'approved_qty' => 5,
+            'unit' => 'kg',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->get(route('inventory.sorting.shop-sorting.show', ['order' => $order->order_number, 'date' => today()->toDateString()]));
+
+        $response->assertOk();
+        $response->assertSee('Tagged Shops');
+        $response->assertSee('Worker Sort Shop');
+        $response->assertSee('Worker Sort Tomato');
+    }
+
+    public function test_warehouse_user_can_update_shop_tag(): void
+    {
+        $user = User::factory()->create();
+        $user->assignRole('warehouse');
+
+        $shop = Shop::create([
+            'code' => 'TAG_UPDATE_SHOP',
+            'name' => 'Tag Update Shop',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->patch(route('inventory.sorting.shops.tag', $shop->code), [
+                'warehouse_tag' => 'b2',
+            ]);
+
+        $response->assertRedirect();
+
+        $this->assertDatabaseHas('shops', [
+            'id' => $shop->id,
+            'warehouse_tag' => 'B2',
+        ]);
     }
 
     public function test_unauthorized_user_cannot_toggle_sorting_item(): void
@@ -325,7 +387,7 @@ class WarehouseSortingTest extends TestCase
             ->get(route('inventory.sorting.checklist', ['date' => today()->toDateString()]));
 
         $response->assertOk();
-        $response->assertSee('Submitted GRN Reports');
+        $response->assertSee('GRN Approval Updates');
         $response->assertSee('Awaiting purchase manager review before inventory is updated.');
         $response->assertSee('Quality issue found during manager review.');
         $response->assertSeeText('Correct & Resubmit');
@@ -432,6 +494,51 @@ class WarehouseSortingTest extends TestCase
             'is_allocation_completed' => true,
             'sorting_notes' => 'Allocated all items successfully with zero discrepancies.',
         ]);
+    }
+
+    public function test_shop_owner_can_see_warehouse_workflow_statuses_on_delivery_screen(): void
+    {
+        $shop = Shop::create([
+            'code' => 'SHOP_DELIVERY_FLOW',
+            'name' => 'Delivery Flow Shop',
+        ]);
+
+        $shopOwner = User::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+        $shopOwner->assignRole('shop');
+
+        $product = Product::factory()->create([
+            'name' => 'Transit Tomato',
+        ]);
+
+        $order = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => today()->toDateString(),
+            'created_by' => $shopOwner->id,
+            'is_allocation_completed' => true,
+            'is_delivered' => false,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'requested_qty' => 5.0,
+            'approved_qty' => 5.0,
+            'unit' => 'kg',
+            'fulfillment_type' => 'warehouse',
+            'is_sorted' => true,
+            'sorting_status' => 'loaded',
+        ]);
+
+        $response = $this->actingAs($shopOwner)
+            ->get(route('shop-owner.deliveries.show', $order->order_number));
+
+        $response->assertOk();
+        $response->assertSee('Warehouse Product Progress');
+        $response->assertSee('In Transit');
+        $response->assertSee('Transit Tomato');
     }
 
     public function test_batch_allocation_reduces_remaining_qty(): void

@@ -18,6 +18,7 @@ use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Services\Pricing\PriceBoardService;
 use Database\Seeders\CategorySeeder;
 use Database\Seeders\ProductSeeder;
 use Database\Seeders\RolePermissionSeeder;
@@ -148,7 +149,8 @@ class DashboardTest extends TestCase
         $response->assertSee($product2->sku);
         $response->assertSee('Price');
         $response->assertSee('Estimated value');
-        $response->assertSee('INR '.number_format((float) $product1->base_price, 2));
+        $expectedPrice = app(PriceBoardService::class)->sellingPriceFor($product1, $shop)['price'];
+        $response->assertSee('INR '.number_format($expectedPrice, 2));
     }
 
     public function test_shop_owner_order_create_page_shows_update_request_form_after_cutoff_for_submitted_order(): void

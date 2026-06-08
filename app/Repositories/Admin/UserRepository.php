@@ -18,7 +18,7 @@ class UserRepository extends BaseRepository
     public function paginateFiltered(int $perPage = 15, ?string $search = null): LengthAwarePaginator
     {
         return $this->query()
-            ->with(['roles', 'permissions'])
+            ->with(['roles', 'permissions', 'shop'])
             ->when($search, function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
                     ->orWhere('email', 'like', "%{$search}%");

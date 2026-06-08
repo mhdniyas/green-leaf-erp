@@ -1,4 +1,4 @@
-<x-layouts.app title="Customers">
+<x-layouts.app title="Sales Destinations">
 
     <x-slot:actions>
         @can('sales.customer.create')
@@ -8,7 +8,7 @@
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
-            Add Customer
+            Add External Customer
         </a>
         @endcan
     </x-slot:actions>
@@ -16,7 +16,7 @@
     {{-- Filters --}}
     <form method="GET" class="mb-4 flex flex-wrap items-center gap-3">
         <input type="text" name="search" value="{{ request('search') }}"
-               placeholder="Search customers…"
+               placeholder="Search shops, owners, or customers…"
                class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100 w-56">
         <select name="type" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-brand-400 focus:outline-none">
             <option value="">All Types</option>
@@ -30,10 +30,84 @@
         @endif
     </form>
 
-    {{-- Table --}}
-    <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+    <div class="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                <div>
+                    <h2 class="text-sm font-semibold text-gray-900">Shop Deliveries</h2>
+                    <p class="mt-1 text-xs text-gray-500">These shop owners are your real sales delivery points.</p>
+                </div>
+                <span class="text-xs text-gray-500">{{ $shopDestinations->count() }} shops</span>
+            </div>
+
+            @if($shopDestinations->isEmpty())
+            <div class="px-6 py-12 text-center">
+                <p class="text-sm font-medium text-gray-900">No shop destinations found</p>
+                <p class="mt-1 text-xs text-gray-500">Create or assign shop owners to make sales delivery points visible here.</p>
+            </div>
+            @else
+            <div class="divide-y divide-gray-100">
+                @foreach($shopDestinations as $shop)
+                    @php
+                        $shopOwners = $shop->users->filter(fn ($user) => $user->hasRole('shop'));
+                    @endphp
+                    <article class="px-6 py-5">
+                        <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div class="min-w-0">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <h3 class="text-base font-semibold text-gray-900">{{ $shop->name }}</h3>
+                                    <span class="inline-flex items-center rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-700">
+                                        {{ $shop->code }}
+                                    </span>
+                                    @if($shop->warehouse_tag)
+                                        <span class="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                                            Tag {{ $shop->warehouse_tag }}
+                                        </span>
+                                    @endif
+                                </div>
+
+                                <div class="mt-3 flex flex-wrap gap-2">
+                                    @forelse($shopOwners as $owner)
+                                        <div class="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
+                                            <p class="text-xs font-semibold text-gray-900">{{ $owner->name }}</p>
+                                            <p class="mt-0.5 text-[11px] text-gray-500">{{ $owner->email }}</p>
+                                        </div>
+                                    @empty
+                                        <div class="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                                            No shop owner assigned
+                                        </div>
+                                    @endforelse
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3 sm:w-auto sm:grid-cols-3">
+                                <div class="rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-center">
+                                    <p class="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Orders</p>
+                                    <p class="mt-1 text-lg font-bold text-gray-900">{{ $shop->orders_count }}</p>
+                                </div>
+                                <div class="rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-center">
+                                    <p class="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Status</p>
+                                    <p class="mt-1 text-sm font-bold text-gray-900">{{ $shop->status ?: 'Active' }}</p>
+                                </div>
+                                <div class="rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-center">
+                                    <p class="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Type</p>
+                                    <p class="mt-1 text-sm font-bold text-emerald-700">Shop Sale</p>
+                                </div>
+                            </div>
+                        </div>
+                    </article>
+                @endforeach
+            </div>
+            @endif
+        </div>
+
+        {{-- External Customers --}}
+        <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
         <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-            <h2 class="text-sm font-semibold text-gray-900">All Customers</h2>
+            <div>
+                <h2 class="text-sm font-semibold text-gray-900">External Customers</h2>
+                <p class="mt-1 text-xs text-gray-500">Optional non-shop customers remain here.</p>
+            </div>
             <span class="text-xs text-gray-500">{{ $customers->total() }} customers</span>
         </div>
 
@@ -44,11 +118,11 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
                 </svg>
             </div>
-            <p class="text-sm font-medium text-gray-900">No customers found</p>
-            <p class="text-xs text-gray-500 mt-1">Add your first customer to get started.</p>
+            <p class="text-sm font-medium text-gray-900">No external customers found</p>
+            <p class="text-xs text-gray-500 mt-1">Your shop owners are shown in the delivery section. Add external customers only if needed.</p>
             @can('sales.customer.create')
             <a href="{{ route('sales.customers.create') }}" class="mt-4 inline-flex items-center gap-1.5 text-sm text-brand-600 font-medium hover:underline">
-                + Add Customer
+                + Add External Customer
             </a>
             @endcan
         </div>
@@ -61,7 +135,7 @@
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Contact</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Payment Terms</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Credit Limit</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Credit</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
                         <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
                     </tr>
@@ -145,6 +219,7 @@
         </div>
         @endif
         @endif
+        </div>
     </div>
 
 </x-layouts.app>

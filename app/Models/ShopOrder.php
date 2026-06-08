@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class ShopOrder extends Model
 {
@@ -24,6 +25,8 @@ class ShopOrder extends Model
         'submitted_at',
         'deadline_at',
         'update_reason',
+        'latest_revision_no',
+        'has_pending_revision',
         'created_by',
         'is_allocation_completed',
         'sorting_notes',
@@ -42,6 +45,7 @@ class ShopOrder extends Model
         'business_date' => 'date',
         'submitted_at' => 'datetime',
         'deadline_at' => 'datetime',
+        'has_pending_revision' => 'boolean',
         'is_allocation_completed' => 'boolean',
         'is_delivered' => 'boolean',
         'delivered_at' => 'datetime',
@@ -113,5 +117,107 @@ class ShopOrder extends Model
     public function items(): HasMany
     {
         return $this->hasMany(ShopOrderItem::class);
+    }
+
+    /**
+     * @return HasMany<ShopOrderRevision, $this>
+     */
+    public function revisions(): HasMany
+    {
+        return $this->hasMany(ShopOrderRevision::class);
+    }
+
+    /**
+     * @return HasOne<ShopOrderRevision, $this>
+     */
+    public function latestPendingRevision(): HasOne
+    {
+        return $this->hasOne(ShopOrderRevision::class)
+            ->where('status', 'pending')
+            ->latestOfMany('revision_no');
+    }
+
+    public function nextRevisionNumber(): int
+    {
+        return max(1, (int) $this->latest_revision_no) + 1;
+    }
+
+    public function displayStateLabel(): string
+    {
+        $revisionNumber = max(1, (int) $this->latest_revision_no);
+
+        if ($revisionNumber > 1) {
+            return match ($this->state) {
+                'approved' => "Update #{$revisionNumber} Approved",
+                'update_requested' => "Update #{$revisionNumber} Pending",
+                'rejected' => "Update #{$revisionNumber} Rejected",
+                default => (string) str($this->state)->replace('_', ' ')->title(),
+            };
+        }
+
+        return (string) str($this->state)->replace('_', ' ')->title();
+    }
+
+    public function hasLinkedPurchaseOrders(): bool
+    {
+        return PurchaseOrder::query()
+            ->whereDate('order_date', $this->business_date)
+            ->whereHas('items', function ($query): void {
+                $query->whereIn('product_id', $this->items()->pluck('product_id'));
+            })
+            ->exists();
+    }
+
+    public function linkedPurchaseOrdersHaveGoodsReceived(): bool
+    {
+        return PurchaseOrder::query()
+            ->whereDate('order_date', $this->business_date)
+            ->whereHas('items', function ($query): void {
+                $query->whereIn('product_id', $this->items()->pluck('product_id'));
+            })
+            ->whereHas('goodsReceiveds')
+            ->exists();
+    }
+
+    public function warehouseWorkflowStage(): string
+    {
+        if ($this->is_delivered) {
+            return $this->delivery_status ?: 'delivered';
+        }
+
+        if ($this->is_allocation_completed) {
+            return 'in_transit';
+        }
+
+        $items = $this->relationLoaded('items') ? $this->items : null;
+        if ($items && $items->contains(fn (ShopOrderItem $item): bool => in_array($item->sorting_status, ['allocated', 'loaded'], true))) {
+            return 'packing';
+        }
+
+        return 'approved';
+    }
+
+    public function warehouseWorkflowLabel(): string
+    {
+        return match ($this->warehouseWorkflowStage()) {
+            'packing' => 'Packing In Progress',
+            'in_transit' => 'In Transit',
+            'partially_delivered' => 'Partially Delivered',
+            'delivery_issue' => 'Delivery Issue',
+            'delivered' => 'Delivered',
+            default => 'Approved For Warehouse',
+        };
+    }
+
+    public function warehouseWorkflowTone(): string
+    {
+        return match ($this->warehouseWorkflowStage()) {
+            'packing' => 'warning',
+            'in_transit' => 'info',
+            'delivered' => 'success',
+            'partially_delivered' => 'warning',
+            'delivery_issue' => 'danger',
+            default => 'neutral',
+        };
     }
 }

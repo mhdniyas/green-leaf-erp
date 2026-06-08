@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Sales;
 
 use App\Models\Customer;
+use App\Models\Shop;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -37,12 +38,24 @@ class CustomerTest extends TestCase
     public function test_authorized_user_can_view_customers_list(): void
     {
         $customer = Customer::factory()->create();
+        $shop = Shop::create([
+            'code' => 'SHOP-SALES-1',
+            'name' => 'Casio Shop',
+        ]);
+        $shopOwner = User::factory()->create([
+            'name' => 'Shop Owner One',
+            'shop_id' => $shop->id,
+        ]);
+        $shopOwner->assignRole('shop');
 
         $response = $this->actingAs($this->authorizedUser)
             ->get(route('sales.customers.index'));
 
         $response->assertOk();
         $response->assertSee($customer->name);
+        $response->assertSee('Shop Deliveries');
+        $response->assertSee('Casio Shop');
+        $response->assertSee('Shop Owner One');
     }
 
     public function test_unauthorized_user_cannot_view_customers_list(): void

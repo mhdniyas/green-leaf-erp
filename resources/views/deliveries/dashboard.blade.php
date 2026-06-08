@@ -1,4 +1,4 @@
-<x-layouts.app title="Daily Delivery Dashboard">
+<x-layouts.app title="Warehouse Operations Dashboard">
     <x-slot:actions>
         <div class="flex items-center gap-2">
             <a href="{{ route('inventory.deliveries.dashboard', ['date' => \Carbon\Carbon::parse($date)->subDay()->format('Y-m-d')]) }}" class="p-2 bg-white rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-sm" title="Previous Day">
@@ -25,8 +25,8 @@
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 class="text-xl font-black text-slate-900 tracking-tight">Daily Delivery & Check-in Dashboard</h1>
-                    <p class="text-xs text-slate-500 mt-1">Track physical dispatches, load completion, shortage analytics, and shop cash reconciliation for the target date.</p>
+                    <h1 class="text-xl font-black text-slate-900 tracking-tight">Warehouse Operations Dashboard</h1>
+                    <p class="text-xs text-slate-500 mt-1">Run the warehouse flow in order: receive supplier goods, submit GRN updates, pack approved shop products, move orders to transit, then complete delivery check-in.</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-3">
                     <span class="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3.5 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
@@ -46,40 +46,148 @@
             </div>
         </div>
 
+        <div class="grid grid-cols-1 xl:grid-cols-[1.3fr_0.7fr] gap-6">
+            <section class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+                <div class="flex items-center justify-between gap-3">
+                    <div>
+                        <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Daily Warehouse Progress</p>
+                        <h2 class="mt-2 text-lg font-black text-slate-900">What the warehouse team needs to do today</h2>
+                    </div>
+                    <span class="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700 border border-slate-200">
+                        {{ $totalOrdersCount }} shop orders
+                    </span>
+                </div>
+
+                <div class="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <article class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">1. Receive Goods</p>
+                        <p class="mt-3 text-3xl font-black text-slate-900">{{ $receiveQueueCount }}</p>
+                        <p class="mt-2 text-xs font-semibold text-slate-500">purchase orders still waiting for warehouse receipt updates.</p>
+                    </article>
+                    <article class="rounded-3xl border border-amber-200 bg-amber-50 p-4">
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">GRN Approval</p>
+                        <p class="mt-3 text-3xl font-black text-amber-900">{{ $pendingGrnApprovalCount }}</p>
+                        <p class="mt-2 text-xs font-semibold text-amber-700">submitted GRN reports are waiting for purchase manager approval.</p>
+                    </article>
+                    <article class="rounded-3xl border border-cyan-200 bg-cyan-50 p-4">
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-700">2. Packing</p>
+                        <p class="mt-3 text-3xl font-black text-cyan-900">{{ $packingCount }}</p>
+                        <p class="mt-2 text-xs font-semibold text-cyan-700">shop orders are being packed or allocated for dispatch.</p>
+                    </article>
+                    <article class="rounded-3xl border border-indigo-200 bg-indigo-50 p-4">
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-indigo-700">3. Transit</p>
+                        <p class="mt-3 text-3xl font-black text-indigo-900">{{ $inTransitCount }}</p>
+                        <p class="mt-2 text-xs font-semibold text-indigo-700">shop orders are loaded and moving toward final delivery.</p>
+                    </article>
+                </div>
+            </section>
+
+            <section class="bg-slate-950 rounded-3xl border border-slate-900 shadow-sm p-6 text-white">
+                <p class="text-[11px] font-black uppercase tracking-[0.18em] text-cyan-300">Ease Access</p>
+                <h2 class="mt-2 text-lg font-black">Open the correct warehouse board fast</h2>
+                <div class="mt-5 space-y-3">
+                    <a href="{{ route('inventory.sorting.checklist', ['date' => $date]) }}" class="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 transition hover:border-cyan-300/40 hover:bg-white/10">
+                        <div>
+                            <p class="text-sm font-black text-white">Receive Goods & GRN</p>
+                            <p class="mt-1 text-xs font-semibold text-slate-300">Check supplier deliveries, receive quantities, and send GRN updates.</p>
+                        </div>
+                        <span class="rounded-full bg-cyan-400 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-950">Open</span>
+                    </a>
+                    <a href="{{ route('inventory.sorting.shop-orders', ['date' => $date]) }}" class="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 transition hover:border-cyan-300/40 hover:bg-white/10">
+                        <div>
+                            <p class="text-sm font-black text-white">Shop Dispatch Cards</p>
+                            <p class="mt-1 text-xs font-semibold text-slate-300">Pack approved products shop by shop and mark items in transit.</p>
+                        </div>
+                        <span class="rounded-full bg-cyan-400 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-950">Open</span>
+                    </a>
+                    <a href="#dispatch-status-board" class="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 transition hover:border-cyan-300/40 hover:bg-white/10">
+                        <div>
+                            <p class="text-sm font-black text-white">Load & Delivery Check-in</p>
+                            <p class="mt-1 text-xs font-semibold text-slate-300">Review dispatch readiness, delivery status, shortages, and cash updates.</p>
+                        </div>
+                        <span class="rounded-full bg-cyan-400 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-950">View</span>
+                    </a>
+                </div>
+            </section>
+        </div>
+
         <!-- Metrics Grid -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <!-- Delivery Check-in Progress Card -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 flex flex-col justify-between">
                 <div>
-                    <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider">Delivery Completion</span>
+                    <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider">Approved For Warehouse</span>
                     <div class="flex items-baseline justify-between mt-1">
-                        <span class="text-2xl font-black text-slate-900">{{ $deliveredCount }} / {{ $totalOrdersCount }}</span>
-                        <span class="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100">
-                            {{ $totalOrdersCount > 0 ? round(($deliveredCount / $totalOrdersCount) * 100) : 0 }}% Checked-in
+                        <span class="text-2xl font-black text-slate-900">{{ $warehouseApprovedCount }}</span>
+                        <span class="text-xs font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-lg border border-slate-200">
+                            waiting to pack
                         </span>
                     </div>
-                    <!-- Local Progress Bar -->
                     @php
-                        $delPercentage = $totalOrdersCount > 0 ? ($deliveredCount / $totalOrdersCount) * 100 : 0;
+                        $warehouseApprovedPercentage = $totalOrdersCount > 0 ? ($warehouseApprovedCount / $totalOrdersCount) * 100 : 0;
                     @endphp
                     <div class="w-full bg-slate-100 h-2 rounded-full mt-4 overflow-hidden">
-                        <div class="h-full bg-emerald-500 rounded-full transition-all duration-300" style="width: {{ $delPercentage }}%;"></div>
+                        <div class="h-full bg-slate-500 rounded-full transition-all duration-300" style="width: {{ $warehouseApprovedPercentage }}%;"></div>
                     </div>
                 </div>
                 <div class="mt-4 flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-50">
-                    <span>Awaiting Check-in: <strong class="text-slate-800">{{ $awaitingDeliveryCount }}</strong></span>
-                    <span>Allocated & Loaded: <strong class="text-slate-800">{{ $allocationCompletedCount }}</strong></span>
+                    <span>Total approved: <strong class="text-slate-800">{{ $totalOrdersCount }}</strong></span>
+                    <span>Still to start: <strong class="text-slate-800">{{ $awaitingAllocationCount }}</strong></span>
                 </div>
             </div>
 
-            <!-- Spoilages & Shortages Card -->
             <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 flex flex-col justify-between">
                 <div>
-                    <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider">Total Shortage Value</span>
+                    <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider">Packing & Allocation</span>
+                    <div class="flex items-baseline justify-between mt-1">
+                        <span class="text-2xl font-black text-cyan-700">{{ $packingCount }}</span>
+                        <span class="text-xs font-bold text-cyan-700 bg-cyan-50 px-2 py-0.5 rounded-lg border border-cyan-100">
+                            active packing
+                        </span>
+                    </div>
+                    @php
+                        $packingPercentage = $totalOrdersCount > 0 ? ($packingCount / $totalOrdersCount) * 100 : 0;
+                    @endphp
+                    <div class="w-full bg-slate-100 h-2 rounded-full mt-4 overflow-hidden">
+                        <div class="h-full bg-cyan-500 rounded-full" style="width: {{ $packingPercentage }}%;"></div>
+                    </div>
+                </div>
+                <div class="mt-4 flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-50">
+                    <span>Finalized sheets: <strong class="text-slate-800">{{ $allocationCompletedCount }}</strong></span>
+                    <span>In progress: <strong class="text-slate-800">{{ max($packingCount, 0) }}</strong></span>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 flex flex-col justify-between">
+                <div>
+                    <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider">Transit & Loading</span>
+                    <div class="flex items-baseline justify-between mt-1">
+                        @php
+                            $inTransitPercentage = $totalOrdersCount > 0 ? ($inTransitCount / $totalOrdersCount) * 100 : 0;
+                        @endphp
+                        <span class="text-2xl font-black text-indigo-700">
+                            {{ $inTransitCount }}
+                        </span>
+                        <span class="text-xs font-black uppercase tracking-wider border rounded-lg px-2 py-0.5 bg-indigo-50 text-indigo-700 border-indigo-100">
+                            moving now
+                        </span>
+                    </div>
+                    <div class="w-full bg-slate-100 h-2 rounded-full mt-4 overflow-hidden">
+                        <div class="h-full bg-indigo-500 rounded-full" style="width: {{ $inTransitPercentage }}%;"></div>
+                    </div>
+                </div>
+                <div class="mt-4 flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-50">
+                    <span>Awaiting delivery: <strong class="text-slate-800">{{ $awaitingDeliveryCount }}</strong></span>
+                    <span>Delivered: <strong class="text-slate-800">{{ $deliveredCount }}</strong></span>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 flex flex-col justify-between">
+                <div>
+                    <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider">Shortage & Cash Review</span>
                     <div class="flex items-baseline justify-between mt-1">
                         <span class="text-2xl font-black text-red-600">Rs. {{ number_format($totalShortageValue, 2) }}</span>
                         <span class="text-xs font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded-lg border border-red-100">
-                            {{ $shortageItems->count() }} items shorted
+                            {{ $shortageItems->count() }} shortage items
                         </span>
                     </div>
                     <div class="w-full bg-slate-100 h-2 rounded-full mt-4 overflow-hidden">
@@ -87,45 +195,96 @@
                     </div>
                 </div>
                 <div class="mt-4 flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-50">
-                    <span>Expected order items value: <span class="font-bold text-slate-700">Rs. {{ number_format($orders->sum(fn($o) => $o->items->sum(fn($i) => ($i->approved_qty ?? 0.00) * ($i->unit_cost ?? 0.00))), 2) }}</span></span>
-                </div>
-            </div>
-
-            <!-- Cash Discrepancies Summary Card -->
-            <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 flex flex-col justify-between">
-                <div>
-                    <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider">Net Cash Variance</span>
-                    <div class="flex items-baseline justify-between mt-1">
-                        @php
-                            $absDisc = abs($totalCashDiscrepancy);
-                        @endphp
-                        <span class="text-2xl font-black {{ $totalCashDiscrepancy > 0.01 ? 'text-amber-600' : ($totalCashDiscrepancy < -0.01 ? 'text-blue-600' : 'text-emerald-600') }}">
-                            Rs. {{ number_format($absDisc, 2) }}
-                        </span>
-                        <span class="text-xs font-black uppercase tracking-wider border rounded-lg px-2 py-0.5 {{ $totalCashDiscrepancy > 0.01 ? 'bg-amber-50 text-amber-700 border-amber-100' : ($totalCashDiscrepancy < -0.01 ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100') }}">
-                            @if(abs($totalCashDiscrepancy) < 0.01)
-                                Balanced
-                            @elseif($totalCashDiscrepancy > 0)
-                                Cash Shortage
-                            @else
-                                Cash Surplus
-                            @endif
-                        </span>
-                    </div>
-                    <div class="w-full bg-slate-100 h-2 rounded-full mt-4 overflow-hidden">
-                        <div class="h-full {{ $totalCashDiscrepancy > 0.01 ? 'bg-amber-500' : ($totalCashDiscrepancy < -0.01 ? 'bg-blue-500' : 'bg-emerald-500') }} rounded-full" style="width: {{ abs($totalCashDiscrepancy) > 0 ? 100 : 0 }}%;"></div>
-                    </div>
-                </div>
-                <div class="mt-4 flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-50">
-                    <span>Collected Cash: <strong class="text-slate-800">Rs. {{ number_format($totalCashCollected, 2) }}</strong></span>
+                    <span>Cash collected: <strong class="text-slate-800">Rs. {{ number_format($totalCashCollected, 2) }}</strong></span>
+                    <span>Variance: <strong class="text-slate-800">Rs. {{ number_format(abs($totalCashDiscrepancy), 2) }}</strong></span>
                 </div>
             </div>
         </div>
 
+        <section class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">2. Sort & Allocate</p>
+                    <h2 class="mt-2 text-lg font-black text-slate-900">Shop dispatch cards</h2>
+                    <p class="mt-1 text-sm text-slate-500">Open a shop card, check each approved product, update packing progress, and move items to transit. Shop owners see these product-level updates on their delivery screen.</p>
+                </div>
+                <a href="{{ route('inventory.sorting.shop-orders', ['date' => $date]) }}" class="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-4 py-2 text-xs font-black uppercase tracking-[0.18em] text-white transition hover:bg-slate-800">
+                    Open All Shop Cards
+                </a>
+            </div>
+
+            <div class="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                @forelse($shopCards as $card)
+                    @php
+                        $toneClasses = match ($card['status_tone']) {
+                            'success' => 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                            'warning' => 'bg-amber-50 text-amber-700 border-amber-200',
+                            'info' => 'bg-indigo-50 text-indigo-700 border-indigo-200',
+                            'danger' => 'bg-red-50 text-red-700 border-red-200',
+                            default => 'bg-slate-100 text-slate-700 border-slate-200',
+                        };
+                    @endphp
+                    <article class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <h3 class="text-base font-black text-slate-900">{{ $card['shop_name'] }}</h3>
+                                <p class="mt-1 text-[11px] font-mono font-bold text-slate-500">{{ $card['order_number'] }}</p>
+                            </div>
+                            <span class="inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] {{ $toneClasses }}">
+                                {{ $card['status_label'] }}
+                            </span>
+                        </div>
+
+                        <div class="mt-4 grid grid-cols-3 gap-3 text-center">
+                            <div class="rounded-2xl bg-white px-3 py-3 border border-slate-200">
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Packed</p>
+                                <p class="mt-2 text-xl font-black text-slate-900">{{ $card['packed_items'] }}</p>
+                            </div>
+                            <div class="rounded-2xl bg-white px-3 py-3 border border-slate-200">
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Transit</p>
+                                <p class="mt-2 text-xl font-black text-indigo-700">{{ $card['in_transit_items'] }}</p>
+                            </div>
+                            <div class="rounded-2xl bg-white px-3 py-3 border border-slate-200">
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Delivered</p>
+                                <p class="mt-2 text-xl font-black text-emerald-700">{{ $card['delivered_items'] }}</p>
+                            </div>
+                        </div>
+
+                        <div class="mt-4">
+                            <div class="flex items-center justify-between text-[11px] font-bold text-slate-500">
+                                <span>Warehouse progress</span>
+                                <span>{{ $card['progress_percentage'] }}%</span>
+                            </div>
+                            <div class="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+                                <div class="h-full rounded-full bg-cyan-500" style="width: {{ $card['progress_percentage'] }}%;"></div>
+                            </div>
+                            <p class="mt-2 text-xs font-semibold text-slate-500">{{ $card['packed_items'] }} of {{ $card['total_items'] }} approved products packed or moved to transit.</p>
+                        </div>
+
+                        <div class="mt-4 flex items-center gap-2">
+                            <a href="{{ $card['details_url'] }}" class="inline-flex flex-1 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-100">
+                                Open Shop Card
+                            </a>
+                            @if($card['check_in_url'])
+                                <a href="{{ $card['check_in_url'] }}" class="inline-flex flex-1 items-center justify-center rounded-2xl bg-emerald-600 px-4 py-2 text-xs font-black text-white transition hover:bg-emerald-700">
+                                    Delivery Check-in
+                                </a>
+                            @endif
+                        </div>
+                    </article>
+                @empty
+                    <div class="md:col-span-2 xl:col-span-3 rounded-3xl border border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center">
+                        <p class="text-base font-black text-slate-700">No approved shop orders for this date.</p>
+                        <p class="mt-2 text-sm text-slate-500">The warehouse cards will appear here as soon as purchase approvals are ready for dispatch.</p>
+                    </div>
+                @endforelse
+            </div>
+        </section>
+
         <!-- Main Deliveries Status Table -->
-        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+        <div id="dispatch-status-board" class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
             <div class="p-6 border-b border-slate-100 bg-slate-50/50">
-                <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider">Shop Deliveries Status</h2>
+                <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider">3. Load & Delivery Status</h2>
             </div>
             
             <div class="overflow-x-auto">
@@ -134,8 +293,8 @@
                         <tr class="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/20">
                             <th class="py-3 px-6">Shop</th>
                             <th class="py-3 px-6">Order Ref</th>
-                            <th class="py-3 px-6 text-center">Dispatch Status</th>
-                            <th class="py-3 px-6 text-center">Delivery Status</th>
+                            <th class="py-3 px-6 text-center">Warehouse Stage</th>
+                            <th class="py-3 px-6 text-center">Delivery Check-in</th>
                             <th class="py-3 px-6 text-right">Items</th>
                             <th class="py-3 px-6 text-right">Shortages</th>
                             <th class="py-3 px-6 text-right">Cash Collected</th>
@@ -157,15 +316,18 @@
                                     {{ $order->order_number }}
                                 </td>
                                 <td class="py-4 px-6 text-center">
-                                    @if($order->is_allocation_completed)
-                                        <span class="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded-full text-[9px] font-black border border-emerald-100">
-                                            Loaded & Shipped
-                                        </span>
-                                    @else
-                                        <span class="inline-flex items-center gap-1 bg-amber-50 text-amber-700 px-2.5 py-0.5 rounded-full text-[9px] font-black border border-amber-100">
-                                            Sorting ({{ $sorted }}/{{ $total }})
-                                        </span>
-                                    @endif
+                                    @php
+                                        $warehouseToneClasses = match ($order->warehouseWorkflowTone()) {
+                                            'success' => 'bg-emerald-50 text-emerald-700 border-emerald-100',
+                                            'warning' => 'bg-amber-50 text-amber-700 border-amber-100',
+                                            'info' => 'bg-indigo-50 text-indigo-700 border-indigo-100',
+                                            'danger' => 'bg-red-50 text-red-700 border-red-100',
+                                            default => 'bg-slate-50 text-slate-600 border-slate-200',
+                                        };
+                                    @endphp
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black border {{ $warehouseToneClasses }}">
+                                        {{ $order->warehouseWorkflowLabel() }}
+                                    </span>
                                 </td>
                                 <td class="py-4 px-6 text-center">
                                     @if($order->is_delivered)
@@ -214,8 +376,8 @@
                                 </td>
                                 <td class="py-4 px-6 text-center">
                                     <div class="inline-flex items-center gap-1.5">
-                                        <a href="{{ route('requisitions.show', $order->order_number) }}" class="inline-flex items-center bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-extrabold px-3 py-1.5 rounded-lg border border-slate-200 transition-all cursor-pointer">
-                                            Details
+                                        <a href="{{ route('inventory.sorting.shop-orders', ['date' => $date]) }}#shop-card-{{ $order->id }}" class="inline-flex items-center bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-extrabold px-3 py-1.5 rounded-lg border border-slate-200 transition-all cursor-pointer">
+                                            Shop Card
                                         </a>
                                         @if($order->is_allocation_completed && !$order->is_delivered)
                                             <a href="{{ route('requisitions.delivery.show', $order->order_number) }}" class="inline-flex items-center bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black px-3 py-1.5 rounded-lg transition-all cursor-pointer">

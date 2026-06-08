@@ -37,10 +37,32 @@ class StockMovementRepository extends BaseRepository
      */
     public function currentStockByProductAndGrade(?string $date = null): Collection
     {
-        // 1. Fetch sorted stock levels from StockMovement
+        $positiveMovementTypes = [
+            StockMovementType::In->value,
+            StockMovementType::SaleReversal->value,
+        ];
+        $negativeMovementTypes = [
+            StockMovementType::Out->value,
+            StockMovementType::Wastage->value,
+            StockMovementType::Sale->value,
+        ];
+
         $movementsStock = $this->query()
             ->join('products', 'stock_movements.product_id', '=', 'products.id')
-            ->selectRaw('stock_movements.product_id, products.name as product_name, products.image as product_image, stock_movements.grade, SUM(CASE WHEN stock_movements.type = ? THEN stock_movements.quantity ELSE -stock_movements.quantity END) as current_stock', [StockMovementType::In->value])
+            ->selectRaw(
+                'stock_movements.product_id, products.name as product_name, products.image as product_image, stock_movements.grade, '.
+                'SUM(CASE '.
+                'WHEN stock_movements.type IN (?, ?) THEN stock_movements.quantity '.
+                'WHEN stock_movements.type IN (?, ?, ?) THEN -stock_movements.quantity '.
+                'ELSE 0 END) as current_stock',
+                [
+                    $positiveMovementTypes[0],
+                    $positiveMovementTypes[1],
+                    $negativeMovementTypes[0],
+                    $negativeMovementTypes[1],
+                    $negativeMovementTypes[2],
+                ]
+            )
             ->when($date, fn ($q) => $q->whereDate('stock_movements.created_at', '<=', $date))
             ->groupBy('stock_movements.product_id', 'products.name', 'products.image', 'stock_movements.grade')
             ->having('current_stock', '>', 0)
@@ -99,13 +121,13 @@ class StockMovementRepository extends BaseRepository
         $inQty = $this->query()
             ->where('product_id', $productId)
             ->where('grade', $grade->value)
-            ->where('type', StockMovementType::In->value)
+            ->whereIn('type', [StockMovementType::In->value, StockMovementType::SaleReversal->value])
             ->sum('quantity');
 
         $outQty = $this->query()
             ->where('product_id', $productId)
             ->where('grade', $grade->value)
-            ->whereIn('type', [StockMovementType::Out->value, StockMovementType::Wastage->value])
+            ->whereIn('type', [StockMovementType::Out->value, StockMovementType::Wastage->value, StockMovementType::Sale->value])
             ->sum('quantity');
 
         return max(0, (float) $inQty - (float) $outQty);

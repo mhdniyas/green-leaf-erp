@@ -63,6 +63,16 @@
                                 <div>
                                     <p class="font-medium text-gray-900">{{ $u->name }}</p>
                                     <p class="text-xs text-gray-400">{{ $u->email }}</p>
+                                    <div class="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-bold">
+                                        <span class="rounded-full px-2 py-0.5 {{ $u->isOnline() ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500 border border-slate-200' }}">
+                                            {{ $u->isOnline() ? 'Online' : 'Offline' }}
+                                        </span>
+                                        @if($u->shop)
+                                            <span class="rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-cyan-700">
+                                                {{ $u->shop->name }}
+                                            </span>
+                                        @endif
+                                    </div>
                                 </div>
                             </div>
                         </td>

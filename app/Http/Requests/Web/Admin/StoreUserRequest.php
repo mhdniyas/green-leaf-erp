@@ -19,6 +19,7 @@ class StoreUserRequest extends FormRequest
             'name' => ['required', 'string', 'min:2', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:8'],
+            'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
             'roles' => ['nullable', 'array'],
             'roles.*' => ['string', 'exists:roles,name'],
             'permissions' => ['nullable', 'array'],

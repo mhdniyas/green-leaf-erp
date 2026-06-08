@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Inventory;
 
+use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
+use App\Models\GoodsReceived;
+use App\Models\PurchaseOrder;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use Illuminate\Http\Request;
@@ -35,6 +38,16 @@ class DeliveryDashboardController extends Controller
 
         $orders = $ordersQuery->get();
 
+        $warehouseApprovedCount = $orders
+            ->filter(fn (ShopOrder $order): bool => $order->warehouseWorkflowStage() === 'approved')
+            ->count();
+        $packingCount = $orders
+            ->filter(fn (ShopOrder $order): bool => $order->warehouseWorkflowStage() === 'packing')
+            ->count();
+        $inTransitCount = $orders
+            ->filter(fn (ShopOrder $order): bool => $order->warehouseWorkflowStage() === 'in_transit')
+            ->count();
+
         // Calculate summary metrics
         $totalOrdersCount = $orders->count();
         $allocationCompletedCount = $orders->where('is_allocation_completed', true)->count();
@@ -45,6 +58,46 @@ class DeliveryDashboardController extends Controller
         $totalShortageValue = (float) $orders->sum('total_shortage_value');
         $totalCashCollected = (float) $orders->sum('cash_collected');
         $totalCashDiscrepancy = (float) $orders->sum('cash_discrepancy');
+
+        $receiveQueueCount = PurchaseOrder::query()
+            ->whereIn('status', [POStatus::SentToSupplier, POStatus::PartiallyReceived])
+            ->count();
+
+        $pendingGrnApprovalCount = GoodsReceived::query()
+            ->whereDate('received_at', $date)
+            ->where('status', 'pending_approval')
+            ->count();
+
+        $shopCards = $orders
+            ->map(function (ShopOrder $order): array {
+                $items = $order->items;
+                $totalItems = $items->count();
+                $packedItems = $items->whereIn('sorting_status', ['allocated', 'loaded'])->count();
+                $inTransitItems = $items->where('sorting_status', 'loaded')->count();
+                $deliveredItems = $items->filter(fn (ShopOrderItem $item): bool => $item->warehouseWorkflowStage() === 'delivered')->count();
+
+                return [
+                    'id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'shop_name' => $order->shop?->name ?? 'Unknown Shop',
+                    'status_label' => $order->warehouseWorkflowLabel(),
+                    'status_tone' => $order->warehouseWorkflowTone(),
+                    'total_items' => $totalItems,
+                    'packed_items' => $packedItems,
+                    'in_transit_items' => $inTransitItems,
+                    'delivered_items' => $deliveredItems,
+                    'progress_percentage' => $totalItems > 0 ? (int) round(($packedItems / $totalItems) * 100) : 0,
+                    'details_url' => route('inventory.sorting.shop-orders', ['date' => $order->business_date->format('Y-m-d')]).'#shop-card-'.$order->id,
+                    'check_in_url' => $order->is_allocation_completed && ! $order->is_delivered
+                        ? route('requisitions.delivery.show', $order->order_number)
+                        : null,
+                ];
+            })
+            ->sortBy([
+                ['progress_percentage', 'asc'],
+                ['shop_name', 'asc'],
+            ])
+            ->values();
 
         // Itemized shortages: ShopOrderItems with shortage_qty > 0 on this date
         $shortageQuery = ShopOrderItem::whereHas('order', function ($query) use ($date, $isShop, $shopId): void {
@@ -82,6 +135,12 @@ class DeliveryDashboardController extends Controller
                 'awaitingAllocationCount',
                 'deliveredCount',
                 'awaitingDeliveryCount',
+                'warehouseApprovedCount',
+                'packingCount',
+                'inTransitCount',
+                'receiveQueueCount',
+                'pendingGrnApprovalCount',
+                'shopCards',
                 'totalShortageValue',
                 'totalCashCollected',
                 'totalCashDiscrepancy',

@@ -1,4 +1,11 @@
-<x-layouts.app title="Shop Orders Dispatch">
+<x-layouts.app title="Shop Dispatch Cards">
+    @php
+        $existingWarehouseTags = $orders
+            ->map(fn ($order) => $order->shop?->warehouse_tag)
+            ->filter()
+            ->unique()
+            ->values();
+    @endphp
 
     <x-slot:actions>
         <div class="flex items-center gap-2">
@@ -22,8 +29,8 @@
     <div class="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 mb-6">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-                <h2 class="text-lg font-black text-slate-800 tracking-tight">Shop Orders Allocation</h2>
-                <p class="text-xs text-slate-400 mt-1">Manage daily shop orders and allocate approved products for delivery dispatch points.</p>
+                <h2 class="text-lg font-black text-slate-800 tracking-tight">Shop Dispatch Cards</h2>
+                <p class="text-xs text-slate-400 mt-1">Open one card per shop, pack approved products, move items to transit, and finalize each loading sheet.</p>
             </div>
             <div class="flex items-center gap-3">
                 <span class="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600 border border-slate-200">
@@ -57,7 +64,15 @@
                         <div class="flex items-start justify-between gap-3">
                             <div>
                                 <h3 class="text-sm font-black text-slate-800 tracking-tight">{{ $order->shop ? $order->shop->name : 'N/A' }}</h3>
-                                <p class="text-[10px] font-mono font-bold text-slate-400 mt-0.5">{{ $order->order_number }}</p>
+                                <div class="mt-1 flex flex-wrap items-center gap-2">
+                                    <p class="text-[10px] font-mono font-bold text-slate-400">{{ $order->order_number }}</p>
+                                    <button type="button"
+                                        onclick="openTagModal('{{ $order->shop?->code }}', '{{ $order->shop?->name }}', '{{ $order->shop?->warehouse_tag }}')"
+                                        class="inline-flex items-center gap-1 rounded-full border border-cyan-100 bg-cyan-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-700 transition hover:border-cyan-200 hover:bg-cyan-100">
+                                        <span>Tag {{ $order->shop?->warehouse_tag ?: '--' }}</span>
+                                        <span class="text-[9px] normal-case tracking-normal text-cyan-600">change</span>
+                                    </button>
+                                </div>
                             </div>
                             <div class="flex flex-col items-end gap-1.5">
                                 <span id="shop-badge-{{ $order->id }}" class="inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider {{ $order->is_allocation_completed ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-brand-50 text-brand-700 border border-brand-200' }}">
@@ -72,7 +87,7 @@
                         </div>
                         <div class="flex items-center justify-between mt-2">
                             <p id="shop-ratio-text-{{ $order->id }}" class="text-[10px] font-bold text-slate-400">
-                                {{ $orderSorted }} of {{ $orderTotal }} products allocated
+                                {{ $orderSorted }} of {{ $orderTotal }} products packed / in transit
                             </p>
                             @if($order->is_allocation_completed)
                                 <span class="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">Completed</span>
@@ -99,6 +114,7 @@
                                     {{ $order->sorting_notes }}
                                 </div>
                             @endif
+
                         </div>
 
                         <button onclick="openAllocationModal(this)"
@@ -124,15 +140,20 @@
                                 })->toJson() }}"
                                 class="w-full py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-black shadow-xs hover:shadow-md transition-all cursor-pointer text-center flex items-center justify-center gap-1.5">
                             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75c.621 0 1.125.504 1.125 1.125v1.875c0 .621-.504 1.125-1.125 1.125H5.625a1.125 1.125 0 01-1.125-1.125V5.625c0-.621.504-1.125 1.125-1.125z" /></svg>
-                            {{ $order->is_allocation_completed ? 'View Allocation Details' : 'Allocate & Load Products' }}
+                            {{ $order->is_allocation_completed ? 'View Loading Details' : 'Pack & Load Products' }}
                         </button>
+                        <a href="{{ route('inventory.sorting.shop-sorting.show', ['order' => $order->order_number, 'date' => $date]) }}"
+                           class="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 py-2.5 text-center text-xs font-black text-slate-700 transition hover:border-slate-300 hover:bg-slate-100">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2.3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5m-16.5 5.25h16.5m-16.5 5.25h16.5" /></svg>
+                            Open Worker Sorting Page
+                        </a>
                     </div>
                 </div>
             @endforeach
         @endif
     </div>
 
-    {{-- ── Shop Order Allocation Modal ── --}}
+    {{-- ── Shop Dispatch Card Modal ── --}}
     <div id="allocation-modal" class="fixed inset-0 z-50 overflow-y-auto hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
         <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
             <div class="fixed inset-0 bg-slate-900/60 transition-opacity" aria-hidden="true" onclick="closeAllocationModal()"></div>
@@ -146,7 +167,7 @@
                     <div class="p-6 border-b border-slate-100 bg-slate-50/50">
                         <div class="flex items-start justify-between">
                             <div>
-                                <h3 class="text-base font-black text-slate-800" id="modal-title-text">Shop Order Allocation</h3>
+                                <h3 class="text-base font-black text-slate-800" id="modal-title-text">Shop Dispatch Card</h3>
                                 <p class="text-xs text-slate-400 mt-1" id="modal-subtitle-text"></p>
                             </div>
                             <button type="button" onclick="closeAllocationModal()" class="text-slate-400 hover:text-slate-600 cursor-pointer">
@@ -158,7 +179,7 @@
                         <div class="mt-4 flex items-center justify-between gap-4 bg-white border border-slate-100 rounded-2xl p-3 shadow-xs">
                             <div class="flex-1">
                                 <div class="flex justify-between text-[10px] font-extrabold uppercase text-slate-500 mb-1">
-                                    <span>Allocation Progress</span>
+                                    <span>Packing Progress</span>
                                     <span id="modal-percentage-label">0%</span>
                                 </div>
                                 <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
@@ -180,7 +201,7 @@
                             <input type="checkbox" id="modal-success-100" checked onchange="toggleModalNotesField()"
                                    class="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500/20 cursor-pointer">
                             <label for="modal-success-100" class="text-[11px] font-bold text-slate-700 cursor-pointer select-none">
-                                Order successful 100% as per approved order (no changes)
+                                Order packed exactly as approved (no changes)
                             </label>
                         </div>
 
@@ -192,7 +213,7 @@
                         
                         <div class="flex justify-end gap-3 pt-2">
                             <button type="button" onclick="closeAllocationModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer">Cancel</button>
-                            <button type="submit" id="btn-modal-finalize" class="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors cursor-pointer">Complete & Finalize Sheet</button>
+                            <button type="submit" id="btn-modal-finalize" class="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors cursor-pointer">Complete Loading Sheet</button>
                         </div>
                     </div>
 
@@ -200,7 +221,7 @@
                         <div class="w-full bg-emerald-50 border border-emerald-100 rounded-2xl p-4 text-emerald-800 flex flex-col gap-2">
                             <div class="flex items-center gap-1.5">
                                 <svg class="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                <span class="text-xs font-black">Allocation Finalized</span>
+                                <span class="text-xs font-black">Loading Sheet Finalized</span>
                             </div>
                             <div id="modal-notes-display" class="text-[10px] text-emerald-600 bg-white/60 p-2 rounded-xl font-semibold hidden"></div>
                             <button type="button" onclick="closeAllocationModal()" class="self-end px-3 py-1.5 bg-emerald-600 text-white hover:bg-emerald-700 text-[10px] font-bold rounded-lg transition-colors cursor-pointer">Close</button>
@@ -213,11 +234,42 @@
 
     {{-- Dynamic Toast Notification Container --}}
     <div id="toast-container" class="fixed bottom-5 right-5 z-55 flex flex-col gap-2"></div>
+    <div id="tag-modal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-slate-900/60" onclick="closeTagModal()"></div>
+        <div class="relative flex min-h-full items-center justify-center p-4">
+            <div class="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-5 shadow-xl">
+                <div class="flex items-start justify-between gap-3">
+                    <div>
+                        <h3 class="text-base font-black text-slate-900">Update Shop Tag</h3>
+                        <p id="tag-modal-shop-name" class="mt-1 text-xs font-semibold text-slate-500"></p>
+                    </div>
+                    <button type="button" onclick="closeTagModal()" class="text-slate-400 transition hover:text-slate-600">
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+
+                <form id="tag-modal-form" method="POST" class="mt-4">
+                    @csrf
+                    @method('PATCH')
+                    <input type="hidden" name="date" value="{{ $date }}">
+                    <label for="tag-modal-input" class="block text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Tag</label>
+                    <input id="tag-modal-input" type="text" name="warehouse_tag" maxlength="12" placeholder="A"
+                        class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-black uppercase tracking-[0.18em] text-slate-700 focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-200">
+                    <p id="tag-modal-error" class="mt-2 hidden text-xs font-bold text-red-600"></p>
+                    <div class="mt-4 flex justify-end gap-2">
+                        <button type="button" onclick="closeTagModal()" class="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 transition hover:bg-slate-50">Cancel</button>
+                        <button type="submit" class="rounded-2xl bg-slate-900 px-4 py-2 text-xs font-black text-white transition hover:bg-slate-800">Update</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 
     @push('scripts')
         <script>
             let currentOrderItems = [];
             let currentOrderId = null;
+            const warehouseTags = @json($existingWarehouseTags);
 
             function showToast(message, type = 'success') {
                 const toast = document.createElement('div');
@@ -247,6 +299,44 @@
                 }
             }
 
+            function openTagModal(shopCode, shopName, currentTag) {
+                const modal = document.getElementById('tag-modal');
+                const form = document.getElementById('tag-modal-form');
+                const input = document.getElementById('tag-modal-input');
+                const title = document.getElementById('tag-modal-shop-name');
+                const error = document.getElementById('tag-modal-error');
+
+                form.action = `/inventory/sorting-checklist/shops/${shopCode}/tag`;
+                form.dataset.currentTag = (currentTag || '').toUpperCase();
+                input.value = currentTag || '';
+                title.textContent = shopName;
+                error.classList.add('hidden');
+                error.textContent = '';
+                modal.classList.remove('hidden');
+                setTimeout(() => input.focus(), 10);
+            }
+
+            function closeTagModal() {
+                document.getElementById('tag-modal').classList.add('hidden');
+            }
+
+            document.getElementById('tag-modal-form')?.addEventListener('submit', function (event) {
+                const input = document.getElementById('tag-modal-input');
+                const error = document.getElementById('tag-modal-error');
+                const nextTag = input.value.trim().toUpperCase();
+                const currentTag = (event.currentTarget.dataset.currentTag || '').toUpperCase();
+
+                input.value = nextTag;
+                error.classList.add('hidden');
+                error.textContent = '';
+
+                if (nextTag && nextTag !== currentTag && warehouseTags.includes(nextTag)) {
+                    event.preventDefault();
+                    error.textContent = `Tag ${nextTag} is already used by another shop.`;
+                    error.classList.remove('hidden');
+                }
+            });
+
             function openAllocationModal(btn) {
                 const orderId = btn.getAttribute('data-id');
                 const orderNumber = btn.getAttribute('data-order-number');
@@ -269,7 +359,7 @@
                         notesDisplay.innerHTML = `<span class="font-extrabold text-emerald-800 block mb-0.5">Discrepancy Notes:</span> ${notes}`;
                         notesDisplay.classList.remove('hidden');
                     } else {
-                        notesDisplay.innerHTML = `Order fulfilled 100% as per approved requisition sheet.`;
+                        notesDisplay.innerHTML = `Order packed exactly as approved.`;
                         notesDisplay.classList.remove('hidden');
                     }
                     document.getElementById('modal-view-only-section').classList.remove('hidden');
@@ -353,7 +443,7 @@
                     btnPending.className = `px-2.5 py-1 rounded-lg text-[9px] font-black transition-all ${!isCompleted ? 'cursor-pointer' : ''} ${
                         item.sorting_status === 'pending' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-400 hover:text-slate-700'
                     }`;
-                    btnPending.textContent = "Pending";
+                    btnPending.textContent = "Ready";
                     btnPending.onclick = () => updateModalItemStatus(item.id, 'pending');
 
                     const btnAllocated = document.createElement('button');
@@ -363,7 +453,7 @@
                     btnAllocated.className = `px-2.5 py-1 rounded-lg text-[9px] font-black transition-all ${!isCompleted ? 'cursor-pointer' : ''} ${
                         item.sorting_status === 'allocated' ? 'bg-emerald-500 text-white shadow-xs' : 'text-slate-400 hover:text-slate-700'
                     }`;
-                    btnAllocated.textContent = "Allocated";
+                    btnAllocated.textContent = "Packing";
                     btnAllocated.onclick = () => updateModalItemStatus(item.id, 'allocated');
 
                     const btnLoaded = document.createElement('button');
@@ -373,7 +463,7 @@
                     btnLoaded.className = `px-2.5 py-1 rounded-lg text-[9px] font-black transition-all ${!isCompleted ? 'cursor-pointer' : ''} ${
                         item.sorting_status === 'loaded' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-slate-700'
                     }`;
-                    btnLoaded.textContent = "Loaded";
+                    btnLoaded.textContent = "In Transit";
                     btnLoaded.onclick = () => updateModalItemStatus(item.id, 'loaded');
 
                     btnGroup.appendChild(btnPending);
@@ -384,7 +474,7 @@
                     metaDisplay.id = `modal-meta-container-${item.id}`;
                     metaDisplay.className = item.is_sorted ? "" : "hidden";
                     
-                    let prefixIcon = item.sorting_status === 'loaded' ? '🚚' : '✓';
+                    let prefixIcon = item.sorting_status === 'loaded' ? '🚚' : '📦';
                     metaDisplay.innerHTML = `
                         <span class="text-[8px] font-bold text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-lg inline-flex items-center gap-1">
                             ${prefixIcon} ${item.is_sorted && item.sorted_by_name ? item.sorted_by_name : ''} ${item.sorted_at_formatted ? 'at ' + item.sorted_at_formatted : ''}
@@ -460,7 +550,7 @@
                             label.className = "text-xs font-black truncate text-emerald-900";
                             row.className = "p-4 border border-slate-100 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all duration-300 bg-slate-50/80 opacity-90";
                             meta.classList.remove('hidden');
-                            meta.querySelector('span').innerHTML = `✓ ${data.item.sorted_by_name} at ${data.item.sorted_at_formatted}`;
+                            meta.querySelector('span').innerHTML = `📦 ${data.item.sorted_by_name} at ${data.item.sorted_at_formatted}`;
                         } else if (data.item.sorting_status === 'loaded') {
                             btnLoaded.className = "px-2.5 py-1 rounded-lg text-[9px] font-black transition-all cursor-pointer bg-indigo-600 text-white shadow-xs";
                             label.className = "text-xs font-black truncate text-indigo-900";
@@ -482,7 +572,7 @@
 
                         if (parentPercentageText) parentPercentageText.textContent = `${percentage}%`;
                         if (parentProgressBar) parentProgressBar.style.width = `${percentage}%`;
-                        if (parentRatioText) parentRatioText.textContent = `${data.shop_progress.sorted} of ${data.shop_progress.total} products allocated`;
+                        if (parentRatioText) parentRatioText.textContent = `${data.shop_progress.sorted} of ${data.shop_progress.total} products packed / in transit`;
 
                         // Re-serialize modified items back into the trigger button's data attribute so it stays in sync
                         const btn = document.querySelector(`button[data-id="${orderId}"]`);
@@ -490,7 +580,7 @@
                             btn.setAttribute('data-items', JSON.stringify(currentOrderItems));
                         }
 
-                        showToast(`Product allocation updated.`);
+                        showToast(`Product warehouse status updated.`);
                     }
                 })
                 .catch(error => {
@@ -527,7 +617,7 @@
                 })
                 .then(data => {
                     if (data.success) {
-                        showToast('Allocation sheet finalized successfully!');
+                        showToast('Loading sheet finalized successfully!');
                         
                         // Close the modal
                         closeAllocationModal();
@@ -540,7 +630,7 @@
                 })
                 .catch(error => {
                     console.error(error);
-                    showToast('Failed to finalize allocation sheet.', 'error');
+                    showToast('Failed to finalize loading sheet.', 'error');
                 });
             }
         </script>

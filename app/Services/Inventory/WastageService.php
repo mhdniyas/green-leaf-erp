@@ -8,6 +8,7 @@ use App\DTOs\Inventory\WastageEntryData;
 use App\Models\WastageEntry;
 use App\Repositories\Inventory\WastageEntryRepository;
 use App\Services\Finance\JournalService;
+use App\Services\Pricing\PriceBoardService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
@@ -16,6 +17,7 @@ class WastageService
     public function __construct(
         private readonly WastageEntryRepository $repository,
         private readonly JournalService $journalService,
+        private readonly PriceBoardService $priceBoardService,
     ) {}
 
     public function paginate(int $perPage = 15, ?int $productId = null, ?string $date = null): LengthAwarePaginator
@@ -34,6 +36,12 @@ class WastageService
 
             // Post General Ledger entries
             $this->journalService->recordWastage($wastage);
+
+            $this->priceBoardService->refreshWholesalePricesForProducts(
+                [$wastage->product_id],
+                'wastage',
+                $wastage->id ? (string) $wastage->id : null
+            );
 
             return $wastage;
         });

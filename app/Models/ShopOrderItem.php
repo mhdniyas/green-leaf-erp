@@ -15,9 +15,14 @@ class ShopOrderItem extends Model
     protected $fillable = [
         'shop_order_id',
         'product_id',
+        'product_grade',
         'requested_qty',
         'approved_qty',
         'unit',
+        'locked_price_group_id',
+        'locked_selling_price',
+        'locked_price_source',
+        'line_total',
         'notes',
         'fulfillment_type',
         'is_sorted',
@@ -33,6 +38,8 @@ class ShopOrderItem extends Model
     protected $casts = [
         'requested_qty' => 'decimal:2',
         'approved_qty' => 'decimal:2',
+        'locked_selling_price' => 'decimal:2',
+        'line_total' => 'decimal:2',
         'is_sorted' => 'boolean',
         'sorted_at' => 'datetime',
         'delivered_qty' => 'decimal:2',
@@ -61,6 +68,11 @@ class ShopOrderItem extends Model
         return $this->belongsTo(Product::class);
     }
 
+    public function lockedPriceGroup(): BelongsTo
+    {
+        return $this->belongsTo(ShopPriceGroup::class, 'locked_price_group_id');
+    }
+
     /**
      * Get the user who sorted this item.
      *
@@ -69,5 +81,52 @@ class ShopOrderItem extends Model
     public function sortedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'sorted_by');
+    }
+
+    public function warehouseWorkflowStage(): string
+    {
+        $order = $this->relationLoaded('order') ? $this->order : null;
+
+        if ($order?->is_delivered) {
+            if ((float) $this->delivered_qty > 0 && (float) $this->shortage_qty > 0) {
+                return 'partially_delivered';
+            }
+
+            return (float) $this->delivered_qty > 0 ? 'delivered' : 'delivery_issue';
+        }
+
+        if ($this->sorting_status === 'loaded' || $order?->is_allocation_completed) {
+            return 'in_transit';
+        }
+
+        if ($this->sorting_status === 'allocated') {
+            return 'packing';
+        }
+
+        return 'approved';
+    }
+
+    public function warehouseWorkflowLabel(): string
+    {
+        return match ($this->warehouseWorkflowStage()) {
+            'packing' => 'Allocated',
+            'in_transit' => 'Loaded',
+            'partially_delivered' => 'Partial Delivery',
+            'delivered' => 'Delivered',
+            'delivery_issue' => 'Delivery Issue',
+            default => 'Approved',
+        };
+    }
+
+    public function warehouseWorkflowTone(): string
+    {
+        return match ($this->warehouseWorkflowStage()) {
+            'packing' => 'warning',
+            'in_transit' => 'info',
+            'delivered' => 'success',
+            'delivery_issue' => 'danger',
+            'partially_delivered' => 'warning',
+            default => 'neutral',
+        };
     }
 }

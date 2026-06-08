@@ -19,6 +19,93 @@
     @stack('styles')
 </head>
 <body class="h-full bg-slate-100 font-sans antialiased">
+@php
+    $currentUser = auth()->user();
+    $currentUserInitial = $currentUser ? strtoupper(substr($currentUser->name, 0, 1)) : 'U';
+    $showAdminMobileNav = $currentUser &&
+        ($currentUser->hasRole('admin') || $currentUser->can('admin.user.view') || $currentUser->can('admin.daily-progress.view') || $currentUser->can('admin.activity-log.view'));
+    $showWarehouseMobileNav = $currentUser &&
+        ! $showAdminMobileNav &&
+        ($currentUser->hasRole('warehouse') || $currentUser->can('warehouse.checklist.view'));
+
+    $warehouseMobileNavItems = [
+        [
+            'label' => 'Dashboard',
+            'route' => 'dashboard',
+            'active' => request()->routeIs('dashboard'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>',
+            'type' => 'link',
+        ],
+        [
+            'label' => 'Receive',
+            'route' => 'inventory.sorting.checklist',
+            'active' => request()->routeIs('inventory.sorting.checklist'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5l9 4.5 9-4.5M3 7.5l9-4.5 9 4.5M3 7.5V16.5L12 21m0-9 9-4.5V16.5L12 21m0 0V12" /></svg>',
+            'type' => 'link',
+        ],
+        [
+            'label' => 'Shop Cards',
+            'route' => 'inventory.sorting.shop-orders',
+            'active' => request()->routeIs('inventory.sorting.shop-orders'),
+            'icon' => '<svg class="h-7 w-7 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M7 4h10"/><path d="M6 11h12"/><path d="M8 15h8"/><path d="M10 19h4"/></svg>',
+            'type' => 'center',
+        ],
+        [
+            'label' => 'Worker Sort',
+            'route' => 'inventory.sorting.shop-sorting',
+            'active' => request()->routeIs('inventory.sorting.shop-sorting*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12m-12 5.25h12m-12 5.25h12M3.75 6.75h.008v.008H3.75zm0 5.25h.008v.008H3.75zm0 5.25h.008v.008H3.75z"/></svg>',
+            'type' => 'link',
+        ],
+        [
+            'label' => 'Transit',
+            'route' => 'inventory.deliveries.dashboard',
+            'active' => request()->routeIs('inventory.deliveries.dashboard'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 17h8M7 7h8l3 4v6h-2m-9 0H5V9a2 2 0 012-2Z"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/></svg>',
+            'type' => 'link',
+        ],
+        [
+            'label' => 'Report',
+            'route' => 'inventory.reports.fulfillment',
+            'active' => request()->routeIs('inventory.reports.fulfillment'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-6m4 6V7m4 10v-3M5 21h14M5 3h14"/></svg>',
+            'type' => 'link',
+        ],
+    ];
+    $adminMobileNavItems = [
+        [
+            'label' => 'Overview',
+            'route' => 'admin.overview',
+            'active' => request()->routeIs('admin.overview'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.5h8.25V3H3v10.5Zm0 7.5h8.25v-4.5H3V21Zm9.75 0H21V10.5h-8.25V21Zm0-12h8.25V3h-8.25v6Z"/></svg>',
+        ],
+        [
+            'label' => 'Users',
+            'route' => 'admin.users.index',
+            'active' => request()->routeIs('admin.users.*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0z"/></svg>',
+        ],
+        [
+            'label' => 'Progress',
+            'route' => 'admin.daily-progress',
+            'active' => request()->routeIs('admin.daily-progress'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18M7 14l3-3 3 2 4-6"/></svg>',
+        ],
+        [
+            'label' => 'Activity',
+            'route' => 'admin.activity-logs.index',
+            'active' => request()->routeIs('admin.activity-logs.index'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12h4l3 8 4-16 3 8h4"/></svg>',
+        ],
+        [
+            'label' => 'Finance',
+            'route' => 'finance.index',
+            'active' => request()->routeIs('finance.*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m0 0c-2.21 0-4-1.343-4-3s1.79-3 4-3 4-1.343 4-3-1.79-3-4-3m0 12c2.21 0 4-1.343 4-3"/></svg>',
+        ],
+    ];
+    $showMobileBottomNav = $showAdminMobileNav || $showWarehouseMobileNav;
+@endphp
 
 <div id="app-container" class="flex h-full">
 
@@ -129,6 +216,9 @@
                         <x-nav-item href="{{ route('inventory.sorting.shop-orders') }}" :active="request()->routeIs('inventory.sorting.shop-orders')" :sub="true">
                             Shop Orders
                         </x-nav-item>
+                        <x-nav-item href="{{ route('inventory.sorting.shop-sorting') }}" :active="request()->routeIs('inventory.sorting.shop-sorting*')" :sub="true">
+                            Worker Sorting
+                        </x-nav-item>
                         @endcan
                         <x-nav-item href="{{ route('inventory.deliveries.dashboard') }}" :active="request()->routeIs('inventory.deliveries.dashboard')" :sub="true">
                             Delivery Dashboard
@@ -184,6 +274,9 @@
                         @if(auth()->user()->hasRole('purchase') || auth()->user()->hasRole('admin'))
                         <x-nav-item href="{{ route('purchasing.prices.index') }}" :active="request()->routeIs('purchasing.prices.*')" :sub="true">
                             Daily Price Board
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('purchasing.price-groups.index') }}" :active="request()->routeIs('purchasing.price-groups.*')" :sub="true">
+                            Shop Price Categories
                         </x-nav-item>
                         @endif
                         @can('purchasing.order.view')
@@ -306,6 +399,7 @@
 
                 {{-- Admin Group --}}
                 @if(
+                    auth()->user()->hasRole('admin') ||
                     auth()->user()->can('admin.user.view') ||
                     auth()->user()->can('admin.daily-progress.view') ||
                     auth()->user()->can('admin.activity-log.view')
@@ -330,6 +424,11 @@
                         </svg>
                     </button>
                     <div class="sidebar-group-items space-y-1 pl-3 pr-1 transition-all duration-200 {{ $isAdminActive ? '' : 'hidden' }}">
+                        @can('admin.user.view')
+                        <x-nav-item href="{{ route('admin.overview') }}" :active="request()->routeIs('admin.overview')" :sub="true">
+                            Admin Overview
+                        </x-nav-item>
+                        @endcan
                         @can('admin.user.view')
                         <x-nav-item href="{{ route('admin.users.index') }}" :active="request()->routeIs('admin.users.*')" :sub="true">
                             Users & Roles
@@ -381,45 +480,75 @@
     <div class="main-content-wrapper flex min-w-0 flex-1 flex-col transition-all duration-300 lg:ml-72">
 
         {{-- Top bar --}}
-        <header class="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6">
-            {{-- Collapse / open toggle --}}
-            <button id="sidebar-open" class="-ml-1 rounded-2xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 cursor-pointer">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-                </svg>
-            </button>
-
-            {{-- Page breadcrumb / title --}}
-            <div class="min-w-0 flex-1">
-                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Green Leaf ERP</p>
-                <h1 class="truncate text-sm font-bold text-slate-900">{{ $title }}</h1>
-            </div>
-
-            {{-- Header Actions Container --}}
-            <div class="flex items-center gap-3 shrink-0 ml-auto">
-                {{-- Theme Toggle Switch --}}
-                <button
-                    id="theme-toggle"
-                    type="button"
-                    class="rounded-2xl p-2 text-slate-500 transition-colors duration-200 cursor-pointer hover:bg-slate-100 hover:text-slate-900 focus:outline-none dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
-                    title="Toggle dark/light theme"
-                >
-                    {{-- Moon Icon (for Light Mode) --}}
-                    <svg id="theme-toggle-moon" class="w-5 h-5 hidden" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75C12.365 15.75 8 11.385 8 5.75c0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
-                    </svg>
-                    {{-- Sun Icon (for Dark Mode) --}}
-                    <svg id="theme-toggle-sun" class="w-5 h-5 hidden" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1.5m0 15V21m-9-9h1.5m15 0H21m-2.121-6.879l-1.061 1.061m-10.606 10.606l-1.061 1.061M6.343 6.343l1.061 1.061m10.606 10.606l1.061 1.061M12 7.5a4.5 4.5 0 100 9 4.5 4.5 0 000-9z" />
+        <header class="fixed inset-x-4 top-4 z-30 mx-auto max-w-md rounded-[1.5rem] border border-slate-100 bg-white/95 px-4 py-3 shadow-[0_8px_30px_rgb(0,0,0,0.08)] backdrop-blur-md sm:px-5 lg:sticky lg:inset-x-0 lg:top-0 lg:left-0 lg:right-0 lg:mx-0 lg:max-w-none lg:rounded-none lg:border-0 lg:border-b lg:border-slate-200 lg:bg-white/95 lg:px-6 lg:py-0 lg:shadow-none">
+            <div class="flex items-center gap-4 lg:h-16">
+                {{-- Collapse / open toggle --}}
+                <button id="sidebar-open" class="-ml-1 rounded-2xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 cursor-pointer">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
                     </svg>
                 </button>
 
-                @if(isset($actions))
-                    <div class="flex items-center gap-2">
+                {{-- Page breadcrumb / title --}}
+                <div class="min-w-0 flex-1">
+                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Green Leaf ERP</p>
+                    <h1 class="truncate text-xs font-bold text-slate-900 sm:text-sm">{{ $title }}</h1>
+                </div>
+
+                {{-- Header Actions Container --}}
+                <div class="ml-auto flex items-center gap-3 shrink-0">
+                    {{-- Theme Toggle Switch --}}
+                    <button
+                        id="theme-toggle"
+                        type="button"
+                        class="rounded-2xl p-2 text-slate-500 transition-colors duration-200 cursor-pointer hover:bg-slate-100 hover:text-slate-900 focus:outline-none dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+                        title="Toggle dark/light theme"
+                    >
+                        {{-- Moon Icon (for Light Mode) --}}
+                        <svg id="theme-toggle-moon" class="w-5 h-5 hidden" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75C12.365 15.75 8 11.385 8 5.75c0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
+                        </svg>
+                        {{-- Sun Icon (for Dark Mode) --}}
+                        <svg id="theme-toggle-sun" class="w-5 h-5 hidden" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1.5m0 15V21m-9-9h1.5m15 0H21m-2.121-6.879l-1.061 1.061m-10.606 10.606l-1.061 1.061M6.343 6.343l1.061 1.061m10.606 10.606l1.061 1.061M12 7.5a4.5 4.5 0 100 9 4.5 4.5 0 000-9z" />
+                        </svg>
+                    </button>
+
+                    <details class="relative">
+                        <summary class="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-sm font-black text-slate-800 transition hover:border-slate-300 hover:bg-white">
+                            {{ $currentUserInitial }}
+                        </summary>
+
+                        <div class="absolute right-0 top-14 w-52 rounded-3xl border border-slate-200 bg-white p-2 shadow-xl">
+                            <div class="border-b border-slate-100 px-3 py-2">
+                                <p class="truncate text-sm font-black text-slate-900">{{ $currentUser?->name }}</p>
+                                <p class="mt-1 truncate text-[11px] font-semibold text-slate-500">{{ $currentUser?->email }}</p>
+                            </div>
+
+                            <div class="mt-2 space-y-1">
+                                <a href="{{ route('profile.show') }}" class="flex items-center rounded-2xl px-3 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-100">
+                                    Profile Update
+                                </a>
+
+                                <form method="POST" action="{{ route('logout') }}">
+                                    @csrf
+                                    <button type="submit" class="flex w-full items-center rounded-2xl px-3 py-2 text-left text-sm font-bold text-red-600 transition hover:bg-red-50">
+                                        Sign Out
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </details>
+                </div>
+            </div>
+
+            @if(isset($actions))
+                <div class="mt-3 border-t border-slate-100 pt-3 lg:mt-0 lg:border-t-0 lg:pt-0">
+                    <div class="flex flex-wrap items-center gap-2 lg:justify-end">
                         {{ $actions }}
                     </div>
-                @endif
-            </div>
+                </div>
+            @endif
         </header>
 
         {{-- Flash messages --}}
@@ -442,11 +571,47 @@
         @endif
 
         {{-- Page content --}}
-        <main class="flex-1 p-4 sm:p-6">
+        <main class="flex-1 px-4 pb-24 {{ isset($actions) ? 'pt-32' : 'pt-24' }} sm:px-6 lg:p-6 lg:pt-6 {{ $showMobileBottomNav ? 'lg:pb-6' : '' }}">
             {{ $slot }}
         </main>
     </div>
 </div>
+
+@if($showAdminMobileNav || $showWarehouseMobileNav)
+<div class="fixed inset-x-0 bottom-4 z-40 px-4 lg:hidden">
+    <nav class="mx-auto flex h-16 max-w-md items-center justify-around rounded-[2rem] border border-slate-100 bg-white/95 px-4 shadow-[0_-8px_30px_rgb(0,0,0,0.08),0_4px_20px_rgb(0,0,0,0.04)] backdrop-blur-md">
+        @foreach (($showAdminMobileNav ? $adminMobileNavItems : $warehouseMobileNavItems) as $item)
+            @if(($item['type'] ?? 'link') === 'center')
+                <div class="relative -mt-10">
+                    <a href="{{ route($item['route']) }}" @class([
+                        'relative flex h-16 w-16 items-center justify-center rounded-full border-[6px] border-slate-100 shadow-lg transition-all duration-300',
+                        'bg-cyan-500 text-white hover:bg-cyan-600 hover:scale-105 active:scale-95' => $item['active'],
+                        'bg-cyan-500 text-white/95 hover:bg-cyan-600 hover:scale-105 active:scale-95' => ! $item['active'],
+                    ])>{!! $item['icon'] !!}</a>
+                    @if ($item['active'])
+                        <div class="absolute -bottom-4 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-cyan-500"></div>
+                    @endif
+                </div>
+            @else
+                <a
+                    href="{{ route($item['route']) }}"
+                    @class([
+                        'relative flex h-12 w-12 flex-col items-center justify-center rounded-2xl transition-all duration-200',
+                        'text-cyan-600' => $item['active'],
+                        'text-slate-400 hover:text-slate-600' => ! $item['active'],
+                    ])
+                    title="{{ $item['label'] }}"
+                >
+                    {!! $item['icon'] !!}
+                    @if ($item['active'])
+                        <div class="absolute bottom-0 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-cyan-500"></div>
+                    @endif
+                </a>
+            @endif
+        @endforeach
+    </nav>
+</div>
+@endif
 
 <script>
     // Sidebar toggle and collapse logic

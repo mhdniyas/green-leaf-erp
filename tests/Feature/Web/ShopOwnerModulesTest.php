@@ -9,6 +9,7 @@ use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\Shop;
 use App\Models\ShopOrder;
+use App\Models\ShopOrderRevision;
 use App\Models\Supplier;
 use App\Models\User;
 use Database\Seeders\ChartOfAccountsSeeder;
@@ -81,7 +82,7 @@ class ShopOwnerModulesTest extends TestCase
         $response->assertOk();
         $response->assertSee('Daily Price Board');
         $response->assertSee('Daily Price Tomato');
-        $response->assertSee('Add To Tomorrow Order');
+        $response->assertSee('Add To Draft');
         $response->assertSee('Search Products');
         $response->assertSee('Sort By');
         $response->assertSee('Frequently Ordered');
@@ -89,10 +90,7 @@ class ShopOwnerModulesTest extends TestCase
         $response->assertSee('Add To Draft Order');
     }
 
-    /**
-     * Test Purchase Orders index tabs and approve/reject actions.
-     */
-    public function test_purchase_orders_redesign_tabs_and_actions(): void
+    public function test_shop_owner_cannot_access_internal_purchase_orders(): void
     {
         $shop = Shop::create([
             'code' => 'SHOP_TEST_2',
@@ -114,43 +112,50 @@ class ShopOwnerModulesTest extends TestCase
             'fulfillment_type' => 'warehouse',
         ]);
 
-        // Get index page
         $response = $this->actingAs($shopOwner)->get(route('purchasing.orders.index'));
+        $response->assertForbidden();
+    }
+
+    public function test_shop_owner_dashboard_shows_approved_revision_status_label(): void
+    {
+        $shop = Shop::create([
+            'code' => 'SHOP_REV_STATUS',
+            'name' => 'Revision Status Shop',
+        ]);
+
+        $shopOwner = User::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+        $shopOwner->assignRole('shop');
+
+        $order = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => today()->addDay()->toDateString(),
+            'created_by' => $shopOwner->id,
+            'latest_revision_no' => 2,
+        ]);
+
+        ShopOrderRevision::create([
+            'shop_order_id' => $order->id,
+            'revision_no' => 2,
+            'status' => 'applied',
+            'reason' => 'Need extra quantity',
+            'requested_by' => $shopOwner->id,
+            'reviewed_by' => $shopOwner->id,
+            'reviewed_at' => now(),
+        ]);
+
+        $response = $this->actingAs($shopOwner)->get(route('shop-owner.dashboard'));
+
         $response->assertOk();
-        $response->assertSee('All Orders');
-        $response->assertSee('Pending Approval');
-        $response->assertSee('Approval History');
-        $response->assertSee('Analytics');
-        $response->assertSee('PO-TEST-DRAFT');
-
-        // Approve order
-        $approveResponse = $this->actingAs($shopOwner)
-            ->post(route('purchasing.orders.approve', $draftPO), [
-                'remarks' => 'Stock is needed urgently',
-            ]);
-
-        $approveResponse->assertRedirect(route('purchasing.orders.show', $draftPO));
-        $this->assertEquals(POStatus::Approved, $draftPO->fresh()->status);
-
-        // Refresh model from DB to get the 'approved' status, then update back to draft
-        $draftPO->refresh();
-        $draftPO->status = POStatus::Draft;
-        $draftPO->save();
-
-        // Reject order
-        $rejectResponse = $this->actingAs($shopOwner)
-            ->post(route('purchasing.orders.reject', $draftPO), [
-                'remarks' => 'Duplicate item order',
-            ]);
-
-        $rejectResponse->assertRedirect(route('purchasing.orders.index'));
-        $this->assertEquals(POStatus::Rejected, $draftPO->fresh()->status);
+        $response->assertSee('Update #2 Approved');
     }
 
     /**
      * Test the consolidated Finance dashboard and exports.
      */
-    public function test_finance_dashboard_consolidated_view_and_exports(): void
+    public function test_shop_owner_uses_shop_finance_and_cannot_access_internal_finance(): void
     {
         $shop = Shop::create([
             'code' => 'SHOP_TEST_3',
@@ -162,28 +167,13 @@ class ShopOwnerModulesTest extends TestCase
         ]);
         $shopOwner->assignRole('shop');
 
-        // Get index page
-        $response = $this->actingAs($shopOwner)->get(route('finance.index'));
+        $response = $this->actingAs($shopOwner)->get(route('shop-owner.finance.index'));
         $response->assertOk();
-        $response->assertSee('Available Balance');
-        $response->assertSee('Outstanding Amount');
-        $response->assertSee('This Month Purchases');
-        $response->assertSee('Expected Credit');
-        $response->assertSee('Payment History');
-        $response->assertSee('Ledger Statement');
-        $response->assertSee('Download Statements');
+        $response->assertSee('Finance');
 
-        // Test CSV Statement Export
-        $csvResponse = $this->actingAs($shopOwner)->get(route('finance.statement.export.csv'));
-        $csvResponse->assertOk();
-        $csvResponse->assertHeader('Content-Type', 'text/csv; charset=UTF-8');
-        $csvResponse->assertHeader('Content-Disposition', 'attachment; filename="ledger_statement_'.today()->startOfMonth()->format('Y-m-d').'_to_'.today()->endOfMonth()->format('Y-m-d').'.csv"');
-
-        // Test PDF Statement Export
-        $pdfResponse = $this->actingAs($shopOwner)->get(route('finance.statement.export.pdf'));
-        $pdfResponse->assertOk();
-        $pdfResponse->assertViewIs('finance.statement_pdf');
-        $pdfResponse->assertSee('Ledger Account Statement');
+        $this->actingAs($shopOwner)->get(route('finance.index'))->assertForbidden();
+        $this->actingAs($shopOwner)->get(route('finance.statement.export.csv'))->assertForbidden();
+        $this->actingAs($shopOwner)->get(route('finance.statement.export.pdf'))->assertForbidden();
     }
 
     /**

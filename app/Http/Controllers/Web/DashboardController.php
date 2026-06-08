@@ -40,6 +40,10 @@ class DashboardController extends Controller
             return redirect()->route('shop-owner.dashboard');
         }
 
+        if ($user->hasRole('admin')) {
+            return redirect()->route('admin.overview');
+        }
+
         // Stats visible to inventory roles
         $inventoryStats = null;
         if ($user->hasAnyPermission(['inventory.stock.view', 'inventory.product.view'])) {
@@ -204,6 +208,7 @@ class DashboardController extends Controller
                 'recent_grns' => $grnsAwaitingApproval->take(3),
                 'recent_purchase_orders' => $openPurchaseOrders->take(4),
                 'recent_invoices' => $pendingInvoices->take(3),
+                'notifications' => $user->unreadNotifications()->latest()->limit(8)->get(),
             ];
 
             $trackedDates = collect([

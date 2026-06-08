@@ -2559,6 +2559,29 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
             <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
                 <div class="flex items-center justify-between gap-3">
                     <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Notifications</p>
+                        <p class="mt-1 text-sm font-bold text-slate-900">New requisitions, revisions, and PO creation</p>
+                    </div>
+                    <span class="rounded-full bg-white px-3 py-1 text-[11px] font-black text-slate-700 border border-slate-200">{{ $purchaseDashboard['notifications']->count() }} unread</span>
+                </div>
+                <div class="mt-4 space-y-2">
+                    @forelse($purchaseDashboard['notifications'] as $notification)
+                        @php
+                            $payload = $notification->data;
+                        @endphp
+                        <a href="{{ $payload['route'] ?? route('dashboard') }}" class="block rounded-2xl bg-white px-4 py-3 border border-slate-200 hover:border-slate-300 transition-colors">
+                            <p class="text-sm font-black text-slate-900">{{ $payload['title'] ?? 'Purchasing update' }}</p>
+                            <p class="mt-0.5 text-[11px] font-semibold leading-5 text-slate-500">{{ $payload['message'] ?? 'A new purchasing update is available.' }}</p>
+                        </a>
+                    @empty
+                        <p class="rounded-2xl bg-white px-4 py-4 text-xs font-semibold text-slate-400 border border-slate-200">No unread purchasing notifications.</p>
+                    @endforelse
+                </div>
+            </div>
+
+            <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                <div class="flex items-center justify-between gap-3">
+                    <div>
                         <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Recent POs</p>
                         <p class="mt-1 text-sm font-bold text-slate-900">Continue supplier workflow</p>
                     </div>

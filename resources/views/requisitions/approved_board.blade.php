@@ -1,5 +1,8 @@
 <x-layouts.app title="Approved Requisitions Board">
     <div class="mx-auto px-4 py-8">
+        @php
+            $hasPendingApprovedUpdates = collect($shopUpdateMeta ?? [])->contains(fn (array $meta) => $meta['has_update_request']);
+        @endphp
         <div class="mb-6">
             <p class="text-xs font-black uppercase tracking-[0.18em] text-cyan-700">Purchasing</p>
             <h1 class="mt-1 text-3xl font-black tracking-tight text-slate-950">Approved Requisitions Board</h1>
@@ -44,11 +47,16 @@
                     </div>
                 </div>
 
-                @if($approvedBoardSynced)
+                @if($approvedBoardSynced && ! $hasPendingApprovedUpdates)
                     <a href="{{ route('purchasing.orders.index') }}" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-5 py-3 rounded-xl transition-all shadow-md hover:shadow-lg">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272" /></svg>
                         Continue in Purchase Orders
                     </a>
+                @elseif($approvedBoardSynced && $hasPendingApprovedUpdates)
+                    <button type="submit" form="board-form" class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-5 py-3 rounded-xl transition-all cursor-pointer focus:outline-none shadow-md hover:shadow-lg border-0">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                        Apply Pending Updates
+                    </button>
                 @else
                     <button type="submit" form="board-form" class="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-5 py-3 rounded-xl transition-all cursor-pointer focus:outline-none shadow-md hover:shadow-lg border-0">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
@@ -73,7 +81,7 @@
             </div>
         @endif
 
-        @if($approvedBoardSynced)
+        @if($approvedBoardSynced && ! $hasPendingApprovedUpdates)
             <div class="mb-6 bg-blue-50 border border-blue-200 text-blue-900 text-xs font-semibold px-5 py-4 rounded-2xl flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div class="flex items-start gap-3">
                     <svg class="w-5 h-5 text-blue-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
@@ -90,13 +98,18 @@
                     @endforeach
                 </div>
             </div>
+        @elseif($approvedBoardSynced && $hasPendingApprovedUpdates)
+            <div class="mb-6 rounded-2xl border border-indigo-200 bg-indigo-50 px-5 py-4 text-indigo-900">
+                <p class="text-[11px] font-black uppercase tracking-[0.16em] text-indigo-700">Purchase Orders Generated, Revisions Pending</p>
+                <p class="mt-1 text-sm font-semibold">Purchase orders already exist for this date, but approved-order updates are still allowed because goods receipt has not started on the linked PO lines. Review the highlighted changes and apply them from this board.</p>
+            </div>
         @endif
 
         @php
             $shopsWithUpdates = collect($shopUpdateMeta ?? [])->filter(fn (array $meta) => $meta['has_update_request']);
         @endphp
 
-        @if($shopsWithUpdates->isNotEmpty() && ! $approvedBoardSynced)
+        @if($shopsWithUpdates->isNotEmpty())
             <div class="mb-6 rounded-3xl border border-indigo-200 bg-indigo-50 px-5 py-4 text-indigo-900 shadow-sm">
                 <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div>
@@ -110,7 +123,7 @@
                             @endphp
                             @if($shopMeta && $shopMeta['has_update_request'])
                                 <button type="button" onclick="focusShopColumn({{ $shop->id }})" class="rounded-full border border-indigo-200 bg-white px-3 py-1.5 text-[11px] font-black text-indigo-700 transition hover:bg-indigo-100">
-                                    {{ $shop->name }} · {{ $shopMeta['changed_items_count'] }} changes
+                                    {{ $shop->name }} · Update #{{ $shopMeta['revision_no'] ?? 2 }} · {{ $shopMeta['changed_items_count'] }} changes
                                 </button>
                             @endif
                         @endforeach
@@ -219,7 +232,7 @@
         <form id="board-form" method="POST" action="{{ route('requisitions.approved_board.save') }}">
             @csrf
             <input type="hidden" name="date" value="{{ $date }}">
-            <fieldset @disabled($approvedBoardSynced) class="{{ $approvedBoardSynced ? 'opacity-75' : '' }}">
+            <fieldset @disabled($approvedBoardSynced && ! $hasPendingApprovedUpdates) class="{{ $approvedBoardSynced && ! $hasPendingApprovedUpdates ? 'opacity-75' : '' }}">
             <input type="hidden" name="po_selection_enabled" value="1">
 
             {{-- 1. Warehouse (Bulk) Section --}}
@@ -245,6 +258,7 @@
                                 @foreach($shops as $shop)
                                     @php
                                         $shopMeta = $shopUpdateMeta[$shop->id] ?? null;
+                                        $shopPoMeta = $shopPoStatusMeta[$shop->id] ?? ['status' => 'none', 'label' => 'No PO', 'po_count' => 0];
                                     @endphp
                                     <th @class([
                                         'py-4 px-3 text-center min-w-[90px] border-r font-extrabold uppercase tracking-widest text-[9px] transition-colors',
@@ -254,8 +268,9 @@
                                         <button type="button" class="mx-auto flex flex-col items-center gap-1" onclick="focusShopColumn({{ $shop->id }})">
                                             <span>{{ str_replace([' HYPERMARKET', ' SUPERMARKET', ' STORE', ' SHOP'], '', strtoupper($shop->name)) }}</span>
                                             @if($shopMeta && $shopMeta['has_update_request'])
-                                                <span class="rounded-full bg-indigo-600 px-2 py-0.5 text-[8px] font-black text-white">Update Requested</span>
+                                                <span class="rounded-full bg-indigo-600 px-2 py-0.5 text-[8px] font-black text-white">Update #{{ $shopMeta['revision_no'] ?? 2 }}</span>
                                             @endif
+                                            <span class="rounded-full px-2 py-0.5 text-[8px] font-black {{ $shopPoMeta['status'] === 'grn_locked' ? 'bg-rose-100 text-rose-700' : ($shopPoMeta['status'] === 'created' ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600') }}">{{ $shopPoMeta['label'] }}</span>
                                         </button>
                                     </th>
                                 @endforeach
@@ -271,7 +286,7 @@
                                         foreach ($shops as $shop) {
                                             $qtyData = $matrix[$product->id][$shop->id] ?? null;
                                             if ($qtyData) {
-                                                $rowTotal += $qtyData['approved_qty'] !== null ? $qtyData['approved_qty'] : $qtyData['requested_qty'];
+                                                $rowTotal += $qtyData['display_qty'] ?? ($qtyData['approved_qty'] !== null ? $qtyData['approved_qty'] : $qtyData['requested_qty']);
                                             }
                                         }
                                         $selectedSupplierId = $productSupplierMap[$product->id] ?? null;
@@ -346,12 +361,9 @@
                                                 $val = null;
                                                 $isAdjusted = false;
                                                 if ($qtyData) {
-                                                    if ($qtyData['approved_qty'] !== null) {
-                                                        $val = $qtyData['approved_qty'];
-                                                        $isAdjusted = $qtyData['approved_qty'] !== $qtyData['requested_qty'];
-                                                    } else {
-                                                        $val = $qtyData['requested_qty'];
-                                                    }
+                                                    $val = $qtyData['display_qty'] ?? ($qtyData['approved_qty'] ?? $qtyData['requested_qty']);
+                                                    $comparisonBaseline = $qtyData['previous_approved_qty'] ?? $qtyData['approved_qty'] ?? $qtyData['requested_qty'];
+                                                    $isAdjusted = abs((float) $val - (float) $comparisonBaseline) > 0.0001;
                                                 }
                                             @endphp
                                             <td @class([
@@ -429,6 +441,7 @@
                                 @foreach($shops as $shop)
                                     @php
                                         $shopMeta = $shopUpdateMeta[$shop->id] ?? null;
+                                        $shopPoMeta = $shopPoStatusMeta[$shop->id] ?? ['status' => 'none', 'label' => 'No PO', 'po_count' => 0];
                                     @endphp
                                     <th @class([
                                         'py-4 px-3 text-center min-w-[90px] border-r font-extrabold uppercase tracking-widest text-[9px] transition-colors',
@@ -438,8 +451,9 @@
                                         <button type="button" class="mx-auto flex flex-col items-center gap-1" onclick="focusShopColumn({{ $shop->id }})">
                                             <span>{{ str_replace([' HYPERMARKET', ' SUPERMARKET', ' STORE', ' SHOP'], '', strtoupper($shop->name)) }}</span>
                                             @if($shopMeta && $shopMeta['has_update_request'])
-                                                <span class="rounded-full bg-indigo-600 px-2 py-0.5 text-[8px] font-black text-white">Update Requested</span>
+                                                <span class="rounded-full bg-indigo-600 px-2 py-0.5 text-[8px] font-black text-white">Update #{{ $shopMeta['revision_no'] ?? 2 }}</span>
                                             @endif
+                                            <span class="rounded-full px-2 py-0.5 text-[8px] font-black {{ $shopPoMeta['status'] === 'grn_locked' ? 'bg-rose-100 text-rose-700' : ($shopPoMeta['status'] === 'created' ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600') }}">{{ $shopPoMeta['label'] }}</span>
                                         </button>
                                     </th>
                                 @endforeach
@@ -455,7 +469,7 @@
                                         foreach ($shops as $shop) {
                                             $qtyData = $matrix[$product->id][$shop->id] ?? null;
                                             if ($qtyData) {
-                                                $rowTotal += $qtyData['approved_qty'] !== null ? $qtyData['approved_qty'] : $qtyData['requested_qty'];
+                                                $rowTotal += $qtyData['display_qty'] ?? ($qtyData['approved_qty'] !== null ? $qtyData['approved_qty'] : $qtyData['requested_qty']);
                                             }
                                         }
                                         $selectedSupplierId = $productSupplierMap[$product->id] ?? null;
@@ -530,12 +544,9 @@
                                                 $val = null;
                                                 $isAdjusted = false;
                                                 if ($qtyData) {
-                                                    if ($qtyData['approved_qty'] !== null) {
-                                                        $val = $qtyData['approved_qty'];
-                                                        $isAdjusted = $qtyData['approved_qty'] !== $qtyData['requested_qty'];
-                                                    } else {
-                                                        $val = $qtyData['requested_qty'];
-                                                    }
+                                                    $val = $qtyData['display_qty'] ?? ($qtyData['approved_qty'] ?? $qtyData['requested_qty']);
+                                                    $comparisonBaseline = $qtyData['previous_approved_qty'] ?? $qtyData['approved_qty'] ?? $qtyData['requested_qty'];
+                                                    $isAdjusted = abs((float) $val - (float) $comparisonBaseline) > 0.0001;
                                                 }
                                             @endphp
                                             <td @class([
@@ -617,12 +628,17 @@
                 <a href="{{ route('dashboard') }}" class="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all border-0 cursor-pointer">
                     Cancel & Return
                 </a>
-                @if($approvedBoardSynced)
+                @if($approvedBoardSynced && ! $hasPendingApprovedUpdates)
                     @foreach($existingPos as $po)
                         <a href="{{ route('purchasing.orders.show', $po) }}" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-5 py-3 rounded-xl transition-all shadow-md hover:shadow-lg">
                             {{ $po->po_number }}
                         </a>
                     @endforeach
+                @elseif($approvedBoardSynced && $hasPendingApprovedUpdates)
+                    <button type="submit" class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-5 py-3 rounded-xl transition-all cursor-pointer focus:outline-none shadow-md hover:shadow-lg border-0">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                        Apply Pending Updates
+                    </button>
                 @else
                     <button type="submit" class="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-5 py-3 rounded-xl transition-all cursor-pointer focus:outline-none shadow-md hover:shadow-lg border-0">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
@@ -1011,7 +1027,7 @@
             if (panel && shopTitle && shopMeta && shopReason && selectedShop && selectedUpdate && selectedUpdate.has_update_request) {
                 panel.classList.remove('hidden');
                 shopTitle.textContent = selectedShop.name;
-                shopMeta.textContent = `${selectedUpdate.changed_items_count} item updates requested • ${selectedUpdate.order_number}`;
+                shopMeta.textContent = `Update #${selectedUpdate.revision_no} • ${selectedUpdate.changed_items_count} item updates requested • ${selectedUpdate.order_number}`;
                 shopReason.textContent = selectedUpdate.update_reason || 'Shop owner requested an update.';
                 panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }

@@ -74,7 +74,7 @@
                             @endphp
                             @if($shopMeta && $shopMeta['has_update_request'])
                                 <button type="button" onclick="focusShopColumn({{ $shop->id }})" class="rounded-full border border-indigo-200 bg-white px-3 py-1.5 text-[11px] font-black text-indigo-700 transition hover:bg-indigo-100">
-                                    {{ $shop->name }} · {{ $shopMeta['changed_items_count'] }} changes
+                                    {{ $shop->name }} · Update #{{ $shopMeta['revision_no'] ?? 2 }} · {{ $shopMeta['changed_items_count'] }} changes
                                 </button>
                             @endif
                         @endforeach
@@ -139,6 +139,7 @@
                                 @foreach($shops as $shop)
                                     @php
                                         $shopMeta = $shopUpdateMeta[$shop->id] ?? null;
+                                        $shopPoMeta = $shopPoStatusMeta[$shop->id] ?? ['status' => 'none', 'label' => 'No PO', 'po_count' => 0];
                                     @endphp
                                     <th @class([
                                         'py-4 px-3 text-center min-w-[90px] border-r font-extrabold uppercase tracking-widest text-[9px] transition-colors',
@@ -152,8 +153,9 @@
                                         >
                                             <span>{{ str_replace([' HYPERMARKET', ' SUPERMARKET', ' STORE', ' SHOP'], '', strtoupper($shop->name)) }}</span>
                                             @if($shopMeta && $shopMeta['has_update_request'])
-                                                <span class="rounded-full bg-indigo-600 px-2 py-0.5 text-[8px] font-black text-white">Update Requested</span>
+                                                <span class="rounded-full bg-indigo-600 px-2 py-0.5 text-[8px] font-black text-white">Update #{{ $shopMeta['revision_no'] ?? 2 }}</span>
                                             @endif
+                                            <span class="rounded-full px-2 py-0.5 text-[8px] font-black {{ $shopPoMeta['status'] === 'grn_locked' ? 'bg-rose-100 text-rose-700' : ($shopPoMeta['status'] === 'created' ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600') }}">{{ $shopPoMeta['label'] }}</span>
                                         </button>
                                     </th>
                                 @endforeach
@@ -167,7 +169,7 @@
                                     foreach ($shops as $shop) {
                                         $qtyData = $matrix[$product->id][$shop->id] ?? null;
                                         if ($qtyData) {
-                                            $rowTotal += $qtyData['approved_qty'] !== null ? $qtyData['approved_qty'] : $qtyData['requested_qty'];
+                                            $rowTotal += $qtyData['display_qty'] ?? ($qtyData['approved_qty'] !== null ? $qtyData['approved_qty'] : $qtyData['requested_qty']);
                                         }
                                     }
                                 @endphp
@@ -215,12 +217,9 @@
                                             $val = null;
                                             $isAdjusted = false;
                                             if ($qtyData) {
-                                                if ($qtyData['approved_qty'] !== null) {
-                                                    $val = $qtyData['approved_qty'];
-                                                    $isAdjusted = $qtyData['approved_qty'] !== $qtyData['requested_qty'];
-                                                } else {
-                                                    $val = $qtyData['requested_qty'];
-                                                }
+                                                $val = $qtyData['display_qty'] ?? ($qtyData['approved_qty'] ?? $qtyData['requested_qty']);
+                                                $comparisonBaseline = $qtyData['previous_approved_qty'] ?? $qtyData['approved_qty'] ?? $qtyData['requested_qty'];
+                                                $isAdjusted = abs((float) $val - (float) $comparisonBaseline) > 0.0001;
                                             }
                                         @endphp
                                         <td @class([
@@ -456,7 +455,7 @@
             if (panel && shopTitle && shopMeta && shopReason && selectedShop && selectedUpdate && selectedUpdate.has_update_request) {
                 panel.classList.remove('hidden');
                 shopTitle.textContent = selectedShop.name;
-                shopMeta.textContent = `${selectedUpdate.changed_items_count} item updates requested • ${selectedUpdate.order_number}`;
+                shopMeta.textContent = `Update #${selectedUpdate.revision_no} • ${selectedUpdate.changed_items_count} item updates requested • ${selectedUpdate.order_number}`;
                 shopReason.textContent = selectedUpdate.update_reason || 'Shop owner requested an update.';
                 panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }

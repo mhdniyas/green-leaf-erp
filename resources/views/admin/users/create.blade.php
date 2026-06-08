@@ -17,7 +17,7 @@
                 </div>
 
                 <div class="p-6 space-y-4">
-                    <div class="grid grid-cols-2 gap-4">
+                    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
                         <div>
                             <label for="name" class="block text-xs font-semibold text-gray-700 mb-1.5">Full Name <span class="text-red-500">*</span></label>
                             <input type="text" name="name" id="name" value="{{ old('name') }}" required
@@ -30,6 +30,18 @@
                             <input type="email" name="email" id="email" value="{{ old('email') }}" required
                                    class="w-full rounded-lg border @error('email') border-red-400 @else border-gray-200 @enderror bg-white px-3 py-2 text-sm text-gray-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100">
                             @error('email') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        </div>
+
+                        <div>
+                            <label for="shop_id" class="block text-xs font-semibold text-gray-700 mb-1.5">Shop Assignment</label>
+                            <select name="shop_id" id="shop_id"
+                                class="w-full rounded-lg border @error('shop_id') border-red-400 @else border-gray-200 @enderror bg-white px-3 py-2 text-sm text-gray-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100">
+                                <option value="">No shop linked</option>
+                                @foreach($shops as $shop)
+                                    <option value="{{ $shop->id }}" @selected((string) old('shop_id') === (string) $shop->id)>{{ $shop->name }}</option>
+                                @endforeach
+                            </select>
+                            @error('shop_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                         </div>
                     </div>
 

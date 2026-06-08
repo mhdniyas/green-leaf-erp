@@ -3,8 +3,8 @@
         @if ($approvalHistory->isEmpty())
             <div class="p-5">
                 <x-purchase-manager.components.empty-state
-                    title="No approval history yet"
-                    description="Order approvals and rejections will appear here as the purchasing team reviews drafts."
+                    title="No approval decisions yet"
+                    description="Approved and rejected purchase orders will appear here after a draft order is reviewed."
                 />
             </div>
         @else

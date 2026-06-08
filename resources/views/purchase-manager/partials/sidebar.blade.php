@@ -11,6 +11,7 @@
     $purchaseManagerNavItems[] = ['label' => 'Invoices', 'route' => 'purchasing.invoices.index', 'active' => request()->routeIs('purchasing.invoices.*')];
     $purchaseManagerNavItems[] = ['label' => 'Suppliers', 'route' => 'purchasing.suppliers.index', 'active' => request()->routeIs('purchasing.suppliers.*')];
     $purchaseManagerNavItems[] = ['label' => 'Daily Prices', 'route' => 'purchasing.prices.index', 'active' => request()->routeIs('purchasing.prices.*')];
+    $purchaseManagerNavItems[] = ['label' => 'Shop Price Categories', 'route' => 'purchasing.price-groups.index', 'active' => request()->routeIs('purchasing.price-groups.*')];
 @endphp
 
 <aside class="hidden border-r border-slate-200 bg-slate-950 text-white lg:fixed lg:inset-y-0 lg:flex lg:w-72 lg:flex-col">

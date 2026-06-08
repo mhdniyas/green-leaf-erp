@@ -8,10 +8,10 @@
         @include('shop-owner.orders.partials.order-type-selector', ['presets' => $presets])
     </div>
 
-    @if ($tomorrowOrder && ! $tomorrowOrder->canEditDirectly() && (in_array($tomorrowOrder->state, ['submitted', 'update_requested'], true) || ($tomorrowOrder->state === 'approved' && ! $purchaseOrdersGeneratedForTomorrow)))
+    @if ($tomorrowOrder && ! $tomorrowOrder->canEditDirectly() && (in_array($tomorrowOrder->state, ['submitted', 'update_requested'], true) || ($tomorrowOrder->state === 'approved' && ! $purchaseOrdersLockedForTomorrow)))
         <div class="mt-5 rounded-3xl border border-amber-200 bg-amber-50 p-5">
             <h3 class="text-base font-black text-amber-900">Order Locked After Cutoff</h3>
-            <p class="mt-2 text-sm text-amber-800">Direct submission is closed, but you can still change quantities, add products, or remove lines and send the revised request to the Purchase Manager before purchase orders are generated.</p>
+            <p class="mt-2 text-sm text-amber-800">Direct submission is closed, but you can still change quantities, add products, or remove lines and send the revised request to the Purchase Manager until goods receipt starts for the linked purchase order.</p>
             <form action="{{ route('requisitions.update-request', $tomorrowOrder->order_number) }}" method="POST" class="mt-4 space-y-5">
                 @csrf
                 @include('shop-owner.orders.partials.product-selection-table', ['productsByCategory' => $productsByCategory, 'frequentProducts' => $frequentProducts, 'tomorrowOrder' => $tomorrowOrder, 'yesterdayOrder' => $yesterdayOrder])
@@ -24,6 +24,11 @@
                     <button type="submit" class="rounded-xl bg-amber-600 px-5 py-2.5 text-sm font-bold text-white">Submit Modified Order Request</button>
                 </div>
             </form>
+        </div>
+    @elseif ($tomorrowOrder && $tomorrowOrder->state === 'approved' && $purchaseOrdersLockedForTomorrow)
+        <div class="mt-5 rounded-3xl border border-rose-200 bg-rose-50 p-5">
+            <h3 class="text-base font-black text-rose-900">Order Update Locked</h3>
+            <p class="mt-2 text-sm text-rose-800">This order can no longer be updated because goods receipt has already started for its linked purchase order.</p>
         </div>
     @elseif (! $cutoffPassed || $tomorrowOrder?->canEditDirectly() || ! $tomorrowOrder)
         <form action="{{ route('requisitions.store') }}" method="POST" class="mt-5 space-y-5">

@@ -4,20 +4,25 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web;
 
+use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
-use App\Models\DailyProductPrice;
 use App\Models\Product;
-use App\Models\PurchaseOrder;
+use App\Models\ProductWholesalePrice;
 use App\Models\ShopOrder;
 use App\Models\ShopPreset;
 use App\Models\User;
+use App\Services\Pricing\PriceBoardService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\View\View;
 
 class ShopOwnerController extends Controller
 {
+    public function __construct(
+        private readonly PriceBoardService $priceBoardService,
+    ) {}
+
     public function dashboard(Request $request): View
     {
         $user = $this->shopUser($request);
@@ -61,29 +66,37 @@ class ShopOwnerController extends Controller
     public function dailyPricesIndex(Request $request): View
     {
         $user = $this->shopUser($request);
-        $priceDate = Carbon::parse($request->input('date', Carbon::tomorrow()->toDateString()));
         $frequentProducts = $this->frequentProducts($user)->keyBy(fn (array $item): int => (int) $item['product']->id);
         $products = Product::query()
             ->with('category')
             ->active()
             ->orderBy('name')
             ->get();
+        $wholesalePrices = ProductWholesalePrice::query()
+            ->whereIn('product_id', $products->pluck('id'))
+            ->get()
+            ->groupBy('product_id');
 
-        $products->each(function (Product $product) use ($frequentProducts): void {
+        $products->each(function (Product $product) use ($frequentProducts, $user, $wholesalePrices): void {
             /** @var array<string, mixed>|null $frequentProduct */
             $frequentProduct = $frequentProducts->get($product->id);
 
             $product->setAttribute('order_count', (int) ($frequentProduct['order_count'] ?? 0));
             $product->setAttribute('last_order_quantity', (float) ($frequentProduct['last_quantity'] ?? 0));
             $product->setAttribute('total_ordered_quantity', (float) ($frequentProduct['total_quantity'] ?? 0));
+            $price = $this->priceBoardService->sellingPriceFor($product, $user->shop, ProductGrade::GradeA);
+            $wholesale = $wholesalePrices->get($product->id, collect())
+                ->first(fn ($row) => ($row->grade instanceof ProductGrade ? $row->grade->value : (string) $row->grade) === ProductGrade::GradeA->value);
+
+            $product->setAttribute('effective_price', $price['price']);
+            $product->setAttribute('price_group_name', $price['group']->display_name);
+            $product->setAttribute('availability_label', (float) ($wholesale?->sellable_quantity ?? 0) > 0 ? 'Available' : 'On request');
         });
 
         return view('shop-owner.prices.index', [
-            'priceDate' => $priceDate,
+            'priceGroup' => $this->priceBoardService->groupForShop($user->shop),
             'products' => $products,
-            'dailyPrices' => DailyProductPrice::query()
-                ->whereDate('price_date', $priceDate)
-                ->pluck('price', 'product_id'),
+            'grades' => $this->priceBoardService->sellableGrades(),
             'frequentProducts' => $this->frequentProducts($user),
         ]);
     }
@@ -172,9 +185,6 @@ class ShopOwnerController extends Controller
     private function buildOrderFormData(User $user): array
     {
         $tomorrowDate = Carbon::tomorrow();
-        $dailyPriceMap = DailyProductPrice::query()
-            ->whereDate('price_date', $tomorrowDate)
-            ->pluck('price', 'product_id');
 
         $productsByCategory = Category::with(['products' => function ($query): void {
             $query->where('is_active', true)->orderBy('name');
@@ -183,27 +193,31 @@ class ShopOwnerController extends Controller
             ->get()
             ->filter(fn (Category $category): bool => $category->products->isNotEmpty());
 
-        $productsByCategory->each(function (Category $category) use ($dailyPriceMap): void {
-            $category->products->each(function ($product) use ($dailyPriceMap): void {
-                $product->setAttribute('effective_price', (float) ($dailyPriceMap[$product->id] ?? $product->base_price));
+        $productsByCategory->each(function (Category $category) use ($user): void {
+            $category->products->each(function ($product) use ($user): void {
+                $price = $this->priceBoardService->sellingPriceFor($product, $user->shop, ProductGrade::GradeA);
+                $product->setAttribute('effective_price', $price['price']);
             });
         });
 
         $frequentProducts = $this->frequentProducts($user);
-        $frequentProducts->each(function (array $item) use ($dailyPriceMap): void {
+        $frequentProducts->each(function (array $item) use ($user): void {
             $product = $item['product'];
-            $product->setAttribute('effective_price', (float) ($dailyPriceMap[$product->id] ?? $product->base_price));
+            $price = $this->priceBoardService->sellingPriceFor($product, $user->shop, ProductGrade::GradeA);
+            $product->setAttribute('effective_price', $price['price']);
         });
+
+        $tomorrowOrder = $this->tomorrowOrder($user);
 
         return [
             'productsByCategory' => $productsByCategory,
             'frequentProducts' => $frequentProducts,
             'presets' => ShopPreset::where('shop_id', $user->shop_id)->with('items.product')->get(),
             'yesterdayOrder' => $this->yesterdayOrder($user),
-            'tomorrowOrder' => $this->tomorrowOrder($user),
+            'tomorrowOrder' => $tomorrowOrder,
             'tomorrowDate' => $tomorrowDate,
             'cutoffPassed' => now()->greaterThan(now()->copy()->setTime(21, 30)),
-            'purchaseOrdersGeneratedForTomorrow' => PurchaseOrder::whereDate('order_date', $tomorrowDate)->exists(),
+            'purchaseOrdersLockedForTomorrow' => $tomorrowOrder?->linkedPurchaseOrdersHaveGoodsReceived() ?? false,
         ];
     }
 

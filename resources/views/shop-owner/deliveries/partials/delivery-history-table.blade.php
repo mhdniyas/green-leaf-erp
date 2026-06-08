@@ -17,6 +17,10 @@
                         <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Shortage</p>
                         <p class="mt-1 text-sm font-bold text-red-600">Rs. {{ number_format((float) $order->total_shortage_value, 2) }}</p>
                     </div>
+                    <div>
+                        <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Warehouse</p>
+                        <p class="mt-1 text-sm font-bold text-slate-700">{{ $order->warehouseWorkflowLabel() }}</p>
+                    </div>
                 </div>
             </article>
         @endforeach
@@ -29,6 +33,7 @@
                     <th class="py-3 pr-4">Date</th>
                     <th class="py-3 pr-4">Order</th>
                     <th class="py-3 pr-4">Status</th>
+                    <th class="py-3 pr-4">Warehouse</th>
                     <th class="py-3 pr-4 text-right">Shortage</th>
                     <th class="py-3 text-right">Action</th>
                 </tr>
@@ -39,6 +44,7 @@
                         <td class="py-4 pr-4 font-bold text-slate-900">{{ $order->business_date->format('d M Y') }}</td>
                         <td class="py-4 pr-4 font-mono text-xs font-bold text-slate-600">{{ $order->order_number }}</td>
                         <td class="py-4 pr-4">@include('shop-owner.deliveries.partials.delivery-status-badge', ['order' => $order])</td>
+                        <td class="py-4 pr-4 font-bold text-slate-700">{{ $order->warehouseWorkflowLabel() }}</td>
                         <td class="py-4 pr-4 text-right font-bold text-red-600">Rs. {{ number_format((float) $order->total_shortage_value, 2) }}</td>
                         <td class="py-4 text-right">
                             <a href="{{ route('shop-owner.deliveries.show', $order->order_number) }}" class="font-bold text-emerald-700 hover:text-emerald-900">Open</a>

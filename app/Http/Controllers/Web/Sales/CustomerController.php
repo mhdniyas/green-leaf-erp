@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Sales\StoreCustomerRequest;
 use App\Http\Requests\Web\Sales\UpdateCustomerRequest;
 use App\Models\Customer;
+use App\Models\Shop;
 use App\Services\Sales\CustomerService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -31,7 +32,27 @@ class CustomerController extends Controller
             type: $request->input('type'),
         );
 
-        return view('sales.customers.index', compact('customers'));
+        $search = trim((string) $request->input('search', ''));
+
+        $shopDestinations = Shop::query()
+            ->with([
+                'users' => fn ($query) => $query->with('roles')->orderBy('name'),
+            ])
+            ->withCount('orders')
+            ->when($search !== '', function ($query) use ($search) {
+                $query->where(function ($innerQuery) use ($search) {
+                    $innerQuery
+                        ->where('name', 'like', "%{$search}%")
+                        ->orWhere('code', 'like', "%{$search}%")
+                        ->orWhereHas('users', fn ($userQuery) => $userQuery
+                            ->where('name', 'like', "%{$search}%")
+                            ->orWhere('email', 'like', "%{$search}%"));
+                });
+            })
+            ->orderBy('name')
+            ->get();
+
+        return view('sales.customers.index', compact('customers', 'shopDestinations'));
     }
 
     public function create(): View

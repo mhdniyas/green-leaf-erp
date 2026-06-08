@@ -12,6 +12,7 @@ final readonly class UserData
         public string $name,
         public string $email,
         public ?string $password,
+        public ?int $shopId,
         public array $roles,
         public array $permissions,
     ) {}
@@ -22,6 +23,7 @@ final readonly class UserData
             name: $request->string('name')->toString(),
             email: $request->string('email')->toString(),
             password: $request->filled('password') ? $request->string('password')->toString() : null,
+            shopId: $request->filled('shop_id') ? (int) $request->integer('shop_id') : null,
             roles: $request->input('roles', []),
             permissions: $request->input('permissions', []),
         );
@@ -32,6 +34,7 @@ final readonly class UserData
         $data = [
             'name' => $this->name,
             'email' => $this->email,
+            'shop_id' => $this->shopId,
         ];
 
         if ($this->password !== null) {

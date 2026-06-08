@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Web\Admin\ActivityLogController;
+use App\Http\Controllers\Web\Admin\AdminOverviewController;
 use App\Http\Controllers\Web\Admin\DailyProgressController;
 use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\Auth\LoginController;
@@ -19,10 +20,12 @@ use App\Http\Controllers\Web\Inventory\ProductController;
 use App\Http\Controllers\Web\Inventory\StockController;
 use App\Http\Controllers\Web\Inventory\WarehouseSortingController;
 use App\Http\Controllers\Web\Inventory\WastageController;
+use App\Http\Controllers\Web\ProfileController;
 use App\Http\Controllers\Web\Purchasing\DailyPriceBoardController;
 use App\Http\Controllers\Web\Purchasing\GoodsReceivedController;
 use App\Http\Controllers\Web\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Web\Purchasing\PurchaseOrderController;
+use App\Http\Controllers\Web\Purchasing\ShopPriceGroupController;
 use App\Http\Controllers\Web\Purchasing\SupplierController;
 use App\Http\Controllers\Web\RequisitionController;
 use App\Http\Controllers\Web\Sales\CustomerController;
@@ -48,6 +51,8 @@ Route::get('/forgot-password', fn () => redirect()->route('login'))->name('passw
 // Authenticated routes
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [LoginController::class, 'destroy'])->name('logout');
+    Route::get('/profile', [ProfileController::class, 'show'])->name('profile.show');
+    Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
 
     // Dashboard
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
@@ -91,6 +96,9 @@ Route::middleware('auth')->group(function () {
         // Warehouse Sorting Checklist
         Route::get('sorting-checklist', [WarehouseSortingController::class, 'index'])->name('sorting.checklist');
         Route::get('sorting-checklist/shop-orders', [WarehouseSortingController::class, 'shopOrders'])->name('sorting.shop-orders');
+        Route::get('sorting-checklist/shop-sorting', [WarehouseSortingController::class, 'shopSortingIndex'])->name('sorting.shop-sorting');
+        Route::get('sorting-checklist/shop-sorting/{order:order_number}', [WarehouseSortingController::class, 'shopSortingShow'])->name('sorting.shop-sorting.show');
+        Route::patch('sorting-checklist/shops/{shop:code}/tag', [WarehouseSortingController::class, 'updateShopTag'])->name('sorting.shops.tag');
         Route::post('sorting-checklist/toggle/{item}', [WarehouseSortingController::class, 'toggle'])->name('sorting.checklist.toggle');
         Route::post('sorting-checklist/grn', [WarehouseSortingController::class, 'storeGrn'])->name('sorting.checklist.grn');
         Route::post('sorting-checklist/carry-over/{batch}', [WarehouseSortingController::class, 'carryOver'])->name('sorting.checklist.carry-over');
@@ -106,6 +114,8 @@ Route::middleware('auth')->group(function () {
         Route::resource('suppliers', SupplierController::class);
         Route::get('prices', [DailyPriceBoardController::class, 'index'])->name('prices.index');
         Route::post('prices', [DailyPriceBoardController::class, 'update'])->name('prices.update');
+        Route::post('price-groups/assign-shops', [ShopPriceGroupController::class, 'assignShops'])->name('price-groups.assign-shops');
+        Route::resource('price-groups', ShopPriceGroupController::class)->only(['index', 'store', 'update', 'destroy']);
 
         // Purchase Orders
         Route::resource('orders', PurchaseOrderController::class);
@@ -182,6 +192,7 @@ Route::middleware('auth')->group(function () {
 
     // ── Admin ──────────────────────────────────────────────────────────────
     Route::prefix('admin')->name('admin.')->group(function () {
+        Route::get('/', AdminOverviewController::class)->name('overview');
         Route::resource('users', UserController::class);
         Route::get('daily-progress', DailyProgressController::class)->name('daily-progress');
         Route::get('activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');

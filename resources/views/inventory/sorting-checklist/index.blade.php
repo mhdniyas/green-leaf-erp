@@ -23,13 +23,13 @@
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
                 <h2 class="text-lg font-black text-slate-800 tracking-tight">Warehouse Dispatch Sorting Progress</h2>
-                <p class="text-xs text-slate-400 mt-1">Warehouse receives supplier deliveries, submits GRN reports for manager approval, then sorts approved stock into shop dispatch points.</p>
+                <p class="text-xs text-slate-400 mt-1">Workflow: receive supplier goods, submit GRN for manager approval, pack by shop, move to transit, then hand over for delivery.</p>
             </div>
             <div class="flex items-center gap-4 shrink-0">
                 <div class="text-right">
                     <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">Allocation Progress</p>
                     <p id="global-stats-text" class="text-2xl font-black text-brand-600 mt-0.5">
-                        {{ $globalPercentage }}% <span class="text-sm font-semibold text-gray-500">({{ $sortedItems }}/{{ $totalItems }} items sorted/loaded)</span>
+                        {{ $globalPercentage }}% <span class="text-sm font-semibold text-gray-500">({{ $sortedItems }}/{{ $totalItems }} items packed / in transit)</span>
                     </p>
                 </div>
                 <div class="w-12 h-12 rounded-2xl bg-brand-50 flex items-center justify-center text-brand-600">
@@ -56,7 +56,7 @@
             <div class="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden">
                 <div class="p-5 border-b border-gray-100 bg-slate-50/50 flex items-center justify-between">
                     <div>
-                        <h3 class="text-xs font-black text-slate-800 uppercase tracking-wider">Warehouse Receiving Queue</h3>
+                    <h3 class="text-xs font-black text-slate-800 uppercase tracking-wider">1. Receive Goods</h3>
                         <p class="text-[10px] text-slate-400 mt-0.5">Purchase orders waiting for warehouse quantity and quality reporting</p>
                     </div>
                     <span class="inline-flex items-center rounded-full bg-blue-50 text-blue-700 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider border border-blue-200">
@@ -111,7 +111,7 @@
                 <div class="p-5 border-b border-gray-100 bg-slate-50/50">
                     <div class="flex items-start justify-between gap-3">
                         <div>
-                            <h3 class="text-xs font-black text-slate-800 uppercase tracking-wider">Submitted GRN Reports</h3>
+                    <h3 class="text-xs font-black text-slate-800 uppercase tracking-wider">GRN Approval Updates</h3>
                             <p class="text-[10px] text-slate-400 mt-0.5">Warehouse reports sent to purchase manager for approval or correction</p>
                         </div>
                         <span class="inline-flex items-center rounded-full bg-slate-100 text-slate-700 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider border border-slate-200">
@@ -195,7 +195,7 @@
             {{-- 2. Daily Stock Batches (Carry-over / Wastage) --}}
             <div class="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden">
                 <div class="p-5 border-b border-gray-100 bg-slate-50/50">
-                    <h3 class="text-xs font-black text-slate-800 uppercase tracking-wider">Today's Received Stock Batches</h3>
+                    <h3 class="text-xs font-black text-slate-800 uppercase tracking-wider">Approved Stock & Exceptions</h3>
                     <p class="text-[10px] text-slate-400 mt-0.5">Manage carry over and wastage for received stock</p>
                 </div>
 
@@ -296,7 +296,7 @@
                                     <div id="shop-progress-bar-{{ $order->shop_id }}" class="h-full bg-brand-500 transition-all duration-300 rounded-full" style="width: {{ $orderPercentage }}%;"></div>
                                 </div>
                                 <p id="shop-ratio-text-{{ $order->shop_id }}" class="text-[10px] font-bold text-slate-400 mt-1.5">
-                                    {{ $orderSorted }} of {{ $orderTotal }} items sorted
+                                    {{ $orderSorted }} of {{ $orderTotal }} products packed / in transit
                                 </p>
                             </div>
 
@@ -328,15 +328,15 @@
                                             <div class="inline-flex rounded-xl p-0.5 bg-slate-100 border border-slate-200 shrink-0 select-none">
                                                 <button onclick="updateItemStatus({{ $item->id }}, 'pending')" id="btn-pending-{{ $item->id }}" 
                                                         class="px-2 py-0.5 rounded-lg text-[9px] font-black transition-all cursor-pointer {{ $item->sorting_status === 'pending' ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-400 hover:text-slate-700' }}">
-                                                    Pending
+                                                    Ready
                                                 </button>
                                                 <button onclick="updateItemStatus({{ $item->id }}, 'allocated')" id="btn-allocated-{{ $item->id }}" 
                                                         class="px-2 py-0.5 rounded-lg text-[9px] font-black transition-all cursor-pointer {{ $item->sorting_status === 'allocated' ? 'bg-emerald-500 text-white shadow-xs' : 'text-slate-400 hover:text-slate-700' }}">
-                                                    Allocated
+                                                    Packing
                                                 </button>
                                                 <button onclick="updateItemStatus({{ $item->id }}, 'loaded')" id="btn-loaded-{{ $item->id }}" 
                                                         class="px-2 py-0.5 rounded-lg text-[9px] font-black transition-all cursor-pointer {{ $item->sorting_status === 'loaded' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-slate-700' }}">
-                                                    Loaded
+                                                    In Transit
                                                 </button>
                                             </div>
 
@@ -357,7 +357,7 @@
                                     <div class="bg-emerald-50 border border-emerald-100 rounded-2xl p-3 text-emerald-800 flex flex-col gap-1">
                                         <p class="text-[10px] font-black flex items-center gap-1">
                                             <svg class="w-3.5 h-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                            Allocation finalized
+                                            Shop card finalized for loading
                                         </p>
                                         @if($order->sorting_notes)
                                             <p class="text-[9px] text-emerald-600 bg-white/60 p-1.5 rounded-lg font-semibold mt-1">
@@ -592,13 +592,13 @@
                             label.className = "text-xs font-bold text-emerald-900 block select-none";
                             itemRow.classList.add('opacity-85');
                             metaContainer.classList.remove('hidden');
-                            metaContainer.querySelector('span').textContent = `✓ Allocated by ${data.item.sorted_by_name} at ${data.item.sorted_at_formatted}`;
+                            metaContainer.querySelector('span').textContent = `📦 Packed by ${data.item.sorted_by_name} at ${data.item.sorted_at_formatted}`;
                         } else if (data.item.sorting_status === 'loaded') {
                             btnLoaded.className = "px-2 py-0.5 rounded-lg text-[9px] font-black transition-all cursor-pointer bg-indigo-600 text-white shadow-xs";
                             label.className = "text-xs font-bold text-indigo-900 block select-none";
                             itemRow.classList.add('opacity-85');
                             metaContainer.classList.remove('hidden');
-                            metaContainer.querySelector('span').textContent = `🚚 Loaded by ${data.item.sorted_by_name} at ${data.item.sorted_at_formatted}`;
+                            metaContainer.querySelector('span').textContent = `🚚 Sent to transit by ${data.item.sorted_by_name} at ${data.item.sorted_at_formatted}`;
                         }
 
                         // Update shop points stats
@@ -612,7 +612,7 @@
 
                         if (shopPercentageText) shopPercentageText.textContent = `${percentage}%`;
                         if (shopProgressBar) shopProgressBar.style.width = `${percentage}%`;
-                        if (shopRatioText) shopRatioText.textContent = `${data.shop_progress.sorted} of ${data.shop_progress.total} items sorted`;
+                        if (shopRatioText) shopRatioText.textContent = `${data.shop_progress.sorted} of ${data.shop_progress.total} products packed / in transit`;
                         
                         if (shopBadge) {
                             if (percentage === 100) {
@@ -629,7 +629,7 @@
 
                         if (globalProgressBar) globalProgressBar.style.width = `${globalPercentage}%`;
                         if (globalStatsText) {
-                            globalStatsText.innerHTML = `${globalPercentage}% <span class="text-sm font-semibold text-gray-500">(${data.global_progress.sorted}/${data.global_progress.total} items sorted/loaded)</span>`;
+                            globalStatsText.innerHTML = `${globalPercentage}% <span class="text-sm font-semibold text-gray-500">(${data.global_progress.sorted}/${data.global_progress.total} items packed / in transit)</span>`;
                         }
 
                         showToast(`Status updated to ${data.item.sorting_status}.`);

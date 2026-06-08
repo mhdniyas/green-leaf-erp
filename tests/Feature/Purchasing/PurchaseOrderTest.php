@@ -61,6 +61,16 @@ class PurchaseOrderTest extends TestCase
         $response->assertSee($order->po_number);
     }
 
+    public function test_purchase_orders_list_shows_clear_empty_approval_history_message(): void
+    {
+        $response = $this->actingAs($this->authorizedUser)
+            ->get(route('purchasing.orders.index'));
+
+        $response->assertOk();
+        $response->assertSee('No approval decisions yet');
+        $response->assertSee('Approved and rejected purchase orders will appear here after a draft order is reviewed.');
+    }
+
     public function test_unauthorized_user_cannot_view_purchase_orders_list(): void
     {
         $response = $this->actingAs($this->unauthorizedUser)

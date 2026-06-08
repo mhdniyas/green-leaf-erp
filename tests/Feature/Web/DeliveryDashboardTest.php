@@ -48,7 +48,7 @@ class DeliveryDashboardTest extends TestCase
             ->get(route('inventory.deliveries.dashboard'));
 
         $response->assertOk();
-        $response->assertSee('Daily Delivery');
+        $response->assertSee('Warehouse Operations Dashboard');
         $this->assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
         $response->assertSee('Live data refreshes every 30s');
     }
@@ -127,9 +127,12 @@ class DeliveryDashboardTest extends TestCase
         $response->assertOk();
 
         // Verify summary metrics render
-        $response->assertSee('1 / 2'); // 1 delivered of 2 total
+        $response->assertSee('Approved For Warehouse');
+        $response->assertSeeText('Transit & Loading');
         $response->assertSee('Rs. 30.00'); // total shortages value
         $response->assertSee('Rs. 150.00'); // total cash collected
+        $response->assertSee('Shop dispatch cards');
+        $response->assertSee('Open Shop Card');
 
         // Verify tables render shop order info
         $response->assertSee('Casio Point');

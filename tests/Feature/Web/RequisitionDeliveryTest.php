@@ -4,12 +4,17 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Web;
 
+use App\Enums\Inventory\BatchStatus;
+use App\Enums\Inventory\ProductGrade;
+use App\Enums\Inventory\StockMovementType;
 use App\Models\Product;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
+use App\Models\StockMovement;
 use App\Models\User;
+use App\Repositories\Inventory\StockMovementRepository;
 use Database\Seeders\ChartOfAccountsSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -166,6 +171,18 @@ class RequisitionDeliveryTest extends TestCase
             'received_at' => today()->toDateString(),
             'total_kg' => 100,
             'cost_per_kg' => 10.00,
+            'status' => BatchStatus::Sorted,
+        ]);
+
+        StockMovement::create([
+            'product_id' => $product->id,
+            'batch_id' => StockBatch::where('reference', 'B-01')->value('id'),
+            'created_by' => $owner->id,
+            'grade' => ProductGrade::GradeA->value,
+            'type' => StockMovementType::In->value,
+            'quantity' => 100,
+            'cost_per_unit' => 10.00,
+            'notes' => 'Sorted stock for delivery test',
         ]);
 
         $item = ShopOrderItem::create([
@@ -212,6 +229,81 @@ class RequisitionDeliveryTest extends TestCase
         $this->assertEquals(3.00, (float) $item->shortage_qty);
         $this->assertEquals(10.00, (float) $item->unit_cost);
         $this->assertEquals(30.00, (float) $item->shortage_value);
+
+        $this->assertDatabaseHas('stock_movements', [
+            'product_id' => $product->id,
+            'type' => StockMovementType::Out->value,
+            'quantity' => 12.000,
+            'notes' => "Warehouse delivery out: {$order->order_number}",
+        ]);
+
+        $this->assertDatabaseHas('stock_movements', [
+            'product_id' => $product->id,
+            'type' => StockMovementType::Wastage->value,
+            'quantity' => 3.000,
+            'notes' => "Delivery shortage discrepancy: {$order->order_number}",
+        ]);
+    }
+
+    public function test_delivery_checkin_updates_sorted_stock_levels_for_inventory_screen(): void
+    {
+        $shop = Shop::create(['code' => 'S1', 'name' => 'Shop 1']);
+        $owner = User::factory()->create(['shop_id' => $shop->id]);
+        $owner->assignRole('shop');
+
+        $order = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => today()->toDateString(),
+            'is_allocation_completed' => true,
+            'created_by' => $owner->id,
+        ]);
+
+        $product = Product::factory()->create();
+        $batch = StockBatch::create([
+            'product_id' => $product->id,
+            'created_by' => $owner->id,
+            'reference' => 'B-STOCK-01',
+            'received_at' => today()->toDateString(),
+            'total_kg' => 10,
+            'cost_per_kg' => 10.00,
+            'status' => BatchStatus::Sorted,
+        ]);
+
+        StockMovement::create([
+            'product_id' => $product->id,
+            'batch_id' => $batch->id,
+            'created_by' => $owner->id,
+            'grade' => ProductGrade::GradeA->value,
+            'type' => StockMovementType::In->value,
+            'quantity' => 10,
+            'cost_per_unit' => 10.00,
+            'notes' => 'Initial sorted stock',
+        ]);
+
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'requested_qty' => 10,
+            'approved_qty' => 10,
+            'unit' => 'kg',
+        ]);
+
+        $response = $this->actingAs($owner)
+            ->post(route('requisitions.delivery.record', $order->order_number), [
+                'delivered_qty' => [
+                    $item->id => 8,
+                ],
+                'cash_collected' => 80.00,
+            ]);
+
+        $response->assertRedirect(route('shop-owner.deliveries.show', $order->order_number));
+
+        $stock = app(StockMovementRepository::class)->currentStockByProductAndGrade(today()->toDateString());
+
+        $productStock = $stock->firstWhere('product_id', $product->id);
+
+        $this->assertNull($productStock);
     }
 
     public function test_delivery_checkin_rejects_received_quantity_above_approved_quantity(): void

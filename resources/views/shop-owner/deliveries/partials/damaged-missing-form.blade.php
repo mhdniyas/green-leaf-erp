@@ -6,7 +6,12 @@
         @foreach ($order->items as $item)
             <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                 <div class="flex items-center justify-between gap-4">
-                    <p class="font-bold text-slate-900">{{ $item->product->name }}</p>
+                    <div>
+                        <p class="font-bold text-slate-900">{{ $item->product->name }}</p>
+                        <div class="mt-2">
+                            @include('shop-owner.components.status-badge', ['label' => $item->warehouseWorkflowLabel(), 'tone' => $item->warehouseWorkflowTone()])
+                        </div>
+                    </div>
                     <span class="text-sm font-black text-red-600">{{ number_format((float) ($item->shortage_qty ?? 0), 2) }} {{ $item->unit }}</span>
                 </div>
                 <p class="mt-1 text-sm text-slate-600">Shortage value: Rs. {{ number_format((float) ($item->shortage_value ?? 0), 2) }}</p>

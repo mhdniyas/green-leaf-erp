@@ -1,0 +1,515 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services\Pricing;
+
+use App\Enums\Inventory\BatchStatus;
+use App\Enums\Inventory\ProductGrade;
+use App\Enums\Inventory\StockMovementType;
+use App\Models\DailyProductPrice;
+use App\Models\DailyProductPriceRevision;
+use App\Models\Product;
+use App\Models\ProductWholesalePrice;
+use App\Models\Shop;
+use App\Models\ShopPriceGroup;
+use App\Models\StockBatch;
+use App\Models\StockMovement;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+
+class PriceBoardService
+{
+    /**
+     * @return array<int, ProductGrade>
+     */
+    public function sellableGrades(): array
+    {
+        return [ProductGrade::GradeA, ProductGrade::GradeB, ProductGrade::GradeC];
+    }
+
+    /**
+     * @return Collection<int, ShopPriceGroup>
+     */
+    public function ensureDefaultPriceGroups(): Collection
+    {
+        foreach (ShopPriceGroup::relationshipTypes() as $relationshipType => $label) {
+            foreach (['A', 'B', 'C'] as $name) {
+                ShopPriceGroup::query()->firstOrCreate(
+                    ['relationship_type' => $relationshipType, 'name' => $name],
+                    [
+                        'default_margin_percent' => match ($relationshipType) {
+                            ShopPriceGroup::OWN => 10,
+                            ShopPriceGroup::PARTNERSHIP => 12,
+                            default => 15,
+                        },
+                        'is_active' => true,
+                    ]
+                );
+            }
+        }
+
+        return ShopPriceGroup::query()
+            ->withCount('shops')
+            ->orderBy('relationship_type')
+            ->orderBy('name')
+            ->get();
+    }
+
+    public function defaultGroup(): ShopPriceGroup
+    {
+        return ShopPriceGroup::query()->firstOrCreate(
+            ['relationship_type' => ShopPriceGroup::OWN, 'name' => 'A'],
+            ['default_margin_percent' => 10, 'is_active' => true]
+        );
+    }
+
+    public function groupForShop(?Shop $shop): ShopPriceGroup
+    {
+        if ($shop?->priceGroup?->is_active) {
+            return $shop->priceGroup;
+        }
+
+        return $this->defaultGroup();
+    }
+
+    /**
+     * @return array{price: float, group: ShopPriceGroup, source: string, grade: string}
+     */
+    public function sellingPriceFor(Product $product, ?Shop $shop, ProductGrade $grade = ProductGrade::GradeA): array
+    {
+        $group = $this->groupForShop($shop);
+        $price = DailyProductPrice::query()
+            ->where('product_id', $product->id)
+            ->where('shop_price_group_id', $group->id)
+            ->where('grade', $grade->value)
+            ->first();
+
+        if (! $price) {
+            $price = $this->createMarginPrice($product, $group, $grade, null);
+        }
+
+        return [
+            'price' => (float) $price->selling_price,
+            'group' => $group,
+            'source' => (string) $price->price_source,
+            'grade' => $grade->value,
+        ];
+    }
+
+    public function ensureSellingPricesForGroup(ShopPriceGroup $group, ?int $userId = null): void
+    {
+        Product::query()
+            ->active()
+            ->select(['id', 'base_price'])
+            ->chunkById(200, function (Collection $products) use ($group, $userId): void {
+                foreach ($products as $product) {
+                    foreach ($this->sellableGrades() as $grade) {
+                        DailyProductPrice::query()->firstOrCreate(
+                            [
+                                'product_id' => $product->id,
+                                'shop_price_group_id' => $group->id,
+                                'grade' => $grade->value,
+                            ],
+                            $this->marginPricePayload($product, $group, $grade, $userId)
+                        );
+                    }
+                }
+            });
+    }
+
+    /**
+     * @param  array<int|string, array<string, array<string, mixed>>>  $prices
+     */
+    public function updateGroupSellingPrices(ShopPriceGroup $group, array $prices, int $userId, ?string $reason = null): void
+    {
+        DB::transaction(function () use ($group, $prices, $userId, $reason): void {
+            $products = Product::query()
+                ->whereIn('id', array_map('intval', array_keys($prices)))
+                ->get()
+                ->keyBy('id');
+
+            foreach ($prices as $productId => $gradeRows) {
+                /** @var Product|null $product */
+                $product = $products->get((int) $productId);
+
+                if (! $product) {
+                    continue;
+                }
+
+                foreach ($this->sellableGrades() as $grade) {
+                    $row = $gradeRows[$grade->value] ?? [];
+                    $manualOverride = ($row['mode'] ?? 'margin') === 'manual';
+                    $marginPercent = $manualOverride ? null : (float) ($row['margin_percent'] ?? $group->default_margin_percent);
+                    $sellingPrice = $manualOverride
+                        ? (float) ($row['selling_price'] ?? 0)
+                        : $this->calculateMarginSellingPrice($product, $grade, $marginPercent);
+
+                    $price = DailyProductPrice::query()->firstOrNew([
+                        'product_id' => $product->id,
+                        'shop_price_group_id' => $group->id,
+                        'grade' => $grade->value,
+                    ]);
+
+                    $oldPrice = $price->exists ? (float) $price->selling_price : null;
+                    $oldMargin = $price->exists && $price->margin_percent !== null ? (float) $price->margin_percent : null;
+
+                    $price->fill([
+                        'selling_price' => round($sellingPrice, 2),
+                        'price_source' => $manualOverride ? 'manual' : 'margin',
+                        'margin_percent' => $marginPercent,
+                        'manual_override' => $manualOverride,
+                        'override_reason' => $reason,
+                        'changed_by' => $userId,
+                    ]);
+                    $price->save();
+
+                    if ($oldPrice === null || abs($oldPrice - (float) $price->selling_price) > 0.0001 || $oldMargin !== $marginPercent) {
+                        DailyProductPriceRevision::create([
+                            'daily_product_price_id' => $price->id,
+                            'product_id' => $product->id,
+                            'shop_price_group_id' => $group->id,
+                            'grade' => $grade->value,
+                            'old_price' => $oldPrice,
+                            'new_price' => $price->selling_price,
+                            'old_margin_percent' => $oldMargin,
+                            'new_margin_percent' => $marginPercent,
+                            'change_type' => $manualOverride ? 'manual' : 'margin',
+                            'reason' => $reason,
+                            'changed_by' => $userId,
+                            'changed_at' => now(),
+                        ]);
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * Update final product prices across shop price groups such as Own / A, Own / B, Own / C.
+     *
+     * @param  array<int|string, array<int|string, mixed>>  $prices
+     */
+    public function updateShopCategoryPrices(array $prices, int $userId, ?string $reason = null): void
+    {
+        DB::transaction(function () use ($prices, $userId, $reason): void {
+            $products = Product::query()
+                ->whereIn('id', array_map('intval', array_keys($prices)))
+                ->get()
+                ->keyBy('id');
+
+            foreach ($prices as $productId => $groupPrices) {
+                /** @var Product|null $product */
+                $product = $products->get((int) $productId);
+
+                if (! $product) {
+                    continue;
+                }
+
+                foreach ($groupPrices as $groupId => $sellingPrice) {
+                    if ($sellingPrice === null || $sellingPrice === '') {
+                        continue;
+                    }
+
+                    /** @var ShopPriceGroup|null $group */
+                    $group = ShopPriceGroup::query()->find((int) $groupId);
+
+                    if (! $group) {
+                        continue;
+                    }
+
+                    $grade = ProductGrade::GradeA;
+                    $price = DailyProductPrice::query()->firstOrNew([
+                        'product_id' => $product->id,
+                        'shop_price_group_id' => $group->id,
+                        'grade' => $grade->value,
+                    ]);
+
+                    $oldPrice = $price->exists ? (float) $price->selling_price : null;
+                    $newPrice = round((float) $sellingPrice, 2);
+
+                    $price->fill([
+                        'selling_price' => $newPrice,
+                        'price_source' => 'manual',
+                        'margin_percent' => null,
+                        'manual_override' => true,
+                        'override_reason' => $reason,
+                        'changed_by' => $userId,
+                    ]);
+                    $price->save();
+
+                    if ($oldPrice === null || abs($oldPrice - $newPrice) > 0.0001) {
+                        DailyProductPriceRevision::create([
+                            'daily_product_price_id' => $price->id,
+                            'product_id' => $product->id,
+                            'shop_price_group_id' => $group->id,
+                            'grade' => $grade->value,
+                            'old_price' => $oldPrice,
+                            'new_price' => $newPrice,
+                            'old_margin_percent' => null,
+                            'new_margin_percent' => null,
+                            'change_type' => 'manual',
+                            'reason' => $reason,
+                            'changed_by' => $userId,
+                            'changed_at' => now(),
+                        ]);
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * @param  iterable<int>  $productIds
+     */
+    public function refreshWholesalePricesForProducts(iterable $productIds, string $sourceType, ?string $sourceReference = null): void
+    {
+        foreach (array_unique(array_map('intval', is_array($productIds) ? $productIds : iterator_to_array($productIds))) as $productId) {
+            $product = Product::query()->find($productId);
+
+            if (! $product) {
+                continue;
+            }
+
+            foreach ($this->sellableGrades() as $grade) {
+                $costData = $this->calculateCurrentCost($product, $grade);
+
+                ProductWholesalePrice::query()->updateOrCreate(
+                    [
+                        'product_id' => $product->id,
+                        'grade' => $grade->value,
+                    ],
+                    [
+                        'weighted_average_cost' => $costData['weighted_average_cost'],
+                        'wholesale_price' => $costData['weighted_average_cost'],
+                        'sellable_quantity' => $costData['sellable_quantity'],
+                        'total_cost' => $costData['total_cost'],
+                        'source_type' => $sourceType,
+                        'source_reference' => $sourceReference,
+                        'calculated_at' => now(),
+                    ]
+                );
+            }
+
+            $this->refreshMarginSellingPrices($product);
+        }
+    }
+
+    /**
+     * @return array{weighted_average_cost: float, sellable_quantity: float, total_cost: float}
+     */
+    public function calculateCurrentCost(Product $product, ProductGrade $grade): array
+    {
+        $movementCost = $this->calculateCostFromSortedMovements($product, $grade);
+        if ($movementCost['sellable_quantity'] > 0) {
+            return $movementCost;
+        }
+
+        $batches = StockBatch::query()
+            ->where('product_id', $product->id)
+            ->where('status', '!=', BatchStatus::Closed->value)
+            ->whereNull('deleted_at')
+            ->with('wastageEntries')
+            ->get();
+
+        $sellableQuantity = 0.0;
+        $totalCost = 0.0;
+
+        foreach ($batches as $batch) {
+            $batchQuantity = (float) $batch->total_kg;
+            if ($batchQuantity <= 0) {
+                continue;
+            }
+
+            $wastageQuantity = (float) $batch->wastageEntries->sum('quantity');
+            $sellableBatchQuantity = max(0.0, $batchQuantity - $wastageQuantity);
+
+            if ($sellableBatchQuantity <= 0) {
+                continue;
+            }
+
+            $deductedQuantity = $this->deductedMovementQuantity((int) $batch->id, $grade);
+            $remainingQuantity = max(0.0, $sellableBatchQuantity - $deductedQuantity);
+            $batchUnitCost = (float) $batch->total_landed_cost / $sellableBatchQuantity;
+
+            $sellableQuantity += $remainingQuantity;
+            $totalCost += $remainingQuantity * $batchUnitCost;
+        }
+
+        if ($sellableQuantity <= 0) {
+            $fallback = (float) $product->base_price;
+
+            return [
+                'weighted_average_cost' => $fallback,
+                'sellable_quantity' => 0.0,
+                'total_cost' => 0.0,
+            ];
+        }
+
+        return [
+            'weighted_average_cost' => round($totalCost / $sellableQuantity, 4),
+            'sellable_quantity' => round($sellableQuantity, 3),
+            'total_cost' => round($totalCost, 4),
+        ];
+    }
+
+    public function refreshMarginSellingPrices(Product $product): void
+    {
+        DailyProductPrice::query()
+            ->where('product_id', $product->id)
+            ->where('manual_override', false)
+            ->with('shopPriceGroup')
+            ->get()
+            ->each(function (DailyProductPrice $price) use ($product): void {
+                if (! $price->shopPriceGroup) {
+                    return;
+                }
+
+                $grade = $price->grade instanceof ProductGrade ? $price->grade : ProductGrade::from((string) $price->grade);
+                $margin = $price->margin_percent !== null ? (float) $price->margin_percent : (float) $price->shopPriceGroup->default_margin_percent;
+                $newPrice = $this->calculateMarginSellingPrice($product, $grade, $margin);
+                $oldPrice = (float) $price->selling_price;
+
+                if (abs($oldPrice - $newPrice) <= 0.0001) {
+                    return;
+                }
+
+                $price->update([
+                    'selling_price' => round($newPrice, 2),
+                    'price_source' => 'margin',
+                    'margin_percent' => $margin,
+                    'changed_by' => null,
+                ]);
+
+                DailyProductPriceRevision::create([
+                    'daily_product_price_id' => $price->id,
+                    'product_id' => $product->id,
+                    'shop_price_group_id' => $price->shop_price_group_id,
+                    'grade' => $grade->value,
+                    'old_price' => $oldPrice,
+                    'new_price' => $price->selling_price,
+                    'old_margin_percent' => $margin,
+                    'new_margin_percent' => $margin,
+                    'change_type' => 'auto',
+                    'reason' => 'Wholesale cost changed.',
+                    'changed_at' => now(),
+                ]);
+            });
+    }
+
+    private function createMarginPrice(Product $product, ShopPriceGroup $group, ProductGrade $grade, ?int $userId): DailyProductPrice
+    {
+        return DailyProductPrice::create(array_merge(
+            [
+                'product_id' => $product->id,
+                'shop_price_group_id' => $group->id,
+                'grade' => $grade->value,
+            ],
+            $this->marginPricePayload($product, $group, $grade, $userId)
+        ));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function marginPricePayload(Product $product, ShopPriceGroup $group, ProductGrade $grade, ?int $userId): array
+    {
+        $margin = (float) $group->default_margin_percent;
+
+        return [
+            'selling_price' => $this->calculateMarginSellingPrice($product, $grade, $margin),
+            'price_source' => 'margin',
+            'margin_percent' => $margin,
+            'manual_override' => false,
+            'changed_by' => $userId,
+        ];
+    }
+
+    private function calculateMarginSellingPrice(Product $product, ProductGrade $grade, float $marginPercent): float
+    {
+        $wholesale = ProductWholesalePrice::query()
+            ->where('product_id', $product->id)
+            ->where('grade', $grade->value)
+            ->value('wholesale_price');
+
+        $base = $wholesale !== null ? (float) $wholesale : (float) $product->base_price;
+        $gradeMultiplier = match ($grade) {
+            ProductGrade::GradeA => 1.00,
+            ProductGrade::GradeB => 0.90,
+            ProductGrade::GradeC => 0.80,
+            default => 1.00,
+        };
+
+        return round(($base * $gradeMultiplier) * (1 + ($marginPercent / 100)), 2);
+    }
+
+    /**
+     * @return array{weighted_average_cost: float, sellable_quantity: float, total_cost: float}
+     */
+    private function calculateCostFromSortedMovements(Product $product, ProductGrade $grade): array
+    {
+        $lots = StockMovement::query()
+            ->join('stock_batches', 'stock_batches.id', '=', 'stock_movements.batch_id')
+            ->where('stock_movements.product_id', $product->id)
+            ->where('stock_movements.grade', $grade->value)
+            ->whereNull('stock_batches.deleted_at')
+            ->selectRaw(
+                'stock_movements.batch_id, MAX(stock_movements.cost_per_unit) as cost_per_unit, '.
+                'SUM(CASE '.
+                'WHEN stock_movements.type IN (?, ?) THEN stock_movements.quantity '.
+                'WHEN stock_movements.type IN (?, ?, ?) THEN -stock_movements.quantity '.
+                'ELSE 0 END) as available_quantity',
+                [
+                    StockMovementType::In->value,
+                    StockMovementType::SaleReversal->value,
+                    StockMovementType::Out->value,
+                    StockMovementType::Wastage->value,
+                    StockMovementType::Sale->value,
+                ]
+            )
+            ->groupBy('stock_movements.batch_id')
+            ->toBase()
+            ->get();
+
+        $sellableQuantity = 0.0;
+        $totalCost = 0.0;
+
+        foreach ($lots as $lot) {
+            $quantity = max(0.0, (float) $lot->available_quantity);
+
+            if ($quantity <= 0) {
+                continue;
+            }
+
+            $sellableQuantity += $quantity;
+            $totalCost += $quantity * (float) $lot->cost_per_unit;
+        }
+
+        if ($sellableQuantity <= 0) {
+            return [
+                'weighted_average_cost' => 0.0,
+                'sellable_quantity' => 0.0,
+                'total_cost' => 0.0,
+            ];
+        }
+
+        return [
+            'weighted_average_cost' => round($totalCost / $sellableQuantity, 4),
+            'sellable_quantity' => round($sellableQuantity, 3),
+            'total_cost' => round($totalCost, 4),
+        ];
+    }
+
+    private function deductedMovementQuantity(int $batchId, ProductGrade $grade): float
+    {
+        return (float) StockMovement::query()
+            ->where('batch_id', $batchId)
+            ->where('grade', $grade->value)
+            ->whereIn('type', [
+                StockMovementType::Out->value,
+                StockMovementType::Wastage->value,
+                StockMovementType::Sale->value,
+            ])
+            ->sum('quantity');
+    }
+}

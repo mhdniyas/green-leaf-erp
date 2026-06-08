@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web;
 
+use App\Enums\Inventory\ProductGrade;
+use App\Enums\Inventory\StockMovementType;
 use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Product;
@@ -14,6 +16,12 @@ use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Notifications\PurchaseOrderCreatedNotification;
+use App\Notifications\PurchasingOrderRevisionRequestedNotification;
+use App\Notifications\PurchasingOrderSubmittedNotification;
+use App\Services\Inventory\StockLedgerService;
+use App\Services\Pricing\PriceBoardService;
+use App\Services\Requisition\ShopOrderRevisionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -26,6 +34,12 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class RequisitionController extends Controller
 {
+    public function __construct(
+        private readonly StockLedgerService $stockLedgerService,
+        private readonly PriceBoardService $priceBoardService,
+        private readonly ShopOrderRevisionService $shopOrderRevisionService,
+    ) {}
+
     /**
      * Store a newly created shop requisition.
      *
@@ -92,6 +106,10 @@ class RequisitionController extends Controller
 
             return $shopOrder;
         });
+
+        $this->shopOrderRevisionService->notifyPurchaseManagers(
+            new PurchasingOrderSubmittedNotification($order->loadMissing('shop'))
+        );
 
         if ($request->expectsJson()) {
             return response()->json([
@@ -224,8 +242,7 @@ class RequisitionController extends Controller
             abort(403, 'Unauthorized access.');
         }
 
-        $canRequestApprovedUpdate = $order->state === 'approved'
-            && ! PurchaseOrder::whereDate('order_date', $order->business_date)->exists();
+        $canRequestApprovedUpdate = $order->state === 'approved';
 
         if ((! in_array($order->state, ['submitted', 'update_requested'], true) && ! $canRequestApprovedUpdate) || $order->is_delivered) {
             return redirect()->route('shop-owner.orders.show', $orderNumber)
@@ -239,6 +256,41 @@ class RequisitionController extends Controller
         }
 
         $reason = trim((string) $request->input('reason', ''));
+
+        if ($order->state === 'approved') {
+            try {
+                $revision = DB::transaction(function () use ($order, $items, $reason, $request) {
+                    return $this->shopOrderRevisionService->createApprovedOrderRevision(
+                        $order,
+                        $items,
+                        $request->user(),
+                        $reason
+                    );
+                });
+            } catch (ValidationException $exception) {
+                return redirect()->route('shop-owner.orders.show', $orderNumber)
+                    ->withErrors($exception->errors())
+                    ->with('error', collect($exception->errors())->flatten()->first());
+            }
+
+            if (! $revision) {
+                return redirect()->route('shop-owner.orders.show', $orderNumber)
+                    ->with('error', 'No quantity changes were found in this updated request.');
+            }
+
+            $this->shopOrderRevisionService->notifyPurchaseManagers(
+                new PurchasingOrderRevisionRequestedNotification($revision->loadMissing(['shopOrder.shop', 'items']))
+            );
+
+            return redirect()->route(
+                $request->user()->hasRole('shop') ? 'shop-owner.orders.show' : 'requisitions.show',
+                $orderNumber
+            )
+                ->with('success', sprintf(
+                    'Your updated order request (Update #%d) has been submitted to the Purchase Manager.',
+                    $revision->revision_no
+                ));
+        }
 
         DB::transaction(function () use ($order, $items, $reason): void {
             $this->syncShopOrderItems($order, $items);
@@ -387,12 +439,13 @@ class RequisitionController extends Controller
 
         // Load all shop orders for the selected date
         $orders = ShopOrder::whereDate('business_date', $date)
-            ->with(['items'])
+            ->with(['items', 'latestPendingRevision.items'])
             ->get();
         [
             'matrix' => $matrix,
             'productFulfillmentTypes' => $productFulfillmentTypes,
             'shopUpdateMeta' => $shopUpdateMeta,
+            'shopPoStatusMeta' => $shopPoStatusMeta,
         ] = $this->buildBoardPresentationData($orders, $products);
         $boardFullyApproved = $orders->isNotEmpty()
             && $orders->every(static fn (ShopOrder $order): bool => $order->state === 'approved');
@@ -404,6 +457,7 @@ class RequisitionController extends Controller
             'matrix',
             'productFulfillmentTypes',
             'shopUpdateMeta',
+            'shopPoStatusMeta',
             'boardFullyApproved'
         ));
     }
@@ -479,10 +533,12 @@ class RequisitionController extends Controller
                         if ($qty > 0) {
                             $product = Product::find($productId);
                             if ($product) {
+                                $pricePayload = $this->lockedPricePayload($order, $product, $qty);
                                 if ($item) {
                                     $item->update([
                                         'approved_qty' => $qty,
                                         'fulfillment_type' => $fulfillmentType,
+                                        ...$pricePayload,
                                     ]);
                                 } else {
                                     ShopOrderItem::create([
@@ -492,6 +548,7 @@ class RequisitionController extends Controller
                                         'approved_qty' => $qty,
                                         'unit' => $product->unit,
                                         'fulfillment_type' => $fulfillmentType,
+                                        ...$pricePayload,
                                     ]);
                                 }
                             }
@@ -506,6 +563,31 @@ class RequisitionController extends Controller
                         $order->delete();
                     }
                 }
+            }
+
+            $pendingRevisionOrders = ShopOrder::query()
+                ->whereDate('business_date', $date)
+                ->where('has_pending_revision', true)
+                ->with(['latestPendingRevision.items'])
+                ->get();
+
+            foreach ($pendingRevisionOrders as $order) {
+                $shopQuantities = [];
+
+                foreach ($order->latestPendingRevision?->items ?? [] as $revisionItem) {
+                    $productId = (int) $revisionItem->product_id;
+                    $shopQuantities[$productId] = isset($quantities[$productId][$order->shop_id])
+                        ? (float) $quantities[$productId][$order->shop_id]
+                        : (float) $revisionItem->new_requested_qty;
+                }
+
+                $this->shopOrderRevisionService->applyPendingRevision(
+                    $order,
+                    $request->user(),
+                    $shopQuantities,
+                    $fulfillmentTypes,
+                    []
+                );
             }
         });
 
@@ -534,12 +616,13 @@ class RequisitionController extends Controller
         // Load only APPROVED shop orders for the selected date
         $orders = ShopOrder::whereDate('business_date', $date)
             ->whereIn('state', ['approved', 'update_requested'])
-            ->with(['items'])
+            ->with(['items', 'latestPendingRevision.items'])
             ->get();
         [
             'matrix' => $matrix,
             'productFulfillmentTypes' => $productFulfillmentTypes,
             'shopUpdateMeta' => $shopUpdateMeta,
+            'shopPoStatusMeta' => $shopPoStatusMeta,
         ] = $this->buildBoardPresentationData($orders, $products);
 
         // Load categorized suppliers
@@ -587,7 +670,8 @@ class RequisitionController extends Controller
             'productSupplierMap',
             'approvedBoardSynced',
             'existingPos',
-            'shopUpdateMeta'
+            'shopUpdateMeta',
+            'shopPoStatusMeta'
         ));
     }
 
@@ -607,8 +691,48 @@ class RequisitionController extends Controller
         }
 
         if (PurchaseOrder::whereDate('order_date', $date)->exists()) {
+            $pendingRevisionOrders = ShopOrder::query()
+                ->whereDate('business_date', $date)
+                ->where('has_pending_revision', true)
+                ->with(['latestPendingRevision.items'])
+                ->get();
+
+            if ($pendingRevisionOrders->isEmpty()) {
+                return redirect()->route('requisitions.approved_board', ['date' => $date])
+                    ->with('error', 'Purchase Orders have already been generated for this date. Continue from the Purchase Orders screen.');
+            }
+
+            $quantities = $request->input('quantities', []);
+            $fulfillmentTypes = $request->input('fulfillment_types', []);
+            $suppliers = $request->input('suppliers', []);
+
+            foreach ($pendingRevisionOrders as $order) {
+                $shopQuantities = [];
+
+                foreach ($order->latestPendingRevision?->items ?? [] as $revisionItem) {
+                    $productId = (int) $revisionItem->product_id;
+                    $shopQuantities[$productId] = isset($quantities[$productId][$order->shop_id])
+                        ? (float) $quantities[$productId][$order->shop_id]
+                        : (float) $revisionItem->new_requested_qty;
+                }
+
+                $revision = $this->shopOrderRevisionService->applyPendingRevision(
+                    $order,
+                    $request->user(),
+                    $shopQuantities,
+                    $fulfillmentTypes,
+                    $suppliers
+                );
+
+                if ($revision && $revision->status === 'blocked') {
+                    return redirect()->route('requisitions.approved_board', ['date' => $date])
+                        ->withInput()
+                        ->with('error', 'This revision cannot be applied because goods receipt has already started for the linked purchase order.');
+                }
+            }
+
             return redirect()->route('requisitions.approved_board', ['date' => $date])
-                ->with('error', 'Purchase Orders have already been generated for this date. Continue from the Purchase Orders screen.');
+                ->with('success', 'Pending approved-order updates were applied to the linked purchase orders.');
         }
 
         // quantities is a 2D array: [product_id][shop_id] => value
@@ -688,10 +812,12 @@ class RequisitionController extends Controller
                         if ($qty > 0) {
                             $product = Product::find($productId);
                             if ($product) {
+                                $pricePayload = $this->lockedPricePayload($order, $product, $qty);
                                 if ($item) {
                                     $item->update([
                                         'approved_qty' => $qty,
                                         'fulfillment_type' => $fulfillmentType,
+                                        ...$pricePayload,
                                     ]);
                                 } else {
                                     ShopOrderItem::create([
@@ -701,6 +827,7 @@ class RequisitionController extends Controller
                                         'approved_qty' => $qty,
                                         'unit' => $product->unit,
                                         'fulfillment_type' => $fulfillmentType,
+                                        ...$pricePayload,
                                     ]);
                                 }
                             }
@@ -1035,6 +1162,10 @@ class RequisitionController extends Controller
                         'fulfillment_type' => $fulfillmentType,
                         'notes' => 'Auto-generated from Requisitions System',
                     ]);
+
+                    $this->shopOrderRevisionService->notifyPurchaseManagers(
+                        new PurchaseOrderCreatedNotification($po->loadMissing('supplier'))
+                    );
                 } else {
                     // If it exists, clear existing items so we can recreate them
                     $po->items()->delete();
@@ -1234,6 +1365,22 @@ class RequisitionController extends Controller
                     'shortage_value' => $shortageValue,
                 ]);
 
+                $this->stockLedgerService->consumeSortedStockForProduct(
+                    $item->product_id,
+                    $deliveredQty,
+                    (int) $request->user()->id,
+                    StockMovementType::Out,
+                    "Warehouse delivery out: {$order->order_number}"
+                );
+
+                $this->stockLedgerService->consumeSortedStockForProduct(
+                    $item->product_id,
+                    $shortageQty,
+                    (int) $request->user()->id,
+                    StockMovementType::Wastage,
+                    "Delivery shortage discrepancy: {$order->order_number}"
+                );
+
                 $totalShortageValue += $shortageValue;
                 $expectedDeliveredValue += $itemExpectedValue;
                 $totalApprovedQuantity += $approvedQty;
@@ -1371,19 +1518,23 @@ class RequisitionController extends Controller
             $existingItem = $existingItems->get($product->id);
 
             if ($existingItem) {
+                $pricePayload = $this->lockedPricePayload($order, $product, (float) $item['quantity']);
                 $existingItem->update([
                     'requested_qty' => $item['quantity'],
                     'unit' => $product->unit,
+                    ...$pricePayload,
                 ]);
 
                 continue;
             }
 
+            $pricePayload = $this->lockedPricePayload($order, $product, (float) $item['quantity']);
             ShopOrderItem::create([
                 'shop_order_id' => $order->id,
                 'product_id' => $product->id,
                 'requested_qty' => $item['quantity'],
                 'unit' => $product->unit,
+                ...$pricePayload,
             ]);
         }
 
@@ -1393,24 +1544,44 @@ class RequisitionController extends Controller
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    private function lockedPricePayload(ShopOrder $order, Product $product, float $quantity): array
+    {
+        $price = $this->priceBoardService->sellingPriceFor($product, $order->shop, ProductGrade::GradeA);
+
+        return [
+            'product_grade' => ProductGrade::GradeA->value,
+            'locked_price_group_id' => $price['group']->id,
+            'locked_selling_price' => $price['price'],
+            'locked_price_source' => $price['source'],
+            'line_total' => round($quantity * $price['price'], 2),
+        ];
+    }
+
+    /**
      * @param  Collection<int, ShopOrder>  $orders
      * @param  Collection<int, Product>  $products
-     * @return array{matrix: array<int, array<int, array{requested_qty: float, approved_qty: ?float, fulfillment_type: string, needs_attention: bool, order_state: string}>>, productFulfillmentTypes: array<int, string>, shopUpdateMeta: array<int, array{has_update_request: bool, update_reason: ?string, order_number: ?string, changed_items_count: int}>}
+     * @return array{matrix: array<int, array<int, array{requested_qty: float, approved_qty: ?float, display_qty: float, fulfillment_type: string, needs_attention: bool, order_state: string, previous_approved_qty: ?float, revision_no: ?int}>>, productFulfillmentTypes: array<int, string>, shopUpdateMeta: array<int, array{has_update_request: bool, update_reason: ?string, order_number: ?string, changed_items_count: int, revision_no: ?int}>, shopPoStatusMeta: array<int, array{status: string, label: string, po_count: int}>}
      */
     private function buildBoardPresentationData($orders, $products): array
     {
         $matrix = [];
         $productFulfillmentTypes = [];
         $shopUpdateMeta = [];
+        $shopPoStatusMeta = [];
 
         foreach ($orders as $order) {
             $changedItemsCount = 0;
+            $pendingRevision = $order->relationLoaded('latestPendingRevision') ? $order->latestPendingRevision : null;
+            $revisionItems = $pendingRevision?->relationLoaded('items') ? $pendingRevision->items->keyBy('product_id') : collect();
 
             foreach ($order->items as $item) {
                 $approvedQty = $item->approved_qty !== null ? (float) $item->approved_qty : null;
                 $requestedQty = (float) $item->requested_qty;
-                $needsAttention = $order->state === 'update_requested'
-                    && ($approvedQty === null || abs($requestedQty - $approvedQty) > 0.0001);
+                $revisionItem = $revisionItems->get($item->product_id);
+                $displayQty = $revisionItem ? (float) $revisionItem->new_requested_qty : ($approvedQty ?? $requestedQty);
+                $needsAttention = $revisionItem !== null;
 
                 if ($needsAttention) {
                     $changedItemsCount++;
@@ -1419,9 +1590,12 @@ class RequisitionController extends Controller
                 $matrix[$item->product_id][$order->shop_id] = [
                     'requested_qty' => $requestedQty,
                     'approved_qty' => $approvedQty,
+                    'display_qty' => $displayQty,
                     'fulfillment_type' => $item->fulfillment_type ?? 'warehouse',
                     'needs_attention' => $needsAttention,
                     'order_state' => $order->state,
+                    'previous_approved_qty' => $approvedQty,
+                    'revision_no' => $pendingRevision?->revision_no,
                 ];
 
                 if (! isset($productFulfillmentTypes[$item->product_id])) {
@@ -1429,23 +1603,46 @@ class RequisitionController extends Controller
                 }
             }
 
+            foreach ($revisionItems as $productId => $revisionItem) {
+                if (isset($matrix[$productId][$order->shop_id])) {
+                    continue;
+                }
+
+                $matrix[$productId][$order->shop_id] = [
+                    'requested_qty' => 0.0,
+                    'approved_qty' => null,
+                    'display_qty' => (float) $revisionItem->new_requested_qty,
+                    'fulfillment_type' => $productFulfillmentTypes[$productId] ?? 'warehouse',
+                    'needs_attention' => true,
+                    'order_state' => $order->state,
+                    'previous_approved_qty' => 0.0,
+                    'revision_no' => $pendingRevision?->revision_no,
+                ];
+
+                $changedItemsCount++;
+            }
+
             $existingShopMeta = $shopUpdateMeta[$order->shop_id] ?? [
                 'has_update_request' => false,
                 'update_reason' => null,
                 'order_number' => null,
                 'changed_items_count' => 0,
+                'revision_no' => null,
             ];
 
-            if ($order->state === 'update_requested') {
+            if ($order->has_pending_revision && $pendingRevision) {
                 $shopUpdateMeta[$order->shop_id] = [
                     'has_update_request' => true,
-                    'update_reason' => $order->update_reason,
+                    'update_reason' => $pendingRevision->reason ?? $order->update_reason,
                     'order_number' => $order->order_number,
                     'changed_items_count' => max($existingShopMeta['changed_items_count'], $changedItemsCount),
+                    'revision_no' => $pendingRevision->revision_no,
                 ];
             } else {
                 $shopUpdateMeta[$order->shop_id] = $existingShopMeta;
             }
+
+            $shopPoStatusMeta[$order->shop_id] = $this->purchaseOrderStatusMeta($order);
         }
 
         foreach ($products as $product) {
@@ -1458,6 +1655,7 @@ class RequisitionController extends Controller
             'matrix' => $matrix,
             'productFulfillmentTypes' => $productFulfillmentTypes,
             'shopUpdateMeta' => $shopUpdateMeta,
+            'shopPoStatusMeta' => $shopPoStatusMeta,
         ];
     }
 
@@ -1523,7 +1721,7 @@ class RequisitionController extends Controller
     }
 
     /**
-     * @param  array<int, array{requested_qty: float, approved_qty: ?float, fulfillment_type: string, needs_attention: bool, order_state: string}>  $productShopMatrix
+     * @param  array<int, array{requested_qty: float, approved_qty: ?float, display_qty: float, fulfillment_type: string, needs_attention: bool, order_state: string, previous_approved_qty: ?float, revision_no: ?int}>  $productShopMatrix
      */
     private function calculateProductRowTotal(array $productShopMatrix): float
     {
@@ -1537,7 +1735,7 @@ class RequisitionController extends Controller
     }
 
     /**
-     * @param  array{requested_qty?: float, approved_qty?: ?float}|null  $qtyData
+     * @param  array{requested_qty?: float, approved_qty?: ?float, display_qty?: float}|null  $qtyData
      */
     private function resolveMatrixQuantity(?array $qtyData): float
     {
@@ -1545,10 +1743,63 @@ class RequisitionController extends Controller
             return 0.0;
         }
 
+        if (array_key_exists('display_qty', $qtyData)) {
+            return (float) ($qtyData['display_qty'] ?? 0.0);
+        }
+
         if (array_key_exists('approved_qty', $qtyData) && $qtyData['approved_qty'] !== null) {
             return (float) $qtyData['approved_qty'];
         }
 
         return (float) ($qtyData['requested_qty'] ?? 0.0);
+    }
+
+    /**
+     * @return array{status: string, label: string, po_count: int}
+     */
+    private function purchaseOrderStatusMeta(ShopOrder $order): array
+    {
+        $productIds = $order->items->pluck('product_id')->all();
+
+        if ($productIds === [] && $order->relationLoaded('latestPendingRevision') && $order->latestPendingRevision) {
+            $productIds = $order->latestPendingRevision->items->pluck('product_id')->all();
+        }
+
+        if ($productIds === []) {
+            return [
+                'status' => 'none',
+                'label' => 'No PO',
+                'po_count' => 0,
+            ];
+        }
+
+        $linkedPos = PurchaseOrder::query()
+            ->whereDate('order_date', $order->business_date)
+            ->whereHas('items', function ($query) use ($productIds): void {
+                $query->whereIn('product_id', $productIds);
+            })
+            ->get();
+
+        if ($linkedPos->isEmpty()) {
+            return [
+                'status' => 'none',
+                'label' => 'No PO',
+                'po_count' => 0,
+            ];
+        }
+
+        if ($linkedPos->contains(fn (PurchaseOrder $purchaseOrder): bool => $purchaseOrder->goodsReceiveds()->exists())) {
+            return [
+                'status' => 'grn_locked',
+                'label' => 'PO Locked by GRN',
+                'po_count' => $linkedPos->count(),
+            ];
+        }
+
+        return [
+            'status' => 'created',
+            'label' => 'PO Created',
+            'po_count' => $linkedPos->count(),
+        ];
     }
 }

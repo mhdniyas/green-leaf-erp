@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin;
 
+use App\Models\Shop;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -61,11 +62,16 @@ class UserManagementTest extends TestCase
     {
         $role = Role::findByName('shop');
         $permission = Permission::findByName('sales.order.create');
+        $shop = Shop::create([
+            'code' => 'SHOP-A1',
+            'name' => 'Main Branch',
+        ]);
 
         $payload = [
             'name' => 'Alice Smith',
             'email' => 'alice@example.com',
             'password' => 'secret123',
+            'shop_id' => $shop->id,
             'roles' => [$role->name],
             'permissions' => [$permission->name],
         ];
@@ -77,6 +83,7 @@ class UserManagementTest extends TestCase
         $this->assertDatabaseHas('users', [
             'name' => 'Alice Smith',
             'email' => 'alice@example.com',
+            'shop_id' => $shop->id,
         ]);
 
         $createdUser = User::where('email', 'alice@example.com')->firstOrFail();
@@ -104,6 +111,10 @@ class UserManagementTest extends TestCase
             'name' => 'Old Name',
             'email' => 'old@example.com',
         ]);
+        $shop = Shop::create([
+            'code' => 'SHOP-B2',
+            'name' => 'North Branch',
+        ]);
 
         $role = Role::findByName('purchase');
         $permission = Permission::findByName('sales.customer.view');
@@ -112,6 +123,7 @@ class UserManagementTest extends TestCase
             'name' => 'New Name',
             'email' => 'new@example.com',
             'password' => null, // Leave empty to retain current password
+            'shop_id' => $shop->id,
             'roles' => [$role->name],
             'permissions' => [$permission->name],
         ];
@@ -124,6 +136,7 @@ class UserManagementTest extends TestCase
         $targetUser->refresh();
         $this->assertEquals('New Name', $targetUser->name);
         $this->assertEquals('new@example.com', $targetUser->email);
+        $this->assertSame($shop->id, $targetUser->shop_id);
         $this->assertTrue($targetUser->hasRole($role->name));
         $this->assertTrue($targetUser->hasDirectPermission($permission->name));
     }

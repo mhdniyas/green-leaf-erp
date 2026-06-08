@@ -28,6 +28,9 @@ class AdminFeaturesTest extends TestCase
 
     public function test_guest_user_cannot_access_admin_dashboards(): void
     {
+        $response = $this->get(route('admin.overview'));
+        $response->assertRedirect(route('login'));
+
         $response = $this->get(route('admin.daily-progress'));
         $response->assertRedirect(route('login'));
 
@@ -40,6 +43,9 @@ class AdminFeaturesTest extends TestCase
         $shopUser = User::factory()->create();
         $shopUser->assignRole('shop');
 
+        $response = $this->actingAs($shopUser)->get(route('admin.overview'));
+        $response->assertStatus(403);
+
         $response = $this->actingAs($shopUser)->get(route('admin.daily-progress'));
         $response->assertStatus(403);
 
@@ -51,6 +57,11 @@ class AdminFeaturesTest extends TestCase
     {
         $legacyAdmin = User::factory()->create();
         $legacyAdmin->assignRole('admin');
+
+        $response = $this->actingAs($legacyAdmin)->get(route('admin.overview'));
+        $response->assertOk();
+        $response->assertSee('Admin Control Center');
+        $response->assertSee('How cash moved today');
 
         $response = $this->actingAs($legacyAdmin)->get(route('admin.daily-progress'));
         $response->assertOk();
@@ -104,5 +115,31 @@ class AdminFeaturesTest extends TestCase
         $response->assertOk();
         $response->assertSee('Super Shop');
         $response->assertSee($order->order_number);
+    }
+
+    public function test_admin_overview_displays_online_users_and_permission_overrides(): void
+    {
+        $legacyAdmin = User::factory()->create([
+            'last_seen_at' => now(),
+        ]);
+        $legacyAdmin->assignRole('admin');
+
+        $shop = Shop::create(['code' => 'S11', 'name' => 'Online Shop']);
+
+        $purchaseUser = User::factory()->create([
+            'name' => 'Purchase Lead',
+            'shop_id' => $shop->id,
+            'last_seen_at' => now(),
+        ]);
+        $purchaseUser->assignRole('purchase');
+        $purchaseUser->givePermissionTo('purchasing.order.approve');
+
+        $response = $this->actingAs($legacyAdmin)->get(route('admin.overview'));
+
+        $response->assertOk();
+        $response->assertSee('Who is online right now');
+        $response->assertSee('Purchase Lead');
+        $response->assertSee('Online Shop');
+        $response->assertSee('Users with direct control changes');
     }
 }

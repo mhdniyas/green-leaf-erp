@@ -12,12 +12,15 @@ use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
 use App\Models\GoodsReceived;
 use App\Models\PurchaseOrder;
+use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Services\Inventory\WastageService;
 use App\Services\Purchasing\GoodsReceivedService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\View\View;
@@ -34,34 +37,11 @@ class WarehouseSortingController extends Controller
      */
     public function index(Request $request): View
     {
-        if (! $request->user()->can('warehouse.checklist.view') &&
-            ! $request->user()->hasRole('warehouse') &&
-            ! $request->user()->hasRole('admin')) {
-            abort(403, 'Unauthorized.');
-        }
+        $this->authorizeWarehouseView($request);
 
-        $date = $request->input('date');
+        $date = $this->resolveBusinessDate($request);
 
-        if (! $date) {
-            $tomorrow = Carbon::tomorrow()->format('Y-m-d');
-            $today = Carbon::today()->format('Y-m-d');
-
-            $hasTodayOrders = ShopOrder::whereDate('business_date', $today)->where('state', 'approved')->exists();
-            $hasTomorrowOrders = ShopOrder::whereDate('business_date', $tomorrow)->where('state', 'approved')->exists();
-
-            if ($hasTomorrowOrders && ! $hasTodayOrders) {
-                $date = $tomorrow;
-            } else {
-                $cutoffTime = today()->setTime(21, 30);
-                $date = now()->greaterThan($cutoffTime) ? $tomorrow : $today;
-            }
-        }
-
-        // Fetch all approved shop orders for the selected date
-        $orders = ShopOrder::whereDate('business_date', $date)
-            ->where('state', 'approved')
-            ->with(['shop', 'items.product', 'items.sortedBy'])
-            ->get();
+        $orders = $this->approvedOrdersQuery($date)->get();
 
         // Calculate global statistics
         $allApprovedItems = ShopOrderItem::whereHas('order', function ($query) use ($date) {
@@ -351,35 +331,108 @@ class WarehouseSortingController extends Controller
      */
     public function shopOrders(Request $request): View
     {
+        $this->authorizeWarehouseView($request);
+
+        $date = $this->resolveBusinessDate($request);
+
+        $orders = $this->approvedOrdersQuery($date)->get();
+
+        return view('inventory.sorting-checklist.shop_orders', compact('date', 'orders'));
+    }
+
+    public function shopSortingIndex(Request $request): RedirectResponse|View
+    {
+        $this->authorizeWarehouseView($request);
+
+        $date = $this->resolveBusinessDate($request);
+        $orders = $this->approvedOrdersQuery($date)->get();
+
+        if ($orders->isEmpty()) {
+            return view('inventory.sorting-checklist.shop_sorting', [
+                'date' => $date,
+                'orders' => $orders,
+                'selectedOrder' => null,
+            ]);
+        }
+
+        return redirect()->route('inventory.sorting.shop-sorting.show', [
+            'order' => $orders->first()->order_number,
+            'date' => $date,
+        ]);
+    }
+
+    public function shopSortingShow(Request $request, ShopOrder $order): View
+    {
+        $this->authorizeWarehouseView($request);
+
+        $date = $this->resolveBusinessDate($request, $order->business_date->format('Y-m-d'));
+        $orders = $this->approvedOrdersQuery($date)->get();
+
+        $selectedOrder = $orders->firstWhere('id', $order->id);
+        if (! $selectedOrder) {
+            abort(404);
+        }
+
+        return view('inventory.sorting-checklist.shop_sorting', compact('date', 'orders', 'selectedOrder'));
+    }
+
+    public function updateShopTag(Request $request, Shop $shop): RedirectResponse
+    {
+        $this->authorizeWarehouseView($request);
+
+        $validated = $request->validate([
+            'warehouse_tag' => ['nullable', 'string', 'max:12', 'regex:/^[A-Za-z0-9-]+$/', 'unique:shops,warehouse_tag,'.$shop->id],
+        ]);
+
+        $shop->update([
+            'warehouse_tag' => $validated['warehouse_tag'] ? strtoupper($validated['warehouse_tag']) : null,
+        ]);
+
+        return back()->with('status', 'Shop warehouse tag updated.');
+    }
+
+    private function authorizeWarehouseView(Request $request): void
+    {
         if (! $request->user()->can('warehouse.checklist.view') &&
             ! $request->user()->hasRole('warehouse') &&
             ! $request->user()->hasRole('admin')) {
             abort(403, 'Unauthorized.');
         }
+    }
 
-        $date = $request->input('date');
+    private function resolveBusinessDate(Request $request, ?string $fallbackDate = null): string
+    {
+        $date = $request->input('date', $fallbackDate);
 
-        if (! $date) {
-            $tomorrow = Carbon::tomorrow()->format('Y-m-d');
-            $today = Carbon::today()->format('Y-m-d');
-
-            $hasTodayOrders = ShopOrder::whereDate('business_date', $today)->where('state', 'approved')->exists();
-            $hasTomorrowOrders = ShopOrder::whereDate('business_date', $tomorrow)->where('state', 'approved')->exists();
-
-            if ($hasTomorrowOrders && ! $hasTodayOrders) {
-                $date = $tomorrow;
-            } else {
-                $cutoffTime = today()->setTime(21, 30);
-                $date = now()->greaterThan($cutoffTime) ? $tomorrow : $today;
-            }
+        if ($date) {
+            return $date;
         }
 
-        // Fetch all approved shop orders for the selected date
-        $orders = ShopOrder::whereDate('business_date', $date)
+        $tomorrow = Carbon::tomorrow()->format('Y-m-d');
+        $today = Carbon::today()->format('Y-m-d');
+
+        $hasTodayOrders = ShopOrder::whereDate('business_date', $today)->where('state', 'approved')->exists();
+        $hasTomorrowOrders = ShopOrder::whereDate('business_date', $tomorrow)->where('state', 'approved')->exists();
+
+        if ($hasTomorrowOrders && ! $hasTodayOrders) {
+            return $tomorrow;
+        }
+
+        $cutoffTime = today()->setTime(21, 30);
+
+        return now()->greaterThan($cutoffTime) ? $tomorrow : $today;
+    }
+
+    private function approvedOrdersQuery(string $date): Builder
+    {
+        return ShopOrder::query()
+            ->whereDate('business_date', $date)
             ->where('state', 'approved')
             ->with(['shop', 'items.product', 'items.sortedBy'])
-            ->get();
-
-        return view('inventory.sorting-checklist.shop_orders', compact('date', 'orders'));
+            ->join('shops', 'shops.id', '=', 'shop_orders.shop_id')
+            ->orderByRaw('CASE WHEN shops.warehouse_tag IS NULL OR shops.warehouse_tag = "" THEN 1 ELSE 0 END')
+            ->orderBy('shops.warehouse_tag')
+            ->orderBy('shops.name')
+            ->select('shop_orders.*');
     }
 }

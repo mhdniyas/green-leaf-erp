@@ -22,4 +22,28 @@
             <p class="mt-2 text-2xl font-black text-red-600">Rs. {{ number_format((float) $order->total_shortage_value, 2) }}</p>
         </div>
     </div>
+
+    <div class="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-5">
+        <div class="flex items-center justify-between gap-3">
+            <div>
+                <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Warehouse Product Progress</p>
+                <p class="mt-2 text-sm text-slate-600">Track each item as it moves from approved stock to packing, transit, and final delivery.</p>
+            </div>
+            <span class="text-xs font-black text-slate-500">{{ $order->items->count() }} items</span>
+        </div>
+
+        <div class="mt-4 grid gap-3 md:grid-cols-2">
+            @foreach ($order->items as $item)
+                <div class="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <p class="font-bold text-slate-900">{{ $item->product->name }}</p>
+                            <p class="mt-1 text-xs font-semibold text-slate-500">{{ $item->product->sku }} · {{ strtoupper($item->unit) }}</p>
+                        </div>
+                        @include('shop-owner.components.status-badge', ['label' => $item->warehouseWorkflowLabel(), 'tone' => $item->warehouseWorkflowTone()])
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    </div>
 </section>

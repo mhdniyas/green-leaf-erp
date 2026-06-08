@@ -5,7 +5,10 @@
     <div class="mt-5 space-y-3">
         @foreach ($order->items as $item)
             <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p class="font-bold text-slate-900">{{ $item->product->name }}</p>
+                <div class="flex items-start justify-between gap-3">
+                    <p class="font-bold text-slate-900">{{ $item->product->name }}</p>
+                    @include('shop-owner.components.status-badge', ['label' => $item->warehouseWorkflowLabel(), 'tone' => $item->warehouseWorkflowTone()])
+                </div>
                 <p class="mt-1 text-sm text-slate-600">Approved: {{ number_format((float) ($item->approved_qty ?? 0), 2) }} {{ $item->unit }}</p>
                 <p class="text-sm text-slate-600">Received: {{ number_format((float) ($item->delivered_qty ?? 0), 2) }} {{ $item->unit }}</p>
             </div>
