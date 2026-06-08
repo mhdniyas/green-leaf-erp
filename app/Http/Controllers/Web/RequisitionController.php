@@ -1673,6 +1673,7 @@ class RequisitionController extends Controller
     ): Collection {
         $search = strtolower(trim((string) $request->input('search', '')));
         $fulfillment = (string) $request->input('fulfillment', 'all');
+        $produce = (string) $request->input('produce', 'all');
         $hasOrders = $request->boolean('has_orders', true);
         $orderedProductIds = collect((array) $request->input('ordered_product_ids', []))
             ->map(static fn ($productId): int => (int) $productId)
@@ -1680,9 +1681,13 @@ class RequisitionController extends Controller
             ->values()
             ->all();
 
-        $filteredProducts = $products->filter(function (Product $product) use ($search, $fulfillment, $hasOrders, $matrix, $productFulfillmentTypes): bool {
+        $filteredProducts = $products->filter(function (Product $product) use ($search, $fulfillment, $produce, $hasOrders, $matrix, $productFulfillmentTypes): bool {
             $productFulfillment = $productFulfillmentTypes[$product->id] ?? 'warehouse';
             if ($fulfillment !== 'all' && $productFulfillment !== $fulfillment) {
+                return false;
+            }
+
+            if (! $this->matchesProduceFilter($product, $produce)) {
                 return false;
             }
 
@@ -1718,6 +1723,28 @@ class RequisitionController extends Controller
         return $filteredProducts
             ->sortBy(static fn (Product $product): int => $orderMap[$product->id] ?? PHP_INT_MAX)
             ->values();
+    }
+
+    private function matchesProduceFilter(Product $product, string $produce): bool
+    {
+        $normalizedProduce = strtolower(trim($produce));
+        $categoryName = strtolower(trim((string) optional($product->category)->name));
+
+        return match ($normalizedProduce) {
+            'veg' => in_array($categoryName, [
+                'supply',
+                'veg',
+                'hal',
+                'leaf',
+                'english',
+                'kolkata',
+                'banana',
+                'onion',
+                'c',
+            ], true),
+            'fruit' => in_array($categoryName, ['frut', 'fruit'], true),
+            default => true,
+        };
     }
 
     /**

@@ -15,6 +15,7 @@ return new class extends Migration
             $table->foreignId('supplier_id')->constrained('suppliers')->restrictOnDelete();
             $table->string('po_number', 100)->unique();
             $table->string('status', 20)->default('draft'); // POStatus enum
+            $table->string('fulfillment_type', 30)->default('warehouse');
             $table->date('order_date');
             $table->foreignId('created_by')->constrained('users')->restrictOnDelete();
             $table->text('notes')->nullable();
@@ -22,6 +23,7 @@ return new class extends Migration
             $table->softDeletes();
 
             $table->index(['supplier_id', 'status']);
+            $table->index('fulfillment_type');
             $table->index('order_date');
         });
     }

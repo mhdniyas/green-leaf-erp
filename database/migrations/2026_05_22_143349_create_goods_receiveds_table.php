@@ -12,8 +12,11 @@ return new class extends Migration
     {
         Schema::create('goods_received', function (Blueprint $table) {
             $table->id();
+            $table->uuid('public_uuid')->unique();
             $table->foreignId('purchase_order_id')->constrained('purchase_orders')->restrictOnDelete();
             $table->string('grn_number', 100)->unique();
+            $table->string('status', 30)->default('pending_approval');
+            $table->text('rejection_remarks')->nullable();
             $table->foreignId('received_by')->constrained('users')->restrictOnDelete();
             $table->date('received_at');
             $table->decimal('transport_cost', 10, 2)->default(0.00);

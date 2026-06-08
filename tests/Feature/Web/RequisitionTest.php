@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Web;
 
 use App\Enums\Purchasing\POStatus;
+use App\Models\Category;
 use App\Models\GoodsReceived;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
@@ -1351,6 +1352,76 @@ class RequisitionTest extends TestCase
 
         $response->assertOk();
         $response->assertHeader('Content-Type', 'text/csv; charset=UTF-8');
+    }
+
+    public function test_purchase_manager_can_filter_board_exports_by_produce_group(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $vegCategory = Category::query()->where('name', 'VEG')->firstOrFail();
+        $fruitCategory = Category::query()->where('name', 'Frut')->firstOrFail();
+
+        $vegProduct = Product::create([
+            'category_id' => $vegCategory->id,
+            'name' => 'Board Veg Product',
+            'sku' => 'BOARD-VEG-001',
+            'unit' => 'kg',
+            'base_price' => 10,
+            'is_active' => true,
+        ]);
+
+        $fruitProduct = Product::create([
+            'category_id' => $fruitCategory->id,
+            'name' => 'Board Fruit Product',
+            'sku' => 'BOARD-FRUIT-001',
+            'unit' => 'kg',
+            'base_price' => 12,
+            'is_active' => true,
+        ]);
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => Carbon::tomorrow()->format('Y-m-d'),
+            'state' => 'approved',
+            'created_by' => $this->shopOwner->id,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $vegProduct->id,
+            'requested_qty' => 5,
+            'approved_qty' => 5,
+            'unit' => $vegProduct->unit,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $fruitProduct->id,
+            'requested_qty' => 7,
+            'approved_qty' => 7,
+            'unit' => $fruitProduct->unit,
+        ]);
+
+        $fruitBoardExport = $this->actingAs($manager)
+            ->get(route('requisitions.board.export.csv', [
+                'date' => Carbon::tomorrow()->format('Y-m-d'),
+                'produce' => 'fruit',
+            ]));
+
+        $fruitBoardExport->assertOk();
+        $this->assertStringContainsString('Board Fruit Product', $fruitBoardExport->streamedContent());
+        $this->assertStringNotContainsString('Board Veg Product', $fruitBoardExport->streamedContent());
+
+        $vegApprovedExport = $this->actingAs($manager)
+            ->get(route('requisitions.approved_board.export.csv', [
+                'date' => Carbon::tomorrow()->format('Y-m-d'),
+                'produce' => 'veg',
+            ]));
+
+        $vegApprovedExport->assertOk();
+        $this->assertStringContainsString('Board Veg Product', $vegApprovedExport->streamedContent());
+        $this->assertStringNotContainsString('Board Fruit Product', $vegApprovedExport->streamedContent());
     }
 
     public function test_purchase_manager_can_export_approved_board_pdf(): void

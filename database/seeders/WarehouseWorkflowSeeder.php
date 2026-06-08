@@ -15,14 +15,9 @@ use App\Models\PurchaseOrderItem;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
-use App\Models\ShopOrderRevision;
-use App\Models\ShopOrderRevisionItem;
 use App\Models\StockBatch;
 use App\Models\Supplier;
 use App\Models\User;
-use App\Notifications\PurchaseOrderCreatedNotification;
-use App\Notifications\PurchasingOrderRevisionRequestedNotification;
-use App\Notifications\PurchasingOrderSubmittedNotification;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -34,7 +29,6 @@ class WarehouseWorkflowSeeder extends Seeder
     {
         DB::transaction(function (): void {
             $today = Carbon::today();
-            $tomorrow = Carbon::tomorrow();
 
             $purchaseManager = User::query()->where('email', 'purchase@greenleaf.com')->firstOrFail();
             $warehouseManager = User::query()->where('email', 'warehouse@greenleaf.com')->firstOrFail();
@@ -153,20 +147,7 @@ class WarehouseWorkflowSeeder extends Seeder
                 products: $products,
             );
 
-            $tomorrowRecords = $this->seedTomorrowReviewBoard(
-                businessDate: $tomorrow,
-                purchaseManager: $purchaseManager,
-                warehouseManager: $warehouseManager,
-                supplier: $supplier,
-                shops: $shops,
-                shopOwners: $shopOwners,
-                products: $products,
-            );
-
             $purchaseManager->notifications()->delete();
-            $purchaseManager->notify(new PurchasingOrderSubmittedNotification($tomorrowRecords['submitted_order']));
-            $purchaseManager->notify(new PurchasingOrderRevisionRequestedNotification($tomorrowRecords['pending_revision']));
-            $purchaseManager->notify(new PurchaseOrderCreatedNotification($tomorrowRecords['tomorrow_po']));
         });
 
         $this->command?->info('One-week workflow seed complete for shop, purchase, warehouse, and admin review.');
@@ -496,154 +477,6 @@ class WarehouseWorkflowSeeder extends Seeder
     }
 
     /**
-     * @return array{submitted_order: ShopOrder, pending_revision: ShopOrderRevision, tomorrow_po: PurchaseOrder}
-     */
-    private function seedTomorrowReviewBoard(
-        Carbon $businessDate,
-        User $purchaseManager,
-        User $warehouseManager,
-        Supplier $supplier,
-        Collection $shops,
-        Collection $shopOwners,
-        Collection $products,
-    ): array {
-        $casioOrder = $this->upsertShopOrder(
-            shop: $shops['SHOP_CASIO'],
-            shopOwner: $shopOwners['shop@greenleaf.com'],
-            orderNumber: 'RQ-WEEK-06-CASIO',
-            businessDate: $businessDate,
-            attributes: [
-                'state' => 'approved',
-                'latest_revision_no' => 2,
-                'has_pending_revision' => false,
-                'submitted_at' => $businessDate->copy()->subDay()->setTime(18, 10),
-                'deadline_at' => $businessDate->copy()->subDay()->setTime(21, 30),
-            ],
-        );
-
-        $this->syncShopOrderItems($casioOrder, [
-            ['sku' => 'TOMATOH-001', 'requested' => 18, 'approved' => 18, 'sorting_status' => 'pending', 'unit_cost' => 28.00],
-            ['sku' => 'ONION-003', 'requested' => 12, 'approved' => 12, 'sorting_status' => 'pending', 'unit_cost' => 24.00],
-            ['sku' => 'CORRIANDER-101', 'requested' => 6, 'approved' => 6, 'sorting_status' => 'pending', 'unit_cost' => 19.50],
-        ], $products, $warehouseManager);
-
-        $appliedRevision = ShopOrderRevision::updateOrCreate(
-            [
-                'shop_order_id' => $casioOrder->id,
-                'revision_no' => 2,
-            ],
-            [
-                'status' => 'applied',
-                'reason' => 'Manager approved small quantity increase.',
-                'requested_by' => $shopOwners['shop@greenleaf.com']->id,
-                'reviewed_by' => $purchaseManager->id,
-                'reviewed_at' => now()->subHours(2),
-            ]
-        );
-
-        $this->syncRevisionItems($appliedRevision, [
-            ['sku' => 'ONION-003', 'old' => 10, 'new' => 12],
-            ['sku' => 'CORRIANDER-101', 'old' => 5, 'new' => 6],
-        ], $products);
-
-        $budegereOrder = $this->upsertShopOrder(
-            shop: $shops['SHOP_BUDEGERE'],
-            shopOwner: $shopOwners['shop-budegere@greenleaf.com'],
-            orderNumber: 'RQ-WEEK-06-BUD',
-            businessDate: $businessDate,
-            attributes: [
-                'state' => 'update_requested',
-                'update_reason' => 'Need more potato and onion for weekend demand.',
-                'latest_revision_no' => 2,
-                'has_pending_revision' => true,
-                'submitted_at' => $businessDate->copy()->subDay()->setTime(18, 25),
-                'deadline_at' => $businessDate->copy()->subDay()->setTime(21, 30),
-            ],
-        );
-
-        $this->syncShopOrderItems($budegereOrder, [
-            ['sku' => 'POTATOAGRA-005', 'requested' => 14, 'approved' => 14, 'sorting_status' => 'pending', 'unit_cost' => 62.50],
-            ['sku' => 'ONION-003', 'requested' => 10, 'approved' => 10, 'sorting_status' => 'pending', 'unit_cost' => 24.00],
-            ['sku' => 'TOMATON-002', 'requested' => 8, 'approved' => 8, 'sorting_status' => 'pending', 'unit_cost' => 31.00],
-        ], $products, $warehouseManager);
-
-        $pendingRevision = ShopOrderRevision::updateOrCreate(
-            [
-                'shop_order_id' => $budegereOrder->id,
-                'revision_no' => 2,
-            ],
-            [
-                'status' => 'pending',
-                'reason' => 'Weekend walk-in demand increased.',
-                'requested_by' => $shopOwners['shop-budegere@greenleaf.com']->id,
-                'reviewed_by' => null,
-                'reviewed_at' => null,
-            ]
-        );
-
-        $this->syncRevisionItems($pendingRevision, [
-            ['sku' => 'POTATOAGRA-005', 'old' => 14, 'new' => 18],
-            ['sku' => 'ONION-003', 'old' => 10, 'new' => 13],
-        ], $products);
-
-        $submittedOrder = $this->upsertShopOrder(
-            shop: $shops['SHOP_GRANCITY'],
-            shopOwner: $shopOwners['shop-grancity@greenleaf.com'],
-            orderNumber: 'RQ-WEEK-06-GRAND',
-            businessDate: $businessDate,
-            attributes: [
-                'state' => 'submitted',
-                'submitted_at' => $businessDate->copy()->subDay()->setTime(19, 5),
-                'deadline_at' => $businessDate->copy()->subDay()->setTime(21, 30),
-            ],
-        );
-
-        $this->syncShopOrderItems($submittedOrder, [
-            ['sku' => 'TOMATOH-001', 'requested' => 15, 'approved' => null, 'sorting_status' => 'pending', 'unit_cost' => 28.00],
-            ['sku' => 'CHERRYTMTOBOX-126', 'requested' => 3, 'approved' => null, 'sorting_status' => 'pending', 'unit_cost' => 120.00],
-        ], $products, $warehouseManager, false);
-
-        $ashirwadOrder = $this->upsertShopOrder(
-            shop: $shops['SHOP_ASHIRWAD'],
-            shopOwner: $shopOwners['shop-ashirwad@greenleaf.com'],
-            orderNumber: 'RQ-WEEK-06-ASH',
-            businessDate: $businessDate,
-            attributes: [
-                'state' => 'approved',
-                'submitted_at' => $businessDate->copy()->subDay()->setTime(18, 35),
-                'deadline_at' => $businessDate->copy()->subDay()->setTime(21, 30),
-            ],
-        );
-
-        $this->syncShopOrderItems($ashirwadOrder, [
-            ['sku' => 'CORRIANDER-101', 'requested' => 9, 'approved' => 9, 'sorting_status' => 'pending', 'unit_cost' => 19.50],
-            ['sku' => 'TOMATON-002', 'requested' => 11, 'approved' => 11, 'sorting_status' => 'pending', 'unit_cost' => 31.00],
-        ], $products, $warehouseManager);
-
-        $tomorrowPo = $this->upsertPurchaseOrder(
-            purchaseManager: $purchaseManager,
-            supplier: $supplier,
-            poNumber: 'PO-WEEK-06',
-            businessDate: $businessDate,
-            status: POStatus::Approved,
-            items: [
-                ['sku' => 'TOMATOH-001', 'quantity' => 33, 'unit_price' => 28.00, 'purchase_unit' => 'kg', 'price_basis' => 'per_kg'],
-                ['sku' => 'ONION-003', 'quantity' => 22, 'unit_price' => 24.00, 'purchase_unit' => 'kg', 'price_basis' => 'per_kg'],
-                ['sku' => 'CORRIANDER-101', 'quantity' => 15, 'unit_price' => 19.50, 'purchase_unit' => 'kg', 'price_basis' => 'per_kg'],
-                ['sku' => 'TOMATON-002', 'quantity' => 19, 'unit_price' => 31.00, 'purchase_unit' => 'kg', 'price_basis' => 'per_kg'],
-            ],
-            products: $products,
-            notes: 'Auto-generated from Approved Requisitions Board',
-        );
-
-        return [
-            'submitted_order' => $submittedOrder,
-            'pending_revision' => $pendingRevision->load('shopOrder', 'items'),
-            'tomorrow_po' => $tomorrowPo->load('supplier'),
-        ];
-    }
-
-    /**
      * @param  array<string, mixed>  $attributes
      */
     private function upsertShopOrder(
@@ -713,43 +546,6 @@ class WarehouseWorkflowSeeder extends Seeder
                     'shortage_qty' => $shortageQty,
                     'unit_cost' => $unitCost,
                     'shortage_value' => $shortageQty * $unitCost,
-                ]
-            );
-        }
-    }
-
-    /**
-     * @param  array<int, array{sku: string, old: int|float, new: int|float}>  $items
-     */
-    private function syncRevisionItems(ShopOrderRevision $revision, array $items, Collection $products): void
-    {
-        $productIds = collect($items)
-            ->map(fn (array $item): ?int => $products->get($item['sku'])?->id)
-            ->filter()
-            ->values()
-            ->all();
-
-        $revision->items()->whereNotIn('product_id', $productIds)->delete();
-
-        foreach ($items as $item) {
-            $product = $products->get($item['sku']);
-
-            if (! $product) {
-                continue;
-            }
-
-            $oldQty = (float) $item['old'];
-            $newQty = (float) $item['new'];
-
-            ShopOrderRevisionItem::updateOrCreate(
-                [
-                    'shop_order_revision_id' => $revision->id,
-                    'product_id' => $product->id,
-                ],
-                [
-                    'old_requested_qty' => $oldQty,
-                    'new_requested_qty' => $newQty,
-                    'delta_qty' => $newQty - $oldQty,
                 ]
             );
         }

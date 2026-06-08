@@ -12,6 +12,7 @@ return new class extends Migration
     {
         Schema::create('purchase_invoices', function (Blueprint $table) {
             $table->id();
+            $table->uuid('public_uuid')->unique();
             $table->foreignId('goods_received_id')->constrained('goods_received')->restrictOnDelete();
             $table->foreignId('supplier_id')->constrained('suppliers')->restrictOnDelete();
             $table->string('invoice_number', 100);

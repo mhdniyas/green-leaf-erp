@@ -17,6 +17,7 @@ return new class extends Migration
             $table->string('sku', 100)->unique();
             $table->string('unit', 20)->default('kg'); // kg, box, bunch, piece
             $table->text('description')->nullable();
+            $table->decimal('base_price', 10, 2)->default(0);
             $table->boolean('is_active')->default(true);
             $table->timestamps();
             $table->softDeletes();

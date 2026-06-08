@@ -15,6 +15,9 @@ return new class extends Migration
             $table->foreignId('goods_received_id')->constrained('goods_received')->cascadeOnDelete();
             $table->foreignId('purchase_order_item_id')->nullable()->constrained('purchase_order_items')->restrictOnDelete();
             $table->foreignId('product_id')->constrained('products')->restrictOnDelete();
+            $table->string('received_unit', 20)->default('kg');
+            $table->decimal('received_packet_qty', 10, 3)->nullable();
+            $table->decimal('received_weight_per_packet', 10, 3)->nullable();
             $table->decimal('received_qty', 10, 3); // actual received quantity in kg
             $table->decimal('variance', 10, 3); // received_qty - ordered_qty
             $table->timestamps();

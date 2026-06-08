@@ -108,6 +108,15 @@
                 </select>
             </div>
 
+            <div class="flex items-center gap-3 self-stretch md:self-auto shrink-0 bg-white px-3 py-1.5 border border-slate-200 rounded-xl shadow-sm">
+                <label for="filter-produce" class="text-xs font-bold text-slate-400 uppercase tracking-wider select-none">Produce:</label>
+                <select id="filter-produce" onchange="filterBoardRows()" class="text-xs font-bold text-slate-700 border-0 focus:outline-none focus:ring-0 p-0 cursor-pointer">
+                    <option value="all">All</option>
+                    <option value="veg">Veg</option>
+                    <option value="fruit">Fruit</option>
+                </select>
+            </div>
+
             <div class="flex items-center gap-4 self-stretch md:self-auto shrink-0 pl-2">
                 <label class="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none">
                     <input type="checkbox" id="filter-has-orders" checked onchange="filterBoardRows()" class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer">
@@ -312,6 +321,7 @@
             const query = document.getElementById('board-search').value.toLowerCase().trim();
             const hideZero = document.getElementById('filter-has-orders').checked;
             const fulfillmentFilter = document.getElementById('filter-fulfillment').value;
+            const produceFilter = document.getElementById('filter-produce').value;
             const rows = document.querySelectorAll('.product-row');
             
             rows.forEach(row => {
@@ -324,8 +334,11 @@
                 const matchesQuery = !query || name.includes(query) || sku.includes(query) || category.includes(query);
                 const matchesZeroFilter = !hideZero || rowTotal > 0;
                 const matchesFulfillment = fulfillmentFilter === 'all' || type === fulfillmentFilter;
+                const matchesProduce = produceFilter === 'all'
+                    || (produceFilter === 'veg' && ['supply', 'veg', 'hal', 'leaf', 'english', 'kolkata', 'banana', 'onion', 'c'].includes(category))
+                    || (produceFilter === 'fruit' && ['frut', 'fruit'].includes(category));
 
-                if (matchesQuery && matchesZeroFilter && matchesFulfillment) {
+                if (matchesQuery && matchesZeroFilter && matchesFulfillment && matchesProduce) {
                     row.classList.remove('hidden');
                 } else {
                     row.classList.add('hidden');
@@ -338,6 +351,7 @@
             document.getElementById('board-search').value = '';
             document.getElementById('filter-has-orders').checked = true;
             document.getElementById('filter-fulfillment').value = 'all';
+            document.getElementById('filter-produce').value = 'all';
             filterBoardRows();
         }
 
@@ -346,6 +360,7 @@
             params.set('date', @json($date));
             params.set('search', document.getElementById('board-search').value.trim());
             params.set('fulfillment', document.getElementById('filter-fulfillment').value);
+            params.set('produce', document.getElementById('filter-produce').value);
             params.set('has_orders', document.getElementById('filter-has-orders').checked ? '1' : '0');
 
             document.querySelectorAll('.product-row').forEach((row) => {
