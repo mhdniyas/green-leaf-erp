@@ -31,6 +31,6 @@ class SupplierPolicy
 
     public function delete(User $user, Supplier $supplier): bool
     {
-        return $user->can('purchasing.supplier.update');
+        return $user->hasRole('admin');
     }
 }

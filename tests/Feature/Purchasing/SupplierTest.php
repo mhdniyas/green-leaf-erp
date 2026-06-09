@@ -16,6 +16,8 @@ class SupplierTest extends TestCase
 
     private User $authorizedUser;
 
+    private User $adminUser;
+
     private User $unauthorizedUser;
 
     protected function setUp(): void
@@ -31,6 +33,9 @@ class SupplierTest extends TestCase
             'purchasing.supplier.create',
             'purchasing.supplier.update',
         ]);
+
+        $this->adminUser = User::factory()->create();
+        $this->adminUser->assignRole('admin');
 
         // User without supplier permissions
         $this->unauthorizedUser = User::factory()->create();
@@ -170,16 +175,25 @@ class SupplierTest extends TestCase
         ]);
     }
 
-    public function test_authorized_user_can_delete_supplier(): void
+    public function test_non_admin_purchase_user_cannot_delete_supplier(): void
     {
         $supplier = Supplier::factory()->create();
 
         $response = $this->actingAs($this->authorizedUser)
             ->delete(route('purchasing.suppliers.destroy', $supplier));
 
+        $response->assertForbidden();
+        $this->assertNotSoftDeleted($supplier);
+    }
+
+    public function test_admin_user_can_soft_delete_supplier(): void
+    {
+        $supplier = Supplier::factory()->create();
+
+        $response = $this->actingAs($this->adminUser)
+            ->delete(route('purchasing.suppliers.destroy', $supplier));
+
         $response->assertRedirect(route('purchasing.suppliers.index'));
-        $this->assertSoftDeleted('suppliers', [
-            'id' => $supplier->id,
-        ]);
+        $this->assertSoftDeleted($supplier);
     }
 }

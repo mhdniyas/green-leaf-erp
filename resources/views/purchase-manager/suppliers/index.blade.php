@@ -62,11 +62,11 @@
                                 </td>
                                 <td class="px-5 py-4">
                                     <div class="flex flex-wrap justify-end gap-2">
-                                        @can('purchasing.supplier.update')
+                                        @can('update', $supplier)
                                             <x-purchase-manager.components.action-button :href="route('purchasing.suppliers.edit', $supplier)" variant="secondary">Edit</x-purchase-manager.components.action-button>
                                         @endcan
-                                        @can('purchasing.supplier.delete')
-                                            <form method="POST" action="{{ route('purchasing.suppliers.destroy', $supplier) }}" onsubmit="return confirm('Delete supplier {{ $supplier->name }}?')">
+                                        @can('delete', $supplier)
+                                            <form method="POST" action="{{ route('purchasing.suppliers.destroy', $supplier) }}" onsubmit="return confirm('Delete supplier {{ $supplier->name }}? This will soft delete the supplier record.')">
                                                 @csrf
                                                 @method('DELETE')
                                                 <x-purchase-manager.components.action-button type="submit" variant="soft-danger">Delete</x-purchase-manager.components.action-button>
