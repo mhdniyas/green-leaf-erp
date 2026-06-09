@@ -1565,7 +1565,11 @@ class RequisitionTest extends TestCase
         $boardContent = $boardResponse->getContent();
 
         $this->assertIsString($boardContent);
-        $this->assertStringNotContainsString(
+        $this->assertStringContainsString(
+            'name="selected_products[]" value="'.$product1->id.'"',
+            $boardContent
+        );
+        $this->assertStringContainsString(
             'name="selected_products[]" value="'.$product2->id.'"',
             $boardContent
         );

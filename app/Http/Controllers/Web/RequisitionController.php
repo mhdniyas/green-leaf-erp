@@ -612,14 +612,10 @@ class RequisitionController extends Controller
 
         $existingPos = PurchaseOrder::whereDate('order_date', $date)->with(['items', 'supplier'])->get();
         $approvedBoardSynced = $existingPos->isNotEmpty();
-        $poBackedProductIds = $approvedBoardSynced
-            ? $existingPos->flatMap(fn (PurchaseOrder $po) => $po->items->pluck('product_id'))->unique()->values()->all()
-            : [];
 
         // Load all active products (optionally grouped by category)
         $products = Product::with('category')
             ->where('is_active', true)
-            ->when($poBackedProductIds !== [], fn ($query) => $query->whereIn('id', $poBackedProductIds))
             ->orderBy('name')
             ->get();
 
