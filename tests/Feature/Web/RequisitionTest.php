@@ -1181,6 +1181,46 @@ class RequisitionTest extends TestCase
         ]);
     }
 
+    public function test_approved_board_does_not_fall_back_to_requested_qty_for_approved_items_without_an_approved_qty(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'state' => 'approved',
+            'business_date' => Carbon::tomorrow()->toDateString(),
+            'created_by' => $this->shopOwner->id,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 20.00,
+            'approved_qty' => null,
+            'unit' => 'kg',
+            'fulfillment_type' => 'warehouse',
+        ]);
+
+        $response = $this->actingAs($manager)
+            ->get(route('requisitions.approved_board', ['date' => Carbon::tomorrow()->format('Y-m-d')]));
+
+        $response->assertOk();
+        $response->assertSee($this->product->name);
+
+        $content = $response->getContent();
+
+        $this->assertIsString($content);
+        $this->assertMatchesRegularExpression(
+            '/name="quantities\['.$this->product->id.'\]\['.$this->shop->id.'\]"\s+value=""/',
+            $content
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/name="quantities\['.$this->product->id.'\]\['.$this->shop->id.'\]"\s+value="20"/',
+            $content
+        );
+    }
+
     public function test_approved_board_shows_purchase_order_handoff_after_generation(): void
     {
         $manager = User::factory()->create();
@@ -1517,6 +1557,18 @@ class RequisitionTest extends TestCase
             'purchase_order_id' => $po->id,
             'product_id' => $product2->id,
         ]);
+
+        $boardResponse = $this->actingAs($manager)
+            ->get(route('requisitions.approved_board', ['date' => $date]));
+
+        $boardResponse->assertOk();
+        $boardContent = $boardResponse->getContent();
+
+        $this->assertIsString($boardContent);
+        $this->assertStringNotContainsString(
+            'name="selected_products[]" value="'.$product2->id.'"',
+            $boardContent
+        );
 
         // Once POs exist, saving again with no products selected should not delete generated POs.
         $response = $this->actingAs($manager)

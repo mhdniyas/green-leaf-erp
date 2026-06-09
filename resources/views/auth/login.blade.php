@@ -125,10 +125,13 @@
 
                 <div class="space-y-1.5">
                     @foreach([
-                        ['role' => 'Administrator', 'email' => 'admin@greenleaf.com', 'password' => 'password', 'color' => 'text-purple-700', 'initial' => 'AD'],
-                        ['role' => 'Shop Owner', 'email' => 'shop@greenleaf.com', 'password' => 'password', 'color' => 'text-emerald-700', 'initial' => 'SO'],
-                        ['role' => 'Purchase Manager', 'email' => 'purchase@greenleaf.com', 'password' => 'password', 'color' => 'text-amber-700', 'initial' => 'PM'],
-                        ['role' => 'Warehouse Manager', 'email' => 'warehouse@greenleaf.com', 'password' => 'password', 'color' => 'text-pink-700', 'initial' => 'WM'],
+                        ['role' => 'Administrator', 'email' => 'admin@greenleaf.com', 'color' => 'text-purple-700', 'initial' => 'AD'],
+                        ['role' => 'Shop Owner · Casio', 'email' => 'shop@greenleaf.com', 'color' => 'text-emerald-700', 'initial' => 'SC'],
+                        ['role' => 'Shop Owner · Budegere', 'email' => 'shop-budegere@greenleaf.com', 'color' => 'text-emerald-700', 'initial' => 'SB'],
+                        ['role' => 'Shop Owner · Grancity', 'email' => 'shop-grancity@greenleaf.com', 'color' => 'text-emerald-700', 'initial' => 'SG'],
+                        ['role' => 'Shop Owner · Ashirwad', 'email' => 'shop-ashirwad@greenleaf.com', 'color' => 'text-emerald-700', 'initial' => 'SA'],
+                        ['role' => 'Purchase Manager', 'email' => 'purchase@greenleaf.com', 'color' => 'text-amber-700', 'initial' => 'PM'],
+                        ['role' => 'Warehouse Manager', 'email' => 'warehouse@greenleaf.com', 'color' => 'text-pink-700', 'initial' => 'WM'],
                     ] as $demo)
                     <button
                         type="button"

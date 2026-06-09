@@ -40,14 +40,17 @@ class WarehouseSortingController extends Controller
         $this->authorizeWarehouseView($request);
 
         $date = $this->resolveBusinessDate($request);
+        $poBackedProductIds = $this->purchaseOrderProductIdsForDate($date);
 
-        $orders = $this->approvedOrdersQuery($date)->get();
+        $orders = $this->approvedOrdersQuery($date, $poBackedProductIds)->get();
 
         // Calculate global statistics
         $allApprovedItems = ShopOrderItem::whereHas('order', function ($query) use ($date) {
             $query->whereDate('business_date', $date)
                 ->where('state', 'approved');
-        })->get();
+        })
+            ->when($poBackedProductIds !== [], fn ($query) => $query->whereIn('product_id', $poBackedProductIds))
+            ->get();
 
         $totalItems = $allApprovedItems->count();
         $sortedItems = $allApprovedItems->where('is_sorted', true)->count();
@@ -142,10 +145,14 @@ class WarehouseSortingController extends Controller
         $orderPercentage = $orderTotal > 0 ? (int) round(($orderSorted / $orderTotal) * 100) : 0;
 
         // Calculate global progress
+        $poBackedProductIds = $this->purchaseOrderProductIdsForDate($order->business_date->format('Y-m-d'));
+
         $allApprovedItems = ShopOrderItem::whereHas('order', function ($query) use ($order) {
             $query->whereDate('business_date', $order->business_date)
                 ->where('state', 'approved');
-        })->get();
+        })
+            ->when($poBackedProductIds !== [], fn ($query) => $query->whereIn('product_id', $poBackedProductIds))
+            ->get();
 
         $globalTotal = $allApprovedItems->count();
         $globalSorted = $allApprovedItems->where('is_sorted', true)->count();
@@ -423,16 +430,40 @@ class WarehouseSortingController extends Controller
         return now()->greaterThan($cutoffTime) ? $tomorrow : $today;
     }
 
-    private function approvedOrdersQuery(string $date): Builder
+    private function approvedOrdersQuery(string $date, array $poBackedProductIds = []): Builder
     {
         return ShopOrder::query()
             ->whereDate('business_date', $date)
             ->where('state', 'approved')
-            ->with(['shop', 'items.product', 'items.sortedBy'])
+            ->when($poBackedProductIds !== [], function (Builder $query) use ($poBackedProductIds): void {
+                $query->whereHas('items', fn (Builder $itemQuery) => $itemQuery->whereIn('product_id', $poBackedProductIds));
+            })
+            ->with([
+                'shop',
+                'items' => fn ($query) => $query
+                    ->when($poBackedProductIds !== [], fn ($itemQuery) => $itemQuery->whereIn('product_id', $poBackedProductIds))
+                    ->with(['product', 'sortedBy']),
+            ])
             ->join('shops', 'shops.id', '=', 'shop_orders.shop_id')
             ->orderByRaw('CASE WHEN shops.warehouse_tag IS NULL OR shops.warehouse_tag = "" THEN 1 ELSE 0 END')
             ->orderBy('shops.warehouse_tag')
             ->orderBy('shops.name')
             ->select('shop_orders.*');
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function purchaseOrderProductIdsForDate(string $date): array
+    {
+        return PurchaseOrder::query()
+            ->whereDate('order_date', $date)
+            ->with('items:id,purchase_order_id,product_id')
+            ->get()
+            ->flatMap(fn (PurchaseOrder $purchaseOrder) => $purchaseOrder->items->pluck('product_id'))
+            ->map(fn ($productId): int => (int) $productId)
+            ->unique()
+            ->values()
+            ->all();
     }
 }

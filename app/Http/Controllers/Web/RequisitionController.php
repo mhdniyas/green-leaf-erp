@@ -610,8 +610,18 @@ class RequisitionController extends Controller
         // Load all active shops
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
 
+        $existingPos = PurchaseOrder::whereDate('order_date', $date)->with(['items', 'supplier'])->get();
+        $approvedBoardSynced = $existingPos->isNotEmpty();
+        $poBackedProductIds = $approvedBoardSynced
+            ? $existingPos->flatMap(fn (PurchaseOrder $po) => $po->items->pluck('product_id'))->unique()->values()->all()
+            : [];
+
         // Load all active products (optionally grouped by category)
-        $products = Product::with('category')->where('is_active', true)->orderBy('name')->get();
+        $products = Product::with('category')
+            ->where('is_active', true)
+            ->when($poBackedProductIds !== [], fn ($query) => $query->whereIn('id', $poBackedProductIds))
+            ->orderBy('name')
+            ->get();
 
         // Load only APPROVED shop orders for the selected date
         $orders = ShopOrder::whereDate('business_date', $date)
@@ -631,8 +641,6 @@ class RequisitionController extends Controller
         $defaultPurchaseSupplier = Supplier::defaultPurchase()->first();
 
         // Build product supplier map based on existing POs for this date
-        $existingPos = PurchaseOrder::whereDate('order_date', $date)->with(['items', 'supplier'])->get();
-        $approvedBoardSynced = $existingPos->isNotEmpty();
         $productSupplierMap = [];
         foreach ($existingPos as $po) {
             foreach ($po->items as $item) {
@@ -1580,7 +1588,13 @@ class RequisitionController extends Controller
                 $approvedQty = $item->approved_qty !== null ? (float) $item->approved_qty : null;
                 $requestedQty = (float) $item->requested_qty;
                 $revisionItem = $revisionItems->get($item->product_id);
-                $displayQty = $revisionItem ? (float) $revisionItem->new_requested_qty : ($approvedQty ?? $requestedQty);
+                $baselineQty = $approvedQty;
+
+                if ($baselineQty === null) {
+                    $baselineQty = $order->state === 'approved' ? 0.0 : $requestedQty;
+                }
+
+                $displayQty = $revisionItem ? (float) $revisionItem->new_requested_qty : $baselineQty;
                 $needsAttention = $revisionItem !== null;
 
                 if ($needsAttention) {

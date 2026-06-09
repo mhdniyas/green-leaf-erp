@@ -134,6 +134,81 @@ class WarehouseSortingTest extends TestCase
         $response->assertSee('Worker Sort Tomato');
     }
 
+    public function test_sorting_checklist_only_shows_po_backed_products_once_purchase_orders_exist(): void
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('warehouse.checklist.view');
+        $user->givePermissionTo('sales.order.view');
+
+        $shop = Shop::create([
+            'code' => 'PO_FILTER_SHOP',
+            'name' => 'PO Filter Shop',
+            'warehouse_tag' => 'A',
+        ]);
+
+        $order = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => today()->toDateString(),
+            'created_by' => $user->id,
+        ]);
+
+        $includedProduct = Product::factory()->create([
+            'name' => 'PO Included Tomato',
+        ]);
+
+        $excludedProduct = Product::factory()->create([
+            'name' => 'PO Excluded Onion',
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $includedProduct->id,
+            'requested_qty' => 6,
+            'approved_qty' => 6,
+            'unit' => 'kg',
+            'fulfillment_type' => 'warehouse',
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $excludedProduct->id,
+            'requested_qty' => 4,
+            'approved_qty' => 4,
+            'unit' => 'kg',
+            'fulfillment_type' => 'warehouse',
+        ]);
+
+        $supplier = Supplier::create([
+            'name' => 'PO Filter Supplier',
+            'type' => 'Farmer',
+            'category' => 'own_purchase',
+        ]);
+
+        $purchaseOrder = PurchaseOrder::create([
+            'supplier_id' => $supplier->id,
+            'po_number' => 'PO-FILTER-TEST',
+            'status' => POStatus::Approved,
+            'order_date' => today()->toDateString(),
+            'created_by' => $user->id,
+            'fulfillment_type' => 'warehouse',
+            'notes' => 'Auto-generated from Requisitions System',
+        ]);
+
+        $purchaseOrder->items()->create([
+            'product_id' => $includedProduct->id,
+            'quantity' => 6,
+            'unit_price' => 1,
+        ]);
+
+        $response = $this->actingAs($user)
+            ->get(route('inventory.sorting.checklist', ['date' => today()->toDateString()]));
+
+        $response->assertOk();
+        $response->assertSee('PO Included Tomato');
+        $response->assertDontSee('PO Excluded Onion');
+    }
+
     public function test_warehouse_user_can_update_shop_tag(): void
     {
         $user = User::factory()->create();
