@@ -612,6 +612,9 @@ class RequisitionController extends Controller
 
         $existingPos = PurchaseOrder::whereDate('order_date', $date)->with(['items', 'supplier'])->get();
         $approvedBoardSynced = $existingPos->isNotEmpty();
+        $poBackedProductIds = $approvedBoardSynced
+            ? $existingPos->flatMap(fn (PurchaseOrder $po) => $po->items->pluck('product_id'))->unique()->values()->all()
+            : [];
 
         // Load all active products (optionally grouped by category)
         $products = Product::with('category')
@@ -630,6 +633,13 @@ class RequisitionController extends Controller
             'shopUpdateMeta' => $shopUpdateMeta,
             'shopPoStatusMeta' => $shopPoStatusMeta,
         ] = $this->buildBoardPresentationData($orders, $products);
+
+        $approvedProductIds = $products
+            ->filter(fn (Product $product): bool => $this->calculateProductRowTotal($matrix[$product->id] ?? []) > 0)
+            ->pluck('id')
+            ->values()
+            ->all();
+        $poBackedApprovedProductCount = count(array_intersect($approvedProductIds, $poBackedProductIds));
 
         // Load categorized suppliers
         $ownPurchaseSuppliers = Supplier::where('category', 'own_purchase')->orderBy('name')->get();
@@ -673,6 +683,9 @@ class RequisitionController extends Controller
             'b2bSuppliers',
             'productSupplierMap',
             'approvedBoardSynced',
+            'poBackedProductIds',
+            'approvedProductIds',
+            'poBackedApprovedProductCount',
             'existingPos',
             'shopUpdateMeta',
             'shopPoStatusMeta'
@@ -743,16 +756,11 @@ class RequisitionController extends Controller
         $quantities = $request->input('quantities', []);
         $fulfillmentTypes = $request->input('fulfillment_types', []);
         $suppliers = $request->input('suppliers', []);
-        $poSelectionEnabled = $request->has('po_selection_enabled');
-        $selectedProductIds = $request->input('selected_products', []);
 
-        $selectedProductIds = array_map('intval', $selectedProductIds);
         $missingSupplierProducts = Product::query()
             ->whereIn('id', $this->resolveProductsMissingSuppliers(
                 $quantities,
-                $suppliers,
-                $poSelectionEnabled,
-                $selectedProductIds
+                $suppliers
             ))
             ->orderBy('name')
             ->pluck('name')
@@ -764,7 +772,7 @@ class RequisitionController extends Controller
                 ->with('error', 'Select a supplier for every selected product before generating purchase orders. Missing suppliers: '.implode(', ', $missingSupplierProducts).'.');
         }
 
-        DB::transaction(function () use ($date, $quantities, $fulfillmentTypes, $suppliers, $poSelectionEnabled, $selectedProductIds, $request): void {
+        DB::transaction(function () use ($date, $quantities, $fulfillmentTypes, $suppliers, $request): void {
             // Find all active shops to know who we might need to create orders for
             $shops = Shop::where('status', 'active')->get();
 
@@ -849,7 +857,7 @@ class RequisitionController extends Controller
             }
 
             // --- Generate and Sync Purchase Orders to Suppliers ---
-            $this->syncPurchaseOrdersForDate($date, $suppliers, $poSelectionEnabled, $selectedProductIds);
+            $this->syncPurchaseOrdersForDate($date, $suppliers);
         });
 
         return redirect()->route('requisitions.approved_board', ['date' => $date])
@@ -1060,9 +1068,7 @@ class RequisitionController extends Controller
      */
     private function syncPurchaseOrdersForDate(
         string|Carbon $date,
-        array $suppliers = [],
-        bool $poSelectionEnabled = false,
-        array $selectedProductIds = []
+        array $suppliers = []
     ): void {
         $dateStr = $date instanceof \Carbon\Carbon ? $date->format('Y-m-d') : (string) $date;
 
@@ -1095,17 +1101,27 @@ class RequisitionController extends Controller
 
         // Aggregate them by product
         $productTotals = [];
+        $productFulfillmentTypes = [];
+
         foreach ($approvedItems as $item) {
-            // Filter by selection if enabled
-            if (! $poSelectionEnabled || in_array($item->product_id, $selectedProductIds)) {
-                if (! isset($productTotals[$item->product_id])) {
-                    $productTotals[$item->product_id] = 0.00;
-                }
-                $productTotals[$item->product_id] += (float) ($item->approved_qty ?? $item->requested_qty);
+            if (! isset($productTotals[$item->product_id])) {
+                $productTotals[$item->product_id] = 0.00;
             }
+            $productTotals[$item->product_id] += (float) ($item->approved_qty ?? $item->requested_qty);
+            $productFulfillmentTypes[$item->product_id] ??= $item->fulfillment_type ?? 'warehouse';
         }
 
+        $approvedProductIds = collect(array_keys($productTotals));
+        $productsById = Product::whereIn('id', $approvedProductIds)->get()->keyBy('id');
+        $lastPrices = PurchaseOrderItem::whereIn('product_id', $approvedProductIds)
+            ->orderBy('id', 'desc')
+            ->get()
+            ->unique('product_id')
+            ->pluck('unit_price', 'product_id');
+
         // Group by supplier and fulfillment type
+        $groupedProductIds = [];
+
         foreach ($productTotals as $productId => $totalQty) {
             if ($totalQty <= 0) {
                 continue;
@@ -1128,13 +1144,11 @@ class RequisitionController extends Controller
                 }
             }
 
-            $fulfillmentType = ShopOrderItem::whereHas('order', function ($query) use ($dateStr): void {
-                $query->whereDate('business_date', $dateStr)
-                    ->where('state', 'approved');
-            })->where('product_id', $productId)->value('fulfillment_type') ?? 'warehouse';
+            $fulfillmentType = $productFulfillmentTypes[$productId] ?? 'warehouse';
 
             if ($supplierId) {
                 $poGroups[$supplierId][$fulfillmentType][$productId] = $totalQty;
+                $groupedProductIds[] = $productId;
             }
         }
 
@@ -1183,17 +1197,12 @@ class RequisitionController extends Controller
 
                 // Create items
                 foreach ($items as $productId => $qty) {
-                    $product = Product::find($productId);
+                    $product = $productsById->get($productId);
                     if ($product) {
-                        // Find the last purchase price for this product
-                        $lastPrice = PurchaseOrderItem::where('product_id', $productId)
-                            ->latest('id')
-                            ->value('unit_price') ?? 1.00;
-
                         $po->items()->create([
                             'product_id' => $productId,
                             'quantity' => $qty,
-                            'unit_price' => $lastPrice,
+                            'unit_price' => $lastPrices[$productId] ?? 1.00,
                         ]);
                     }
                 }
@@ -1214,30 +1223,38 @@ class RequisitionController extends Controller
                 $po->forceDelete(); // Force delete empty auto-generated POs
             }
         }
+
+        $generatedProductIds = PurchaseOrderItem::query()
+            ->whereIn('purchase_order_id', collect($activePoIds))
+            ->pluck('product_id')
+            ->unique()
+            ->values();
+
+        $missingProductIds = collect($groupedProductIds)
+            ->diff($generatedProductIds)
+            ->values();
+
+        if ($missingProductIds->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'purchase_orders' => 'Purchase order generation did not include every approved product. Missing product IDs: '.$missingProductIds->implode(', '),
+            ]);
+        }
     }
 
     /**
      * Resolve selected products that still have approved quantity but no explicit supplier selection.
      *
      * @param  array<int|string, array<int|string, mixed>>  $quantities
-     * @param  array<int|string, mixed>  $suppliers
-     * @param  array<int, int>  $selectedProductIds
      * @return array<int, int>
      */
     private function resolveProductsMissingSuppliers(
         array $quantities,
-        array $suppliers,
-        bool $poSelectionEnabled,
-        array $selectedProductIds
+        array $suppliers
     ): array {
         $missingProductIds = [];
 
         foreach ($quantities as $productId => $shopQuantities) {
             $normalizedProductId = (int) $productId;
-
-            if ($poSelectionEnabled && ! in_array($normalizedProductId, $selectedProductIds, true)) {
-                continue;
-            }
 
             $hasApprovedQuantity = collect($shopQuantities)
                 ->contains(fn ($quantity) => (float) $quantity > 0);

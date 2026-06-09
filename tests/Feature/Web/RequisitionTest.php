@@ -1490,7 +1490,7 @@ class RequisitionTest extends TestCase
         $response->assertSee('Consolidated Requisitions Board');
     }
 
-    public function test_purchase_manager_can_selectively_generate_purchase_orders(): void
+    public function test_purchase_manager_generates_purchase_orders_for_every_approved_product(): void
     {
         $manager = User::factory()->create();
         $manager->assignRole('purchase');
@@ -1508,7 +1508,6 @@ class RequisitionTest extends TestCase
         $response = $this->actingAs($manager)
             ->post(route('requisitions.approved_board.save'), [
                 'date' => $date,
-                'po_selection_enabled' => '1',
                 'selected_products' => [
                     $product1->id,
                 ],
@@ -1542,7 +1541,6 @@ class RequisitionTest extends TestCase
             'approved_qty' => 20.00,
         ]);
 
-        // Purchase Order items should only contain product1
         $po = PurchaseOrder::where('supplier_id', $supplier->id)
             ->whereDate('order_date', $date)
             ->first();
@@ -1553,10 +1551,12 @@ class RequisitionTest extends TestCase
             'product_id' => $product1->id,
             'quantity' => 10.00,
         ]);
-        $this->assertDatabaseMissing('purchase_order_items', [
+        $this->assertDatabaseHas('purchase_order_items', [
             'purchase_order_id' => $po->id,
             'product_id' => $product2->id,
+            'quantity' => 20.00,
         ]);
+        $this->assertSame(2, $po->items()->count());
 
         $boardResponse = $this->actingAs($manager)
             ->get(route('requisitions.approved_board', ['date' => $date]));
@@ -1570,7 +1570,19 @@ class RequisitionTest extends TestCase
             $boardContent
         );
         $this->assertStringContainsString(
+            'name="selected_products[]" value="'.$product1->id.'" checked',
+            $boardContent
+        );
+        $this->assertStringContainsString(
             'name="selected_products[]" value="'.$product2->id.'"',
+            $boardContent
+        );
+        $this->assertStringContainsString(
+            'name="selected_products[]" value="'.$product2->id.'" checked',
+            $boardContent
+        );
+        $this->assertStringNotContainsString(
+            'PO Selection Mismatch',
             $boardContent
         );
 
@@ -1578,7 +1590,6 @@ class RequisitionTest extends TestCase
         $response = $this->actingAs($manager)
             ->post(route('requisitions.approved_board.save'), [
                 'date' => $date,
-                'po_selection_enabled' => '1',
                 'selected_products' => [], // Empty selection
                 'quantities' => [
                     $product1->id => [
@@ -1605,6 +1616,77 @@ class RequisitionTest extends TestCase
             ->whereDate('order_date', $date)
             ->first();
         $this->assertNotNull($poFresh);
+    }
+
+    public function test_approved_board_generates_purchase_order_line_for_each_approved_product_at_board_scale(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $date = Carbon::tomorrow()->format('Y-m-d');
+        $supplier = Supplier::create([
+            'name' => 'Board Scale Supplier',
+            'type' => 'Farmer',
+            'category' => 'own_purchase',
+        ]);
+        $shops = collect([
+            $this->shop,
+            Shop::create(['code' => 'SHOP_SCALE_2', 'name' => 'Scale Shop 2']),
+            Shop::create(['code' => 'SHOP_SCALE_3', 'name' => 'Scale Shop 3']),
+        ]);
+        $category = Category::first();
+        $products = collect([$this->product]);
+
+        for ($index = 2; $index <= 10; $index++) {
+            $products->push(Product::create([
+                'category_id' => $category?->id,
+                'name' => 'Board Scale Product '.$index,
+                'sku' => 'BOARD-SCALE-'.$index,
+                'unit' => 'kg',
+                'base_price' => 10.00,
+                'is_active' => true,
+            ]));
+        }
+
+        $quantities = [];
+        $fulfillmentTypes = [];
+        $suppliers = [];
+
+        foreach ($products as $productIndex => $product) {
+            foreach ($shops as $shopIndex => $shop) {
+                $quantities[$product->id][$shop->id] = ($productIndex + 1) * ($shopIndex + 1);
+            }
+
+            $fulfillmentTypes[$product->id] = 'warehouse';
+            $suppliers[$product->id] = $supplier->id;
+        }
+
+        $response = $this->actingAs($manager)
+            ->post(route('requisitions.approved_board.save'), [
+                'date' => $date,
+                'quantities' => $quantities,
+                'fulfillment_types' => $fulfillmentTypes,
+                'suppliers' => $suppliers,
+            ]);
+
+        $response->assertRedirect(route('requisitions.approved_board', ['date' => $date]));
+        $response->assertSessionHas('success');
+
+        $po = PurchaseOrder::where('supplier_id', $supplier->id)
+            ->whereDate('order_date', $date)
+            ->where('fulfillment_type', 'warehouse')
+            ->first();
+
+        $this->assertNotNull($po);
+        $this->assertSame(10, $po->items()->count());
+
+        foreach ($products as $product) {
+            $this->assertDatabaseHas('purchase_order_items', [
+                'purchase_order_id' => $po->id,
+                'product_id' => $product->id,
+                'quantity' => array_sum($quantities[$product->id]),
+            ]);
+        }
     }
 
     public function test_single_requisition_approval_dynamically_generates_purchase_order(): void
@@ -1684,7 +1766,7 @@ class RequisitionTest extends TestCase
         ]);
     }
 
-    public function test_purchase_manager_cannot_generate_purchase_orders_when_selected_products_are_missing_suppliers(): void
+    public function test_purchase_manager_cannot_generate_purchase_orders_when_approved_products_are_missing_suppliers(): void
     {
         $manager = User::factory()->create();
         $manager->assignRole('purchase');
@@ -1701,11 +1783,6 @@ class RequisitionTest extends TestCase
         $response = $this->actingAs($manager)
             ->post(route('requisitions.approved_board.save'), [
                 'date' => $date,
-                'po_selection_enabled' => '1',
-                'selected_products' => [
-                    $this->product->id,
-                    $product2->id,
-                ],
                 'quantities' => [
                     $this->product->id => [
                         $this->shop->id => 10.00,

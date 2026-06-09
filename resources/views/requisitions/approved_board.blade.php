@@ -105,6 +105,13 @@
             </div>
         @endif
 
+        @if($approvedBoardSynced && count($approvedProductIds ?? []) > $poBackedApprovedProductCount)
+            <div class="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-amber-950">
+                <p class="text-[11px] font-black uppercase tracking-[0.16em] text-amber-700">PO Selection Mismatch</p>
+                <p class="mt-1 text-sm font-semibold">{{ $poBackedApprovedProductCount }} of {{ count($approvedProductIds ?? []) }} approved items are currently linked to generated purchase orders for this date. Unchecked rows below were approved on the board but not included in the generated PO set.</p>
+            </div>
+        @endif
+
         @php
             $shopsWithUpdates = collect($shopUpdateMeta ?? [])->filter(fn (array $meta) => $meta['has_update_request']);
         @endphp
@@ -242,8 +249,6 @@
             @csrf
             <input type="hidden" name="date" value="{{ $date }}">
             <fieldset @disabled($approvedBoardSynced && ! $hasPendingApprovedUpdates) class="{{ $approvedBoardSynced && ! $hasPendingApprovedUpdates ? 'opacity-75' : '' }}">
-            <input type="hidden" name="po_selection_enabled" value="1">
-
             {{-- 1. Warehouse (Bulk) Section --}}
             <div class="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden mb-8" id="warehouse-card">
                 <div class="px-6 py-4 bg-slate-50/50 border-b border-slate-200 flex items-center justify-between">
@@ -315,7 +320,7 @@
                                         
                                         {{-- Checkbox --}}
                                         <td class="py-3 px-2 text-center sticky left-[50px] bg-white z-10 border-r border-slate-200">
-                                            <input type="checkbox" name="selected_products[]" value="{{ $product->id }}" checked class="product-select-checkbox rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer">
+                                            <input type="checkbox" name="selected_products[]" value="{{ $product->id }}" @checked(! $approvedBoardSynced || in_array($product->id, $poBackedProductIds ?? [], true)) class="product-select-checkbox rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer">
                                         </td>
                                         
                                         {{-- Product Name & SKU --}}
@@ -498,7 +503,7 @@
                                         
                                         {{-- Checkbox --}}
                                         <td class="py-3 px-2 text-center sticky left-[50px] bg-white z-10 border-r border-slate-200">
-                                            <input type="checkbox" name="selected_products[]" value="{{ $product->id }}" checked class="product-select-checkbox rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer">
+                                            <input type="checkbox" name="selected_products[]" value="{{ $product->id }}" @checked(! $approvedBoardSynced || in_array($product->id, $poBackedProductIds ?? [], true)) class="product-select-checkbox rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer">
                                         </td>
                                         
                                         {{-- Product Name & SKU --}}
