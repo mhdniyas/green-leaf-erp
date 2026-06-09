@@ -1,9 +1,14 @@
 <x-layouts.app title="Consolidated Requisitions Board">
     <div class="mx-auto px-4 py-8">
-        <div class="mb-6">
-            <p class="text-xs font-black uppercase tracking-[0.18em] text-cyan-700">Purchasing</p>
-            <h1 class="mt-1 text-3xl font-black tracking-tight text-slate-950">Consolidated Requisitions Board</h1>
-            <p class="mt-2 max-w-3xl text-sm text-slate-600">Review, adjust, and bulk approve requisitions across all shops.</p>
+        <div class="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+                <p class="text-xs font-black uppercase tracking-[0.18em] text-cyan-700">Purchasing</p>
+                <h1 class="mt-1 text-3xl font-black tracking-tight text-slate-950">Consolidated Requisitions Board</h1>
+                <p class="mt-2 max-w-3xl text-sm text-slate-600">Review, adjust, and bulk approve requisitions across all shops.</p>
+            </div>
+            <div class="inline-flex items-center rounded-full border border-cyan-100 bg-cyan-50 px-4 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-cyan-800">
+                <span id="products-count">{{ $products->count() }} Products</span>
+            </div>
         </div>
 
         <div class="mb-8 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-end">
@@ -191,7 +196,7 @@
                                     data-fulfillment-type="{{ $productFulfillmentTypes[$product->id] ?? 'warehouse' }}">
                                     
                                     {{-- SL NO --}}
-                                    <td class="py-3 px-4 text-center font-bold text-slate-400 sticky left-0 bg-white z-10">
+                                    <td class="row-sl-no py-3 px-4 text-center font-bold text-slate-400 sticky left-0 bg-white z-10">
                                         {{ $index + 1 }}
                                     </td>
                                     
@@ -316,6 +321,30 @@
             filterBoardRows();
         });
 
+        function updateSerialNumbersAndCounts() {
+            let visibleProductsCount = 0;
+
+            document.querySelectorAll('.product-row').forEach((row) => {
+                const serialCell = row.querySelector('.row-sl-no');
+
+                if (row.classList.contains('hidden')) {
+                    return;
+                }
+
+                visibleProductsCount += 1;
+
+                if (serialCell) {
+                    serialCell.textContent = visibleProductsCount;
+                }
+            });
+
+            const productsCount = document.getElementById('products-count');
+
+            if (productsCount) {
+                productsCount.textContent = `${visibleProductsCount} Products`;
+            }
+        }
+
         // Filter product rows by search query, order presence, and fulfillment type
         function filterBoardRows() {
             const query = document.getElementById('board-search').value.toLowerCase().trim();
@@ -344,6 +373,8 @@
                     row.classList.add('hidden');
                 }
             });
+
+            updateSerialNumbersAndCounts();
         }
 
         // Clear filter

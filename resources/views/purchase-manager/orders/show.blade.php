@@ -32,6 +32,7 @@
                     <table class="min-w-full text-left">
                         <thead class="border-b border-slate-200 bg-slate-50 text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">
                             <tr>
+                                <th class="px-5 py-4 text-center">SL No</th>
                                 <th class="px-5 py-4">Product</th>
                                 <th class="px-5 py-4">Unit</th>
                                 <th class="px-5 py-4 text-right">Price</th>
@@ -44,6 +45,7 @@
                         <tbody class="divide-y divide-slate-100 text-sm">
                             @foreach ($order->items as $item)
                                 <tr data-po-show-row>
+                                    <td class="px-5 py-4 text-center align-top font-black text-slate-500">{{ $loop->iteration }}</td>
                                     <td class="px-5 py-4 align-top">
                                         <div class="font-bold text-slate-900">{{ $item->product->name }}</div>
                                         <div class="mt-1 text-xs text-slate-500">{{ $item->product->sku }}</div>
@@ -114,7 +116,7 @@
                                 </tr>
                             @endforeach
                             <tr class="bg-slate-50">
-                                <td colspan="6" class="px-5 py-4 text-right text-sm font-black uppercase tracking-[0.16em] text-slate-500">Grand Total</td>
+                                <td colspan="7" class="px-5 py-4 text-right text-sm font-black uppercase tracking-[0.16em] text-slate-500">Grand Total</td>
                                 <td class="px-5 py-4 text-right text-base font-black text-slate-950"><span data-po-show-total>INR {{ number_format($order->total_amount, 2) }}</span></td>
                             </tr>
                         </tbody>
