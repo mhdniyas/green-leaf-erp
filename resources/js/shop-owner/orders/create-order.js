@@ -305,6 +305,12 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.classList.add('overflow-hidden');
         qtyModalBackdrop.classList.remove('hidden');
         qtyModalSheet.classList.remove('hidden');
+        
+        const mobileNav = document.getElementById('layout-mobile-nav');
+        if (mobileNav) {
+            mobileNav.classList.add('hidden');
+        }
+
         setTimeout(() => {
             qtyModalBackdrop.classList.remove('opacity-0');
             qtyModalBackdrop.classList.add('opacity-100');
@@ -325,6 +331,15 @@ document.addEventListener('DOMContentLoaded', () => {
             qtyModalBackdrop.classList.add('hidden');
             qtyModalSheet.classList.add('hidden');
             currentModalProduct = null;
+            
+            // Only restore mobile nav if the other drawer (cart review) is not open
+            const cartReviewDrawer = document.getElementById('cart-review-drawer');
+            if (!cartReviewDrawer || cartReviewDrawer.classList.contains('hidden')) {
+                const mobileNav = document.getElementById('layout-mobile-nav');
+                if (mobileNav) {
+                    mobileNav.classList.remove('hidden');
+                }
+            }
         }, 300);
     };
 
@@ -448,6 +463,12 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.classList.add('overflow-hidden');
         cartReviewBackdrop.classList.remove('hidden');
         cartReviewDrawer.classList.remove('hidden');
+        
+        const mobileNav = document.getElementById('layout-mobile-nav');
+        if (mobileNav) {
+            mobileNav.classList.add('hidden');
+        }
+
         setTimeout(() => {
             cartReviewBackdrop.classList.remove('opacity-0');
             cartReviewBackdrop.classList.add('opacity-100');
@@ -463,6 +484,15 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => {
             cartReviewBackdrop.classList.add('hidden');
             cartReviewDrawer.classList.add('hidden');
+            
+            // Only restore mobile nav if the other modal (qty modal) is not open
+            const qtyModalSheet = document.getElementById('qty-modal-sheet');
+            if (!qtyModalSheet || qtyModalSheet.classList.contains('hidden')) {
+                const mobileNav = document.getElementById('layout-mobile-nav');
+                if (mobileNav) {
+                    mobileNav.classList.remove('hidden');
+                }
+            }
         }, 300);
     };
 

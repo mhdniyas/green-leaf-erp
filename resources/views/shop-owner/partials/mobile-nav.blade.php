@@ -23,7 +23,7 @@
     ];
 @endphp
 
-<div class="fixed inset-x-0 bottom-5 z-50 px-5 lg:hidden">
+<div id="layout-mobile-nav" class="fixed inset-x-0 bottom-5 z-50 px-5 lg:hidden">
     <nav class="mx-auto flex h-[60px] max-w-md items-center gap-1 rounded-[2rem] border border-slate-100 bg-white/96 px-2 shadow-[0_8px_40px_rgba(0,0,0,0.10),0_2px_12px_rgba(0,0,0,0.06)] backdrop-blur-xl">
         @foreach ($mobileNavItems as $item)
             @php
