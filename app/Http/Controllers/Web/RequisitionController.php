@@ -23,6 +23,7 @@ use App\Notifications\PurchasingOrderSubmittedNotification;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Requisition\ShopOrderRevisionService;
+use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -39,6 +40,7 @@ class RequisitionController extends Controller
         private readonly StockLedgerService $stockLedgerService,
         private readonly PriceBoardService $priceBoardService,
         private readonly ShopOrderRevisionService $shopOrderRevisionService,
+        private readonly ShopInvoiceService $shopInvoiceService,
     ) {}
 
     /**
@@ -1441,13 +1443,10 @@ class RequisitionController extends Controller
         $request->validate([
             'delivered_qty' => ['required', 'array'],
             'delivered_qty.*' => ['required', 'numeric', 'min:0'],
-            'cash_collected' => ['required', 'numeric', 'min:0'],
             'delivery_notes' => ['nullable', 'string'],
-            'finance_note' => ['nullable', 'string'],
         ]);
 
         $deliveredQtys = $request->input('delivered_qty', []);
-        $cashCollected = (float) $request->input('cash_collected', 0.00);
 
         // First validate that no delivered_qty is more than approved_qty
         $hasDiscrepancy = false;
@@ -1466,12 +1465,7 @@ class RequisitionController extends Controller
             }
         }
 
-        DB::transaction(function () use ($order, $deliveredQtys, $cashCollected, $request, $hasDiscrepancy): void {
-            $totalShortageValue = 0.00;
-            $expectedDeliveredValue = 0.00;
-            $totalApprovedQuantity = 0.00;
-            $totalDeliveredQuantity = 0.00;
-
+        DB::transaction(function () use ($order, $deliveredQtys, $request, $hasDiscrepancy): void {
             foreach ($order->items as $item) {
                 $deliveredQty = (float) ($deliveredQtys[$item->id] ?? 0.00);
                 $approvedQty = (float) ($item->approved_qty ?? 0.00);
@@ -1485,14 +1479,11 @@ class RequisitionController extends Controller
                     $order->business_date->format('Y-m-d')
                 );
 
-                $shortageValue = $shortageQty * $unitCost;
-                $itemExpectedValue = $deliveredQty * $unitCost;
-
                 $item->update([
                     'delivered_qty' => $deliveredQty,
                     'shortage_qty' => $shortageQty,
                     'unit_cost' => $unitCost,
-                    'shortage_value' => $shortageValue,
+                    'shortage_value' => $shortageQty * $unitCost,
                 ]);
 
                 // ONLY consume stock and wastage immediately if there is NO discrepancy
@@ -1514,53 +1505,19 @@ class RequisitionController extends Controller
                     );
                 }
 
-                $totalShortageValue += $shortageValue;
-                $expectedDeliveredValue += $itemExpectedValue;
-                $totalApprovedQuantity += $approvedQty;
-                $totalDeliveredQuantity += $deliveredQty;
             }
 
-            // cash_discrepancy = Expected Delivered Value - cash_collected
-            $cashDiscrepancy = $expectedDeliveredValue - $cashCollected;
-            $balanceAmount = max(0.00, $cashDiscrepancy);
+            $this->shopInvoiceService->applyDeliveryCheckin(
+                $order,
+                $deliveredQtys,
+                (int) $request->user()->id,
+                $request->input('delivery_notes'),
+            );
 
-            if ($hasDiscrepancy) {
-                $order->update([
-                    'is_delivered' => false,
-                    'delivery_status' => 'pending_approval',
-                    'delivered_by' => $request->user()->id,
-                    'delivery_notes' => $request->input('delivery_notes'),
-                    'cash_collected' => $cashCollected,
-                    'cash_discrepancy' => $cashDiscrepancy,
-                    'balance_amount' => $balanceAmount,
-                    'finance_note' => $request->input('finance_note'),
-                    'total_shortage_value' => $totalShortageValue,
-                ]);
-
-                activity()
-                    ->performedOn($order)
-                    ->causedBy($request->user())
-                    ->log('delivery_checkin_discrepancy_filed');
-            } else {
-                $order->update([
-                    'is_delivered' => true,
-                    'delivered_at' => now(),
-                    'delivered_by' => $request->user()->id,
-                    'delivery_status' => 'delivered',
-                    'delivery_notes' => $request->input('delivery_notes'),
-                    'cash_collected' => $cashCollected,
-                    'cash_discrepancy' => $cashDiscrepancy,
-                    'payment_status' => 'paid',
-                    'balance_amount' => $balanceAmount,
-                    'finance_note' => $request->input('finance_note'),
-                    'total_shortage_value' => $totalShortageValue,
-                ]);
-
-                activity()
-                    ->performedOn($order)
-                    ->causedBy($request->user())
-                    ->log('delivered');
-            }
+            activity()
+                ->performedOn($order)
+                ->causedBy($request->user())
+                ->log($hasDiscrepancy ? 'delivery_checkin_discrepancy_filed' : 'delivered');
         });
 
         $message = $hasDiscrepancy
@@ -1599,7 +1556,6 @@ class RequisitionController extends Controller
         DB::transaction(function () use ($order, $request): void {
             $totalDeliveredQuantity = 0.00;
             $totalApprovedQuantity = 0.00;
-            $expectedDeliveredValue = 0.00;
 
             foreach ($order->items as $item) {
                 $deliveredQty = (float) $item->delivered_qty;
@@ -1626,7 +1582,6 @@ class RequisitionController extends Controller
 
                 $totalDeliveredQuantity += $deliveredQty;
                 $totalApprovedQuantity += $approvedQty;
-                $expectedDeliveredValue += $deliveredQty * (float) $item->unit_cost;
             }
 
             $deliveryStatus = match (true) {
@@ -1635,18 +1590,11 @@ class RequisitionController extends Controller
                 default => 'delivered',
             };
 
-            $cashCollected = (float) $order->cash_collected;
-            $paymentStatus = match (true) {
-                $cashCollected <= 0.00 => 'unpaid',
-                $cashCollected + 0.01 < $expectedDeliveredValue => 'partially_paid',
-                default => 'paid',
-            };
+            $this->shopInvoiceService->finalizeDiscrepancy($order, (int) $request->user()->id);
 
+            $order->refresh();
             $order->update([
-                'is_delivered' => true,
-                'delivered_at' => now(),
                 'delivery_status' => $deliveryStatus,
-                'payment_status' => $paymentStatus,
             ]);
 
             activity()

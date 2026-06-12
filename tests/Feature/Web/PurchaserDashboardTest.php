@@ -27,6 +27,8 @@ class PurchaserDashboardTest extends TestCase
 
     private User $unauthorizedUser;
 
+    private User $purchaseManager;
+
     private Product $product;
 
     private Shop $shop;
@@ -45,6 +47,9 @@ class PurchaserDashboardTest extends TestCase
 
         $this->unauthorizedUser = User::factory()->create();
         $this->unauthorizedUser->assignRole('shop');
+
+        $this->purchaseManager = User::factory()->create();
+        $this->purchaseManager->assignRole('purchase');
 
         $this->shop = Shop::create([
             'code' => 'TEST_SHOP',
@@ -83,6 +88,14 @@ class PurchaserDashboardTest extends TestCase
         $response->assertStatus(403);
     }
 
+    public function test_purchase_manager_cannot_access_purchaser_dashboard(): void
+    {
+        $response = $this->actingAs($this->purchaseManager)
+            ->get(route('purchaser.dashboard'));
+
+        $response->assertForbidden();
+    }
+
     public function test_purchaser_can_access_dashboard_and_see_requirements(): void
     {
         $date = Carbon::tomorrow()->format('Y-m-d');
@@ -112,6 +125,21 @@ class PurchaserDashboardTest extends TestCase
         $response->assertSee('Market Purchase Hub');
         $response->assertSee('Tomato Local');
         $response->assertSee('50.00 kg Needed');
+        $response->assertSee('app-dialog-root');
+        $response->assertSee('window.showAppConfirm');
+    }
+
+    public function test_single_supplier_is_selected_by_default_on_purchaser_dashboard(): void
+    {
+        $date = Carbon::tomorrow()->format('Y-m-d');
+
+        $response = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.dashboard', ['date' => $date]));
+
+        $response->assertOk();
+        $response->assertSee('Defaulted to the only available supplier.');
+        $response->assertSee('type="hidden" name="supplier_id" value="'.$this->supplier->id.'"', false);
+        $response->assertSee('<option value="'.$this->supplier->id.'" selected>', false);
     }
 
     public function test_purchaser_is_redirected_from_main_dashboard(): void

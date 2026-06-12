@@ -8,6 +8,8 @@ use App\Enums\Inventory\BatchStatus;
 use App\Enums\Purchasing\POStatus;
 use App\Models\GoodsReceived;
 use App\Models\GoodsReceivedItem;
+use App\Models\JournalEntry;
+use App\Models\StockBatch;
 use App\Repositories\Inventory\StockBatchRepository;
 use App\Services\Finance\JournalService;
 use App\Services\Pricing\PriceBoardService;
@@ -28,9 +30,14 @@ class ApproveGoodsReceiptAction
     public function execute(GoodsReceived $grn, int $userId): GoodsReceived
     {
         return DB::transaction(function () use ($grn, $userId): GoodsReceived {
+            $this->clearExistingArtifacts($grn);
+
             // Update GRN status
             $grn->update([
                 'status' => 'approved',
+                'approved_by' => $userId,
+                'updated_by' => $userId,
+                'approved_at' => now(),
             ]);
 
             // Calculate total received quantity for proportional landed cost allocation
@@ -101,14 +108,14 @@ class ApproveGoodsReceiptAction
     /**
      * Calculate weighted average unit price for a product from all GRN items on the date.
      *
-     * Weighted avg = sum(qty * price) / sum(qty) across all pending_approval + approved GRNs for that product/date.
+     * Weighted avg = sum(qty * price) / sum(qty) across all approved GRNs for that product/date.
      */
     private function calculateWeightedAvgPrice(int $productId, string $date, GoodsReceivedItem $currentItem): float
     {
-        // Gather all GRN items for this product on this date (pending_approval or approved)
+        // Gather all approved GRN items for this product on this date.
         $allItems = GoodsReceivedItem::where('product_id', $productId)
             ->whereHas('goodsReceived', function ($query) use ($date): void {
-                $query->whereIn('status', ['pending_approval', 'approved'])
+                $query->where('status', 'approved')
                     ->whereDate('received_at', $date);
             })
             ->with('purchaseOrderItem')
@@ -135,5 +142,24 @@ class ApproveGoodsReceiptAction
         }
 
         return round($weightedSum / $totalQty, 4);
+    }
+
+    private function clearExistingArtifacts(GoodsReceived $grn): void
+    {
+        $batches = StockBatch::query()
+            ->where('notes', "Auto-created from GRN: {$grn->grn_number}")
+            ->get();
+
+        foreach ($batches as $batch) {
+            if ($batch->stockMovements()->exists() || $batch->wastageEntries()->exists()) {
+                throw new \RuntimeException('This GRN cannot be resubmitted after stock activity has started.');
+            }
+
+            $batch->forceDelete();
+        }
+
+        JournalEntry::query()
+            ->where('reference', $grn->grn_number)
+            ->delete();
     }
 }

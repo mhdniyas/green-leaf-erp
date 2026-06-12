@@ -139,6 +139,11 @@ class ShopOrder extends Model
             ->latestOfMany('revision_no');
     }
 
+    public function invoice(): HasOne
+    {
+        return $this->hasOne(ShopInvoice::class);
+    }
+
     public function nextRevisionNumber(): int
     {
         return max(1, (int) $this->latest_revision_no) + 1;

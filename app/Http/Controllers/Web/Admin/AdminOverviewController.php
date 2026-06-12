@@ -87,8 +87,8 @@ class AdminOverviewController extends Controller
                 'name' => 'Purchase Team',
                 'count' => User::role('purchase')->count(),
                 'online' => $onlineUsers->filter(fn (User $user): bool => $user->hasRole('purchase'))->count(),
-                'pending' => GoodsReceived::where('status', 'pending_approval')->count() + PurchaseInvoice::where('status', InvoiceStatus::Pending)->count(),
-                'label' => 'receipts and invoices waiting',
+                'pending' => GoodsReceived::where('status', 'recheck_required')->count() + PurchaseInvoice::where('status', InvoiceStatus::Pending)->count(),
+                'label' => 'receipt rechecks and invoices waiting',
                 'tone' => 'violet',
             ],
             [
@@ -124,10 +124,10 @@ class AdminOverviewController extends Controller
                     'detail' => ($order->shop?->name ?? 'Unknown shop').' has cash variance of Rs. '.number_format(abs((float) $order->cash_discrepancy), 2),
                     'severity' => 'danger',
                 ]))
-            ->concat($grnsToday->where('status', 'rejected')
+            ->concat($grnsToday->where('status', 'recheck_required')
                 ->map(fn (GoodsReceived $grn): array => [
-                    'title' => 'GRN rejected by purchase team',
-                    'detail' => $grn->grn_number.' was rejected and needs warehouse review.',
+                    'title' => 'GRN flagged for recheck',
+                    'detail' => $grn->grn_number.' was sent back for warehouse review.',
                     'severity' => 'warning',
                 ]))
             ->concat($usersWithDirectPermissions->map(fn (User $user): array => [
@@ -156,7 +156,7 @@ class AdminOverviewController extends Controller
             'pending_batches' => $stockBatchesToday->where('status', BatchStatus::Pending)->count(),
             'wastage_kg_today' => (float) WastageEntry::whereDate('wastage_date', $date)->sum('quantity'),
             'open_purchase_orders' => PurchaseOrder::whereIn('status', [POStatus::Draft, POStatus::Approved, POStatus::SentToSupplier, POStatus::PartiallyReceived, POStatus::Received])->count(),
-            'pending_grn_approval' => GoodsReceived::where('status', 'pending_approval')->count(),
+            'pending_grn_approval' => GoodsReceived::where('status', 'recheck_required')->count(),
             'pending_invoices' => PurchaseInvoice::where('status', InvoiceStatus::Pending)->count(),
             'online_users' => $onlineUsers->count(),
         ];

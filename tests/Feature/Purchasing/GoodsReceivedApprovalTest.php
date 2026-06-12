@@ -21,9 +21,9 @@ class GoodsReceivedApprovalTest extends TestCase
 {
     use RefreshDatabase;
 
-    private User $manager;
+    private User $admin;
 
-    private User $operator;
+    private User $receiver;
 
     private Supplier $supplier;
 
@@ -38,30 +38,22 @@ class GoodsReceivedApprovalTest extends TestCase
             ChartOfAccountsSeeder::class,
         ]);
 
-        // Purchase Manager
-        $this->manager = User::factory()->create();
-        $this->manager->givePermissionTo([
-            'purchasing.grn.view',
-            'purchasing.grn.approve',
-        ]);
+        $this->admin = User::factory()->create();
+        $this->admin->assignRole('admin');
 
-        // Warehouse Operator
-        $this->operator = User::factory()->create();
-        $this->operator->givePermissionTo([
-            'purchasing.grn.view',
-            'purchasing.grn.create',
-        ]);
+        $this->receiver = User::factory()->create();
+        $this->receiver->assignRole('warehouse_receiver');
 
         $this->supplier = Supplier::factory()->create();
         $category = Category::factory()->create();
         $this->product = Product::factory()->create(['category_id' => $category->id]);
     }
 
-    public function test_purchase_manager_can_approve_grn_and_inventory_is_updated(): void
+    public function test_receiver_created_grn_is_approved_immediately_and_inventory_is_updated(): void
     {
         $po = PurchaseOrder::factory()->create([
             'supplier_id' => $this->supplier->id,
-            'status' => POStatus::Received,
+            'status' => POStatus::SentToSupplier,
         ]);
 
         $poItem = $po->items()->create([
@@ -70,36 +62,28 @@ class GoodsReceivedApprovalTest extends TestCase
             'unit_price' => 10.0000,
         ]);
 
-        $grn = GoodsReceived::create([
-            'purchase_order_id' => $po->id,
-            'grn_number' => 'GRN-TEST-123',
-            'status' => 'pending_approval',
-            'received_by' => $this->operator->id,
-            'received_at' => now()->toDateString(),
-            'transport_cost' => 50.00,
-            'labour_cost' => 20.00,
-        ]);
+        $response = $this->actingAs($this->receiver)
+            ->post(route('purchasing.grns.store'), [
+                'purchase_order_id' => $po->id,
+                'received_at' => now()->toDateString(),
+                'transport_cost' => 50.00,
+                'labour_cost' => 20.00,
+                'items' => [
+                    [
+                        'purchase_order_item_id' => $poItem->id,
+                        'product_id' => $this->product->id,
+                        'received_qty' => 50.000,
+                    ],
+                ],
+            ]);
 
-        $grnItem = $grn->items()->create([
-            'purchase_order_item_id' => $poItem->id,
-            'product_id' => $this->product->id,
-            'received_qty' => 50.000,
-            'variance' => 0.000,
-        ]);
-
-        // Prior to approval, assert StockBatch does not exist
-        $this->assertDatabaseMissing('stock_batches', [
-            'product_id' => $this->product->id,
-        ]);
-
-        // Call the approve endpoint
-        $response = $this->actingAs($this->manager)
-            ->post(route('purchasing.grns.approve', $grn));
+        $grn = GoodsReceived::latest('id')->first();
 
         $response->assertRedirect(route('purchasing.grns.show', $grn));
         $this->assertEquals('approved', $grn->fresh()->status);
+        $this->assertEquals($this->receiver->id, $grn->fresh()->approved_by);
+        $this->assertEquals($this->receiver->id, $grn->fresh()->updated_by);
 
-        // Check Stock Batch creation with correct allocated costs
         $this->assertDatabaseHas('stock_batches', [
             'product_id' => $this->product->id,
             'total_kg' => 50.000,
@@ -107,40 +91,44 @@ class GoodsReceivedApprovalTest extends TestCase
             'transport_cost' => 50.00,
             'labour_cost' => 20.00,
             'status' => BatchStatus::Pending->value,
-            'notes' => 'Auto-created from GRN: GRN-TEST-123',
+            'notes' => 'Auto-created from GRN: '.$grn->grn_number,
         ]);
 
-        // PO status should now be Closed
         $po->refresh();
         $this->assertEquals(POStatus::Closed, $po->status);
     }
 
-    public function test_unauthorized_user_cannot_approve_grn(): void
+    public function test_admin_can_send_approved_grn_for_recheck(): void
     {
         $po = PurchaseOrder::factory()->create([
             'supplier_id' => $this->supplier->id,
-            'status' => POStatus::Received,
+            'status' => POStatus::Closed,
         ]);
 
-        $poItem = $po->items()->create([
-            'product_id' => $this->product->id,
-            'quantity' => 50.000,
-            'unit_price' => 10.0000,
-        ]);
-
-        $grn = GoodsReceived::create([
+        $grn = GoodsReceived::factory()->create([
             'purchase_order_id' => $po->id,
-            'grn_number' => 'GRN-TEST-123',
-            'status' => 'pending_approval',
-            'received_by' => $this->operator->id,
+            'status' => 'approved',
+            'received_by' => $this->receiver->id,
+            'approved_by' => $this->receiver->id,
+            'updated_by' => $this->receiver->id,
+            'approved_at' => now(),
             'received_at' => now()->toDateString(),
         ]);
 
-        // Warehouse operator tries to approve
-        $response = $this->actingAs($this->operator)
-            ->post(route('purchasing.grns.approve', $grn));
+        $response = $this->actingAs($this->admin)
+            ->post(route('purchasing.grns.recheck', $grn), [
+                'remarks' => 'Please verify the landed quantity before final stock use.',
+            ]);
 
-        $response->assertForbidden();
-        $this->assertEquals('pending_approval', $grn->fresh()->status);
+        $response->assertRedirect(route('purchasing.grns.show', $grn));
+
+        $grn->refresh();
+        $po->refresh();
+
+        $this->assertEquals('recheck_required', $grn->status);
+        $this->assertEquals($this->admin->id, $grn->updated_by);
+        $this->assertNull($grn->approved_by);
+        $this->assertNull($grn->approved_at);
+        $this->assertEquals(POStatus::Received, $po->status);
     }
 }

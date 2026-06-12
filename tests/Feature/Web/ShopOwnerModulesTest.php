@@ -52,6 +52,8 @@ class ShopOwnerModulesTest extends TestCase
         $response->assertDontSee('Daily Price Board');
         $response->assertSee('Deliveries');
         $response->assertSee('Finance');
+        $response->assertSee('app-dialog-root');
+        $response->assertSee('window.showAppAlert');
 
         // Should not see inventory/purchasing group items which are reserved for other roles
         $response->assertDontSee('Sorting Checklist');

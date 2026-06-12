@@ -308,7 +308,7 @@ class PriceBoardService
         $marginB = (float) (ShopPriceGroup::where('name', 'B')->value('default_margin_percent') ?? 12);
         $marginC = (float) (ShopPriceGroup::where('name', 'C')->value('default_margin_percent') ?? 15);
 
-        $tomorrow = Carbon::tomorrow()->toDateString();
+        $tomorrow = Carbon::tomorrow()->startOfDay();
 
         DailyPriceApproval::updateOrCreate(
             [

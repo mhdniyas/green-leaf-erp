@@ -95,6 +95,11 @@ class RolePermissionSeeder extends Seeder
             // Warehouse checklist
             'warehouse.checklist.view',
             'warehouse.checklist.toggle',
+
+            // Sort Sheet
+            'sort.sheet.view',
+            'sort.sheet.generate',
+            'sort.sheet.export',
         ];
 
         foreach ($permissions as $permission) {
@@ -115,18 +120,15 @@ class RolePermissionSeeder extends Seeder
             'purchase' => [
                 'inventory.product.view',
                 'inventory.stock.view',
-                'purchasing.supplier.view',
-                'purchasing.supplier.create',
-                'purchasing.supplier.update',
                 'purchasing.order.view',
-                'purchasing.order.create',
                 'purchasing.order.approve',
                 'purchasing.grn.view',
                 'purchasing.grn.create',
-                'purchasing.grn.approve',
                 'purchasing.price.view',
                 'purchasing.price.update',
-                'accounting.report.view',
+                'sort.sheet.view',
+                'sort.sheet.generate',
+                'sort.sheet.export',
             ],
 
             'warehouse' => [
@@ -141,6 +143,8 @@ class RolePermissionSeeder extends Seeder
                 'sales.order.view',
                 'warehouse.checklist.view',
                 'warehouse.checklist.toggle',
+                'sort.sheet.view',
+                'sort.sheet.export',
             ],
 
             'purchaser' => [
@@ -155,6 +159,8 @@ class RolePermissionSeeder extends Seeder
             'warehouse_receiver' => [
                 'inventory.product.view',
                 'inventory.stock.view',
+                'purchasing.grn.view',
+                'purchasing.grn.create',
                 'warehouse.receive.view',
                 'warehouse.receive.confirm',
             ],

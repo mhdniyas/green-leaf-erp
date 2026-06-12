@@ -22,22 +22,22 @@
         </div>
     </div>
 
-    @if ($recentOrders->isNotEmpty())
+    @if ($recentInvoices->isNotEmpty())
         <div class="mt-5 overflow-x-auto">
             <table class="min-w-full border-collapse text-left">
                 <thead>
                     <tr class="border-b border-slate-100 text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
-                        <th class="py-3 pr-4">Order</th>
+                        <th class="py-3 pr-4">Invoice</th>
                         <th class="py-3 pr-4">Payment</th>
                         <th class="py-3 pr-4 text-right">Balance</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 text-sm text-slate-700">
-                    @foreach ($recentOrders->take(4) as $order)
+                    @foreach ($recentInvoices->take(4) as $invoice)
                         <tr>
-                            <td class="py-3 pr-4 font-bold text-slate-900">{{ $order->order_number }}</td>
-                            <td class="py-3 pr-4">@include('shop-owner.finance.partials.payment-status-badge', ['order' => $order])</td>
-                            <td class="py-3 pr-4 text-right font-bold text-slate-900">Rs. {{ number_format((float) $order->balance_amount, 2) }}</td>
+                            <td class="py-3 pr-4 font-bold text-slate-900">{{ $invoice->invoice_number }}</td>
+                            <td class="py-3 pr-4">@include('shop-owner.finance.partials.payment-status-badge', ['invoice' => $invoice])</td>
+                            <td class="py-3 pr-4 text-right font-bold text-slate-900">Rs. {{ number_format((float) $invoice->balance_amount, 2) }}</td>
                         </tr>
                     @endforeach
                 </tbody>

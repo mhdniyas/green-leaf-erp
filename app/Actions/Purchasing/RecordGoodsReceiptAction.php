@@ -16,6 +16,7 @@ class RecordGoodsReceiptAction
 {
     public function __construct(
         private readonly GoodsReceivedRepository $grnRepository,
+        private readonly ApproveGoodsReceiptAction $approveGoodsReceiptAction,
     ) {}
 
     /**
@@ -32,9 +33,12 @@ class RecordGoodsReceiptAction
             $grn = $this->grnRepository->create([
                 'purchase_order_id' => $data->purchaseOrderId,
                 'grn_number' => $grnNumber,
-                'status' => 'pending_approval',
+                'status' => 'approved',
                 'received_by' => $userId,
+                'approved_by' => $userId,
+                'updated_by' => $userId,
                 'received_at' => $data->receivedAt,
+                'approved_at' => now(),
                 'transport_cost' => $data->transportCost,
                 'labour_cost' => $data->labourCost,
                 'notes' => $data->notes,
@@ -73,7 +77,7 @@ class RecordGoodsReceiptAction
                 ->causedBy($userId)
                 ->log('goods_received.recorded');
 
-            return $grn->fresh(['items.product', 'purchaseOrder']);
+            return $this->approveGoodsReceiptAction->execute($grn->fresh(['items.purchaseOrderItem', 'items.product', 'purchaseOrder']), $userId);
         });
     }
 }

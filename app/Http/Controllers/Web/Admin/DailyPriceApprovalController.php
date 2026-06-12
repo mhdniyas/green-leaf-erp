@@ -11,6 +11,7 @@ use App\Models\DailyProductPrice;
 use App\Models\DailyProductPriceRevision;
 use App\Models\Product;
 use App\Models\ShopPriceGroup;
+use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -19,6 +20,10 @@ use Illuminate\View\View;
 
 class DailyPriceApprovalController extends Controller
 {
+    public function __construct(
+        private readonly ShopInvoiceService $shopInvoiceService,
+    ) {}
+
     public function index(Request $request): View
     {
         abort_unless($request->user()?->hasRole('admin'), 403, 'Unauthorized access.');
@@ -134,6 +139,13 @@ class DailyPriceApprovalController extends Controller
                     $this->updateActivePricesForGroup($product, $groupC, $priceC, $userId);
                 }
             });
+
+            $this->shopInvoiceService->generateForBusinessDate($date, $userId);
+            $this->shopInvoiceService->repriceAllForBusinessDate(
+                $date,
+                $userId,
+                'Admin approved updated daily prices.',
+            );
 
             return redirect()->route('admin.price-approvals.index', ['date' => $date])
                 ->with('success', 'Selected daily product prices approved and published.');

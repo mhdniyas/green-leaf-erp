@@ -11,43 +11,35 @@ class GoodsReceivedPolicy
 {
     public function viewAny(User $user): bool
     {
-        return $user->can('purchasing.grn.view');
+        return $user->can('purchasing.grn.view') || $user->can('warehouse.receive.view');
     }
 
     public function view(User $user, GoodsReceived $grn): bool
     {
-        return $user->can('purchasing.grn.view');
+        return $user->can('purchasing.grn.view') || $user->can('warehouse.receive.view');
     }
 
     public function create(User $user): bool
     {
-        return $user->can('purchasing.grn.create');
+        return $user->can('purchasing.grn.create') || $user->can('warehouse.receive.confirm');
     }
 
-    public function approve(User $user, ?GoodsReceived $grn = null): bool
+    public function recheck(User $user, ?GoodsReceived $grn = null): bool
     {
         if ($grn === null) {
-            return $user->can('purchasing.grn.approve');
+            return $user->hasRole('admin');
         }
 
-        return $user->can('purchasing.grn.approve') && $grn->status === 'pending_approval';
-    }
-
-    public function reject(User $user, ?GoodsReceived $grn = null): bool
-    {
-        if ($grn === null) {
-            return $user->can('purchasing.grn.approve');
-        }
-
-        return $user->can('purchasing.grn.approve') && $grn->status === 'pending_approval';
+        return $user->hasRole('admin') && $grn->status === 'approved';
     }
 
     public function update(User $user, ?GoodsReceived $grn = null): bool
     {
         if ($grn === null) {
-            return $user->can('purchasing.grn.create');
+            return $user->can('purchasing.grn.create') || $user->can('warehouse.receive.confirm');
         }
 
-        return $user->can('purchasing.grn.create') && in_array($grn->status, ['draft', 'rejected']);
+        return ($user->can('purchasing.grn.create') || $user->can('warehouse.receive.confirm'))
+            && in_array($grn->status, ['draft', 'recheck_required'], true);
     }
 }

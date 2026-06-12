@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Web;
 use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
 use App\Models\ShopPreset;
 use App\Models\User;
@@ -90,26 +91,27 @@ class ShopOwnerController extends Controller
     public function financeIndex(Request $request): View
     {
         $user = $this->shopUser($request);
-        $orders = $this->shopOrdersQuery($user)
-            ->where(function ($query): void {
-                $query->where('is_delivered', true)
-                    ->orWhere('cash_collected', '>', 0);
-            })
+        $invoices = ShopInvoice::query()
+            ->where('shop_id', $user->shop_id)
+            ->with(['order', 'items'])
             ->latest('business_date')
             ->get();
 
         return view('shop-owner.finance.index', [
-            'orders' => $orders,
-            'outstandingBalance' => (float) $orders->sum(fn (ShopOrder $order): float => (float) $order->balance_amount),
-            'paidAmount' => (float) $orders->sum(fn (ShopOrder $order): float => (float) $order->cash_collected),
-            'shortageValue' => (float) $orders->sum(fn (ShopOrder $order): float => (float) $order->total_shortage_value),
+            'invoices' => $invoices,
+            'outstandingBalance' => (float) $invoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->balance_amount),
+            'paidAmount' => (float) $invoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->paid_amount),
+            'shortageValue' => (float) $invoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->shortage_total),
         ]);
     }
 
-    public function financeShow(Request $request, string $orderNumber): View
+    public function financeShow(Request $request, ShopInvoice $invoice): View
     {
+        $user = $this->shopUser($request);
+        abort_unless($invoice->shop_id === $user->shop_id, 403);
+
         return view('shop-owner.finance.show', [
-            'order' => $this->shopOrderByNumber($request, $orderNumber),
+            'invoice' => $invoice->load(['shop', 'items.product', 'order']),
         ]);
     }
 
@@ -120,6 +122,12 @@ class ShopOwnerController extends Controller
     {
         $recentOrders = $this->shopOrdersQuery($user)->latest('business_date')->limit(8)->get();
         $deliveredOrders = $recentOrders->where('is_delivered', true);
+        $recentInvoices = ShopInvoice::query()
+            ->where('shop_id', $user->shop_id)
+            ->with('order')
+            ->latest('business_date')
+            ->limit(8)
+            ->get();
         $pendingDeliveries = $recentOrders->filter(
             fn (ShopOrder $order): bool => $order->is_allocation_completed && ! $order->is_delivered
         );
@@ -129,16 +137,17 @@ class ShopOwnerController extends Controller
                 'pending_approval_count' => $recentOrders->whereIn('state', ['submitted', 'update_requested'])->count(),
                 'pending_delivery_count' => $pendingDeliveries->count(),
                 'delivered_orders_count' => $deliveredOrders->count(),
-                'outstanding_balance' => (float) $recentOrders->sum(fn (ShopOrder $order): float => (float) $order->balance_amount),
+                'outstanding_balance' => (float) $recentInvoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->balance_amount),
             ],
             'todayOrder' => $this->todayOrder($user),
             'tomorrowOrder' => $this->tomorrowOrder($user),
             'pendingDeliveries' => $pendingDeliveries,
             'recentOrders' => $recentOrders,
+            'recentInvoices' => $recentInvoices,
             'financeSummary' => [
-                'paid_amount' => (float) $deliveredOrders->sum(fn (ShopOrder $order): float => (float) $order->cash_collected),
-                'shortage_value' => (float) $deliveredOrders->sum(fn (ShopOrder $order): float => (float) $order->total_shortage_value),
-                'outstanding_balance' => (float) $recentOrders->sum(fn (ShopOrder $order): float => (float) $order->balance_amount),
+                'paid_amount' => (float) $recentInvoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->paid_amount),
+                'shortage_value' => (float) $recentInvoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->shortage_total),
+                'outstanding_balance' => (float) $recentInvoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->balance_amount),
             ],
         ];
     }

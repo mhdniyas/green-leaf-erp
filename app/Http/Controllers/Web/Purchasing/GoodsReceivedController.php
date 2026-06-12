@@ -30,7 +30,7 @@ class GoodsReceivedController extends Controller
 
         $grns = GoodsReceived::where('status', '!=', 'draft')
             ->where('is_extra', $type === 'addon')
-            ->with(['purchaseOrder.supplier', 'receivedBy', 'items.product'])
+            ->with(['purchaseOrder.supplier', 'receivedBy', 'approvedBy', 'updatedBy', 'items.product'])
             ->orderByDesc('received_at')
             ->orderByDesc('id')
             ->paginate(20);
@@ -102,33 +102,23 @@ class GoodsReceivedController extends Controller
     {
         Gate::authorize('view', $grn);
 
-        $grn->load(['purchaseOrder.supplier', 'items.product', 'receivedBy']);
+        $grn->load(['purchaseOrder.supplier', 'items.product', 'receivedBy', 'approvedBy', 'updatedBy']);
 
         return view('purchase-manager.grns.show', compact('grn'));
     }
 
-    public function approve(GoodsReceived $grn, Request $request): RedirectResponse
+    public function markForRecheck(GoodsReceived $grn, Request $request): RedirectResponse
     {
-        Gate::authorize('approve', $grn);
-
-        $this->service->approve($grn, (int) $request->user()->id);
-
-        return redirect()->route('purchasing.grns.show', $grn)
-            ->with('success', 'Goods Received Note approved successfully and stock updated in inventory.');
-    }
-
-    public function reject(GoodsReceived $grn, Request $request): RedirectResponse
-    {
-        Gate::authorize('reject', $grn);
+        Gate::authorize('recheck', $grn);
 
         $request->validate([
             'remarks' => ['required', 'string', 'max:1000'],
         ]);
 
-        $this->service->reject($grn, $request->input('remarks'), (int) $request->user()->id);
+        $this->service->markForRecheck($grn, $request->input('remarks'), (int) $request->user()->id);
 
         return redirect()->route('purchasing.grns.show', $grn)
-            ->with('warning', 'Goods Received Note rejected and returned to warehouse.');
+            ->with('warning', 'Goods Received Note sent back for recheck. Receiver can update and resubmit it.');
     }
 
     public function edit(GoodsReceived $grn): View
@@ -151,6 +141,6 @@ class GoodsReceivedController extends Controller
         );
 
         return redirect()->route('purchasing.grns.show', $grn)
-            ->with('success', 'Goods Received Note updated successfully.');
+            ->with('success', 'Goods Received Note resubmitted and approved successfully.');
     }
 }

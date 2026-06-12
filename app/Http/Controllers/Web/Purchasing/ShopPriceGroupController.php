@@ -109,6 +109,6 @@ class ShopPriceGroupController extends Controller
 
     private function authorizeAccess(): void
     {
-        abort_unless(auth()->user()?->hasRole('purchase') || auth()->user()?->hasRole('admin'), 403);
+        abort_unless(auth()->user()?->hasRole('admin'), 403);
     }
 }

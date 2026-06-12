@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Web\Purchasing;
 
+use App\Models\GoodsReceived;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreGoodsReceivedRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()->can('purchasing.grn.create');
+        return (bool) $this->user()?->can('create', GoodsReceived::class);
     }
 
     public function rules(): array

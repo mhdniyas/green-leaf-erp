@@ -2,7 +2,7 @@
 
 @section('title', 'Goods Receipt Details')
 @section('page_title', $grn->grn_number)
-@section('page_description', 'Review received stock, quantity variance, landed costs, invoice matching, and approval actions.')
+@section('page_description', 'Review received stock, quantity variance, landed costs, invoice matching, and recheck actions.')
 
 @section('content')
     @php
@@ -68,21 +68,15 @@
             <div class="purchase-manager-panel p-5">
                 <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Workflow Actions</p>
                 <div class="mt-4 flex flex-col gap-2">
-                    @can('approve', $grn)
-                        <form method="POST" action="{{ route('purchasing.grns.approve', $grn) }}">
+                    @can('recheck', $grn)
+                        <form method="POST" action="{{ route('purchasing.grns.recheck', $grn) }}">
                             @csrf
-                            <x-purchase-manager.components.action-button type="submit" variant="success" class="w-full">Approve GRN</x-purchase-manager.components.action-button>
-                        </form>
-                    @endcan
-                    @can('reject', $grn)
-                        <form method="POST" action="{{ route('purchasing.grns.reject', $grn) }}">
-                            @csrf
-                            <input type="hidden" name="remarks" value="Quantity mismatch">
-                            <x-purchase-manager.components.action-button type="submit" variant="soft-danger" class="w-full">Reject GRN</x-purchase-manager.components.action-button>
+                            <input type="hidden" name="remarks" value="Admin requested a warehouse recheck.">
+                            <x-purchase-manager.components.action-button type="submit" variant="soft-danger" class="w-full">Send For Recheck</x-purchase-manager.components.action-button>
                         </form>
                     @endcan
                     @can('update', $grn)
-                        <x-purchase-manager.components.action-button :href="route('purchasing.grns.edit', $grn)" variant="secondary">Edit Receipt</x-purchase-manager.components.action-button>
+                        <x-purchase-manager.components.action-button :href="route('purchasing.grns.edit', $grn)" variant="secondary">Update And Resubmit</x-purchase-manager.components.action-button>
                     @endcan
                     @if (! $invoice && $grn->status === 'approved')
                         @can('create', \App\Models\PurchaseInvoice::class)
@@ -101,10 +95,19 @@
                     <div class="flex items-center justify-between"><span class="text-slate-500">Status</span><span class="font-semibold text-slate-950">{{ str($grn->status)->replace('_', ' ')->title() }}</span></div>
                     <div class="flex items-center justify-between"><span class="text-slate-500">Received Date</span><span class="font-semibold text-slate-950">{{ $grn->received_at->format('Y-m-d') }}</span></div>
                     <div class="flex items-center justify-between"><span class="text-slate-500">Received By</span><span class="font-semibold text-slate-950">{{ $grn->receivedBy?->name ?? '—' }}</span></div>
+                    <div class="flex items-center justify-between"><span class="text-slate-500">Approved By</span><span class="font-semibold text-slate-950">{{ $grn->approvedBy?->name ?? '—' }}</span></div>
+                    <div class="flex items-center justify-between"><span class="text-slate-500">Last Updated By</span><span class="font-semibold text-slate-950">{{ $grn->updatedBy?->name ?? '—' }}</span></div>
                     <div class="flex items-center justify-between"><span class="text-slate-500">Transport</span><span class="font-semibold text-slate-950">INR {{ number_format((float) $grn->transport_cost, 2) }}</span></div>
                     <div class="flex items-center justify-between"><span class="text-slate-500">Labour</span><span class="font-semibold text-slate-950">INR {{ number_format((float) $grn->labour_cost, 2) }}</span></div>
                 </div>
             </div>
+
+            @if ($grn->rejection_remarks)
+                <div class="purchase-manager-panel p-5">
+                    <p class="text-xs font-black uppercase tracking-[0.16em] text-amber-700">Recheck Notes</p>
+                    <p class="mt-3 text-sm font-semibold leading-6 text-amber-900">{{ $grn->rejection_remarks }}</p>
+                </div>
+            @endif
 
             <div class="purchase-manager-panel p-5">
                 <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Purchase Order</p>

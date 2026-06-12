@@ -26,9 +26,9 @@ use App\Http\Controllers\Web\ProfileController;
 use App\Http\Controllers\Web\Purchasing\DailyPriceBoardController;
 use App\Http\Controllers\Web\Purchasing\GoodsReceivedController;
 use App\Http\Controllers\Web\Purchasing\PurchaseInvoiceController;
-use App\Http\Controllers\Web\Purchasing\PurchaseManagerGrnApprovalController;
 use App\Http\Controllers\Web\Purchasing\PurchaseOrderController;
 use App\Http\Controllers\Web\Purchasing\PurchaserDashboardController;
+use App\Http\Controllers\Web\Purchasing\ShopInvoiceController;
 use App\Http\Controllers\Web\Purchasing\ShopPriceGroupController;
 use App\Http\Controllers\Web\Purchasing\SupplierController;
 use App\Http\Controllers\Web\RequisitionController;
@@ -39,6 +39,7 @@ use App\Http\Controllers\Web\Sales\SalesOrderController;
 use App\Http\Controllers\Web\ShopOwnerController;
 use App\Http\Controllers\Web\ShopPresetController;
 use App\Http\Controllers\Web\Warehouse\WarehouseReceiverController;
+use App\Http\Controllers\Web\SortSheetController;
 use Illuminate\Support\Facades\Route;
 
 // Root redirect
@@ -71,7 +72,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/deliveries', [ShopOwnerController::class, 'deliveriesIndex'])->name('deliveries.index');
         Route::get('/deliveries/{order_number}', [ShopOwnerController::class, 'deliveriesShow'])->name('deliveries.show');
         Route::get('/finance', [ShopOwnerController::class, 'financeIndex'])->name('finance.index');
-        Route::get('/finance/{order_number}', [ShopOwnerController::class, 'financeShow'])->name('finance.show');
+        Route::get('/finance/{invoice}', [ShopOwnerController::class, 'financeShow'])->name('finance.show');
     });
 
     // ── Inventory ──────────────────────────────────────────────────────────
@@ -120,6 +121,10 @@ Route::middleware('auth')->group(function () {
         Route::post('prices', [DailyPriceBoardController::class, 'update'])->name('prices.update');
         Route::post('price-groups/assign-shops', [ShopPriceGroupController::class, 'assignShops'])->name('price-groups.assign-shops');
         Route::resource('price-groups', ShopPriceGroupController::class)->only(['index', 'store', 'update', 'destroy']);
+        Route::get('shop-invoices', [ShopInvoiceController::class, 'index'])->name('shop-invoices.index');
+        Route::get('shop-invoices/{invoice}', [ShopInvoiceController::class, 'show'])->name('shop-invoices.show');
+        Route::patch('shop-invoices/{invoice}/payment-approval', [ShopInvoiceController::class, 'approvePayment'])->name('shop-invoices.payment-approval');
+        Route::patch('shop-invoices/{invoice}/reprice', [ShopInvoiceController::class, 'reprice'])->name('shop-invoices.reprice');
 
         // Purchase Orders
         Route::resource('orders', PurchaseOrderController::class);
@@ -128,12 +133,8 @@ Route::middleware('auth')->group(function () {
         Route::post('orders/{order}/send', [PurchaseOrderController::class, 'send'])->name('orders.send');
         Route::put('orders/{order}/items', [PurchaseOrderController::class, 'updateItems'])->name('orders.items.update');
 
-        // Goods Receipts — daily-approval must be declared BEFORE the resource to avoid {grn} wildcard collision
-        Route::get('grns/daily-approval', [PurchaseManagerGrnApprovalController::class, 'index'])->name('grns.daily-approval');
-        Route::post('grns/daily-approval/approve', [PurchaseManagerGrnApprovalController::class, 'approve'])->name('grns.daily-approval.approve');
         Route::resource('grns', GoodsReceivedController::class)->only(['index', 'create', 'store', 'show', 'edit', 'update']);
-        Route::post('grns/{grn}/approve', [GoodsReceivedController::class, 'approve'])->name('grns.approve');
-        Route::post('grns/{grn}/reject', [GoodsReceivedController::class, 'reject'])->name('grns.reject');
+        Route::post('grns/{grn}/recheck', [GoodsReceivedController::class, 'markForRecheck'])->name('grns.recheck');
 
         // Invoices
         Route::resource('invoices', PurchaseInvoiceController::class)->only(['index', 'create', 'store', 'show']);
@@ -226,5 +227,14 @@ Route::middleware('auth')->group(function () {
         Route::get('activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
         Route::get('price-approvals', [DailyPriceApprovalController::class, 'index'])->name('price-approvals.index');
         Route::post('price-approvals/approve', [DailyPriceApprovalController::class, 'approve'])->name('price-approvals.approve');
+    });
+
+    // ── Sort Sheet ──────────────────────────────────────────────────────────────
+    Route::prefix('sort-sheet')->name('sort-sheet.')->group(function () {
+        Route::get('/', [SortSheetController::class, 'index'])->name('index');
+        Route::get('/generate', [SortSheetController::class, 'generate'])->name('generate');
+        Route::get('/export/excel', [SortSheetController::class, 'exportExcel'])->name('export.excel');
+        Route::get('/export/pdf', [SortSheetController::class, 'exportPdf'])->name('export.pdf');
+        Route::get('/print', [SortSheetController::class, 'print'])->name('print');
     });
 });

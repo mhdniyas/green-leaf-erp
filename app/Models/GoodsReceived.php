@@ -31,7 +31,10 @@ class GoodsReceived extends Model
         'status',
         'rejection_remarks',
         'received_by',
+        'approved_by',
+        'updated_by',
         'received_at',
+        'approved_at',
         'transport_cost',
         'labour_cost',
         'notes',
@@ -40,6 +43,7 @@ class GoodsReceived extends Model
 
     protected $casts = [
         'received_at' => 'date',
+        'approved_at' => 'datetime',
         'transport_cost' => 'decimal:2',
         'labour_cost' => 'decimal:2',
         'is_extra' => 'boolean',
@@ -106,6 +110,16 @@ class GoodsReceived extends Model
     public function receivedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'received_by');
+    }
+
+    public function approvedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function updatedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'updated_by');
     }
 
     public function items(): HasMany

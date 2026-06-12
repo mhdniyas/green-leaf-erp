@@ -9,7 +9,9 @@ use App\Actions\Purchasing\RecordGoodsReceiptAction;
 use App\DTOs\Purchasing\GoodsReceivedData;
 use App\Enums\Purchasing\POStatus;
 use App\Models\GoodsReceived;
+use App\Models\JournalEntry;
 use App\Models\PurchaseOrderItem;
+use App\Models\StockBatch;
 use App\Repositories\Purchasing\GoodsReceivedRepository;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
@@ -37,25 +39,30 @@ class GoodsReceivedService
         return $this->recordGoodsReceiptAction->execute($data, $userId);
     }
 
-    public function approve(GoodsReceived $grn, int $userId): GoodsReceived
-    {
-        return $this->approveGoodsReceiptAction->execute($grn, $userId);
-    }
-
-    public function reject(GoodsReceived $grn, string $remarks, int $userId): GoodsReceived
+    public function markForRecheck(GoodsReceived $grn, string $remarks, int $userId): GoodsReceived
     {
         return DB::transaction(function () use ($grn, $remarks, $userId): GoodsReceived {
             $grn->update([
-                'status' => 'rejected',
+                'status' => 'recheck_required',
                 'rejection_remarks' => $remarks,
+                'approved_by' => null,
+                'approved_at' => null,
+                'updated_by' => $userId,
             ]);
 
-            // Note: PO status remains open/SentToSupplier/Received as it was, but GRN is rejected
+            $this->deleteApprovalArtifacts($grn);
+
+            $po = $grn->purchaseOrder;
+            if ($po) {
+                $po->update([
+                    'status' => POStatus::Received,
+                ]);
+            }
 
             activity()
                 ->performedOn($grn)
                 ->causedBy($userId)
-                ->log('goods_received.rejected');
+                ->log('goods_received.recheck_requested');
 
             return $grn->fresh();
         });
@@ -69,11 +76,14 @@ class GoodsReceivedService
                 'transport_cost' => $data->transportCost,
                 'labour_cost' => $data->labourCost,
                 'notes' => $data->notes,
-                'status' => 'pending_approval',
-                'rejection_remarks' => null, // Reset rejection remarks on resubmit
+                'status' => 'approved',
+                'rejection_remarks' => null,
+                'received_by' => $userId,
+                'approved_by' => $userId,
+                'updated_by' => $userId,
+                'approved_at' => now(),
             ]);
 
-            // Re-create items by deleting existing ones and creating new ones
             $grn->items()->delete();
 
             foreach ($data->items as $item) {
@@ -89,7 +99,6 @@ class GoodsReceivedService
                 ]);
             }
 
-            // Ensure purchase order is in Received status
             $po = $grn->purchaseOrder;
             if ($po) {
                 $po->update([
@@ -97,12 +106,36 @@ class GoodsReceivedService
                 ]);
             }
 
+            $grn = $this->approveGoodsReceiptAction->execute(
+                $grn->fresh(['items.purchaseOrderItem', 'items.product', 'purchaseOrder']),
+                $userId
+            );
+
             activity()
                 ->performedOn($grn)
                 ->causedBy($userId)
-                ->log('goods_received.updated');
+                ->log('goods_received.resubmitted');
 
             return $grn->fresh(['items.product', 'purchaseOrder']);
         });
+    }
+
+    private function deleteApprovalArtifacts(GoodsReceived $grn): void
+    {
+        $batches = StockBatch::query()
+            ->where('notes', "Auto-created from GRN: {$grn->grn_number}")
+            ->get();
+
+        foreach ($batches as $batch) {
+            if ($batch->stockMovements()->exists() || $batch->wastageEntries()->exists()) {
+                throw new \RuntimeException('This GRN cannot be sent for recheck after stock activity has started.');
+            }
+
+            $batch->forceDelete();
+        }
+
+        JournalEntry::query()
+            ->where('reference', $grn->grn_number)
+            ->delete();
     }
 }

@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Tests\Feature\Web;
 
 use App\Enums\Inventory\ProductGrade;
+use App\Enums\Purchasing\POStatus;
 use App\Models\DailyPriceApproval;
-use App\Models\GoodsReceived;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
@@ -193,37 +193,35 @@ class DailyPriceApprovalTest extends TestCase
         $responsePost->assertForbidden();
     }
 
-    public function test_purchase_manager_grn_approval_creates_pending_daily_price_approval(): void
+    public function test_receiver_created_grn_creates_pending_daily_price_approval(): void
     {
-        $manager = User::factory()->create();
-        $manager->assignRole('purchase');
+        $receiver = User::factory()->create();
+        $receiver->assignRole('warehouse_receiver');
 
         $date = today()->format('Y-m-d');
-        $po = PurchaseOrder::factory()->create(['order_date' => $date]);
+        $po = PurchaseOrder::factory()->create([
+            'order_date' => $date,
+            'status' => POStatus::SentToSupplier,
+        ]);
         $poItem = PurchaseOrderItem::factory()->create([
             'purchase_order_id' => $po->id,
             'product_id' => $this->product->id,
             'quantity' => 100,
             'unit_price' => 30.00,
         ]);
-        $grn = GoodsReceived::factory()->create([
-            'purchase_order_id' => $po->id,
-            'status' => 'pending_approval',
-            'received_at' => $date,
-            'transport_cost' => 0.00,
-            'labour_cost' => 0.00,
-        ]);
-        $grn->items()->create([
-            'purchase_order_item_id' => $poItem->id,
-            'product_id' => $this->product->id,
-            'received_qty' => 100,
-            'variance' => 0,
-        ]);
-
-        // Post GRN approval as Purchase Manager
-        $response = $this->actingAs($manager)
-            ->post(route('purchasing.grns.daily-approval.approve'), [
-                'date' => $date,
+        $response = $this->actingAs($receiver)
+            ->post(route('purchasing.grns.store'), [
+                'purchase_order_id' => $po->id,
+                'received_at' => $date,
+                'transport_cost' => 0.00,
+                'labour_cost' => 0.00,
+                'items' => [
+                    [
+                        'purchase_order_item_id' => $poItem->id,
+                        'product_id' => $this->product->id,
+                        'received_qty' => 100,
+                    ],
+                ],
             ]);
 
         $response->assertRedirect();

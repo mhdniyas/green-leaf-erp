@@ -11,21 +11,21 @@ class PurchaseInvoicePolicy
 {
     public function viewAny(User $user): bool
     {
-        return $user->can('purchasing.order.view') || $user->can('accounting.ledger.view');
+        return $user->can('accounting.ledger.view');
     }
 
     public function view(User $user, PurchaseInvoice $invoice): bool
     {
-        return $user->can('purchasing.order.view') || $user->can('accounting.ledger.view');
+        return $user->can('accounting.ledger.view');
     }
 
     public function create(User $user): bool
     {
-        return $user->can('purchasing.order.create') || $user->can('accounting.entry.create');
+        return $user->can('accounting.entry.create');
     }
 
     public function update(User $user, PurchaseInvoice $invoice): bool
     {
-        return $user->can('purchasing.order.create') || $user->can('accounting.entry.create');
+        return $user->can('accounting.entry.create');
     }
 }

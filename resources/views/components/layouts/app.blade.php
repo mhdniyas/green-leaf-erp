@@ -325,6 +325,13 @@
                 </div>
                 @endif
 
+                {{-- Sort Sheet --}}
+                @can('sort.sheet.view')
+                <x-nav-item href="{{ route('sort-sheet.index') }}" :active="request()->routeIs('sort-sheet.*')" icon="table-cells">
+                    Sort Sheet
+                </x-nav-item>
+                @endcan
+
                 {{-- Purchasing Group --}}
                 @if(
                     auth()->user()->hasRole('purchase') ||
@@ -353,7 +360,7 @@
                         </svg>
                     </button>
                     <div class="sidebar-group-items space-y-1 pl-3 pr-1 transition-all duration-200 {{ $isPurchasingActive ? '' : 'hidden' }}">
-                        @if(auth()->user()->hasRole('purchaser') || auth()->user()->hasRole('purchase') || auth()->user()->hasRole('admin'))
+                        @if(auth()->user()->hasRole('purchaser'))
                         <x-nav-item href="{{ route('purchaser.dashboard') }}" :active="request()->routeIs('purchaser.dashboard') && !request()->has('tab')" :sub="true">
                             Purchaser Desk
                         </x-nav-item>
@@ -380,17 +387,17 @@
                             Approved Board
                         </x-nav-item>
                         @endif
-                        @can('purchasing.supplier.view')
-                        <x-nav-item href="{{ route('purchasing.suppliers.index') }}" :active="request()->routeIs('purchasing.suppliers.*')" :sub="true">
-                            Suppliers
-                        </x-nav-item>
-                        @endcan
                         @if(auth()->user()->hasRole('purchase') || auth()->user()->hasRole('admin'))
                         <x-nav-item href="{{ route('purchasing.prices.index') }}" :active="request()->routeIs('purchasing.prices.*')" :sub="true">
                             Daily Price Board
                         </x-nav-item>
+                        @if(auth()->user()->hasRole('admin'))
                         <x-nav-item href="{{ route('purchasing.price-groups.index') }}" :active="request()->routeIs('purchasing.price-groups.*')" :sub="true">
                             Shop Price Categories
+                        </x-nav-item>
+                        @endif
+                        <x-nav-item href="{{ route('purchasing.shop-invoices.index') }}" :active="request()->routeIs('purchasing.shop-invoices.*')" :sub="true">
+                            Shop Daily Invoices
                         </x-nav-item>
                         @endif
                         @can('purchasing.order.view')
@@ -399,18 +406,8 @@
                         </x-nav-item>
                         @endcan
                         @can('purchasing.grn.view')
-                        <x-nav-item href="{{ route('purchasing.grns.index') }}" :active="request()->routeIs('purchasing.grns.*') && !request()->routeIs('purchasing.grns.daily-approval')" :sub="true">
+                        <x-nav-item href="{{ route('purchasing.grns.index') }}" :active="request()->routeIs('purchasing.grns.*')" :sub="true">
                             Goods Receipts
-                        </x-nav-item>
-                        @endcan
-                        @if(auth()->user()->hasRole('purchase') || auth()->user()->hasRole('admin') || auth()->user()->can('purchasing.grn.approve'))
-                        <x-nav-item href="{{ route('purchasing.grns.daily-approval') }}" :active="request()->routeIs('purchasing.grns.daily-approval')" :sub="true">
-                            Daily GRN Approval
-                        </x-nav-item>
-                        @endif
-                        @can('viewAny', \App\Models\PurchaseInvoice::class)
-                        <x-nav-item href="{{ route('purchasing.invoices.index') }}" :active="request()->routeIs('purchasing.invoices.*')" :sub="true">
-                            Purchase Invoices
                         </x-nav-item>
                         @endcan
                     </div>
@@ -756,6 +753,8 @@
     </nav>
 </div>
 @endif
+
+@include('components.app-dialogs')
 
 <script>
     // Sidebar toggle and collapse logic

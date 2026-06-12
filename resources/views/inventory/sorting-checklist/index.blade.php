@@ -762,30 +762,35 @@
 
             // ── Carry Over ──
             function carryOverBatch(batchId, reference) {
-                if(!confirm(`Are you sure you want to carry over stock batch ${reference} to tomorrow?`)) {
-                    return;
-                }
-                
-                fetch(`/inventory/sorting-checklist/carry-over/${batchId}`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
-                        'Accept': 'application/json'
-                    }
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showToast(data.message);
-                        setTimeout(() => window.location.reload(), 1000);
-                    } else {
-                        showToast(data.message || 'Failed to carry over stock.', 'error');
-                    }
-                })
-                .catch(error => {
-                    showToast('Connection error.', 'error');
-                    console.error(error);
+                window.showAppConfirm({
+                    title: 'Carry over stock batch',
+                    message: `Are you sure you want to carry over stock batch ${reference} to tomorrow?`,
+                    confirmLabel: 'Carry Over',
+                    cancelLabel: 'Cancel',
+                    tone: 'danger',
+                    onConfirm: () => {
+                        fetch(`/inventory/sorting-checklist/carry-over/${batchId}`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+                                'Accept': 'application/json'
+                            }
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                showToast(data.message);
+                                setTimeout(() => window.location.reload(), 1000);
+                            } else {
+                                showToast(data.message || 'Failed to carry over stock.', 'error');
+                            }
+                        })
+                        .catch(error => {
+                            showToast('Connection error.', 'error');
+                            console.error(error);
+                        });
+                    },
                 });
             }
 

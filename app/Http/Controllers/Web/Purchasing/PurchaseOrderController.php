@@ -9,9 +9,12 @@ use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\StorePurchaseOrderRequest;
 use App\Http\Requests\Web\Purchasing\UpdatePurchaseOrderRequest;
+use App\Models\DailyPriceApproval;
+use App\Models\GoodsReceived;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
-use App\Models\Supplier;
+use App\Models\ShopInvoice;
+use App\Models\ShopOrder;
 use App\Repositories\Inventory\ProductRepository;
 use App\Services\Purchasing\PurchaseOrderService;
 use App\Services\Purchasing\SupplierService;
@@ -20,7 +23,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\View\View;
-use Spatie\Activitylog\Models\Activity;
 
 class PurchaseOrderController extends Controller
 {
@@ -34,103 +36,94 @@ class PurchaseOrderController extends Controller
     {
         Gate::authorize('viewAny', PurchaseOrder::class);
 
-        $activeTab = $request->input('tab', 'all');
+        $selectedDate = (string) $request->input('date', today()->addDay()->toDateString());
 
-        // 1. All Orders tab query
-        $query = PurchaseOrder::query()->with(['supplier', 'createdBy', 'goodsReceiveds']);
-
-        // Filters for All Orders
-        $supplierId = $request->input('supplier_id');
-        if ($supplierId) {
-            $query->where('supplier_id', $supplierId);
-        }
-
-        $dateFilter = $request->input('date_filter');
-        if ($dateFilter === 'this_month') {
-            $query->whereYear('order_date', today()->year)
-                ->whereMonth('order_date', today()->month);
-        } elseif ($dateFilter === 'last_month') {
-            $lastMonth = today()->subMonth();
-            $query->whereYear('order_date', $lastMonth->year)
-                ->whereMonth('order_date', $lastMonth->month);
-        } elseif ($dateFilter === 'custom' && $request->filled('start_date') && $request->filled('end_date')) {
-            $query->whereBetween('order_date', [$request->input('start_date'), $request->input('end_date')]);
-        }
-
-        $allOrders = $query->orderByDesc('order_date')->orderByDesc('id')->paginate(15)->withQueryString();
-
-        // 2. Pending Approval tab query (Draft POs)
-        $pendingOrders = PurchaseOrder::where('status', POStatus::Draft)
-            ->with(['supplier', 'createdBy'])
-            ->orderByDesc('order_date')
+        $pendingShopOrders = ShopOrder::query()
+            ->whereDate('business_date', $selectedDate)
+            ->where(function ($query): void {
+                $query->whereIn('state', ['submitted', 'update_requested'])
+                    ->orWhere('has_pending_revision', true);
+            })
+            ->with(['shop', 'items'])
+            ->orderByDesc('submitted_at')
             ->orderByDesc('id')
             ->get();
 
-        // 3. Approval History tab query (retrieved from Spatie Activity log)
-        $approvalHistory = Activity::where('subject_type', PurchaseOrder::class)
-            ->whereIn('description', ['Approved', 'Rejected'])
-            ->with(['causer', 'subject'])
-            ->orderByDesc('created_at')
-            ->get();
-
-        // 4. Order Analytics tab calculations
-        $thisMonthSpend = (float) PurchaseOrderItem::whereHas('purchaseOrder', function ($q) {
-            $q->whereYear('order_date', today()->year)
-                ->whereMonth('order_date', today()->month)
-                ->where('status', '!=', POStatus::Draft);
-        })->selectRaw('SUM(quantity * unit_price) as total')->value('total');
-
-        $thisMonthOrdersCount = PurchaseOrder::whereYear('order_date', today()->year)
-            ->whereMonth('order_date', today()->month)
-            ->where('status', '!=', POStatus::Draft)
+        $approvedShopOrdersCount = ShopOrder::query()
+            ->whereDate('business_date', $selectedDate)
+            ->where('state', 'approved')
             ->count();
 
-        $avgOrderValue = $thisMonthOrdersCount > 0 ? $thisMonthSpend / $thisMonthOrdersCount : 0.0;
+        $generatedPurchaseOrdersCount = PurchaseOrder::query()
+            ->whereDate('order_date', $selectedDate)
+            ->count();
 
-        // Top Supplier
-        $topSupplierData = PurchaseOrder::join('purchase_order_items', 'purchase_orders.id', '=', 'purchase_order_items.purchase_order_id')
-            ->where('purchase_orders.status', '!=', POStatus::Draft)
-            ->select('purchase_orders.supplier_id', DB::raw('SUM(purchase_order_items.quantity * purchase_order_items.unit_price) as total_spend'))
-            ->groupBy('purchase_orders.supplier_id')
-            ->orderByDesc('total_spend')
-            ->first();
-        $topSupplier = $topSupplierData ? (Supplier::find($topSupplierData->supplier_id)?->name ?? 'N/A') : 'N/A';
-
-        // Monthly Purchase Trend (Jan - Dec)
-        $purchaseOrderItems = PurchaseOrderItem::whereHas('purchaseOrder', function ($q) {
-            $q->where('status', '!=', POStatus::Draft)
-                ->whereYear('order_date', today()->year);
-        })
-            ->with('purchaseOrder')
+        $reviewedPurchases = GoodsReceived::query()
+            ->whereDate('received_at', $selectedDate)
+            ->where('status', 'approved')
+            ->with(['purchaseOrder.supplier', 'items.product', 'receivedBy', 'approvedBy'])
+            ->latest('id')
             ->get();
 
-        $monthlyTrendRaw = [];
-        foreach ($purchaseOrderItems as $item) {
-            if ($item->purchaseOrder && $item->purchaseOrder->order_date) {
-                $monthName = $item->purchaseOrder->order_date->format('M');
-                $monthlyTrendRaw[$monthName] = ($monthlyTrendRaw[$monthName] ?? 0.0) + ((float) $item->quantity * (float) $item->unit_price);
-            }
-        }
+        $pendingRegularPurchases = $reviewedPurchases->where('is_extra', false)->values();
+        $pendingAddonPurchases = $reviewedPurchases->where('is_extra', true)->values();
 
-        $months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        $monthlyTrend = [];
-        foreach ($months as $m) {
-            $monthlyTrend[$m] = $monthlyTrendRaw[$m] ?? 0.0;
-        }
+        $grnCorrections = GoodsReceived::query()
+            ->whereDate('received_at', $selectedDate)
+            ->where('status', 'recheck_required')
+            ->with(['purchaseOrder.supplier', 'updatedBy'])
+            ->latest('updated_at')
+            ->get();
 
-        $suppliers = Supplier::orderBy('name')->get();
+        $pendingPriceApprovalsCount = DailyPriceApproval::query()
+            ->whereDate('business_date', $selectedDate)
+            ->where('status', 'pending')
+            ->count();
+
+        $invoiceExceptions = ShopInvoice::query()
+            ->whereDate('business_date', $selectedDate)
+            ->where(function ($query): void {
+                $query->whereIn('status', ['delivery_review', 'payment_pending'])
+                    ->orWhere('shortage_total', '>', 0)
+                    ->orWhere('discount_total', '>', 0);
+            })
+            ->with(['shop', 'order'])
+            ->latest('id')
+            ->get();
+
+        $todaySummary = [
+            'orders_approved' => $approvedShopOrdersCount,
+            'purchase_batches_approved' => GoodsReceived::query()
+                ->whereDate('received_at', $selectedDate)
+                ->where('status', 'approved')
+                ->count(),
+            'grn_corrections' => $grnCorrections->count(),
+            'prices_pending_admin' => $pendingPriceApprovalsCount,
+            'invoices_finalized' => ShopInvoice::query()
+                ->whereDate('business_date', $selectedDate)
+                ->whereIn('status', ['finalized', 'paid'])
+                ->count(),
+        ];
+
+        $recentPurchaseOrders = PurchaseOrder::query()
+            ->with(['supplier', 'createdBy', 'goodsReceiveds'])
+            ->whereDate('order_date', $selectedDate)
+            ->latest('id')
+            ->take(6)
+            ->get();
 
         return view('purchase-manager.orders.index', compact(
-            'allOrders',
-            'pendingOrders',
-            'approvalHistory',
-            'thisMonthSpend',
-            'thisMonthOrdersCount',
-            'avgOrderValue',
-            'topSupplier',
-            'monthlyTrend',
-            'activeTab',
-            'suppliers'
+            'selectedDate',
+            'pendingShopOrders',
+            'approvedShopOrdersCount',
+            'generatedPurchaseOrdersCount',
+            'pendingRegularPurchases',
+            'pendingAddonPurchases',
+            'grnCorrections',
+            'pendingPriceApprovalsCount',
+            'invoiceExceptions',
+            'todaySummary',
+            'recentPurchaseOrders',
         ));
     }
 

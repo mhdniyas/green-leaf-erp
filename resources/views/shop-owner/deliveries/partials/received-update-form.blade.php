@@ -34,12 +34,10 @@
                 @foreach ($order->items as $item)
                     @php
                         $approvedQty = (float) ($item->approved_qty ?? 0.00);
-                        $unitCost = $item->resolved_unit_cost ?? 0.00;
                     @endphp
                     <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3 shop-item-row flex flex-col justify-between"
                          data-item-id="{{ $item->id }}"
-                         data-approved-qty="{{ $approvedQty }}"
-                         data-unit-cost="{{ $unitCost }}">
+                         data-approved-qty="{{ $approvedQty }}">
                         
                         <div>
                             <div class="flex items-start justify-between gap-1.5">
@@ -78,20 +76,7 @@
                 @endforeach
             </div>
 
-            <!-- Notes & Cash collected -->
             <div class="bg-slate-50 rounded-2xl border border-slate-200 p-4 mt-5 space-y-4">
-                <div>
-                    <label for="cash_collected" class="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Amount Paid (Rs.)</label>
-                    <input type="number" 
-                           step="0.01" 
-                           min="0" 
-                           id="cash_collected" 
-                           name="cash_collected" 
-                           value="0.00" 
-                           class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 font-black text-sm focus:border-emerald-500 focus:outline-none transition-all">
-                    <p class="text-[10px] text-slate-400 mt-1 italic" id="cash-hint">Expected value matches order quantity.</p>
-                </div>
-
                 <div>
                     <label for="delivery_notes" class="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Delivery Comments / Reason for Shortages</label>
                     <textarea id="delivery_notes" name="delivery_notes" rows="3" class="w-full text-xs bg-white border border-slate-200 rounded-xl p-3 focus:outline-none focus:border-emerald-500 resize-none transition-colors" placeholder="Enter comments about delivery discrepancies (if any)..."></textarea>
@@ -135,20 +120,6 @@
             const form = document.getElementById('shop-delivery-form');
             const rows = document.querySelectorAll('.shop-item-row');
             const btnReceiveAll = document.getElementById('btn-receive-all');
-            const cashInput = document.getElementById('cash_collected');
-            const cashHint = document.getElementById('cash-hint');
-
-            function recalculateTotalValue() {
-                let totalExpectedValue = 0;
-                rows.forEach(row => {
-                    const unitCost = parseFloat(row.dataset.unitCost) || 0;
-                    const input = row.querySelector('.shop-delivered-qty-input');
-                    const qty = parseFloat(input.value) || 0;
-                    totalExpectedValue += qty * unitCost;
-                });
-                cashHint.textContent = 'Expected value: Rs. ' + totalExpectedValue.toFixed(2);
-                return totalExpectedValue;
-            }
 
             function updateRowIndicator(row) {
                 const approvedQty = parseFloat(row.dataset.approvedQty) || 0;
@@ -178,7 +149,6 @@
                         this.value = approvedQty.toFixed(2);
                     }
                     updateRowIndicator(row);
-                    recalculateTotalValue();
                 });
 
                 input.addEventListener('change', function() {
@@ -187,16 +157,11 @@
                     if (val > approvedQty) val = approvedQty;
                     this.value = val.toFixed(2);
                     updateRowIndicator(row);
-                    recalculateTotalValue();
                 });
 
                 // Initial update
                 updateRowIndicator(row);
             });
-
-            // Set default cash collected value to total expected
-            const initVal = recalculateTotalValue();
-            cashInput.value = initVal.toFixed(2);
 
             // Receive All Button handler
             btnReceiveAll.addEventListener('click', function() {
@@ -206,8 +171,6 @@
                     input.value = approvedQty.toFixed(2);
                     updateRowIndicator(row);
                 });
-                const finalVal = recalculateTotalValue();
-                cashInput.value = finalVal.toFixed(2);
 
                 // Auto submit immediately
                 form.submit();

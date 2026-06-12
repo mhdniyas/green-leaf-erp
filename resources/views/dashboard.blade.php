@@ -2295,18 +2295,18 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
     @if($purchasingStats)
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
 
-        {{-- Active Suppliers --}}
+        {{-- Approved shop orders --}}
         <div class="bg-white rounded-2xl border border-gray-200 p-5 flex items-start gap-4">
             <div class="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
                 <svg class="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 0 1-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124l-.318-5.085a1.5 1.5 0 0 0-1.496-1.408h-2.483c-.767 0-1.42.545-1.5 1.3L12.5 14.25m0 0v-4.5m0 4.5h6.75m-6.75-4.5H8.25M6.75 8.25h.008v.008H6.75V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5m-16.5 4.5h16.5m-16.5 4.5h10.5M6.75 3.75h10.5a3 3 0 0 1 3 3v10.5a3 3 0 0 1-3 3H6.75a3 3 0 0 1-3-3V6.75a3 3 0 0 1 3-3Z" />
                 </svg>
             </div>
             <div>
-                <p class="text-xs text-gray-500 font-medium">Active Suppliers</p>
-                <p class="text-2xl font-bold text-gray-900 mt-0.5">{{ $purchasingStats['active_suppliers'] }}</p>
-                @can('purchasing.supplier.view')
-                <a href="{{ route('purchasing.suppliers.index') }}" class="text-xs text-amber-600 font-medium hover:underline mt-0.5 block">View suppliers →</a>
+                <p class="text-xs text-gray-500 font-medium">Approved Shop Orders</p>
+                <p class="text-2xl font-bold text-gray-900 mt-0.5">{{ $purchasingStats['pending_pos'] }}</p>
+                @can('purchasing.order.view')
+                <a href="{{ route('requisitions.approved_board') }}" class="text-xs text-amber-600 font-medium hover:underline mt-0.5 block">Open approved board →</a>
                 @endcan
             </div>
         </div>
@@ -2337,8 +2337,8 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
             <div>
                 <p class="text-xs text-gray-500 font-medium">Monthly Procurement</p>
                 <p class="text-2xl font-bold text-gray-900 mt-0.5">INR {{ number_format($purchasingStats['monthly_purchases'], 2) }}</p>
-                @can('viewAny', \App\Models\PurchaseInvoice::class)
-                <a href="{{ route('purchasing.invoices.index') }}" class="text-xs text-teal-600 font-medium hover:underline mt-0.5 block">View invoices →</a>
+                @can('viewAny', \App\Models\ShopInvoice::class)
+                <a href="{{ route('purchasing.shop-invoices.index') }}" class="text-xs text-teal-600 font-medium hover:underline mt-0.5 block">View shop invoices →</a>
                 @endcan
             </div>
         </div>
@@ -2493,7 +2493,7 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
         <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
             <div>
                 <h2 class="text-xl font-black text-slate-900 tracking-tight">Purchase Manager Daily Desk</h2>
-                <p class="text-xs text-slate-500 mt-1">Start here for today’s approvals, supplier buying, GRN approvals, and invoice follow-up.</p>
+                <p class="text-xs text-slate-500 mt-1">Start here for today’s approvals, supplier buying, receipt tracking, and invoice follow-up.</p>
             </div>
             <div class="grid grid-cols-2 md:grid-cols-3 gap-3 lg:w-[480px]">
                 <div class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
@@ -2509,7 +2509,7 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
                     <p class="mt-1 text-2xl font-black text-blue-900">{{ $purchaseDashboard['headline']['open_purchase_orders'] }}</p>
                 </div>
                 <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-                    <p class="text-[10px] font-black uppercase tracking-wider text-emerald-700">GRNs Waiting</p>
+                    <p class="text-[10px] font-black uppercase tracking-wider text-emerald-700">GRN Recheck</p>
                     <p class="mt-1 text-2xl font-black text-emerald-900">{{ $purchaseDashboard['headline']['grns_awaiting_approval'] }}</p>
                 </div>
                 <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
@@ -2605,8 +2605,8 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
             <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
                 <div class="flex items-center justify-between gap-3">
                     <div>
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">GRN Queue</p>
-                        <p class="mt-1 text-sm font-bold text-slate-900">Warehouse receipts waiting</p>
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Recent Receipts</p>
+                        <p class="mt-1 text-sm font-bold text-slate-900">Warehouse-approved goods receipts</p>
                     </div>
                     <a href="{{ route('purchasing.grns.index') }}" class="text-[11px] font-black text-emerald-700 hover:text-emerald-800">Open queue</a>
                 </div>
@@ -2617,10 +2617,10 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
                                 <p class="text-sm font-black text-slate-900">{{ $grn->grn_number }}</p>
                                 <p class="mt-0.5 text-[11px] font-semibold text-slate-500">{{ $grn->purchaseOrder?->supplier?->name ?? 'No Supplier' }}</p>
                             </div>
-                            <span class="text-[10px] font-black uppercase text-amber-600">Pending</span>
+                            <span class="text-[10px] font-black uppercase text-emerald-600">Approved</span>
                         </a>
                     @empty
-                        <p class="rounded-2xl bg-white px-4 py-4 text-xs font-semibold text-slate-400 border border-slate-200">No GRNs awaiting approval.</p>
+                        <p class="rounded-2xl bg-white px-4 py-4 text-xs font-semibold text-slate-400 border border-slate-200">No approved receipts recorded today.</p>
                     @endforelse
                 </div>
             </div>
@@ -2629,21 +2629,21 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
                 <div class="flex items-center justify-between gap-3">
                     <div>
                         <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Invoice Follow-up</p>
-                        <p class="mt-1 text-sm font-bold text-slate-900">Pending supplier invoices</p>
+                        <p class="mt-1 text-sm font-bold text-slate-900">Pending shop invoice exceptions</p>
                     </div>
-                    <a href="{{ route('purchasing.invoices.index') }}" class="text-[11px] font-black text-slate-700 hover:text-slate-900">Open invoices</a>
+                    <a href="{{ route('purchasing.shop-invoices.index') }}" class="text-[11px] font-black text-slate-700 hover:text-slate-900">Open invoices</a>
                 </div>
                 <div class="mt-4 space-y-2">
                     @forelse($purchaseDashboard['recent_invoices'] as $invoice)
-                        <a href="{{ route('purchasing.invoices.show', $invoice) }}" class="flex items-center justify-between rounded-2xl bg-white px-4 py-3 border border-slate-200 hover:border-slate-300 transition-colors">
+                        <a href="{{ route('purchasing.shop-invoices.show', $invoice) }}" class="flex items-center justify-between rounded-2xl bg-white px-4 py-3 border border-slate-200 hover:border-slate-300 transition-colors">
                             <div>
                                 <p class="text-sm font-black text-slate-900">{{ $invoice->invoice_number }}</p>
-                                <p class="mt-0.5 text-[11px] font-semibold text-slate-500">{{ $invoice->supplier?->name ?? 'No Supplier' }}</p>
+                                <p class="mt-0.5 text-[11px] font-semibold text-slate-500">{{ $invoice->shop?->name ?? 'No Shop' }}</p>
                             </div>
-                            <span class="text-[10px] font-black uppercase text-slate-500">{{ str($invoice->status->value ?? $invoice->status)->replace('_', ' ') }}</span>
+                            <span class="text-[10px] font-black uppercase text-slate-500">{{ str($invoice->status)->replace('_', ' ') }}</span>
                         </a>
                     @empty
-                        <p class="rounded-2xl bg-white px-4 py-4 text-xs font-semibold text-slate-400 border border-slate-200">No pending supplier invoices.</p>
+                        <p class="rounded-2xl bg-white px-4 py-4 text-xs font-semibold text-slate-400 border border-slate-200">No pending shop invoice exceptions.</p>
                     @endforelse
                 </div>
             </div>

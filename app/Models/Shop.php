@@ -58,4 +58,9 @@ class Shop extends Model
     {
         return $this->hasMany(ShopPreset::class);
     }
+
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(ShopInvoice::class);
+    }
 }

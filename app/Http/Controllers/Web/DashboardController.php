@@ -10,11 +10,11 @@ use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\GoodsReceived;
 use App\Models\Product;
-use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\SalesInvoice;
 use App\Models\SalesOrder;
+use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
@@ -125,17 +125,31 @@ class DashboardController extends Controller
                 ->orderByDesc('order_date')
                 ->get();
 
-            $grnsAwaitingApproval = GoodsReceived::query()
-                ->where('status', 'pending_approval')
-                ->with(['purchaseOrder.supplier', 'receivedBy'])
+            $recheckGrns = GoodsReceived::query()
+                ->where('status', 'recheck_required')
+                ->with(['purchaseOrder.supplier', 'receivedBy', 'updatedBy'])
+                ->latest('updated_at')
+                ->latest('id')
+                ->get();
+
+            $approvedGrns = GoodsReceived::query()
+                ->whereDate('received_at', $today)
+                ->where('status', 'approved')
+                ->with(['purchaseOrder.supplier', 'receivedBy', 'approvedBy'])
                 ->latest('received_at')
                 ->latest('id')
                 ->get();
 
-            $pendingInvoices = PurchaseInvoice::query()
-                ->where('status', 'pending')
-                ->with(['supplier', 'goodsReceived.purchaseOrder'])
-                ->latest('created_at')
+            $invoiceExceptions = ShopInvoice::query()
+                ->where(function ($query): void {
+                    $query->whereIn('status', ['delivery_review', 'payment_pending'])
+                        ->orWhere('shortage_total', '>', 0)
+                        ->orWhere('discount_total', '>', 0)
+                        ->orWhere('balance_amount', '>', 0);
+                })
+                ->with(['shop', 'order'])
+                ->latest('business_date')
+                ->latest('id')
                 ->get();
 
             $purchaseDashboard = [
@@ -144,8 +158,8 @@ class DashboardController extends Controller
                     'pending_review_tomorrow' => $pendingTomorrowReviewOrders->count(),
                     'approved_tomorrow' => $approvedTomorrowOrders->count(),
                     'open_purchase_orders' => $openPurchaseOrders->count(),
-                    'grns_awaiting_approval' => $grnsAwaitingApproval->count(),
-                    'pending_invoices' => $pendingInvoices->count(),
+                    'grns_awaiting_approval' => $recheckGrns->count(),
+                    'pending_invoices' => $invoiceExceptions->count(),
                 ],
                 'focus_cards' => [
                     [
@@ -173,18 +187,18 @@ class DashboardController extends Controller
                         'tone' => 'blue',
                     ],
                     [
-                        'title' => 'GRN Approval',
-                        'count' => $grnsAwaitingApproval->count(),
-                        'detail' => 'Warehouse receipts waiting for purchase-manager approval',
+                        'title' => 'GRN Recheck',
+                        'count' => $recheckGrns->count(),
+                        'detail' => 'Receipts flagged by admin for warehouse recheck and resubmission',
                         'href' => route('purchasing.grns.index'),
-                        'action' => 'Review GRNs',
+                        'action' => 'Open Receipts',
                         'tone' => 'emerald',
                     ],
                     [
-                        'title' => 'Supplier Invoices',
-                        'count' => $pendingInvoices->count(),
-                        'detail' => 'Purchase invoices waiting for accounting/payment progress',
-                        'href' => route('purchasing.invoices.index'),
+                        'title' => 'Shop Daily Invoices',
+                        'count' => $invoiceExceptions->count(),
+                        'detail' => 'Delivery discrepancies, discounts, and balances waiting for review',
+                        'href' => route('purchasing.shop-invoices.index'),
                         'action' => 'Open Invoices',
                         'tone' => 'slate',
                     ],
@@ -201,21 +215,21 @@ class DashboardController extends Controller
                         'href' => route('requisitions.approved_board', ['date' => $tomorrow]),
                     ],
                     [
-                        'title' => 'Approve warehouse receipts',
-                        'description' => $grnsAwaitingApproval->count().' GRNs are waiting before stock can move into inventory.',
+                        'title' => 'Track warehouse receipts and rechecks',
+                        'description' => $recheckGrns->count().' GRNs need recheck while '.$approvedGrns->count().' receipts are already approved today.',
                         'href' => route('purchasing.grns.index'),
                     ],
                     [
                         'title' => 'Follow invoice matching and payment handoff',
-                        'description' => $pendingInvoices->count().' purchase invoices still need finance-side follow-up.',
-                        'href' => route('purchasing.invoices.index'),
+                        'description' => $invoiceExceptions->count().' shop invoices still need discrepancy, discount, or payment follow-up.',
+                        'href' => route('purchasing.shop-invoices.index'),
                     ],
                 ],
                 'today' => $today,
                 'tomorrow' => $tomorrow,
-                'recent_grns' => $grnsAwaitingApproval->take(3),
+                'recent_grns' => $approvedGrns->take(3),
                 'recent_purchase_orders' => $openPurchaseOrders->take(4),
-                'recent_invoices' => $pendingInvoices->take(3),
+                'recent_invoices' => $invoiceExceptions->take(3),
                 'notifications' => $user->unreadNotifications()->latest()->limit(8)->get(),
             ];
 

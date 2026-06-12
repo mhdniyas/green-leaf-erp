@@ -40,13 +40,8 @@ class EnterpriseGRNWorkflowTest extends TestCase
             ChartOfAccountsSeeder::class,
         ]);
 
-        // Manager with Approve permissions
         $this->manager = User::factory()->create();
-        $this->manager->givePermissionTo([
-            'purchasing.grn.view',
-            'purchasing.grn.approve',
-            'purchasing.order.approve',
-        ]);
+        $this->manager->assignRole('admin');
 
         // Warehouse operator with Create/Update permissions
         $this->operator = User::factory()->create();
@@ -60,7 +55,7 @@ class EnterpriseGRNWorkflowTest extends TestCase
         $this->product = Product::factory()->create(['category_id' => $category->id]);
     }
 
-    public function test_enterprise_grn_workflow_rejection_correction_and_approval(): void
+    public function test_enterprise_grn_workflow_recheck_correction_and_resubmission(): void
     {
         // 1. Create Purchase Order in Draft status
         $po = PurchaseOrder::factory()->create([
@@ -87,7 +82,7 @@ class EnterpriseGRNWorkflowTest extends TestCase
         $response->assertRedirect(route('purchasing.orders.show', $po));
         $this->assertEquals(POStatus::SentToSupplier, $po->fresh()->status);
 
-        // 4. Warehouse Operator receives goods and creates GRN -> status pending_approval
+        // 4. Warehouse Operator receives goods and creates GRN -> status approved
         $grnData = [
             'purchase_order_id' => $po->id,
             'received_at' => now()->toDateString(),
@@ -109,32 +104,30 @@ class EnterpriseGRNWorkflowTest extends TestCase
         $grn = GoodsReceived::latest('id')->first();
         $response->assertRedirect(route('purchasing.grns.show', $grn));
 
-        // Assert GRN status is pending_approval
-        $this->assertEquals('pending_approval', $grn->status);
-
-        // Assert that NO StockBatch and NO JournalEntry has been created yet!
-        $this->assertDatabaseMissing('stock_batches', [
+        $this->assertEquals('approved', $grn->status);
+        $this->assertDatabaseHas('stock_batches', [
             'product_id' => $this->product->id,
+            'total_kg' => 90.000,
         ]);
-        $this->assertDatabaseMissing('journal_entries', [
+        $this->assertDatabaseHas('journal_entries', [
             'reference' => $grn->grn_number,
         ]);
+        $this->assertEquals(POStatus::Closed, $po->fresh()->status);
 
-        // Assert PO status is transitioned to Received
-        $this->assertEquals(POStatus::Received, $po->fresh()->status);
-
-        // 5. Purchase Manager rejects the GRN
+        // 5. Admin sends the GRN for recheck
         $response = $this->actingAs($this->manager)
-            ->post(route('purchasing.grns.reject', $grn), [
+            ->post(route('purchasing.grns.recheck', $grn), [
                 'remarks' => 'Shortage of 10kg needs verification from warehouse operator.',
             ]);
 
         $response->assertRedirect(route('purchasing.grns.show', $grn));
         $grn->refresh();
 
-        // Assert GRN status is rejected and rejection remarks are set
-        $this->assertEquals('rejected', $grn->status);
+        $this->assertEquals('recheck_required', $grn->status);
         $this->assertEquals('Shortage of 10kg needs verification from warehouse operator.', $grn->rejection_remarks);
+        $this->assertDatabaseMissing('journal_entries', [
+            'reference' => $grn->grn_number,
+        ]);
 
         // 6. Warehouse Operator corrects the GRN and resubmits
         $correctedGrnData = [
@@ -163,20 +156,10 @@ class EnterpriseGRNWorkflowTest extends TestCase
         $response->assertRedirect(route('purchasing.grns.show', $grn));
 
         $grn->refresh();
-        // Assert status goes back to pending_approval and old remarks are cleared
-        $this->assertEquals('pending_approval', $grn->status);
+        $this->assertEquals('approved', $grn->status);
         $this->assertNull($grn->rejection_remarks);
 
-        // 7. Purchase Manager approves the GRN
-        $response = $this->actingAs($this->manager)
-            ->post(route('purchasing.grns.approve', $grn));
-        $response->assertRedirect(route('purchasing.grns.show', $grn));
-
-        $grn->refresh();
-        // Assert GRN status is approved
-        $this->assertEquals('approved', $grn->status);
-
-        // Assert StockBatch is created on approval
+        // 7. Resubmission recreates stock and finance using corrected quantity
         $this->assertDatabaseHas('stock_batches', [
             'product_id' => $this->product->id,
             'total_kg' => 100.000,
@@ -185,8 +168,6 @@ class EnterpriseGRNWorkflowTest extends TestCase
             'status' => BatchStatus::Pending->value,
         ]);
 
-        // Assert JournalEntry is created on approval (debit Graded Inventory 1200, credit AP 2100)
-        // Material cost: 100 kg * 12.50 = 1250.00
         $this->assertDatabaseHas('journal_entries', [
             'reference' => $grn->grn_number,
         ]);
@@ -209,7 +190,6 @@ class EnterpriseGRNWorkflowTest extends TestCase
             'amount' => 1250.00,
         ]);
 
-        // Assert PO status is closed
         $this->assertEquals(POStatus::Closed, $po->fresh()->status);
     }
 }

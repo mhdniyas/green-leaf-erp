@@ -20,11 +20,16 @@ use Illuminate\View\View;
 
 class PurchaserDashboardController extends Controller
 {
-    public function index(Request $request): View
+    private function ensurePurchaser(Request $request): void
     {
-        if (! $request->user()->hasRole('purchaser') && ! $request->user()->hasRole('purchase') && ! $request->user()->hasRole('admin')) {
+        if (! $request->user()->hasRole('purchaser')) {
             abort(403, 'Unauthorized access.');
         }
+    }
+
+    public function index(Request $request): View
+    {
+        $this->ensurePurchaser($request);
 
         $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
         $userId = $request->user()->id;
@@ -125,9 +130,7 @@ class PurchaserDashboardController extends Controller
 
     public function recordDraftPurchase(Request $request): RedirectResponse
     {
-        if (! $request->user()->hasRole('purchaser') && ! $request->user()->hasRole('purchase') && ! $request->user()->hasRole('admin')) {
-            abort(403, 'Unauthorized access.');
-        }
+        $this->ensurePurchaser($request);
 
         $request->validate([
             'product_id' => ['required', 'exists:products,id'],
@@ -296,9 +299,7 @@ class PurchaserDashboardController extends Controller
 
     public function deleteDraftPurchase(int $id, Request $request): RedirectResponse
     {
-        if (! $request->user()->hasRole('purchaser') && ! $request->user()->hasRole('purchase') && ! $request->user()->hasRole('admin')) {
-            abort(403, 'Unauthorized access.');
-        }
+        $this->ensurePurchaser($request);
 
         try {
             DB::transaction(function () use ($id): void {
@@ -342,9 +343,7 @@ class PurchaserDashboardController extends Controller
 
     public function submitPurchases(Request $request): RedirectResponse
     {
-        if (! $request->user()->hasRole('purchaser') && ! $request->user()->hasRole('purchase') && ! $request->user()->hasRole('admin')) {
-            abort(403, 'Unauthorized access.');
-        }
+        $this->ensurePurchaser($request);
 
         $date = $request->input('date', now()->format('Y-m-d'));
         $userId = $request->user()->id;

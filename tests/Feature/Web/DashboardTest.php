@@ -9,11 +9,11 @@ use App\Enums\Sales\SOStatus;
 use App\Models\Customer;
 use App\Models\GoodsReceived;
 use App\Models\Product;
-use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
 use App\Models\SalesInvoice;
 use App\Models\SalesOrder;
 use App\Models\Shop;
+use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\Supplier;
@@ -284,13 +284,22 @@ class DashboardTest extends TestCase
         $grn = GoodsReceived::factory()->create([
             'purchase_order_id' => $po->id,
             'received_by' => $manager->id,
-            'status' => 'pending_approval',
+            'approved_by' => $manager->id,
+            'updated_by' => $manager->id,
+            'status' => 'recheck_required',
         ]);
 
-        PurchaseInvoice::factory()->create([
-            'goods_received_id' => $grn->id,
-            'supplier_id' => $supplier->id,
-            'status' => 'pending',
+        $approvedOrder = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => $orderDate,
+            'created_by' => $manager->id,
+        ]);
+
+        ShopInvoice::factory()->create([
+            'shop_id' => $shop->id,
+            'shop_order_id' => $approvedOrder->id,
+            'status' => 'delivery_review',
         ]);
 
         $response = $this->actingAs($manager)
@@ -300,8 +309,10 @@ class DashboardTest extends TestCase
         $response->assertSee('Purchase Manager Daily Desk');
         $response->assertSee('What To Do Today');
         $response->assertSee('Review Requests');
-        $response->assertSee('Review GRNs');
+        $response->assertSee('Open Receipts');
         $response->assertSee('Open invoices');
+        $response->assertSee('Pending shop invoice exceptions');
+        $response->assertDontSee('Purchaser Desk');
     }
 
     public function test_dashboard_renders_requisition_and_approved_board_modules_for_purchase_approver(): void
@@ -329,7 +340,35 @@ class DashboardTest extends TestCase
         $response->assertOk();
         $response->assertSee('Requisition Board');
         $response->assertSee('Approved Board');
-        $response->assertSee('Purchase Orders');
+        $response->assertSee('Purchase Manager Daily Desk');
+    }
+
+    public function test_purchase_manager_cannot_access_removed_supplier_and_admin_only_sections(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $supplier = Supplier::factory()->create();
+
+        $this->actingAs($manager)
+            ->get(route('purchasing.suppliers.index'))
+            ->assertForbidden();
+
+        $this->actingAs($manager)
+            ->get(route('purchasing.invoices.index'))
+            ->assertForbidden();
+
+        $this->actingAs($manager)
+            ->get(route('purchasing.price-groups.index'))
+            ->assertForbidden();
+
+        $this->actingAs($manager)
+            ->get(route('purchasing.suppliers.edit', $supplier))
+            ->assertForbidden();
+
+        $this->actingAs($manager)
+            ->get(route('purchasing.orders.create'))
+            ->assertForbidden();
     }
 
     public function test_warehouse_manager_dashboard_shows_receive_goods_gateway(): void

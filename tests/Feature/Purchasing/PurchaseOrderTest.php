@@ -52,23 +52,26 @@ class PurchaseOrderTest extends TestCase
         $order = PurchaseOrder::factory()->create([
             'supplier_id' => $this->supplier->id,
             'created_by' => $this->authorizedUser->id,
+            'order_date' => today()->addDay()->toDateString(),
         ]);
 
         $response = $this->actingAs($this->authorizedUser)
             ->get(route('purchasing.orders.index'));
 
         $response->assertOk();
+        $response->assertSee('Purchase Manager Daily Desk');
         $response->assertSee($order->po_number);
     }
 
-    public function test_purchase_orders_list_shows_clear_empty_approval_history_message(): void
+    public function test_purchase_orders_list_shows_daily_work_sections_when_empty(): void
     {
         $response = $this->actingAs($this->authorizedUser)
             ->get(route('purchasing.orders.index'));
 
         $response->assertOk();
-        $response->assertSee('No approval decisions yet');
-        $response->assertSee('Approved and rejected purchase orders will appear here after a draft order is reviewed.');
+        $response->assertSee('Needs Action');
+        $response->assertSee('Invoice Exception Queue');
+        $response->assertSee('No shop owner approvals are pending for this date.');
     }
 
     public function test_unauthorized_user_cannot_view_purchase_orders_list(): void

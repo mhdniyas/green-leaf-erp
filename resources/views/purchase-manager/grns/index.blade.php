@@ -2,23 +2,9 @@
 
 @section('title', 'Goods Receipts')
 @section('page_title', 'Goods Receipts')
-@section('page_description', 'Check received quantities against purchase orders, review landed costs, and move supplier receipts into stock.')
+@section('page_description', 'Check received quantities against purchase orders, view receiver-approved receipts, and track recheck requests.')
 
 @section('content')
-    {{-- Daily Approval Quick-Access Banner --}}
-    @can('approve', \App\Models\GoodsReceived::class)
-        <div class="mb-5 flex items-center justify-between rounded-2xl border border-amber-100 bg-amber-50 px-5 py-4">
-            <div>
-                <p class="text-xs font-black uppercase tracking-wider text-amber-700">New Flow</p>
-                <p class="mt-0.5 text-sm font-bold text-amber-900">Review and approve today's purchaser submissions</p>
-            </div>
-            <a href="{{ route('purchasing.grns.daily-approval') }}"
-                class="shrink-0 rounded-xl bg-amber-600 px-4 py-2.5 text-xs font-black text-white shadow-sm hover:bg-amber-700 transition">
-                Daily Approval →
-            </a>
-        </div>
-    @endcan
-
     {{-- Tabs to switch between Regular and Add-on GRNs --}}
     <div class="mb-5 flex gap-2 border-b border-slate-200 dark:border-slate-800 pb-px">
         <a href="{{ route('purchasing.grns.index', ['tab' => 'regular']) }}"
@@ -51,6 +37,8 @@
                             <th class="px-5 py-4">Supplier</th>
                             <th class="px-5 py-4">Received Date</th>
                             <th class="px-5 py-4">Received By</th>
+                            <th class="px-5 py-4">Approved By</th>
+                            <th class="px-5 py-4">Last Updated By</th>
                             <th class="px-5 py-4 text-center">Status</th>
                             <th class="px-5 py-4 text-right">Landed Cost</th>
                             <th class="px-5 py-4 text-right">Action</th>
@@ -59,7 +47,7 @@
                     <tbody class="divide-y divide-slate-100 text-sm">
                         @foreach ($grns as $grn)
                             @php
-                                $tone = $grn->status === 'approved' ? 'emerald' : ($grn->status === 'pending_approval' ? 'amber' : 'rose');
+                                $tone = $grn->status === 'approved' ? 'emerald' : ($grn->status === 'recheck_required' ? 'amber' : 'slate');
                             @endphp
                             <tr>
                                 <td class="px-5 py-4 font-mono font-bold text-cyan-700"><a href="{{ route('purchasing.grns.show', $grn) }}">{{ $grn->grn_number }}</a></td>
@@ -67,6 +55,8 @@
                                 <td class="px-5 py-4 font-semibold text-slate-900">{{ $grn->purchaseOrder->supplier?->name ?? '—' }}</td>
                                 <td class="px-5 py-4 text-slate-600">{{ $grn->received_at->format('Y-m-d') }}</td>
                                 <td class="px-5 py-4 text-slate-600">{{ $grn->receivedBy?->name ?? '—' }}</td>
+                                <td class="px-5 py-4 text-slate-600">{{ $grn->approvedBy?->name ?? '—' }}</td>
+                                <td class="px-5 py-4 text-slate-600">{{ $grn->updatedBy?->name ?? '—' }}</td>
                                 <td class="px-5 py-4 text-center"><x-purchase-manager.components.status-badge :label="str($grn->status ?? 'pending')->replace('_', ' ')->title()" :tone="$tone" /></td>
                                 <td class="px-5 py-4 text-right font-bold text-slate-950">INR {{ number_format((float) $grn->transport_cost + (float) $grn->labour_cost, 2) }}</td>
                                 <td class="px-5 py-4">

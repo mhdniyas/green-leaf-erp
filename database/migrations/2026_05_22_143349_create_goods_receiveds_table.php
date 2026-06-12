@@ -15,10 +15,13 @@ return new class extends Migration
             $table->uuid('public_uuid')->unique();
             $table->foreignId('purchase_order_id')->constrained('purchase_orders')->restrictOnDelete();
             $table->string('grn_number', 100)->unique();
-            $table->string('status', 30)->default('pending_approval');
+            $table->string('status', 30)->default('approved');
             $table->text('rejection_remarks')->nullable();
             $table->foreignId('received_by')->constrained('users')->restrictOnDelete();
+            $table->foreignId('approved_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignId('updated_by')->nullable()->constrained('users')->nullOnDelete();
             $table->date('received_at');
+            $table->timestamp('approved_at')->nullable();
             $table->decimal('transport_cost', 10, 2)->default(0.00);
             $table->decimal('labour_cost', 10, 2)->default(0.00);
             $table->text('notes')->nullable();

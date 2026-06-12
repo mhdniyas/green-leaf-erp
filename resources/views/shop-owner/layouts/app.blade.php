@@ -30,6 +30,6 @@
     </div>
 
     @include('shop-owner.partials.mobile-nav')
-    @include('shop-owner.components.confirm-modal')
+    @include('components.app-dialogs')
 </body>
 </html>

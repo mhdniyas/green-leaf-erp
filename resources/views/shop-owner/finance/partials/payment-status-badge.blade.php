@@ -1,5 +1,5 @@
 @php
-    $tone = match ($order->payment_status ?? 'unpaid') {
+    $tone = match ($invoice->payment_status ?? 'unpaid') {
         'paid' => 'success',
         'partially_paid' => 'warning',
         'unpaid' => 'danger',
@@ -7,4 +7,4 @@
     };
 @endphp
 
-@include('shop-owner.components.status-badge', ['label' => str($order->payment_status ?? 'unpaid')->replace('_', ' ')->title(), 'tone' => $tone])
+@include('shop-owner.components.status-badge', ['label' => str($invoice->payment_status ?? 'unpaid')->replace('_', ' ')->title(), 'tone' => $tone])

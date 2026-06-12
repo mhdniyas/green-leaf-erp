@@ -45,7 +45,6 @@ class GoodsReceivedTest extends TestCase
         $this->authorizedUser->givePermissionTo([
             'purchasing.grn.view',
             'purchasing.grn.create',
-            'purchasing.grn.approve',
             'purchasing.order.view',
         ]);
 
@@ -222,7 +221,7 @@ class GoodsReceivedTest extends TestCase
             'purchase_order_id' => $po->id,
             'transport_cost' => 30.00,
             'labour_cost' => 60.00,
-            'status' => 'pending_approval',
+            'status' => 'approved',
         ]);
 
         // Check GRN Items variance
@@ -240,28 +239,8 @@ class GoodsReceivedTest extends TestCase
             'variance' => 0.000,
         ]);
 
-        // Assert that NO Stock Batch has been created yet!
-        $this->assertDatabaseMissing('stock_batches', [
-            'product_id' => $this->product1->id,
-        ]);
-        $this->assertDatabaseMissing('stock_batches', [
-            'product_id' => $this->product2->id,
-        ]);
-
-        // Check PO status has transitioned to received
-        $po->refresh();
-        $this->assertEquals(POStatus::Received, $po->status);
-
-        // Act as manager to approve the GRN
-        $approveResponse = $this->actingAs($this->authorizedUser)
-            ->post(route('purchasing.grns.approve', $grn));
-
-        $approveResponse->assertRedirect(route('purchasing.grns.show', $grn));
-
-        // Check GRN status changed to approved
         $this->assertEquals('approved', $grn->fresh()->status);
 
-        // Check Stock Batch creation with correct allocated costs
         $this->assertDatabaseHas('stock_batches', [
             'product_id' => $this->product1->id,
             'total_kg' => 10.000,
@@ -280,7 +259,6 @@ class GoodsReceivedTest extends TestCase
             'status' => BatchStatus::Pending->value,
         ]);
 
-        // PO status should now be Closed
         $po->refresh();
         $this->assertEquals(POStatus::Closed, $po->status);
     }
@@ -321,14 +299,6 @@ class GoodsReceivedTest extends TestCase
 
         $grn = GoodsReceived::latest('id')->first();
         $response->assertRedirect(route('purchasing.grns.show', $grn));
-
-        $this->assertDatabaseMissing('stock_batches', [
-            'product_id' => $this->product1->id,
-        ]);
-
-        // Approve the GRN
-        $approveResponse = $this->actingAs($this->authorizedUser)
-            ->post(route('purchasing.grns.approve', $grn));
 
         $this->assertDatabaseHas('stock_batches', [
             'product_id' => $this->product1->id,
