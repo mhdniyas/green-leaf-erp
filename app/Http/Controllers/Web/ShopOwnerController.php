@@ -7,8 +7,6 @@ namespace App\Http\Controllers\Web;
 use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
-use App\Models\Product;
-use App\Models\ProductWholesalePrice;
 use App\Models\ShopOrder;
 use App\Models\ShopPreset;
 use App\Models\User;
@@ -49,8 +47,11 @@ class ShopOwnerController extends Controller
 
     public function ordersShow(Request $request, string $orderNumber): View
     {
+        $user = $this->shopUser($request);
+
         return view('shop-owner.orders.show', [
             'order' => $this->shopOrderByNumber($request, $orderNumber),
+            'tomorrowOrder' => $this->tomorrowOrder($user),
         ]);
     }
 
@@ -60,44 +61,7 @@ class ShopOwnerController extends Controller
 
         return view('shop-owner.orders.history', [
             'orders' => $this->shopOrdersQuery($user)->latest('business_date')->paginate(12),
-        ]);
-    }
-
-    public function dailyPricesIndex(Request $request): View
-    {
-        $user = $this->shopUser($request);
-        $frequentProducts = $this->frequentProducts($user)->keyBy(fn (array $item): int => (int) $item['product']->id);
-        $products = Product::query()
-            ->with('category')
-            ->active()
-            ->orderBy('name')
-            ->get();
-        $wholesalePrices = ProductWholesalePrice::query()
-            ->whereIn('product_id', $products->pluck('id'))
-            ->get()
-            ->groupBy('product_id');
-
-        $products->each(function (Product $product) use ($frequentProducts, $user, $wholesalePrices): void {
-            /** @var array<string, mixed>|null $frequentProduct */
-            $frequentProduct = $frequentProducts->get($product->id);
-
-            $product->setAttribute('order_count', (int) ($frequentProduct['order_count'] ?? 0));
-            $product->setAttribute('last_order_quantity', (float) ($frequentProduct['last_quantity'] ?? 0));
-            $product->setAttribute('total_ordered_quantity', (float) ($frequentProduct['total_quantity'] ?? 0));
-            $price = $this->priceBoardService->sellingPriceFor($product, $user->shop, ProductGrade::GradeA);
-            $wholesale = $wholesalePrices->get($product->id, collect())
-                ->first(fn ($row) => ($row->grade instanceof ProductGrade ? $row->grade->value : (string) $row->grade) === ProductGrade::GradeA->value);
-
-            $product->setAttribute('effective_price', $price['price']);
-            $product->setAttribute('price_group_name', $price['group']->display_name);
-            $product->setAttribute('availability_label', (float) ($wholesale?->sellable_quantity ?? 0) > 0 ? 'Available' : 'On request');
-        });
-
-        return view('shop-owner.prices.index', [
-            'priceGroup' => $this->priceBoardService->groupForShop($user->shop),
-            'products' => $products,
-            'grades' => $this->priceBoardService->sellableGrades(),
-            'frequentProducts' => $this->frequentProducts($user),
+            'tomorrowOrder' => $this->tomorrowOrder($user),
         ]);
     }
 

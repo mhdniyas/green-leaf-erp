@@ -15,13 +15,10 @@ return new class extends Migration
     {
         Schema::create('shop_price_groups', function (Blueprint $table): void {
             $table->id();
-            $table->string('relationship_type', 30)->index();
-            $table->string('name', 50);
+            $table->string('name', 50)->unique();
             $table->decimal('default_margin_percent', 6, 2)->default(0);
             $table->boolean('is_active')->default(true);
             $table->timestamps();
-
-            $table->unique(['relationship_type', 'name']);
         });
     }
 

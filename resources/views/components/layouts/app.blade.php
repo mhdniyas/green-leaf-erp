@@ -27,6 +27,21 @@
     $showWarehouseMobileNav = $currentUser &&
         ! $showAdminMobileNav &&
         ($currentUser->hasRole('warehouse') || $currentUser->can('warehouse.checklist.view'));
+    $showPurchaserMobileNav = $currentUser &&
+        ! $showAdminMobileNav &&
+        ! $showWarehouseMobileNav &&
+        $currentUser->hasRole('purchaser');
+    $showPurchaseMobileNav = $currentUser &&
+        ! $showAdminMobileNav &&
+        ! $showWarehouseMobileNav &&
+        ! $showPurchaserMobileNav &&
+        ($currentUser->hasRole('purchase') || $currentUser->can('purchasing.order.approve'));
+    $showWarehouseReceiverMobileNav = $currentUser &&
+        ! $showAdminMobileNav &&
+        ! $showWarehouseMobileNav &&
+        ! $showPurchaserMobileNav &&
+        ! $showPurchaseMobileNav &&
+        ($currentUser->hasRole('warehouse_receiver') || $currentUser->can('warehouse.receive.confirm'));
 
     $warehouseMobileNavItems = [
         [
@@ -47,7 +62,7 @@
             'label' => 'Shop Cards',
             'route' => 'inventory.sorting.shop-orders',
             'active' => request()->routeIs('inventory.sorting.shop-orders'),
-            'icon' => '<svg class="h-7 w-7 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M7 4h10"/><path d="M6 11h12"/><path d="M8 15h8"/><path d="M10 19h4"/></svg>',
+            'icon' => '<svg class="h-7 w-7 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16"/><path d="M7 4h10"/><path d="M6 11h12"/><path d="M8 15h8"/><path d="M10 19h4"/></svg>',
             'type' => 'center',
         ],
         [
@@ -104,7 +119,69 @@
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m0 0c-2.21 0-4-1.343-4-3s1.79-3 4-3 4-1.343 4-3-1.79-3-4-3m0 12c2.21 0 4-1.343 4-3"/></svg>',
         ],
     ];
-    $showMobileBottomNav = $showAdminMobileNav || $showWarehouseMobileNav;
+    $purchaseMobileNavItems = [
+        [
+            'label' => 'Dashboard',
+            'route' => 'dashboard',
+            'active' => request()->routeIs('dashboard'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>',
+            'type' => 'link',
+        ],
+        [
+            'label' => 'Approvals',
+            'route' => 'requisitions.board',
+            'active' => request()->routeIs('requisitions.board'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5.25h6M9 9.75h6M9 14.25h6M5.25 5.25h.008v.008H5.25V5.25zm0 4.5h.008v.008H5.25V9.75zm0 4.5h.008v.008H5.25V14.25zm-1.5-9A2.25 2.25 0 016 3h12a2.25 2.25 0 012.25 2.25v13.5A2.25 2.25 0 0118 21H6a2.25 2.25 0 01-2.25-2.25V5.25z" /></svg>',
+            'type' => 'link',
+        ],
+        [
+            'label' => 'Approved',
+            'route' => 'requisitions.approved_board',
+            'active' => request()->routeIs('requisitions.approved_board'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m6 2.25a9 9 0 11-18 0 9 9 0 0118 0Z" /></svg>',
+            'type' => 'link',
+        ],
+        [
+            'label' => 'Orders',
+            'route' => 'purchasing.orders.index',
+            'active' => request()->routeIs('purchasing.orders.*'),
+            'icon' => '<svg class="h-7 w-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0z" /></svg>',
+            'type' => 'center',
+        ],
+        [
+            'label' => 'Receipts',
+            'route' => 'purchasing.grns.index',
+            'active' => request()->routeIs('purchasing.grns.*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3.75A.75.75 0 013.75 3h10.5a.75.75 0 01.53.22l5 5a.75.75 0 01.22.53v11.5a.75.75 0 01-.75.75H3.75a.75.75 0 01-.75-.75V3.75z" /><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 12h7.5m-7.5 3h4.5" /></svg>',
+            'type' => 'link',
+        ],
+        [
+            'label' => 'Prices',
+            'route' => 'purchasing.prices.index',
+            'active' => request()->routeIs('purchasing.prices.*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m3.75-9.75h-6a2.25 2.25 0 100 4.5h4.5a2.25 2.25 0 100 4.5h-6" /></svg>',
+            'type' => 'link',
+        ],
+    ];
+    $purchaserMobileNavItems = [
+        [
+            'label' => 'Purchases',
+            'route' => 'purchaser.dashboard',
+            'active' => request()->routeIs('purchaser.dashboard'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>',
+            'type' => 'link',
+        ],
+    ];
+    $warehouseReceiverMobileNavItems = [
+        [
+            'label' => 'Receive',
+            'route' => 'warehouse.receiver.checklist',
+            'active' => request()->routeIs('warehouse.receiver.*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
+            'type' => 'link',
+        ],
+    ];
+    $showMobileBottomNav = $showAdminMobileNav || $showWarehouseMobileNav || $showPurchaseMobileNav || $showPurchaserMobileNav || $showWarehouseReceiverMobileNav;
 @endphp
 
 <div id="app-container" class="flex h-full">
@@ -160,6 +237,24 @@
                 <x-nav-item href="{{ route('finance.index') }}" icon="document-currency-dollar" :active="request()->routeIs('finance.*')">
                     Finance
                 </x-nav-item>
+            @elseif(auth()->user()->hasRole('purchaser'))
+                <x-nav-item href="{{ route('purchaser.dashboard') }}" icon="squares-2x2" :active="request()->routeIs('purchaser.dashboard') && !request()->has('tab')">
+                    Purchaser Dashboard
+                </x-nav-item>
+                <div class="space-y-1 pl-3 pr-1">
+                    <x-nav-item id="sidebar-tab-daily-order" href="{{ route('purchaser.dashboard', ['tab' => 'daily-order']) }}" :active="request()->routeIs('purchaser.dashboard') && request()->input('tab', 'daily-order') === 'daily-order'" :sub="true" class="purchaser-sidebar-tab-btn" data-tab="daily-order">
+                        Daily Order
+                    </x-nav-item>
+                    <x-nav-item id="sidebar-tab-bought" href="{{ route('purchaser.dashboard', ['tab' => 'bought']) }}" :active="request()->routeIs('purchaser.dashboard') && request()->input('tab') === 'bought'" :sub="true" class="purchaser-sidebar-tab-btn" data-tab="bought">
+                        Bought Items
+                    </x-nav-item>
+                    <x-nav-item id="sidebar-tab-remaining" href="{{ route('purchaser.dashboard', ['tab' => 'remaining']) }}" :active="request()->routeIs('purchaser.dashboard') && request()->input('tab') === 'remaining'" :sub="true" class="purchaser-sidebar-tab-btn" data-tab="remaining">
+                        Remaining to Buy
+                    </x-nav-item>
+                    <x-nav-item id="sidebar-tab-history" href="{{ route('purchaser.dashboard', ['tab' => 'history']) }}" :active="request()->routeIs('purchaser.dashboard') && request()->input('tab') === 'history'" :sub="true" class="purchaser-sidebar-tab-btn" data-tab="history">
+                        History
+                    </x-nav-item>
+                </div>
             @else
                 {{-- Inventory Group --}}
                 @if(
@@ -239,7 +334,7 @@
                     auth()->user()->can('viewAny', \App\Models\PurchaseInvoice::class)
                 )
                 @php
-                    $isPurchasingActive = request()->routeIs('purchasing.*') || request()->routeIs('requisitions.board') || request()->routeIs('requisitions.approved_board');
+                    $isPurchasingActive = request()->routeIs('purchasing.*') || request()->routeIs('requisitions.board') || request()->routeIs('requisitions.approved_board') || request()->routeIs('purchaser.dashboard');
                 @endphp
                 <div class="sidebar-group space-y-1">
                     <button
@@ -254,10 +349,29 @@
                             <span>Purchasing</span>
                         </span>
                         <svg class="chevron-icon h-3.5 w-3.5 transition-transform duration-200 {{ $isPurchasingActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
                     </button>
                     <div class="sidebar-group-items space-y-1 pl-3 pr-1 transition-all duration-200 {{ $isPurchasingActive ? '' : 'hidden' }}">
+                        @if(auth()->user()->hasRole('purchaser') || auth()->user()->hasRole('purchase') || auth()->user()->hasRole('admin'))
+                        <x-nav-item href="{{ route('purchaser.dashboard') }}" :active="request()->routeIs('purchaser.dashboard') && !request()->has('tab')" :sub="true">
+                            Purchaser Desk
+                        </x-nav-item>
+                        <div class="space-y-1 pl-3 pr-1">
+                            <x-nav-item id="sidebar-tab-daily-order-pm" href="{{ route('purchaser.dashboard', ['tab' => 'daily-order']) }}" :active="request()->routeIs('purchaser.dashboard') && request()->input('tab', 'daily-order') === 'daily-order'" :sub="true" class="purchaser-sidebar-tab-btn" data-tab="daily-order">
+                                Daily Order
+                            </x-nav-item>
+                            <x-nav-item id="sidebar-tab-bought-pm" href="{{ route('purchaser.dashboard', ['tab' => 'bought']) }}" :active="request()->routeIs('purchaser.dashboard') && request()->input('tab') === 'bought'" :sub="true" class="purchaser-sidebar-tab-btn" data-tab="bought">
+                                Bought Items
+                            </x-nav-item>
+                            <x-nav-item id="sidebar-tab-remaining-pm" href="{{ route('purchaser.dashboard', ['tab' => 'remaining']) }}" :active="request()->routeIs('purchaser.dashboard') && request()->input('tab') === 'remaining'" :sub="true" class="purchaser-sidebar-tab-btn" data-tab="remaining">
+                                Remaining to Buy
+                            </x-nav-item>
+                            <x-nav-item id="sidebar-tab-history-pm" href="{{ route('purchaser.dashboard', ['tab' => 'history']) }}" :active="request()->routeIs('purchaser.dashboard') && request()->input('tab') === 'history'" :sub="true" class="purchaser-sidebar-tab-btn" data-tab="history">
+                                History
+                            </x-nav-item>
+                        </div>
+                        @endif
                         @if(auth()->user()->hasRole('purchase') || auth()->user()->can('purchasing.order.approve'))
                         <x-nav-item href="{{ route('requisitions.board') }}" :active="request()->routeIs('requisitions.board')" :sub="true">
                             Requisition Board
@@ -285,10 +399,15 @@
                         </x-nav-item>
                         @endcan
                         @can('purchasing.grn.view')
-                        <x-nav-item href="{{ route('purchasing.grns.index') }}" :active="request()->routeIs('purchasing.grns.*')" :sub="true">
+                        <x-nav-item href="{{ route('purchasing.grns.index') }}" :active="request()->routeIs('purchasing.grns.*') && !request()->routeIs('purchasing.grns.daily-approval')" :sub="true">
                             Goods Receipts
                         </x-nav-item>
                         @endcan
+                        @if(auth()->user()->hasRole('purchase') || auth()->user()->hasRole('admin') || auth()->user()->can('purchasing.grn.approve'))
+                        <x-nav-item href="{{ route('purchasing.grns.daily-approval') }}" :active="request()->routeIs('purchasing.grns.daily-approval')" :sub="true">
+                            Daily GRN Approval
+                        </x-nav-item>
+                        @endif
                         @can('viewAny', \App\Models\PurchaseInvoice::class)
                         <x-nav-item href="{{ route('purchasing.invoices.index') }}" :active="request()->routeIs('purchasing.invoices.*')" :sub="true">
                             Purchase Invoices
@@ -434,6 +553,11 @@
                             Users & Roles
                         </x-nav-item>
                         @endcan
+                        @can('admin.user.view')
+                        <x-nav-item href="{{ route('admin.warehouses.index') }}" :active="request()->routeIs('admin.warehouses.*')" :sub="true">
+                            Warehouses
+                        </x-nav-item>
+                        @endcan
                         @can('admin.daily-progress.view')
                         <x-nav-item href="{{ route('admin.daily-progress') }}" :active="request()->routeIs('admin.daily-progress')" :sub="true">
                             Daily Progress
@@ -442,6 +566,11 @@
                         @can('admin.activity-log.view')
                         <x-nav-item href="{{ route('admin.activity-logs.index') }}" :active="request()->routeIs('admin.activity-logs.index')" :sub="true">
                             Activity Log
+                        </x-nav-item>
+                        @endcan
+                        @can('admin.user.view')
+                        <x-nav-item href="{{ route('admin.price-approvals.index') }}" :active="request()->routeIs('admin.price-approvals.*')" :sub="true">
+                            Daily Price Approvals
                         </x-nav-item>
                         @endcan
                     </div>
@@ -577,18 +706,31 @@
     </div>
 </div>
 
-@if($showAdminMobileNav || $showWarehouseMobileNav)
-<div class="fixed inset-x-0 bottom-4 z-40 px-4 lg:hidden">
+@if($showAdminMobileNav || $showWarehouseMobileNav || $showPurchaseMobileNav || $showPurchaserMobileNav || $showWarehouseReceiverMobileNav)
+<div id="layout-mobile-nav" class="fixed inset-x-0 bottom-4 z-40 px-4 lg:hidden">
     <nav class="mx-auto flex h-16 max-w-md items-center justify-around rounded-[2rem] border border-slate-100 bg-white/95 px-4 shadow-[0_-8px_30px_rgb(0,0,0,0.08),0_4px_20px_rgb(0,0,0,0.04)] backdrop-blur-md">
-        @foreach (($showAdminMobileNav ? $adminMobileNavItems : $warehouseMobileNavItems) as $item)
+        @php
+            $mobileNavItems = match(true) {
+                $showAdminMobileNav => $adminMobileNavItems,
+                $showWarehouseMobileNav => $warehouseMobileNavItems,
+                $showPurchaseMobileNav => $purchaseMobileNavItems,
+                $showPurchaserMobileNav => $purchaserMobileNavItems,
+                $showWarehouseReceiverMobileNav => $warehouseReceiverMobileNavItems,
+                default => [],
+            };
+        @endphp
+        @foreach ($mobileNavItems as $item)
+            @php
+                $isActive = $item['active'] ?? false;
+            @endphp
             @if(($item['type'] ?? 'link') === 'center')
                 <div class="relative -mt-10">
                     <a href="{{ route($item['route']) }}" @class([
                         'relative flex h-16 w-16 items-center justify-center rounded-full border-[6px] border-slate-100 shadow-lg transition-all duration-300',
-                        'bg-cyan-500 text-white hover:bg-cyan-600 hover:scale-105 active:scale-95' => $item['active'],
-                        'bg-cyan-500 text-white/95 hover:bg-cyan-600 hover:scale-105 active:scale-95' => ! $item['active'],
+                        'bg-cyan-500 text-white hover:bg-cyan-600 hover:scale-105 active:scale-95' => $isActive,
+                        'bg-cyan-500 text-white/95 hover:bg-cyan-600 hover:scale-105 active:scale-95' => ! $isActive,
                     ])>{!! $item['icon'] !!}</a>
-                    @if ($item['active'])
+                    @if ($isActive)
                         <div class="absolute -bottom-4 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-cyan-500"></div>
                     @endif
                 </div>
@@ -596,15 +738,17 @@
                 <a
                     href="{{ route($item['route']) }}"
                     @class([
-                        'relative flex h-12 w-12 flex-col items-center justify-center rounded-2xl transition-all duration-200',
-                        'text-cyan-600' => $item['active'],
-                        'text-slate-400 hover:text-slate-600' => ! $item['active'],
+                        'relative flex flex-col items-center justify-center rounded-2xl transition-all duration-200',
+                        'text-cyan-600 w-14 h-14' => $isActive,
+                        'text-slate-400 hover:text-slate-600 w-12 h-12' => ! $isActive,
                     ])
                     title="{{ $item['label'] }}"
                 >
-                    {!! $item['icon'] !!}
-                    @if ($item['active'])
-                        <div class="absolute bottom-0 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-cyan-500"></div>
+                    <div class="transition-transform duration-200 {{ $isActive ? '-translate-y-1 scale-90' : '' }}">
+                        {!! $item['icon'] !!}
+                    </div>
+                    @if ($isActive)
+                        <span class="text-[9px] font-bold tracking-tight absolute bottom-1 transition-all duration-200">{{ $item['label'] }}</span>
                     @endif
                 </a>
             @endif

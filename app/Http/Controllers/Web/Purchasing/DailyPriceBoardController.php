@@ -26,18 +26,12 @@ class DailyPriceBoardController extends Controller
     {
         $this->authorizeBoardAccess();
 
-        $groups = $this->priceBoardService->ensureDefaultPriceGroups();
-        $selectedRelationshipType = (string) $request->input('relationship_type', ShopPriceGroup::OWN);
+        $this->priceBoardService->ensureDefaultPriceGroups();
+        $selectedGroups = ShopPriceGroup::query()
+            ->active()
+            ->orderBy('name')
+            ->get();
         $search = trim((string) $request->input('search', ''));
-
-        if (! array_key_exists($selectedRelationshipType, ShopPriceGroup::relationshipTypes())) {
-            $selectedRelationshipType = ShopPriceGroup::OWN;
-        }
-
-        $selectedGroups = $groups
-            ->where('relationship_type', $selectedRelationshipType)
-            ->sortBy('name')
-            ->values();
 
         foreach ($selectedGroups as $group) {
             $this->priceBoardService->ensureSellingPricesForGroup($group, $request->user()?->id);
@@ -87,8 +81,6 @@ class DailyPriceBoardController extends Controller
             ->groupBy('product_id');
 
         return view('purchase-manager.prices.index', [
-            'relationshipTypes' => ShopPriceGroup::relationshipTypes(),
-            'selectedRelationshipType' => $selectedRelationshipType,
             'selectedGroups' => $selectedGroups,
             'products' => $products,
             'sellingPrices' => $sellingPrices,
@@ -107,7 +99,6 @@ class DailyPriceBoardController extends Controller
 
         return redirect()
             ->route('purchasing.prices.index', [
-                'relationship_type' => $request->validated('relationship_type'),
                 'search' => $request->validated('search'),
             ])
             ->with('success', 'Daily product prices updated.');

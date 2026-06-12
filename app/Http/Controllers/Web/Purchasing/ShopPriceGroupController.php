@@ -26,11 +26,9 @@ class ShopPriceGroupController extends Controller
 
         $groups = $this->priceBoardService
             ->ensureDefaultPriceGroups()
-            ->load('shops')
-            ->groupBy('relationship_type');
+            ->load('shops');
 
         return view('purchase-manager.price-groups.index', [
-            'relationshipTypes' => ShopPriceGroup::relationshipTypes(),
             'groups' => $groups,
             'shops' => Shop::query()
                 ->with('priceGroup')
@@ -43,7 +41,6 @@ class ShopPriceGroupController extends Controller
     public function store(UpdateShopPriceGroupRequest $request): RedirectResponse
     {
         $group = ShopPriceGroup::query()->create([
-            'relationship_type' => $request->validated('relationship_type'),
             'name' => strtoupper((string) $request->validated('name')),
             'default_margin_percent' => $request->validated('default_margin_percent'),
             'is_active' => $request->boolean('is_active', true),
@@ -59,7 +56,6 @@ class ShopPriceGroupController extends Controller
     public function update(UpdateShopPriceGroupRequest $request, ShopPriceGroup $priceGroup): RedirectResponse
     {
         $priceGroup->update([
-            'relationship_type' => $request->validated('relationship_type'),
             'name' => strtoupper((string) $request->validated('name')),
             'default_margin_percent' => $request->validated('default_margin_percent'),
             'is_active' => $request->boolean('is_active'),

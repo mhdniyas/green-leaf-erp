@@ -87,6 +87,14 @@ class ShopOrderItem extends Model
     {
         $order = $this->relationLoaded('order') ? $this->order : null;
 
+        if ($order?->delivery_status === 'pending_approval') {
+            if ((float) $this->delivered_qty === (float) $this->approved_qty) {
+                return 'delivered';
+            }
+
+            return 'pending_approval';
+        }
+
         if ($order?->is_delivered) {
             if ((float) $this->delivered_qty > 0 && (float) $this->shortage_qty > 0) {
                 return 'partially_delivered';
@@ -114,6 +122,7 @@ class ShopOrderItem extends Model
             'partially_delivered' => 'Partial Delivery',
             'delivered' => 'Delivered',
             'delivery_issue' => 'Delivery Issue',
+            'pending_approval' => 'Pending Approval',
             default => 'Approved',
         };
     }
@@ -126,6 +135,7 @@ class ShopOrderItem extends Model
             'delivered' => 'success',
             'delivery_issue' => 'danger',
             'partially_delivered' => 'warning',
+            'pending_approval' => 'warning',
             default => 'neutral',
         };
     }

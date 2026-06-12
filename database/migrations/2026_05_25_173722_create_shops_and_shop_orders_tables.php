@@ -36,6 +36,7 @@ return new class extends Migration
             $table->string('payment_status', 30)->default('unpaid');
             $table->boolean('is_allocation_completed')->default(false);
             $table->boolean('is_delivered')->default(false);
+            $table->boolean('is_late')->default(false);
             $table->timestamp('delivered_at')->nullable();
             $table->foreignId('delivered_by')->nullable()->constrained('users')->nullOnDelete();
             $table->text('delivery_notes')->nullable();

@@ -88,6 +88,10 @@ class RolePermissionSeeder extends Seeder
             'admin.daily-progress.view',
             'admin.activity-log.view',
 
+            // Warehouse receive
+            'warehouse.receive.view',
+            'warehouse.receive.confirm',
+
             // Warehouse checklist
             'warehouse.checklist.view',
             'warehouse.checklist.toggle',
@@ -137,6 +141,22 @@ class RolePermissionSeeder extends Seeder
                 'sales.order.view',
                 'warehouse.checklist.view',
                 'warehouse.checklist.toggle',
+            ],
+
+            'purchaser' => [
+                'inventory.product.view',
+                'purchasing.supplier.view',
+                'purchasing.order.view',
+                'purchasing.order.create',
+                'purchasing.grn.view',
+                'purchasing.grn.create',
+            ],
+
+            'warehouse_receiver' => [
+                'inventory.product.view',
+                'inventory.stock.view',
+                'warehouse.receive.view',
+                'warehouse.receive.confirm',
             ],
         ];
 

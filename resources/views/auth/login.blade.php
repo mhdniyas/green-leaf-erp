@@ -24,12 +24,14 @@
             ],
             [
                 'title' => 'Procurement & Warehouse',
-                'description' => 'Approve demand, generate purchase orders, receive goods, and move stock into dispatch.',
+                'description' => 'Approve demand, generate purchase orders, receive goods, and confirm physical receipt into inventory.',
                 'accent' => 'from-amber-500 via-orange-500 to-rose-500',
                 'badge' => 'Execution',
                 'accounts' => [
                     ['role' => 'Purchase Manager', 'email' => 'purchase@greenleaf.com', 'initial' => 'PM', 'accent' => 'bg-amber-500 text-slate-950'],
+                    ['role' => 'Purchaser', 'email' => 'purchaser@greenleaf.com', 'initial' => 'PU', 'accent' => 'bg-cyan-500 text-white'],
                     ['role' => 'Warehouse Manager', 'email' => 'warehouse@greenleaf.com', 'initial' => 'WH', 'accent' => 'bg-rose-500 text-white'],
+                    ['role' => 'Warehouse Receiver', 'email' => 'receiver@greenleaf.com', 'initial' => 'WR', 'accent' => 'bg-indigo-500 text-white'],
                 ],
             ],
         ];
@@ -59,7 +61,7 @@
 
                         <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
                             @foreach ([
-                                ['label' => 'Demo Roles', 'value' => '7'],
+                                ['label' => 'Demo Roles', 'value' => '8'],
                                 ['label' => 'Shop Logins', 'value' => '4'],
                                 ['label' => 'Password', 'value' => 'Shared'],
                                 ['label' => 'Build', 'value' => 'Testing'],

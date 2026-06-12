@@ -121,6 +121,7 @@ class SalesOrderService
                     'type' => StockMovementType::Sale,
                     'quantity' => $item->quantity,
                     'cost_per_unit' => $item->unit_price,
+                    'warehouse_id' => $batch?->warehouse_id,
                     'notes' => "Sale: {$so->so_number}",
                 ]);
             }
@@ -172,6 +173,12 @@ class SalesOrderService
                         ->latest()
                         ->first()?->batch_id;
 
+                    $warehouseId = $originalSale?->warehouse_id ?? StockMovement::where('product_id', $item->product_id)
+                        ->where('grade', $item->grade)
+                        ->where('type', StockMovementType::In)
+                        ->latest()
+                        ->first()?->warehouse_id;
+
                     StockMovement::create([
                         'product_id' => $item->product_id,
                         'batch_id' => $batchId,
@@ -180,6 +187,7 @@ class SalesOrderService
                         'type' => StockMovementType::SaleReversal,
                         'quantity' => $item->quantity,
                         'cost_per_unit' => $item->unit_price,
+                        'warehouse_id' => $warehouseId,
                         'notes' => "Reversal: {$so->so_number} cancelled",
                     ]);
                 }

@@ -25,6 +25,7 @@ class GoodsReceivedService
     public function paginate(int $perPage = 15): LengthAwarePaginator
     {
         return $this->repository->query()
+            ->where('status', '!=', 'draft')
             ->with(['purchaseOrder.supplier', 'receivedBy', 'items.product'])
             ->orderByDesc('received_at')
             ->orderByDesc('id')

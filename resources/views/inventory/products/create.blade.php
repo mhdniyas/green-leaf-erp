@@ -112,6 +112,19 @@ $units = ['kg' => 'Kilogram (kg)', 'box' => 'Box', 'bunch' => 'Bunch', 'piece' =
                     </div>
                 </div>
 
+                {{-- Default Warehouse --}}
+                <div class="space-y-1.5">
+                    <label for="default_warehouse_id" class="block text-sm font-medium text-gray-700">Default Warehouse <span class="text-gray-400 font-normal">(optional)</span></label>
+                    <select id="default_warehouse_id" name="default_warehouse_id"
+                            class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white @error('default_warehouse_id') border-red-300 @enderror">
+                        <option value="">None (No Default)</option>
+                        @foreach($warehouses as $wh)
+                            <option value="{{ $wh->id }}" @selected(old('default_warehouse_id', $product->default_warehouse_id ?? null) == $wh->id)>{{ $wh->name }} ({{ $wh->code }})</option>
+                        @endforeach
+                    </select>
+                    @error('default_warehouse_id') <p class="text-red-600 text-xs">{{ $message }}</p> @enderror
+                </div>
+
                 {{-- Description --}}
                 <div class="space-y-1.5">
                     <label for="description" class="block text-sm font-medium text-gray-700">Description <span class="text-gray-400 font-normal">(optional)</span></label>

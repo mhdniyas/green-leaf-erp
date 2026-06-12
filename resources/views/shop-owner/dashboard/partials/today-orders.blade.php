@@ -32,6 +32,15 @@
                 <div class="mt-4 flex flex-wrap gap-2">
                     @include('shop-owner.orders.partials.order-status-badge', ['order' => $tomorrowOrder])
                     @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.show', $tomorrowOrder->order_number), 'label' => 'Open Order', 'classes' => 'bg-slate-900 text-white'])
+                    @php
+                        $purchaseOrdersLockedForTomorrow = $tomorrowOrder->linkedPurchaseOrdersHaveGoodsReceived();
+                        $canRequestUpdate = !$tomorrowOrder->canEditDirectly() && 
+                                            (in_array($tomorrowOrder->state, ['submitted', 'update_requested'], true) || 
+                                             ($tomorrowOrder->state === 'approved' && !$purchaseOrdersLockedForTomorrow));
+                    @endphp
+                    @if ($canRequestUpdate)
+                        @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.create'), 'label' => 'Request Update', 'classes' => 'bg-amber-600 text-white hover:bg-amber-700'])
+                    @endif
                 </div>
             @else
                 @include('shop-owner.components.empty-state', ['title' => 'No order submitted', 'description' => 'Create tomorrow’s order before 9:30 PM to keep the workflow moving.', 'actionLabel' => 'Create Order', 'actionUrl' => route('shop-owner.orders.create')])

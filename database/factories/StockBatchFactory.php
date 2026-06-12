@@ -31,6 +31,9 @@ class StockBatchFactory extends Factory
             'transport_cost' => $this->faker->randomFloat(2, 0, 200),
             'labour_cost' => $this->faker->randomFloat(2, 0, 100),
             'status' => BatchStatus::Pending,
+            'warehouse_receive_pending' => true,
+            'warehouse_confirmed_at' => null,
+            'warehouse_confirmed_by' => null,
             'notes' => $this->faker->optional()->sentence(),
             'sorted_at' => null,
         ];
@@ -49,6 +52,24 @@ class StockBatchFactory extends Factory
         return $this->state([
             'status' => BatchStatus::Pending,
             'sorted_at' => null,
+        ]);
+    }
+
+    public function warehousePending(): static
+    {
+        return $this->state([
+            'warehouse_receive_pending' => true,
+            'warehouse_confirmed_at' => null,
+            'warehouse_confirmed_by' => null,
+        ]);
+    }
+
+    public function warehouseConfirmed(): static
+    {
+        return $this->state([
+            'warehouse_receive_pending' => false,
+            'warehouse_confirmed_at' => now(),
+            'warehouse_confirmed_by' => User::factory(),
         ]);
     }
 }

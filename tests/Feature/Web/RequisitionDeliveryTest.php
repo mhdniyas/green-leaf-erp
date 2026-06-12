@@ -212,13 +212,12 @@ class RequisitionDeliveryTest extends TestCase
         $item->refresh();
 
         // Verify Order updates
-        $this->assertTrue($order->is_delivered);
-        $this->assertNotNull($order->delivered_at);
+        $this->assertFalse($order->is_delivered);
+        $this->assertNull($order->delivered_at);
         $this->assertEquals($owner->id, $order->delivered_by);
-        $this->assertEquals('partially_delivered', $order->delivery_status);
+        $this->assertEquals('pending_approval', $order->delivery_status);
         $this->assertEquals(100.00, (float) $order->cash_collected);
         $this->assertEquals(20.00, (float) $order->cash_discrepancy);
-        $this->assertEquals('partially_paid', $order->payment_status);
         $this->assertEquals(20.00, (float) $order->balance_amount);
         $this->assertEquals(30.00, (float) $order->total_shortage_value); // 3 kg shortage * Rs 10 = 30.00
         $this->assertEquals('Some minor shortages, cash collected is Rs. 100.', $order->delivery_notes);
@@ -230,18 +229,100 @@ class RequisitionDeliveryTest extends TestCase
         $this->assertEquals(10.00, (float) $item->unit_cost);
         $this->assertEquals(30.00, (float) $item->shortage_value);
 
+        $this->assertDatabaseMissing('stock_movements', [
+            'product_id' => $product->id,
+            'type' => StockMovementType::Out->value,
+            'notes' => "Warehouse delivery out: {$order->order_number}",
+        ]);
+
+        $this->assertDatabaseMissing('stock_movements', [
+            'product_id' => $product->id,
+            'type' => StockMovementType::Wastage->value,
+            'notes' => "Delivery shortage discrepancy: {$order->order_number}",
+        ]);
+    }
+
+    public function test_authorized_manager_can_approve_delivery_discrepancy(): void
+    {
+        $shop = Shop::create(['code' => 'S1', 'name' => 'Shop 1']);
+        $owner = User::factory()->create(['shop_id' => $shop->id]);
+        $owner->assignRole('shop');
+
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $order = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => today()->toDateString(),
+            'is_allocation_completed' => true,
+            'created_by' => $owner->id,
+            'delivery_status' => 'pending_approval',
+            'is_delivered' => false,
+            'cash_collected' => 100.00,
+        ]);
+
+        $product = Product::factory()->create();
+
+        // Create stock batch to resolve cost
+        StockBatch::create([
+            'product_id' => $product->id,
+            'created_by' => $owner->id,
+            'reference' => 'B-01',
+            'received_at' => today()->toDateString(),
+            'total_kg' => 100,
+            'cost_per_kg' => 10.00,
+            'status' => BatchStatus::Sorted,
+        ]);
+
+        StockMovement::create([
+            'product_id' => $product->id,
+            'batch_id' => StockBatch::where('reference', 'B-01')->value('id'),
+            'created_by' => $owner->id,
+            'grade' => ProductGrade::GradeA->value,
+            'type' => StockMovementType::In->value,
+            'quantity' => 100,
+            'cost_per_unit' => 10.00,
+            'notes' => 'Sorted stock for delivery test',
+        ]);
+
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'requested_qty' => 15,
+            'approved_qty' => 15,
+            'delivered_qty' => 12,
+            'shortage_qty' => 3,
+            'unit_cost' => 10.00,
+            'shortage_value' => 30.00,
+            'unit' => 'kg',
+        ]);
+
+        $response = $this->actingAs($manager)
+            ->post(route('requisitions.delivery.approve', $order->order_number));
+
+        $response->assertRedirect(route('requisitions.show', $order->order_number));
+        $response->assertSessionHas('success');
+
+        $order->refresh();
+
+        $this->assertTrue($order->is_delivered);
+        $this->assertNotNull($order->delivered_at);
+        $this->assertEquals('partially_delivered', $order->delivery_status);
+        $this->assertEquals('partially_paid', $order->payment_status);
+
         $this->assertDatabaseHas('stock_movements', [
             'product_id' => $product->id,
             'type' => StockMovementType::Out->value,
             'quantity' => 12.000,
-            'notes' => "Warehouse delivery out: {$order->order_number}",
+            'notes' => "Warehouse delivery out (approved): {$order->order_number}",
         ]);
 
         $this->assertDatabaseHas('stock_movements', [
             'product_id' => $product->id,
             'type' => StockMovementType::Wastage->value,
             'quantity' => 3.000,
-            'notes' => "Delivery shortage discrepancy: {$order->order_number}",
+            'notes' => "Delivery shortage discrepancy (approved): {$order->order_number}",
         ]);
     }
 
@@ -292,9 +373,9 @@ class RequisitionDeliveryTest extends TestCase
         $response = $this->actingAs($owner)
             ->post(route('requisitions.delivery.record', $order->order_number), [
                 'delivered_qty' => [
-                    $item->id => 8,
+                    $item->id => 10,
                 ],
-                'cash_collected' => 80.00,
+                'cash_collected' => 100.00,
             ]);
 
         $response->assertRedirect(route('shop-owner.deliveries.show', $order->order_number));

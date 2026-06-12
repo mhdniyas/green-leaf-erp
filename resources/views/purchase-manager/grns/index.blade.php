@@ -5,12 +5,38 @@
 @section('page_description', 'Check received quantities against purchase orders, review landed costs, and move supplier receipts into stock.')
 
 @section('content')
+    {{-- Daily Approval Quick-Access Banner --}}
+    @can('approve', \App\Models\GoodsReceived::class)
+        <div class="mb-5 flex items-center justify-between rounded-2xl border border-amber-100 bg-amber-50 px-5 py-4">
+            <div>
+                <p class="text-xs font-black uppercase tracking-wider text-amber-700">New Flow</p>
+                <p class="mt-0.5 text-sm font-bold text-amber-900">Review and approve today's purchaser submissions</p>
+            </div>
+            <a href="{{ route('purchasing.grns.daily-approval') }}"
+                class="shrink-0 rounded-xl bg-amber-600 px-4 py-2.5 text-xs font-black text-white shadow-sm hover:bg-amber-700 transition">
+                Daily Approval →
+            </a>
+        </div>
+    @endcan
+
+    {{-- Tabs to switch between Regular and Add-on GRNs --}}
+    <div class="mb-5 flex gap-2 border-b border-slate-200 dark:border-slate-800 pb-px">
+        <a href="{{ route('purchasing.grns.index', ['tab' => 'regular']) }}"
+            class="px-4 py-2.5 text-xs font-black uppercase tracking-wider border-b-2 {{ $type === 'regular' ? 'border-cyan-600 text-cyan-600 border-solid' : 'border-transparent text-slate-405 hover:text-slate-600' }} transition no-underline">
+            Regular Receipts
+        </a>
+        <a href="{{ route('purchasing.grns.index', ['tab' => 'addon']) }}"
+            class="px-4 py-2.5 text-xs font-black uppercase tracking-wider border-b-2 {{ $type === 'addon' ? 'border-cyan-600 text-cyan-600 border-solid' : 'border-transparent text-slate-405 hover:text-slate-600' }} transition no-underline">
+            Add-on Receipts
+        </a>
+    </div>
+
     <div class="purchase-manager-panel overflow-hidden">
         @if ($grns->isEmpty())
             <div class="p-5">
                 <x-purchase-manager.components.empty-state
                     title="No goods receipts found"
-                    description="Create a goods receipt from a sent purchase order when stock reaches the warehouse."
+                    description="{{ $type === 'addon' ? 'No add-on supplier receipts recorded.' : 'Create a goods receipt from a sent purchase order when stock reaches the warehouse.' }}"
                     :actionHref="route('purchasing.orders.index')"
                     actionLabel="Open Purchase Orders"
                 />

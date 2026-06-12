@@ -152,8 +152,7 @@
         <thead>
             <tr>
                 <th style="width: 4%;">#</th>
-                <th class="text-left" style="width: 15%;">Item</th>
-                <th style="width: 8%;">Fulfillment</th>
+                <th class="text-left" style="width: 23%;">Item</th>
                 @foreach($shops as $shop)
                     <th>{{ str_replace([' HYPERMARKET', ' SUPERMARKET', ' STORE', ' SHOP'], '', strtoupper($shop->name)) }}</th>
                 @endforeach
@@ -190,7 +189,6 @@
                             <span class="product-name">{{ $product->name }}</span><br>
                             <span class="sku">{{ $product->sku }}</span>
                         </td>
-                        <td>{{ ucfirst($fulfillment) }}</td>
                         @foreach($shops as $shop)
                             @php
                                 $qty = $matrix[$product->id][$shop->id]['approved_qty'] ?? 0;
@@ -204,7 +202,7 @@
 
             {{-- Grand Totals --}}
             <tr class="grand-total-row">
-                <td colspan="3">Grand Total (kg)</td>
+                <td colspan="2">Grand Total (kg)</td>
                 @foreach($shops as $shop)
                     <td>{{ number_format($colTotals[$shop->id], 2) }}</td>
                 @endforeach

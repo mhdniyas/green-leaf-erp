@@ -7,17 +7,7 @@
 @section('content')
     <div class="space-y-6">
         <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <form method="GET" action="{{ route('purchasing.prices.index') }}" class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
-                    <div>
-                        <label for="relationship_type" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Shop Category</label>
-                        <select id="relationship_type" name="relationship_type" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none md:max-w-sm">
-                        @foreach ($relationshipTypes as $type => $label)
-                            <option value="{{ $type }}" @selected($type === $selectedRelationshipType)>{{ $label }}</option>
-                        @endforeach
-                    </select>
-                    <p class="mt-2 text-sm text-slate-600">Update one product price across the shop groups in this category, for example Tomato: A 45, B 43, C 40.</p>
-                    <p class="mt-1 text-xs font-semibold text-slate-400">Products are sorted by today&apos;s order quantity for {{ \Illuminate\Support\Carbon::parse($targetBusinessDate)->format('d M Y') }}.</p>
-                </div>
+            <form method="GET" action="{{ route('purchasing.prices.index') }}" class="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
                 <div>
                     <label for="search" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Product Search</label>
                     <div class="relative mt-2">
@@ -45,11 +35,11 @@
                             </svg>
                         </button>
                     </div>
-                    <p class="mt-2 text-xs font-semibold text-slate-400">Filters the loaded product list instantly while you type.</p>
+                    <p class="mt-2 text-xs font-semibold text-slate-400">Products are sorted by today&apos;s order quantity for {{ \Illuminate\Support\Carbon::parse($targetBusinessDate)->format('d M Y') }}.</p>
                 </div>
                 <div class="flex flex-col gap-2 sm:flex-row">
                     <button type="submit" class="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-black text-white">
-                        Load Category
+                        Search
                     </button>
                     <a href="{{ route('purchasing.price-groups.index') }}" class="inline-flex items-center justify-center rounded-2xl border border-slate-200 px-5 py-3 text-sm font-black text-slate-700">
                         Shop Price Categories
@@ -60,15 +50,14 @@
 
         <form method="POST" action="{{ route('purchasing.prices.update') }}" class="purchase-manager-panel overflow-hidden">
             @csrf
-            <input type="hidden" name="relationship_type" value="{{ $selectedRelationshipType }}">
             <input type="hidden" name="search" value="{{ $search }}">
 
             <div class="border-b border-slate-200 px-5 py-5">
                 <div class="grid gap-4 lg:grid-cols-[1fr_360px] lg:items-end">
                     <div>
                         <p class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Final Selling Price</p>
-                        <h2 class="mt-1 text-lg font-black text-slate-950">{{ $relationshipTypes[$selectedRelationshipType] }} Price Groups</h2>
-                        <p class="mt-1 text-sm text-slate-500">Shop owners only see the value from their assigned group.</p>
+                        <h2 class="mt-1 text-lg font-black text-slate-950">Daily Price Board</h2>
+                        <p class="mt-1 text-sm text-slate-500">Shop owners only see the value from their assigned category.</p>
                     </div>
                     <div>
                         <label for="reason" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Reason</label>

@@ -75,14 +75,13 @@
                             <thead>
                                 <tr class="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/20">
                                     <th class="py-3 px-6">Product</th>
-                                    @if($order->is_delivered)
+                                    @if($order->is_delivered || $order->delivery_status === 'pending_approval')
                                         <th class="py-3 px-6 text-right">Approved Qty</th>
                                         <th class="py-3 px-6 text-right">Delivered Qty</th>
                                         <th class="py-3 px-6 text-right">Shortage Qty</th>
                                         <th class="py-3 px-6 text-right">Unit Cost</th>
                                         <th class="py-3 px-6 text-right">Shortage Value</th>
                                     @else
-                                        <th class="py-3 px-6 text-center">Fulfillment</th>
                                         <th class="py-3 px-6 text-right">Requested Qty</th>
                                         <th class="py-3 px-6 text-right">Approved Qty</th>
                                         <th class="py-3 px-6 text-center">Status</th>
@@ -96,7 +95,7 @@
                                             {{ $item->product->name }}
                                             <span class="block text-[10px] text-slate-400 font-normal mt-0.5">{{ $item->product->sku }}</span>
                                         </td>
-                                        @if($order->is_delivered)
+                                        @if($order->is_delivered || $order->delivery_status === 'pending_approval')
                                             <td class="py-4 px-6 text-right font-semibold text-slate-700">
                                                 {{ number_format((float) ($item->approved_qty ?? 0.00), 2) }} {{ $item->unit }}
                                             </td>
@@ -113,28 +112,6 @@
                                                 Rs. {{ number_format((float) ($item->shortage_value ?? 0.00), 2) }}
                                             </td>
                                         @else
-                                            <td class="py-4 px-6 text-center">
-                                                @if($showApprovalForm)
-                                                    <div class="inline-flex rounded-lg p-0.5 bg-slate-100 border border-slate-200">
-                                                        <label class="cursor-pointer">
-                                                            <input type="radio" name="fulfillment_types[{{ $item->id }}]" value="warehouse" @checked(($item->fulfillment_type ?? 'warehouse') === 'warehouse') form="review-form" class="sr-only peer">
-                                                            <span class="inline-block px-3 py-1 rounded-md text-[10px] font-bold text-slate-500 peer-checked:bg-white peer-checked:text-slate-800 peer-checked:shadow-sm transition-all select-none">
-                                                                Warehouse
-                                                            </span>
-                                                        </label>
-                                                        <label class="cursor-pointer">
-                                                            <input type="radio" name="fulfillment_types[{{ $item->id }}]" value="selection" @checked(($item->fulfillment_type ?? 'warehouse') === 'selection') form="review-form" class="sr-only peer">
-                                                            <span class="inline-block px-3 py-1 rounded-md text-[10px] font-bold text-slate-500 peer-checked:bg-white peer-checked:text-slate-800 peer-checked:shadow-sm transition-all select-none">
-                                                                Selection
-                                                            </span>
-                                                        </label>
-                                                    </div>
-                                                @else
-                                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border {{ ($item->fulfillment_type ?? 'warehouse') === 'selection' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-slate-50 text-slate-700 border-slate-200' }}">
-                                                        {{ ($item->fulfillment_type ?? 'warehouse') === 'selection' ? 'Selection (Packet)' : 'Warehouse (Bulk)' }}
-                                                    </span>
-                                                @endif
-                                            </td>
                                             <td class="py-4 px-6 text-right font-semibold text-slate-800">
                                                 {{ $item->requested_qty }} {{ $item->unit }}
                                             </td>
@@ -193,7 +170,37 @@
 
             <!-- Right Column: Status Summary & Update Requests -->
             <div class="space-y-6">
-                @if($showApprovalForm)
+                @if($order->is_late && $order->state === 'submitted' && $canApprove)
+                    <!-- Late Requisition Review Actions Card -->
+                    <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
+                        <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider pb-3 border-b border-slate-100 text-amber-600">Late Requisition</h2>
+                        
+                        <div class="bg-amber-50 border border-amber-100 text-amber-800 text-xs rounded-2xl p-4 leading-normal flex items-start gap-2.5">
+                            <svg class="w-4 h-4 text-amber-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                            <div>
+                                <span class="font-bold block mb-1">Late Submission:</span>
+                                This order was submitted after the 9:30 PM cutoff. Accept it to include it in the Consolidated Board, or reject it.
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col gap-2.5 pt-2">
+                            <form method="POST" action="{{ route('requisitions.accept-late', $order->order_number) }}">
+                                @csrf
+                                <button type="submit" class="w-full bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold py-3 rounded-xl shadow-sm hover:shadow transition-all cursor-pointer focus:outline-none flex items-center justify-center gap-1.5 border-0">
+                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                                    Accept Request
+                                </button>
+                            </form>
+                            <form method="POST" action="{{ route('requisitions.reject-late', $order->order_number) }}">
+                                @csrf
+                                <button type="submit" class="w-full bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold py-3 rounded-xl border border-red-200 transition-all cursor-pointer focus:outline-none flex items-center justify-center gap-1.5">
+                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    Reject Request
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                @elseif($showApprovalForm)
                     <!-- Review Actions Card -->
                     <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
                         <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider pb-3 border-b border-slate-100">Review Actions</h2>
@@ -222,6 +229,29 @@
                     </div>
                 @endif
 
+                @if($order->delivery_status === 'pending_approval' && !$order->is_delivered)
+                    <!-- Review Discrepancies Card -->
+                    <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
+                        <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider pb-3 border-b border-slate-100">Review Discrepancies</h2>
+                        
+                        <div class="bg-amber-50 border border-amber-100 text-amber-800 text-xs rounded-2xl p-4 leading-normal flex items-start gap-2.5">
+                            <svg class="w-4 h-4 text-amber-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                            <div>
+                                <span class="font-bold block mb-1">Discrepancy Detected:</span>
+                                The shop owner submitted a check-in with shortages. Please review the table on the left, then approve to finalize the stock consumption and check-in.
+                            </div>
+                        </div>
+
+                        <form method="POST" action="{{ route('requisitions.delivery.approve', $order->order_number) }}">
+                            @csrf
+                            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-3 rounded-xl shadow-sm hover:shadow transition-all cursor-pointer focus:outline-none flex items-center justify-center gap-1.5 border-0">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                                Approve Discrepancies & Finalize
+                            </button>
+                        </form>
+                    </div>
+                @endif
+
                 <!-- Status & General Info Card -->
                 <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
                     <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider pb-3 border-b border-slate-100">Requisition Status</h2>
@@ -233,6 +263,11 @@
                                 <span class="inline-flex items-center gap-1.5 bg-teal-50 text-teal-700 px-3 py-1 rounded-full text-xs font-black border border-teal-100">
                                     <svg class="w-4 h-4 stroke-current" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296a3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0110 21.036 3.745 3.745 0 016.704 19.4a3.745 3.745 0 01-1.043-3.296a3.745 3.745 0 01-3.296-1.043A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296a3.745 3.745 0 013.296-1.043A3.745 3.745 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043a3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" /></svg>
                                     Delivered
+                                </span>
+                            @elseif($order->delivery_status === 'pending_approval')
+                                <span class="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-xs font-black border border-amber-100">
+                                    <svg class="w-4 h-4 stroke-current" fill="none" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                    Pending Discrepancy Approval
                                 </span>
                             @elseif($order->is_allocation_completed)
                                 <span class="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-xs font-black border border-indigo-100">
@@ -282,7 +317,7 @@
                         <span class="font-semibold text-slate-800">{{ $order->creator ? $order->creator->name : 'Shop Owner' }}</span>
                     </div>
 
-                    @if($order->is_delivered)
+                    @if($order->is_delivered || $order->delivery_status === 'pending_approval')
                         <div class="flex items-center justify-between text-xs">
                             <span class="text-slate-400 font-bold">Delivery Status</span>
                             <span class="font-semibold text-slate-800">{{ str($order->delivery_status ?? 'delivered')->replace('_', ' ')->title() }}</span>
@@ -295,9 +330,9 @@
                 </div>
 
                 <!-- Delivery & Check-in Details / Actions -->
-                @if($order->is_delivered)
+                @if($order->is_delivered || $order->delivery_status === 'pending_approval')
                     <div class="bg-slate-50 border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
-                        <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider pb-3 border-b border-slate-200">Delivery Receipt</h2>
+                        <h2 class="text-sm font-black text-slate-800 uppercase tracking-wider pb-3 border-b border-slate-200">{{ $order->is_delivered ? 'Delivery Receipt' : 'Pending Delivery Receipt' }}</h2>
                         <div class="space-y-3 text-xs">
                             <div class="flex items-center justify-between">
                                 <span class="text-slate-400 font-bold">Checked-in By</span>

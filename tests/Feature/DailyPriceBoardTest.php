@@ -42,7 +42,7 @@ class DailyPriceBoardTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Daily Price Board');
-        $response->assertSee('Shop Category');
+        $response->assertSee('Product Search');
         $response->assertSee('Save Daily Prices');
         $response->assertSee('Today&apos;s Order', false);
     }
@@ -115,24 +115,20 @@ class DailyPriceBoardTest extends TestCase
 
         $product = Product::firstOrFail();
         $groupA = ShopPriceGroup::factory()->create([
-            'relationship_type' => ShopPriceGroup::OWN,
             'name' => 'A',
             'default_margin_percent' => 10,
         ]);
         $groupB = ShopPriceGroup::factory()->create([
-            'relationship_type' => ShopPriceGroup::OWN,
             'name' => 'B',
             'default_margin_percent' => 10,
         ]);
         $groupC = ShopPriceGroup::factory()->create([
-            'relationship_type' => ShopPriceGroup::OWN,
             'name' => 'C',
             'default_margin_percent' => 10,
         ]);
 
         $response = $this->actingAs($admin)
             ->post(route('purchasing.prices.update'), [
-                'relationship_type' => ShopPriceGroup::OWN,
                 'reason' => 'Market correction',
                 'simple_prices' => [
                     $product->id => [
@@ -143,7 +139,7 @@ class DailyPriceBoardTest extends TestCase
                 ],
             ]);
 
-        $response->assertRedirect(route('purchasing.prices.index', ['relationship_type' => ShopPriceGroup::OWN]));
+        $response->assertRedirect(route('purchasing.prices.index'));
 
         $this->assertDatabaseHas('daily_product_prices', [
             'product_id' => $product->id,
@@ -195,7 +191,6 @@ class DailyPriceBoardTest extends TestCase
 
         $product = Product::firstOrFail();
         $group = ShopPriceGroup::factory()->create([
-            'relationship_type' => ShopPriceGroup::PARTNERSHIP,
             'name' => 'B',
             'default_margin_percent' => 12,
         ]);
@@ -211,14 +206,13 @@ class DailyPriceBoardTest extends TestCase
 
         $this->actingAs($manager)
             ->post(route('purchasing.prices.update'), [
-                'relationship_type' => ShopPriceGroup::PARTNERSHIP,
                 'simple_prices' => [
                     $product->id => [
                         $group->id => 101.25,
                     ],
                 ],
             ])
-            ->assertRedirect(route('purchasing.prices.index', ['relationship_type' => ShopPriceGroup::PARTNERSHIP]));
+            ->assertRedirect(route('purchasing.prices.index'));
 
         $this->assertSame(101.25, (float) DailyProductPrice::query()
             ->where('product_id', $product->id)

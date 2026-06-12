@@ -15,14 +15,7 @@ class ShopPriceGroup extends Model
     /** @use HasFactory<ShopPriceGroupFactory> */
     use HasFactory;
 
-    public const OWN = 'own';
-
-    public const PARTNERSHIP = 'partnership';
-
-    public const OTHERS = 'others';
-
     protected $fillable = [
-        'relationship_type',
         'name',
         'default_margin_percent',
         'is_active',
@@ -34,18 +27,6 @@ class ShopPriceGroup extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
-
-    /**
-     * @return array<string, string>
-     */
-    public static function relationshipTypes(): array
-    {
-        return [
-            self::OWN => 'Own',
-            self::PARTNERSHIP => 'Partnership',
-            self::OTHERS => 'Others',
-        ];
-    }
 
     public function shops(): HasMany
     {
@@ -69,6 +50,6 @@ class ShopPriceGroup extends Model
 
     public function getDisplayNameAttribute(): string
     {
-        return (self::relationshipTypes()[$this->relationship_type] ?? ucfirst((string) $this->relationship_type)).' / '.$this->name;
+        return 'Category '.$this->name;
     }
 }

@@ -23,6 +23,7 @@ class Product extends Model implements AuditableContract
 
     protected $fillable = [
         'category_id',
+        'default_warehouse_id',
         'name',
         'sku',
         'unit',
@@ -33,6 +34,7 @@ class Product extends Model implements AuditableContract
     ];
 
     protected $casts = [
+        'default_warehouse_id' => 'integer',
         'base_price' => 'decimal:2',
         'is_active' => 'boolean',
         'created_at' => 'datetime',
@@ -52,6 +54,11 @@ class Product extends Model implements AuditableContract
     public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class);
+    }
+
+    public function defaultWarehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class, 'default_warehouse_id');
     }
 
     public function stockBatches(): HasMany

@@ -83,6 +83,7 @@ class ProcessBatchSortingAction
                         'type' => StockMovementType::In->value,
                         'quantity' => $quantity,
                         'cost_per_unit' => $batch->cost_per_kg,
+                        'warehouse_id' => $batch->warehouse_id,
                         'notes' => "Sorted from batch {$batch->reference}",
                     ]);
                 }

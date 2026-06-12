@@ -22,7 +22,6 @@ class ShopPriceGroupFactory extends Factory
     public function definition(): array
     {
         return [
-            'relationship_type' => $this->faker->randomElement(array_keys(ShopPriceGroup::relationshipTypes())),
             'name' => strtoupper($this->faker->bothify('?')),
             'default_margin_percent' => $this->faker->randomFloat(2, 5, 15),
             'is_active' => true,

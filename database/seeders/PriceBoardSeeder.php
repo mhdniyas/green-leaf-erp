@@ -26,17 +26,16 @@ class PriceBoardSeeder extends Seeder
             ->update(['shop_price_group_id' => $defaultGroup->id]);
 
         $shopAssignments = [
-            'SHOP_CASIO' => [ShopPriceGroup::OWN, 'A'],
-            'SHOP_BUDEGERE' => [ShopPriceGroup::OWN, 'B'],
-            'SHOP_ASHIRWAD' => [ShopPriceGroup::PARTNERSHIP, 'A'],
-            'SHOP_BEGUR' => [ShopPriceGroup::PARTNERSHIP, 'B'],
-            'SHOP_BAZARO' => [ShopPriceGroup::OTHERS, 'A'],
-            'SHOP_CARRY' => [ShopPriceGroup::OTHERS, 'C'],
+            'SHOP_CASIO' => 'A',
+            'SHOP_BUDEGERE' => 'B',
+            'SHOP_ASHIRWAD' => 'A',
+            'SHOP_BEGUR' => 'B',
+            'SHOP_BAZARO' => 'A',
+            'SHOP_CARRY' => 'C',
         ];
 
-        foreach ($shopAssignments as $shopCode => [$relationshipType, $name]) {
+        foreach ($shopAssignments as $shopCode => $name) {
             $group = ShopPriceGroup::query()
-                ->where('relationship_type', $relationshipType)
                 ->where('name', $name)
                 ->first();
 

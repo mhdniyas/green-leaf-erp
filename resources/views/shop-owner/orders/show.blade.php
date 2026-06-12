@@ -6,7 +6,20 @@
 @php($breadcrumbs = [['label' => 'Daily Orders', 'url' => route('shop-owner.orders.index')], ['label' => $order->order_number]])
 
 @section('page_actions')
-    @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.history'), 'label' => 'Order History', 'classes' => 'border border-slate-200 bg-white text-slate-800'])
+    <div class="flex flex-wrap gap-2">
+        @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.history'), 'label' => 'Order History', 'classes' => 'border border-slate-200 bg-white text-slate-800'])
+        <?php
+            $isTomorrowOrder = $order->business_date->isTomorrow();
+            $purchaseOrdersLockedForTomorrow = $order->linkedPurchaseOrdersHaveGoodsReceived();
+            $canRequestUpdate = $isTomorrowOrder && 
+                                !$order->canEditDirectly() && 
+                                (in_array($order->state, ['submitted', 'update_requested'], true) || 
+                                 ($order->state === 'approved' && !$purchaseOrdersLockedForTomorrow));
+        ?>
+        @if ($canRequestUpdate)
+            @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.create'), 'label' => 'Request Update', 'classes' => 'bg-amber-600 text-white hover:bg-amber-700'])
+        @endif
+    </div>
 @endsection
 
 @section('content')

@@ -22,6 +22,7 @@ class StockBatch extends Model
 
     protected $fillable = [
         'product_id',
+        'warehouse_id',
         'created_by',
         'reference',
         'received_at',
@@ -30,17 +31,23 @@ class StockBatch extends Model
         'transport_cost',
         'labour_cost',
         'status',
+        'warehouse_receive_pending',
+        'warehouse_confirmed_at',
+        'warehouse_confirmed_by',
         'notes',
         'sorted_at',
     ];
 
     protected $casts = [
+        'warehouse_id' => 'integer',
         'received_at' => 'date',
         'total_kg' => 'decimal:3',
         'cost_per_kg' => 'decimal:4',
         'transport_cost' => 'decimal:2',
         'labour_cost' => 'decimal:2',
         'status' => BatchStatus::class,
+        'warehouse_receive_pending' => 'boolean',
+        'warehouse_confirmed_at' => 'datetime',
         'sorted_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
@@ -61,9 +68,19 @@ class StockBatch extends Model
         return $this->belongsTo(Product::class);
     }
 
+    public function warehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class);
+    }
+
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function warehouseConfirmedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'warehouse_confirmed_by');
     }
 
     public function stockMovements(): HasMany

@@ -14,19 +14,23 @@
             <span data-order-total-items>{{ $draftItems }}</span> items ·
             <span data-order-total-qty>{{ number_format($draftQuantity, 2, '.', '') }}</span> total qty
         </p>
-        <p class="mt-2 text-sm font-bold text-cyan-700">Estimated value · INR <span data-order-total-value>0.00</span></p>
+        <span data-order-total-value class="hidden">0.00</span>
         @if (isset($order) && $order)
-            <div class="mt-4 flex flex-wrap gap-2">
+            <div class="mt-4 flex items-center gap-3">
                 @include('shop-owner.orders.partials.order-status-badge', ['order' => $order])
-                @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.show', $order->order_number), 'label' => 'Open', 'classes' => 'bg-slate-900 text-white'])
+                <a href="{{ route('shop-owner.orders.show', $order->order_number) }}" class="inline-flex items-center justify-center rounded-full bg-slate-950 px-4 text-xs font-bold text-white hover:bg-slate-800 transition active:scale-95 duration-150 h-[26px]">
+                    Open
+                </a>
             </div>
         @endif
     @elseif (isset($order) && $order)
         <p class="mt-3 text-lg font-black text-slate-900">{{ $order->order_number }}</p>
         <p class="mt-1 text-sm text-slate-600">{{ $order->items->count() }} items · {{ number_format((float) $order->items->sum('requested_qty'), 2) }} total qty</p>
-        <div class="mt-4 flex flex-wrap gap-2">
+        <div class="mt-4 flex items-center gap-3">
             @include('shop-owner.orders.partials.order-status-badge', ['order' => $order])
-            @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.show', $order->order_number), 'label' => 'Open', 'classes' => 'bg-slate-900 text-white'])
+            <a href="{{ route('shop-owner.orders.show', $order->order_number) }}" class="inline-flex items-center justify-center rounded-full bg-slate-950 px-4 text-xs font-bold text-white hover:bg-slate-800 transition active:scale-95 duration-150 h-[26px]">
+                Open
+            </a>
         </div>
     @else
         @php
@@ -35,6 +39,6 @@
         @endphp
         <p class="mt-3 text-sm text-slate-600">Use yesterday’s order as the starting point for tomorrow’s demand.</p>
         <p class="mt-2 text-lg font-black text-slate-900">{{ $estimatedItems }} items · {{ number_format($estimatedQuantity, 2) }} suggested qty</p>
-        <p class="mt-2 text-sm font-bold text-cyan-700">Estimated value · INR <span data-order-total-value>0.00</span></p>
+        <span data-order-total-value class="hidden">0.00</span>
     @endif
 </div>

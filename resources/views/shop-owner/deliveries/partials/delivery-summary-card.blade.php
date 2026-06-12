@@ -8,18 +8,18 @@
         @include('shop-owner.deliveries.partials.delivery-status-badge', ['order' => $order])
     </div>
 
-    <div class="mt-5 grid gap-4 md:grid-cols-3">
-        <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-            <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Approved Qty</p>
-            <p class="mt-2 text-2xl font-black text-slate-900">{{ number_format((float) $order->items->sum('approved_qty'), 2) }}</p>
+    <div class="mt-5 grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
+        <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
+            <p class="text-[10px] sm:text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Approved Qty</p>
+            <p class="mt-2 text-xl sm:text-2xl font-black text-slate-900">{{ number_format((float) $order->items->sum('approved_qty'), 2) }}</p>
         </div>
-        <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-            <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Delivered Qty</p>
-            <p class="mt-2 text-2xl font-black text-slate-900">{{ number_format((float) $order->items->sum('delivered_qty'), 2) }}</p>
+        <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
+            <p class="text-[10px] sm:text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Delivered Qty</p>
+            <p class="mt-2 text-xl sm:text-2xl font-black text-slate-900">{{ number_format((float) $order->items->sum('delivered_qty'), 2) }}</p>
         </div>
-        <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-            <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Shortage Value</p>
-            <p class="mt-2 text-2xl font-black text-red-600">Rs. {{ number_format((float) $order->total_shortage_value, 2) }}</p>
+        <div class="col-span-2 md:col-span-1 rounded-3xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
+            <p class="text-[10px] sm:text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Shortage Value</p>
+            <p class="mt-2 text-xl sm:text-2xl font-black text-red-600">Rs. {{ number_format((float) $order->total_shortage_value, 2) }}</p>
         </div>
     </div>
 

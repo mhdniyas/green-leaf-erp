@@ -26,9 +26,16 @@ class GoodsReceivedController extends Controller
     {
         Gate::authorize('viewAny', GoodsReceived::class);
 
-        $grns = $this->service->paginate(20);
+        $type = $request->input('tab', 'regular') === 'addon' ? 'addon' : 'regular';
 
-        return view('purchase-manager.grns.index', compact('grns'));
+        $grns = GoodsReceived::where('status', '!=', 'draft')
+            ->where('is_extra', $type === 'addon')
+            ->with(['purchaseOrder.supplier', 'receivedBy', 'items.product'])
+            ->orderByDesc('received_at')
+            ->orderByDesc('id')
+            ->paginate(20);
+
+        return view('purchase-manager.grns.index', compact('grns', 'type'));
     }
 
     public function create(Request $request): View|RedirectResponse

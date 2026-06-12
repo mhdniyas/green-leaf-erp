@@ -6,7 +6,11 @@
 @php($breadcrumbs = [['label' => 'Order History']])
 
 @section('content')
-    <section class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-        @include('shop-owner.orders.partials.order-history-table', ['orders' => $orders])
-    </section>
+    <div class="space-y-6">
+        @include('shop-owner.orders.partials.order-tabs')
+
+        <section class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+            @include('shop-owner.orders.partials.order-history-table', ['orders' => $orders])
+        </section>
+    </div>
 @endsection

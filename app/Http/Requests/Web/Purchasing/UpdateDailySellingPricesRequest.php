@@ -19,7 +19,6 @@ class UpdateDailySellingPricesRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'relationship_type' => ['required', 'string'],
             'search' => ['nullable', 'string', 'max:255'],
             'reason' => ['nullable', 'string', 'max:1000'],
             'simple_prices' => ['required', 'array'],

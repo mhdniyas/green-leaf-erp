@@ -147,10 +147,38 @@ class DashboardTest extends TestCase
         $response->assertSee(number_format(15.50, 2));
         $response->assertSee($product1->unit);
         $response->assertSee($product2->sku);
-        $response->assertSee('Price');
-        $response->assertSee('Estimated value');
+        $response->assertDontSee('Price');
+        $response->assertDontSee('Estimated value');
         $expectedPrice = app(PriceBoardService::class)->sellingPriceFor($product1, $shop)['price'];
-        $response->assertSee('INR '.number_format($expectedPrice, 2));
+        $response->assertDontSee('INR '.number_format($expectedPrice, 2));
+    }
+
+    public function test_shop_owner_order_show_page_renders_successfully(): void
+    {
+        $this->seed(CategorySeeder::class);
+        $this->seed(ProductSeeder::class);
+
+        $shop = Shop::create([
+            'code' => 'SHOP_SHOW_TEST',
+            'name' => 'Show Shop Test',
+        ]);
+
+        $shopOwner = User::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+        $shopOwner->assignRole('shop');
+
+        $order = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'submitted',
+            'business_date' => today()->addDay()->toDateString(),
+            'created_by' => $shopOwner->id,
+        ]);
+
+        $response = $this->actingAs($shopOwner)
+            ->get(route('shop-owner.orders.show', $order->order_number));
+
+        $response->assertOk();
     }
 
     public function test_shop_owner_order_create_page_shows_update_request_form_after_cutoff_for_submitted_order(): void
@@ -178,7 +206,7 @@ class DashboardTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Order Locked After Cutoff');
-        $response->assertSee('Submit Modified Order Request');
+        $response->assertSee('Submit Update Request');
     }
 
     public function test_shop_owner_dashboard_shows_today_delivery_check_action(): void

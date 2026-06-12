@@ -52,6 +52,7 @@ class StockLedgerService
                 'type' => $movementType->value,
                 'quantity' => $deductionQuantity,
                 'cost_per_unit' => (float) $lot->cost_per_unit,
+                'warehouse_id' => $lot->warehouse_id ? (int) $lot->warehouse_id : null,
                 'notes' => $notes,
             ]);
 
@@ -74,6 +75,7 @@ class StockLedgerService
             ->selectRaw(
                 'stock_movements.batch_id, stock_movements.grade, '.
                 'MAX(stock_movements.cost_per_unit) as cost_per_unit, '.
+                'stock_batches.warehouse_id, '.
                 'SUM(CASE '.
                 'WHEN stock_movements.type IN (?, ?) THEN stock_movements.quantity '.
                 'WHEN stock_movements.type IN (?, ?, ?) THEN -stock_movements.quantity '.
@@ -86,7 +88,7 @@ class StockLedgerService
                     StockMovementType::Sale->value,
                 ]
             )
-            ->groupBy('stock_movements.batch_id', 'stock_movements.grade', 'stock_batches.received_at', 'stock_batches.id')
+            ->groupBy('stock_movements.batch_id', 'stock_movements.grade', 'stock_batches.received_at', 'stock_batches.id', 'stock_batches.warehouse_id')
             ->having('available_quantity', '>', 0)
             ->orderBy('stock_batches.received_at')
             ->orderBy('stock_batches.id')

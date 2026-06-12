@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Web\Admin\ActivityLogController;
 use App\Http\Controllers\Web\Admin\AdminOverviewController;
+use App\Http\Controllers\Web\Admin\DailyPriceApprovalController;
 use App\Http\Controllers\Web\Admin\DailyProgressController;
 use App\Http\Controllers\Web\Admin\UserController;
+use App\Http\Controllers\Web\Admin\WarehouseController;
 use App\Http\Controllers\Web\Auth\LoginController;
 use App\Http\Controllers\Web\DashboardController;
 use App\Http\Controllers\Web\Finance\AccountController;
@@ -24,7 +26,9 @@ use App\Http\Controllers\Web\ProfileController;
 use App\Http\Controllers\Web\Purchasing\DailyPriceBoardController;
 use App\Http\Controllers\Web\Purchasing\GoodsReceivedController;
 use App\Http\Controllers\Web\Purchasing\PurchaseInvoiceController;
+use App\Http\Controllers\Web\Purchasing\PurchaseManagerGrnApprovalController;
 use App\Http\Controllers\Web\Purchasing\PurchaseOrderController;
+use App\Http\Controllers\Web\Purchasing\PurchaserDashboardController;
 use App\Http\Controllers\Web\Purchasing\ShopPriceGroupController;
 use App\Http\Controllers\Web\Purchasing\SupplierController;
 use App\Http\Controllers\Web\RequisitionController;
@@ -34,6 +38,7 @@ use App\Http\Controllers\Web\Sales\SalesInvoiceController;
 use App\Http\Controllers\Web\Sales\SalesOrderController;
 use App\Http\Controllers\Web\ShopOwnerController;
 use App\Http\Controllers\Web\ShopPresetController;
+use App\Http\Controllers\Web\Warehouse\WarehouseReceiverController;
 use Illuminate\Support\Facades\Route;
 
 // Root redirect
@@ -62,7 +67,6 @@ Route::middleware('auth')->group(function () {
         Route::get('/orders', [ShopOwnerController::class, 'ordersIndex'])->name('orders.index');
         Route::get('/orders/create', [ShopOwnerController::class, 'ordersCreate'])->name('orders.create');
         Route::get('/orders/history', [ShopOwnerController::class, 'ordersHistory'])->name('orders.history');
-        Route::get('/daily-prices', [ShopOwnerController::class, 'dailyPricesIndex'])->name('prices.index');
         Route::get('/orders/{order_number}', [ShopOwnerController::class, 'ordersShow'])->name('orders.show');
         Route::get('/deliveries', [ShopOwnerController::class, 'deliveriesIndex'])->name('deliveries.index');
         Route::get('/deliveries/{order_number}', [ShopOwnerController::class, 'deliveriesShow'])->name('deliveries.show');
@@ -124,7 +128,9 @@ Route::middleware('auth')->group(function () {
         Route::post('orders/{order}/send', [PurchaseOrderController::class, 'send'])->name('orders.send');
         Route::put('orders/{order}/items', [PurchaseOrderController::class, 'updateItems'])->name('orders.items.update');
 
-        // Goods Receipts
+        // Goods Receipts — daily-approval must be declared BEFORE the resource to avoid {grn} wildcard collision
+        Route::get('grns/daily-approval', [PurchaseManagerGrnApprovalController::class, 'index'])->name('grns.daily-approval');
+        Route::post('grns/daily-approval/approve', [PurchaseManagerGrnApprovalController::class, 'approve'])->name('grns.daily-approval.approve');
         Route::resource('grns', GoodsReceivedController::class)->only(['index', 'create', 'store', 'show', 'edit', 'update']);
         Route::post('grns/{grn}/approve', [GoodsReceivedController::class, 'approve'])->name('grns.approve');
         Route::post('grns/{grn}/reject', [GoodsReceivedController::class, 'reject'])->name('grns.reject');
@@ -176,8 +182,13 @@ Route::middleware('auth')->group(function () {
     Route::post('/requisitions/{order_number}/edit', [RequisitionController::class, 'update'])->name('requisitions.update');
     Route::post('/requisitions/{order_number}/update-request', [RequisitionController::class, 'requestUpdate'])->name('requisitions.update-request');
     Route::post('/requisitions/{order_number}/review', [RequisitionController::class, 'review'])->name('requisitions.review');
+    Route::post('/requisitions/{order_number}/accept-late', [RequisitionController::class, 'acceptLateRequisition'])->name('requisitions.accept-late');
+    Route::post('/requisitions/{order_number}/reject-late', [RequisitionController::class, 'rejectLateRequisition'])->name('requisitions.reject-late');
+    Route::post('/requisitions/{order_number}/approve-update', [RequisitionController::class, 'approveUpdate'])->name('requisitions.approve-update');
+    Route::post('/requisitions/{order_number}/reject-update', [RequisitionController::class, 'rejectUpdate'])->name('requisitions.reject-update');
     Route::get('/requisitions/{order_number}/delivery', [RequisitionController::class, 'showDelivery'])->name('requisitions.delivery.show');
     Route::post('/requisitions/{order_number}/delivery', [RequisitionController::class, 'recordDelivery'])->name('requisitions.delivery.record');
+    Route::post('/requisitions/{order_number}/approve-delivery', [RequisitionController::class, 'approveDeliveryDiscrepancy'])->name('requisitions.delivery.approve');
     Route::get('/requisitions-board', [RequisitionController::class, 'board'])->name('requisitions.board');
     Route::post('/requisitions-board', [RequisitionController::class, 'saveBoard'])->name('requisitions.board.save');
     Route::get('/requisitions-board/export/csv', [RequisitionController::class, 'exportBoardCsv'])->name('requisitions.board.export.csv');
@@ -190,11 +201,30 @@ Route::middleware('auth')->group(function () {
     Route::get('/requisitions/{order_number}/export/pdf', [RequisitionController::class, 'exportPdf'])->name('requisitions.export.pdf');
     Route::post('/requisitions', [RequisitionController::class, 'store'])->name('requisitions.store');
 
+    // ── Purchaser Dashboard ────────────────────────────────────────────────
+    Route::get('/purchaser/dashboard', [PurchaserDashboardController::class, 'index'])->name('purchaser.dashboard');
+    Route::post('/purchaser/purchase/draft', [PurchaserDashboardController::class, 'recordDraftPurchase'])->name('purchaser.purchase.draft.record');
+    Route::post('/purchaser/purchase/draft/delete/{id}', [PurchaserDashboardController::class, 'deleteDraftPurchase'])->name('purchaser.purchase.draft.delete');
+    Route::post('/purchaser/purchase/submit', [PurchaserDashboardController::class, 'submitPurchases'])->name('purchaser.purchase.submit');
+
+    // ── Warehouse Receiver ─────────────────────────────────────────────────
+    Route::prefix('warehouse-receiver')->name('warehouse.receiver.')->group(function () {
+        Route::get('/checklist', [WarehouseReceiverController::class, 'index'])->name('checklist');
+        Route::post('/confirm/{batch}', [WarehouseReceiverController::class, 'confirm'])->name('confirm');
+        Route::post('/confirm-all', [WarehouseReceiverController::class, 'confirmAll'])->name('confirm-all');
+        Route::get('/loadout/{order}', [WarehouseReceiverController::class, 'loadoutDetails'])->name('loadout.show');
+        Route::post('/loadout/item/{item}', [WarehouseReceiverController::class, 'loadoutItem'])->name('loadout.item');
+        Route::post('/loadout/order/{order}/all', [WarehouseReceiverController::class, 'loadoutOrderAll'])->name('loadout.order-all');
+    });
+
     // ── Admin ──────────────────────────────────────────────────────────────
     Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('/', AdminOverviewController::class)->name('overview');
         Route::resource('users', UserController::class);
+        Route::resource('warehouses', WarehouseController::class);
         Route::get('daily-progress', DailyProgressController::class)->name('daily-progress');
         Route::get('activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
+        Route::get('price-approvals', [DailyPriceApprovalController::class, 'index'])->name('price-approvals.index');
+        Route::post('price-approvals/approve', [DailyPriceApprovalController::class, 'approve'])->name('price-approvals.approve');
     });
 });

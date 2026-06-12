@@ -1,312 +1,587 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // ── DOM ELEMENTS ────────────────────────────────────────────────────────
+    const formNode = document.getElementById('shop-owner-order-form');
     const presetsNode = document.getElementById('shop-owner-presets-data');
     const productCatalogNode = document.getElementById('shop-owner-product-catalog');
     const presetSelect = document.querySelector('[data-preset-select]');
     const applyPresetButton = document.querySelector('[data-apply-preset]');
-    const quantityInputs = Array.from(document.querySelectorAll('[data-master-qty]'));
+    const masterQtyInputs = Array.from(document.querySelectorAll('[data-master-qty]'));
     const savePresetForm = document.querySelector('[data-save-preset-form]');
+    
+    // Search & Category Filters
     const searchInput = document.querySelector('[data-product-search]');
-    const searchResultsWrap = document.querySelector('[data-search-results-wrap]');
-    const searchResultsContainer = document.querySelector('[data-search-results]');
-    const searchEmptyState = document.querySelector('[data-search-empty]');
-    const clearSearchButton = document.querySelector('[data-clear-search]');
-    const selectedProductsContainer = document.querySelector('[data-selected-products]');
-    const emptySelectionState = document.querySelector('[data-empty-selection]');
-    const selectedCountBadge = document.querySelector('[data-selected-count-badge]');
-    const selectedTableHead = document.querySelector('[data-selected-table-head]');
-    const fullCatalog = document.querySelector('[data-full-catalog]');
-    const catalogCards = Array.from(document.querySelectorAll('[data-product-row]'));
-    const addButtons = Array.from(document.querySelectorAll('[data-add-product]'));
-    const draftStorageKey = 'shop-owner-order-draft';
+    const categoryPills = Array.from(document.querySelectorAll('[data-category-pill]'));
+    const productCards = Array.from(document.querySelectorAll('[data-product-card]'));
+    const productListContainer = document.getElementById('product-list-container');
+    const noSearchResults = document.getElementById('no-search-results');
+    const currentListTitle = document.getElementById('current-list-title');
+    const listResultsCount = document.getElementById('list-results-count');
 
+    // Bottom Sheet Quantity Modal
+    const qtyModalBackdrop = document.getElementById('qty-modal-backdrop');
+    const qtyModalSheet = document.getElementById('qty-modal-sheet');
+    const qtyModalClose = document.getElementById('qty-modal-close');
+    const modalSku = document.getElementById('modal-product-sku');
+    const modalName = document.getElementById('modal-product-name');
+    const modalPriceLabel = document.getElementById('modal-product-price-label');
+    const modalUnitToggleContainer = document.getElementById('modal-unit-toggle-container');
+    const modalUnitBtnStandard = document.getElementById('modal-unit-btn-standard');
+    const modalUnitBtnBox = document.getElementById('modal-unit-btn-box');
+    const modalQtyInput = document.getElementById('modal-qty-input');
+    const modalQtyUnitLabel = document.getElementById('modal-qty-unit-label');
+    const modalSuggestedBadge = document.getElementById('modal-suggested-badge');
+    const modalStepperMinus = document.getElementById('modal-stepper-minus');
+    const modalStepperPlus = document.getElementById('modal-stepper-plus');
+    const modalConversionHelper = document.getElementById('modal-conversion-helper');
+    const modalConversionFactorText = document.getElementById('modal-conversion-factor-text');
+    const modalConversionCalc = document.getElementById('modal-conversion-calc');
+    const modalQuickPills = document.getElementById('modal-quick-pills');
+    const modalSubtotal = document.getElementById('modal-subtotal');
+    const modalRemoveBtn = document.getElementById('modal-remove-btn');
+    const modalAddBtn = document.getElementById('modal-add-btn');
+
+    // Persistent Floating Cart Bar
+    const floatingCartBar = document.getElementById('floating-cart-bar');
+    const cartBarItemsCount = document.getElementById('cart-bar-items-count');
+    const cartBarTotalValue = document.getElementById('cart-bar-total-value');
+    const cartBarReviewBtn = document.getElementById('cart-bar-review-btn');
+
+    // Cart Review Drawer
+    const cartReviewBackdrop = document.getElementById('cart-review-backdrop');
+    const cartReviewDrawer = document.getElementById('cart-review-drawer');
+    const cartReviewClose = document.getElementById('cart-review-close');
+    const reviewItemsCount = document.getElementById('review-items-count');
+    const reviewItemsList = document.getElementById('review-items-list');
+    const reviewTotalValueNode = document.getElementById('review-total-value');
+    const reviewAddMoreBtn = document.getElementById('review-add-more-btn');
+    const reviewSubmitBtn = document.getElementById('review-submit-btn');
+
+    // ── DATA STATE ──────────────────────────────────────────────────────────
     const presets = presetsNode ? JSON.parse(presetsNode.textContent ?? '[]') : [];
     const productCatalog = productCatalogNode ? JSON.parse(productCatalogNode.textContent ?? '[]') : [];
-    const productsById = new Map(productCatalog.map((product) => [String(product.id), product]));
-    const masterInputsById = new Map(quantityInputs.map((input) => [input.getAttribute('data-product-id'), input]));
-    const selectedRowInputHandlers = new WeakMap();
+    const productsById = new Map(productCatalog.map((p) => [String(p.id), p]));
+    const masterInputsById = new Map(masterQtyInputs.map((input) => [input.getAttribute('data-product-id'), input]));
+    const draftStorageKey = 'shop-owner-order-draft';
 
-    const selectedProducts = () => productCatalog.filter((product) => {
-        const input = masterInputsById.get(String(product.id));
+    // Active Modal Context
+    let currentModalProduct = null;
+    let currentModalUnitMode = 'standard'; // 'standard' or 'box'
+    let currentModalConversionFactor = 10; // default for kg
 
-        return input && Number.parseFloat(input.value) > 0;
-    });
+    // ── HELPERS ─────────────────────────────────────────────────────────────
+    const formatCurrency = (value) => `INR ${Number(value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-    const formatCurrency = (value) => `INR ${Number(value ?? 0).toFixed(2)}`;
+    const getConversionFactor = (unit) => {
+        const lowerUnit = String(unit).toLowerCase().trim();
+        if (lowerUnit === 'kg') {
+            return 10; // 1 Box = 10 Kg
+        }
+        if (['piece', 'pcs', 'bunch', 'bag', 'roll'].includes(lowerUnit)) {
+            return 24; // 1 Box = 24 units
+        }
+        return 1; // Already box or other unit
+    };
 
     const syncMasterInput = (productId, quantity, shouldRender = true) => {
         const input = masterInputsById.get(String(productId));
         if (!input) {
             return;
         }
-
         input.value = quantity > 0 ? quantity.toFixed(2) : '';
         if (shouldRender) {
             input.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-    };
-
-    const updateSelectedProductCount = (count) => {
-        selectedCountBadge.textContent = `${count} items selected`;
-        emptySelectionState.classList.toggle('hidden', count > 0);
-        selectedTableHead?.classList.toggle('hidden', count === 0);
-    };
-
-    const attachSelectedRowInputEvents = (input) => {
-        if (selectedRowInputHandlers.has(input)) {
-            return;
-        }
-
-        const productId = input.getAttribute('data-selected-qty-input');
-        const handleInput = (event) => {
-            const target = event.currentTarget;
-            const quantity = Number.parseFloat(target.value);
-
-            syncMasterInput(productId, Number.isFinite(quantity) ? quantity : 0, false);
             document.dispatchEvent(new Event('shop-owner-order-input-change'));
-        };
-
-        const handleBlur = (event) => {
-            const target = event.currentTarget;
-            const quantity = Number.parseFloat(target.value);
-
-            syncMasterInput(productId, Number.isFinite(quantity) ? quantity : 0);
-        };
-
-        input.addEventListener('input', handleInput);
-        input.addEventListener('blur', handleBlur);
-        selectedRowInputHandlers.set(input, true);
+        }
     };
 
-    const renderSelectedProducts = () => {
-        if (!selectedProductsContainer || !emptySelectionState || !selectedCountBadge) {
+    const getSelectedProducts = () => productCatalog.filter((product) => {
+        const input = masterInputsById.get(String(product.id));
+        return input && Number.parseFloat(input.value) > 0;
+    });
+
+    // ── RENDER & UI SYNC ────────────────────────────────────────────────────
+    const updateProductCardBadge = (productId, qty, unit) => {
+        const card = document.querySelector(`[data-product-card][data-product-id="${productId}"]`);
+        if (!card) {
+            return;
+        }
+        const badgeContainer = card.querySelector(`[data-badge-container="${productId}"]`);
+        if (!badgeContainer) {
             return;
         }
 
-        const selected = selectedProducts();
-        const selectedIds = new Set(selected.map((product) => String(product.id)));
-
-        updateSelectedProductCount(selected.length);
-
-        Array.from(selectedProductsContainer.querySelectorAll('[data-selected-row]')).forEach((row) => {
-            if (!selectedIds.has(row.getAttribute('data-selected-row'))) {
-                row.remove();
-            }
-        });
-
-        selected
-            .sort((left, right) => left.name.localeCompare(right.name))
-            .forEach((product) => {
-                const input = masterInputsById.get(String(product.id));
-                const quantity = input ? Number.parseFloat(input.value) : 0;
-                const formattedQuantity = Number.isFinite(quantity) ? quantity.toFixed(2) : '';
-                const productPrice = Number(product.price ?? 0);
-                const lineTotal = (Number.isFinite(quantity) ? quantity : 0) * productPrice;
-                let article = selectedProductsContainer.querySelector(`[data-selected-row="${product.id}"]`);
-
-                if (!article) {
-                    article = document.createElement('article');
-                    article.className = 'grid grid-cols-[minmax(0,1.4fr)_90px_150px_90px_36px] gap-2 items-center py-2.5 border-b border-slate-100 hover:bg-slate-50/50 transition sm:grid-cols-[minmax(0,1.5fr)_100px_170px_110px_48px]';
-                    article.setAttribute('data-selected-row', String(product.id));
-                    article.innerHTML = `
-                        <div class="min-w-0">
-                            <p class="font-bold text-slate-900 text-xs sm:text-sm truncate" title="${product.name}">${product.name}</p>
-                            <p class="text-[10px] text-slate-500 truncate">${product.sku} · <span class="uppercase">${product.unit}</span></p>
-                        </div>
-                        <div class="text-right text-xs font-black text-cyan-700">${formatCurrency(productPrice)}</div>
-                        <div class="flex items-center justify-end gap-1">
-                            <button type="button" data-qty-step="${product.id}" data-step="-1" class="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm font-black text-slate-700 transition hover:border-emerald-300 hover:text-emerald-700">-</button>
-                            <input type="number" step="0.01" min="0" value="${formattedQuantity}" data-selected-qty-input="${product.id}" class="shop-owner-qty-input w-20 rounded-xl border border-slate-200 bg-white px-2 py-2 text-right text-xs font-black text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none sm:w-24 sm:text-sm" placeholder="0.00">
-                            <button type="button" data-qty-step="${product.id}" data-step="1" class="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm font-black text-slate-700 transition hover:border-emerald-300 hover:text-emerald-700">+</button>
-                        </div>
-                        <div class="text-right text-xs font-black text-slate-900" data-selected-line-total="${product.id}">
-                            ${formatCurrency(lineTotal)}
-                        </div>
-                        <div class="flex justify-end">
-                            <button type="button" data-remove-product="${product.id}" class="text-slate-400 hover:text-rose-600 p-1 rounded transition" title="Remove">
-                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                            </button>
-                        </div>
-                    `;
-
-                    selectedProductsContainer.appendChild(article);
-                }
-
-                const selectedInput = article.querySelector('[data-selected-qty-input]');
-                if (selectedInput && selectedInput !== document.activeElement) {
-                    selectedInput.value = formattedQuantity;
-                }
-                if (selectedInput) {
-                    attachSelectedRowInputEvents(selectedInput);
-                }
-
-                const lineTotalNode = article.querySelector(`[data-selected-line-total="${product.id}"]`);
-                if (lineTotalNode) {
-                    lineTotalNode.textContent = formatCurrency(lineTotal);
-                }
-            });
-
-        selectedProductsContainer.querySelectorAll('[data-selected-qty-input]').forEach((input) => {
-            attachSelectedRowInputEvents(input);
-        });
-
-        selectedProductsContainer.querySelectorAll('[data-remove-product]').forEach((button) => {
-            if (button.dataset.bound === 'true') {
-                return;
-            }
-
-            button.addEventListener('click', () => {
-                syncMasterInput(button.getAttribute('data-remove-product'), 0);
-            });
-            button.dataset.bound = 'true';
-        });
-
-        selectedProductsContainer.querySelectorAll('[data-qty-step]').forEach((button) => {
-            if (button.dataset.bound === 'true') {
-                return;
-            }
-
-            button.addEventListener('click', () => {
-                const productId = button.getAttribute('data-qty-step');
-                const step = Number.parseFloat(button.getAttribute('data-step') ?? '0');
-                const input = productId ? masterInputsById.get(String(productId)) : null;
-                const currentValue = input ? Number.parseFloat(input.value) : 0;
-                const nextValue = Math.max(0, (Number.isFinite(currentValue) ? currentValue : 0) + step);
-
-                syncMasterInput(productId, nextValue);
-            });
-            button.dataset.bound = 'true';
-        });
+        if (qty > 0) {
+            badgeContainer.innerHTML = `
+                <span class="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-700 border border-emerald-100">
+                    ${qty.toFixed(2)} ${unit}
+                </span>
+            `;
+        } else {
+            badgeContainer.innerHTML = `
+                <div class="w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-slate-400 transition hover:border-emerald-500 hover:text-emerald-500">
+                    <svg class="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                </div>
+            `;
+        }
     };
 
-    const addProductToOrder = (productId) => {
-        const product = productId ? productsById.get(String(productId)) : null;
+    const syncFloatingCartBar = () => {
+        const selected = getSelectedProducts();
+        const totalItems = selected.length;
+        
+        const totalValue = selected.reduce((sum, p) => {
+            const input = masterInputsById.get(String(p.id));
+            const qty = input ? Number.parseFloat(input.value) : 0;
+            return sum + (Number.isFinite(qty) ? qty : 0) * Number(p.price ?? 0);
+        }, 0);
 
+        if (totalItems > 0) {
+            cartBarItemsCount.textContent = `${totalItems} ${totalItems === 1 ? 'item' : 'items'} selected`;
+            cartBarTotalValue.textContent = formatCurrency(totalValue);
+            
+            if (floatingCartBar.classList.contains('hidden')) {
+                floatingCartBar.classList.remove('hidden');
+                setTimeout(() => {
+                    floatingCartBar.classList.remove('translate-y-6', 'opacity-0');
+                }, 50);
+            }
+        } else {
+            floatingCartBar.classList.add('translate-y-6', 'opacity-0');
+            setTimeout(() => {
+                if (getSelectedProducts().length === 0) {
+                    floatingCartBar.classList.add('hidden');
+                }
+            }, 300);
+        }
+    };
+
+    // ── CATEGORY & SEARCH FILTERING ─────────────────────────────────────────
+    let activeCategory = 'frequent';
+
+    const filterProducts = () => {
+        const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+        let visibleCount = 0;
+
+        productCards.forEach((card) => {
+            const sku = card.getAttribute('data-sku') ?? '';
+            const name = card.getAttribute('data-name') ?? '';
+            const category = card.getAttribute('data-category') ?? '';
+            const isFrequent = card.getAttribute('data-is-frequent') === 'true';
+            const searchText = card.getAttribute('data-search-text') ?? '';
+
+            let matchesSearch = query === '' || searchText.includes(query);
+            let matchesCategory = false;
+
+            if (query !== '') {
+                matchesCategory = true; // when searching, category pills are secondary
+            } else if (activeCategory === 'all') {
+                matchesCategory = true;
+            } else if (activeCategory === 'frequent') {
+                matchesCategory = isFrequent;
+            } else {
+                matchesCategory = category === activeCategory;
+            }
+
+            const shouldShow = matchesSearch && matchesCategory;
+            card.classList.toggle('hidden', !shouldShow);
+            if (shouldShow) {
+                visibleCount++;
+            }
+        });
+
+        // Update counts and empty states
+        if (listResultsCount) {
+            listResultsCount.textContent = `${visibleCount} ${visibleCount === 1 ? 'product' : 'products'}`;
+        }
+        if (noSearchResults) {
+            noSearchResults.classList.toggle('hidden', visibleCount > 0);
+        }
+        if (productListContainer) {
+            productListContainer.classList.toggle('hidden', visibleCount === 0);
+        }
+
+        // Update list title
+        if (currentListTitle) {
+            if (query !== '') {
+                currentListTitle.textContent = `Search Results for "${query}"`;
+            } else if (activeCategory === 'frequent') {
+                currentListTitle.textContent = 'Frequently Ordered';
+            } else if (activeCategory === 'all') {
+                currentListTitle.textContent = 'All Products';
+            } else {
+                currentListTitle.textContent = activeCategory;
+            }
+        }
+    };
+
+    categoryPills.forEach((pill) => {
+        pill.addEventListener('click', () => {
+            activeCategory = pill.getAttribute('data-category-pill');
+            
+            // Update active styles
+            categoryPills.forEach((p) => {
+                p.classList.remove('bg-emerald-600', 'text-white', 'shadow-sm');
+                p.classList.add('bg-slate-100', 'text-slate-600', 'hover:bg-slate-200');
+            });
+            pill.classList.remove('bg-slate-100', 'text-slate-600', 'hover:bg-slate-200');
+            pill.classList.add('bg-emerald-600', 'text-white', 'shadow-sm');
+
+            if (searchInput) {
+                searchInput.value = ''; // clear search when switching categories
+            }
+
+            filterProducts();
+        });
+    });
+
+    searchInput?.addEventListener('input', () => {
+        filterProducts();
+    });
+
+    // ── QUANTITY BOTTOM SHEET MODAL ─────────────────────────────────────────
+    const openQtyModal = (productId) => {
+        const product = productsById.get(String(productId));
         if (!product) {
             return;
         }
 
-        const fallbackQuantity = Number(product.suggested_qty ?? 0) > 0 ? Number(product.suggested_qty) : 1;
-        const existingInput = masterInputsById.get(String(product.id));
-        const existingValue = existingInput ? Number.parseFloat(existingInput.value) : 0;
+        currentModalProduct = product;
+        currentModalConversionFactor = getConversionFactor(product.unit);
 
-        syncMasterInput(product.id, existingValue > 0 ? existingValue : fallbackQuantity);
+        // Populate details
+        modalSku.textContent = product.sku;
+        modalName.textContent = product.name;
+        modalPriceLabel.textContent = `${formatCurrency(product.price)} / ${product.unit}`;
+        modalSuggestedBadge.textContent = `Sug: ${Number(product.suggested_qty ?? 0).toFixed(2)}`;
 
-        if (searchInput instanceof HTMLInputElement) {
-            searchInput.value = '';
-            renderSearchResults('');
-            searchInput.focus();
-        }
-    };
+        // Read current qty
+        const masterInput = masterInputsById.get(String(product.id));
+        const currentQty = masterInput ? Number.parseFloat(masterInput.value) : 0;
+        const finalQty = Number.isFinite(currentQty) && currentQty > 0 ? currentQty : 0;
 
-    const autoAddProductFromQuery = () => {
-        const url = new URL(window.location.href);
-        const productId = url.searchParams.get('product');
-        const requestedQuantity = Number.parseFloat(url.searchParams.get('qty') ?? '');
+        // Reset toggles depending on unit
+        const isBoxOnly = String(product.unit).toLowerCase().trim() === 'box';
+        const hasBoxOption = currentModalConversionFactor > 1;
 
-        if (!productId || !productsById.has(String(productId))) {
-            return;
-        }
-
-        addProductToOrder(productId);
-
-        if (Number.isFinite(requestedQuantity) && requestedQuantity > 0) {
-            syncMasterInput(productId, requestedQuantity);
-        }
-
-        const selectedRow = selectedProductsContainer?.querySelector(`[data-selected-row="${productId}"]`);
-        selectedRow?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-        url.searchParams.delete('product');
-        url.searchParams.delete('price_date');
-        url.searchParams.delete('qty');
-        window.history.replaceState({}, '', url.toString());
-    };
-
-    const loadDraftProductsFromStorage = () => {
-        try {
-            const raw = window.localStorage.getItem(draftStorageKey);
-            const draft = raw ? JSON.parse(raw) : null;
-
-            if (!draft || typeof draft !== 'object') {
-                return;
+        if (isBoxOnly) {
+            modalUnitToggleContainer.classList.add('hidden');
+            currentModalUnitMode = 'box';
+            modalQtyUnitLabel.textContent = 'BOX';
+        } else if (hasBoxOption) {
+            modalUnitToggleContainer.classList.remove('hidden');
+            // By default, set to Box mode if already ordering boxes, else standard
+            if (finalQty > 0 && finalQty % currentModalConversionFactor === 0) {
+                setModalUnitMode('box');
+            } else {
+                setModalUnitMode('standard');
             }
-
-            Object.entries(draft).forEach(([productId, quantity]) => {
-                if (!productsById.has(String(productId))) {
-                    return;
-                }
-
-                const parsedQuantity = Number.parseFloat(String(quantity));
-                addProductToOrder(productId);
-
-                if (Number.isFinite(parsedQuantity) && parsedQuantity > 0) {
-                    syncMasterInput(productId, parsedQuantity);
-                }
-            });
-
-            window.localStorage.removeItem(draftStorageKey);
-        } catch {
-            window.localStorage.removeItem(draftStorageKey);
+        } else {
+            modalUnitToggleContainer.classList.add('hidden');
+            currentModalUnitMode = 'standard';
+            modalQtyUnitLabel.textContent = String(product.unit).toUpperCase();
         }
+
+        // Set input value
+        if (finalQty > 0) {
+            if (currentModalUnitMode === 'box') {
+                modalQtyInput.value = (finalQty / currentModalConversionFactor).toString();
+            } else {
+                modalQtyInput.value = finalQty.toString();
+            }
+            modalRemoveBtn.classList.remove('hidden');
+            modalAddBtn.textContent = 'Update Order';
+        } else {
+            modalQtyInput.value = '';
+            modalRemoveBtn.classList.add('hidden');
+            modalAddBtn.textContent = 'Add to Order';
+        }
+
+        updateModalSubtotalAndConversion();
+        renderQuickPills();
+
+        // Reveal sheet
+        document.body.classList.add('overflow-hidden');
+        qtyModalBackdrop.classList.remove('hidden');
+        qtyModalSheet.classList.remove('hidden');
+        setTimeout(() => {
+            qtyModalBackdrop.classList.remove('opacity-0');
+            qtyModalBackdrop.classList.add('opacity-100');
+            qtyModalSheet.classList.remove('translate-y-full');
+        }, 50);
+
+        setTimeout(() => {
+            modalQtyInput.focus();
+        }, 150);
     };
 
-    const renderSearchResults = (query) => {
-        if (!searchResultsWrap || !searchResultsContainer || !searchEmptyState) {
+    const closeQtyModal = () => {
+        document.body.classList.remove('overflow-hidden');
+        qtyModalSheet.classList.add('translate-y-full');
+        qtyModalBackdrop.classList.remove('opacity-100');
+        qtyModalBackdrop.classList.add('opacity-0');
+        setTimeout(() => {
+            qtyModalBackdrop.classList.add('hidden');
+            qtyModalSheet.classList.add('hidden');
+            currentModalProduct = null;
+        }, 300);
+    };
+
+    const setModalUnitMode = (mode) => {
+        currentModalUnitMode = mode;
+        if (mode === 'box') {
+            modalUnitBtnStandard.classList.remove('bg-white', 'text-slate-900', 'shadow-sm');
+            modalUnitBtnStandard.classList.add('text-slate-400', 'hover:text-slate-600');
+            modalUnitBtnBox.classList.remove('text-slate-400', 'hover:text-slate-600');
+            modalUnitBtnBox.classList.add('bg-white', 'text-slate-900', 'shadow-sm');
+            modalQtyUnitLabel.textContent = 'BOX';
+        } else {
+            modalUnitBtnBox.classList.remove('bg-white', 'text-slate-900', 'shadow-sm');
+            modalUnitBtnBox.classList.add('text-slate-400', 'hover:text-slate-600');
+            modalUnitBtnStandard.classList.remove('text-slate-400', 'hover:text-slate-600');
+            modalUnitBtnStandard.classList.add('bg-white', 'text-slate-900', 'shadow-sm');
+            modalQtyUnitLabel.textContent = String(currentModalProduct?.unit ?? 'KG').toUpperCase();
+        }
+        renderQuickPills();
+        updateModalSubtotalAndConversion();
+    };
+
+    const updateModalSubtotalAndConversion = () => {
+        if (!currentModalProduct) {
             return;
         }
 
-        const normalizedQuery = query.toLowerCase().trim();
+        const value = Number.parseFloat(modalQtyInput.value) || 0;
+        let finalQty = value;
 
-        if (normalizedQuery === '') {
-            searchResultsWrap.classList.add('hidden');
-            searchResultsContainer.innerHTML = '';
-            searchEmptyState.classList.add('hidden');
+        if (currentModalUnitMode === 'box') {
+            finalQty = value * currentModalConversionFactor;
+            modalConversionFactorText.textContent = String(currentModalConversionFactor);
+            modalConversionCalc.textContent = `${finalQty.toFixed(2)} ${currentModalProduct.unit}`;
+            modalConversionHelper.classList.remove('hidden');
+        } else {
+            modalConversionHelper.classList.add('hidden');
+        }
+
+        const subtotal = finalQty * Number(currentModalProduct.price ?? 0);
+        modalSubtotal.textContent = formatCurrency(subtotal);
+    };
+
+    const renderQuickPills = () => {
+        modalQuickPills.innerHTML = '';
+        if (!currentModalProduct) {
             return;
         }
 
-        const matchedProducts = productCatalog
-            .filter((product) => `${product.name} ${product.sku} ${product.category}`.toLowerCase().includes(normalizedQuery))
-            .slice(0, 12);
+        const standardPills = [1, 2, 5, 10, 20, 50];
+        const boxPills = [1, 2, 3, 5, 10];
+        const pills = currentModalUnitMode === 'box' ? boxPills : standardPills;
 
-        searchResultsWrap.classList.remove('hidden');
-        searchResultsContainer.innerHTML = '';
-        searchEmptyState.classList.toggle('hidden', matchedProducts.length > 0);
-
-        matchedProducts.forEach((product) => {
-            const article = document.createElement('article');
-            article.className = 'flex items-center justify-between py-2.5';
-            article.innerHTML = `
-                <div class="min-w-0 flex-1">
-                    <p class="font-bold text-slate-900 text-xs sm:text-sm truncate">${product.name}</p>
-                    <p class="text-[10px] text-slate-500 truncate">${product.sku} · ${product.category} · <span class="uppercase">${product.unit}</span></p>
-                </div>
-                <div class="flex items-center gap-4 shrink-0 pl-3">
-                    <div class="text-right">
-                        <p class="text-[9px] font-bold uppercase tracking-wider text-slate-400">Price</p>
-                        <p class="text-xs font-bold text-cyan-700">INR ${Number(product.price ?? 0).toFixed(2)}</p>
-                    </div>
-                    <div class="text-right">
-                        <p class="text-[9px] font-bold uppercase tracking-wider text-slate-400">Sug.</p>
-                        <p class="text-xs font-bold text-slate-700">${Number(product.suggested_qty ?? 0).toFixed(2)}</p>
-                    </div>
-                    <button type="button" data-search-add-product="${product.id}" class="rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition text-xs font-black text-white px-3 py-1.5 shadow-sm">
-                        Add
-                    </button>
-                </div>
-            `;
-
-            searchResultsContainer.appendChild(article);
-        });
-
-        searchResultsContainer.querySelectorAll('[data-search-add-product]').forEach((button) => {
+        pills.forEach((p) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 active:scale-95 duration-100';
+            button.textContent = `+${p}`;
             button.addEventListener('click', () => {
-                addProductToOrder(button.getAttribute('data-search-add-product'));
+                const currentVal = Number.parseFloat(modalQtyInput.value) || 0;
+                modalQtyInput.value = (currentVal + p).toString();
+                updateModalSubtotalAndConversion();
             });
+            modalQuickPills.appendChild(button);
         });
     };
 
+    // Modal Action Listeners
+    qtyModalBackdrop.addEventListener('click', closeQtyModal);
+    qtyModalClose.addEventListener('click', closeQtyModal);
+    modalQtyInput.addEventListener('input', updateModalSubtotalAndConversion);
+
+    modalUnitBtnStandard.addEventListener('click', () => setModalUnitMode('standard'));
+    modalUnitBtnBox.addEventListener('click', () => setModalUnitMode('box'));
+
+    modalStepperMinus.addEventListener('click', () => {
+        const currentVal = Number.parseFloat(modalQtyInput.value) || 0;
+        modalQtyInput.value = Math.max(0, currentVal - 1).toString();
+        updateModalSubtotalAndConversion();
+    });
+
+    modalStepperPlus.addEventListener('click', () => {
+        const currentVal = Number.parseFloat(modalQtyInput.value) || 0;
+        modalQtyInput.value = (currentVal + 1).toString();
+        updateModalSubtotalAndConversion();
+    });
+
+    modalRemoveBtn.addEventListener('click', () => {
+        if (!currentModalProduct) {
+            return;
+        }
+        syncMasterInput(currentModalProduct.id, 0);
+        updateProductCardBadge(currentModalProduct.id, 0, currentModalProduct.unit);
+        closeQtyModal();
+    });
+
+    modalAddBtn.addEventListener('click', () => {
+        if (!currentModalProduct) {
+            return;
+        }
+
+        const value = Number.parseFloat(modalQtyInput.value) || 0;
+        let finalQty = value;
+
+        if (currentModalUnitMode === 'box') {
+            finalQty = value * currentModalConversionFactor;
+        }
+
+        syncMasterInput(currentModalProduct.id, finalQty);
+        updateProductCardBadge(currentModalProduct.id, finalQty, currentModalProduct.unit);
+        closeQtyModal();
+    });
+
+    // ── PERSISTENT FLOATING CART BAR ──
+    cartBarReviewBtn.addEventListener('click', () => openCartReview());
+
+    // ── CART REVIEW DRAWER ──
+    const openCartReview = () => {
+        renderReviewDrawerItems();
+
+        document.body.classList.add('overflow-hidden');
+        cartReviewBackdrop.classList.remove('hidden');
+        cartReviewDrawer.classList.remove('hidden');
+        setTimeout(() => {
+            cartReviewBackdrop.classList.remove('opacity-0');
+            cartReviewBackdrop.classList.add('opacity-100');
+            cartReviewDrawer.classList.remove('translate-y-full');
+        }, 50);
+    };
+
+    const closeCartReview = () => {
+        document.body.classList.remove('overflow-hidden');
+        cartReviewDrawer.classList.add('translate-y-full');
+        cartReviewBackdrop.classList.remove('opacity-100');
+        cartReviewBackdrop.classList.add('opacity-0');
+        setTimeout(() => {
+            cartReviewBackdrop.classList.add('hidden');
+            cartReviewDrawer.classList.add('hidden');
+        }, 300);
+    };
+
+    const renderReviewDrawerItems = () => {
+        reviewItemsList.innerHTML = '';
+        const selected = getSelectedProducts();
+        
+        reviewItemsCount.textContent = `${selected.length} ${selected.length === 1 ? 'item' : 'items'} selected`;
+
+        let totalValue = 0;
+
+        selected
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .forEach((p) => {
+                const masterInput = masterInputsById.get(String(p.id));
+                const qty = masterInput ? Number.parseFloat(masterInput.value) : 0;
+                const price = Number(p.price ?? 0);
+                const subtotal = qty * price;
+                totalValue += subtotal;
+
+                const row = document.createElement('article');
+                row.className = 'py-3.5 flex items-center justify-between gap-4 border-b border-slate-100 last:border-0';
+                row.innerHTML = `
+                    <div class="min-w-0 flex-1">
+                        <h4 class="font-bold text-slate-900 text-sm truncate" title="${p.name}">${p.name}</h4>
+                        <p class="text-[11px] text-slate-500 truncate mt-0.5">
+                            <span class="font-black text-slate-400 text-[10px] uppercase">${p.sku}</span>
+                        </p>
+                    </div>
+                    <div class="flex items-center gap-3 shrink-0">
+                        <div class="flex items-center gap-1.5 bg-slate-50 rounded-xl p-1 border border-slate-200">
+                            <button type="button" data-review-decrement="${p.id}" class="flex h-7 w-7 items-center justify-center rounded-lg bg-white border border-slate-200 text-xs font-black text-slate-700 shadow-sm active:scale-95 transition">-</button>
+                            <span class="w-14 text-center text-xs font-black text-slate-950">${qty.toFixed(2)} ${p.unit}</span>
+                            <button type="button" data-review-increment="${p.id}" class="flex h-7 w-7 items-center justify-center rounded-lg bg-white border border-slate-200 text-xs font-black text-slate-700 shadow-sm active:scale-95 transition">+</button>
+                        </div>
+                        <button type="button" data-review-delete="${p.id}" class="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition">
+                            <svg class="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                        </button>
+                    </div>
+                `;
+
+                reviewItemsList.appendChild(row);
+
+                // Wire up actions
+                row.querySelector(`[data-review-decrement="${p.id}"]`).addEventListener('click', () => {
+                    const nextVal = Math.max(0, qty - (getConversionFactor(p.unit) > 1 ? 1 : 0.5));
+                    syncMasterInput(p.id, nextVal);
+                    updateProductCardBadge(p.id, nextVal, p.unit);
+                    renderReviewDrawerItems();
+                });
+
+                row.querySelector(`[data-review-increment="${p.id}"]`).addEventListener('click', () => {
+                    const nextVal = qty + (getConversionFactor(p.unit) > 1 ? 1 : 0.5);
+                    syncMasterInput(p.id, nextVal);
+                    updateProductCardBadge(p.id, nextVal, p.unit);
+                    renderReviewDrawerItems();
+                });
+
+                row.querySelector(`[data-review-delete="${p.id}"]`).addEventListener('click', () => {
+                    syncMasterInput(p.id, 0);
+                    updateProductCardBadge(p.id, 0, p.unit);
+                    if (getSelectedProducts().length === 0) {
+                        closeCartReview();
+                    } else {
+                        renderReviewDrawerItems();
+                    }
+                });
+            });
+
+        if (reviewTotalValueNode) {
+            reviewTotalValueNode.textContent = formatCurrency(totalValue);
+        }
+        const reviewTotalNodes = document.querySelectorAll('#review-total-value');
+        reviewTotalNodes.forEach(node => {
+            node.textContent = formatCurrency(totalValue);
+        });
+    };
+
+    cartReviewBackdrop.addEventListener('click', closeCartReview);
+    cartReviewClose.addEventListener('click', closeCartReview);
+    reviewAddMoreBtn.addEventListener('click', closeCartReview);
+
+    reviewSubmitBtn.addEventListener('click', () => {
+        if (!formNode) {
+            return;
+        }
+        
+        // Clear the draft when submitting
+        window.localStorage.removeItem(draftStorageKey);
+        formNode.submit();
+    });
+
+    // ── INITIAL BINDINGS & LISTENERS ────────────────────────────────────────
+    productCards.forEach((card) => {
+        card.addEventListener('click', () => {
+            const id = card.getAttribute('data-product-id');
+            openQtyModal(id);
+        });
+    });
+
+    // Listen to changes on master inputs (like when preset loads or inputs manually update)
+    document.addEventListener('shop-owner-order-input-change', () => {
+        syncFloatingCartBar();
+        saveDraftProductsToStorage();
+    });
+
+    // Initialize badges and cart on load
+    productCatalog.forEach((p) => {
+        const input = masterInputsById.get(String(p.id));
+        const qty = input ? Number.parseFloat(input.value) : 0;
+        updateProductCardBadge(p.id, qty, p.unit);
+    });
+
+    syncFloatingCartBar();
+    filterProducts(); // Initial filter list of products
+
+    // ── PRESETS & DRAFTS INTEGRATION ────────────────────────────────────────
     const applyPreset = () => {
         if (!presetSelect) {
             return;
@@ -321,49 +596,64 @@ document.addEventListener('DOMContentLoaded', () => {
             selectedPreset.items.map((item) => [String(item.product_id), Number.parseFloat(item.quantity)])
         );
 
-        quantityInputs.forEach((input) => {
+        masterQtyInputs.forEach((input) => {
             const productId = input.getAttribute('data-product-id');
             const quantity = productId ? quantitiesByProductId.get(productId) : undefined;
+            const finalQty = Number.isFinite(quantity) ? quantity : 0;
 
-            input.value = Number.isFinite(quantity) ? quantity.toFixed(2) : '';
-            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.value = finalQty > 0 ? finalQty.toFixed(2) : '';
+            const product = productsById.get(productId);
+            if (product) {
+                updateProductCardBadge(productId, finalQty, product.unit);
+            }
         });
+
+        document.dispatchEvent(new Event('shop-owner-order-input-change'));
+        filterProducts();
     };
 
     applyPresetButton?.addEventListener('click', applyPreset);
 
-    addButtons.forEach((button) => {
-        button.addEventListener('click', () => {
-            addProductToOrder(button.getAttribute('data-add-product'));
-        });
-    });
+    // Save Preset handler & triggers
+    const reviewSavePresetTrigger = document.getElementById('review-save-preset-trigger');
+    const reviewSavePresetFormContainer = document.getElementById('review-save-preset-form-container');
+    const reviewPresetNameInput = document.getElementById('review-preset-name-input');
+    const reviewSavePresetBtn = document.getElementById('review-save-preset-btn');
+    const hiddenPresetNameInput = document.querySelector('[data-preset-name-input]');
 
-    searchInput?.addEventListener('input', () => {
-        const query = searchInput.value.toLowerCase().trim();
-
-        renderSearchResults(query);
-
-        if (fullCatalog instanceof HTMLDetailsElement && query !== '') {
-            fullCatalog.open = true;
+    reviewSavePresetTrigger?.addEventListener('click', () => {
+        reviewSavePresetFormContainer?.classList.toggle('hidden');
+        if (!reviewSavePresetFormContainer?.classList.contains('hidden')) {
+            reviewPresetNameInput?.focus();
         }
-
-        catalogCards.forEach((card) => {
-            const searchableText = card.getAttribute('data-search-text') ?? '';
-            card.classList.toggle('hidden', query !== '' && !searchableText.includes(query));
-        });
     });
 
-    clearSearchButton?.addEventListener('click', () => {
-        if (!(searchInput instanceof HTMLInputElement)) {
+    reviewSavePresetBtn?.addEventListener('click', () => {
+        if (!reviewPresetNameInput || !hiddenPresetNameInput || !savePresetForm) {
             return;
         }
 
-        searchInput.value = '';
-        renderSearchResults('');
+        const nameValue = reviewPresetNameInput.value.trim();
+        if (nameValue === '') {
+            alert('Please enter a name for your custom list.');
+            reviewPresetNameInput.focus();
+            return;
+        }
 
-        catalogCards.forEach((card) => {
-            card.classList.remove('hidden');
-        });
+        const selected = getSelectedProducts();
+        if (selected.length === 0) {
+            alert('Cannot save an empty list. Please add some products to your order first.');
+            return;
+        }
+
+        hiddenPresetNameInput.value = nameValue;
+        
+        // Trigger form submit
+        const submitEvent = new Event('submit', { cancelable: true, bubbles: true });
+        savePresetForm.dispatchEvent(submitEvent);
+        if (!submitEvent.defaultPrevented) {
+            savePresetForm.submit();
+        }
     });
 
     savePresetForm?.addEventListener('submit', (event) => {
@@ -375,7 +665,7 @@ document.addEventListener('DOMContentLoaded', () => {
         form.querySelectorAll('[data-generated-preset-item]').forEach((node) => node.remove());
 
         let itemIndex = 0;
-        quantityInputs.forEach((input) => {
+        masterQtyInputs.forEach((input) => {
             const quantity = Number.parseFloat(input.value);
             const productId = input.getAttribute('data-product-id');
 
@@ -400,14 +690,112 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    quantityInputs.forEach((input) => {
-        input.addEventListener('input', renderSelectedProducts);
-    });
+    const saveDraftProductsToStorage = () => {
+        try {
+            const draft = {};
+            masterQtyInputs.forEach((input) => {
+                const productId = input.getAttribute('data-product-id');
+                const quantity = Number.parseFloat(input.value);
+                
+                if (productId && Number.isFinite(quantity) && quantity > 0) {
+                    draft[productId] = quantity;
+                }
+            });
 
-    document.addEventListener('shop-owner-order-input-change', renderSelectedProducts);
+            if (Object.keys(draft).length > 0) {
+                window.localStorage.setItem(draftStorageKey, JSON.stringify(draft));
+            } else {
+                window.localStorage.removeItem(draftStorageKey);
+            }
+        } catch {
+            console.error('Failed to save draft to localStorage');
+        }
+    };
 
-    renderSelectedProducts();
-    renderSearchResults(searchInput instanceof HTMLInputElement ? searchInput.value : '');
+    const loadDraftProductsFromStorage = () => {
+        try {
+            const raw = window.localStorage.getItem(draftStorageKey);
+            const draft = raw ? JSON.parse(raw) : null;
+
+            if (!draft || typeof draft !== 'object') {
+                return;
+            }
+
+            Object.entries(draft).forEach(([productId, quantity]) => {
+                if (!productsById.has(String(productId))) {
+                    return;
+                }
+
+                const parsedQuantity = Number.parseFloat(String(quantity));
+                if (Number.isFinite(parsedQuantity) && parsedQuantity > 0) {
+                    syncMasterInput(productId, parsedQuantity);
+                    const product = productsById.get(String(productId));
+                    if (product) {
+                        updateProductCardBadge(productId, parsedQuantity, product.unit);
+                    }
+                }
+            });
+
+            document.dispatchEvent(new Event('shop-owner-order-input-change'));
+        } catch {
+            window.localStorage.removeItem(draftStorageKey);
+        }
+    };
+
+    const autoAddProductFromQuery = () => {
+        const url = new URL(window.location.href);
+        const productId = url.searchParams.get('product');
+        const requestedQuantity = Number.parseFloat(url.searchParams.get('qty') ?? '');
+
+        if (!productId || !productsById.has(String(productId))) {
+            return;
+        }
+
+        const product = productsById.get(String(productId));
+        const fallbackQuantity = Number(product?.suggested_qty ?? 0) > 0 ? Number(product?.suggested_qty) : 1;
+        const finalQuantity = Number.isFinite(requestedQuantity) && requestedQuantity > 0 ? requestedQuantity : fallbackQuantity;
+
+        syncMasterInput(productId, finalQuantity);
+        if (product) {
+            updateProductCardBadge(productId, finalQuantity, product.unit);
+        }
+
+        url.searchParams.delete('product');
+        url.searchParams.delete('price_date');
+        url.searchParams.delete('qty');
+        window.history.replaceState({}, '', url.toString());
+        
+        document.dispatchEvent(new Event('shop-owner-order-input-change'));
+        openQtyModal(productId);
+    };
+
+    // ── REASON FOR CHANGE SYNCHRONIZATION (UPDATE REQUESTS) ────────────────
+    const hiddenReasonInput = document.getElementById('hidden-reason-input');
+    const reasonPageInput = document.getElementById('visible-reason-page');
+    const reasonDrawerInput = document.getElementById('visible-reason-drawer');
+
+    if (hiddenReasonInput) {
+        const syncReason = (val) => {
+            hiddenReasonInput.value = val;
+            if (reasonPageInput && reasonPageInput.value !== val) {
+                reasonPageInput.value = val;
+            }
+            if (reasonDrawerInput && reasonDrawerInput.value !== val) {
+                reasonDrawerInput.value = val;
+            }
+        };
+
+        reasonPageInput?.addEventListener('input', (e) => syncReason(e.target.value));
+        reasonDrawerInput?.addEventListener('input', (e) => syncReason(e.target.value));
+
+        // Initial sync
+        if (reasonPageInput) {
+            hiddenReasonInput.value = reasonPageInput.value;
+        } else if (reasonDrawerInput) {
+            hiddenReasonInput.value = reasonDrawerInput.value;
+        }
+    }
+
     loadDraftProductsFromStorage();
     autoAddProductFromQuery();
 });

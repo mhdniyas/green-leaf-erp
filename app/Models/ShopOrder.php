@@ -31,6 +31,7 @@ class ShopOrder extends Model
         'is_allocation_completed',
         'sorting_notes',
         'is_delivered',
+        'is_late',
         'delivered_at',
         'delivered_by',
         'delivery_notes',
@@ -48,6 +49,7 @@ class ShopOrder extends Model
         'has_pending_revision' => 'boolean',
         'is_allocation_completed' => 'boolean',
         'is_delivered' => 'boolean',
+        'is_late' => 'boolean',
         'delivered_at' => 'datetime',
         'cash_collected' => 'decimal:2',
         'cash_discrepancy' => 'decimal:2',
@@ -181,6 +183,10 @@ class ShopOrder extends Model
 
     public function warehouseWorkflowStage(): string
     {
+        if ($this->delivery_status === 'pending_approval') {
+            return 'pending_approval';
+        }
+
         if ($this->is_delivered) {
             return $this->delivery_status ?: 'delivered';
         }
@@ -205,6 +211,7 @@ class ShopOrder extends Model
             'partially_delivered' => 'Partially Delivered',
             'delivery_issue' => 'Delivery Issue',
             'delivered' => 'Delivered',
+            'pending_approval' => 'Pending Discrepancy Approval',
             default => 'Approved For Warehouse',
         };
     }
@@ -217,6 +224,7 @@ class ShopOrder extends Model
             'delivered' => 'success',
             'partially_delivered' => 'warning',
             'delivery_issue' => 'danger',
+            'pending_approval' => 'warning',
             default => 'neutral',
         };
     }

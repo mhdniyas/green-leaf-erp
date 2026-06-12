@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Inventory\StoreProductRequest;
 use App\Http\Requests\Web\Inventory\UpdateProductRequest;
 use App\Models\Product;
+use App\Models\Warehouse;
 use App\Repositories\Inventory\CategoryRepository;
 use App\Services\Inventory\ProductService;
 use Illuminate\Http\RedirectResponse;
@@ -38,8 +39,9 @@ class ProductController extends Controller
     public function create(): View
     {
         $categories = $this->categories->findAllActive();
+        $warehouses = Warehouse::active()->orderBy('name')->get();
 
-        return view('inventory.products.create', compact('categories'));
+        return view('inventory.products.create', compact('categories', 'warehouses'));
     }
 
     public function store(StoreProductRequest $request): RedirectResponse
@@ -53,8 +55,9 @@ class ProductController extends Controller
     public function edit(Product $product): View
     {
         $categories = $this->categories->findAllActive();
+        $warehouses = Warehouse::active()->orderBy('name')->get();
 
-        return view('inventory.products.edit', compact('product', 'categories'));
+        return view('inventory.products.edit', compact('product', 'categories', 'warehouses'));
     }
 
     public function update(UpdateProductRequest $request, Product $product): RedirectResponse

@@ -7,6 +7,7 @@ namespace App\Services\Pricing;
 use App\Enums\Inventory\BatchStatus;
 use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
+use App\Models\DailyPriceApproval;
 use App\Models\DailyProductPrice;
 use App\Models\DailyProductPriceRevision;
 use App\Models\Product;
@@ -15,6 +16,7 @@ use App\Models\Shop;
 use App\Models\ShopPriceGroup;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -33,25 +35,18 @@ class PriceBoardService
      */
     public function ensureDefaultPriceGroups(): Collection
     {
-        foreach (ShopPriceGroup::relationshipTypes() as $relationshipType => $label) {
-            foreach (['A', 'B', 'C'] as $name) {
-                ShopPriceGroup::query()->firstOrCreate(
-                    ['relationship_type' => $relationshipType, 'name' => $name],
-                    [
-                        'default_margin_percent' => match ($relationshipType) {
-                            ShopPriceGroup::OWN => 10,
-                            ShopPriceGroup::PARTNERSHIP => 12,
-                            default => 15,
-                        },
-                        'is_active' => true,
-                    ]
-                );
-            }
+        foreach (['A' => 10, 'B' => 12, 'C' => 15] as $name => $margin) {
+            ShopPriceGroup::query()->firstOrCreate(
+                ['name' => $name],
+                [
+                    'default_margin_percent' => $margin,
+                    'is_active' => true,
+                ]
+            );
         }
 
         return ShopPriceGroup::query()
             ->withCount('shops')
-            ->orderBy('relationship_type')
             ->orderBy('name')
             ->get();
     }
@@ -59,7 +54,7 @@ class PriceBoardService
     public function defaultGroup(): ShopPriceGroup
     {
         return ShopPriceGroup::query()->firstOrCreate(
-            ['relationship_type' => ShopPriceGroup::OWN, 'name' => 'A'],
+            ['name' => 'A'],
             ['default_margin_percent' => 10, 'is_active' => true]
         );
     }
@@ -291,8 +286,43 @@ class PriceBoardService
                 );
             }
 
-            $this->refreshMarginSellingPrices($product);
+            if ($sourceType === 'grn') {
+                $this->createOrUpdatePendingApproval($product);
+            } else {
+                $this->refreshMarginSellingPrices($product);
+            }
         }
+    }
+
+    /**
+     * Create or update a pending DailyPriceApproval for tomorrow based on today's GRN cost.
+     */
+    public function createOrUpdatePendingApproval(Product $product): void
+    {
+        $gradeACost = (float) (ProductWholesalePrice::query()
+            ->where('product_id', $product->id)
+            ->where('grade', ProductGrade::GradeA->value)
+            ->value('wholesale_price') ?? $product->base_price);
+
+        $marginA = (float) (ShopPriceGroup::where('name', 'A')->value('default_margin_percent') ?? 10);
+        $marginB = (float) (ShopPriceGroup::where('name', 'B')->value('default_margin_percent') ?? 12);
+        $marginC = (float) (ShopPriceGroup::where('name', 'C')->value('default_margin_percent') ?? 15);
+
+        $tomorrow = Carbon::tomorrow()->toDateString();
+
+        DailyPriceApproval::updateOrCreate(
+            [
+                'product_id' => $product->id,
+                'business_date' => $tomorrow,
+            ],
+            [
+                'purchase_price' => $gradeACost,
+                'price_a' => round($gradeACost * (1 + $marginA / 100), 2),
+                'price_b' => round($gradeACost * (1 + $marginB / 100), 2),
+                'price_c' => round($gradeACost * (1 + $marginC / 100), 2),
+                'status' => 'pending',
+            ]
+        );
     }
 
     /**

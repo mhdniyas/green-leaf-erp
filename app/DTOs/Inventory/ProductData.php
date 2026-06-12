@@ -10,6 +10,7 @@ final readonly class ProductData
 {
     public function __construct(
         public int $categoryId,
+        public ?int $defaultWarehouseId,
         public string $name,
         public string $sku,
         public string $unit,
@@ -23,6 +24,7 @@ final readonly class ProductData
     {
         return new self(
             categoryId: (int) $request->input('category_id'),
+            defaultWarehouseId: $request->input('default_warehouse_id') ? (int) $request->input('default_warehouse_id') : null,
             name: $request->string('name')->toString(),
             sku: strtoupper($request->string('sku')->toString()),
             unit: $request->string('unit', 'kg')->toString(),
@@ -37,6 +39,7 @@ final readonly class ProductData
     {
         return [
             'category_id' => $this->categoryId,
+            'default_warehouse_id' => $this->defaultWarehouseId,
             'name' => $this->name,
             'sku' => $this->sku,
             'unit' => $this->unit,

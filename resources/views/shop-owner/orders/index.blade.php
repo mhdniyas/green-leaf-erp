@@ -5,9 +5,11 @@
 @section('page_description', 'Manage tomorrow’s order, open existing submissions, and move quickly into history.')
 @php($breadcrumbs = [['label' => 'Daily Orders']])
 
-@section('page_actions')
-    @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.create'), 'label' => 'Create Order', 'classes' => 'bg-emerald-600 text-white'])
-@endsection
+@if (!$tomorrowOrder)
+    @section('page_actions')
+        @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.create'), 'label' => 'Create Order', 'classes' => 'bg-emerald-600 text-white hidden sm:inline-flex'])
+    @endsection
+@endif
 
 @section('content')
     <div class="space-y-6">

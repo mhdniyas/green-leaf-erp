@@ -16,6 +16,7 @@ use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Notifications\LateRequisitionSubmittedNotification;
 use App\Notifications\PurchaseOrderCreatedNotification;
 use App\Notifications\PurchasingOrderRevisionRequestedNotification;
 use App\Notifications\PurchasingOrderSubmittedNotification;
@@ -76,18 +77,9 @@ class RequisitionController extends Controller
         // Enforcement: check if cutoff has passed for tomorrow's date
         // Cutoff is today 9:30 PM.
         $cutoff = Carbon::today()->setTime(21, 30, 0);
+        $isLate = now()->greaterThan($cutoff);
 
-        if (now()->greaterThan($cutoff)) {
-            if ($request->expectsJson()) {
-                return response()->json(['error' => 'Requisition submission window has closed (9:30 PM cutoff).'], 400);
-            }
-
-            return redirect()->route('shop-owner.orders.create')
-                ->withErrors(['items' => 'Requisition submission window has closed (9:30 PM cutoff).'])
-                ->withInput();
-        }
-
-        $order = DB::transaction(function () use ($user, $items, $businessDate) {
+        $order = DB::transaction(function () use ($user, $items, $businessDate, $isLate) {
             // Delete any existing draft/submitted order for tomorrow
             ShopOrder::where('shop_id', $user->shop_id)
                 ->where('business_date', $businessDate)
@@ -97,6 +89,7 @@ class RequisitionController extends Controller
                 'shop_id' => $user->shop_id,
                 'business_date' => $businessDate,
                 'state' => 'submitted',
+                'is_late' => $isLate,
                 'submitted_at' => now(),
                 'deadline_at' => Carbon::today()->setTime(21, 30, 0),
                 'created_by' => $user->id,
@@ -107,9 +100,19 @@ class RequisitionController extends Controller
             return $shopOrder;
         });
 
-        $this->shopOrderRevisionService->notifyPurchaseManagers(
-            new PurchasingOrderSubmittedNotification($order->loadMissing('shop'))
-        );
+        if ($isLate) {
+            $this->shopOrderRevisionService->notifyPurchaseManagers(
+                new LateRequisitionSubmittedNotification($order->loadMissing('shop'))
+            );
+        } else {
+            $this->shopOrderRevisionService->notifyPurchaseManagers(
+                new PurchasingOrderSubmittedNotification($order->loadMissing('shop'))
+            );
+        }
+
+        $successMessage = $isLate
+            ? 'Late order request submitted successfully for manager approval.'
+            : 'Tomorrow order submitted successfully.';
 
         if ($request->expectsJson()) {
             return response()->json([
@@ -125,7 +128,7 @@ class RequisitionController extends Controller
             $user->hasRole('shop') ? 'shop-owner.orders.show' : 'requisitions.show',
             $order->order_number
         )
-            ->with('success', 'Tomorrow order submitted successfully.');
+            ->with('success', $successMessage);
     }
 
     /**
@@ -385,7 +388,10 @@ class RequisitionController extends Controller
         $action = $request->input('action');
         if ($action === 'reject') {
             DB::transaction(function () use ($order) {
-                $order->update(['state' => 'rejected']);
+                $order->update([
+                    'state' => 'rejected',
+                    'is_late' => false,
+                ]);
                 foreach ($order->items as $item) {
                     $item->update(['approved_qty' => 0.00]);
                 }
@@ -409,14 +415,110 @@ class RequisitionController extends Controller
                     'fulfillment_type' => $type,
                 ]);
             }
-            $order->update(['state' => 'approved']);
+            $order->update([
+                'state' => 'approved',
+                'is_late' => false,
+            ]);
 
-            // Sync Purchase Orders dynamically for this requisition's business date
-            $this->syncPurchaseOrdersForDate($order->business_date);
+            // No longer sync Purchase Orders here; that is handled by the purchaser dashboard
         });
 
         return redirect()->route('requisitions.show', $order->order_number)
-            ->with('success', 'Requisition approved, quantities updated, and Purchase Orders synced successfully.');
+            ->with('success', 'Requisition approved and quantities updated successfully.');
+    }
+
+    public function acceptLateRequisition(Request $request, string $orderNumber): RedirectResponse
+    {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+            abort(403, 'Unauthorized access.');
+        }
+
+        $order = ShopOrder::where('order_number', $orderNumber)->firstOrFail();
+        $order->update(['is_late' => false]);
+
+        return redirect()->back()->with('success', 'Late requisition request accepted.');
+    }
+
+    public function rejectLateRequisition(Request $request, string $orderNumber): RedirectResponse
+    {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+            abort(403, 'Unauthorized access.');
+        }
+
+        $order = ShopOrder::where('order_number', $orderNumber)->firstOrFail();
+        DB::transaction(function () use ($order) {
+            $order->update([
+                'state' => 'rejected',
+                'is_late' => false,
+            ]);
+            foreach ($order->items as $item) {
+                $item->update(['approved_qty' => 0.00]);
+            }
+        });
+
+        return redirect()->back()->with('success', 'Late requisition request rejected.');
+    }
+
+    public function approveUpdate(Request $request, string $orderNumber): RedirectResponse
+    {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+            abort(403, 'Unauthorized access.');
+        }
+
+        $order = ShopOrder::where('order_number', $orderNumber)->firstOrFail();
+
+        $approvedQtys = $request->input('approved_qty', []);
+        $fulfillmentTypes = $request->input('fulfillment_types', []);
+        $suppliers = $request->input('suppliers', []);
+
+        try {
+            DB::transaction(function () use ($order, $approvedQtys, $fulfillmentTypes, $suppliers, $request): void {
+                $revision = $this->shopOrderRevisionService->applyPendingRevision(
+                    $order,
+                    $request->user(),
+                    $approvedQtys,
+                    $fulfillmentTypes,
+                    $suppliers
+                );
+
+                if ($revision && $revision->status === 'blocked') {
+                    throw ValidationException::withMessages([
+                        'purchase_orders' => 'This revision cannot be applied because goods receipt has already started for the linked purchase order.',
+                    ]);
+                }
+            });
+        } catch (ValidationException $e) {
+            return redirect()->back()->withErrors($e->errors())->with('error', $e->getMessage());
+        }
+
+        return redirect()->back()->with('success', 'Order update request approved and applied successfully.');
+    }
+
+    public function rejectUpdate(Request $request, string $orderNumber): RedirectResponse
+    {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+            abort(403, 'Unauthorized access.');
+        }
+
+        $order = ShopOrder::where('order_number', $orderNumber)->firstOrFail();
+
+        DB::transaction(function () use ($order, $request): void {
+            $revision = $order->latestPendingRevision()->first();
+            if ($revision) {
+                $revision->update([
+                    'status' => 'rejected',
+                    'reviewed_by' => $request->user()->id,
+                    'reviewed_at' => now(),
+                ]);
+            }
+            $order->update([
+                'state' => 'approved',
+                'update_reason' => null,
+                'has_pending_revision' => false,
+            ]);
+        });
+
+        return redirect()->back()->with('success', 'Order update request rejected successfully.');
     }
 
     /**
@@ -439,8 +541,17 @@ class RequisitionController extends Controller
 
         // Load all shop orders for the selected date
         $orders = ShopOrder::whereDate('business_date', $date)
-            ->with(['items', 'latestPendingRevision.items'])
+            ->where('is_late', false)
+            ->with(['items.product', 'latestPendingRevision.items.product', 'shop'])
             ->get();
+
+        // Load all late pending requests for the selected date
+        $lateOrders = ShopOrder::whereDate('business_date', $date)
+            ->where('is_late', true)
+            ->whereIn('state', ['submitted', 'update_requested'])
+            ->with(['shop', 'items.product'])
+            ->get();
+
         [
             'matrix' => $matrix,
             'productFulfillmentTypes' => $productFulfillmentTypes,
@@ -458,7 +569,9 @@ class RequisitionController extends Controller
             'productFulfillmentTypes',
             'shopUpdateMeta',
             'shopPoStatusMeta',
-            'boardFullyApproved'
+            'boardFullyApproved',
+            'lateOrders',
+            'orders'
         ));
     }
 
@@ -721,7 +834,7 @@ class RequisitionController extends Controller
 
             $quantities = $request->input('quantities', []);
             $fulfillmentTypes = $request->input('fulfillment_types', []);
-            $suppliers = $request->input('suppliers', []);
+            $suppliers = [];
 
             foreach ($pendingRevisionOrders as $order) {
                 $shopQuantities = [];
@@ -749,30 +862,14 @@ class RequisitionController extends Controller
             }
 
             return redirect()->route('requisitions.approved_board', ['date' => $date])
-                ->with('success', 'Pending approved-order updates were applied to the linked purchase orders.');
+                ->with('success', 'Pending approved-order updates were applied.');
         }
 
         // quantities is a 2D array: [product_id][shop_id] => value
         $quantities = $request->input('quantities', []);
         $fulfillmentTypes = $request->input('fulfillment_types', []);
-        $suppliers = $request->input('suppliers', []);
 
-        $missingSupplierProducts = Product::query()
-            ->whereIn('id', $this->resolveProductsMissingSuppliers(
-                $quantities,
-                $suppliers
-            ))
-            ->orderBy('name')
-            ->pluck('name')
-            ->all();
-
-        if ($missingSupplierProducts !== []) {
-            return redirect()->route('requisitions.approved_board', ['date' => $date])
-                ->withInput()
-                ->with('error', 'Select a supplier for every selected product before generating purchase orders. Missing suppliers: '.implode(', ', $missingSupplierProducts).'.');
-        }
-
-        DB::transaction(function () use ($date, $quantities, $fulfillmentTypes, $suppliers, $request): void {
+        DB::transaction(function () use ($date, $quantities, $fulfillmentTypes, $request): void {
             // Find all active shops to know who we might need to create orders for
             $shops = Shop::where('status', 'active')->get();
 
@@ -855,13 +952,12 @@ class RequisitionController extends Controller
                     }
                 }
             }
-
-            // --- Generate and Sync Purchase Orders to Suppliers ---
-            $this->syncPurchaseOrdersForDate($date, $suppliers);
+            // Automatically sync/generate Purchase Orders for the date based on allocations
+            $this->syncPurchaseOrdersForDate($date);
         });
 
         return redirect()->route('requisitions.approved_board', ['date' => $date])
-            ->with('success', 'Approved requisitions updated and Purchase Orders generated successfully.');
+            ->with('success', 'Approved requisitions saved and Purchase Orders generated successfully.');
     }
 
     /**
@@ -981,6 +1077,7 @@ class RequisitionController extends Controller
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
         $products = Product::with('category')->where('is_active', true)->orderBy('name')->get();
         $orders = ShopOrder::whereDate('business_date', $date)
+            ->where('is_late', false)
             ->with(['items'])
             ->get();
         [
@@ -1045,6 +1142,7 @@ class RequisitionController extends Controller
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
         $products = Product::with('category')->where('is_active', true)->orderBy('name')->get();
         $orders = ShopOrder::whereDate('business_date', $date)
+            ->where('is_late', false)
             ->with(['items'])
             ->get();
         [
@@ -1351,7 +1449,24 @@ class RequisitionController extends Controller
         $deliveredQtys = $request->input('delivered_qty', []);
         $cashCollected = (float) $request->input('cash_collected', 0.00);
 
-        DB::transaction(function () use ($order, $deliveredQtys, $cashCollected, $request): void {
+        // First validate that no delivered_qty is more than approved_qty
+        $hasDiscrepancy = false;
+        foreach ($order->items as $item) {
+            $deliveredQty = (float) ($deliveredQtys[$item->id] ?? 0.00);
+            $approvedQty = (float) ($item->approved_qty ?? 0.00);
+
+            if ($deliveredQty > $approvedQty) {
+                throw ValidationException::withMessages([
+                    "delivered_qty.{$item->id}" => 'Received quantity cannot be more than the approved warehouse quantity.',
+                ]);
+            }
+
+            if (abs($deliveredQty - $approvedQty) > 0.001) {
+                $hasDiscrepancy = true;
+            }
+        }
+
+        DB::transaction(function () use ($order, $deliveredQtys, $cashCollected, $request, $hasDiscrepancy): void {
             $totalShortageValue = 0.00;
             $expectedDeliveredValue = 0.00;
             $totalApprovedQuantity = 0.00;
@@ -1360,12 +1475,6 @@ class RequisitionController extends Controller
             foreach ($order->items as $item) {
                 $deliveredQty = (float) ($deliveredQtys[$item->id] ?? 0.00);
                 $approvedQty = (float) ($item->approved_qty ?? 0.00);
-
-                if ($deliveredQty > $approvedQty) {
-                    throw ValidationException::withMessages([
-                        "delivered_qty.{$item->id}" => 'Received quantity cannot be more than the approved warehouse quantity.',
-                    ]);
-                }
 
                 // shortage_qty = approved_qty - delivered_qty (shorted amount)
                 $shortageQty = max(0.00, $approvedQty - $deliveredQty);
@@ -1386,21 +1495,24 @@ class RequisitionController extends Controller
                     'shortage_value' => $shortageValue,
                 ]);
 
-                $this->stockLedgerService->consumeSortedStockForProduct(
-                    $item->product_id,
-                    $deliveredQty,
-                    (int) $request->user()->id,
-                    StockMovementType::Out,
-                    "Warehouse delivery out: {$order->order_number}"
-                );
+                // ONLY consume stock and wastage immediately if there is NO discrepancy
+                if (! $hasDiscrepancy) {
+                    $this->stockLedgerService->consumeSortedStockForProduct(
+                        $item->product_id,
+                        $deliveredQty,
+                        (int) $request->user()->id,
+                        StockMovementType::Out,
+                        "Warehouse delivery out: {$order->order_number}"
+                    );
 
-                $this->stockLedgerService->consumeSortedStockForProduct(
-                    $item->product_id,
-                    $shortageQty,
-                    (int) $request->user()->id,
-                    StockMovementType::Wastage,
-                    "Delivery shortage discrepancy: {$order->order_number}"
-                );
+                    $this->stockLedgerService->consumeSortedStockForProduct(
+                        $item->product_id,
+                        $shortageQty,
+                        (int) $request->user()->id,
+                        StockMovementType::Wastage,
+                        "Delivery shortage discrepancy: {$order->order_number}"
+                    );
+                }
 
                 $totalShortageValue += $shortageValue;
                 $expectedDeliveredValue += $itemExpectedValue;
@@ -1412,12 +1524,118 @@ class RequisitionController extends Controller
             $cashDiscrepancy = $expectedDeliveredValue - $cashCollected;
             $balanceAmount = max(0.00, $cashDiscrepancy);
 
+            if ($hasDiscrepancy) {
+                $order->update([
+                    'is_delivered' => false,
+                    'delivery_status' => 'pending_approval',
+                    'delivered_by' => $request->user()->id,
+                    'delivery_notes' => $request->input('delivery_notes'),
+                    'cash_collected' => $cashCollected,
+                    'cash_discrepancy' => $cashDiscrepancy,
+                    'balance_amount' => $balanceAmount,
+                    'finance_note' => $request->input('finance_note'),
+                    'total_shortage_value' => $totalShortageValue,
+                ]);
+
+                activity()
+                    ->performedOn($order)
+                    ->causedBy($request->user())
+                    ->log('delivery_checkin_discrepancy_filed');
+            } else {
+                $order->update([
+                    'is_delivered' => true,
+                    'delivered_at' => now(),
+                    'delivered_by' => $request->user()->id,
+                    'delivery_status' => 'delivered',
+                    'delivery_notes' => $request->input('delivery_notes'),
+                    'cash_collected' => $cashCollected,
+                    'cash_discrepancy' => $cashDiscrepancy,
+                    'payment_status' => 'paid',
+                    'balance_amount' => $balanceAmount,
+                    'finance_note' => $request->input('finance_note'),
+                    'total_shortage_value' => $totalShortageValue,
+                ]);
+
+                activity()
+                    ->performedOn($order)
+                    ->causedBy($request->user())
+                    ->log('delivered');
+            }
+        });
+
+        $message = $hasDiscrepancy
+            ? 'Delivery check-in submitted with discrepancies. Sent to manager for approval.'
+            : 'Delivery checked-in successfully.';
+
+        return redirect()->route(
+            $request->user()->hasRole('shop') ? 'shop-owner.deliveries.show' : 'requisitions.show',
+            $order->order_number
+        )->with('success', $message);
+    }
+
+    /**
+     * Approve delivery discrepancies and finalize check-in.
+     */
+    public function approveDeliveryDiscrepancy(Request $request, string $orderNumber): RedirectResponse
+    {
+        $user = $request->user();
+        $canApprove = $user->hasRole('purchase') || $user->can('purchasing.order.approve') || $user->hasRole('admin');
+        abort_unless($canApprove, 403, 'Unauthorized to approve delivery discrepancies.');
+
+        $order = ShopOrder::where('order_number', $orderNumber)
+            ->with(['items'])
+            ->firstOrFail();
+
+        if ($order->is_delivered) {
+            return redirect()->route('requisitions.show', $orderNumber)
+                ->with('error', 'This order has already been marked as delivered.');
+        }
+
+        if ($order->delivery_status !== 'pending_approval') {
+            return redirect()->route('requisitions.show', $orderNumber)
+                ->with('error', 'This order is not pending discrepancy approval.');
+        }
+
+        DB::transaction(function () use ($order, $request): void {
+            $totalDeliveredQuantity = 0.00;
+            $totalApprovedQuantity = 0.00;
+            $expectedDeliveredValue = 0.00;
+
+            foreach ($order->items as $item) {
+                $deliveredQty = (float) $item->delivered_qty;
+                $approvedQty = (float) $item->approved_qty;
+                $shortageQty = (float) $item->shortage_qty;
+
+                // Consume stock
+                $this->stockLedgerService->consumeSortedStockForProduct(
+                    $item->product_id,
+                    $deliveredQty,
+                    (int) $request->user()->id,
+                    StockMovementType::Out,
+                    "Warehouse delivery out (approved): {$order->order_number}"
+                );
+
+                // Consume wastage
+                $this->stockLedgerService->consumeSortedStockForProduct(
+                    $item->product_id,
+                    $shortageQty,
+                    (int) $request->user()->id,
+                    StockMovementType::Wastage,
+                    "Delivery shortage discrepancy (approved): {$order->order_number}"
+                );
+
+                $totalDeliveredQuantity += $deliveredQty;
+                $totalApprovedQuantity += $approvedQty;
+                $expectedDeliveredValue += $deliveredQty * (float) $item->unit_cost;
+            }
+
             $deliveryStatus = match (true) {
                 $totalDeliveredQuantity <= 0.00 => 'delivery_issue',
                 $totalDeliveredQuantity < $totalApprovedQuantity => 'partially_delivered',
                 default => 'delivered',
             };
 
+            $cashCollected = (float) $order->cash_collected;
             $paymentStatus = match (true) {
                 $cashCollected <= 0.00 => 'unpaid',
                 $cashCollected + 0.01 < $expectedDeliveredValue => 'partially_paid',
@@ -1427,28 +1645,18 @@ class RequisitionController extends Controller
             $order->update([
                 'is_delivered' => true,
                 'delivered_at' => now(),
-                'delivered_by' => $request->user()->id,
                 'delivery_status' => $deliveryStatus,
-                'delivery_notes' => $request->input('delivery_notes'),
-                'cash_collected' => $cashCollected,
-                'cash_discrepancy' => $cashDiscrepancy,
                 'payment_status' => $paymentStatus,
-                'balance_amount' => $balanceAmount,
-                'finance_note' => $request->input('finance_note'),
-                'total_shortage_value' => $totalShortageValue,
             ]);
 
             activity()
                 ->performedOn($order)
                 ->causedBy($request->user())
-                ->log('delivered');
+                ->log('delivery_discrepancy_approved');
         });
 
-        return redirect()->route(
-            $request->user()->hasRole('shop') ? 'shop-owner.deliveries.show' : 'requisitions.show',
-            $order->order_number
-        )
-            ->with('success', 'Delivery checked-in and discrepancies recorded successfully.');
+        return redirect()->route('requisitions.show', $order->order_number)
+            ->with('success', 'Delivery discrepancies approved and check-in finalized.');
     }
 
     /**

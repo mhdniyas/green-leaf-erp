@@ -21,6 +21,7 @@ class UpdateProductRequest extends FormRequest
 
         return [
             'category_id' => ['required', 'integer', 'exists:categories,id'],
+            'default_warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
             'name' => ['required', 'string', 'min:2', 'max:255'],
             'sku' => ['required', 'string', 'max:100', "unique:products,sku,{$productId}", 'regex:/^[A-Za-z0-9\-_]+$/'],
             'unit' => ['required', 'string', 'in:kg,box,bunch,piece,bag'],

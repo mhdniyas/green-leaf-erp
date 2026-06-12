@@ -15,11 +15,9 @@
                 <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                     <h2 class="text-sm font-semibold text-gray-900">Ordered Items</h2>
                     <span class="text-xs text-gray-500 font-mono">{{ $order->items->count() }} items</span>
-                </div>
-
-                <div class="overflow-x-auto">
-                    <table class="w-full text-sm">
-                        <thead>
+                </div>                <div class="overflow-x-auto">
+                    <table class="w-full text-sm block md:table">
+                        <thead class="hidden md:table-header-group">
                             <tr class="border-b border-gray-100 bg-gray-50/50">
                                 <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
                                 <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Unit</th>
@@ -30,17 +28,17 @@
                                 <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Subtotal</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-gray-50">
+                        <tbody class="divide-y divide-gray-100 md:divide-y md:divide-gray-50 block md:table-row-group">
                             @foreach($order->items as $item)
-                            <tr class="po-item-row">
-                                <td class="px-4 py-4">
+                            <tr class="po-item-row block md:table-row py-4 md:py-0 bg-white md:bg-transparent mb-4 md:mb-0 rounded-xl md:rounded-none border border-gray-100 md:border-0 p-3 md:p-0 shadow-sm md:shadow-none">
+                                <td class="px-4 py-3 md:py-4 block md:table-cell border-b border-gray-50 md:border-b-0 bg-gray-50/30 md:bg-transparent rounded-t-xl md:rounded-none -mx-3 -mt-3 p-3 md:mx-0 md:mt-0 md:p-4">
                                     <div class="flex items-center gap-3">
                                         <div class="w-8 h-8 rounded-lg bg-brand-100 flex items-center justify-center shrink-0">
                                             <span class="text-brand-700 text-xs font-bold">{{ strtoupper(substr($item->product->name, 0, 1)) }}</span>
                                         </div>
                                         @can('updateItems', $order)
-                                            <div class="min-w-52">
-                                                <select name="items[{{ $loop->index }}][product_id]" class="po-product-select w-full border-gray-200 rounded-lg text-xs p-1.5 focus:border-brand-500 focus:ring-brand-500 bg-gray-50 font-semibold text-gray-700">
+                                            <div class="flex-1 min-w-0 md:min-w-52">
+                                                <select name="items[{{ $loop->index }}][product_id]" class="po-product-select w-full border-gray-200 rounded-lg text-xs p-1.5 focus:border-brand-500 focus:ring-brand-500 bg-white font-semibold text-gray-700 md:min-w-52">
                                                     @foreach($products as $product)
                                                         <option value="{{ $product->id }}" {{ $item->product_id === $product->id ? 'selected' : '' }}>{{ $product->name }} ({{ $product->sku }})</option>
                                                     @endforeach
@@ -55,7 +53,7 @@
                                             </div>
                                         @else
                                             <div>
-                                                <p class="font-medium text-gray-900">{{ $item->product->name }}</p>
+                                                <p class="font-bold text-gray-900 text-sm md:text-xs">{{ $item->product->name }}</p>
                                                 <code class="text-[10px] font-mono text-gray-400">{{ $item->product->sku }}</code>
                                                 <p class="text-[11px] text-amber-700 font-medium mt-0.5">
                                                     @if(isset($previousPrices[$item->product_id]))
@@ -72,100 +70,131 @@
                                     @endcan
                                 </td>
 
-                                <td class="px-4 py-4">
-                                    @can('updateItems', $order)
-                                        <select name="items[{{ $loop->index }}][purchase_unit]" class="po-unit-select border-gray-200 rounded-lg text-xs p-1.5 focus:border-brand-500 focus:ring-brand-500 bg-gray-50 font-semibold text-gray-700">
-                                            <option value="kg" {{ $item->purchase_unit === 'kg' ? 'selected' : '' }}>kg (Kilograms)</option>
-                                            <option value="packet" {{ $item->purchase_unit === 'packet' ? 'selected' : '' }}>packet</option>
-                                            <option value="bag" {{ $item->purchase_unit === 'bag' ? 'selected' : '' }}>bag</option>
-                                            <option value="box" {{ $item->purchase_unit === 'box' ? 'selected' : '' }}>box</option>
-                                        </select>
-                                    @else
-                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
-                                            {{ $item->purchase_unit }}
-                                        </span>
-                                    @endcan
-                                </td>
-
-                                <td class="px-4 py-4 text-right">
-                                    @can('updateItems', $order)
-                                        <div class="flex items-center justify-end gap-1">
-                                            <span class="text-xs text-gray-400 font-medium">INR</span>
-                                            <input type="number" name="items[{{ $loop->index }}][unit_price]" step="0.0001" min="0" value="{{ $item->unit_price }}" class="po-unit-price-input w-24 text-right border-gray-200 rounded-lg text-xs p-1.5 focus:border-brand-500 focus:ring-brand-500 font-semibold text-gray-900">
-                                        </div>
-                                        <select name="items[{{ $loop->index }}][price_basis]" class="po-price-basis-select mt-1 ml-auto block border-gray-200 rounded-lg text-[11px] p-1.5 focus:border-brand-500 focus:ring-brand-500 bg-gray-50 font-semibold text-gray-600">
-                                            <option value="per_kg" {{ $item->price_basis === 'per_kg' ? 'selected' : '' }}>per kg</option>
-                                            <option value="per_unit" {{ $item->price_basis === 'per_unit' ? 'selected' : '' }}>per {{ $item->purchase_unit === 'kg' ? 'kg' : $item->purchase_unit }}</option>
-                                        </select>
-                                    @else
-                                        <span class="text-gray-950 font-medium">INR {{ number_format($item->unit_price, 4) }}</span>
-                                        <div class="text-[11px] text-gray-400 font-semibold">
-                                            {{ $item->price_basis === 'per_unit' ? 'per '.$item->purchase_unit : 'per kg' }}
-                                        </div>
-                                    @endcan
-                                </td>
-
-                                <td class="px-4 py-4 text-right">
-                                    @can('updateItems', $order)
-                                        <div class="flex flex-col items-end gap-1">
-                                            <div class="po-packet-fields flex items-center gap-1 {{ $item->purchase_unit === 'kg' ? 'hidden' : '' }}">
-                                                <input type="number" name="items[{{ $loop->index }}][packet_qty]" step="0.01" min="0" value="{{ number_format((float) $item->packet_qty, 2, '.', '') }}" placeholder="Qty" class="po-packet-qty-input w-16 text-right border-gray-200 rounded-lg text-xs p-1.5 focus:border-brand-500 focus:ring-brand-500 font-medium text-gray-900">
-                                                <span class="text-gray-400 text-xs">x</span>
-                                                <input type="number" name="items[{{ $loop->index }}][weight_per_packet]" step="0.01" min="0" value="{{ number_format((float) $item->weight_per_packet, 2, '.', '') }}" placeholder="kg" class="po-weight-per-packet-input w-16 text-right border-gray-200 rounded-lg text-xs p-1.5 focus:border-brand-500 focus:ring-brand-500 font-medium text-gray-900">
-                                                <span class="text-gray-400 text-xs">kg</span>
-                                            </div>
-                                            <input type="number" name="items[{{ $loop->index }}][quantity]" step="0.01" min="0" value="{{ number_format((float) $item->quantity, 2, '.', '') }}" class="po-quantity-input w-24 text-right border-gray-200 rounded-lg text-xs p-1.5 focus:border-brand-500 focus:ring-brand-500 font-medium text-gray-900 {{ $item->purchase_unit !== 'kg' ? 'hidden' : '' }}" {{ $item->purchase_unit !== 'kg' ? 'readonly' : '' }}>
-                                        </div>
-                                    @else
-                                        @if($item->purchase_unit !== 'kg')
-                                            <div class="text-right">
-                                                <span class="font-medium text-gray-900">{{ number_format((float) $item->packet_qty, 2) }}</span>
-                                                <span class="text-gray-400 text-xs">x</span>
-                                                <span class="font-medium text-gray-900">{{ number_format((float) $item->weight_per_packet, 2) }} kg</span>
-                                            </div>
+                                <td class="px-4 py-2 md:py-4 block md:table-cell">
+                                    <div class="flex items-center justify-between md:block">
+                                        <span class="inline-block md:hidden text-xs font-semibold text-gray-500 uppercase tracking-wide">Unit</span>
+                                        @can('updateItems', $order)
+                                            <select name="items[{{ $loop->index }}][purchase_unit]" class="po-unit-select border-gray-200 rounded-lg text-xs p-1.5 focus:border-brand-500 focus:ring-brand-500 bg-gray-50 font-semibold text-gray-700">
+                                                <option value="kg" {{ $item->purchase_unit === 'kg' ? 'selected' : '' }}>kg (Kilograms)</option>
+                                                <option value="packet" {{ $item->purchase_unit === 'packet' ? 'selected' : '' }}>packet</option>
+                                                <option value="bag" {{ $item->purchase_unit === 'bag' ? 'selected' : '' }}>bag</option>
+                                                <option value="box" {{ $item->purchase_unit === 'box' ? 'selected' : '' }}>box</option>
+                                            </select>
                                         @else
-                                            <span class="font-medium text-gray-900">{{ number_format((float) $item->quantity, 2) }} kg</span>
-                                        @endif
-                                    @endcan
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                                                {{ $item->purchase_unit }}
+                                            </span>
+                                        @endcan
+                                    </div>
                                 </td>
 
-                                <td class="px-4 py-4 text-right text-gray-900 font-medium po-expected-wt-display">
-                                    {{ number_format((float) $item->quantity, 2) }} kg
-                                </td>
-
-                                <td class="px-4 py-4 text-right">
-                                    @can('updateItems', $order)
+                                <td class="px-4 py-2 md:py-4 block md:table-cell text-right">
+                                    <div class="flex items-center justify-between md:justify-end gap-2">
+                                        <span class="inline-block md:hidden text-xs font-semibold text-gray-500 uppercase tracking-wide text-left">Price</span>
                                         <div class="flex flex-col items-end">
-                                            <input type="number" name="items[{{ $loop->index }}][actual_weight]" step="0.01" min="0" value="{{ $item->actual_weight !== null ? number_format((float) $item->actual_weight, 2, '.', '') : '' }}" placeholder="Enter weight" class="po-actual-weight-input w-24 text-right border-gray-200 rounded-lg text-xs p-1.5 focus:border-brand-500 focus:ring-brand-500 font-medium text-gray-900">
-                                            <div class="po-discrepancy-badge text-xs mt-1 text-right font-medium"></div>
-                                        </div>
-                                    @else
-                                        @if($item->actual_weight !== null)
-                                            <span class="font-semibold text-gray-950">{{ number_format((float) $item->actual_weight, 2) }} kg</span>
-                                            @if($item->actual_weight != $item->quantity)
-                                                @php
-                                                    $diff = $item->actual_weight - $item->quantity;
-                                                @endphp
-                                                <div class="text-xs font-bold mt-0.5 {{ $diff >= 0 ? 'text-green-600' : 'text-red-600' }}">
-                                                    Diff: {{ $diff >= 0 ? '+' : '' }}{{ number_format($diff, 2) }} kg
+                                            @can('updateItems', $order)
+                                                <div class="flex items-center justify-end gap-1">
+                                                    <span class="text-xs text-gray-400 font-medium">INR</span>
+                                                    <input type="number" name="items[{{ $loop->index }}][unit_price]" step="0.0001" min="0" value="{{ $item->unit_price }}" class="po-unit-price-input w-24 text-right border-gray-200 rounded-lg text-xs p-1.5 focus:border-brand-500 focus:ring-brand-500 font-semibold text-gray-900">
                                                 </div>
-                                            @endif
-                                        @else
-                                            <span class="text-gray-400">—</span>
-                                        @endif
-                                    @endcan
+                                                <select name="items[{{ $loop->index }}][price_basis]" class="po-price-basis-select mt-1 ml-auto block border-gray-200 rounded-lg text-[11px] p-1.5 focus:border-brand-500 focus:ring-brand-500 bg-gray-50 font-semibold text-gray-600">
+                                                    <option value="per_kg" {{ $item->price_basis === 'per_kg' ? 'selected' : '' }}>per kg</option>
+                                                    <option value="per_unit" {{ $item->price_basis === 'per_unit' ? 'selected' : '' }}>per {{ $item->purchase_unit === 'kg' ? 'kg' : $item->purchase_unit }}</option>
+                                                </select>
+                                            @else
+                                                <span class="text-gray-955 font-semibold">INR {{ number_format($item->unit_price, 4) }}</span>
+                                                <div class="text-[11px] text-gray-400 font-semibold">
+                                                    {{ $item->price_basis === 'per_unit' ? 'per '.$item->purchase_unit : 'per kg' }}
+                                                </div>
+                                            @endcan
+                                        </div>
+                                    </div>
                                 </td>
 
-                                <td class="px-4 py-4 text-right font-semibold text-gray-955 po-subtotal-display">
-                                    INR {{ number_format($item->subtotal, 2) }}
+                                <td class="px-4 py-2 md:py-4 block md:table-cell text-right">
+                                    <div class="flex items-center justify-between md:justify-end gap-2">
+                                        <span class="inline-block md:hidden text-xs font-semibold text-gray-500 uppercase tracking-wide text-left">Qty / Packets</span>
+                                        @can('updateItems', $order)
+                                            <div class="flex flex-col items-end gap-1">
+                                                <div class="po-packet-fields flex items-center gap-1 {{ $item->purchase_unit === 'kg' ? 'hidden' : '' }}">
+                                                    <input type="number" name="items[{{ $loop->index }}][packet_qty]" step="0.01" min="0" value="{{ number_format((float) $item->packet_qty, 2, '.', '') }}" placeholder="Qty" class="po-packet-qty-input w-16 text-right border-gray-200 rounded-lg text-xs p-1.5 focus:border-brand-500 focus:ring-brand-500 font-medium text-gray-900">
+                                                    <span class="text-gray-400 text-xs">x</span>
+                                                    <input type="number" name="items[{{ $loop->index }}][weight_per_packet]" step="0.01" min="0" value="{{ number_format((float) $item->weight_per_packet, 2, '.', '') }}" placeholder="kg" class="po-weight-per-packet-input w-16 text-right border-gray-200 rounded-lg text-xs p-1.5 focus:border-brand-500 focus:ring-brand-500 font-medium text-gray-900">
+                                                    <span class="text-gray-400 text-xs">kg</span>
+                                                </div>
+                                                <input type="number" name="items[{{ $loop->index }}][quantity]" step="0.01" min="0" value="{{ number_format((float) $item->quantity, 2, '.', '') }}" class="po-quantity-input w-24 text-right border-gray-200 rounded-lg text-xs p-1.5 focus:border-brand-500 focus:ring-brand-500 font-medium text-gray-900 {{ $item->purchase_unit !== 'kg' ? 'hidden' : '' }}" {{ $item->purchase_unit !== 'kg' ? 'readonly' : '' }}>
+                                            </div>
+                                        @else
+                                            @if($item->purchase_unit !== 'kg')
+                                                <div class="text-right">
+                                                    <span class="font-medium text-gray-900">{{ number_format((float) $item->packet_qty, 2) }}</span>
+                                                    <span class="text-gray-400 text-xs">x</span>
+                                                    <span class="font-medium text-gray-900">{{ number_format((float) $item->weight_per_packet, 2) }} kg</span>
+                                                </div>
+                                            @else
+                                                <span class="font-medium text-gray-900">{{ number_format((float) $item->quantity, 2) }} kg</span>
+                                            @endif
+                                        @endcan
+                                    </div>
+                                </td>
+
+                                <td class="px-4 py-2 md:py-4 block md:table-cell text-right">
+                                    <div class="flex items-center justify-between md:justify-end gap-2">
+                                        <span class="inline-block md:hidden text-xs font-semibold text-gray-500 uppercase tracking-wide text-left">Expected Wt</span>
+                                        <span class="text-gray-900 font-medium po-expected-wt-display">
+                                            {{ number_format((float) $item->quantity, 2) }} kg
+                                        </span>
+                                    </div>
+                                </td>
+
+                                <td class="px-4 py-2 md:py-4 block md:table-cell text-right">
+                                    <div class="flex items-center justify-between md:justify-end gap-2">
+                                        <span class="inline-block md:hidden text-xs font-semibold text-gray-500 uppercase tracking-wide text-left">Actual Wt</span>
+                                        @can('updateItems', $order)
+                                            <div class="flex flex-col items-end">
+                                                <input type="number" name="items[{{ $loop->index }}][actual_weight]" step="0.01" min="0" value="{{ $item->actual_weight !== null ? number_format((float) $item->actual_weight, 2, '.', '') : '' }}" placeholder="Enter weight" class="po-actual-weight-input w-24 text-right border-gray-200 rounded-lg text-xs p-1.5 focus:border-brand-500 focus:ring-brand-500 font-medium text-gray-900">
+                                                <div class="po-discrepancy-badge text-xs mt-1 text-right font-medium"></div>
+                                            </div>
+                                        @else
+                                            <div class="text-right">
+                                                @if($item->actual_weight !== null)
+                                                    <span class="font-semibold text-gray-955">{{ number_format((float) $item->actual_weight, 2) }} kg</span>
+                                                    @if($item->actual_weight != $item->quantity)
+                                                        @php
+                                                            $diff = $item->actual_weight - $item->quantity;
+                                                        @endphp
+                                                        <div class="text-xs font-bold mt-0.5 {{ $diff >= 0 ? 'text-green-600' : 'text-red-600' }}">
+                                                            Diff: {{ $diff >= 0 ? '+' : '' }}{{ number_format($diff, 2) }} kg
+                                                        </div>
+                                                    @endif
+                                                @else
+                                                    <span class="text-gray-400">—</span>
+                                                @endif
+                                            </div>
+                                        @endcan
+                                    </div>
+                                </td>
+
+                                <td class="px-4 py-2 md:py-4 block md:table-cell text-right">
+                                    <div class="flex items-center justify-between md:justify-end gap-2">
+                                        <span class="inline-block md:hidden text-xs font-semibold text-gray-500 uppercase tracking-wide text-left">Subtotal</span>
+                                        <span class="font-semibold text-gray-955 po-subtotal-display">
+                                            INR {{ number_format($item->subtotal, 2) }}
+                                        </span>
+                                    </div>
                                 </td>
                             </tr>
                             @endforeach
                             {{-- Totals --}}
-                            <tr class="bg-gray-50/50 border-t border-gray-100 total-row">
-                                <td colspan="6" class="px-4 py-4 text-right font-medium text-gray-500">Total Amount</td>
-                                <td class="px-4 py-4 text-right text-base font-bold text-brand-700 po-grand-total-display">
-                                    INR {{ number_format($order->total_amount, 2) }}
+                            <tr class="bg-gray-50/50 border-t border-gray-100 total-row block md:table-row">
+                                <td class="hidden md:table-cell" colspan="6"></td>
+                                <td class="px-4 py-4 block md:table-cell">
+                                    <div class="flex items-center justify-between md:justify-end gap-4">
+                                        <span class="md:hidden text-sm font-semibold text-gray-500">Total Amount</span>
+                                        <span class="text-base font-bold text-brand-700 po-grand-total-display">
+                                            INR {{ number_format($order->total_amount, 2) }}
+                                        </span>
+                                    </div>
                                 </td>
                             </tr>
                         </tbody>
@@ -174,11 +203,11 @@
 
                 {{-- Footer Save Button --}}
                 @can('updateItems', $order)
-                <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+                <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 p-4 sm:px-6 sm:py-4 bg-gray-50 border-t border-gray-100">
                     <p class="text-xs text-gray-500">
                         Use per kg for weighed purchases, or per unit when the supplier prices each packet, bag, or box. Warehouse receipt remains in kg.
                     </p>
-                    <button type="submit" class="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition-colors shadow-sm cursor-pointer">
+                    <button type="submit" class="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 transition-colors shadow-sm cursor-pointer w-full sm:w-auto shrink-0">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                         </svg>

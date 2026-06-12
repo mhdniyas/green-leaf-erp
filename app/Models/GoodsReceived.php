@@ -35,12 +35,14 @@ class GoodsReceived extends Model
         'transport_cost',
         'labour_cost',
         'notes',
+        'is_extra',
     ];
 
     protected $casts = [
         'received_at' => 'date',
         'transport_cost' => 'decimal:2',
         'labour_cost' => 'decimal:2',
+        'is_extra' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',

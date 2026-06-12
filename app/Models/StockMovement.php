@@ -19,6 +19,7 @@ class StockMovement extends Model
     protected $fillable = [
         'batch_id',
         'product_id',
+        'warehouse_id',
         'created_by',
         'grade',
         'type',
@@ -28,6 +29,7 @@ class StockMovement extends Model
     ];
 
     protected $casts = [
+        'warehouse_id' => 'integer',
         'grade' => ProductGrade::class,
         'type' => StockMovementType::class,
         'quantity' => 'decimal:3',
@@ -40,6 +42,11 @@ class StockMovement extends Model
     public function batch(): BelongsTo
     {
         return $this->belongsTo(StockBatch::class, 'batch_id');
+    }
+
+    public function warehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class);
     }
 
     public function product(): BelongsTo
