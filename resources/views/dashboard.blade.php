@@ -89,7 +89,7 @@ $modules = [
         'badge'       => null,
     ],
     [
-        'title'       => 'Requisition Board',
+        'title'       => 'Approve Shop Orders',
         'description' => 'Primary purchasing review board for consolidating shop demand before approvals.',
         'href'        => route('requisitions.board'),
         'permission'  => 'purchasing.order.approve',

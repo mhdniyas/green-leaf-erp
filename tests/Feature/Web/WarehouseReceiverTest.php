@@ -53,6 +53,9 @@ class WarehouseReceiverTest extends TestCase
 
         $response->assertOk();
         $response->assertViewIs('warehouse-receiver.checklist');
+        $response->assertSee('app-dialog-root');
+        $response->assertSee('warehouse-confirm-form');
+        $response->assertDontSee('onsubmit="return confirm(', false);
     }
 
     public function test_warehouse_receiver_is_redirected_from_dashboard(): void
@@ -191,6 +194,9 @@ class WarehouseReceiverTest extends TestCase
 
         $response->assertOk();
         $response->assertViewIs('warehouse-receiver.loadout_details');
+        $response->assertSee('app-dialog-root');
+        $response->assertSee('warehouse-confirm-form');
+        $response->assertDontSee('onsubmit="return confirm(', false);
     }
 
     public function test_warehouse_receiver_can_load_item_and_reduce_inventory(): void

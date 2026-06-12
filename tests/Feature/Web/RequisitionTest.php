@@ -914,6 +914,43 @@ class RequisitionTest extends TestCase
         ]);
     }
 
+    public function test_approved_daily_order_is_removed_from_requisition_board_list(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $date = Carbon::tomorrow()->format('Y-m-d');
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => $date,
+            'state' => 'submitted',
+            'created_by' => $this->shopOwner->id,
+        ]);
+
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 10.00,
+            'unit' => $this->product->unit,
+        ]);
+
+        $this->actingAs($manager)->post(route('requisitions.review', $order->order_number), [
+            'action' => 'approve',
+            'approved_qty' => [
+                $item->id => 10.00,
+            ],
+        ])->assertRedirect(route('requisitions.show', $order->order_number));
+
+        $response = $this->actingAs($manager)
+            ->get(route('requisitions.board', ['date' => $date]));
+
+        $response->assertOk();
+        $response->assertDontSee($order->order_number);
+        $response->assertDontSee('Processed Daily Requisitions');
+        $response->assertSee('No daily orders');
+    }
+
     public function test_approved_requisitions_board_page_is_accessible_to_purchase_manager(): void
     {
         $manager = User::factory()->create();
@@ -923,9 +960,9 @@ class RequisitionTest extends TestCase
             ->get(route('requisitions.approved_board'));
 
         $response->assertOk();
-        $response->assertSee('Approved Requisitions Board');
-        $response->assertSee('Purchasing');
-        $response->assertSee('Requisition Board');
+        $response->assertSee('Approved Board');
+        $response->assertSee('Purchase Manager');
+        $response->assertSee('Approve Shop Orders');
     }
 
     public function test_purchase_manager_can_save_approved_requisition_board_quantities(): void
@@ -1727,7 +1764,7 @@ class RequisitionTest extends TestCase
             ->get(route('requisitions.approved_board'));
 
         $response->assertOk();
-        $response->assertSee('Approved Requisitions Board');
+        $response->assertSee('Approved Board');
     }
 
     public function test_purchase_manager_can_accept_late_requisition(): void

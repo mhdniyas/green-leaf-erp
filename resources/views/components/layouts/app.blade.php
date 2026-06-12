@@ -62,7 +62,7 @@
             'label' => 'Shop Cards',
             'route' => 'inventory.sorting.shop-orders',
             'active' => request()->routeIs('inventory.sorting.shop-orders'),
-            'icon' => '<svg class="h-7 w-7 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16"/><path d="M7 4h10"/><path d="M6 11h12"/><path d="M8 15h8"/><path d="M10 19h4"/></svg>',
+            'icon' => '<svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16"/><path d="M7 4h10"/><path d="M6 11h12"/><path d="M8 15h8"/><path d="M10 19h4"/></svg>',
             'type' => 'center',
         ],
         [
@@ -145,7 +145,7 @@
             'label' => 'Orders',
             'route' => 'purchasing.orders.index',
             'active' => request()->routeIs('purchasing.orders.*'),
-            'icon' => '<svg class="h-7 w-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0z" /></svg>',
+            'icon' => '<svg class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0z" /></svg>',
             'type' => 'center',
         ],
         [
@@ -381,7 +381,7 @@
                         @endif
                         @if(auth()->user()->hasRole('purchase') || auth()->user()->can('purchasing.order.approve'))
                         <x-nav-item href="{{ route('requisitions.board') }}" :active="request()->routeIs('requisitions.board')" :sub="true">
-                            Requisition Board
+                            Approve Shop Orders
                         </x-nav-item>
                         <x-nav-item href="{{ route('requisitions.approved_board') }}" :active="request()->routeIs('requisitions.approved_board')" :sub="true">
                             Approved Board
@@ -704,8 +704,8 @@
 </div>
 
 @if($showAdminMobileNav || $showWarehouseMobileNav || $showPurchaseMobileNav || $showPurchaserMobileNav || $showWarehouseReceiverMobileNav)
-<div id="layout-mobile-nav" class="fixed inset-x-0 bottom-4 z-40 px-4 lg:hidden">
-    <nav class="mx-auto flex h-16 max-w-md items-center justify-around rounded-[2rem] border border-slate-100 bg-white/95 px-4 shadow-[0_-8px_30px_rgb(0,0,0,0.08),0_4px_20px_rgb(0,0,0,0.04)] backdrop-blur-md">
+<div id="layout-mobile-nav" class="fixed inset-x-0 bottom-5 z-50 px-5 lg:hidden">
+    <nav class="mx-auto flex h-[60px] max-w-md items-center gap-1 rounded-[2rem] border border-slate-100 bg-white/96 px-2 shadow-[0_8px_40px_rgba(0,0,0,0.10),0_2px_12px_rgba(0,0,0,0.06)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/96">
         @php
             $mobileNavItems = match(true) {
                 $showAdminMobileNav => $adminMobileNavItems,
@@ -720,35 +720,23 @@
             @php
                 $isActive = $item['active'] ?? false;
             @endphp
-            @if(($item['type'] ?? 'link') === 'center')
-                <div class="relative -mt-10">
-                    <a href="{{ route($item['route']) }}" @class([
-                        'relative flex h-16 w-16 items-center justify-center rounded-full border-[6px] border-slate-100 shadow-lg transition-all duration-300',
-                        'bg-cyan-500 text-white hover:bg-cyan-600 hover:scale-105 active:scale-95' => $isActive,
-                        'bg-cyan-500 text-white/95 hover:bg-cyan-600 hover:scale-105 active:scale-95' => ! $isActive,
-                    ])>{!! $item['icon'] !!}</a>
-                    @if ($isActive)
-                        <div class="absolute -bottom-4 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-cyan-500"></div>
-                    @endif
-                </div>
-            @else
-                <a
-                    href="{{ route($item['route']) }}"
-                    @class([
-                        'relative flex flex-col items-center justify-center rounded-2xl transition-all duration-200',
-                        'text-cyan-600 w-14 h-14' => $isActive,
-                        'text-slate-400 hover:text-slate-600 w-12 h-12' => ! $isActive,
-                    ])
-                    title="{{ $item['label'] }}"
-                >
-                    <div class="transition-transform duration-200 {{ $isActive ? '-translate-y-1 scale-90' : '' }}">
-                        {!! $item['icon'] !!}
-                    </div>
-                    @if ($isActive)
-                        <span class="text-[9px] font-bold tracking-tight absolute bottom-1 transition-all duration-200">{{ $item['label'] }}</span>
-                    @endif
-                </a>
-            @endif
+            <a
+                href="{{ route($item['route']) }}"
+                @class([
+                    'group relative flex h-11 flex-1 items-center justify-center gap-1.5 rounded-[1.25rem] border-0 px-2 font-bold transition-all duration-200',
+                    'bg-cyan-500 text-white shadow-sm' => $isActive,
+                    'bg-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300' => ! $isActive,
+                ])
+                title="{{ $item['label'] }}"
+            >
+                <span class="shrink-0 [&_svg]:h-[18px] [&_svg]:w-[18px]">
+                    {!! $item['icon'] !!}
+                </span>
+                <span @class([
+                    'whitespace-nowrap text-[10px] font-black',
+                    'hidden' => ! $isActive,
+                ])>{{ $item['label'] }}</span>
+            </a>
         @endforeach
     </nav>
 </div>

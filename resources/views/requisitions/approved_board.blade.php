@@ -1,50 +1,49 @@
-<x-layouts.app title="Approved Requisitions Board">
-    <div class="mx-auto px-4 py-8">
+@extends('purchase-manager.layouts.app')
+
+@section('title', 'Approved Board')
+@section('page_title', 'Approved Board')
+@section('page_description', 'Review approved shop demand, apply updates before GRN starts, and continue into purchase orders from a phone-friendly board.')
+
+@section('page_actions')
+    <form action="{{ route('requisitions.approved_board') }}" method="GET" class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-2 shadow-sm">
+        <label for="date-select" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Date</label>
+        <input type="date" id="date-select" name="date" value="{{ $date }}" onchange="this.form.submit()" class="border-0 bg-transparent p-0 text-xs font-bold text-slate-700 focus:outline-none focus:ring-0">
+    </form>
+@endsection
+
+@section('content')
+    <div class="mx-auto space-y-6">
         @php
             $hasPendingApprovedUpdates = collect($shopUpdateMeta ?? [])->contains(fn (array $meta) => $meta['has_update_request']);
         @endphp
-        <div class="mb-6">
-            <p class="text-xs font-black uppercase tracking-[0.18em] text-cyan-700">Purchasing</p>
-            <h1 class="mt-1 text-3xl font-black tracking-tight text-slate-950">Approved Requisitions Board</h1>
-            <p class="mt-2 max-w-3xl text-sm text-slate-600">View, edit, and export finalized daily allocations across all shops.</p>
-        </div>
 
-        <div class="mb-8 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-end">
-            <div class="flex flex-wrap items-center gap-4">
-                <form action="{{ route('requisitions.approved_board') }}" method="GET" class="flex items-center gap-3 bg-white px-4 py-2 border border-slate-200 rounded-xl shadow-sm">
-                    <label for="date-select" class="text-xs font-bold text-slate-400 uppercase tracking-wider">Delivery Date:</label>
-                    <input type="date" id="date-select" name="date" value="{{ $date }}" onchange="this.form.submit()" class="text-xs font-bold text-slate-700 border-0 focus:outline-none focus:ring-0 p-0 cursor-pointer">
-                </form>
-
-                {{-- CSV Export --}}
-                <button type="button" onclick="exportApprovedBoardCsv()" class="inline-flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-4 py-3 rounded-xl transition-all border border-slate-200 shadow-sm cursor-pointer">
+        <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                <button type="button" onclick="exportApprovedBoardCsv()" class="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">
                     <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                     Export CSV
                 </button>
 
-                {{-- PDF Export --}}
-                <button type="button" onclick="exportApprovedBoardPdf()" class="inline-flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold px-4 py-3 rounded-xl transition-all border border-emerald-100 shadow-sm cursor-pointer">
+                <button type="button" onclick="exportApprovedBoardPdf()" class="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-700 shadow-sm transition hover:bg-emerald-100">
                     <svg class="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.844l-.24.03a.75.75 0 11-.24-1.48l.24-.03a.75.75 0 11.24 1.48zM15 10.5a.75.75 0 01.75-.75h.008a.75.75 0 01.75.75v.008a.75.75 0 01-.75.75h-.008a.75.75 0 01-.75-.75V10.5zm-6-1.5a.75.75 0 01.75-.75h.008a.75.75 0 01.75.75v.008a.75.75 0 01-.75.75h-.008a.75.75 0 01-.75-.75V9zm6 3a.75.75 0 01.75-.75h.008a.75.75 0 01.75.75v.008a.75.75 0 01-.75.75h-.008a.75.75 0 01-.75-.75v-.008zm-6 3a.75.75 0 01.75-.75h.008a.75.75 0 01.75.75v.008a.75.75 0 01-.75.75h-.008a.75.75 0 01-.75-.75v-.008z" /><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582" /></svg>
                     Print PDF
                 </button>
 
                 @if($approvedBoardSynced && ! $hasPendingApprovedUpdates)
-                    <a href="{{ route('purchasing.orders.index') }}" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-5 py-3 rounded-xl transition-all shadow-md hover:shadow-lg">
+                    <a href="{{ route('purchasing.orders.index') }}" class="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-xs font-bold text-white shadow-md transition hover:bg-blue-700">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272" /></svg>
                         Continue in Purchase Orders
                     </a>
                 @elseif($approvedBoardSynced && $hasPendingApprovedUpdates)
-                    <button type="submit" form="board-form" class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-5 py-3 rounded-xl transition-all cursor-pointer focus:outline-none shadow-md hover:shadow-lg border-0">
+                    <button type="submit" form="board-form" class="inline-flex items-center justify-center gap-2 rounded-2xl border-0 bg-indigo-600 px-5 py-3 text-xs font-bold text-white shadow-md transition hover:bg-indigo-700 focus:outline-none">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
                         Apply Pending Updates
                     </button>
                 @else
-                    <button type="submit" form="board-form" class="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-5 py-3 rounded-xl transition-all cursor-pointer focus:outline-none shadow-md hover:shadow-lg border-0">
+                    <button type="submit" form="board-form" class="inline-flex items-center justify-center gap-2 rounded-2xl border-0 bg-emerald-600 px-5 py-3 text-xs font-bold text-white shadow-md transition hover:bg-emerald-700 focus:outline-none">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
                         Save & Release Allocations
                     </button>
                 @endif
-            </div>
         </div>
 
         {{-- Alerts --}}
@@ -130,7 +129,7 @@
         <!-- Supplier Warning Modal Removed -->
 
         {{-- Filters & Search --}}
-        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-4 mb-6 flex flex-col md:flex-row items-center gap-4">
+        <div class="mb-6 flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center">
             <div class="relative flex-1 w-full">
                 <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                     <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
@@ -140,7 +139,7 @@
             
 
 
-            <div class="flex items-center gap-3 self-stretch md:self-auto shrink-0 bg-white px-3 py-1.5 border border-slate-200 rounded-xl shadow-sm">
+            <div class="flex shrink-0 items-center gap-3 self-stretch rounded-xl border border-slate-200 bg-white px-3 py-1.5 shadow-sm md:self-auto">
                 <label for="filter-produce" class="text-xs font-bold text-slate-400 uppercase tracking-wider select-none">Produce:</label>
                 <select id="filter-produce" onchange="filterBoardRows()" class="text-xs font-bold text-slate-700 border-0 focus:outline-none focus:ring-0 p-0 cursor-pointer">
                     <option value="all">All</option>
@@ -150,14 +149,14 @@
             </div>
             <!-- Supplier bulk selection removed -->
 
-            <div class="flex items-center gap-4 self-stretch md:self-auto shrink-0 pl-2">
+            <div class="flex shrink-0 items-center gap-4 self-stretch pl-2 md:self-auto">
                 <label class="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none">
                     <input type="checkbox" id="filter-has-orders" checked onchange="filterBoardRows()" class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer">
                     Show only items with orders
                 </label>
             </div>
 
-            <div class="flex gap-2 self-stretch md:self-auto shrink-0">
+            <div class="flex shrink-0 gap-2 self-stretch md:self-auto">
                 <button type="button" onclick="clearSearch()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all border-0 cursor-pointer">
                     Clear Filter
                 </button>
@@ -171,16 +170,16 @@
             <fieldset @disabled($approvedBoardSynced && ! $hasPendingApprovedUpdates) class="{{ $approvedBoardSynced && ! $hasPendingApprovedUpdates ? 'opacity-75' : '' }}">
             
             {{-- Approved Requisitions Allocations Section --}}
-            <div class="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden mb-8" id="allocations-card">
-                <div class="px-6 py-4 bg-slate-50/50 border-b border-slate-200 flex items-center justify-between">
+            <div class="mb-8 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm" id="allocations-card">
+                <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50/50 px-4 py-4 sm:px-6">
                     <h3 class="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
                         <svg class="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3h.75v3m3 0v-3h.75v3" /></svg>
                         Approved Requisitions Allocations
                     </h3>
                     <span class="text-[9px] font-black text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full" id="allocations-count">0 items</span>
                 </div>
-                <div class="overflow-x-auto max-w-full">
-                    <table class="w-full text-left border-collapse" id="matrix-table-allocations">
+                <div class="relative -mx-4 overflow-x-auto overflow-y-visible px-4 pb-2 [touch-action:pan-x] [-webkit-overflow-scrolling:touch] sm:mx-0 sm:px-0">
+                    <table class="w-max min-w-[860px] border-collapse text-left" id="matrix-table-allocations">
                         <thead>
                             <tr class="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                 <th class="py-4 px-4 text-center sticky left-0 bg-slate-50 z-20 w-[50px]">SL NO</th>
@@ -543,4 +542,4 @@
         }
     </script>
     @endpush
-</x-layouts.app>
+@endsection

@@ -7,6 +7,8 @@
             $yesterdayItem = $yesterdayOrder?->items->firstWhere('product_id', $product->id);
             $currentQuantity = old("items.{$product->sku}", $existingItem?->requested_qty ?? '');
             $suggestedQuantity = (float) ($yesterdayItem?->requested_qty ?? 0);
+            $isSelected = (float) $currentQuantity > 0;
+            $isFrequent = $frequentProducts->contains(fn ($item) => (int) $item['product']->id === (int) $product->id);
 
             $allProductsForOrder->push([
                 'id' => $product->id,
@@ -18,9 +20,25 @@
                 'suggested_qty' => $suggestedQuantity,
                 'yesterday_qty' => $suggestedQuantity,
                 'price' => (float) ($product->effective_price ?? $product->base_price ?? 0),
+                'is_selected' => $isSelected,
+                'is_frequent' => $isFrequent,
             ]);
         }
     }
+
+    $allProductsForOrder = $allProductsForOrder
+        ->sort(function (array $left, array $right): int {
+            if ($left['is_selected'] !== $right['is_selected']) {
+                return $left['is_selected'] ? -1 : 1;
+            }
+
+            if ($left['is_frequent'] !== $right['is_frequent']) {
+                return $left['is_frequent'] ? -1 : 1;
+            }
+
+            return strcmp($left['name'], $right['name']);
+        })
+        ->values();
 @endphp
 
 <div class="space-y-6">
@@ -88,9 +106,6 @@
 
         <div id="product-list-container" class="divide-y divide-slate-100 bg-white rounded-3xl border border-slate-100 px-2 shadow-sm">
             @foreach ($allProductsForOrder as $productData)
-                @php
-                    $isFrequent = $frequentProducts->contains(fn ($item) => (int) $item['product']->id === (int) $productData['id']);
-                @endphp
                 <article
                     data-product-card
                     data-product-id="{{ $productData['id'] }}"
@@ -100,9 +115,10 @@
                     data-price="{{ $productData['price'] }}"
                     data-suggested-qty="{{ $productData['suggested_qty'] }}"
                     data-category="{{ $productData['category'] }}"
-                    data-is-frequent="{{ $isFrequent ? 'true' : 'false' }}"
+                    data-is-frequent="{{ $productData['is_frequent'] ? 'true' : 'false' }}"
+                    data-is-selected="{{ $productData['is_selected'] ? 'true' : 'false' }}"
                     data-search-text="{{ \Illuminate\Support\Str::lower($productData['name'].' '.$productData['sku'].' '.$productData['category']) }}"
-                    class="flex items-center justify-between p-3.5 cursor-pointer hover:bg-slate-50 active:bg-slate-100 rounded-2xl transition duration-150 {{ $isFrequent ? '' : 'hidden' }}"
+                    class="flex items-center justify-between rounded-2xl p-3.5 transition duration-150 {{ $productData['is_frequent'] || $productData['is_selected'] ? '' : 'hidden' }} cursor-pointer hover:bg-slate-50 active:bg-slate-100"
                 >
                     <div class="min-w-0 flex-1">
                         <h4 class="font-bold text-slate-900 text-sm truncate">{{ $productData['name'] }}</h4>

@@ -16,6 +16,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class PurchaserDashboardController extends Controller
@@ -27,11 +28,18 @@ class PurchaserDashboardController extends Controller
         }
     }
 
-    public function index(Request $request): View
+    public function index(Request $request): View|RedirectResponse
     {
         $this->ensurePurchaser($request);
 
-        $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
+        $date = $request->input('date', Carbon::today()->format('Y-m-d'));
+
+        if (Carbon::parse($date)->isFuture()) {
+            return redirect()
+                ->route('purchaser.dashboard', ['date' => Carbon::today()->format('Y-m-d')])
+                ->withErrors(['Future purchase dates are not allowed.']);
+        }
+
         $userId = $request->user()->id;
 
         // 1. Load active products and suppliers for selectors
@@ -88,6 +96,41 @@ class PurchaserDashboardController extends Controller
             }
         }
 
+        $submittedPurchaseSummaries = $historyGrns
+            ->flatMap(function (GoodsReceived $grn) {
+                return $grn->items->map(function (GoodsReceivedItem $item) use ($grn): array {
+                    return [
+                        'product_id' => (int) $item->product_id,
+                        'product_name' => $item->product->name,
+                        'sku' => $item->product->sku,
+                        'unit' => $item->product->unit,
+                        'quantity' => (float) $item->received_qty,
+                        'unit_price' => (float) ($item->purchaseOrderItem?->unit_price ?? 0),
+                        'status' => (string) $grn->status,
+                        'supplier_name' => $grn->purchaseOrder->supplier->name ?? 'Unknown',
+                    ];
+                });
+            })
+            ->groupBy('product_id')
+            ->map(function ($items): array {
+                $first = $items->first();
+                $totalQuantity = (float) $items->sum('quantity');
+                $totalValue = (float) $items->sum(fn (array $item): float => $item['quantity'] * $item['unit_price']);
+                $status = collect($items)->pluck('status')->contains('approved') ? 'approved' : 'pending_approval';
+
+                return [
+                    'product_name' => $first['product_name'],
+                    'sku' => $first['sku'],
+                    'unit' => $first['unit'],
+                    'total_quantity' => $totalQuantity,
+                    'average_price' => $totalQuantity > 0 ? round($totalValue / $totalQuantity, 2) : 0.0,
+                    'supplier_names' => collect($items)->pluck('supplier_name')->unique()->values()->all(),
+                    'status' => $status,
+                ];
+            })
+            ->sortBy('product_name')
+            ->values();
+
         // 5. Consolidate requirements for Daily Order, Bought Items, Remaining to Buy, and History
         $requirements = $orderItems->groupBy('product_id')->map(function ($items, $productId) use ($draftBought, $submittedBought) {
             $product = $items->first()->product;
@@ -114,15 +157,35 @@ class PurchaserDashboardController extends Controller
                 'submitted_bought' => $sbought,
                 'total_bought' => $totalBought,
                 'remaining' => $remaining,
+                'status' => match (true) {
+                    $remaining <= 0 => 'full',
+                    $totalBought > 0 => 'partial',
+                    default => 'pending',
+                },
                 'shop_split' => $shopSplit,
             ];
+        })->sort(function (array $left, array $right): int {
+            $priority = [
+                'pending' => 0,
+                'partial' => 1,
+                'full' => 2,
+            ];
+
+            $leftPriority = $priority[$left['status']] ?? 99;
+            $rightPriority = $priority[$right['status']] ?? 99;
+
+            if ($leftPriority !== $rightPriority) {
+                return $leftPriority <=> $rightPriority;
+            }
+
+            return strcmp($left['product_name'], $right['product_name']);
         })->values();
 
         return view('purchasing.purchaser_dashboard', compact(
             'date',
             'requirements',
             'draftItemsList',
-            'historyGrns',
+            'submittedPurchaseSummaries',
             'products',
             'suppliers'
         ));
@@ -137,7 +200,7 @@ class PurchaserDashboardController extends Controller
             'supplier_id' => ['required', 'exists:suppliers,id'],
             'quantity' => ['required', 'numeric', 'min:0.01'],
             'unit_price' => ['required', 'numeric', 'min:0.01'],
-            'date' => ['required', 'date'],
+            'date' => ['required', 'date', Rule::date()->todayOrBefore()],
         ]);
 
         $productId = (int) $request->input('product_id');
@@ -345,7 +408,11 @@ class PurchaserDashboardController extends Controller
     {
         $this->ensurePurchaser($request);
 
-        $date = $request->input('date', now()->format('Y-m-d'));
+        $validated = $request->validate([
+            'date' => ['required', 'date', Rule::date()->todayOrBefore()],
+        ]);
+
+        $date = $validated['date'];
         $userId = $request->user()->id;
 
         try {

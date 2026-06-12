@@ -141,6 +141,26 @@ class ShopOwnerModulesTest extends TestCase
         $response->assertSee('Update #2 Approved');
     }
 
+    public function test_shop_owner_dashboard_uses_purchaser_style_mobile_bottom_nav(): void
+    {
+        $shop = Shop::create([
+            'code' => 'SHOP_MOBILE_NAV',
+            'name' => 'Mobile Nav Shop',
+        ]);
+
+        $shopOwner = User::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+        $shopOwner->assignRole('shop');
+
+        $response = $this->actingAs($shopOwner)->get(route('shop-owner.dashboard'));
+
+        $response->assertOk();
+        $response->assertSee('bottom-5 z-50 px-5 lg:hidden', false);
+        $response->assertSee('h-[60px] max-w-md items-center gap-1 rounded-[2rem]', false);
+        $response->assertSee('h-11 flex-1 items-center justify-center gap-1.5 rounded-[1.25rem]', false);
+    }
+
     /**
      * Test the consolidated Finance dashboard and exports.
      */

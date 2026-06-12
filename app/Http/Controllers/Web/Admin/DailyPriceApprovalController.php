@@ -33,7 +33,13 @@ class DailyPriceApprovalController extends Controller
         // Load pending price approvals for the date
         $pendingApprovals = DailyPriceApproval::where('status', 'pending')
             ->whereDate('business_date', $date)
-            ->with('product')
+            ->with(['product', 'approvedBy'])
+            ->get();
+
+        $approvedApprovals = DailyPriceApproval::where('status', 'approved')
+            ->whereDate('business_date', $date)
+            ->with(['product', 'approvedBy'])
+            ->orderByDesc('approved_at')
             ->get();
 
         $priceGroups = ShopPriceGroup::whereIn('name', ['A', 'B', 'C'])->get()->keyBy('name');
@@ -74,10 +80,21 @@ class DailyPriceApprovalController extends Controller
         // 3. Sort by variance descending
         $sortedItems = $items->sortByDesc('variance')->values();
 
+        $revisionHistory = DailyProductPriceRevision::query()
+            ->with(['product', 'shopPriceGroup', 'changedBy'])
+            ->where('reason', 'Admin approved proposed daily price')
+            ->where('grade', ProductGrade::GradeA->value)
+            ->whereIn('product_id', $pendingApprovals->pluck('product_id')->merge($approvedApprovals->pluck('product_id'))->unique()->all())
+            ->orderByDesc('changed_at')
+            ->limit(60)
+            ->get();
+
         return view('admin.price-approvals.index', [
             'date' => $date,
             'items' => $sortedItems,
             'priceGroups' => $priceGroups,
+            'approvedApprovals' => $approvedApprovals,
+            'revisionHistory' => $revisionHistory,
         ]);
     }
 

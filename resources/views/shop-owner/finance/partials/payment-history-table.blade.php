@@ -7,7 +7,10 @@
                         <p class="text-sm font-black text-slate-900">{{ $invoice->business_date->format('d M Y') }}</p>
                         <p class="mt-1 font-mono text-xs font-bold text-slate-600">{{ $invoice->invoice_number }}</p>
                     </div>
-                    <a href="{{ route('shop-owner.finance.show', $invoice) }}" class="text-sm font-bold text-emerald-700">Open</a>
+                    <div class="flex flex-col items-end gap-2">
+                        <a href="{{ route('shop-owner.finance.show', $invoice) }}" class="text-sm font-bold text-emerald-700">Open</a>
+                        <a href="{{ route('shop-owner.finance.pdf', $invoice) }}" target="_blank" class="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">PDF</a>
+                    </div>
                 </div>
                 <div class="mt-4">
                     @include('shop-owner.finance.partials.payment-status-badge', ['invoice' => $invoice])
@@ -47,7 +50,10 @@
                         <td class="py-4 pr-4 text-right font-bold text-slate-900">Rs. {{ number_format((float) $invoice->final_total, 2) }}</td>
                         <td class="py-4 pr-4 text-right font-bold text-red-600">Rs. {{ number_format((float) $invoice->balance_amount, 2) }}</td>
                         <td class="py-4 text-right">
-                            <a href="{{ route('shop-owner.finance.show', $invoice) }}" class="font-bold text-emerald-700 hover:text-emerald-900">Open</a>
+                            <div class="flex items-center justify-end gap-3">
+                                <a href="{{ route('shop-owner.finance.pdf', $invoice) }}" target="_blank" class="font-black uppercase tracking-[0.14em] text-slate-500 hover:text-slate-700">PDF</a>
+                                <a href="{{ route('shop-owner.finance.show', $invoice) }}" class="font-bold text-emerald-700 hover:text-emerald-900">Open</a>
+                            </div>
                         </td>
                     </tr>
                 @endforeach

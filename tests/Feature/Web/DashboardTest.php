@@ -305,14 +305,20 @@ class DashboardTest extends TestCase
         $response = $this->actingAs($manager)
             ->get(route('dashboard'));
 
-        $response->assertOk();
-        $response->assertSee('Purchase Manager Daily Desk');
-        $response->assertSee('What To Do Today');
-        $response->assertSee('Review Requests');
-        $response->assertSee('Open Receipts');
-        $response->assertSee('Open invoices');
-        $response->assertSee('Pending shop invoice exceptions');
-        $response->assertDontSee('Purchaser Desk');
+        $response->assertRedirect(route('purchasing.orders.index'));
+
+        $dashboardResponse = $this->actingAs($manager)
+            ->get(route('purchasing.orders.index'));
+
+        $dashboardResponse->assertOk();
+        $dashboardResponse->assertSee('Purchase Manager Dashboard');
+        $dashboardResponse->assertSee('Total shop orders');
+        $dashboardResponse->assertSee('Delivery done');
+        $dashboardResponse->assertSee('Open Approve Shop Orders');
+        $dashboardResponse->assertDontSee('Purchaser Desk');
+        $dashboardResponse->assertSee('bottom-5 z-50 px-5 lg:hidden', false);
+        $dashboardResponse->assertSee('h-[60px] max-w-md items-center gap-1 rounded-[2rem]', false);
+        $dashboardResponse->assertSee('h-11 flex-1 items-center justify-center gap-1.5 rounded-[1.25rem]', false);
     }
 
     public function test_dashboard_renders_requisition_and_approved_board_modules_for_purchase_approver(): void
@@ -324,7 +330,7 @@ class DashboardTest extends TestCase
             ->get(route('dashboard'));
 
         $response->assertOk();
-        $response->assertSee('Requisition Board');
+        $response->assertSee('Approve Shop Orders');
         $response->assertSee('Approved Board');
         $response->assertSee('Purchase Orders');
     }
@@ -338,9 +344,55 @@ class DashboardTest extends TestCase
             ->get(route('purchasing.orders.index'));
 
         $response->assertOk();
-        $response->assertSee('Requisition Board');
-        $response->assertSee('Approved Board');
-        $response->assertSee('Purchase Manager Daily Desk');
+        $response->assertSee('Purchase Manager Dashboard');
+        $response->assertSee('Total shop orders');
+        $response->assertSee('Delivery done');
+        $response->assertSee('Open Approve Shop Orders');
+    }
+
+    public function test_shop_owner_selected_products_are_rendered_before_unselected_items(): void
+    {
+        $this->seed(CategorySeeder::class);
+        $this->seed(ProductSeeder::class);
+        Carbon::setTestNow(Carbon::today()->setTime(12, 0));
+
+        $shop = Shop::create([
+            'code' => 'SHOP_SELECTED_FIRST',
+            'name' => 'Selected First Shop',
+        ]);
+
+        $shopOwner = User::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+        $shopOwner->assignRole('shop');
+
+        $products = Product::query()->orderBy('id')->take(2)->get();
+
+        $tomorrowOrder = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'draft',
+            'business_date' => today()->addDay()->toDateString(),
+            'created_by' => $shopOwner->id,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $tomorrowOrder->id,
+            'product_id' => $products[1]->id,
+            'requested_qty' => 5.00,
+            'unit' => $products[1]->unit,
+        ]);
+
+        $response = $this->actingAs($shopOwner)->get(route('shop-owner.orders.create'));
+
+        $response->assertOk();
+
+        $content = $response->getContent();
+        $selectedPosition = strpos($content, 'data-product-id="'.$products[1]->id.'"');
+        $unselectedPosition = strpos($content, 'data-product-id="'.$products[0]->id.'"');
+
+        $this->assertNotFalse($selectedPosition);
+        $this->assertNotFalse($unselectedPosition);
+        $this->assertLessThan($unselectedPosition, $selectedPosition);
     }
 
     public function test_purchase_manager_cannot_access_removed_supplier_and_admin_only_sections(): void

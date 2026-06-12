@@ -7,7 +7,7 @@
                 <div>
                     <p class="text-xs font-black uppercase tracking-[0.18em] text-indigo-600">Admin Controls</p>
                     <h1 class="text-2xl font-black tracking-tight text-slate-900 mt-1">Daily Price Approvals</h1>
-                    <p class="text-sm text-slate-500 mt-1">Review weighted average purchase prices and approve category selling prices for tomorrow's orders.</p>
+                    <p class="text-sm text-slate-500 mt-1">Review purchase-manager proposals, publish category selling prices, and generate or reprice shop-owner invoices for the selected business date.</p>
                 </div>
                 <form method="GET" action="{{ route('admin.price-approvals.index') }}" class="flex items-center gap-3 shrink-0">
                     <div>
@@ -195,6 +195,96 @@
                 </div>
             </form>
         @endif
+
+        <section class="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h2 class="text-base font-black text-slate-900">Approved Rows</h2>
+                    <p class="mt-1 text-xs text-slate-500">Current approvals for {{ \Carbon\Carbon::parse($date)->format('d F Y') }}. If purchase manager edits a row again, it returns to pending review.</p>
+                </div>
+                <span class="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-black text-emerald-700">{{ $approvedApprovals->count() }} approved</span>
+            </div>
+
+            @if($approvedApprovals->isEmpty())
+                <p class="mt-5 text-sm font-semibold text-slate-500">No approvals published yet for this date.</p>
+            @else
+                <div class="mt-5 overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
+                                <th class="px-4 py-3">Product</th>
+                                <th class="px-4 py-3 text-right">Purchase</th>
+                                <th class="px-4 py-3 text-right">A</th>
+                                <th class="px-4 py-3 text-right">B</th>
+                                <th class="px-4 py-3 text-right">C</th>
+                                <th class="px-4 py-3">Approved By</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 text-sm">
+                            @foreach ($approvedApprovals as $approval)
+                                <tr>
+                                    <td class="px-4 py-3">
+                                        <p class="font-bold text-slate-900">{{ $approval->product?->name ?? 'Unknown Product' }}</p>
+                                        <p class="mt-1 text-[10px] font-semibold text-slate-400">{{ $approval->product?->sku }}</p>
+                                    </td>
+                                    <td class="px-4 py-3 text-right font-mono font-bold text-slate-900">Rs. {{ number_format((float) $approval->purchase_price, 2) }}</td>
+                                    <td class="px-4 py-3 text-right font-black text-slate-900">Rs. {{ number_format((float) $approval->price_a, 2) }}</td>
+                                    <td class="px-4 py-3 text-right font-black text-slate-900">Rs. {{ number_format((float) $approval->price_b, 2) }}</td>
+                                    <td class="px-4 py-3 text-right font-black text-slate-900">Rs. {{ number_format((float) $approval->price_c, 2) }}</td>
+                                    <td class="px-4 py-3 text-xs font-semibold text-slate-500">
+                                        {{ $approval->approvedBy?->name ?? '—' }}
+                                        @if($approval->approved_at)
+                                            <span class="block text-[10px] text-slate-400">{{ $approval->approved_at->format('d M, h:i A') }}</span>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @endif
+        </section>
+
+        <section class="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
+            <div>
+                <h2 class="text-base font-black text-slate-900">Publish History</h2>
+                <p class="mt-1 text-xs text-slate-500">Recent publish history by product and shop category. This helps admin verify previous approvals before re-approving updated proposals.</p>
+            </div>
+
+            @if($revisionHistory->isEmpty())
+                <p class="mt-5 text-sm font-semibold text-slate-500">No publish history available yet.</p>
+            @else
+                <div class="mt-5 overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
+                                <th class="px-4 py-3">Product</th>
+                                <th class="px-4 py-3">Category</th>
+                                <th class="px-4 py-3 text-right">Old</th>
+                                <th class="px-4 py-3 text-right">New</th>
+                                <th class="px-4 py-3">Changed By</th>
+                                <th class="px-4 py-3">Changed At</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 text-sm">
+                            @foreach ($revisionHistory as $revision)
+                                <tr>
+                                    <td class="px-4 py-3">
+                                        <p class="font-bold text-slate-900">{{ $revision->product?->name ?? 'Unknown Product' }}</p>
+                                        <p class="mt-1 text-[10px] font-semibold text-slate-400">{{ $revision->product?->sku }}</p>
+                                    </td>
+                                    <td class="px-4 py-3 font-semibold text-slate-700">{{ $revision->shopPriceGroup?->display_name ?? '—' }}</td>
+                                    <td class="px-4 py-3 text-right font-mono text-slate-500">{{ $revision->old_price !== null ? 'Rs. '.number_format((float) $revision->old_price, 2) : '—' }}</td>
+                                    <td class="px-4 py-3 text-right font-mono font-bold text-slate-900">Rs. {{ number_format((float) $revision->new_price, 2) }}</td>
+                                    <td class="px-4 py-3 text-xs font-semibold text-slate-500">{{ $revision->changedBy?->name ?? '—' }}</td>
+                                    <td class="px-4 py-3 text-xs font-semibold text-slate-500">{{ $revision->changed_at?->format('d M, h:i A') ?? '—' }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @endif
+        </section>
     </div>
 
 </x-layouts.app>

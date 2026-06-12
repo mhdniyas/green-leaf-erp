@@ -23,8 +23,8 @@
     ];
 @endphp
 
-<div class="fixed inset-x-0 bottom-4 z-40 px-4 lg:hidden">
-    <nav class="mx-auto max-w-md bg-white/95 backdrop-blur-md shadow-[0_-8px_30px_rgb(0,0,0,0.08),0_4px_20px_rgb(0,0,0,0.04)] border border-slate-100 rounded-[2rem] h-16 flex items-center justify-between px-6 relative">
+<div class="fixed inset-x-0 bottom-5 z-50 px-5 lg:hidden">
+    <nav class="mx-auto flex h-[60px] max-w-md items-center gap-1 rounded-[2rem] border border-slate-100 bg-white/96 px-2 shadow-[0_8px_40px_rgba(0,0,0,0.10),0_2px_12px_rgba(0,0,0,0.06)] backdrop-blur-xl">
         @foreach ($mobileNavItems as $item)
             @php
                 $isActive = request()->routeIs($item['route']);
@@ -33,23 +33,23 @@
                 }
             @endphp
 
-            @if ($isActive)
-                <a
-                    href="{{ route($item['route']) }}"
-                    class="flex items-center gap-2 bg-slate-950 text-white rounded-full px-4 py-2 transition-all duration-300 shadow-sm"
-                >
-                    {!! str_replace('h-6 w-6', 'h-5 w-5', $item['icon']) !!}
-                    <span class="text-xs font-semibold tracking-wide">{{ $item['label'] }}</span>
-                </a>
-            @else
-                <a
-                    href="{{ route($item['route']) }}"
-                    class="flex items-center justify-center w-12 h-12 text-slate-800 hover:text-slate-950 transition-all duration-200"
-                    title="{{ $item['label'] }}"
-                >
+            <a
+                href="{{ route($item['route']) }}"
+                @class([
+                    'relative flex h-11 flex-1 items-center justify-center gap-1.5 rounded-[1.25rem] px-2 font-bold transition-all duration-200',
+                    'bg-cyan-500 text-white shadow-sm' => $isActive,
+                    'bg-transparent text-slate-400 hover:text-slate-600' => ! $isActive,
+                ])
+                title="{{ $item['label'] }}"
+            >
+                <span class="shrink-0 [&_svg]:h-[18px] [&_svg]:w-[18px]">
                     {!! $item['icon'] !!}
-                </a>
-            @endif
+                </span>
+                <span @class([
+                    'whitespace-nowrap text-[10px] font-black',
+                    'hidden' => ! $isActive,
+                ])>{{ $item['label'] }}</span>
+            </a>
         @endforeach
     </nav>
 </div>

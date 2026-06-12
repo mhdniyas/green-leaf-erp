@@ -2,7 +2,7 @@
     $purchaseManagerNavItems = [];
 
     if (auth()->user()->hasRole('purchase') || auth()->user()->can('purchasing.order.approve')) {
-        $purchaseManagerNavItems[] = ['label' => 'Requisition Board', 'route' => 'requisitions.board', 'active' => request()->routeIs('requisitions.board')];
+        $purchaseManagerNavItems[] = ['label' => 'Approve Shop Orders', 'route' => 'requisitions.board', 'active' => request()->routeIs('requisitions.board')];
         $purchaseManagerNavItems[] = ['label' => 'Approved Board', 'route' => 'requisitions.approved_board', 'active' => request()->routeIs('requisitions.approved_board')];
     }
 

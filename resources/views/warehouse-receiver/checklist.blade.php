@@ -239,8 +239,10 @@
             </div>
         @else
             {{-- Confirm All --}}
-            <form action="{{ route('warehouse.receiver.confirm-all') }}" method="POST" class="mb-4"
-                onsubmit="return confirm('Confirm ALL {{ $pendingBatches->count() }} batch(es) as received? This will move them into active inventory.')">
+            <form action="{{ route('warehouse.receiver.confirm-all') }}" method="POST" class="mb-4 warehouse-confirm-form"
+                data-confirm-title="Confirm all batches"
+                data-confirm-message="Confirm ALL {{ $pendingBatches->count() }} batch(es) as received? This will move them into active inventory."
+                data-confirm-button="Confirm all">
                 @csrf
                 <input type="hidden" name="date" value="{{ $date }}">
                 <button type="submit" class="confirm-all-btn">
@@ -515,7 +517,32 @@
 
 <form id="logout-form" action="{{ route('logout') }}" method="POST" class="hidden">@csrf</form>
 
+@include('components.app-dialogs')
+
 <script>
+    document.querySelectorAll('.warehouse-confirm-form').forEach((form) => {
+        form.addEventListener('submit', (event) => {
+            if (form.dataset.appConfirmBypass === 'true') {
+                form.dataset.appConfirmBypass = 'false';
+                return;
+            }
+
+            event.preventDefault();
+
+            window.showAppConfirm({
+                title: form.dataset.confirmTitle || 'Confirm action',
+                message: form.dataset.confirmMessage || 'Are you sure you want to continue?',
+                confirmLabel: form.dataset.confirmButton || 'Confirm',
+                cancelLabel: 'Cancel',
+                tone: 'danger',
+                onConfirm: () => {
+                    form.dataset.appConfirmBypass = 'true';
+                    HTMLFormElement.prototype.submit.call(form);
+                },
+            });
+        });
+    });
+
     function switchTab(name) {
         // Hide all tabs
         document.querySelectorAll('.wr-tab').forEach(t => t.classList.remove('active'));

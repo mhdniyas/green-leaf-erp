@@ -98,9 +98,9 @@ class PurchaserDashboardTest extends TestCase
 
     public function test_purchaser_can_access_dashboard_and_see_requirements(): void
     {
-        $date = Carbon::tomorrow()->format('Y-m-d');
+        $date = Carbon::today()->format('Y-m-d');
 
-        // Create an approved shop order with items for tomorrow
+        // Create an approved shop order with items for today
         $order = ShopOrder::create([
             'shop_id' => $this->shop->id,
             'business_date' => $date,
@@ -125,13 +125,103 @@ class PurchaserDashboardTest extends TestCase
         $response->assertSee('Market Purchase Hub');
         $response->assertSee('Tomato Local');
         $response->assertSee('50.00 kg Needed');
+        $response->assertSee('Pending (1)');
+        $response->assertSee('Partial (0)');
+        $response->assertSee('Full (0)');
         $response->assertSee('app-dialog-root');
         $response->assertSee('window.showAppConfirm');
     }
 
+    public function test_fully_bought_products_are_sorted_below_pending_products(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+
+        $pendingProduct = Product::factory()->create([
+            'name' => 'Beans',
+            'sku' => 'BEANS-101',
+            'unit' => 'kg',
+            'is_active' => true,
+        ]);
+
+        $fullProduct = Product::factory()->create([
+            'name' => 'Corriander',
+            'sku' => 'CORRIANDER-101',
+            'unit' => 'kg',
+            'is_active' => true,
+        ]);
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => $date,
+            'state' => 'approved',
+            'submitted_at' => now(),
+            'created_by' => $this->unauthorizedUser->id,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $pendingProduct->id,
+            'requested_qty' => 15.00,
+            'approved_qty' => 15.00,
+            'unit' => 'kg',
+            'fulfillment_type' => 'warehouse',
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $fullProduct->id,
+            'requested_qty' => 20.00,
+            'approved_qty' => 20.00,
+            'unit' => 'kg',
+            'fulfillment_type' => 'warehouse',
+        ]);
+
+        $po = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'po_number' => 'PO-DRAFT-SORT',
+            'status' => POStatus::Draft,
+            'order_date' => $date,
+            'created_by' => $this->purchaser->id,
+        ]);
+
+        $poItem = $po->items()->create([
+            'product_id' => $fullProduct->id,
+            'quantity' => 20.00,
+            'unit_price' => 4.00,
+            'purchase_unit' => 'kg',
+            'price_basis' => 'per_kg',
+        ]);
+
+        $grn = GoodsReceived::create([
+            'purchase_order_id' => $po->id,
+            'grn_number' => 'GRN-DRAFT-SORT',
+            'received_at' => $date,
+            'received_by' => $this->purchaser->id,
+            'status' => 'draft',
+        ]);
+
+        $grn->items()->create([
+            'purchase_order_item_id' => $poItem->id,
+            'product_id' => $fullProduct->id,
+            'received_qty' => 20.00,
+            'variance' => 0.00,
+        ]);
+
+        $response = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.dashboard', ['date' => $date]));
+
+        $response->assertOk();
+        $response->assertSeeInOrder([
+            'Beans',
+            'Corriander',
+        ]);
+        $response->assertSee('Pending (1)');
+        $response->assertSee('Full (1)');
+    }
+
     public function test_single_supplier_is_selected_by_default_on_purchaser_dashboard(): void
     {
-        $date = Carbon::tomorrow()->format('Y-m-d');
+        $date = Carbon::today()->format('Y-m-d');
 
         $response = $this->actingAs($this->purchaser)
             ->get(route('purchaser.dashboard', ['date' => $date]));
@@ -140,6 +230,84 @@ class PurchaserDashboardTest extends TestCase
         $response->assertSee('Defaulted to the only available supplier.');
         $response->assertSee('type="hidden" name="supplier_id" value="'.$this->supplier->id.'"', false);
         $response->assertSee('<option value="'.$this->supplier->id.'" selected>', false);
+    }
+
+    public function test_submitted_purchase_history_shows_product_summary_with_average_price(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => $date,
+            'state' => 'approved',
+            'submitted_at' => now(),
+            'created_by' => $this->unauthorizedUser->id,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 50.00,
+            'approved_qty' => 50.00,
+            'unit' => 'kg',
+            'fulfillment_type' => 'warehouse',
+        ]);
+
+        $po = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'po_number' => 'PO-SUMMARY-1',
+            'status' => POStatus::Received,
+            'order_date' => $date,
+            'created_by' => $this->purchaser->id,
+        ]);
+
+        $firstPoItem = $po->items()->create([
+            'product_id' => $this->product->id,
+            'quantity' => 10.00,
+            'unit_price' => 100.00,
+            'purchase_unit' => 'kg',
+            'price_basis' => 'per_kg',
+        ]);
+
+        $secondPoItem = $po->items()->create([
+            'product_id' => $this->product->id,
+            'quantity' => 20.00,
+            'unit_price' => 200.00,
+            'purchase_unit' => 'kg',
+            'price_basis' => 'per_kg',
+        ]);
+
+        $grn = GoodsReceived::create([
+            'purchase_order_id' => $po->id,
+            'grn_number' => 'GRN-SUMMARY-1',
+            'received_at' => $date,
+            'received_by' => $this->purchaser->id,
+            'status' => 'pending_approval',
+        ]);
+
+        $grn->items()->create([
+            'purchase_order_item_id' => $firstPoItem->id,
+            'product_id' => $this->product->id,
+            'received_qty' => 10.00,
+            'variance' => 0.00,
+        ]);
+
+        $grn->items()->create([
+            'purchase_order_item_id' => $secondPoItem->id,
+            'product_id' => $this->product->id,
+            'received_qty' => 20.00,
+            'variance' => 0.00,
+        ]);
+
+        $response = $this->actingAs($this->purchaser)
+            ->get(route('purchaser.dashboard', ['date' => $date, 'tab' => 'history']));
+
+        $response->assertOk();
+        $response->assertSeeText('Submitted Purchase Summary');
+        $response->assertSeeText('Tomato Local');
+        $response->assertSeeText('30.00 kg');
+        $response->assertSeeText('INR 166.67/kg');
+        $response->assertDontSee('GRN-SUMMARY-1');
     }
 
     public function test_purchaser_is_redirected_from_main_dashboard(): void
@@ -152,7 +320,7 @@ class PurchaserDashboardTest extends TestCase
 
     public function test_purchaser_can_record_draft_purchase_successfully(): void
     {
-        $date = Carbon::tomorrow()->format('Y-m-d');
+        $date = Carbon::today()->format('Y-m-d');
 
         // Purchaser logs a draft purchase of 25kg at 2.50 INR
         $response = $this->actingAs($this->purchaser)
@@ -188,7 +356,7 @@ class PurchaserDashboardTest extends TestCase
 
     public function test_purchaser_can_delete_draft_purchase(): void
     {
-        $date = Carbon::tomorrow()->format('Y-m-d');
+        $date = Carbon::today()->format('Y-m-d');
 
         // Log a draft first
         $po = PurchaseOrder::create([
@@ -233,7 +401,7 @@ class PurchaserDashboardTest extends TestCase
 
     public function test_purchaser_can_submit_purchases_to_manager(): void
     {
-        $date = Carbon::tomorrow()->format('Y-m-d');
+        $date = Carbon::today()->format('Y-m-d');
 
         // Log a draft first
         $po = PurchaseOrder::create([
@@ -285,7 +453,7 @@ class PurchaserDashboardTest extends TestCase
     /** @test */
     public function test_purchaser_can_record_adhoc_draft_purchase_successfully(): void
     {
-        $date = Carbon::tomorrow()->format('Y-m-d');
+        $date = Carbon::today()->format('Y-m-d');
 
         // Potato is not in order demands (daily requirements), but we log a purchase
         $potato = Product::factory()->create([
@@ -318,5 +486,55 @@ class PurchaserDashboardTest extends TestCase
         $this->assertCount(1, $po->items);
         $this->assertEquals(15.00, $po->items->first()->quantity);
         $this->assertEquals($potato->id, $po->items->first()->product_id);
+    }
+
+    public function test_purchaser_future_date_dashboard_redirects_to_today(): void
+    {
+        $futureDate = Carbon::tomorrow()->format('Y-m-d');
+        $today = Carbon::today()->format('Y-m-d');
+
+        $response = $this->actingAs($this->purchaser)
+            ->from(route('purchaser.dashboard'))
+            ->get(route('purchaser.dashboard', ['date' => $futureDate]));
+
+        $response->assertRedirect(route('purchaser.dashboard', ['date' => $today]));
+        $response->assertSessionHasErrors();
+    }
+
+    public function test_purchaser_cannot_record_draft_purchase_for_future_date(): void
+    {
+        $futureDate = Carbon::tomorrow()->format('Y-m-d');
+
+        $response = $this->actingAs($this->purchaser)
+            ->from(route('purchaser.dashboard'))
+            ->post(route('purchaser.purchase.draft.record'), [
+                'product_id' => $this->product->id,
+                'quantity' => 25.00,
+                'unit_price' => 2.50,
+                'supplier_id' => $this->supplier->id,
+                'date' => $futureDate,
+            ]);
+
+        $response->assertRedirect(route('purchaser.dashboard'));
+        $response->assertSessionHasErrors(['date']);
+
+        $this->assertSame(0, GoodsReceived::query()
+            ->where('received_by', $this->purchaser->id)
+            ->whereDate('received_at', $futureDate)
+            ->count());
+    }
+
+    public function test_purchaser_cannot_submit_purchases_for_future_date(): void
+    {
+        $futureDate = Carbon::tomorrow()->format('Y-m-d');
+
+        $response = $this->actingAs($this->purchaser)
+            ->from(route('purchaser.dashboard'))
+            ->post(route('purchaser.purchase.submit'), [
+                'date' => $futureDate,
+            ]);
+
+        $response->assertRedirect(route('purchaser.dashboard'));
+        $response->assertSessionHasErrors(['date']);
     }
 }

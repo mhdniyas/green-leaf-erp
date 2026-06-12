@@ -38,8 +38,8 @@ use App\Http\Controllers\Web\Sales\SalesInvoiceController;
 use App\Http\Controllers\Web\Sales\SalesOrderController;
 use App\Http\Controllers\Web\ShopOwnerController;
 use App\Http\Controllers\Web\ShopPresetController;
-use App\Http\Controllers\Web\Warehouse\WarehouseReceiverController;
 use App\Http\Controllers\Web\SortSheetController;
+use App\Http\Controllers\Web\Warehouse\WarehouseReceiverController;
 use Illuminate\Support\Facades\Route;
 
 // Root redirect
@@ -73,6 +73,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/deliveries/{order_number}', [ShopOwnerController::class, 'deliveriesShow'])->name('deliveries.show');
         Route::get('/finance', [ShopOwnerController::class, 'financeIndex'])->name('finance.index');
         Route::get('/finance/{invoice}', [ShopOwnerController::class, 'financeShow'])->name('finance.show');
+        Route::get('/finance/{invoice}/pdf', [ShopOwnerController::class, 'financePdf'])->name('finance.pdf');
     });
 
     // ── Inventory ──────────────────────────────────────────────────────────
@@ -123,6 +124,7 @@ Route::middleware('auth')->group(function () {
         Route::resource('price-groups', ShopPriceGroupController::class)->only(['index', 'store', 'update', 'destroy']);
         Route::get('shop-invoices', [ShopInvoiceController::class, 'index'])->name('shop-invoices.index');
         Route::get('shop-invoices/{invoice}', [ShopInvoiceController::class, 'show'])->name('shop-invoices.show');
+        Route::get('shop-invoices/{invoice}/pdf', [ShopInvoiceController::class, 'pdf'])->name('shop-invoices.pdf');
         Route::patch('shop-invoices/{invoice}/payment-approval', [ShopInvoiceController::class, 'approvePayment'])->name('shop-invoices.payment-approval');
         Route::patch('shop-invoices/{invoice}/reprice', [ShopInvoiceController::class, 'reprice'])->name('shop-invoices.reprice');
 
@@ -134,6 +136,8 @@ Route::middleware('auth')->group(function () {
         Route::put('orders/{order}/items', [PurchaseOrderController::class, 'updateItems'])->name('orders.items.update');
 
         Route::resource('grns', GoodsReceivedController::class)->only(['index', 'create', 'store', 'show', 'edit', 'update']);
+        Route::post('grns/approve-submitted', [GoodsReceivedController::class, 'approveSubmitted'])->name('grns.approve-submitted');
+        Route::patch('grns/proposed-prices/update', [GoodsReceivedController::class, 'updateProposedPrices'])->name('grns.proposed-prices.update');
         Route::post('grns/{grn}/recheck', [GoodsReceivedController::class, 'markForRecheck'])->name('grns.recheck');
 
         // Invoices

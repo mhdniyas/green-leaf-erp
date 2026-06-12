@@ -41,6 +41,15 @@ class ShopInvoiceController extends Controller
         return view('purchasing.shop-invoices.show', compact('invoice'));
     }
 
+    public function pdf(Request $request, ShopInvoice $invoice): View
+    {
+        abort_unless($request->user()?->hasRole('purchase') || $request->user()?->hasRole('admin'), 403);
+
+        $invoice->load(['shop', 'order', 'items.product', 'paymentApprovedBy', 'priceUpdatedBy']);
+
+        return view('purchasing.shop-invoices.pdf', compact('invoice'));
+    }
+
     public function approvePayment(ApproveShopInvoicePaymentRequest $request, ShopInvoice $invoice): RedirectResponse
     {
         abort_unless($request->user()?->hasRole('purchase') || $request->user()?->hasRole('admin'), 403);

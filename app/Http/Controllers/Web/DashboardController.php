@@ -48,6 +48,10 @@ class DashboardController extends Controller
             return redirect()->route('purchaser.dashboard');
         }
 
+        if ($user->hasRole('purchase')) {
+            return redirect()->route('purchasing.orders.index');
+        }
+
         if ($user->hasRole('warehouse_receiver')) {
             return redirect()->route('warehouse.receiver.checklist');
         }
@@ -163,7 +167,7 @@ class DashboardController extends Controller
                 ],
                 'focus_cards' => [
                     [
-                        'title' => 'Requisition Board',
+                        'title' => 'Approve Shop Orders',
                         'count' => $pendingTomorrowReviewOrders->count(),
                         'detail' => 'Shop requests waiting for first review for tomorrow',
                         'href' => route('requisitions.board', ['date' => $tomorrow]),

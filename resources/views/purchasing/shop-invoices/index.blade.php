@@ -25,7 +25,10 @@
                                 <h2 class="mt-1 text-base font-black text-slate-950">{{ $invoice->shop?->name }}</h2>
                                 <p class="mt-1 text-xs text-slate-500">{{ $invoice->business_date->format('d M Y') }}</p>
                             </div>
-                            <a href="{{ route('purchasing.shop-invoices.show', $invoice) }}" class="text-sm font-bold text-slate-900">Open</a>
+                            <div class="flex flex-col items-end gap-2">
+                                <a href="{{ route('purchasing.shop-invoices.show', $invoice) }}" class="text-sm font-bold text-slate-900">Open</a>
+                                <a href="{{ route('purchasing.shop-invoices.pdf', $invoice) }}" target="_blank" class="text-[11px] font-black uppercase tracking-[0.14em] text-cyan-700">PDF</a>
+                            </div>
                         </div>
                         <div class="mt-4 flex flex-wrap gap-2 text-xs">
                             <span class="rounded-full bg-white px-2.5 py-1 font-black text-slate-700">{{ str($invoice->delivery_status)->replace('_', ' ')->title() }}</span>
@@ -70,7 +73,10 @@
                                 <td class="px-5 py-4 text-right font-black text-slate-950">Rs. {{ number_format((float) $invoice->final_total, 2) }}</td>
                                 <td class="px-5 py-4 text-right font-black text-red-600">Rs. {{ number_format((float) $invoice->balance_amount, 2) }}</td>
                                 <td class="px-5 py-4 text-right">
-                                    <a href="{{ route('purchasing.shop-invoices.show', $invoice) }}" class="font-bold text-cyan-700 hover:text-cyan-900">Open</a>
+                                    <div class="flex items-center justify-end gap-3">
+                                        <a href="{{ route('purchasing.shop-invoices.pdf', $invoice) }}" target="_blank" class="font-black uppercase tracking-[0.14em] text-slate-500 hover:text-slate-700">PDF</a>
+                                        <a href="{{ route('purchasing.shop-invoices.show', $invoice) }}" class="font-bold text-cyan-700 hover:text-cyan-900">Open</a>
+                                    </div>
                                 </td>
                             </tr>
                         @endforeach

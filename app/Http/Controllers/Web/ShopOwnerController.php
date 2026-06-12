@@ -115,6 +115,16 @@ class ShopOwnerController extends Controller
         ]);
     }
 
+    public function financePdf(Request $request, ShopInvoice $invoice): View
+    {
+        $user = $this->shopUser($request);
+        abort_unless($invoice->shop_id === $user->shop_id, 403);
+
+        return view('shop-owner.finance.pdf', [
+            'invoice' => $invoice->load(['shop', 'items.product', 'order']),
+        ]);
+    }
+
     /**
      * @return array<string, mixed>
      */

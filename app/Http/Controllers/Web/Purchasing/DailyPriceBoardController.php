@@ -6,14 +6,12 @@ namespace App\Http\Controllers\Web\Purchasing;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\UpdateDailySellingPricesRequest;
-use App\Models\DailyProductPrice;
-use App\Models\Product;
-use App\Models\ShopOrder;
-use App\Models\ShopPriceGroup;
+use App\Models\DailyPriceApproval;
 use App\Services\Pricing\PriceBoardService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\View\View;
 
 class DailyPriceBoardController extends Controller
@@ -26,82 +24,90 @@ class DailyPriceBoardController extends Controller
     {
         $this->authorizeBoardAccess();
 
-        $this->priceBoardService->ensureDefaultPriceGroups();
-        $selectedGroups = ShopPriceGroup::query()
-            ->active()
-            ->orderBy('name')
-            ->get();
+        $purchaseDate = $request->input('date', Carbon::today()->toDateString());
+        $targetBusinessDate = Carbon::parse($purchaseDate)->addDay()->toDateString();
         $search = trim((string) $request->input('search', ''));
 
-        foreach ($selectedGroups as $group) {
-            $this->priceBoardService->ensureSellingPricesForGroup($group, $request->user()?->id);
-        }
-
-        $products = Product::query()
-            ->with('category')
-            ->active()
-            ->when($search !== '', function ($query) use ($search): void {
-                $query->where(function ($productQuery) use ($search): void {
-                    $productQuery
-                        ->where('name', 'like', "%{$search}%")
-                        ->orWhere('sku', 'like', "%{$search}%")
-                        ->orWhereHas('category', function ($categoryQuery) use ($search): void {
-                            $categoryQuery->where('name', 'like', "%{$search}%");
-                        });
-                });
+        $approvals = $this->priceBoardService
+            ->ensurePendingApprovalsForPurchaseDate($purchaseDate)
+            ->when($search !== '', function ($query): void {
+                // handled after collection load
             })
-            ->orderBy('name')
-            ->get();
+            ->values();
 
-        $targetBusinessDate = Carbon::tomorrow()->toDateString();
-        $todayOrderQuantities = ShopOrder::query()
-            ->whereDate('business_date', $targetBusinessDate)
-            ->whereIn('state', ['submitted', 'approved', 'update_requested'])
-            ->with('items')
-            ->get()
-            ->flatMap->items
-            ->groupBy('product_id')
-            ->map(fn ($items): float => (float) $items->sum(fn ($item): float => (float) ($item->approved_qty ?? $item->requested_qty ?? 0)));
+        $matchingApprovals = $approvals
+            ->filter(function (DailyPriceApproval $approval) use ($search): bool {
+                if ($search === '') {
+                    return true;
+                }
 
-        $products = $products
-            ->each(function (Product $product) use ($todayOrderQuantities): void {
-                $product->setAttribute('today_order_qty', (float) ($todayOrderQuantities[$product->id] ?? 0));
+                $product = $approval->product;
+                if (! $product) {
+                    return false;
+                }
+
+                $haystack = strtolower(implode(' ', array_filter([
+                    $product->name,
+                    $product->sku,
+                    $product->unit,
+                    $product->category?->name,
+                ])));
+
+                return str_contains($haystack, strtolower($search));
             })
             ->sortBy([
-                ['today_order_qty', 'desc'],
-                ['name', 'asc'],
+                ['status', 'asc'],
+                ['product.name', 'asc'],
             ])
             ->values();
 
-        $sellingPrices = DailyProductPrice::query()
-            ->whereIn('shop_price_group_id', $selectedGroups->pluck('id'))
-            ->whereIn('product_id', $products->pluck('id'))
-            ->where('grade', 'A')
-            ->get()
-            ->groupBy('product_id');
+        $pendingApprovals = $matchingApprovals
+            ->where('status', 'pending')
+            ->values();
+
+        $approvedApprovals = $matchingApprovals
+            ->where('status', 'approved')
+            ->values();
 
         return view('purchase-manager.prices.index', [
-            'selectedGroups' => $selectedGroups,
-            'products' => $products,
-            'sellingPrices' => $sellingPrices,
+            'pendingApprovals' => $pendingApprovals,
+            'approvedApprovals' => $approvedApprovals,
             'search' => $search,
+            'purchaseDate' => $purchaseDate,
             'targetBusinessDate' => $targetBusinessDate,
         ]);
     }
 
     public function update(UpdateDailySellingPricesRequest $request): RedirectResponse
     {
-        $this->priceBoardService->updateShopCategoryPrices(
-            $request->validated('simple_prices'),
-            (int) $request->user()->id,
-            $request->validated('reason')
-        );
+        $validated = $request->validated();
+
+        DailyPriceApproval::query()
+            ->whereIn('id', array_map('intval', array_keys($validated['prices'])))
+            ->get()
+            ->each(function (DailyPriceApproval $approval) use ($validated): void {
+                $row = $validated['prices'][(string) $approval->id] ?? $validated['prices'][$approval->id] ?? null;
+
+                if (! is_array($row)) {
+                    return;
+                }
+
+                $approval->update([
+                    'price_a' => round((float) $row['price_a'], 2),
+                    'price_b' => round((float) $row['price_b'], 2),
+                    'price_c' => round((float) $row['price_c'], 2),
+                    'status' => 'pending',
+                    'approved_by' => null,
+                    'approved_at' => null,
+                ]);
+            });
 
         return redirect()
             ->route('purchasing.prices.index', [
                 'search' => $request->validated('search'),
+                'date' => $validated['date'],
             ])
-            ->with('success', 'Daily product prices updated.');
+            ->with('success', 'Price proposals updated and sent for admin approval.');
     }
 
     private function authorizeBoardAccess(): void

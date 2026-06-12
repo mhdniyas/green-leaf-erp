@@ -8,10 +8,13 @@ use App\Enums\Purchasing\POStatus;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
+use App\Models\Shop;
+use App\Models\ShopOrder;
 use App\Models\Supplier;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class PurchaseOrderTest extends TestCase
@@ -59,19 +62,45 @@ class PurchaseOrderTest extends TestCase
             ->get(route('purchasing.orders.index'));
 
         $response->assertOk();
-        $response->assertSee('Purchase Manager Daily Desk');
-        $response->assertSee($order->po_number);
+        $response->assertSee('Purchase Manager Dashboard');
+        $response->assertSee('Total shop orders');
     }
 
-    public function test_purchase_orders_list_shows_daily_work_sections_when_empty(): void
+    public function test_purchase_orders_dashboard_shows_tomorrow_orders_and_today_deliveries(): void
     {
+        Carbon::setTestNow(Carbon::today()->setTime(12, 0));
+
+        $shop = Shop::create([
+            'code' => 'SHOP_PM_DASHBOARD',
+            'name' => 'Purchase Dashboard Shop',
+        ]);
+
+        ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'submitted',
+            'business_date' => today()->addDay()->toDateString(),
+            'created_by' => $this->authorizedUser->id,
+        ]);
+
+        ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => today()->toDateString(),
+            'created_by' => $this->authorizedUser->id,
+            'is_delivered' => true,
+            'delivered_at' => now(),
+            'delivered_by' => $this->authorizedUser->id,
+        ]);
+
         $response = $this->actingAs($this->authorizedUser)
             ->get(route('purchasing.orders.index'));
 
         $response->assertOk();
-        $response->assertSee('Needs Action');
-        $response->assertSee('Invoice Exception Queue');
-        $response->assertSee('No shop owner approvals are pending for this date.');
+        $response->assertSee('Purchase Manager Dashboard');
+        $response->assertSee('Total shop orders');
+        $response->assertSee('Delivery done');
+        $response->assertSee('Purchase Dashboard Shop');
+        $response->assertSee('Open Approve Shop Orders');
     }
 
     public function test_unauthorized_user_cannot_view_purchase_orders_list(): void

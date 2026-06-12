@@ -149,6 +149,112 @@ class ShopInvoiceFlowTest extends TestCase
         $response->assertDontSee($invoiceB->invoice_number);
     }
 
+    public function test_shop_owner_can_open_own_invoice_pdf_only(): void
+    {
+        $groupA = ShopPriceGroup::create([
+            'name' => 'A',
+            'default_margin_percent' => 10,
+            'is_active' => true,
+        ]);
+
+        $shopA = Shop::create(['code' => 'A1', 'name' => 'Shop A', 'shop_price_group_id' => $groupA->id]);
+        $shopB = Shop::create(['code' => 'B1', 'name' => 'Shop B', 'shop_price_group_id' => $groupA->id]);
+
+        $ownerA = User::factory()->create(['shop_id' => $shopA->id]);
+        $ownerA->assignRole('shop');
+
+        $ownerB = User::factory()->create(['shop_id' => $shopB->id]);
+        $ownerB->assignRole('shop');
+
+        $product = Product::factory()->create();
+        $service = app(ShopInvoiceService::class);
+
+        $orderA = ShopOrder::create([
+            'shop_id' => $shopA->id,
+            'state' => 'approved',
+            'business_date' => today()->toDateString(),
+            'created_by' => $ownerA->id,
+        ]);
+        ShopOrderItem::create([
+            'shop_order_id' => $orderA->id,
+            'product_id' => $product->id,
+            'requested_qty' => 2,
+            'approved_qty' => 2,
+            'unit' => $product->unit,
+            'locked_selling_price' => 30,
+        ]);
+
+        $orderB = ShopOrder::create([
+            'shop_id' => $shopB->id,
+            'state' => 'approved',
+            'business_date' => today()->toDateString(),
+            'created_by' => $ownerB->id,
+        ]);
+        ShopOrderItem::create([
+            'shop_order_id' => $orderB->id,
+            'product_id' => $product->id,
+            'requested_qty' => 3,
+            'approved_qty' => 3,
+            'unit' => $product->unit,
+            'locked_selling_price' => 45,
+        ]);
+
+        $invoiceA = $service->synchronizeOrderInvoice($orderA, $ownerA->id);
+        $invoiceB = $service->synchronizeOrderInvoice($orderB, $ownerB->id);
+
+        $this->actingAs($ownerA)
+            ->get(route('shop-owner.finance.pdf', $invoiceA))
+            ->assertOk()
+            ->assertSee('Print / Save PDF')
+            ->assertSee($invoiceA->invoice_number);
+
+        $this->actingAs($ownerA)
+            ->get(route('shop-owner.finance.pdf', $invoiceB))
+            ->assertForbidden();
+    }
+
+    public function test_purchase_manager_can_open_shop_invoice_pdf(): void
+    {
+        $groupA = ShopPriceGroup::create([
+            'name' => 'A',
+            'default_margin_percent' => 10,
+            'is_active' => true,
+        ]);
+
+        $shop = Shop::create(['code' => 'PDF1', 'name' => 'Pdf Shop', 'shop_price_group_id' => $groupA->id]);
+        $owner = User::factory()->create(['shop_id' => $shop->id]);
+        $owner->assignRole('shop');
+
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $product = Product::factory()->create();
+        $order = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => today()->toDateString(),
+            'created_by' => $owner->id,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'requested_qty' => 4,
+            'approved_qty' => 4,
+            'unit' => $product->unit,
+            'locked_selling_price' => 55,
+        ]);
+
+        $invoice = app(ShopInvoiceService::class)->synchronizeOrderInvoice($order, $manager->id);
+
+        $this->actingAs($manager)
+            ->get(route('purchasing.shop-invoices.pdf', $invoice))
+            ->assertOk()
+            ->assertSee('Print / Save PDF')
+            ->assertSee($shop->name)
+            ->assertSee($invoice->invoice_number);
+    }
+
     public function test_delivery_and_payment_approval_update_invoice_totals(): void
     {
         $groupA = ShopPriceGroup::create([

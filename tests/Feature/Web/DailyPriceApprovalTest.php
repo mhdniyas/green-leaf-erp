@@ -7,6 +7,8 @@ namespace Tests\Feature\Web;
 use App\Enums\Inventory\ProductGrade;
 use App\Enums\Purchasing\POStatus;
 use App\Models\DailyPriceApproval;
+use App\Models\DailyProductPrice;
+use App\Models\DailyProductPriceRevision;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
@@ -191,6 +193,58 @@ class DailyPriceApprovalTest extends TestCase
             ->post(route('admin.price-approvals.approve'));
 
         $responsePost->assertForbidden();
+    }
+
+    public function test_admin_can_view_approved_rows_and_publish_history(): void
+    {
+        $date = Carbon::tomorrow()->format('Y-m-d');
+        $groupA = ShopPriceGroup::where('name', 'A')->firstOrFail();
+        $dailyPrice = DailyProductPrice::create([
+            'product_id' => $this->product->id,
+            'shop_price_group_id' => $groupA->id,
+            'grade' => ProductGrade::GradeA->value,
+            'selling_price' => 22.00,
+            'price_source' => 'manual',
+            'margin_percent' => null,
+            'manual_override' => true,
+            'changed_by' => $this->admin->id,
+        ]);
+
+        $approved = DailyPriceApproval::create([
+            'product_id' => $this->product->id,
+            'business_date' => $date,
+            'purchase_price' => 20.00,
+            'price_a' => 22.00,
+            'price_b' => 23.00,
+            'price_c' => 24.00,
+            'status' => 'approved',
+            'approved_by' => $this->admin->id,
+            'approved_at' => now(),
+        ]);
+
+        DailyProductPriceRevision::create([
+            'daily_product_price_id' => $dailyPrice->id,
+            'product_id' => $this->product->id,
+            'shop_price_group_id' => $groupA->id,
+            'grade' => ProductGrade::GradeA->value,
+            'old_price' => 21.00,
+            'new_price' => 22.00,
+            'old_margin_percent' => null,
+            'new_margin_percent' => null,
+            'change_type' => 'manual',
+            'reason' => 'Admin approved proposed daily price',
+            'changed_by' => $this->admin->id,
+            'changed_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.price-approvals.index', ['date' => $date]));
+
+        $response->assertOk();
+        $response->assertSee('Approved Rows');
+        $response->assertSee('Publish History');
+        $response->assertSee($approved->product->name);
+        $response->assertSee('Category A');
     }
 
     public function test_receiver_created_grn_creates_pending_daily_price_approval(): void

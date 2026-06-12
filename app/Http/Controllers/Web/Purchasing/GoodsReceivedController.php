@@ -4,15 +4,22 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Purchasing;
 
+use App\Actions\Purchasing\ApproveGoodsReceiptAction;
 use App\DTOs\Purchasing\GoodsReceivedData;
 use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\StoreGoodsReceivedRequest;
+use App\Http\Requests\Web\Purchasing\UpdatePendingDailyPriceApprovalRequest;
+use App\Models\DailyPriceApproval;
 use App\Models\GoodsReceived;
 use App\Models\PurchaseOrder;
+use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\GoodsReceivedService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\View\View;
 
@@ -20,22 +27,77 @@ class GoodsReceivedController extends Controller
 {
     public function __construct(
         private readonly GoodsReceivedService $service,
+        private readonly ApproveGoodsReceiptAction $approveGoodsReceiptAction,
+        private readonly PriceBoardService $priceBoardService,
     ) {}
 
     public function index(Request $request): View
     {
         Gate::authorize('viewAny', GoodsReceived::class);
 
-        $type = $request->input('tab', 'regular') === 'addon' ? 'addon' : 'regular';
+        $date = $request->input('date', Carbon::today()->toDateString());
 
-        $grns = GoodsReceived::where('status', '!=', 'draft')
-            ->where('is_extra', $type === 'addon')
-            ->with(['purchaseOrder.supplier', 'receivedBy', 'approvedBy', 'updatedBy', 'items.product'])
-            ->orderByDesc('received_at')
+        $submittedGrns = GoodsReceived::query()
+            ->where('status', 'pending_approval')
+            ->whereDate('received_at', $date)
+            ->with([
+                'purchaseOrder.supplier',
+                'items.product',
+                'items.purchaseOrderItem',
+                'receivedBy',
+            ])
+            ->orderBy('is_extra')
+            ->orderBy('grn_number')
+            ->get();
+
+        $approvedGrns = GoodsReceived::query()
+            ->where('status', 'approved')
+            ->whereDate('received_at', $date)
+            ->with([
+                'purchaseOrder.supplier',
+                'items.product',
+                'items.purchaseOrderItem',
+                'receivedBy',
+                'approvedBy',
+                'updatedBy',
+            ])
+            ->orderByDesc('approved_at')
             ->orderByDesc('id')
-            ->paginate(20);
+            ->get();
 
-        return view('purchase-manager.grns.index', compact('grns', 'type'));
+        $recentReceipts = GoodsReceived::query()
+            ->where('status', '!=', 'draft')
+            ->whereDate('received_at', $date)
+            ->with([
+                'purchaseOrder.supplier',
+                'receivedBy',
+                'approvedBy',
+                'updatedBy',
+                'items.product',
+            ])
+            ->orderByRaw("CASE status WHEN 'pending_approval' THEN 0 WHEN 'recheck_required' THEN 1 WHEN 'approved' THEN 2 ELSE 3 END")
+            ->orderByDesc('updated_at')
+            ->get();
+
+        $submittedProductGroups = $this->buildProductGroups($submittedGrns);
+
+        $pricingBusinessDate = Carbon::parse($date)->addDay()->toDateString();
+        $this->priceBoardService->ensureDefaultPriceGroups();
+        $pendingPriceApprovals = $this->priceBoardService
+            ->ensurePendingApprovalsForPurchaseDate($date)
+            ->where('status', 'pending')
+            ->values();
+
+        return view('purchase-manager.grns.index', [
+            'date' => $date,
+            'pricingBusinessDate' => $pricingBusinessDate,
+            'submittedGrns' => $submittedGrns,
+            'submittedProductGroups' => $submittedProductGroups,
+            'approvedGrns' => $approvedGrns,
+            'pendingPriceApprovals' => $pendingPriceApprovals,
+            'priceGroups' => $this->priceBoardService->ensureDefaultPriceGroups()->whereIn('name', ['A', 'B', 'C'])->values(),
+            'recentReceipts' => $recentReceipts,
+        ]);
     }
 
     public function create(Request $request): View|RedirectResponse
@@ -107,6 +169,70 @@ class GoodsReceivedController extends Controller
         return view('purchase-manager.grns.show', compact('grn'));
     }
 
+    public function approveSubmitted(Request $request): RedirectResponse
+    {
+        Gate::authorize('viewAny', GoodsReceived::class);
+
+        abort_unless(
+            $request->user()?->hasRole('purchase') || $request->user()?->hasRole('admin'),
+            403
+        );
+
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+        ]);
+
+        $date = $validated['date'];
+        $userId = (int) $request->user()->id;
+
+        $pendingGrns = GoodsReceived::query()
+            ->where('status', 'pending_approval')
+            ->whereDate('received_at', $date)
+            ->with(['items.purchaseOrderItem', 'items.product', 'purchaseOrder'])
+            ->get();
+
+        if ($pendingGrns->isEmpty()) {
+            return redirect()
+                ->route('purchasing.grns.index', ['date' => $date])
+                ->withErrors(['No submitted purchases found for this date.']);
+        }
+
+        DB::transaction(function () use ($pendingGrns, $userId): void {
+            foreach ($pendingGrns as $grn) {
+                $this->approveGoodsReceiptAction->execute($grn, $userId);
+            }
+        });
+
+        return redirect()
+            ->route('purchasing.grns.index', ['date' => $date])
+            ->with('success', "Submitted purchases approved. Update category prices next for {$pendingGrns->count()} receipt(s).");
+    }
+
+    public function updateProposedPrices(UpdatePendingDailyPriceApprovalRequest $request): RedirectResponse
+    {
+        $validated = $request->validated();
+
+        DB::transaction(function () use ($validated): void {
+            foreach ($validated['prices'] as $approvalId => $proposal) {
+                $approval = DailyPriceApproval::query()->findOrFail((int) $approvalId);
+
+                if ($approval->status !== 'pending') {
+                    continue;
+                }
+
+                $approval->update([
+                    'price_a' => round((float) $proposal['price_a'], 2),
+                    'price_b' => round((float) $proposal['price_b'], 2),
+                    'price_c' => round((float) $proposal['price_c'], 2),
+                ]);
+            }
+        });
+
+        return redirect()
+            ->route('purchasing.grns.index', ['date' => $validated['date']])
+            ->with('success', 'Proposed category prices updated. Admin approval is required before invoices are generated.');
+    }
+
     public function markForRecheck(GoodsReceived $grn, Request $request): RedirectResponse
     {
         Gate::authorize('recheck', $grn);
@@ -142,5 +268,96 @@ class GoodsReceivedController extends Controller
 
         return redirect()->route('purchasing.grns.show', $grn)
             ->with('success', 'Goods Received Note resubmitted and approved successfully.');
+    }
+
+    /**
+     * @return Collection<int, array{
+     *     key: string,
+     *     product_id: int,
+     *     product_name: string,
+     *     sku: string,
+     *     unit: string,
+     *     total_qty: float,
+     *     avg_price: float,
+     *     is_extra: bool,
+     *     suppliers: array<int, string>,
+     *     purchasers: array<int, string>,
+     *     receipt_count: int,
+     *     lines: array<int, array{
+     *         grn_number: string,
+     *         supplier: string,
+     *         purchaser: string,
+     *         received_qty: float,
+     *         unit: string,
+     *         unit_price: float
+     *     }>
+     * }>
+     */
+    private function buildProductGroups(Collection $grns): Collection
+    {
+        $groups = [];
+
+        foreach ($grns as $grn) {
+            foreach ($grn->items as $item) {
+                $product = $item->product;
+
+                if (! $product) {
+                    continue;
+                }
+
+                $key = $product->id.'-'.((bool) $grn->is_extra ? 'extra' : 'regular');
+                $qty = (float) $item->received_qty;
+                $unitPrice = (float) ($item->purchaseOrderItem?->costPerKgForReceivedQuantity($qty) ?? $item->purchaseOrderItem?->unit_price ?? 0);
+
+                if (! isset($groups[$key])) {
+                    $groups[$key] = [
+                        'key' => $key,
+                        'product_id' => $product->id,
+                        'product_name' => $product->name,
+                        'sku' => $product->sku,
+                        'unit' => $product->unit,
+                        'total_qty' => 0.0,
+                        'weighted_sum' => 0.0,
+                        'avg_price' => 0.0,
+                        'is_extra' => (bool) $grn->is_extra,
+                        'suppliers' => [],
+                        'purchasers' => [],
+                        'receipt_count' => 0,
+                        'lines' => [],
+                    ];
+                }
+
+                $groups[$key]['total_qty'] += $qty;
+                $groups[$key]['weighted_sum'] += $qty * $unitPrice;
+                $groups[$key]['suppliers'][$grn->purchaseOrder->supplier?->name ?? 'Unknown Supplier'] = $grn->purchaseOrder->supplier?->name ?? 'Unknown Supplier';
+                $groups[$key]['purchasers'][$grn->receivedBy?->name ?? 'Unknown Purchaser'] = $grn->receivedBy?->name ?? 'Unknown Purchaser';
+                $groups[$key]['receipt_count']++;
+                $groups[$key]['lines'][] = [
+                    'grn_number' => $grn->grn_number,
+                    'supplier' => $grn->purchaseOrder->supplier?->name ?? 'Unknown Supplier',
+                    'purchaser' => $grn->receivedBy?->name ?? 'Unknown Purchaser',
+                    'received_qty' => $qty,
+                    'unit' => $product->unit,
+                    'unit_price' => $unitPrice,
+                ];
+            }
+        }
+
+        return collect($groups)
+            ->map(function (array $group): array {
+                $group['avg_price'] = $group['total_qty'] > 0
+                    ? round($group['weighted_sum'] / $group['total_qty'], 2)
+                    : 0.0;
+                $group['suppliers'] = array_values($group['suppliers']);
+                $group['purchasers'] = array_values($group['purchasers']);
+                unset($group['weighted_sum']);
+
+                return $group;
+            })
+            ->sortBy([
+                ['is_extra', 'asc'],
+                ['product_name', 'asc'],
+            ])
+            ->values();
     }
 }

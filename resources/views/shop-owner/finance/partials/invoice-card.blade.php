@@ -6,6 +6,9 @@
             <p class="mt-2 text-sm text-slate-600">{{ $invoice->business_date->format('d F Y') }} · {{ $invoice->shop?->name }}</p>
         </div>
         <div class="flex flex-wrap gap-2">
+            <a href="{{ route('shop-owner.finance.pdf', $invoice) }}" target="_blank" class="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-black uppercase tracking-[0.14em] text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700">
+                Print / PDF
+            </a>
             @include('shop-owner.finance.partials.payment-status-badge', ['invoice' => $invoice])
             @include('shop-owner.components.status-badge', [
                 'label' => str($invoice->delivery_status)->replace('_', ' ')->title(),

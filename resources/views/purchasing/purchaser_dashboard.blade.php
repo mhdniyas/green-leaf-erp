@@ -47,6 +47,11 @@
 
         {{-- TAB 1: Daily Order --}}
         <div id="tab-daily-order-content" class="tab-pane space-y-4">
+            @php
+                $pendingRequirementsCount = collect($requirements)->where('status', 'pending')->count();
+                $partialRequirementsCount = collect($requirements)->where('status', 'partial')->count();
+                $fullRequirementsCount = collect($requirements)->where('status', 'full')->count();
+            @endphp
             <div class="flex justify-between items-center mb-2">
                 <h2 class="text-sm font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">Daily
                     Requirements</h2>
@@ -62,11 +67,44 @@
                 </div>
             </div>
 
+            <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                <div class="relative">
+                    <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    <input
+                        id="daily-product-search"
+                        type="search"
+                        placeholder="Search products..."
+                        class="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm font-bold text-slate-800 outline-none transition focus:border-cyan-400 focus:bg-white dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                        oninput="filterPurchaserRequirements()"
+                    >
+                </div>
+
+                <div class="mt-3 grid grid-cols-3 gap-2">
+                    <button type="button" id="requirements-filter-pending" onclick="setRequirementFilter('pending')"
+                        class="requirements-filter-btn rounded-2xl bg-cyan-500 px-3 py-2 text-xs font-black text-white shadow-sm transition">
+                        Pending ({{ $pendingRequirementsCount }})
+                    </button>
+                    <button type="button" id="requirements-filter-partial" onclick="setRequirementFilter('partial')"
+                        class="requirements-filter-btn rounded-2xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-600 transition dark:bg-slate-800 dark:text-slate-300">
+                        Partial ({{ $partialRequirementsCount }})
+                    </button>
+                    <button type="button" id="requirements-filter-full" onclick="setRequirementFilter('full')"
+                        class="requirements-filter-btn rounded-2xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-600 transition dark:bg-slate-800 dark:text-slate-300">
+                        Full ({{ $fullRequirementsCount }})
+                    </button>
+                </div>
+            </div>
+
             @forelse($requirements as $req)
                 @php
                     $isCompleted = $req['remaining'] <= 0;
                 @endphp
-                <div class="product-card bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 shadow-sm flex items-center justify-between gap-4 cursor-pointer hover:border-cyan-500/50 transition-colors"
+                <div
+                    class="product-card purchaser-requirement-card bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 shadow-sm flex items-center justify-between gap-4 cursor-pointer hover:border-cyan-500/50 transition-colors"
+                    data-status="{{ $req['status'] }}"
+                    data-search="{{ strtolower($req['product_name'].' '.$req['sku']) }}"
                     onclick="openPurchaseModal('{{ addslashes($req['product_name']) }}', {{ $req['product_id'] }}, {{ $req['remaining'] }}, '{{ $req['unit'] }}', '{{ addslashes(json_encode($req['shop_split'])) }}')">
                     <div class="flex items-center gap-3">
                         <div
@@ -75,7 +113,7 @@
                         <div>
                             <h4 class="font-bold text-sm text-slate-900 dark:text-white">{{ $req['product_name'] }}</h4>
                             <span
-                                class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">{{ $req['sku'] }}</span>
+                            class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">{{ $req['sku'] }}</span>
                         </div>
                     </div>
                     <div class="text-right shrink-0">
@@ -97,6 +135,10 @@
                     <p class="text-xs text-slate-500 font-semibold">No requirements found for this date.</p>
                 </div>
             @endforelse
+
+            <div id="daily-product-empty-state" class="hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 text-center shadow-sm">
+                <p class="text-xs font-semibold text-slate-500">No products match this filter.</p>
+            </div>
         </div>
 
         {{-- TAB 2: Bought Items (Draft List) --}}
@@ -219,42 +261,48 @@
         {{-- TAB 4: History (Submitted Submissions) --}}
         <div id="tab-history-content" class="tab-pane hidden space-y-4">
             <div class="flex justify-between items-center mb-2">
-                <h2 class="text-sm font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">Submission
-                    History</h2>
+                <h2 class="text-sm font-black uppercase text-slate-500 dark:text-slate-400 tracking-wider">Submitted
+                    Purchase Summary</h2>
                 <span class="text-xs font-bold bg-slate-105 dark:bg-slate-800 text-slate-600 px-2.5 py-1 rounded-full">
-                    {{ count($historyGrns) }} Submissions
+                    {{ count($submittedPurchaseSummaries) }} Products
                 </span>
             </div>
 
-            @forelse($historyGrns as $grn)
+            @forelse($submittedPurchaseSummaries as $summary)
                 <div
                     class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 shadow-sm relative overflow-hidden">
                     <div class="flex justify-between items-start mb-3">
                         <div>
-                            <h4 class="font-bold text-sm text-slate-900 dark:text-white">{{ $grn->grn_number }}</h4>
-                            <span class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Supplier:
-                                {{ $grn->purchaseOrder->supplier->name ?? 'Unknown' }}</span>
+                            <h4 class="font-bold text-sm text-slate-900 dark:text-white">{{ $summary['product_name'] }}</h4>
+                            <span class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                {{ $summary['sku'] }} &middot; {{ implode(', ', $summary['supplier_names']) }}
+                            </span>
                         </div>
                         <span
-                            class="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border {{ $grn->status === 'approved' ? 'bg-emerald-100 text-emerald-800 border-emerald-250' : ($grn->status === 'rejected' ? 'bg-red-100 text-red-800 border-red-250' : 'bg-amber-100 text-amber-800 border-amber-250') }}">
-                            {{ str_replace('_', ' ', $grn->status) }}
+                            class="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border {{ $summary['status'] === 'approved' ? 'bg-emerald-100 text-emerald-800 border-emerald-250' : 'bg-amber-100 text-amber-800 border-amber-250' }}">
+                            {{ $summary['status'] === 'approved' ? 'Approved' : 'Awaiting approval' }}
                         </span>
                     </div>
 
-                    <div class="border-t border-slate-100 dark:border-slate-800/80 pt-2.5 space-y-1">
-                        @foreach($grn->items as $item)
-                            <div class="flex justify-between text-xs font-semibold text-slate-655 dark:text-slate-350">
-                                <span>{{ $item->product->name }}</span>
-                                <span>{{ number_format($item->received_qty, 2) }} {{ $item->product->unit }} @ INR
-                                    {{ number_format($item->purchaseOrderItem->unit_price ?? 0, 2) }}</span>
-                            </div>
-                        @endforeach
+                    <div class="grid grid-cols-2 gap-3 border-t border-slate-100 dark:border-slate-800/80 pt-3">
+                        <div class="rounded-2xl bg-slate-50 p-3 dark:bg-slate-950/30">
+                            <span class="block text-[10px] font-black uppercase tracking-wider text-slate-400">Submitted Qty</span>
+                            <span class="mt-1 block text-sm font-black text-slate-900 dark:text-white">
+                                {{ number_format($summary['total_quantity'], 2) }} {{ $summary['unit'] }}
+                            </span>
+                        </div>
+                        <div class="rounded-2xl bg-slate-50 p-3 dark:bg-slate-950/30">
+                            <span class="block text-[10px] font-black uppercase tracking-wider text-slate-400">Avg Price</span>
+                            <span class="mt-1 block text-sm font-black text-cyan-600 dark:text-cyan-400">
+                                INR {{ number_format($summary['average_price'], 2) }}/{{ $summary['unit'] }}
+                            </span>
+                        </div>
                     </div>
                 </div>
             @empty
                 <div
                     class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 text-center shadow-sm">
-                    <p class="text-xs text-slate-500 font-semibold">No submissions made today.</p>
+                    <p class="text-xs text-slate-500 font-semibold">No submitted purchases for this date.</p>
                 </div>
             @endforelse
         </div>
@@ -457,11 +505,55 @@
 
     <script>
         let currentRemainingQty = 0;
+        let currentRequirementFilter = 'pending';
 
         function fillModalFull() {
             const qtyInput = document.getElementById('modal-qty-input');
             if (qtyInput) {
                 qtyInput.value = currentRemainingQty;
+            }
+        }
+
+        function setRequirementFilter(filter) {
+            currentRequirementFilter = filter;
+
+            document.querySelectorAll('.requirements-filter-btn').forEach((button) => {
+                button.classList.remove('bg-cyan-500', 'text-white', 'shadow-sm');
+                button.classList.add('bg-slate-100', 'text-slate-600', 'dark:bg-slate-800', 'dark:text-slate-300');
+            });
+
+            const activeButton = document.getElementById(`requirements-filter-${filter}`);
+            if (activeButton) {
+                activeButton.classList.add('bg-cyan-500', 'text-white', 'shadow-sm');
+                activeButton.classList.remove('bg-slate-100', 'text-slate-600', 'dark:bg-slate-800', 'dark:text-slate-300');
+            }
+
+            filterPurchaserRequirements();
+        }
+
+        function filterPurchaserRequirements() {
+            const searchInput = document.getElementById('daily-product-search');
+            const query = (searchInput?.value || '').trim().toLowerCase();
+            const cards = document.querySelectorAll('.purchaser-requirement-card');
+            let visibleCount = 0;
+
+            cards.forEach((card) => {
+                const status = card.getAttribute('data-status');
+                const search = card.getAttribute('data-search') || '';
+                const matchesFilter = status === currentRequirementFilter;
+                const matchesQuery = query === '' || search.includes(query);
+                const isVisible = matchesFilter && matchesQuery;
+
+                card.classList.toggle('hidden', !isVisible);
+
+                if (isVisible) {
+                    visibleCount++;
+                }
+            });
+
+            const emptyState = document.getElementById('daily-product-empty-state');
+            if (emptyState) {
+                emptyState.classList.toggle('hidden', visibleCount > 0);
             }
         }
 
@@ -539,6 +631,7 @@
             const tabParam = urlParams.get('tab');
             const activeTab = tabParam || localStorage.getItem('purchaser_active_tab') || 'daily-order';
             switchTab(activeTab);
+            setRequirementFilter('pending');
 
             // Handle ad-hoc product selection changes
             const productSelect = document.getElementById('modal-product-select');

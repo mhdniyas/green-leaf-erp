@@ -8,6 +8,9 @@
                     <p class="mt-2 text-sm text-slate-600">{{ $invoice->shop?->name }} · {{ $invoice->business_date->format('d F Y') }}</p>
                 </div>
                 <div class="flex flex-wrap gap-2">
+                    <a href="{{ route('purchasing.shop-invoices.pdf', $invoice) }}" target="_blank" class="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-black uppercase tracking-[0.18em] text-slate-700">
+                        Print / PDF
+                    </a>
                     <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-slate-700">{{ str($invoice->delivery_status)->replace('_', ' ')->title() }}</span>
                     <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-slate-700">{{ str($invoice->payment_status)->replace('_', ' ')->title() }}</span>
                 </div>

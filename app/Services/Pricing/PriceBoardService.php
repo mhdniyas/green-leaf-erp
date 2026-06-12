@@ -10,6 +10,7 @@ use App\Enums\Inventory\StockMovementType;
 use App\Models\DailyPriceApproval;
 use App\Models\DailyProductPrice;
 use App\Models\DailyProductPriceRevision;
+use App\Models\GoodsReceived;
 use App\Models\Product;
 use App\Models\ProductWholesalePrice;
 use App\Models\Shop;
@@ -323,6 +324,87 @@ class PriceBoardService
                 'status' => 'pending',
             ]
         );
+    }
+
+    /**
+     * @return Collection<int, DailyPriceApproval>
+     */
+    public function ensurePendingApprovalsForPurchaseDate(string $purchaseDate): Collection
+    {
+        $priceGroups = $this->ensureDefaultPriceGroups()->whereIn('name', ['A', 'B', 'C'])->values();
+
+        $grns = GoodsReceived::query()
+            ->whereIn('status', ['pending_approval', 'approved'])
+            ->whereDate('received_at', $purchaseDate)
+            ->with(['items.product', 'items.purchaseOrderItem'])
+            ->get();
+
+        $products = [];
+
+        foreach ($grns as $grn) {
+            foreach ($grn->items as $item) {
+                $product = $item->product;
+
+                if (! $product) {
+                    continue;
+                }
+
+                $productId = (int) $product->id;
+                $qty = (float) $item->received_qty;
+                $unitPrice = (float) ($item->purchaseOrderItem?->costPerKgForReceivedQuantity($qty) ?? $item->purchaseOrderItem?->unit_price ?? 0);
+
+                if (! isset($products[$productId])) {
+                    $products[$productId] = [
+                        'product_id' => $productId,
+                        'total_qty' => 0.0,
+                        'weighted_sum' => 0.0,
+                    ];
+                }
+
+                $products[$productId]['total_qty'] += $qty;
+                $products[$productId]['weighted_sum'] += $qty * $unitPrice;
+            }
+        }
+
+        if ($products === []) {
+            return collect();
+        }
+
+        $businessDate = Carbon::parse($purchaseDate)->addDay()->toDateString();
+        $marginA = (float) ($priceGroups->firstWhere('name', 'A')?->default_margin_percent ?? 10);
+        $marginB = (float) ($priceGroups->firstWhere('name', 'B')?->default_margin_percent ?? 12);
+        $marginC = (float) ($priceGroups->firstWhere('name', 'C')?->default_margin_percent ?? 15);
+
+        foreach ($products as $product) {
+            $purchasePrice = $product['total_qty'] > 0
+                ? round($product['weighted_sum'] / $product['total_qty'], 4)
+                : 0.0;
+
+            $approval = DailyPriceApproval::query()->firstOrNew([
+                'product_id' => $product['product_id'],
+                'business_date' => $businessDate,
+            ]);
+
+            if ($approval->exists && $approval->status === 'approved') {
+                continue;
+            }
+
+            $approval->fill([
+                'purchase_price' => $purchasePrice,
+                'price_a' => (float) $approval->price_a > 0 ? $approval->price_a : round($purchasePrice * (1 + $marginA / 100), 2),
+                'price_b' => (float) $approval->price_b > 0 ? $approval->price_b : round($purchasePrice * (1 + $marginB / 100), 2),
+                'price_c' => (float) $approval->price_c > 0 ? $approval->price_c : round($purchasePrice * (1 + $marginC / 100), 2),
+                'status' => $approval->exists ? $approval->status : 'pending',
+            ]);
+            $approval->save();
+        }
+
+        return DailyPriceApproval::query()
+            ->with('product')
+            ->whereDate('business_date', $businessDate)
+            ->whereIn('product_id', array_map('intval', array_keys($products)))
+            ->orderBy('product_id')
+            ->get();
     }
 
     /**

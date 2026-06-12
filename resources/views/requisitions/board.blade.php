@@ -1,6 +1,5 @@
 @php
     $pendingDailyOrders = $orders->filter(fn($o) => !$o->is_late && ($o->state === 'submitted' || ($o->state === 'update_requested' && !$o->has_pending_revision)));
-    $processedDailyOrders = $orders->filter(fn($o) => in_array($o->state, ['approved', 'rejected'], true) && !$o->is_late && !$o->has_pending_revision);
     $updateRequests = $orders->filter(fn($o) => $o->has_pending_revision);
 @endphp
 
@@ -125,7 +124,7 @@
 
         {{-- Tab 1: Daily Requisitions --}}
         <div id="tab-panel-daily" class="tab-panel hidden space-y-4">
-            @if($pendingDailyOrders->isEmpty() && $processedDailyOrders->isEmpty())
+            @if($pendingDailyOrders->isEmpty())
                 <div class="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-12 text-center">
                     <svg class="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.03 0 1.9.693 2.166 1.638m-7.377 0A48.536 48.536 0 0112 3.75c0 .08-.004.16-.01.238m-2.886 0c.385.023.77.05 1.154.08m-3.456 0A48.108 48.108 0 002.25 6.11v10.39a2.25 2.25 0 002.25 2.25h3" /></svg>
                     <h3 class="mt-4 text-sm font-black text-slate-900 dark:text-white">No daily orders</h3>
@@ -183,7 +182,6 @@
                                                         <th class="py-3 px-4">Product</th>
                                                         <th class="py-3 px-4 text-center">Requested Qty</th>
                                                         <th class="py-3 px-4 text-center">Approved Qty</th>
-                                                        <th class="py-3 px-4 text-center">Fulfillment</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
@@ -199,14 +197,6 @@
                                                             <td class="py-2 px-4">
                                                                 <div class="flex items-center justify-center">
                                                                     <input type="number" step="0.01" min="0" name="approved_qty[{{ $item->id }}]" value="{{ number_format($item->requested_qty, 2, '.', '') }}" class="w-20 rounded-lg border border-slate-200 dark:border-slate-800 text-center py-1 text-xs font-black text-slate-800 dark:text-slate-200 dark:bg-slate-900 focus:outline-none focus:border-cyan-500">
-                                                                </div>
-                                                            </td>
-                                                            <td class="py-2 px-4">
-                                                                <div class="flex items-center justify-center">
-                                                                    <select name="fulfillment_types[{{ $item->id }}]" class="rounded-lg border border-slate-200 dark:border-slate-800 py-1 text-xs font-bold text-slate-700 dark:text-slate-300 dark:bg-slate-900 focus:outline-none">
-                                                                        <option value="warehouse" {{ ($item->fulfillment_type ?: 'warehouse') === 'warehouse' ? 'selected' : '' }}>Warehouse</option>
-                                                                        <option value="selection" {{ $item->fulfillment_type === 'selection' ? 'selected' : '' }}>Selection</option>
-                                                                    </select>
                                                                 </div>
                                                             </td>
                                                         </tr>
@@ -230,73 +220,6 @@
                     </div>
                 @endif
 
-                {{-- Processed Section --}}
-                @if($processedDailyOrders->isNotEmpty())
-                    <h2 class="text-xs font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mt-6 mb-2">Processed Daily Requisitions</h2>
-                    <div class="space-y-4">
-                        @foreach($processedDailyOrders as $order)
-                            <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden opacity-85 hover:opacity-100 transition">
-                                <div onclick="toggleCard('{{ $order->order_number }}')" class="px-5 py-4 flex items-center justify-between cursor-pointer select-none">
-                                    <div class="min-w-0">
-                                        <div class="flex items-center gap-2">
-                                            <h3 class="font-black text-slate-700 dark:text-slate-300">{{ $order->shop?->name }}</h3>
-                                            @if($order->state === 'approved')
-                                                <span class="rounded-full bg-emerald-50 dark:bg-emerald-950/30 px-2.5 py-0.5 text-[10px] font-black text-emerald-700 dark:text-emerald-450 border border-emerald-150 dark:border-emerald-900/40">
-                                                    Approved
-                                                </span>
-                                            @else
-                                                <span class="rounded-full bg-red-50 dark:bg-red-950/30 px-2.5 py-0.5 text-[10px] font-black text-red-700 dark:text-red-450 border border-red-150 dark:border-red-900/40">
-                                                    Rejected
-                                                </span>
-                                            @endif
-                                        </div>
-                                        <div class="mt-1 flex items-center gap-3 text-xs text-slate-400 dark:text-slate-500">
-                                            <span>#{{ $order->order_number }}</span>
-                                        </div>
-                                    </div>
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-xs text-slate-500 dark:text-slate-400 font-bold">{{ $order->items->count() }} items</span>
-                                        <svg id="card-icon-{{ $order->order_number }}" class="w-5 h-5 text-slate-400 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
-                                    </div>
-                                </div>
-
-                                <div id="card-content-{{ $order->order_number }}" class="hidden border-t border-slate-100 dark:border-slate-800 px-5 py-4 bg-slate-50/20 dark:bg-slate-900/10">
-                                    <div class="overflow-x-auto rounded-xl border border-slate-150 dark:border-slate-800 bg-white dark:bg-slate-900">
-                                        <table class="min-w-full text-left text-xs divide-y divide-slate-150 dark:divide-slate-800">
-                                            <thead>
-                                                <tr class="bg-slate-50 dark:bg-slate-800 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
-                                                    <th class="py-3 px-4">Product</th>
-                                                    <th class="py-3 px-4 text-center">Requested Qty</th>
-                                                    <th class="py-3 px-4 text-center">Approved Qty</th>
-                                                    <th class="py-3 px-4 text-center">Fulfillment</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody class="divide-y divide-slate-100 dark:divide-slate-800 text-slate-600 dark:text-slate-400">
-                                                @foreach($order->items as $item)
-                                                    <tr>
-                                                        <td class="py-3 px-4">
-                                                            <p class="font-bold text-slate-800 dark:text-slate-200">{{ $item->product?->name }}</p>
-                                                            <p class="text-[10px] text-slate-400 font-medium tracking-wider uppercase mt-0.5">{{ $item->product?->sku }}</p>
-                                                        </td>
-                                                        <td class="py-3 px-4 text-center">
-                                                            {{ number_format($item->requested_qty, 2) }} {{ $item->unit }}
-                                                        </td>
-                                                        <td class="py-3 px-4 text-center font-bold text-slate-800 dark:text-slate-200">
-                                                            {{ number_format($item->approved_qty ?? 0.0, 2) }} {{ $item->unit }}
-                                                        </td>
-                                                        <td class="py-3 px-4 text-center uppercase text-[10px] tracking-wider font-extrabold text-slate-400">
-                                                            {{ $item->fulfillment_type ?: 'warehouse' }}
-                                                        </td>
-                                                    </tr>
-                                                @endforeach
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                        @endforeach
-                    </div>
-                @endif
             @endif
         </div>
 
@@ -351,7 +274,6 @@
                                                     <th class="py-3 px-4 text-center">Requested Qty</th>
                                                     <th class="py-3 px-4 text-center">Difference</th>
                                                     <th class="py-3 px-4 text-center">Final Approve Qty</th>
-                                                    <th class="py-3 px-4 text-center">Fulfillment</th>
                                                 </tr>
                                             </thead>
                                             <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
@@ -379,14 +301,6 @@
                                                         <td class="py-2 px-4">
                                                             <div class="flex items-center justify-center">
                                                                 <input type="number" step="0.01" min="0" name="approved_qty[{{ $item->product_id }}]" value="{{ number_format($item->new_requested_qty, 2, '.', '') }}" class="w-20 rounded-lg border border-slate-200 dark:border-slate-800 text-center py-1 text-xs font-black text-slate-800 dark:text-slate-200 dark:bg-slate-900 focus:outline-none focus:border-indigo-500">
-                                                            </div>
-                                                        </td>
-                                                        <td class="py-2 px-4">
-                                                            <div class="flex items-center justify-center">
-                                                                <select name="fulfillment_types[{{ $item->product_id }}]" class="rounded-lg border border-slate-200 dark:border-slate-800 py-1 text-xs font-bold text-slate-700 dark:text-slate-300 dark:bg-slate-900 focus:outline-none">
-                                                                    <option value="warehouse" {{ (($existingItem?->fulfillment_type) ?: 'warehouse') === 'warehouse' ? 'selected' : '' }}>Warehouse</option>
-                                                                    <option value="selection" {{ ($existingItem?->fulfillment_type ?? '') === 'selection' ? 'selected' : '' }}>Selection</option>
-                                                                </select>
                                                             </div>
                                                         </td>
                                                     </tr>
@@ -471,7 +385,6 @@
                                                     <th class="py-3 px-4">Product</th>
                                                     <th class="py-3 px-4 text-center">Requested Qty</th>
                                                     <th class="py-3 px-4 text-center">Approved Qty</th>
-                                                    <th class="py-3 px-4 text-center">Fulfillment</th>
                                                 </tr>
                                             </thead>
                                             <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
@@ -487,14 +400,6 @@
                                                         <td class="py-2 px-4">
                                                             <div class="flex items-center justify-center">
                                                                 <input type="number" step="0.01" min="0" name="approved_qty[{{ $item->id }}]" value="{{ number_format($item->requested_qty, 2, '.', '') }}" class="w-20 rounded-lg border border-slate-200 dark:border-slate-800 text-center py-1 text-xs font-black text-slate-800 dark:text-slate-200 dark:bg-slate-900 focus:outline-none focus:border-amber-500">
-                                                            </div>
-                                                        </td>
-                                                        <td class="py-2 px-4">
-                                                            <div class="flex items-center justify-center">
-                                                                <select name="fulfillment_types[{{ $item->id }}]" class="rounded-lg border border-slate-200 dark:border-slate-800 py-1 text-xs font-bold text-slate-700 dark:text-slate-300 dark:bg-slate-900 focus:outline-none">
-                                                                    <option value="warehouse" {{ ($item->fulfillment_type ?: 'warehouse') === 'warehouse' ? 'selected' : '' }}>Warehouse</option>
-                                                                    <option value="selection" {{ $item->fulfillment_type === 'selection' ? 'selected' : '' }}>Selection</option>
-                                                                </select>
                                                             </div>
                                                         </td>
                                                     </tr>

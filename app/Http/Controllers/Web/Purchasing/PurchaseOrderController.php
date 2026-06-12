@@ -9,11 +9,8 @@ use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\StorePurchaseOrderRequest;
 use App\Http\Requests\Web\Purchasing\UpdatePurchaseOrderRequest;
-use App\Models\DailyPriceApproval;
-use App\Models\GoodsReceived;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
-use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
 use App\Repositories\Inventory\ProductRepository;
 use App\Services\Purchasing\PurchaseOrderService;
@@ -36,94 +33,41 @@ class PurchaseOrderController extends Controller
     {
         Gate::authorize('viewAny', PurchaseOrder::class);
 
-        $selectedDate = (string) $request->input('date', today()->addDay()->toDateString());
+        $tomorrowDate = today()->addDay()->toDateString();
+        $todayDate = today()->toDateString();
 
-        $pendingShopOrders = ShopOrder::query()
-            ->whereDate('business_date', $selectedDate)
+        $tomorrowShopOrdersCount = ShopOrder::query()
+            ->whereDate('business_date', $tomorrowDate)
+            ->count();
+
+        $todayDeliveredOrdersCount = ShopOrder::query()
+            ->whereDate('delivered_at', $todayDate)
+            ->where('is_delivered', true)
+            ->count();
+
+        $tomorrowOrdersAwaitingApprovalCount = ShopOrder::query()
+            ->whereDate('business_date', $tomorrowDate)
             ->where(function ($query): void {
                 $query->whereIn('state', ['submitted', 'update_requested'])
                     ->orWhere('has_pending_revision', true);
             })
-            ->with(['shop', 'items'])
-            ->orderByDesc('submitted_at')
-            ->orderByDesc('id')
-            ->get();
-
-        $approvedShopOrdersCount = ShopOrder::query()
-            ->whereDate('business_date', $selectedDate)
-            ->where('state', 'approved')
             ->count();
 
-        $generatedPurchaseOrdersCount = PurchaseOrder::query()
-            ->whereDate('order_date', $selectedDate)
-            ->count();
-
-        $reviewedPurchases = GoodsReceived::query()
-            ->whereDate('received_at', $selectedDate)
-            ->where('status', 'approved')
-            ->with(['purchaseOrder.supplier', 'items.product', 'receivedBy', 'approvedBy'])
-            ->latest('id')
-            ->get();
-
-        $pendingRegularPurchases = $reviewedPurchases->where('is_extra', false)->values();
-        $pendingAddonPurchases = $reviewedPurchases->where('is_extra', true)->values();
-
-        $grnCorrections = GoodsReceived::query()
-            ->whereDate('received_at', $selectedDate)
-            ->where('status', 'recheck_required')
-            ->with(['purchaseOrder.supplier', 'updatedBy'])
-            ->latest('updated_at')
-            ->get();
-
-        $pendingPriceApprovalsCount = DailyPriceApproval::query()
-            ->whereDate('business_date', $selectedDate)
-            ->where('status', 'pending')
-            ->count();
-
-        $invoiceExceptions = ShopInvoice::query()
-            ->whereDate('business_date', $selectedDate)
-            ->where(function ($query): void {
-                $query->whereIn('status', ['delivery_review', 'payment_pending'])
-                    ->orWhere('shortage_total', '>', 0)
-                    ->orWhere('discount_total', '>', 0);
-            })
-            ->with(['shop', 'order'])
-            ->latest('id')
-            ->get();
-
-        $todaySummary = [
-            'orders_approved' => $approvedShopOrdersCount,
-            'purchase_batches_approved' => GoodsReceived::query()
-                ->whereDate('received_at', $selectedDate)
-                ->where('status', 'approved')
-                ->count(),
-            'grn_corrections' => $grnCorrections->count(),
-            'prices_pending_admin' => $pendingPriceApprovalsCount,
-            'invoices_finalized' => ShopInvoice::query()
-                ->whereDate('business_date', $selectedDate)
-                ->whereIn('status', ['finalized', 'paid'])
-                ->count(),
-        ];
-
-        $recentPurchaseOrders = PurchaseOrder::query()
-            ->with(['supplier', 'createdBy', 'goodsReceiveds'])
-            ->whereDate('order_date', $selectedDate)
-            ->latest('id')
-            ->take(6)
+        $recentDeliveredShops = ShopOrder::query()
+            ->whereDate('delivered_at', $todayDate)
+            ->where('is_delivered', true)
+            ->with('shop')
+            ->latest('delivered_at')
+            ->take(3)
             ->get();
 
         return view('purchase-manager.orders.index', compact(
-            'selectedDate',
-            'pendingShopOrders',
-            'approvedShopOrdersCount',
-            'generatedPurchaseOrdersCount',
-            'pendingRegularPurchases',
-            'pendingAddonPurchases',
-            'grnCorrections',
-            'pendingPriceApprovalsCount',
-            'invoiceExceptions',
-            'todaySummary',
-            'recentPurchaseOrders',
+            'todayDate',
+            'todayDeliveredOrdersCount',
+            'tomorrowDate',
+            'tomorrowOrdersAwaitingApprovalCount',
+            'tomorrowShopOrdersCount',
+            'recentDeliveredShops',
         ));
     }
 

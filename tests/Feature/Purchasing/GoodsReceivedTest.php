@@ -67,12 +67,14 @@ class GoodsReceivedTest extends TestCase
         $grn = GoodsReceived::factory()->create([
             'purchase_order_id' => $po->id,
             'received_by' => $this->authorizedUser->id,
+            'received_at' => today()->toDateString(),
         ]);
 
         $response = $this->actingAs($this->authorizedUser)
             ->get(route('purchasing.grns.index'));
 
         $response->assertOk();
+        $response->assertSee('Today Purchase Approval');
         $response->assertSee($grn->grn_number);
     }
 

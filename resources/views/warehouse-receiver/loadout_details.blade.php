@@ -153,8 +153,10 @@
 
     {{-- Load All Button --}}
     @if($pendingItems->isNotEmpty())
-        <form action="{{ route('warehouse.receiver.loadout.order-all', $order) }}" method="POST" class="mb-5"
-            onsubmit="return confirm('Mark all {{ $pendingItems->count() }} remaining items as loaded? This will reduce them from active inventory.')">
+        <form action="{{ route('warehouse.receiver.loadout.order-all', $order) }}" method="POST" class="mb-5 warehouse-confirm-form"
+            data-confirm-title="Load all items"
+            data-confirm-message="Mark all {{ $pendingItems->count() }} remaining items as loaded? This will reduce them from active inventory."
+            data-confirm-button="Load all">
             @csrf
             <button type="submit" class="load-all-btn">
                 <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -194,8 +196,10 @@
                         Loaded ✓
                     </span>
                 @else
-                    <form action="{{ route('warehouse.receiver.loadout.item', $item) }}" method="POST" class="shrink-0"
-                        onsubmit="return confirm('Mark {{ $item->product->name }} as loaded? This will reduce the quantity from active stock.')">
+                    <form action="{{ route('warehouse.receiver.loadout.item', $item) }}" method="POST" class="shrink-0 warehouse-confirm-form"
+                        data-confirm-title="Confirm loadout"
+                        data-confirm-message="Mark {{ $item->product->name }} as loaded? This will reduce the quantity from active stock."
+                        data-confirm-button="Load item">
                         @csrf
                         <button type="submit" class="load-btn">✓ Load</button>
                     </form>
@@ -206,7 +210,32 @@
 
 </div>
 
+@include('components.app-dialogs')
+
 <script>
+    document.querySelectorAll('.warehouse-confirm-form').forEach((form) => {
+        form.addEventListener('submit', (event) => {
+            if (form.dataset.appConfirmBypass === 'true') {
+                form.dataset.appConfirmBypass = 'false';
+                return;
+            }
+
+            event.preventDefault();
+
+            window.showAppConfirm({
+                title: form.dataset.confirmTitle || 'Confirm action',
+                message: form.dataset.confirmMessage || 'Are you sure you want to continue?',
+                confirmLabel: form.dataset.confirmButton || 'Confirm',
+                cancelLabel: 'Cancel',
+                tone: 'danger',
+                onConfirm: () => {
+                    form.dataset.appConfirmBypass = 'true';
+                    HTMLFormElement.prototype.submit.call(form);
+                },
+            });
+        });
+    });
+
     // Auto-dismiss toast after 4s
     const toast = document.getElementById('wr-toast');
     if (toast) {
