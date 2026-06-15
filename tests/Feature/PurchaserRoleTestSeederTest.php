@@ -17,15 +17,15 @@ class PurchaserRoleTestSeederTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_purchaser_role_test_seeder_creates_previous_day_orders_only(): void
+    public function test_purchaser_role_test_seeder_creates_today_orders_only(): void
     {
         $this->seed(DatabaseSeeder::class);
         $this->seed(PurchaserRoleTestSeeder::class);
 
-        $previousDay = Carbon::yesterday()->toDateString();
+        $today = Carbon::today()->toDateString();
 
         $orders = ShopOrder::query()
-            ->whereDate('business_date', $previousDay)
+            ->whereDate('business_date', $today)
             ->where('order_number', 'like', 'RQ-%')
             ->get();
 
@@ -36,7 +36,7 @@ class PurchaserRoleTestSeederTest extends TestCase
         $this->assertSame(
             14,
             ShopOrder::query()
-                ->whereDate('business_date', $previousDay)
+                ->whereDate('business_date', $today)
                 ->distinct('shop_id')
                 ->count('shop_id')
         );
@@ -49,8 +49,8 @@ class PurchaserRoleTestSeederTest extends TestCase
         );
 
         $loadItems = ShopOrderItem::query()
-            ->whereHas('order', function ($query) use ($previousDay): void {
-                $query->whereDate('business_date', $previousDay);
+            ->whereHas('order', function ($query) use ($today): void {
+                $query->whereDate('business_date', $today);
             });
 
         $this->assertSame(560, $loadItems->count());
@@ -64,8 +64,8 @@ class PurchaserRoleTestSeederTest extends TestCase
             ShopOrderItem::query()
                 ->where('product_id', $tomatoId)
                 ->where('requested_qty', 5)
-                ->whereHas('order', function ($query) use ($previousDay): void {
-                    $query->whereDate('business_date', $previousDay);
+                ->whereHas('order', function ($query) use ($today): void {
+                    $query->whereDate('business_date', $today);
                 })
                 ->distinct('shop_order_id')
                 ->count('shop_order_id')

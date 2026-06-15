@@ -112,7 +112,7 @@ class PurchaserRoleTestSeeder extends Seeder
 
             $this->command?->info('Ensured shop owner users are seeded.');
 
-            $businessDate = Carbon::yesterday()->startOfDay();
+            $businessDate = Carbon::today()->startOfDay();
             $sharedProducts = $products
                 ->whereIn('sku', array_keys(self::SHARED_PRODUCT_QUANTITIES))
                 ->keyBy('sku');
@@ -126,7 +126,7 @@ class PurchaserRoleTestSeeder extends Seeder
                 ->values();
 
             $this->command?->info(sprintf(
-                'Seeding previous-day orders for %s...',
+                'Seeding today orders for %s...',
                 $businessDate->toDateString()
             ));
 
@@ -182,7 +182,7 @@ class PurchaserRoleTestSeeder extends Seeder
             ShopOrder::setEventDispatcher(app('events'));
             ShopOrderItem::setEventDispatcher(app('events'));
 
-            $this->command?->info("Seeded {$orderCount} previous-day orders with items successfully.");
+            $this->command?->info("Seeded {$orderCount} today orders with items successfully.");
         });
     }
 
