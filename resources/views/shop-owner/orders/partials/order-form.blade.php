@@ -1,9 +1,9 @@
 <section class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
     <div class="flex flex-col gap-4 border-b border-slate-100 pb-5 md:flex-row md:items-start md:justify-between">
         <div>
-            <p class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Delivery Date</p>
+            <p class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">{{ isset($isUpdateRequest) && $isUpdateRequest ? 'Request Items' : 'Marketplace' }}</p>
             <h2 class="mt-1 text-xl font-black text-slate-950">{{ $tomorrowDate->format('d F Y') }}</h2>
-            <p class="mt-2 text-sm text-slate-600">Use yesterday’s order as the suggested baseline and submit before 9:30 PM.</p>
+            <p class="mt-2 text-sm text-slate-600">Select products, add quantity or box packs, then submit the daily order from your cart before 9:30 PM.</p>
         </div>
         @if ($presets->isNotEmpty())
             <div class="flex items-center gap-2 mt-2 md:mt-0 shrink-0">
@@ -30,8 +30,8 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
             <div class="text-xs sm:text-sm">
-                <h4 class="font-black text-amber-900">Order Locked After Cutoff</h4>
-                <p class="mt-1 font-medium leading-relaxed text-amber-800/95">Direct submission is closed. You can change quantities, add products, or remove lines below and submit a revised request to the Purchase Manager for approval.</p>
+                <h4 class="font-black text-amber-900">Cart Locked After Cutoff</h4>
+                <p class="mt-1 font-medium leading-relaxed text-amber-800/95">Direct submission is closed. You can still change quantities, add products, or remove lines below and send an item request to the Purchase Manager for approval.</p>
             </div>
         </div>
 
@@ -64,8 +64,8 @@
 
             <div class="flex flex-col gap-4 border-t border-slate-100 pt-5 md:flex-row md:items-center md:justify-between">
                 @include('shop-owner.orders.partials.order-summary-card', ['order' => $tomorrowOrder, 'yesterdayOrder' => $yesterdayOrder, 'isDraft' => true])
-                <button type="submit" class="rounded-xl bg-amber-600 px-6 py-3 text-sm font-bold text-white shadow-sm hover:bg-amber-700 transition active:scale-95 duration-150">
-                    Submit Update Request
+                <button type="button" data-open-cart-submit class="rounded-xl bg-amber-600 px-6 py-3 text-sm font-bold text-white shadow-sm hover:bg-amber-700 transition active:scale-95 duration-150">
+                    Open Cart
                 </button>
             </div>
         </form>
@@ -82,8 +82,8 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
                 <div class="text-xs sm:text-sm">
-                    <h4 class="font-black text-amber-900">Late Order Submission</h4>
-                    <p class="mt-1 font-medium leading-relaxed text-amber-800/95">The 9:30 PM cutoff deadline has passed. Submitting this order will file it as a **Late Requisition Request** pending Purchase Manager approval.</p>
+                    <h4 class="font-black text-amber-900">Late Daily Order Submission</h4>
+                    <p class="mt-1 font-medium leading-relaxed text-amber-800/95">The 9:30 PM cutoff deadline has passed. Submitting this cart will file it as a late item request pending Purchase Manager approval.</p>
                 </div>
             </div>
         @endif
@@ -94,12 +94,12 @@
 
             <div class="flex flex-col gap-4 border-t border-slate-100 pt-5 md:flex-row md:items-center md:justify-between">
                 @include('shop-owner.orders.partials.order-summary-card', ['order' => $tomorrowOrder, 'yesterdayOrder' => $yesterdayOrder, 'isDraft' => true])
-                <button type="submit" @class([
+                <button type="button" data-open-cart-submit @class([
                     'rounded-xl px-6 py-3 text-sm font-bold text-white shadow-sm transition active:scale-95 duration-150 border-0 cursor-pointer',
                     'bg-amber-600 hover:bg-amber-700' => $cutoffPassed,
                     'bg-emerald-600 hover:bg-emerald-700' => ! $cutoffPassed,
                 ])>
-                    {{ $cutoffPassed ? 'Submit Late Request' : ($tomorrowOrder ? 'Resubmit Tomorrow Order' : 'Submit Tomorrow Order') }}
+                    Open Cart
                 </button>
             </div>
         </form>

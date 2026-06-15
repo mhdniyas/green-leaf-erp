@@ -319,4 +319,147 @@ class ShopInvoiceFlowTest extends TestCase
         $this->assertEquals(30.00, (float) $invoice->balance_amount);
         $this->assertSame('partially_paid', $invoice->payment_status);
     }
+
+    public function test_purchase_manager_can_view_delivery_review_tab_and_approve_discrepancy(): void
+    {
+        $groupA = ShopPriceGroup::create([
+            'name' => 'A',
+            'default_margin_percent' => 10,
+            'is_active' => true,
+        ]);
+
+        $shop = Shop::create(['code' => 'DRV1', 'name' => 'Delivery Review Shop', 'shop_price_group_id' => $groupA->id]);
+
+        $owner = User::factory()->create(['shop_id' => $shop->id]);
+        $owner->assignRole('shop');
+
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $product = Product::factory()->create();
+        $order = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => today()->toDateString(),
+            'is_allocation_completed' => true,
+            'created_by' => $owner->id,
+        ]);
+
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'requested_qty' => 5,
+            'approved_qty' => 5,
+            'unit' => $product->unit,
+            'locked_selling_price' => 20,
+        ]);
+
+        $invoice = app(ShopInvoiceService::class)->synchronizeOrderInvoice($order, $manager->id);
+
+        $this->actingAs($owner)->post(route('requisitions.delivery.record', $order->order_number), [
+            'delivered_qty' => [
+                $item->id => 3,
+            ],
+            'delivery_notes' => 'Two units missing.',
+        ])->assertRedirect(route('shop-owner.deliveries.show', $order->order_number));
+
+        $invoice->refresh();
+
+        $this->actingAs($manager)
+            ->get(route('purchasing.shop-invoices.index', ['tab' => 'delivery-review']))
+            ->assertOk()
+            ->assertSee('Delivery Review')
+            ->assertSee($invoice->invoice_number);
+
+        $this->actingAs($manager)
+            ->post(route('requisitions.delivery.approve', $order->order_number), [
+                'invoice_number' => $invoice->invoice_number,
+                'approved_delivered_qty' => [
+                    $item->id => 4,
+                ],
+                'item_review_notes' => [
+                    $item->id => 'Reported shortage was 2 units, approved shortage only 1 after review.',
+                ],
+                'review_note' => 'Shortage accepted after review.',
+            ])
+            ->assertRedirect(route('purchasing.shop-invoices.show', $invoice));
+
+        $invoice->refresh();
+        $order->refresh();
+        $item->refresh();
+
+        $this->assertSame('approved_after_discrepancy', $invoice->delivery_status);
+        $this->assertTrue($order->is_delivered);
+        $this->assertSame('partially_delivered', $order->delivery_status);
+        $this->assertEquals(4.00, (float) $item->delivered_qty);
+        $this->assertEquals(1.00, (float) $item->shortage_qty);
+        $this->assertStringContainsString('approved shortage only 1', (string) $item->notes);
+        $this->assertEquals(20.00, (float) $invoice->shortage_total);
+    }
+
+    public function test_purchase_manager_can_reject_discrepancy_and_reopen_delivery_checkin(): void
+    {
+        $groupA = ShopPriceGroup::create([
+            'name' => 'A',
+            'default_margin_percent' => 10,
+            'is_active' => true,
+        ]);
+
+        $shop = Shop::create(['code' => 'DRV2', 'name' => 'Delivery Reopen Shop', 'shop_price_group_id' => $groupA->id]);
+
+        $owner = User::factory()->create(['shop_id' => $shop->id]);
+        $owner->assignRole('shop');
+
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $product = Product::factory()->create();
+        $order = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => today()->toDateString(),
+            'is_allocation_completed' => true,
+            'created_by' => $owner->id,
+        ]);
+
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'requested_qty' => 5,
+            'approved_qty' => 5,
+            'unit' => $product->unit,
+            'locked_selling_price' => 20,
+        ]);
+
+        $invoice = app(ShopInvoiceService::class)->synchronizeOrderInvoice($order, $manager->id);
+
+        $this->actingAs($owner)->post(route('requisitions.delivery.record', $order->order_number), [
+            'delivered_qty' => [
+                $item->id => 3,
+            ],
+            'delivery_notes' => 'Two units missing.',
+        ])->assertRedirect(route('shop-owner.deliveries.show', $order->order_number));
+
+        $this->actingAs($manager)
+            ->post(route('requisitions.delivery.reject', $order->order_number), [
+                'invoice_number' => $invoice->invoice_number,
+                'review_note' => 'Please verify actual delivered quantity again.',
+            ])
+            ->assertRedirect(route('purchasing.shop-invoices.show', $invoice));
+
+        $invoice->refresh();
+        $order->refresh();
+        $item->refresh();
+
+        $this->assertSame('pending', $invoice->delivery_status);
+        $this->assertSame('in_transit', $order->delivery_status);
+        $this->assertFalse($order->is_delivered);
+        $this->assertEquals(0.00, (float) $item->delivered_qty);
+        $this->assertEquals(0.00, (float) $invoice->shortage_total);
+
+        $this->actingAs($owner)
+            ->get(route('shop-owner.deliveries.show', $order->order_number))
+            ->assertOk()
+            ->assertSee('Confirm Delivery Check-In');
+    }
 }

@@ -185,6 +185,8 @@ class PurchaseManagerGrnApprovalTest extends TestCase
         $response->assertSee('Tomato H');
         $response->assertSee('Purchaser One');
         $response->assertSee('GRN-DRAFT-APPROVE-01');
+        $response->assertSee('min-w-[780px]', false);
+        $response->assertSee('[-webkit-overflow-scrolling:touch]', false);
 
         $this->actingAs($this->manager)
             ->post(route('purchasing.grns.approve-submitted'), [
@@ -277,6 +279,7 @@ class PurchaseManagerGrnApprovalTest extends TestCase
         $response->assertSee('Update Proposed Shop Category Prices');
         $response->assertSee('Corriander');
         $response->assertSee('242.00');
+        $response->assertSee('min-w-[760px]', false);
     }
 
     public function test_missing_pending_price_approval_is_created_from_submitted_purchase(): void

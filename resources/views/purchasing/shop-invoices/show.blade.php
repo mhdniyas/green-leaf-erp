@@ -40,6 +40,127 @@
             </div>
         </section>
 
+        @if (($invoice->delivery_status === 'received_with_discrepancy' || $invoice->order?->delivery_status === 'pending_approval') && (auth()->user()->hasRole('purchase') || auth()->user()->hasRole('admin')))
+            <section class="rounded-3xl border border-amber-200 bg-amber-50/80 p-5 shadow-sm">
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                        <p class="text-xs font-black uppercase tracking-[0.18em] text-amber-700">Delivery Review</p>
+                        <h2 class="mt-1 text-xl font-black text-slate-950">Discrepancy Approval Required</h2>
+                        <p class="mt-2 text-sm text-slate-700">Review delivered quantities product by product. You can adjust the final approved delivered qty, add notes for each item, then finalize the shortage into the invoice. Rejection sends the delivery check-in back to the shop owner for resubmission.</p>
+                    </div>
+                    <span class="rounded-full bg-white px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-amber-700">
+                        Finance impact pending
+                    </span>
+                </div>
+
+                <form id="delivery-discrepancy-approve-form" method="POST" action="{{ route('requisitions.delivery.approve', $invoice->order?->order_number) }}" class="mt-5">
+                    @csrf
+                    <input type="hidden" name="invoice_number" value="{{ $invoice->invoice_number }}">
+                </form>
+
+                <div class="mt-5 grid gap-3 md:grid-cols-2">
+                    @foreach ($invoice->items as $item)
+                        @php
+                            $hasShortage = (float) $item->shortage_qty > 0;
+                            $reportedDeliveredQty = (float) $item->delivered_qty;
+                            $reportedShortageQty = (float) $item->shortage_qty;
+                            $approvedDeliveredQty = old("approved_delivered_qty.{$item->shop_order_item_id}", number_format($reportedDeliveredQty, 2, '.', ''));
+                        @endphp
+                        <article class="rounded-3xl border {{ $hasShortage ? 'border-amber-200 bg-white' : 'border-emerald-200 bg-white' }} p-4">
+                            <div class="flex items-start justify-between gap-3">
+                                <div>
+                                    <h3 class="font-black text-slate-950">{{ $item->product_name }}</h3>
+                                    <p class="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{{ strtoupper($item->unit) }}</p>
+                                </div>
+                                <span class="{{ $hasShortage ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-700' }} rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em]">
+                                    {{ $hasShortage ? 'Shortage' : 'Matched' }}
+                                </span>
+                            </div>
+
+                            <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+                                <div class="rounded-2xl bg-slate-50 p-3">
+                                    <span class="block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Approved</span>
+                                    <span class="mt-1 block font-black text-slate-950">{{ number_format((float) $item->approved_qty, 2) }} {{ $item->unit }}</span>
+                                </div>
+                                <div class="rounded-2xl bg-slate-50 p-3">
+                                    <span class="block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Delivered</span>
+                                    <span class="mt-1 block font-black text-slate-950">{{ number_format($reportedDeliveredQty, 2) }} {{ $item->unit }}</span>
+                                </div>
+                                <div class="rounded-2xl bg-slate-50 p-3">
+                                    <span class="block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Reported Short Qty</span>
+                                    <span class="mt-1 block font-black {{ $hasShortage ? 'text-amber-700' : 'text-emerald-700' }}">{{ number_format($reportedShortageQty, 2) }} {{ $item->unit }}</span>
+                                </div>
+                                <div class="rounded-2xl bg-slate-50 p-3">
+                                    <span class="block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Invoice Impact</span>
+                                    <span class="mt-1 block font-black {{ $hasShortage ? 'text-red-600' : 'text-slate-950' }}">Rs. {{ number_format((float) $item->shortage_amount, 2) }}</span>
+                                </div>
+                            </div>
+
+                            <div class="mt-4 grid gap-3">
+                                <label class="block">
+                                    <span class="mb-1.5 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Approved Delivered Qty</span>
+                                    <input
+                                        form="delivery-discrepancy-approve-form"
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        max="{{ number_format((float) $item->approved_qty, 2, '.', '') }}"
+                                        name="approved_delivered_qty[{{ $item->shop_order_item_id }}]"
+                                        value="{{ $approvedDeliveredQty }}"
+                                        class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900"
+                                    >
+                                    @error("approved_delivered_qty.{$item->shop_order_item_id}")
+                                        <span class="mt-1 block text-xs font-semibold text-rose-600">{{ $message }}</span>
+                                    @enderror
+                                </label>
+
+                                <label class="block">
+                                    <span class="mb-1.5 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Manager Item Note</span>
+                                    <textarea
+                                        form="delivery-discrepancy-approve-form"
+                                        name="item_review_notes[{{ $item->shop_order_item_id }}]"
+                                        rows="3"
+                                        class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                                        placeholder="Example: Reported 5 kg shortage, approved only 3 kg after recount."
+                                    >{{ old("item_review_notes.{$item->shop_order_item_id}") }}</textarea>
+                                    @if ($item->orderItem?->notes)
+                                        <span class="mt-1 block text-xs text-slate-500">Existing item note: {{ $item->orderItem->notes }}</span>
+                                    @endif
+                                    @error("item_review_notes.{$item->shop_order_item_id}")
+                                        <span class="mt-1 block text-xs font-semibold text-rose-600">{{ $message }}</span>
+                                    @enderror
+                                </label>
+                            </div>
+                        </article>
+                    @endforeach
+                </div>
+
+                <div class="mt-5 grid gap-4 xl:grid-cols-2">
+                    <div class="rounded-3xl border border-emerald-200 bg-white p-4">
+                        <label class="block">
+                            <span class="mb-1.5 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Approval Note</span>
+                            <textarea form="delivery-discrepancy-approve-form" name="review_note" rows="4" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" placeholder="Optional note for approval">{{ old('review_note') }}</textarea>
+                        </label>
+                        <button form="delivery-discrepancy-approve-form" type="submit" class="mt-4 inline-flex w-full items-center justify-center rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white hover:bg-emerald-700">
+                            Approve Discrepancy And Finalize Finance
+                        </button>
+                    </div>
+
+                    <form method="POST" action="{{ route('requisitions.delivery.reject', $invoice->order?->order_number) }}" class="rounded-3xl border border-rose-200 bg-white p-4">
+                        @csrf
+                        <input type="hidden" name="invoice_number" value="{{ $invoice->invoice_number }}">
+                        <label class="block">
+                            <span class="mb-1.5 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Rejection Note</span>
+                            <textarea name="review_note" rows="4" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" placeholder="Tell the shop owner what to correct">{{ old('review_note') }}</textarea>
+                        </label>
+                        <button type="submit" class="mt-4 inline-flex w-full items-center justify-center rounded-2xl bg-rose-600 px-5 py-3 text-sm font-black text-white hover:bg-rose-700">
+                            Reject And Reopen Delivery Check-In
+                        </button>
+                    </form>
+                </div>
+            </section>
+        @endif
+
         <section class="rounded-3xl border border-slate-200 bg-white shadow-sm">
             <div class="border-b border-slate-100 px-5 py-4">
                 <h2 class="text-lg font-black text-slate-950">Invoice Items</h2>

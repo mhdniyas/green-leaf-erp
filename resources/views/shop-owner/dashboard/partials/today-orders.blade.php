@@ -4,7 +4,7 @@
             <p class="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Operations</p>
             <h2 class="mt-1 text-xl font-black text-slate-950">Today and Tomorrow</h2>
         </div>
-        @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.index'), 'label' => 'Open Orders', 'classes' => 'border border-slate-200 bg-white text-slate-800'])
+        @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.index'), 'label' => 'Open Cart', 'classes' => 'border border-slate-200 bg-white text-slate-800'])
     </div>
 
     <div class="mt-5 grid gap-4 md:grid-cols-2">
@@ -25,13 +25,13 @@
         </div>
 
         <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-            <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Tomorrow’s Order</p>
+            <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Tomorrow’s Cart</p>
             @if ($tomorrowOrder)
                 <p class="mt-3 text-lg font-black text-slate-900">{{ $tomorrowOrder->order_number }}</p>
                 <p class="mt-1 text-sm text-slate-600">{{ $tomorrowOrder->items->count() }} items, {{ number_format((float) $tomorrowOrder->items->sum('requested_qty'), 2) }} total qty</p>
                 <div class="mt-4 flex flex-wrap gap-2">
                     @include('shop-owner.orders.partials.order-status-badge', ['order' => $tomorrowOrder])
-                    @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.show', $tomorrowOrder->order_number), 'label' => 'Open Order', 'classes' => 'bg-slate-900 text-white'])
+                    @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.show', $tomorrowOrder->order_number), 'label' => 'Open Cart', 'classes' => 'bg-slate-900 text-white'])
                     @php
                         $purchaseOrdersLockedForTomorrow = $tomorrowOrder->linkedPurchaseOrdersHaveGoodsReceived();
                         $canRequestUpdate = !$tomorrowOrder->canEditDirectly() && 
@@ -39,11 +39,11 @@
                                              ($tomorrowOrder->state === 'approved' && !$purchaseOrdersLockedForTomorrow));
                     @endphp
                     @if ($canRequestUpdate)
-                        @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.create'), 'label' => 'Request Update', 'classes' => 'bg-amber-600 text-white hover:bg-amber-700'])
+                        @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.create'), 'label' => 'Request Items', 'classes' => 'bg-amber-600 text-white hover:bg-amber-700'])
                     @endif
                 </div>
             @else
-                @include('shop-owner.components.empty-state', ['title' => 'No order submitted', 'description' => 'Create tomorrow’s order before 9:30 PM to keep the workflow moving.', 'actionLabel' => 'Create Order', 'actionUrl' => route('shop-owner.orders.create')])
+                @include('shop-owner.components.empty-state', ['title' => 'No cart submitted', 'description' => 'Open the marketplace and build tomorrow’s cart before 9:30 PM.', 'actionLabel' => 'Open Marketplace', 'actionUrl' => route('shop-owner.orders.create')])
             @endif
         </div>
     </div>

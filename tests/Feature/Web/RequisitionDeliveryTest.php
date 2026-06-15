@@ -242,7 +242,7 @@ class RequisitionDeliveryTest extends TestCase
         ]);
     }
 
-    public function test_authorized_manager_can_approve_delivery_discrepancy(): void
+    public function test_authorized_manager_can_adjust_delivery_qty_and_approve_discrepancy(): void
     {
         $shop = Shop::create(['code' => 'S1', 'name' => 'Shop 1']);
         $owner = User::factory()->create(['shop_id' => $shop->id]);
@@ -299,29 +299,42 @@ class RequisitionDeliveryTest extends TestCase
         ]);
 
         $response = $this->actingAs($manager)
-            ->post(route('requisitions.delivery.approve', $order->order_number));
+            ->post(route('requisitions.delivery.approve', $order->order_number), [
+                'approved_delivered_qty' => [
+                    $item->id => 14,
+                ],
+                'item_review_notes' => [
+                    $item->id => 'Reported shortage was 3 kg, manager approved only 1 kg after recount.',
+                ],
+                'review_note' => 'Adjusted discrepancy after recount.',
+            ]);
 
         $response->assertRedirect(route('requisitions.show', $order->order_number));
         $response->assertSessionHas('success');
 
         $order->refresh();
+        $item->refresh();
 
         $this->assertTrue($order->is_delivered);
         $this->assertNotNull($order->delivered_at);
         $this->assertEquals('partially_delivered', $order->delivery_status);
-        $this->assertEquals('partially_paid', $order->payment_status);
+        $this->assertEquals('unpaid', $order->payment_status);
+        $this->assertEquals(14.00, (float) $item->delivered_qty);
+        $this->assertEquals(1.00, (float) $item->shortage_qty);
+        $this->assertEquals(10.00, (float) $item->shortage_value);
+        $this->assertStringContainsString('manager approved only 1 kg', (string) $item->notes);
 
         $this->assertDatabaseHas('stock_movements', [
             'product_id' => $product->id,
             'type' => StockMovementType::Out->value,
-            'quantity' => 12.000,
+            'quantity' => 14.000,
             'notes' => "Warehouse delivery out (approved): {$order->order_number}",
         ]);
 
         $this->assertDatabaseHas('stock_movements', [
             'product_id' => $product->id,
             'type' => StockMovementType::Wastage->value,
-            'quantity' => 3.000,
+            'quantity' => 1.000,
             'notes' => "Delivery shortage discrepancy (approved): {$order->order_number}",
         ]);
     }

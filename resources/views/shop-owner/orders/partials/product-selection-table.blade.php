@@ -159,7 +159,6 @@
                 data-order-qty
                 data-master-qty
                 data-product-id="{{ $productData['id'] }}"
-                data-effective-price="{{ number_format((float) $productData['price'], 2, '.', '') }}"
             >
         @endforeach
     </div>
@@ -181,7 +180,6 @@
                 <div class="min-w-0">
                     <span id="modal-product-sku" class="inline-block bg-slate-100 px-1.5 py-0.5 rounded font-black text-[10px] text-slate-500 uppercase">SKU</span>
                     <h3 id="modal-product-name" class="text-lg font-black text-slate-900 mt-1.5 truncate">Product Name</h3>
-                    <p id="modal-product-price-label" class="text-sm font-black text-emerald-700 mt-1 hidden">INR 0.00 / kg</p>
                 </div>
                 <button type="button" id="qty-modal-close" class="rounded-full bg-slate-100 p-2 text-slate-500 hover:bg-slate-200 transition">
                     <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -236,19 +234,13 @@
                     <div id="modal-quick-pills" class="flex flex-wrap gap-2"></div>
                 </div>
 
-                <!-- Footer / Action Buttons -->
                 <div class="border-t border-slate-100 pt-5 space-y-4">
-                    <div class="flex items-center justify-between hidden">
-                        <span class="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Line Subtotal</span>
-                        <span id="modal-subtotal" class="text-lg font-black text-slate-900">INR 0.00</span>
-                    </div>
-                    
                     <div class="flex gap-3">
                         <button type="button" id="modal-remove-btn" class="flex-1 rounded-2xl border border-rose-200 bg-rose-50 text-rose-700 py-3.5 text-xs font-black uppercase tracking-wider hover:bg-rose-100 active:scale-95 transition duration-150">
                             Remove
                         </button>
                         <button type="button" id="modal-add-btn" class="flex-[2] rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white py-3.5 text-xs font-black uppercase tracking-wider shadow-md shadow-emerald-600/10 transition duration-150">
-                            Add to Order
+                            Add to Cart
                         </button>
                     </div>
                 </div>
@@ -267,11 +259,10 @@
                 </div>
                 <div>
                     <p id="cart-bar-items-count" class="text-[10px] font-black uppercase tracking-[0.12em] text-emerald-400">0 Items Selected</p>
-                    <p id="cart-bar-total-value" class="text-sm font-black hidden">INR 0.00</p>
                 </div>
             </div>
             <button type="button" id="cart-bar-review-btn" class="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider px-4.5 py-3 shadow-md shadow-emerald-700/20 active:scale-95 transition duration-150">
-                Review Order
+                Open Cart
             </button>
         </div>
     </div>
@@ -285,7 +276,7 @@
         
         <div class="px-6 py-3 border-b border-slate-100 flex items-center justify-between shrink-0">
             <div>
-                <h3 class="text-base font-black text-slate-900">Review Requisition</h3>
+                <h3 class="text-base font-black text-slate-900">{{ isset($isUpdateRequest) && $isUpdateRequest ? 'Item Request Cart' : 'Daily Order Cart' }}</h3>
                 <p id="review-items-count" class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">0 items</p>
             </div>
             <button type="button" id="cart-review-close" class="rounded-full bg-slate-100 p-2 text-slate-500 hover:bg-slate-200 transition">
@@ -346,7 +337,7 @@
                     Add Items
                 </button>
                 <button type="button" id="review-submit-btn" class="flex-[2] rounded-2xl {{ isset($isUpdateRequest) && $isUpdateRequest ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-600/10' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/10' }} active:scale-95 text-white py-3 text-xs font-black uppercase tracking-wider shadow-md transition duration-150">
-                    {{ isset($isUpdateRequest) && $isUpdateRequest ? 'Submit Update' : 'Submit Order' }}
+                    {{ isset($isUpdateRequest) && $isUpdateRequest ? 'Submit Item Request' : 'Submit Daily Order' }}
                 </button>
             </div>
         </div>

@@ -1,13 +1,13 @@
 @extends('shop-owner.layouts.app')
 
-@section('title', 'Order Details')
-@section('page_title', 'Order Details')
-@section('page_description', 'View requested quantities, approval status, delivery progress, and finance notes for this order.')
-@php($breadcrumbs = [['label' => 'Daily Orders', 'url' => route('shop-owner.orders.index')], ['label' => $order->order_number]])
+@section('title', 'Cart Details')
+@section('page_title', 'Cart Details')
+@section('page_description', 'View requested quantities, approval status, delivery progress, and finance notes for this daily cart.')
+@php($breadcrumbs = [['label' => 'Cart', 'url' => route('shop-owner.orders.index')], ['label' => $order->order_number]])
 
 @section('page_actions')
     <div class="flex flex-wrap gap-2">
-        @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.history'), 'label' => 'Order History', 'classes' => 'border border-slate-200 bg-white text-slate-800'])
+        @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.history'), 'label' => 'Approval History', 'classes' => 'border border-slate-200 bg-white text-slate-800'])
         <?php
             $isTomorrowOrder = $order->business_date->isTomorrow();
             $purchaseOrdersLockedForTomorrow = $order->linkedPurchaseOrdersHaveGoodsReceived();
@@ -17,7 +17,7 @@
                                  ($order->state === 'approved' && !$purchaseOrdersLockedForTomorrow));
         ?>
         @if ($canRequestUpdate)
-            @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.create'), 'label' => 'Request Update', 'classes' => 'bg-amber-600 text-white hover:bg-amber-700'])
+            @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.create'), 'label' => 'Request Items', 'classes' => 'bg-amber-600 text-white hover:bg-amber-700'])
         @endif
     </div>
 @endsection
@@ -28,7 +28,7 @@
         @include('shop-owner.orders.partials.order-summary-card', ['order' => $order])
 
         <section class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 class="text-xl font-black text-slate-950">Order Items</h2>
+            <h2 class="text-xl font-black text-slate-950">Cart Items</h2>
             <div class="mt-5">
                 @include('shop-owner.orders.partials.order-items-table', ['order' => $order])
             </div>

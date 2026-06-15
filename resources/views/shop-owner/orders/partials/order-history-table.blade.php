@@ -31,7 +31,7 @@
             <thead>
                 <tr class="border-b border-slate-100 text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
                     <th class="py-3 pr-4">Date</th>
-                    <th class="py-3 pr-4">Order</th>
+                    <th class="py-3 pr-4">Cart</th>
                     <th class="py-3 pr-4 text-right">Items</th>
                     <th class="py-3 pr-4">Status</th>
                     <th class="py-3 pr-4">Delivery</th>
@@ -59,5 +59,5 @@
         <div class="mt-5">{{ $orders->links() }}</div>
     @endif
 @else
-    @include('shop-owner.components.empty-state', ['title' => 'No order history', 'description' => 'Submitted orders will appear here once the shop starts using the daily flow.'])
+    @include('shop-owner.components.empty-state', ['title' => 'No approval history', 'description' => 'Submitted daily carts will appear here once the shop starts using the marketplace flow.'])
 @endif

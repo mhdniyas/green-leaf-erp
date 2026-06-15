@@ -26,15 +26,27 @@ class PurchaseInvoice extends Model
         'public_uuid',
         'goods_received_id',
         'supplier_id',
+        'purchaser_cart_id',
         'invoice_number',
         'amount',
+        'discount_amount',
         'status',
+        'payment_method',
+        'payment_status',
+        'paid_amount',
+        'payment_note',
+        'payment_details',
+        'purchaser_submitted_by',
+        'purchaser_submitted_at',
         'notes',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
+        'discount_amount' => 'decimal:2',
+        'paid_amount' => 'decimal:2',
         'status' => InvoiceStatus::class,
+        'purchaser_submitted_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
@@ -98,5 +110,15 @@ class PurchaseInvoice extends Model
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class);
+    }
+
+    public function purchaserCart(): BelongsTo
+    {
+        return $this->belongsTo(PurchaserCart::class);
+    }
+
+    public function purchaserSubmittedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'purchaser_submitted_by');
     }
 }

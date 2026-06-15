@@ -33,7 +33,8 @@ class WarehouseWorkflowSeeder extends Seeder
             $purchaseManager = User::query()->where('email', 'purchase@greenleaf.com')->firstOrFail();
             $warehouseManager = User::query()->where('email', 'warehouse@greenleaf.com')->firstOrFail();
 
-            $supplier = Supplier::query()->where('name', 'Green Valley Farm')->firstOrFail();
+            $marketA = Supplier::query()->where('name', 'Market A')->firstOrFail();
+            $marketB = Supplier::query()->where('name', 'Market B')->firstOrFail();
 
             $shops = Shop::query()
                 ->whereIn('code', ['SHOP_CASIO', 'SHOP_BUDEGERE', 'SHOP_GRANCITY', 'SHOP_ASHIRWAD'])
@@ -63,17 +64,17 @@ class WarehouseWorkflowSeeder extends Seeder
                 ->keyBy('sku');
 
             $this->seedClosedDay(
-                businessDate: $today->copy()->subDays(5),
+                businessDate: $today->copy()->subDays(2),
                 purchaseManager: $purchaseManager,
                 warehouseManager: $warehouseManager,
-                supplier: $supplier,
+                supplier: $marketA,
                 shop: $shops['SHOP_CASIO'],
                 shopOwner: $shopOwners['shop@greenleaf.com'],
                 products: $products,
-                orderNumber: 'RQ-WEEK-01-CASIO',
-                poNumber: 'PO-WEEK-01',
-                grnNumber: 'GRN-WEEK-01',
-                invoiceNumber: 'PINV-WEEK-01',
+                orderNumber: 'RQ-DEMO-D2-CASIO',
+                poNumber: 'PO-DEMO-D2-A',
+                grnNumber: 'GRN-DEMO-D2-A',
+                invoiceNumber: 'PINV-DEMO-D2-A',
                 invoiceStatus: InvoiceStatus::Paid,
                 orderItems: [
                     ['sku' => 'TOMATOH-001', 'requested' => 24, 'approved' => 24, 'delivered' => 24, 'sorting_status' => 'loaded', 'unit_cost' => 28.00],
@@ -83,17 +84,17 @@ class WarehouseWorkflowSeeder extends Seeder
             );
 
             $this->seedClosedDay(
-                businessDate: $today->copy()->subDays(4),
+                businessDate: $today->copy()->subDay(),
                 purchaseManager: $purchaseManager,
                 warehouseManager: $warehouseManager,
-                supplier: $supplier,
+                supplier: $marketB,
                 shop: $shops['SHOP_BUDEGERE'],
                 shopOwner: $shopOwners['shop-budegere@greenleaf.com'],
                 products: $products,
-                orderNumber: 'RQ-WEEK-02-BUD',
-                poNumber: 'PO-WEEK-02',
-                grnNumber: 'GRN-WEEK-02',
-                invoiceNumber: 'PINV-WEEK-02',
+                orderNumber: 'RQ-DEMO-D1-BUD',
+                poNumber: 'PO-DEMO-D1-B',
+                grnNumber: 'GRN-DEMO-D1-B',
+                invoiceNumber: 'PINV-DEMO-D1-B',
                 invoiceStatus: InvoiceStatus::Approved,
                 orderItems: [
                     ['sku' => 'POTATOAGRA-005', 'requested' => 16, 'approved' => 16, 'delivered' => 15, 'shortage' => 1, 'sorting_status' => 'loaded', 'unit_cost' => 62.50],
@@ -103,16 +104,16 @@ class WarehouseWorkflowSeeder extends Seeder
             );
 
             $this->seedApprovedOnlyDay(
-                businessDate: $today->copy()->subDays(3),
+                businessDate: $today,
                 purchaseManager: $purchaseManager,
                 warehouseManager: $warehouseManager,
-                supplier: $supplier,
+                supplier: $marketA,
                 shop: $shops['SHOP_GRANCITY'],
                 shopOwner: $shopOwners['shop-grancity@greenleaf.com'],
                 products: $products,
-                orderNumber: 'RQ-WEEK-03-GRAND',
-                poNumber: 'PO-WEEK-03',
-                grnNumber: 'GRN-WEEK-03',
+                orderNumber: 'RQ-DEMO-TODAY-GRAND',
+                poNumber: 'PO-DEMO-TODAY-A',
+                grnNumber: 'GRN-DEMO-TODAY-A',
                 orderItems: [
                     ['sku' => 'TOMATOH-001', 'requested' => 18, 'approved' => 18, 'sorting_status' => 'allocated', 'unit_cost' => 28.00],
                     ['sku' => 'ONION-003', 'requested' => 10, 'approved' => 10, 'sorting_status' => 'allocated', 'unit_cost' => 24.00],
@@ -120,17 +121,17 @@ class WarehouseWorkflowSeeder extends Seeder
             );
 
             $this->seedPendingReceiptDay(
-                businessDate: $today->copy()->subDays(2),
+                businessDate: $today,
                 purchaseManager: $purchaseManager,
                 warehouseManager: $warehouseManager,
-                supplier: $supplier,
+                supplier: $marketB,
                 shop: $shops['SHOP_ASHIRWAD'],
                 shopOwner: $shopOwners['shop-ashirwad@greenleaf.com'],
                 products: $products,
-                orderNumber: 'RQ-WEEK-04-ASH',
-                poNumber: 'PO-WEEK-04',
-                grnNumber: 'GRN-WEEK-04',
-                invoiceNumber: 'PINV-WEEK-04',
+                orderNumber: 'RQ-DEMO-TODAY-ASH',
+                poNumber: 'PO-DEMO-TODAY-B',
+                grnNumber: 'GRN-DEMO-TODAY-B',
+                invoiceNumber: 'PINV-DEMO-TODAY-B',
                 orderItems: [
                     ['sku' => 'POTATOAGRA-005', 'requested' => 22, 'approved' => 22, 'sorting_status' => 'pending', 'unit_cost' => 62.50],
                     ['sku' => 'CORRIANDER-101', 'requested' => 11, 'approved' => 11, 'sorting_status' => 'pending', 'unit_cost' => 19.50],
@@ -141,7 +142,7 @@ class WarehouseWorkflowSeeder extends Seeder
                 businessDate: $today,
                 purchaseManager: $purchaseManager,
                 warehouseManager: $warehouseManager,
-                supplier: $supplier,
+                supplier: $marketB,
                 shops: $shops,
                 shopOwners: $shopOwners,
                 products: $products,

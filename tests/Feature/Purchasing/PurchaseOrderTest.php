@@ -409,5 +409,7 @@ class PurchaseOrderTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Prev. Price: INR 4.5000');
+        $response->assertSee('min-w-[1100px]', false);
+        $response->assertSee('[-webkit-overflow-scrolling:touch]', false);
     }
 }

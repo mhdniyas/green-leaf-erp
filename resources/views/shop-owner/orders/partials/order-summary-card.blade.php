@@ -1,5 +1,5 @@
 <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">{{ isset($isDraft) && $isDraft ? 'Draft Summary' : 'Order Summary' }}</p>
+    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">{{ isset($isDraft) && $isDraft ? 'Cart Summary' : 'Approval Summary' }}</p>
     @if (isset($isDraft) && $isDraft)
         @php
             $draftItems = isset($order) && $order ? (int) $order->items->count() : (int) optional($yesterdayOrder?->items)->count();
@@ -14,7 +14,6 @@
             <span data-order-total-items>{{ $draftItems }}</span> items ·
             <span data-order-total-qty>{{ number_format($draftQuantity, 2, '.', '') }}</span> total qty
         </p>
-        <span data-order-total-value class="hidden">0.00</span>
         @if (isset($order) && $order)
             <div class="mt-4 flex items-center gap-3">
                 @include('shop-owner.orders.partials.order-status-badge', ['order' => $order])
@@ -39,6 +38,5 @@
         @endphp
         <p class="mt-3 text-sm text-slate-600">Use yesterday’s order as the starting point for tomorrow’s demand.</p>
         <p class="mt-2 text-lg font-black text-slate-900">{{ $estimatedItems }} items · {{ number_format($estimatedQuantity, 2) }} suggested qty</p>
-        <span data-order-total-value class="hidden">0.00</span>
     @endif
 </div>

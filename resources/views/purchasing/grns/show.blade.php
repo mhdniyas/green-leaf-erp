@@ -38,8 +38,8 @@
                     <span class="text-xs text-gray-500 font-mono">{{ $grn->items->count() }} items</span>
                 </div>
 
-                <div class="overflow-x-auto">
-                    <table class="w-full text-sm">
+                <div class="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+                    <table class="min-w-[920px] text-sm">
                         <thead>
                             <tr class="border-b border-gray-100 bg-gray-50/50">
                                 <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>

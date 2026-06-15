@@ -46,12 +46,13 @@ class ShopOwnerModulesTest extends TestCase
         $response = $this->actingAs($shopOwner)->get(route('shop-owner.dashboard'));
 
         $response->assertOk();
-        // Should see dashboard, PO, Deliveries, and Finance
+        // Should see dashboard, cart, deliveries, finance, and approval history
         $response->assertSee('Dashboard');
-        $response->assertSee('Daily Orders');
+        $response->assertSee('Cart');
         $response->assertDontSee('Daily Price Board');
         $response->assertSee('Deliveries');
         $response->assertSee('Finance');
+        $response->assertSee('Approval History');
         $response->assertSee('app-dialog-root');
         $response->assertSee('window.showAppAlert');
 
@@ -234,5 +235,80 @@ class ShopOwnerModulesTest extends TestCase
         $budegereResponse->assertOk();
         $budegereResponse->assertSee('Budegere Test Outlet');
         $budegereResponse->assertDontSee('Casio Test Outlet');
+    }
+
+    public function test_shop_owner_delivery_details_uses_mobile_friendly_checkin_flow(): void
+    {
+        $shop = Shop::create([
+            'code' => 'SHOP_DELIVERY_UI',
+            'name' => 'Delivery Ui Shop',
+        ]);
+
+        $shopOwner = User::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+        $shopOwner->assignRole('shop');
+
+        $order = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => today()->toDateString(),
+            'created_by' => $shopOwner->id,
+            'is_allocation_completed' => true,
+        ]);
+
+        $response = $this->actingAs($shopOwner)
+            ->get(route('shop-owner.deliveries.show', $order->order_number));
+
+        $response->assertOk();
+        $response->assertSee('Step 1');
+        $response->assertSee('Receive Full Order');
+        $response->assertSee('Confirm Delivery Check-In');
+        $response->assertSee('Step 3');
+        $response->assertSee('Shortage Summary');
+    }
+
+    public function test_shop_owner_marketplace_flow_uses_cart_language_and_hides_totals(): void
+    {
+        $shop = Shop::create([
+            'code' => 'SHOP_MARKETPLACE_UI',
+            'name' => 'Marketplace Ui Shop',
+        ]);
+
+        $shopOwner = User::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+        $shopOwner->assignRole('shop');
+
+        $response = $this->actingAs($shopOwner)->get(route('shop-owner.orders.create'));
+
+        $response->assertOk();
+        $response->assertSee('Marketplace');
+        $response->assertSee('Add to Cart');
+        $response->assertSee('Open Cart');
+        $response->assertSee('Submit Daily Order');
+        $response->assertDontSee('Estimated Total');
+        $response->assertDontSee('Review Requisition');
+    }
+
+    public function test_shop_owner_cart_screen_shows_approval_history_copy(): void
+    {
+        $shop = Shop::create([
+            'code' => 'SHOP_CART_UI',
+            'name' => 'Cart Ui Shop',
+        ]);
+
+        $shopOwner = User::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+        $shopOwner->assignRole('shop');
+
+        $response = $this->actingAs($shopOwner)->get(route('shop-owner.orders.index'));
+
+        $response->assertOk();
+        $response->assertSee('Cart');
+        $response->assertSee('Tomorrow Cart Snapshot');
+        $response->assertSee('Approval History');
+        $response->assertDontSee('Recent Orders');
     }
 }

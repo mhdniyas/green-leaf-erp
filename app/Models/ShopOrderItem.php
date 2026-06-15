@@ -7,6 +7,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ShopOrderItem extends Model
 {
@@ -81,6 +82,11 @@ class ShopOrderItem extends Model
     public function sortedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'sorted_by');
+    }
+
+    public function purchaserCorrectionRequests(): HasMany
+    {
+        return $this->hasMany(PurchaserCorrectionRequest::class);
     }
 
     public function warehouseWorkflowStage(): string

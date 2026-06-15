@@ -23,7 +23,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const qtyModalClose = document.getElementById('qty-modal-close');
     const modalSku = document.getElementById('modal-product-sku');
     const modalName = document.getElementById('modal-product-name');
-    const modalPriceLabel = document.getElementById('modal-product-price-label');
     const modalUnitToggleContainer = document.getElementById('modal-unit-toggle-container');
     const modalUnitBtnStandard = document.getElementById('modal-unit-btn-standard');
     const modalUnitBtnBox = document.getElementById('modal-unit-btn-box');
@@ -36,15 +35,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const modalConversionFactorText = document.getElementById('modal-conversion-factor-text');
     const modalConversionCalc = document.getElementById('modal-conversion-calc');
     const modalQuickPills = document.getElementById('modal-quick-pills');
-    const modalSubtotal = document.getElementById('modal-subtotal');
     const modalRemoveBtn = document.getElementById('modal-remove-btn');
     const modalAddBtn = document.getElementById('modal-add-btn');
 
     // Persistent Floating Cart Bar
     const floatingCartBar = document.getElementById('floating-cart-bar');
     const cartBarItemsCount = document.getElementById('cart-bar-items-count');
-    const cartBarTotalValue = document.getElementById('cart-bar-total-value');
     const cartBarReviewBtn = document.getElementById('cart-bar-review-btn');
+    const pageOpenCartButtons = Array.from(document.querySelectorAll('[data-open-cart-submit]'));
 
     // Cart Review Drawer
     const cartReviewBackdrop = document.getElementById('cart-review-backdrop');
@@ -52,9 +50,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const cartReviewClose = document.getElementById('cart-review-close');
     const reviewItemsCount = document.getElementById('review-items-count');
     const reviewItemsList = document.getElementById('review-items-list');
-    const reviewTotalValueNode = document.getElementById('review-total-value');
     const reviewAddMoreBtn = document.getElementById('review-add-more-btn');
     const reviewSubmitBtn = document.getElementById('review-submit-btn');
+
+    if (
+        !formNode ||
+        !productCatalogNode ||
+        !qtyModalBackdrop ||
+        !qtyModalSheet ||
+        !cartReviewBackdrop ||
+        !cartReviewDrawer ||
+        !floatingCartBar ||
+        !cartBarItemsCount ||
+        !cartBarReviewBtn ||
+        !reviewItemsCount ||
+        !reviewItemsList ||
+        !reviewAddMoreBtn ||
+        !reviewSubmitBtn
+    ) {
+        return;
+    }
 
     // ── DATA STATE ──────────────────────────────────────────────────────────
     const presets = presetsNode ? JSON.parse(presetsNode.textContent ?? '[]') : [];
@@ -69,8 +84,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentModalConversionFactor = 10; // default for kg
 
     // ── HELPERS ─────────────────────────────────────────────────────────────
-    const formatCurrency = (value) => `INR ${Number(value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
     const getConversionFactor = (unit) => {
         const lowerUnit = String(unit).toLowerCase().trim();
         if (lowerUnit === 'kg') {
@@ -98,6 +111,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const input = masterInputsById.get(String(product.id));
         return input && Number.parseFloat(input.value) > 0;
     });
+
+    const syncPageOpenCartButtons = () => {
+        const selectedCount = getSelectedProducts().length;
+
+        pageOpenCartButtons.forEach((button) => {
+            button.disabled = selectedCount === 0;
+            button.classList.toggle('opacity-60', selectedCount === 0);
+            button.classList.toggle('cursor-not-allowed', selectedCount === 0);
+        });
+    };
 
     // ── RENDER & UI SYNC ────────────────────────────────────────────────────
     const updateProductCardBadge = (productId, qty, unit) => {
@@ -130,17 +153,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const syncFloatingCartBar = () => {
         const selected = getSelectedProducts();
         const totalItems = selected.length;
-        
-        const totalValue = selected.reduce((sum, p) => {
-            const input = masterInputsById.get(String(p.id));
-            const qty = input ? Number.parseFloat(input.value) : 0;
-            return sum + (Number.isFinite(qty) ? qty : 0) * Number(p.price ?? 0);
-        }, 0);
 
         if (totalItems > 0) {
             cartBarItemsCount.textContent = `${totalItems} ${totalItems === 1 ? 'item' : 'items'} selected`;
-            cartBarTotalValue.textContent = formatCurrency(totalValue);
-            
+
             if (floatingCartBar.classList.contains('hidden')) {
                 floatingCartBar.classList.remove('hidden');
                 setTimeout(() => {
@@ -155,10 +171,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }, 300);
         }
+
+        syncPageOpenCartButtons();
     };
 
     // ── CATEGORY & SEARCH FILTERING ─────────────────────────────────────────
-    let activeCategory = 'frequent';
+    let activeCategory = categoryPills.some((pill) => pill.getAttribute('data-category-pill') === 'frequent')
+        ? 'frequent'
+        : 'all';
 
     const filterProducts = () => {
         const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
@@ -253,7 +273,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // Populate details
         modalSku.textContent = product.sku;
         modalName.textContent = product.name;
-        modalPriceLabel.textContent = `${formatCurrency(product.price)} / ${product.unit}`;
         modalSuggestedBadge.textContent = `Sug: ${Number(product.suggested_qty ?? 0).toFixed(2)}`;
 
         // Read current qty
@@ -286,19 +305,19 @@ document.addEventListener('DOMContentLoaded', () => {
         // Set input value
         if (finalQty > 0) {
             if (currentModalUnitMode === 'box') {
-                modalQtyInput.value = (finalQty / currentModalConversionFactor).toString();
+            modalQtyInput.value = (finalQty / currentModalConversionFactor).toString();
             } else {
                 modalQtyInput.value = finalQty.toString();
             }
             modalRemoveBtn.classList.remove('hidden');
-            modalAddBtn.textContent = 'Update Order';
+            modalAddBtn.textContent = 'Update Cart';
         } else {
             modalQtyInput.value = '';
             modalRemoveBtn.classList.add('hidden');
-            modalAddBtn.textContent = 'Add to Order';
+            modalAddBtn.textContent = 'Add to Cart';
         }
 
-        updateModalSubtotalAndConversion();
+        updateModalConversionPreview();
         renderQuickPills();
 
         // Reveal sheet
@@ -359,10 +378,10 @@ document.addEventListener('DOMContentLoaded', () => {
             modalQtyUnitLabel.textContent = String(currentModalProduct?.unit ?? 'KG').toUpperCase();
         }
         renderQuickPills();
-        updateModalSubtotalAndConversion();
+        updateModalConversionPreview();
     };
 
-    const updateModalSubtotalAndConversion = () => {
+    const updateModalConversionPreview = () => {
         if (!currentModalProduct) {
             return;
         }
@@ -378,9 +397,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             modalConversionHelper.classList.add('hidden');
         }
-
-        const subtotal = finalQty * Number(currentModalProduct.price ?? 0);
-        modalSubtotal.textContent = formatCurrency(subtotal);
     };
 
     const renderQuickPills = () => {
@@ -410,7 +426,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Modal Action Listeners
     qtyModalBackdrop.addEventListener('click', closeQtyModal);
     qtyModalClose.addEventListener('click', closeQtyModal);
-    modalQtyInput.addEventListener('input', updateModalSubtotalAndConversion);
+    modalQtyInput.addEventListener('input', updateModalConversionPreview);
 
     modalUnitBtnStandard.addEventListener('click', () => setModalUnitMode('standard'));
     modalUnitBtnBox.addEventListener('click', () => setModalUnitMode('box'));
@@ -418,13 +434,13 @@ document.addEventListener('DOMContentLoaded', () => {
     modalStepperMinus.addEventListener('click', () => {
         const currentVal = Number.parseFloat(modalQtyInput.value) || 0;
         modalQtyInput.value = Math.max(0, currentVal - 1).toString();
-        updateModalSubtotalAndConversion();
+        updateModalConversionPreview();
     });
 
     modalStepperPlus.addEventListener('click', () => {
         const currentVal = Number.parseFloat(modalQtyInput.value) || 0;
         modalQtyInput.value = (currentVal + 1).toString();
-        updateModalSubtotalAndConversion();
+        updateModalConversionPreview();
     });
 
     modalRemoveBtn.addEventListener('click', () => {
@@ -502,16 +518,11 @@ document.addEventListener('DOMContentLoaded', () => {
         
         reviewItemsCount.textContent = `${selected.length} ${selected.length === 1 ? 'item' : 'items'} selected`;
 
-        let totalValue = 0;
-
         selected
             .sort((a, b) => a.name.localeCompare(b.name))
             .forEach((p) => {
                 const masterInput = masterInputsById.get(String(p.id));
                 const qty = masterInput ? Number.parseFloat(masterInput.value) : 0;
-                const price = Number(p.price ?? 0);
-                const subtotal = qty * price;
-                totalValue += subtotal;
 
                 const row = document.createElement('article');
                 row.className = 'py-3.5 flex items-center justify-between gap-4 border-b border-slate-100 last:border-0';
@@ -563,19 +574,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 });
             });
-
-        if (reviewTotalValueNode) {
-            reviewTotalValueNode.textContent = formatCurrency(totalValue);
-        }
-        const reviewTotalNodes = document.querySelectorAll('#review-total-value');
-        reviewTotalNodes.forEach(node => {
-            node.textContent = formatCurrency(totalValue);
-        });
     };
 
     cartReviewBackdrop.addEventListener('click', closeCartReview);
     cartReviewClose.addEventListener('click', closeCartReview);
     reviewAddMoreBtn.addEventListener('click', closeCartReview);
+    pageOpenCartButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            if (getSelectedProducts().length === 0) {
+                return;
+            }
+
+            openCartReview();
+        });
+    });
 
     reviewSubmitBtn.addEventListener('click', () => {
         if (!formNode) {

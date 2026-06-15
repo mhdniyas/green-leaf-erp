@@ -100,8 +100,8 @@
                     <p class="mt-2 text-sm text-slate-500">Once products are purchased for the selected date, proposals will appear here automatically.</p>
                 </div>
             @else
-                <div class="overflow-x-auto">
-                    <table class="min-w-full text-left">
+                <div class="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+                    <table class="min-w-[980px] text-left">
                         <thead class="border-b border-slate-200 bg-slate-50 text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">
                             <tr>
                                 <th class="px-5 py-4">Product</th>

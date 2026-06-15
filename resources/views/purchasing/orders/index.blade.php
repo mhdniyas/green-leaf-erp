@@ -118,8 +118,8 @@
                     <p class="text-xs text-slate-500 mt-1">Try adjusting the filters or create a new purchase order.</p>
                 </div>
                 @else
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse min-w-[600px]">
+                <div class="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+                    <table class="min-w-[860px] text-left border-collapse">
                         <thead>
                             <tr class="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                 <th class="py-3 px-6">PO Number</th>
@@ -193,8 +193,8 @@
                     No orders currently awaiting approval. Great job!
                 </div>
                 @else
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse min-w-[600px]">
+                <div class="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+                    <table class="min-w-[860px] text-left border-collapse">
                         <thead>
                             <tr class="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                 <th class="py-3 px-6">PO Number</th>
@@ -267,8 +267,8 @@
                     No approval or rejection actions have been recorded yet.
                 </div>
                 @else
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse min-w-[600px]">
+                <div class="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+                    <table class="min-w-[760px] text-left border-collapse">
                         <thead>
                             <tr class="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                 <th class="py-3 px-6">Date</th>

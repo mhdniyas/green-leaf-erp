@@ -8,6 +8,7 @@ use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Web\Purchasing\ReviewDeliveryDiscrepancyRequest;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
@@ -27,6 +28,7 @@ use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -1533,14 +1535,14 @@ class RequisitionController extends Controller
     /**
      * Approve delivery discrepancies and finalize check-in.
      */
-    public function approveDeliveryDiscrepancy(Request $request, string $orderNumber): RedirectResponse
+    public function approveDeliveryDiscrepancy(ReviewDeliveryDiscrepancyRequest $request, string $orderNumber): RedirectResponse
     {
         $user = $request->user();
         $canApprove = $user->hasRole('purchase') || $user->can('purchasing.order.approve') || $user->hasRole('admin');
         abort_unless($canApprove, 403, 'Unauthorized to approve delivery discrepancies.');
 
         $order = ShopOrder::where('order_number', $orderNumber)
-            ->with(['items'])
+            ->with(['items', 'invoice'])
             ->firstOrFail();
 
         if ($order->is_delivered) {
@@ -1554,6 +1556,13 @@ class RequisitionController extends Controller
         }
 
         DB::transaction(function () use ($order, $request): void {
+            $this->applyApprovedDeliveryAdjustments(
+                $order,
+                $request->validated('approved_delivered_qty', []),
+                $request->validated('item_review_notes', [])
+            );
+
+            $order->refresh()->loadMissing(['items', 'invoice.items']);
             $totalDeliveredQuantity = 0.00;
             $totalApprovedQuantity = 0.00;
 
@@ -1595,6 +1604,19 @@ class RequisitionController extends Controller
             $order->refresh();
             $order->update([
                 'delivery_status' => $deliveryStatus,
+                'delivery_notes' => $this->appendReviewNote(
+                    $order->delivery_notes,
+                    'Discrepancy approved',
+                    $request->validated('review_note')
+                ),
+            ]);
+
+            $order->invoice?->update([
+                'delivery_note' => $this->appendReviewNote(
+                    $order->invoice->delivery_note,
+                    'Discrepancy approved',
+                    $request->validated('review_note')
+                ),
             ]);
 
             activity()
@@ -1603,8 +1625,175 @@ class RequisitionController extends Controller
                 ->log('delivery_discrepancy_approved');
         });
 
-        return redirect()->route('requisitions.show', $order->order_number)
+        return redirect()->route(
+            $this->deliveryReviewRedirectRoute($request),
+            $this->deliveryReviewRedirectParameter($request, $order)
+        )
             ->with('success', 'Delivery discrepancies approved and check-in finalized.');
+    }
+
+    public function rejectDeliveryDiscrepancy(ReviewDeliveryDiscrepancyRequest $request, string $orderNumber): RedirectResponse
+    {
+        $user = $request->user();
+        $canApprove = $user->hasRole('purchase') || $user->can('purchasing.order.approve') || $user->hasRole('admin');
+        abort_unless($canApprove, 403, 'Unauthorized to reject delivery discrepancies.');
+
+        $order = ShopOrder::where('order_number', $orderNumber)
+            ->with(['items', 'invoice.items'])
+            ->firstOrFail();
+
+        if ($order->is_delivered) {
+            return redirect()->route(
+                $this->deliveryReviewRedirectRoute($request),
+                $this->deliveryReviewRedirectParameter($request, $order)
+            )->with('error', 'This order has already been marked as delivered.');
+        }
+
+        if ($order->delivery_status !== 'pending_approval') {
+            return redirect()->route(
+                $this->deliveryReviewRedirectRoute($request),
+                $this->deliveryReviewRedirectParameter($request, $order)
+            )->with('error', 'This order is not pending discrepancy approval.');
+        }
+
+        DB::transaction(function () use ($order, $request): void {
+            foreach ($order->items as $item) {
+                $item->update([
+                    'delivered_qty' => 0,
+                    'shortage_qty' => 0,
+                    'shortage_value' => 0,
+                ]);
+            }
+
+            if ($order->invoice) {
+                foreach ($order->invoice->items as $invoiceItem) {
+                    $invoiceItem->update([
+                        'delivered_qty' => 0,
+                        'shortage_qty' => 0,
+                        'shortage_amount' => 0,
+                        'final_line_total' => (float) $invoiceItem->line_subtotal,
+                    ]);
+                }
+
+                $order->invoice->update([
+                    'delivery_status' => 'pending',
+                    'status' => 'generated',
+                    'delivery_note' => $this->appendReviewNote(
+                        $order->invoice->delivery_note,
+                        'Discrepancy rejected',
+                        $request->validated('review_note')
+                    ),
+                    'delivery_confirmed_by' => null,
+                    'delivery_confirmed_at' => null,
+                ]);
+
+                $invoice = $this->shopInvoiceService->recalculate($order->invoice->fresh('items'));
+
+                $order->update([
+                    'balance_amount' => $invoice->balance_amount,
+                ]);
+            }
+
+            $order->update([
+                'delivery_status' => 'in_transit',
+                'is_delivered' => false,
+                'delivered_at' => null,
+                'delivered_by' => null,
+                'delivery_notes' => $this->appendReviewNote(
+                    $order->delivery_notes,
+                    'Discrepancy rejected',
+                    $request->validated('review_note')
+                ),
+                'total_shortage_value' => 0,
+            ]);
+
+            activity()
+                ->performedOn($order)
+                ->causedBy($request->user())
+                ->log('delivery_discrepancy_rejected');
+        });
+
+        return redirect()->route(
+            $this->deliveryReviewRedirectRoute($request),
+            $this->deliveryReviewRedirectParameter($request, $order)
+        )->with('success', 'Delivery discrepancy rejected. Shop owner can submit delivery check-in again.');
+    }
+
+    private function appendReviewNote(?string $existing, string $label, ?string $note): string
+    {
+        $message = trim($label.($note ? ': '.$note : ''));
+
+        return trim(implode("\n", array_filter([
+            $existing,
+            '['.now()->format('d M Y H:i').'] '.$message,
+        ])));
+    }
+
+    /**
+     * @param  array<int|string, mixed>  $approvedDeliveredQuantities
+     * @param  array<int|string, mixed>  $itemReviewNotes
+     */
+    private function applyApprovedDeliveryAdjustments(
+        ShopOrder $order,
+        array $approvedDeliveredQuantities,
+        array $itemReviewNotes
+    ): void {
+        $order->loadMissing(['items', 'invoice.items']);
+        $invoiceItemsByOrderItemId = collect($order->invoice?->items ?? [])
+            ->keyBy(fn ($invoiceItem) => (int) $invoiceItem->shop_order_item_id);
+
+        foreach ($order->items as $item) {
+            $approvedQty = round((float) $item->approved_qty, 2);
+            $deliveredQty = round((float) Arr::get($approvedDeliveredQuantities, $item->id, $item->delivered_qty ?? 0), 2);
+
+            if ($deliveredQty < 0 || $deliveredQty > $approvedQty) {
+                $productName = $item->product?->name ?? 'this item';
+
+                throw ValidationException::withMessages([
+                    "approved_delivered_qty.{$item->id}" => "Approved delivered quantity for {$productName} must be between 0 and {$approvedQty}.",
+                ]);
+            }
+
+            $shortageQty = round(max(0, $approvedQty - $deliveredQty), 2);
+            $shortageValue = round($shortageQty * (float) $item->unit_cost, 2);
+            $itemReviewNote = trim((string) Arr::get($itemReviewNotes, $item->id, ''));
+
+            $item->update([
+                'delivered_qty' => $deliveredQty,
+                'shortage_qty' => $shortageQty,
+                'shortage_value' => $shortageValue,
+                'notes' => $itemReviewNote !== ''
+                    ? $this->appendReviewNote($item->notes, 'Delivery review', $itemReviewNote)
+                    : $item->notes,
+            ]);
+
+            $invoiceItem = $invoiceItemsByOrderItemId->get((int) $item->id);
+
+            if (! $invoiceItem) {
+                continue;
+            }
+
+            $shortageAmount = round($shortageQty * (float) $invoiceItem->unit_price, 2);
+
+            $invoiceItem->update([
+                'delivered_qty' => $deliveredQty,
+                'shortage_qty' => $shortageQty,
+                'shortage_amount' => $shortageAmount,
+                'final_line_total' => round((float) $invoiceItem->line_subtotal - $shortageAmount, 2),
+            ]);
+        }
+    }
+
+    private function deliveryReviewRedirectRoute(Request $request): string
+    {
+        return $request->filled('invoice_number')
+            ? 'purchasing.shop-invoices.show'
+            : 'requisitions.show';
+    }
+
+    private function deliveryReviewRedirectParameter(Request $request, ShopOrder $order): string
+    {
+        return $request->input('invoice_number', $order->order_number);
     }
 
     /**

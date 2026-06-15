@@ -20,6 +20,7 @@ class DatabaseSeeder extends Seeder
             PriceBoardSeeder::class,
             ChartOfAccountsSeeder::class,
             WarehouseWorkflowSeeder::class,
+            PurchaserDemoSeeder::class,
         ]);
     }
 }

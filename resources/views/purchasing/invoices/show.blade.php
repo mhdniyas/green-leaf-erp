@@ -52,8 +52,8 @@
                     </a>
                 </div>
 
-                <div class="overflow-x-auto">
-                    <table class="w-full text-sm">
+                <div class="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+                    <table class="min-w-[760px] text-sm">
                         <thead>
                             <tr class="border-b border-gray-100 text-gray-500 bg-gray-50/20 text-xs uppercase tracking-wide">
                                 <th class="px-6 py-3 text-left font-semibold">Product</th>

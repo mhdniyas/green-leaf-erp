@@ -4,23 +4,1169 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Purchasing;
 
+use App\Enums\Purchasing\InvoiceStatus;
 use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Web\Purchasing\StorePurchaserCartItemRequest;
+use App\Http\Requests\Web\Purchasing\StorePurchaserCorrectionRequest;
+use App\Http\Requests\Web\Purchasing\SubmitPurchaserCartRequest;
 use App\Models\GoodsReceived;
-use App\Models\GoodsReceivedItem;
 use App\Models\Product;
+use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
+use App\Models\PurchaserCart;
+use App\Models\PurchaserCartItem;
+use App\Models\PurchaserCorrectionRequest;
 use App\Models\ShopOrderItem;
 use App\Models\Supplier;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class PurchaserDashboardController extends Controller
 {
+    private const array QUICK_FILTERS = [
+        'Frequent',
+        'All',
+        'Supply',
+        'VEG',
+        'Leaf',
+        'English',
+        'Kolkata',
+        'Banana',
+        'Onion',
+        'C',
+        'Frut',
+        'Stationory',
+    ];
+
+    public function index(): RedirectResponse
+    {
+        return redirect()->route('purchaser.daily');
+    }
+
+    public function daily(Request $request): View|RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $date = $this->resolveBusinessDate($request);
+
+        if ($date instanceof RedirectResponse) {
+            return $date;
+        }
+
+        $selectedChip = $this->resolveQuickFilter($request->string('chip')->toString());
+        $search = trim($request->string('search')->toString());
+        $user = $request->user();
+        $frequentProductIds = $this->frequentProductIds((int) $user->id);
+
+        $dailySummary = $this->buildDailySummary($date, $frequentProductIds);
+        $filteredDailySummary = $this->filterProductsForChip($dailySummary, $selectedChip, $search, $frequentProductIds);
+
+        $draftCarts = $this->draftCartsForDate((int) $user->id, $date);
+
+        $productCatalog = Product::query()
+            ->with('category')
+            ->active()
+            ->orderBy('name')
+            ->get();
+
+        return view('purchasing.purchaser.daily', [
+            'date' => $date->format('Y-m-d'),
+            'quickFilters' => self::QUICK_FILTERS,
+            'selectedChip' => $selectedChip,
+            'search' => $search,
+            'dailySummary' => $filteredDailySummary,
+            'draftCarts' => $draftCarts,
+            'buyOtherProducts' => $this->filterProductsForChip($productCatalog, $selectedChip, $search, $frequentProductIds),
+            'dailySummaryShareUrl' => 'https://wa.me/?text='.rawurlencode($this->buildDailySummaryShareText($dailySummary, $date)),
+            'dailyFulfillment' => [
+                'products' => $dailySummary->count(),
+                'approved_qty' => (float) $dailySummary->sum('total_approved_qty'),
+                'bought_qty' => (float) $dailySummary->sum('bought_qty'),
+                'remaining_qty' => (float) $dailySummary->sum('remaining_qty'),
+                'draft_carts' => $draftCarts->count(),
+            ],
+        ]);
+    }
+
+    public function cart(Request $request): RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $date = $this->resolveBusinessDate($request);
+
+        if ($date instanceof RedirectResponse) {
+            return $date;
+        }
+
+        return redirect()->route('purchaser.vendors', ['date' => $date->format('Y-m-d')]);
+    }
+
+    public function bill(Request $request, PurchaserCart $cart): View|RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $cart = $this->ownedCart($request, $cart, ['draft']);
+
+        if ($cart->items->isEmpty()) {
+            return redirect()
+                ->route('purchaser.vendors', ['date' => $cart->business_date->format('Y-m-d')])
+                ->withErrors(['The selected cart is empty.']);
+        }
+
+        return view('purchasing.purchaser.bill', [
+            'date' => $cart->business_date->format('Y-m-d'),
+            'cart' => $cart,
+            'suppliers' => Supplier::query()->orderBy('name')->get(),
+            'subtotal' => (float) $cart->items->sum('line_total'),
+        ]);
+    }
+
+    public function history(Request $request): View|RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $date = $this->resolveBusinessDate($request);
+
+        if ($date instanceof RedirectResponse) {
+            return $date;
+        }
+
+        $historyCarts = PurchaserCart::query()
+            ->where('user_id', $request->user()->id)
+            ->whereDate('business_date', $date)
+            ->with([
+                'supplier',
+                'items.product.category',
+                'purchaseOrder',
+                'goodsReceived',
+                'purchaseInvoice',
+            ])
+            ->orderByRaw("CASE status WHEN 'draft' THEN 0 ELSE 1 END")
+            ->orderByDesc('submitted_at')
+            ->orderByDesc('updated_at')
+            ->get();
+
+        $groupedCarts = collect([
+            'draft' => $historyCarts->where('workflow_status', 'draft')->values(),
+            'whatsapp_sent' => $historyCarts->where('workflow_status', 'whatsapp_sent')->values(),
+            'submitted' => $historyCarts->where('workflow_status', 'submitted')->values(),
+            'approved' => $historyCarts->where('workflow_status', 'approved')->values(),
+            'rejected' => $historyCarts->where('workflow_status', 'rejected')->values(),
+        ]);
+
+        return view('purchasing.purchaser.history', [
+            'date' => $date->format('Y-m-d'),
+            'groupedCarts' => $groupedCarts,
+        ]);
+    }
+
+    public function vendors(Request $request): View|RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $date = $this->resolveBusinessDate($request);
+
+        if ($date instanceof RedirectResponse) {
+            return $date;
+        }
+
+        $user = $request->user();
+
+        $carts = PurchaserCart::query()
+            ->where('user_id', $user->id)
+            ->whereDate('business_date', $date)
+            ->with(['supplier', 'items.product.category', 'goodsReceived', 'purchaseOrder', 'purchaseInvoice'])
+            ->orderByDesc('updated_at')
+            ->get();
+
+        $orders = $carts->whereNull('goods_received_at')->values();
+        $delivered = $carts->whereNotNull('goods_received_at')->values();
+
+        $productCatalog = Product::query()
+            ->with('category')
+            ->active()
+            ->orderBy('name')
+            ->get();
+
+        $suppliers = Supplier::query()->orderBy('name')->get();
+
+        return view('purchasing.purchaser.vendors', [
+            'date' => $date->format('Y-m-d'),
+            'orders' => $orders,
+            'delivered' => $delivered,
+            'productCatalog' => $productCatalog,
+            'suppliers' => $suppliers,
+        ]);
+    }
+
+    public function bulkStoreCart(Request $request): RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $validated = $request->validate([
+            'business_date' => ['required', 'date'],
+            'product_ids' => ['required', 'array'],
+            'product_ids.*' => ['required', 'exists:products,id'],
+            'supplier_id' => ['nullable', 'exists:suppliers,id'],
+        ]);
+
+        $date = Carbon::parse($validated['business_date']);
+        $user = $request->user();
+        $supplierId = $validated['supplier_id'] ? (int) $validated['supplier_id'] : null;
+
+        $cart = PurchaserCart::query()
+            ->where('user_id', $user->id)
+            ->whereDate('business_date', $date)
+            ->when($supplierId, fn($q) => $q->where('supplier_id', $supplierId), fn($q) => $q->whereNull('supplier_id'))
+            ->where('status', 'draft')
+            ->first();
+
+        if (! $cart) {
+            $cart = PurchaserCart::query()->create([
+                'user_id' => $user->id,
+                'supplier_id' => $supplierId,
+                'business_date' => $date,
+                'cart_number' => PurchaserCart::generateCartNumber($date),
+                'status' => 'draft',
+            ]);
+        }
+
+        $addedCount = 0;
+        foreach ($validated['product_ids'] as $productId) {
+            $productId = (int) $productId;
+            $product = Product::query()->findOrFail($productId);
+
+            $remainingApproved = $this->remainingApprovedQuantityForProduct($date, $productId, (int) $cart->id);
+            $step = $product->unit === 'kg' ? 0.5 : 1.0;
+            $quantity = max($remainingApproved, $step);
+
+            $existingItem = $cart->items()->where('product_id', $productId)->first();
+            if (! $existingItem) {
+                $cart->items()->create([
+                    'product_id' => $productId,
+                    'quantity' => $quantity,
+                    'unit_price' => 0.0,
+                    'line_total' => 0.0,
+                    'is_extra_purchase' => $quantity > $remainingApproved,
+                ]);
+                $addedCount++;
+            }
+        }
+
+        return redirect()
+            ->route('purchaser.vendors', ['date' => $date->format('Y-m-d')])
+            ->with('success', "Added {$addedCount} products to vendor cart.");
+    }
+
+    public function storeCart(Request $request): RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $validated = $request->validate([
+            'business_date' => ['required', 'date', Rule::date()->todayOrBefore()],
+        ]);
+
+        $date = Carbon::parse($validated['business_date']);
+        $cart = PurchaserCart::query()->create([
+            'user_id' => $request->user()->id,
+            'business_date' => $date,
+            'cart_number' => PurchaserCart::generateCartNumber($date),
+            'status' => 'draft',
+        ]);
+
+        return redirect()
+            ->route('purchaser.vendors', ['date' => $date->format('Y-m-d')])
+            ->with('success', 'Draft vendor cart created.');
+    }
+
+    public function storeCartItem(StorePurchaserCartItemRequest $request): RedirectResponse
+    {
+        $date = Carbon::parse($request->validated('business_date'));
+        $user = $request->user();
+        $cartId = $request->integer('cart_id');
+
+        $cart = $cartId > 0
+            ? PurchaserCart::query()
+                ->whereKey($cartId)
+                ->where('user_id', $user->id)
+                ->where('status', 'draft')
+                ->with(['items.product', 'goodsReceived'])
+                ->firstOrFail()
+            : (PurchaserCart::query()
+                ->where('user_id', $user->id)
+                ->whereDate('business_date', $date)
+                ->whereNull('supplier_id')
+                ->where('status', 'draft')
+                ->first()
+              ?? PurchaserCart::query()->create([
+                'user_id' => $user->id,
+                'business_date' => $date,
+                'cart_number' => PurchaserCart::generateCartNumber($date),
+                'status' => 'draft',
+              ]));
+
+        $product = Product::query()->with('category')->findOrFail($request->integer('product_id'));
+        $quantity = (float) $request->validated('quantity');
+        $unitPrice = (float) $request->input('unit_price', 0);
+        $existingItem = $cart->items()->where('product_id', $product->id)->first();
+        $newQuantity = $existingItem instanceof PurchaserCartItem
+            ? (float) $existingItem->quantity + $quantity
+            : $quantity;
+
+        $remainingApproved = $this->remainingApprovedQuantityForProduct($date, (int) $product->id, (int) $cart->id);
+        $isExtraPurchase = $newQuantity > $remainingApproved;
+
+        if ($existingItem instanceof PurchaserCartItem) {
+            $existingItem->update([
+                'quantity' => $newQuantity,
+                'unit_price' => $unitPrice,
+                'line_total' => round($newQuantity * $unitPrice, 2),
+                'is_extra_purchase' => $isExtraPurchase,
+                'notes' => $request->validated('notes'),
+            ]);
+        } else {
+            $cart->items()->create([
+                'product_id' => $product->id,
+                'quantity' => $quantity,
+                'unit_price' => $unitPrice,
+                'line_total' => round($quantity * $unitPrice, 2),
+                'is_extra_purchase' => $isExtraPurchase,
+                'notes' => $request->validated('notes'),
+            ]);
+        }
+
+        return $this->redirectAfterMutation(
+            $request->string('return_to')->toString(),
+            $date,
+            (int) $cart->id,
+            $isExtraPurchase
+                ? "{$product->name} added to cart. Over-demand quantity will be flagged as extra purchase."
+                : "{$product->name} added to cart."
+        );
+    }
+
+    public function updateCartItem(Request $request, PurchaserCartItem $item): RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $cart = $item->cart()
+            ->where('user_id', $request->user()->id)
+            ->where('status', 'draft')
+            ->with('items')
+            ->firstOrFail();
+
+        $validated = $request->validate([
+            'quantity' => ['required', 'numeric', 'min:0.01'],
+            'unit_price' => ['nullable', 'numeric', 'min:0'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $quantity = (float) $validated['quantity'];
+        $unitPrice = (float) ($validated['unit_price'] ?? 0);
+        $remainingApproved = $this->remainingApprovedQuantityForProduct($cart->business_date, (int) $item->product_id, (int) $cart->id);
+
+        $item->update([
+            'quantity' => $quantity,
+            'unit_price' => $unitPrice,
+            'line_total' => round($quantity * $unitPrice, 2),
+            'is_extra_purchase' => $quantity > $remainingApproved,
+            'notes' => $validated['notes'] ?? null,
+        ]);
+
+        // ALSO UPDATE DAILY ORDER (ShopOrderItem)
+        $shopOrderItems = ShopOrderItem::query()
+            ->whereHas('order', function ($query) use ($cart): void {
+                $query->whereDate('business_date', $cart->business_date);
+            })
+            ->where('product_id', $item->product_id)
+            ->get();
+
+        if ($shopOrderItems->isNotEmpty()) {
+            if ($shopOrderItems->count() === 1) {
+                $shopOrderItems->first()->update(['approved_qty' => $quantity]);
+            } else {
+                $totalCurrentApproved = $shopOrderItems->sum('approved_qty');
+                if ($totalCurrentApproved > 0) {
+                    $ratio = $quantity / $totalCurrentApproved;
+                    foreach ($shopOrderItems as $shopOrderItem) {
+                        $shopOrderItem->update([
+                            'approved_qty' => round($shopOrderItem->approved_qty * $ratio, 2)
+                        ]);
+                    }
+                } else {
+                    $shopOrderItems->first()->update(['approved_qty' => $quantity]);
+                }
+            }
+        }
+
+        return $this->redirectAfterMutation(
+            $request->string('return_to')->toString(),
+            $cart->business_date,
+            (int) $cart->id,
+            'Vendor cart item updated.'
+        );
+    }
+
+    public function destroyCartItem(Request $request, PurchaserCartItem $item): RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $cart = $item->cart()->where('user_id', $request->user()->id)->where('status', 'draft')->firstOrFail();
+        $item->delete();
+
+        return $this->redirectAfterMutation(
+            $request->string('return_to')->toString(),
+            $cart->business_date,
+            (int) $cart->id,
+            'Vendor cart item removed.'
+        );
+    }
+
+    public function markCartSent(Request $request, PurchaserCart $cart): RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $cart = $this->ownedCart($request, $cart, ['draft', 'submitted']);
+
+        $returnTo = $request->input('return_to', 'cart');
+
+        if ($cart->items->isEmpty()) {
+            return $this->redirectAfterMutation($returnTo, $cart->business_date, $cart->id, '')
+                ->withErrors(['The selected cart is empty.']);
+        }
+
+        $request->validate([
+            'supplier_id' => ['nullable', 'exists:suppliers,id'],
+            'vendor_name' => ['nullable', 'string', 'max:255', 'required_without:supplier_id'],
+            'vendor_location' => ['nullable', 'string', 'max:255'],
+            'vendor_mobile_number' => ['nullable', 'string', 'max:50', 'required_without:supplier_id'],
+            'vendor_type' => ['nullable', 'string', 'max:255'],
+            'payment_terms' => ['nullable', 'string', 'max:100'],
+            'preferred_payment_method' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $supplier = $this->resolveSubmissionSupplier($request);
+        $cart->update([
+            'supplier_id' => $supplier->id,
+            'whatsapp_sent_at' => now(),
+        ]);
+
+        if ($cart->status === 'submitted') {
+            if ($cart->purchaseOrder) {
+                $cart->purchaseOrder->update(['supplier_id' => $supplier->id]);
+            }
+            if ($cart->purchaseInvoice) {
+                $cart->purchaseInvoice->update(['supplier_id' => $supplier->id]);
+            }
+        }
+
+        $message = $this->buildCartShareText($cart->fresh(['items.product', 'supplier']), false);
+
+        $customMobile = $request->input('vendor_mobile_number');
+        if ($customMobile) {
+            $digits = preg_replace('/\D+/', '', (string) $customMobile);
+            $whatsAppUrl = $digits ? 'https://wa.me/'.$digits.'?text='.rawurlencode($message) : null;
+        } else {
+            $whatsAppUrl = $this->buildSupplierWhatsAppUrl($supplier, $message);
+        }
+
+        if ($whatsAppUrl === null) {
+            return $this->redirectAfterMutation($returnTo, $cart->business_date, $cart->id, '')
+                ->withErrors(['Selected vendor does not have a mobile number for WhatsApp.']);
+        }
+
+        return redirect()->away($whatsAppUrl);
+    }
+
+    public function updateCartSupplier(Request $request, PurchaserCart $cart): RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $cart = $this->ownedCart($request, $cart, ['draft', 'submitted']);
+
+        $returnTo = $request->input('return_to', 'vendors');
+
+        $request->validate([
+            'supplier_id' => ['nullable', 'exists:suppliers,id'],
+            'vendor_name' => ['nullable', 'string', 'max:255', 'required_without:supplier_id'],
+            'vendor_location' => ['nullable', 'string', 'max:255'],
+            'vendor_mobile_number' => ['nullable', 'string', 'max:50', 'required_without:supplier_id'],
+        ]);
+
+        $supplier = $this->resolveSubmissionSupplier($request);
+
+        $cart->update([
+            'supplier_id' => $supplier->id,
+        ]);
+
+        if ($cart->status === 'submitted') {
+            if ($cart->purchaseOrder) {
+                $cart->purchaseOrder->update(['supplier_id' => $supplier->id]);
+            }
+            if ($cart->purchaseInvoice) {
+                $cart->purchaseInvoice->update(['supplier_id' => $supplier->id]);
+            }
+        }
+
+        return $this->redirectAfterMutation($returnTo, $cart->business_date, $cart->id, 'Vendor updated successfully.');
+    }
+
+    public function submitCart(SubmitPurchaserCartRequest $request): RedirectResponse
+    {
+        $date = Carbon::parse($request->validated('business_date'));
+        $user = $request->user();
+
+        /** @var PurchaserCart $cart */
+        $cart = PurchaserCart::query()
+            ->whereKey($request->integer('cart_id'))
+            ->where('user_id', $user->id)
+            ->where('status', 'draft')
+            ->with(['items.product', 'supplier'])
+            ->firstOrFail();
+
+        if ($cart->items->isEmpty()) {
+            return redirect()
+                ->route('purchaser.vendors', ['date' => $date->format('Y-m-d')])
+                ->withErrors(['The selected cart is empty.']);
+        }
+
+        $supplier = $this->resolveSubmissionSupplier($request);
+        $paymentMethod = $request->validated('payment_method');
+
+        if (strcasecmp($paymentMethod, 'Credit') === 0 && ! $supplier->credit_approved) {
+            return redirect()
+                ->route('purchaser.bill', ['cart' => $cart, 'date' => $date->format('Y-m-d')])
+                ->withErrors(['This vendor is not approved for credit. Change payment method or contact your purchase manager.'])
+                ->withInput();
+        }
+
+        $cartItemsData = collect($request->input('items', []));
+        foreach ($cart->items as $cartItem) {
+            $itemInput = $cartItemsData->get((string) $cartItem->id, []);
+            $unitPrice = (float) ($itemInput['unit_price'] ?? $cartItem->unit_price ?? 0);
+
+            $cartItem->update([
+                'unit_price' => $unitPrice,
+                'line_total' => round((float) $cartItem->quantity * $unitPrice, 2),
+            ]);
+        }
+
+        $cart->refresh()->load('items.product');
+
+        DB::transaction(function () use ($request, $cart, $user, $date, $supplier, $paymentMethod): void {
+            $subtotalAmount = 0.0;
+            $discountAmount = (float) $request->input('discount_amount', 0);
+            $paidAmountInput = (float) $request->input('paid_amount', 0);
+            $regularLines = [];
+            $addOnLines = [];
+
+            foreach ($cart->items as $cartItem) {
+                $unitPrice = (float) $cartItem->unit_price;
+                $quantity = (float) $cartItem->quantity;
+                $subtotalAmount += round($quantity * $unitPrice, 2);
+
+                $remainingApproved = $this->remainingApprovedQuantityForProduct($date, (int) $cartItem->product_id, (int) $cart->id);
+                $regularQuantity = min($quantity, $remainingApproved);
+                $addOnQuantity = max(0, $quantity - $regularQuantity);
+
+                if ($regularQuantity > 0) {
+                    $regularLines[] = [
+                        'cart_item' => $cartItem,
+                        'quantity' => $regularQuantity,
+                        'unit_price' => $unitPrice,
+                    ];
+                }
+
+                if ($addOnQuantity > 0) {
+                    $addOnLines[] = [
+                        'cart_item' => $cartItem,
+                        'quantity' => $addOnQuantity,
+                        'unit_price' => $unitPrice,
+                    ];
+                }
+            }
+
+            $regularDocuments = $regularLines === []
+                ? null
+                : $this->createPurchaseDocumentsFromLines(
+                    supplier: $supplier,
+                    date: $date,
+                    userId: (int) $user->id,
+                    lines: $regularLines,
+                    isExtra: false,
+                    notes: $request->string('notes')->toString() ?: 'Generated from purchaser vendor cart.'
+                );
+
+            $addOnDocuments = $addOnLines === []
+                ? null
+                : $this->createPurchaseDocumentsFromLines(
+                    supplier: $supplier,
+                    date: $date,
+                    userId: (int) $user->id,
+                    lines: $addOnLines,
+                    isExtra: true,
+                    notes: trim(($request->string('notes')->toString() ?: '')."\nAdd-on quantity from purchaser vendor cart.")
+                );
+
+            $primaryDocuments = $regularDocuments ?? $addOnDocuments;
+            $invoiceAmount = max(0, round($subtotalAmount - $discountAmount, 2));
+            $paidAmount = min($invoiceAmount, round($paidAmountInput, 2));
+            $paymentStatus = $this->resolvePaymentStatus($paymentMethod, $invoiceAmount, $paidAmount);
+
+            $invoice = PurchaseInvoice::query()->create([
+                'goods_received_id' => $primaryDocuments['grn']->id,
+                'supplier_id' => $supplier->id,
+                'purchaser_cart_id' => $cart->id,
+                'invoice_number' => $request->validated('bill_number') ?: 'PENDING-BILL-'.$cart->cart_number,
+                'amount' => $invoiceAmount,
+                'discount_amount' => round($discountAmount, 2),
+                'status' => InvoiceStatus::Pending,
+                'payment_method' => $paymentMethod,
+                'payment_status' => $paymentStatus,
+                'paid_amount' => $paidAmount,
+                'payment_note' => $request->validated('payment_note'),
+                'payment_details' => $request->validated('payment_details'),
+                'purchaser_submitted_by' => $user->id,
+                'purchaser_submitted_at' => now(),
+                'notes' => $request->validated('notes'),
+            ]);
+
+            $paymentMadeAt = $paidAmount > 0 ? now() : null;
+
+            $cart->update([
+                'supplier_id' => $supplier->id,
+                'bill_number' => $request->validated('bill_number'),
+                'discount_amount' => round($discountAmount, 2),
+                'payment_method' => $paymentMethod,
+                'payment_status' => $paymentStatus,
+                'paid_amount' => $paidAmount,
+                'payment_note' => $request->validated('payment_note'),
+                'payment_details' => $request->validated('payment_details'),
+                'notes' => $request->validated('notes'),
+                'status' => 'submitted',
+                'purchase_order_id' => $primaryDocuments['purchase_order']->id,
+                'goods_received_id' => $primaryDocuments['grn']->id,
+                'purchase_invoice_id' => $invoice->id,
+                'submitted_at' => now(),
+                'payment_made_at' => $paymentMadeAt,
+            ]);
+        });
+
+        return redirect()
+            ->route('purchaser.history', ['date' => $date->format('Y-m-d')])
+            ->with('success', 'Cart submitted successfully.');
+    }
+
+    public function updateOperationalStatus(Request $request, PurchaserCart $cart): RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $cart = $this->ownedCart($request, $cart, ['submitted']);
+
+        $validated = $request->validate([
+            'flag' => ['required', 'string', 'in:goods_received,bill_received,payment_made'],
+        ]);
+
+        $column = match ($validated['flag']) {
+            'goods_received' => 'goods_received_at',
+            'bill_received' => 'bill_received_at',
+            'payment_made' => 'payment_made_at',
+        };
+
+        $cart->update([
+            $column => $cart->{$column} ? null : now(),
+        ]);
+
+        return redirect()
+            ->route('purchaser.history', ['date' => $cart->business_date->format('Y-m-d')])
+            ->with('success', 'Purchase status updated.');
+    }
+
+    public function storeCorrectionRequest(StorePurchaserCorrectionRequest $request): RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $shopOrderItem = ShopOrderItem::query()
+            ->with('order')
+            ->findOrFail($request->integer('shop_order_item_id'));
+
+        PurchaserCorrectionRequest::query()->create([
+            'business_date' => $request->validated('business_date'),
+            'shop_order_item_id' => $shopOrderItem->id,
+            'current_approved_qty' => (float) $shopOrderItem->approved_qty,
+            'proposed_corrected_qty' => (float) $request->validated('proposed_corrected_qty'),
+            'purchaser_note' => $request->validated('purchaser_note'),
+            'requester_user_id' => $request->user()->id,
+            'status' => 'pending',
+        ]);
+
+        return redirect()
+            ->route('purchaser.daily', ['date' => Carbon::parse($request->validated('business_date'))->format('Y-m-d')])
+            ->with('success', 'Correction request sent to purchase manager.');
+    }
+
+    public function approveCorrectionRequest(Request $request, PurchaserCorrectionRequest $correctionRequest): RedirectResponse
+    {
+        $this->ensurePurchaseManager($request);
+
+        $validated = $request->validate([
+            'review_note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        DB::transaction(function () use ($request, $correctionRequest, $validated): void {
+            $shopOrderItem = $correctionRequest->shopOrderItem()->lockForUpdate()->firstOrFail();
+
+            $shopOrderItem->update([
+                'approved_qty' => $correctionRequest->proposed_corrected_qty,
+                'notes' => trim(implode("\n", array_filter([
+                    $shopOrderItem->notes,
+                    'Purchaser correction approved: '.($validated['review_note'] ?? 'No note'),
+                ]))),
+            ]);
+
+            $correctionRequest->update([
+                'status' => 'approved',
+                'review_note' => $validated['review_note'] ?? null,
+                'reviewer_user_id' => $request->user()->id,
+                'reviewed_at' => now(),
+            ]);
+        });
+
+        return redirect()->back()->with('success', 'Correction request approved and approved qty updated.');
+    }
+
+    public function rejectCorrectionRequest(Request $request, PurchaserCorrectionRequest $correctionRequest): RedirectResponse
+    {
+        $this->ensurePurchaseManager($request);
+
+        $validated = $request->validate([
+            'review_note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $correctionRequest->update([
+            'status' => 'rejected',
+            'review_note' => $validated['review_note'] ?? null,
+            'reviewer_user_id' => $request->user()->id,
+            'reviewed_at' => now(),
+        ]);
+
+        return redirect()->back()->with('success', 'Correction request rejected.');
+    }
+
+    private function draftCartsForDate(int $userId, Carbon $date): Collection
+    {
+        return PurchaserCart::query()
+            ->where('user_id', $userId)
+            ->whereDate('business_date', $date)
+            ->where('status', 'draft')
+            ->with(['supplier', 'items.product.category', 'goodsReceived'])
+            ->orderByDesc('updated_at')
+            ->get();
+    }
+
+    private function ownedCart(Request $request, PurchaserCart $cart, array $statuses): PurchaserCart
+    {
+        return PurchaserCart::query()
+            ->whereKey($cart->id)
+            ->where('user_id', $request->user()->id)
+            ->whereIn('status', $statuses)
+            ->with(['supplier', 'items.product.category', 'goodsReceived'])
+            ->firstOrFail();
+    }
+
+    private function redirectAfterMutation(string $returnTo, Carbon $date, int $cartId, string $message): RedirectResponse
+    {
+        return match ($returnTo) {
+            'bill' => redirect()->route('purchaser.bill', ['cart' => $cartId, 'date' => $date->format('Y-m-d')])->with('success', $message),
+            'cart' => redirect()->route('purchaser.vendors', ['date' => $date->format('Y-m-d')])->with('success', $message),
+            'vendors' => redirect()->route('purchaser.vendors', ['date' => $date->format('Y-m-d')])->with('success', $message),
+            default => redirect()->route('purchaser.daily', ['date' => $date->format('Y-m-d')])->with('success', $message),
+        };
+    }
+
+    private function buildDailySummary(Carbon $date, array $frequentProductIds): Collection
+    {
+        $approvedItems = ShopOrderItem::query()
+            ->whereHas('order', function ($query) use ($date): void {
+                $query->whereDate('business_date', $date)->where('state', 'approved');
+            })
+            ->with(['product.category', 'order.shop'])
+            ->get();
+
+        $draftQuantities = PurchaserCartItem::query()
+            ->selectRaw('product_id, SUM(quantity) as total_quantity')
+            ->whereHas('cart', function ($query) use ($date): void {
+                $query->whereDate('business_date', $date)->where('status', 'draft');
+            })
+            ->groupBy('product_id')
+            ->pluck('total_quantity', 'product_id');
+
+        $submittedQuantities = PurchaserCartItem::query()
+            ->selectRaw('product_id, SUM(quantity) as total_quantity')
+            ->whereHas('cart', function ($query) use ($date): void {
+                $query->whereDate('business_date', $date)->where('status', 'submitted');
+            })
+            ->groupBy('product_id')
+            ->pluck('total_quantity', 'product_id');
+
+        return $approvedItems
+            ->groupBy('product_id')
+            ->map(function (Collection $items, int|string $productId) use ($draftQuantities, $submittedQuantities, $frequentProductIds): array {
+                /** @var ShopOrderItem $firstItem */
+                $firstItem = $items->first();
+                $product = $firstItem->product;
+                $draftQty = (float) ($draftQuantities[$productId] ?? 0);
+                $boughtQty = (float) ($submittedQuantities[$productId] ?? 0);
+                $totalApprovedQty = (float) $items->sum('approved_qty');
+                $categoryName = (string) ($product->category?->name ?? '');
+
+                $quantityBuckets = $items
+                    ->groupBy(fn (ShopOrderItem $item): string => $this->normalizeBucketKey((float) $item->approved_qty))
+                    ->map(function (Collection $bucketItems, string $bucketKey) use ($firstItem): array {
+                        $bucketQuantity = (float) $bucketItems->first()->approved_qty;
+
+                        return [
+                            'quantity' => $bucketQuantity,
+                            'formatted' => $this->formatBucketLabel($bucketQuantity, $firstItem->unit),
+                            'count' => $bucketItems->count(),
+                        ];
+                    })
+                    ->sortBy('quantity')
+                    ->values()
+                    ->all();
+
+                return [
+                    'product_id' => (int) $productId,
+                    'product_name' => $product->name,
+                    'sku' => $product->sku,
+                    'unit' => $product->unit,
+                    'category_name' => $categoryName,
+                    'is_frequent' => in_array((int) $productId, $frequentProductIds, true),
+                    'total_approved_qty' => $totalApprovedQty,
+                    'bought_qty' => $boughtQty,
+                    'draft_qty' => $draftQty,
+                    'remaining_qty' => max(0, $totalApprovedQty - $boughtQty),
+                    'quantity_buckets' => $quantityBuckets,
+                    'shop_details' => $items->map(fn (ShopOrderItem $item): array => [
+                        'shop_order_item_id' => $item->id,
+                        'shop_name' => $item->order->shop->name,
+                        'approved_qty' => (float) $item->approved_qty,
+                        'unit' => $item->unit,
+                        'order_number' => $item->order->order_number,
+                        'notes' => $item->notes,
+                    ])->sortBy('shop_name')->values()->all(),
+                    'search_index' => strtolower(implode(' ', [
+                        $product->name,
+                        $product->sku,
+                        $categoryName,
+                    ])),
+                ];
+            })
+            ->sortBy('product_name')
+            ->values();
+    }
+
+    private function filterProductsForChip(Collection $items, string $selectedChip, string $search, array $frequentProductIds): Collection
+    {
+        return $items->filter(function ($item) use ($selectedChip, $search, $frequentProductIds): bool {
+            $categoryName = is_array($item)
+                ? (string) ($item['category_name'] ?? '')
+                : (string) ($item->category?->name ?? '');
+            $productId = is_array($item) ? (int) ($item['product_id'] ?? 0) : (int) $item->id;
+            $searchIndex = is_array($item)
+                ? (string) ($item['search_index'] ?? '')
+                : strtolower(implode(' ', [$item->name, $item->sku, $categoryName]));
+
+            $matchesChip = match ($selectedChip) {
+                'Frequent' => in_array($productId, $frequentProductIds, true),
+                'All' => true,
+                default => $categoryName === $selectedChip,
+            };
+
+            if (! $matchesChip) {
+                return false;
+            }
+
+            if ($search === '') {
+                return true;
+            }
+
+            return str_contains($searchIndex, strtolower($search));
+        })->values();
+    }
+
+    private function frequentProductIds(int $userId): array
+    {
+        $cartItems = PurchaserCartItem::query()
+            ->selectRaw('product_id, COUNT(*) as usage_count')
+            ->whereHas('cart', function ($query) use ($userId): void {
+                $query->where('user_id', $userId)
+                    ->whereDate('business_date', '>=', now()->subDays(14)->toDateString());
+            })
+            ->groupBy('product_id')
+            ->orderByDesc('usage_count')
+            ->limit(12)
+            ->pluck('product_id')
+            ->map(fn ($productId): int => (int) $productId)
+            ->all();
+
+        if ($cartItems !== []) {
+            return $cartItems;
+        }
+
+        return Product::query()
+            ->whereHas('category', function ($query): void {
+                $query->whereIn('name', ['Supply', 'VEG']);
+            })
+            ->orderBy('name')
+            ->limit(12)
+            ->pluck('id')
+            ->map(fn ($productId): int => (int) $productId)
+            ->all();
+    }
+
+    private function resolveSubmissionSupplier(Request $request): Supplier
+    {
+        $supplierId = $request->integer('supplier_id');
+
+        if ($supplierId > 0) {
+            return Supplier::query()->findOrFail($supplierId);
+        }
+
+        return Supplier::query()->create([
+            'name' => $request->string('vendor_name')->toString(),
+            'type' => $request->string('vendor_type')->toString() ?: 'Vendor',
+            'category' => 'market',
+            'is_default_purchase' => false,
+            'contact' => (string) $request->input('vendor_mobile_number', ''),
+            'location' => $request->input('vendor_location'),
+            'mobile_number' => $request->input('vendor_mobile_number'),
+            'payment_terms' => $request->input('payment_terms', 'Cash'),
+            'preferred_payment_method' => $request->input('preferred_payment_method', $request->string('payment_method')->toString() ?: 'Cash'),
+            'credit_approved' => false,
+            'credit_terms' => null,
+            'quality_score' => 100,
+        ]);
+    }
+
+    /**
+     * @param  array<int, array{cart_item: PurchaserCartItem, quantity: float, unit_price: float}>  $lines
+     * @return array{purchase_order: PurchaseOrder, grn: GoodsReceived}
+     */
+    private function createPurchaseDocumentsFromLines(Supplier $supplier, Carbon $date, int $userId, array $lines, bool $isExtra, string $notes): array
+    {
+        $purchaseOrder = PurchaseOrder::query()->create([
+            'supplier_id' => $supplier->id,
+            'po_number' => $this->generatePurchaseOrderNumber($date),
+            'status' => POStatus::Received,
+            'fulfillment_type' => 'warehouse',
+            'order_date' => $date,
+            'created_by' => $userId,
+            'notes' => $notes,
+        ]);
+
+        $grn = GoodsReceived::query()->create([
+            'purchase_order_id' => $purchaseOrder->id,
+            'grn_number' => $this->generateGrnNumber($date),
+            'status' => 'pending_approval',
+            'received_by' => $userId,
+            'received_at' => $date,
+            'notes' => $notes,
+            'is_extra' => $isExtra,
+        ]);
+
+        foreach ($lines as $line) {
+            $cartItem = $line['cart_item'];
+            $quantity = $line['quantity'];
+
+            $purchaseOrderItem = $purchaseOrder->items()->create([
+                'product_id' => $cartItem->product_id,
+                'purchase_unit' => $cartItem->product->unit,
+                'quantity' => $quantity,
+                'unit_price' => $line['unit_price'],
+                'price_basis' => $cartItem->product->unit === 'kg' ? 'per_kg' : 'per_unit',
+            ]);
+
+            $grn->items()->create([
+                'purchase_order_item_id' => $purchaseOrderItem->id,
+                'product_id' => $cartItem->product_id,
+                'received_qty' => $quantity,
+                'variance' => 0,
+            ]);
+        }
+
+        return [
+            'purchase_order' => $purchaseOrder,
+            'grn' => $grn,
+        ];
+    }
+
+    private function remainingApprovedQuantityForProduct(Carbon $date, int $productId, int $currentCartId): float
+    {
+        $approvedQuantity = (float) ShopOrderItem::query()
+            ->where('product_id', $productId)
+            ->whereHas('order', function ($query) use ($date): void {
+                $query->whereDate('business_date', $date)->where('state', 'approved');
+            })
+            ->sum('approved_qty');
+
+        $alreadySubmittedQuantity = (float) PurchaserCartItem::query()
+            ->where('product_id', $productId)
+            ->whereHas('cart', function ($query) use ($date, $currentCartId): void {
+                $query->whereDate('business_date', $date)
+                    ->where('status', 'submitted')
+                    ->whereKeyNot($currentCartId);
+            })
+            ->sum('quantity');
+
+        return max(0, $approvedQuantity - $alreadySubmittedQuantity);
+    }
+
+    private function resolveBusinessDate(Request $request): Carbon|RedirectResponse
+    {
+        $date = Carbon::parse($request->input('date', Carbon::today()->format('Y-m-d')));
+
+        if ($date->isFuture()) {
+            return redirect()
+                ->route('purchaser.daily', [
+                    'date' => Carbon::today()->format('Y-m-d'),
+                    'chip' => $request->input('chip'),
+                    'search' => $request->input('search'),
+                ])
+                ->with('error', 'Future purchase dates are not allowed. Showing today instead.');
+        }
+
+        return $date;
+    }
+
+    private function resolveQuickFilter(string $selectedChip): string
+    {
+        return in_array($selectedChip, self::QUICK_FILTERS, true) ? $selectedChip : 'Frequent';
+    }
+
+    private function buildDailySummaryShareText(Collection $dailySummary, Carbon $date): string
+    {
+        $lines = [
+            'Daily Purchase Summary',
+            $date->format('d M Y'),
+        ];
+
+        foreach ($dailySummary as $summary) {
+            $lines[] = $summary['product_name'];
+
+            foreach ($summary['quantity_buckets'] as $bucket) {
+                $lines[] = $bucket['formatted'].' x '.$bucket['count'];
+            }
+
+            $lines[] = 'Total '.$this->formatShareQuantity((float) $summary['total_approved_qty'], $summary['unit']);
+            $lines[] = '';
+        }
+
+        return trim(implode("\n", $lines));
+    }
+
+    private function buildCartShareText(PurchaserCart $cart, bool $includePrice): string
+    {
+        $lines = [
+            'Green Leaf ERP - Purchase Order',
+            'Date: '.$cart->business_date->format('d/m/Y').' | '.$cart->cart_number,
+            '---',
+        ];
+
+        foreach ($cart->items as $item) {
+            $line = str_pad($item->product->name, 14).' '.$this->formatShareQuantity((float) $item->quantity, $item->product->unit);
+
+            if ($includePrice) {
+                $line .= ' @ '.number_format((float) $item->unit_price, 2);
+            }
+
+            $lines[] = $line;
+        }
+
+        $lines[] = '---';
+        $lines[] = 'Please pack and confirm.';
+
+        return implode("\n", $lines);
+    }
+
+    private function buildSupplierWhatsAppUrl(Supplier $supplier, string $message): ?string
+    {
+        $digits = preg_replace('/\D+/', '', (string) $supplier->mobile_number);
+
+        if ($digits === null || $digits === '') {
+            return null;
+        }
+
+        return 'https://wa.me/'.$digits.'?text='.rawurlencode($message);
+    }
+
+    private function resolvePaymentStatus(string $paymentMethod, float $invoiceAmount, float $paidAmount): string
+    {
+        if (strcasecmp($paymentMethod, 'Credit') === 0) {
+            return 'credit_pending_approval';
+        }
+
+        if ($paidAmount <= 0) {
+            return 'unpaid';
+        }
+
+        if ($paidAmount < $invoiceAmount) {
+            return 'partial';
+        }
+
+        return 'paid';
+    }
+
+    private function generatePurchaseOrderNumber(Carbon $date): string
+    {
+        do {
+            $suffix = strtoupper(bin2hex(random_bytes(2)));
+            $number = 'PO-PURCH-'.$date->format('Ymd').'-'.$suffix;
+        } while (PurchaseOrder::query()->where('po_number', $number)->exists());
+
+        return $number;
+    }
+
+    private function generateGrnNumber(Carbon $date): string
+    {
+        do {
+            $suffix = strtoupper(bin2hex(random_bytes(2)));
+            $number = 'GRN-PURCH-'.$date->format('Ymd').'-'.$suffix;
+        } while (GoodsReceived::query()->where('grn_number', $number)->exists());
+
+        return $number;
+    }
+
+    private function normalizeBucketKey(float $quantity): string
+    {
+        return number_format($quantity, 3, '.', '');
+    }
+
+    private function formatBucketLabel(float $quantity, string $unit): string
+    {
+        $value = $this->trimTrailingZeros($quantity);
+
+        return $unit === 'kg' ? $value.'kg' : $value;
+    }
+
+    private function formatShareQuantity(float $quantity, string $unit): string
+    {
+        return $this->trimTrailingZeros($quantity).' '.$unit;
+    }
+
+    private function trimTrailingZeros(float $value): string
+    {
+        $formatted = number_format($value, 3, '.', '');
+
+        return rtrim(rtrim($formatted, '0'), '.');
+    }
+
     private function ensurePurchaser(Request $request): void
     {
         if (! $request->user()->hasRole('purchaser')) {
@@ -28,422 +1174,14 @@ class PurchaserDashboardController extends Controller
         }
     }
 
-    public function index(Request $request): View|RedirectResponse
+    private function ensurePurchaseManager(Request $request): void
     {
-        $this->ensurePurchaser($request);
-
-        $date = $request->input('date', Carbon::today()->format('Y-m-d'));
-
-        if (Carbon::parse($date)->isFuture()) {
-            return redirect()
-                ->route('purchaser.dashboard', ['date' => Carbon::today()->format('Y-m-d')])
-                ->withErrors(['Future purchase dates are not allowed.']);
-        }
-
-        $userId = $request->user()->id;
-
-        // 1. Load active products and suppliers for selectors
-        $products = Product::where('is_active', true)->orderBy('name')->get();
-        $suppliers = Supplier::orderBy('name')->get();
-
-        // 2. Load all draft purchases (GRNs with status 'draft') logged by this purchaser today
-        $draftGrns = GoodsReceived::where('status', 'draft')
-            ->where('received_by', $userId)
-            ->whereDate('received_at', $date)
-            ->with(['purchaseOrder.supplier', 'items.product', 'items.purchaseOrderItem'])
-            ->get();
-
-        // 3. Load all submitted purchases (GRNs with status != 'draft') logged by this purchaser today (History)
-        $historyGrns = GoodsReceived::where('status', '!=', 'draft')
-            ->where('received_by', $userId)
-            ->whereDate('received_at', $date)
-            ->with(['purchaseOrder.supplier', 'items.product', 'items.purchaseOrderItem'])
-            ->get();
-
-        // 4. Load approved shop demands (requirements) to show what needs to be bought
-        $orderItems = ShopOrderItem::whereHas('order', function ($query) use ($date): void {
-            $query->whereDate('business_date', $date)->where('state', 'approved');
-        })->with(['product', 'order.shop'])->get();
-
-        // Aggregate bought quantities per product across DRAFT and SUBMITTED receipts today
-        $draftBought = [];
-        $submittedBought = [];
-
-        $draftItemsList = [];
-        foreach ($draftGrns as $grn) {
-            foreach ($grn->items as $item) {
-                $productId = $item->product_id;
-                $qty = (float) $item->received_qty;
-                $draftBought[$productId] = ($draftBought[$productId] ?? 0.0) + $qty;
-
-                $draftItemsList[] = [
-                    'id' => $item->id,
-                    'product_name' => $item->product->name,
-                    'sku' => $item->product->sku,
-                    'unit' => $item->product->unit,
-                    'quantity' => $qty,
-                    'unit_price' => (float) ($item->purchaseOrderItem?->unit_price ?? 0),
-                    'supplier_name' => $grn->purchaseOrder->supplier->name ?? 'Unknown',
-                ];
-            }
-        }
-
-        foreach ($historyGrns as $grn) {
-            foreach ($grn->items as $item) {
-                $productId = $item->product_id;
-                $qty = (float) $item->received_qty;
-                $submittedBought[$productId] = ($submittedBought[$productId] ?? 0.0) + $qty;
-            }
-        }
-
-        $submittedPurchaseSummaries = $historyGrns
-            ->flatMap(function (GoodsReceived $grn) {
-                return $grn->items->map(function (GoodsReceivedItem $item) use ($grn): array {
-                    return [
-                        'product_id' => (int) $item->product_id,
-                        'product_name' => $item->product->name,
-                        'sku' => $item->product->sku,
-                        'unit' => $item->product->unit,
-                        'quantity' => (float) $item->received_qty,
-                        'unit_price' => (float) ($item->purchaseOrderItem?->unit_price ?? 0),
-                        'status' => (string) $grn->status,
-                        'supplier_name' => $grn->purchaseOrder->supplier->name ?? 'Unknown',
-                    ];
-                });
-            })
-            ->groupBy('product_id')
-            ->map(function ($items): array {
-                $first = $items->first();
-                $totalQuantity = (float) $items->sum('quantity');
-                $totalValue = (float) $items->sum(fn (array $item): float => $item['quantity'] * $item['unit_price']);
-                $status = collect($items)->pluck('status')->contains('approved') ? 'approved' : 'pending_approval';
-
-                return [
-                    'product_name' => $first['product_name'],
-                    'sku' => $first['sku'],
-                    'unit' => $first['unit'],
-                    'total_quantity' => $totalQuantity,
-                    'average_price' => $totalQuantity > 0 ? round($totalValue / $totalQuantity, 2) : 0.0,
-                    'supplier_names' => collect($items)->pluck('supplier_name')->unique()->values()->all(),
-                    'status' => $status,
-                ];
-            })
-            ->sortBy('product_name')
-            ->values();
-
-        // 5. Consolidate requirements for Daily Order, Bought Items, Remaining to Buy, and History
-        $requirements = $orderItems->groupBy('product_id')->map(function ($items, $productId) use ($draftBought, $submittedBought) {
-            $product = $items->first()->product;
-            $totalNeeded = (float) $items->sum('approved_qty');
-
-            $dbought = $draftBought[$productId] ?? 0.0;
-            $sbought = $submittedBought[$productId] ?? 0.0;
-            $totalBought = $dbought + $sbought;
-            $remaining = max(0.00, $totalNeeded - $totalBought);
-
-            $shopSplit = $items->map(fn ($item) => [
-                'shop_name' => $item->order->shop->name,
-                'quantity' => (float) $item->approved_qty,
-                'unit' => $item->unit,
-            ])->values()->all();
-
-            return [
-                'product_id' => $productId,
-                'product_name' => $product->name,
-                'sku' => $product->sku,
-                'unit' => $product->unit,
-                'total_needed' => $totalNeeded,
-                'draft_bought' => $dbought,
-                'submitted_bought' => $sbought,
-                'total_bought' => $totalBought,
-                'remaining' => $remaining,
-                'status' => match (true) {
-                    $remaining <= 0 => 'full',
-                    $totalBought > 0 => 'partial',
-                    default => 'pending',
-                },
-                'shop_split' => $shopSplit,
-            ];
-        })->sort(function (array $left, array $right): int {
-            $priority = [
-                'pending' => 0,
-                'partial' => 1,
-                'full' => 2,
-            ];
-
-            $leftPriority = $priority[$left['status']] ?? 99;
-            $rightPriority = $priority[$right['status']] ?? 99;
-
-            if ($leftPriority !== $rightPriority) {
-                return $leftPriority <=> $rightPriority;
-            }
-
-            return strcmp($left['product_name'], $right['product_name']);
-        })->values();
-
-        return view('purchasing.purchaser_dashboard', compact(
-            'date',
-            'requirements',
-            'draftItemsList',
-            'submittedPurchaseSummaries',
-            'products',
-            'suppliers'
-        ));
-    }
-
-    public function recordDraftPurchase(Request $request): RedirectResponse
-    {
-        $this->ensurePurchaser($request);
-
-        $request->validate([
-            'product_id' => ['required', 'exists:products,id'],
-            'supplier_id' => ['required', 'exists:suppliers,id'],
-            'quantity' => ['required', 'numeric', 'min:0.01'],
-            'unit_price' => ['required', 'numeric', 'min:0.01'],
-            'date' => ['required', 'date', Rule::date()->todayOrBefore()],
-        ]);
-
-        $productId = (int) $request->input('product_id');
-        $supplierId = (int) $request->input('supplier_id');
-        $quantity = (float) $request->input('quantity');
-        $unitPrice = (float) $request->input('unit_price');
-        $date = $request->input('date');
-        $userId = $request->user()->id;
-
-        try {
-            DB::transaction(function () use ($productId, $supplierId, $quantity, $unitPrice, $date, $userId): void {
-                // 1. Calculate how much is needed for this product today
-                $totalNeeded = (float) ShopOrderItem::whereHas('order', function ($query) use ($date): void {
-                    $query->whereDate('business_date', $date)->where('state', 'approved');
-                })->where('product_id', $productId)->sum('approved_qty');
-
-                // 2. Calculate how much has already been purchased/logged today (excluding extra/add-on receipts)
-                $alreadyBought = (float) GoodsReceivedItem::where('product_id', $productId)
-                    ->whereHas('goodsReceived', function ($query) use ($date): void {
-                        $query->whereDate('received_at', $date)
-                            ->where('is_extra', false);
-                    })
-                    ->sum('received_qty');
-
-                $remainingNeeded = max(0.0, $totalNeeded - $alreadyBought);
-
-                $regularQty = min($quantity, $remainingNeeded);
-                $extraQty = $quantity - $regularQty;
-
-                if ($regularQty > 0) {
-                    // Find or create a regular draft Purchase Order for this supplier and date
-                    $po = PurchaseOrder::whereDate('order_date', $date)
-                        ->where('supplier_id', $supplierId)
-                        ->where('fulfillment_type', 'warehouse')
-                        ->whereDoesntHave('goodsReceiveds', function ($query): void {
-                            $query->where('is_extra', true);
-                        })
-                        ->first();
-
-                    if (! $po) {
-                        $dateStrStr = Carbon::parse($date)->format('Ymd');
-                        do {
-                            $suffix = strtoupper(bin2hex(random_bytes(2)));
-                            $poNumber = "PO-PURCH-{$dateStrStr}-{$suffix}";
-                        } while (PurchaseOrder::where('po_number', $poNumber)->exists());
-
-                        $po = PurchaseOrder::create([
-                            'supplier_id' => $supplierId,
-                            'po_number' => $poNumber,
-                            'status' => POStatus::Draft,
-                            'fulfillment_type' => 'warehouse',
-                            'order_date' => $date,
-                            'created_by' => $userId,
-                            'notes' => 'Draft PO created by purchaser',
-                        ]);
-                    }
-
-                    // Create or update Purchase Order Item
-                    $poItem = $po->items()->where('product_id', $productId)->first();
-                    if ($poItem) {
-                        $poItem->update([
-                            'quantity' => (float) $poItem->quantity + $regularQty,
-                            'unit_price' => $unitPrice,
-                        ]);
-                    } else {
-                        $poItem = $po->items()->create([
-                            'product_id' => $productId,
-                            'quantity' => $regularQty,
-                            'unit_price' => $unitPrice,
-                            'purchase_unit' => 'kg',
-                            'price_basis' => 'per_kg',
-                        ]);
-                    }
-
-                    // Find or create a regular draft Goods Received Note for this PO
-                    $grn = GoodsReceived::where('purchase_order_id', $po->id)
-                        ->where('status', 'draft')
-                        ->where('is_extra', false)
-                        ->first();
-
-                    if (! $grn) {
-                        $grnNumber = 'GRN-DRAFT-'.Carbon::parse($date)->format('Ymd').'-'.strtoupper(bin2hex(random_bytes(2)));
-                        $grn = GoodsReceived::create([
-                            'purchase_order_id' => $po->id,
-                            'grn_number' => $grnNumber,
-                            'received_at' => $date,
-                            'received_by' => $userId,
-                            'status' => 'draft',
-                            'is_extra' => false,
-                            'transport_cost' => 0.00,
-                            'labour_cost' => 0.00,
-                            'notes' => 'Draft receipt logged by purchaser',
-                        ]);
-                    }
-
-                    // Create Goods Received Item
-                    $grn->items()->create([
-                        'purchase_order_item_id' => $poItem->id,
-                        'product_id' => $productId,
-                        'received_qty' => $regularQty,
-                        'variance' => 0.00,
-                    ]);
-                }
-
-                if ($extraQty > 0) {
-                    // Create a NEW Purchase Order for the extra (add-on)
-                    $dateStrStr = Carbon::parse($date)->format('Ymd');
-                    do {
-                        $suffix = strtoupper(bin2hex(random_bytes(2)));
-                        $poNumber = "PO-ADDON-{$dateStrStr}-{$suffix}";
-                    } while (PurchaseOrder::where('po_number', $poNumber)->exists());
-
-                    $extraPo = PurchaseOrder::create([
-                        'supplier_id' => $supplierId,
-                        'po_number' => $poNumber,
-                        'status' => POStatus::Draft,
-                        'fulfillment_type' => 'warehouse',
-                        'order_date' => $date,
-                        'created_by' => $userId,
-                        'notes' => 'Draft Add-on PO created by purchaser',
-                    ]);
-
-                    $extraPoItem = $extraPo->items()->create([
-                        'product_id' => $productId,
-                        'quantity' => $extraQty,
-                        'unit_price' => $unitPrice,
-                        'purchase_unit' => 'kg',
-                        'price_basis' => 'per_kg',
-                    ]);
-
-                    // Create a NEW draft Goods Received Note for this extra PO
-                    $grnNumber = 'GRN-ADDON-'.Carbon::parse($date)->format('Ymd').'-'.strtoupper(bin2hex(random_bytes(2)));
-                    $extraGrn = GoodsReceived::create([
-                        'purchase_order_id' => $extraPo->id,
-                        'grn_number' => $grnNumber,
-                        'received_at' => $date,
-                        'received_by' => $userId,
-                        'status' => 'draft',
-                        'is_extra' => true,
-                        'transport_cost' => 0.00,
-                        'labour_cost' => 0.00,
-                        'notes' => 'Draft Add-on receipt logged by purchaser',
-                    ]);
-
-                    $extraGrn->items()->create([
-                        'purchase_order_item_id' => $extraPoItem->id,
-                        'product_id' => $productId,
-                        'received_qty' => $extraQty,
-                        'variance' => 0.00,
-                    ]);
-                }
-            });
-
-            return redirect()->back()->with('success', 'Purchase item logged in draft list successfully.');
-        } catch (\Exception $e) {
-            return redirect()->back()->withInput()->withErrors([$e->getMessage()]);
-        }
-    }
-
-    public function deleteDraftPurchase(int $id, Request $request): RedirectResponse
-    {
-        $this->ensurePurchaser($request);
-
-        try {
-            DB::transaction(function () use ($id): void {
-                $grnItem = GoodsReceivedItem::findOrFail($id);
-                $grn = $grnItem->goodsReceived;
-
-                if ($grn->status !== 'draft') {
-                    throw new \InvalidArgumentException('Only draft purchases can be deleted.');
-                }
-
-                // Decrement PO item quantity
-                $poItem = $grnItem->purchaseOrderItem;
-                if ($poItem) {
-                    $newQty = (float) $poItem->quantity - (float) $grnItem->received_qty;
-                    if ($newQty <= 0) {
-                        $poItem->delete();
-                    } else {
-                        $poItem->update([
-                            'quantity' => $newQty,
-                        ]);
-                    }
-                }
-
-                $grnItem->delete();
-
-                // Clean up empty GRN / PO
-                if ($grn->items()->count() === 0) {
-                    $grn->delete();
-                    $po = $grn->purchaseOrder;
-                    if ($po && $po->items()->count() === 0) {
-                        $po->delete();
-                    }
-                }
-            });
-
-            return redirect()->back()->with('success', 'Draft purchase item removed.');
-        } catch (\Exception $e) {
-            return redirect()->back()->withErrors([$e->getMessage()]);
-        }
-    }
-
-    public function submitPurchases(Request $request): RedirectResponse
-    {
-        $this->ensurePurchaser($request);
-
-        $validated = $request->validate([
-            'date' => ['required', 'date', Rule::date()->todayOrBefore()],
-        ]);
-
-        $date = $validated['date'];
-        $userId = $request->user()->id;
-
-        try {
-            DB::transaction(function () use ($date, $userId): void {
-                $draftGrns = GoodsReceived::where('status', 'draft')
-                    ->where('received_by', $userId)
-                    ->whereDate('received_at', $date)
-                    ->get();
-
-                if ($draftGrns->isEmpty()) {
-                    throw new \InvalidArgumentException('No draft purchases found to submit.');
-                }
-
-                foreach ($draftGrns as $grn) {
-                    $grn->update([
-                        'status' => 'pending_approval',
-                        'notes' => 'Submitted by purchaser for approval',
-                    ]);
-
-                    $po = $grn->purchaseOrder;
-                    if ($po) {
-                        $po->update([
-                            'status' => POStatus::Received,
-                        ]);
-                    }
-                }
-            });
-
-            return redirect()->back()->with('success', 'All draft purchases have been successfully submitted to the Purchase Manager.');
-        } catch (\Exception $e) {
-            return redirect()->back()->withErrors([$e->getMessage()]);
+        if (
+            ! $request->user()->hasRole('purchase')
+            && ! $request->user()->hasRole('admin')
+            && ! $request->user()->can('purchasing.order.approve')
+        ) {
+            abort(403, 'Unauthorized access.');
         }
     }
 }

@@ -24,12 +24,18 @@ class Supplier extends Model
         'category',
         'is_default_purchase',
         'contact',
+        'location',
+        'mobile_number',
         'payment_terms',
+        'preferred_payment_method',
+        'credit_approved',
+        'credit_terms',
         'quality_score',
     ];
 
     protected $casts = [
         'is_default_purchase' => 'boolean',
+        'credit_approved' => 'boolean',
         'quality_score' => 'decimal:2',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
@@ -53,6 +59,11 @@ class Supplier extends Model
     public function purchaseInvoices(): HasMany
     {
         return $this->hasMany(PurchaseInvoice::class);
+    }
+
+    public function purchaserCarts(): HasMany
+    {
+        return $this->hasMany(PurchaserCart::class);
     }
 
     public function scopeDefaultPurchase(Builder $query): Builder

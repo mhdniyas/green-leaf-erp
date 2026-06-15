@@ -395,6 +395,30 @@ class DashboardTest extends TestCase
         $this->assertLessThan($unselectedPosition, $selectedPosition);
     }
 
+    public function test_shop_owner_create_order_page_renders_cart_total_hook_for_product_catalog_script(): void
+    {
+        $this->seed(CategorySeeder::class);
+        $this->seed(ProductSeeder::class);
+        Carbon::setTestNow(Carbon::today()->setTime(12, 0));
+
+        $shop = Shop::create([
+            'code' => 'SHOP_ORDER_WINDOW',
+            'name' => 'Order Window Shop',
+        ]);
+
+        $shopOwner = User::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+        $shopOwner->assignRole('shop');
+
+        $response = $this->actingAs($shopOwner)->get(route('shop-owner.orders.create'));
+
+        $response->assertOk();
+        $response->assertSee('id="shop-owner-product-catalog"', false);
+        $response->assertSee('id="review-total-value"', false);
+        $response->assertSee('data-category-pill="all"', false);
+    }
+
     public function test_purchase_manager_cannot_access_removed_supplier_and_admin_only_sections(): void
     {
         $manager = User::factory()->create();

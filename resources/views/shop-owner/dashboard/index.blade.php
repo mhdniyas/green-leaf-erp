@@ -2,11 +2,11 @@
 
 @section('title', 'Dashboard')
 @section('page_title', 'Shop Dashboard')
-@section('page_description', 'A focused view of today’s delivery, tomorrow’s order, and your outstanding finance.')
+@section('page_description', 'A focused view of today’s delivery, tomorrow’s cart, and your outstanding finance.')
 @php($breadcrumbs = [['label' => 'Dashboard']])
 
 @section('page_actions')
-    @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.create'), 'label' => 'Create Tomorrow Order', 'classes' => 'bg-emerald-600 text-white'])
+    @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.create'), 'label' => 'Open Marketplace', 'classes' => 'bg-emerald-600 text-white'])
 @endsection
 
 @section('content')

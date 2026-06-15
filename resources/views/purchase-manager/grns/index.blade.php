@@ -131,8 +131,8 @@
                                 </div>
                             </div>
 
-                            <div class="mt-5 overflow-x-auto">
-                                <table class="min-w-full text-left">
+                            <div class="mt-5 overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+                                <table class="min-w-[780px] text-left">
                                     <thead class="border-b border-slate-200 bg-slate-50 text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">
                                         <tr>
                                             <th class="px-4 py-3">Receipt</th>
@@ -191,8 +191,8 @@
                     @method('PATCH')
                     <input type="hidden" name="date" value="{{ $date }}">
 
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full text-left">
+                    <div class="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+                        <table class="min-w-[760px] text-left">
                             <thead class="border-b border-slate-200 bg-slate-50 text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">
                                 <tr>
                                     <th class="px-5 py-4">Product</th>
@@ -270,8 +270,8 @@
                     No receipts recorded for this date.
                 </div>
             @else
-                <div class="overflow-x-auto">
-                    <table class="min-w-full text-left">
+                <div class="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+                    <table class="min-w-[860px] text-left">
                         <thead class="border-b border-slate-200 bg-slate-50 text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">
                             <tr>
                                 <th class="px-5 py-4">GRN</th>

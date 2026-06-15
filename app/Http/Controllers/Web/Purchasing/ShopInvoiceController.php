@@ -23,20 +23,34 @@ class ShopInvoiceController extends Controller
     {
         abort_unless($request->user()?->hasRole('purchase') || $request->user()?->hasRole('admin'), 403);
 
-        $invoices = ShopInvoice::query()
+        $tab = (string) $request->input('tab', 'all');
+
+        $invoiceQuery = ShopInvoice::query()
             ->with(['shop', 'order'])
             ->latest('business_date')
-            ->latest('id')
-            ->paginate(20);
+            ->latest('id');
 
-        return view('purchasing.shop-invoices.index', compact('invoices'));
+        if ($tab === 'delivery-review') {
+            $invoiceQuery->where('delivery_status', 'received_with_discrepancy');
+        }
+
+        $invoices = $invoiceQuery->paginate(20);
+
+        return view('purchasing.shop-invoices.index', [
+            'invoices' => $invoices,
+            'tab' => $tab,
+            'allInvoicesCount' => ShopInvoice::query()->count(),
+            'deliveryReviewCount' => ShopInvoice::query()
+                ->where('delivery_status', 'received_with_discrepancy')
+                ->count(),
+        ]);
     }
 
     public function show(Request $request, ShopInvoice $invoice): View
     {
         abort_unless($request->user()?->hasRole('purchase') || $request->user()?->hasRole('admin'), 403);
 
-        $invoice->load(['shop', 'order', 'items.product', 'paymentApprovedBy', 'priceUpdatedBy']);
+        $invoice->load(['shop', 'order', 'items.product', 'items.orderItem', 'paymentApprovedBy', 'priceUpdatedBy']);
 
         return view('purchasing.shop-invoices.show', compact('invoice'));
     }
@@ -45,7 +59,7 @@ class ShopInvoiceController extends Controller
     {
         abort_unless($request->user()?->hasRole('purchase') || $request->user()?->hasRole('admin'), 403);
 
-        $invoice->load(['shop', 'order', 'items.product', 'paymentApprovedBy', 'priceUpdatedBy']);
+        $invoice->load(['shop', 'order', 'items.product', 'items.orderItem', 'paymentApprovedBy', 'priceUpdatedBy']);
 
         return view('purchasing.shop-invoices.pdf', compact('invoice'));
     }

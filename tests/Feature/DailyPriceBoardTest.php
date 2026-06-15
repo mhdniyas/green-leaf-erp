@@ -120,6 +120,7 @@ class DailyPriceBoardTest extends TestCase
         $response->assertOk();
         $response->assertSee($matchingProduct->name);
         $response->assertDontSee($nonMatchingProduct->name);
+        $response->assertSee('min-w-[980px]', false);
     }
 
     public function test_purchase_manager_update_keeps_prices_as_pending_admin_approval(): void

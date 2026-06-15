@@ -1,10 +1,10 @@
 @php
     $shopOwnerNavItems = [
         ['label' => 'Dashboard', 'route' => 'shop-owner.dashboard'],
-        ['label' => 'Daily Orders', 'route' => 'shop-owner.orders.index'],
+        ['label' => 'Cart', 'route' => 'shop-owner.orders.index'],
         ['label' => 'Deliveries', 'route' => 'shop-owner.deliveries.index'],
         ['label' => 'Finance', 'route' => 'shop-owner.finance.index'],
-        ['label' => 'Order History', 'route' => 'shop-owner.orders.history'],
+        ['label' => 'Approval History', 'route' => 'shop-owner.orders.history'],
     ];
 @endphp
 
@@ -12,7 +12,7 @@
     <div class="border-b border-white/10 px-6 py-6">
         <p class="text-xs font-black uppercase tracking-[0.2em] text-emerald-300">Shop Owner Portal</p>
         <h1 class="mt-2 text-xl font-black">{{ auth()->user()->shop?->name ?? 'Green Leaf ERP' }}</h1>
-        <p class="mt-1 text-sm text-slate-400">Daily ordering, delivery follow-up, and finance tracking.</p>
+        <p class="mt-1 text-sm text-slate-400">Marketplace ordering, delivery follow-up, and finance tracking.</p>
     </div>
 
     <nav class="flex-1 space-y-2 px-4 py-6">

@@ -165,10 +165,24 @@
     ];
     $purchaserMobileNavItems = [
         [
-            'label' => 'Purchases',
-            'route' => 'purchaser.dashboard',
-            'active' => request()->routeIs('purchaser.dashboard'),
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>',
+            'label' => 'Daily',
+            'route' => 'purchaser.daily',
+            'active' => request()->routeIs('purchaser.daily'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 7.5h16M4 12h16M4 16.5h10" /></svg>',
+            'type' => 'link',
+        ],
+        [
+            'label' => 'Cart',
+            'route' => 'purchaser.vendors',
+            'active' => request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>',
+            'type' => 'center',
+        ],
+        [
+            'label' => 'History',
+            'route' => 'purchaser.history',
+            'active' => request()->routeIs('purchaser.history'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2m5-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
             'type' => 'link',
         ],
     ];
@@ -238,20 +252,17 @@
                     Finance
                 </x-nav-item>
             @elseif(auth()->user()->hasRole('purchaser'))
-                <x-nav-item href="{{ route('purchaser.dashboard') }}" icon="squares-2x2" :active="request()->routeIs('purchaser.dashboard') && !request()->has('tab')">
+                <x-nav-item href="{{ route('purchaser.daily') }}" icon="squares-2x2" :active="request()->routeIs('purchaser.daily')">
                     Purchaser Dashboard
                 </x-nav-item>
                 <div class="space-y-1 pl-3 pr-1">
-                    <x-nav-item id="sidebar-tab-daily-order" href="{{ route('purchaser.dashboard', ['tab' => 'daily-order']) }}" :active="request()->routeIs('purchaser.dashboard') && request()->input('tab', 'daily-order') === 'daily-order'" :sub="true" class="purchaser-sidebar-tab-btn" data-tab="daily-order">
-                        Daily Order
+                    <x-nav-item href="{{ route('purchaser.daily') }}" :active="request()->routeIs('purchaser.daily')" :sub="true">
+                        Daily
                     </x-nav-item>
-                    <x-nav-item id="sidebar-tab-bought" href="{{ route('purchaser.dashboard', ['tab' => 'bought']) }}" :active="request()->routeIs('purchaser.dashboard') && request()->input('tab') === 'bought'" :sub="true" class="purchaser-sidebar-tab-btn" data-tab="bought">
-                        Bought Items
+                    <x-nav-item href="{{ route('purchaser.vendors') }}" :active="request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill')" :sub="true">
+                        Vendors
                     </x-nav-item>
-                    <x-nav-item id="sidebar-tab-remaining" href="{{ route('purchaser.dashboard', ['tab' => 'remaining']) }}" :active="request()->routeIs('purchaser.dashboard') && request()->input('tab') === 'remaining'" :sub="true" class="purchaser-sidebar-tab-btn" data-tab="remaining">
-                        Remaining to Buy
-                    </x-nav-item>
-                    <x-nav-item id="sidebar-tab-history" href="{{ route('purchaser.dashboard', ['tab' => 'history']) }}" :active="request()->routeIs('purchaser.dashboard') && request()->input('tab') === 'history'" :sub="true" class="purchaser-sidebar-tab-btn" data-tab="history">
+                    <x-nav-item href="{{ route('purchaser.history') }}" :active="request()->routeIs('purchaser.history')" :sub="true">
                         History
                     </x-nav-item>
                 </div>
@@ -341,7 +352,7 @@
                     auth()->user()->can('viewAny', \App\Models\PurchaseInvoice::class)
                 )
                 @php
-                    $isPurchasingActive = request()->routeIs('purchasing.*') || request()->routeIs('requisitions.board') || request()->routeIs('requisitions.approved_board') || request()->routeIs('purchaser.dashboard');
+                    $isPurchasingActive = request()->routeIs('purchasing.*') || request()->routeIs('requisitions.board') || request()->routeIs('requisitions.approved_board') || request()->routeIs('purchaser.*');
                 @endphp
                 <div class="sidebar-group space-y-1">
                     <button
@@ -361,20 +372,17 @@
                     </button>
                     <div class="sidebar-group-items space-y-1 pl-3 pr-1 transition-all duration-200 {{ $isPurchasingActive ? '' : 'hidden' }}">
                         @if(auth()->user()->hasRole('purchaser'))
-                        <x-nav-item href="{{ route('purchaser.dashboard') }}" :active="request()->routeIs('purchaser.dashboard') && !request()->has('tab')" :sub="true">
+                        <x-nav-item href="{{ route('purchaser.daily') }}" :active="request()->routeIs('purchaser.daily')" :sub="true">
                             Purchaser Desk
                         </x-nav-item>
                         <div class="space-y-1 pl-3 pr-1">
-                            <x-nav-item id="sidebar-tab-daily-order-pm" href="{{ route('purchaser.dashboard', ['tab' => 'daily-order']) }}" :active="request()->routeIs('purchaser.dashboard') && request()->input('tab', 'daily-order') === 'daily-order'" :sub="true" class="purchaser-sidebar-tab-btn" data-tab="daily-order">
-                                Daily Order
+                            <x-nav-item href="{{ route('purchaser.daily') }}" :active="request()->routeIs('purchaser.daily')" :sub="true">
+                                Daily
                             </x-nav-item>
-                            <x-nav-item id="sidebar-tab-bought-pm" href="{{ route('purchaser.dashboard', ['tab' => 'bought']) }}" :active="request()->routeIs('purchaser.dashboard') && request()->input('tab') === 'bought'" :sub="true" class="purchaser-sidebar-tab-btn" data-tab="bought">
-                                Bought Items
+                            <x-nav-item href="{{ route('purchaser.vendors') }}" :active="request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill')" :sub="true">
+                                Vendors
                             </x-nav-item>
-                            <x-nav-item id="sidebar-tab-remaining-pm" href="{{ route('purchaser.dashboard', ['tab' => 'remaining']) }}" :active="request()->routeIs('purchaser.dashboard') && request()->input('tab') === 'remaining'" :sub="true" class="purchaser-sidebar-tab-btn" data-tab="remaining">
-                                Remaining to Buy
-                            </x-nav-item>
-                            <x-nav-item id="sidebar-tab-history-pm" href="{{ route('purchaser.dashboard', ['tab' => 'history']) }}" :active="request()->routeIs('purchaser.dashboard') && request()->input('tab') === 'history'" :sub="true" class="purchaser-sidebar-tab-btn" data-tab="history">
+                            <x-nav-item href="{{ route('purchaser.history') }}" :active="request()->routeIs('purchaser.history')" :sub="true">
                                 History
                             </x-nav-item>
                         </div>
@@ -606,8 +614,8 @@
     <div class="main-content-wrapper flex min-w-0 flex-1 flex-col transition-all duration-300 lg:ml-72">
 
         {{-- Top bar --}}
-        <header class="fixed inset-x-4 top-4 z-30 mx-auto max-w-md rounded-[1.5rem] border border-slate-100 bg-white/95 px-4 py-3 shadow-[0_8px_30px_rgb(0,0,0,0.08)] backdrop-blur-md sm:px-5 lg:sticky lg:inset-x-0 lg:top-0 lg:left-0 lg:right-0 lg:mx-0 lg:max-w-none lg:rounded-none lg:border-0 lg:border-b lg:border-slate-200 lg:bg-white/95 lg:px-6 lg:py-0 lg:shadow-none">
-            <div class="flex items-center gap-4 lg:h-16">
+        <header class="fixed inset-x-2 top-2 z-30 rounded-2xl border border-slate-100 bg-white/95 px-3 py-2.5 shadow-[0_8px_30px_rgb(0,0,0,0.08)] backdrop-blur-md sm:inset-x-4 sm:px-5 lg:sticky lg:inset-x-0 lg:top-0 lg:left-0 lg:right-0 lg:rounded-none lg:border-0 lg:border-b lg:border-slate-200 lg:bg-white/95 lg:px-6 lg:py-0 lg:shadow-none">
+            <div class="flex min-w-0 items-center gap-3 lg:h-16 lg:gap-4">
                 {{-- Collapse / open toggle --}}
                 <button id="sidebar-open" class="-ml-1 rounded-2xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 cursor-pointer">
                     <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
@@ -622,7 +630,7 @@
                 </div>
 
                 {{-- Header Actions Container --}}
-                <div class="ml-auto flex items-center gap-3 shrink-0">
+                <div class="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
                     {{-- Theme Toggle Switch --}}
                     <button
                         id="theme-toggle"
@@ -697,15 +705,15 @@
         @endif
 
         {{-- Page content --}}
-        <main class="flex-1 px-4 pb-24 {{ isset($actions) ? 'pt-32' : 'pt-24' }} sm:px-6 lg:p-6 lg:pt-6 {{ $showMobileBottomNav ? 'lg:pb-6' : '' }}">
+        <main class="w-full min-w-0 flex-1 px-3 pb-28 {{ isset($actions) ? 'pt-28' : 'pt-20' }} sm:px-6 lg:p-6 lg:pt-6 {{ $showMobileBottomNav ? 'lg:pb-6' : '' }}">
             {{ $slot }}
         </main>
     </div>
 </div>
 
 @if($showAdminMobileNav || $showWarehouseMobileNav || $showPurchaseMobileNav || $showPurchaserMobileNav || $showWarehouseReceiverMobileNav)
-<div id="layout-mobile-nav" class="fixed inset-x-0 bottom-5 z-50 px-5 lg:hidden">
-    <nav class="mx-auto flex h-[60px] max-w-md items-center gap-1 rounded-[2rem] border border-slate-100 bg-white/96 px-2 shadow-[0_8px_40px_rgba(0,0,0,0.10),0_2px_12px_rgba(0,0,0,0.06)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/96">
+<div id="layout-mobile-nav" class="fixed inset-x-0 bottom-0 z-[70] px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] lg:hidden">
+    <nav class="mx-auto flex min-h-[64px] w-full max-w-lg items-center gap-1 rounded-2xl border border-slate-100 bg-white/98 px-1.5 py-1.5 shadow-[0_-2px_10px_rgba(15,23,42,0.05),0_10px_40px_rgba(15,23,42,0.16)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/96">
         @php
             $mobileNavItems = match(true) {
                 $showAdminMobileNav => $adminMobileNavItems,
@@ -719,11 +727,12 @@
         @foreach ($mobileNavItems as $item)
             @php
                 $isActive = $item['active'] ?? false;
+                $showLabel = $isActive;
             @endphp
             <a
-                href="{{ route($item['route']) }}"
+                href="{{ route($item['route'], $item['params'] ?? []) }}"
                 @class([
-                    'group relative flex h-11 flex-1 items-center justify-center gap-1.5 rounded-[1.25rem] border-0 px-2 font-bold transition-all duration-200',
+                    'group relative flex min-h-[50px] min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl border-0 px-1.5 font-bold transition-all duration-200',
                     'bg-cyan-500 text-white shadow-sm' => $isActive,
                     'bg-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300' => ! $isActive,
                 ])
@@ -733,8 +742,8 @@
                     {!! $item['icon'] !!}
                 </span>
                 <span @class([
-                    'whitespace-nowrap text-[10px] font-black',
-                    'hidden' => ! $isActive,
+                    'min-w-0 truncate whitespace-nowrap text-[10px] font-black',
+                    'hidden' => ! $showLabel,
                 ])>{{ $item['label'] }}</span>
             </a>
         @endforeach

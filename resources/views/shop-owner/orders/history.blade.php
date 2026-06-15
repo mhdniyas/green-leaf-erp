@@ -1,9 +1,9 @@
 @extends('shop-owner.layouts.app')
 
-@section('title', 'Order History')
-@section('page_title', 'Order History')
-@section('page_description', 'Review previous submissions, approvals, and delivery outcomes.')
-@php($breadcrumbs = [['label' => 'Order History']])
+@section('title', 'Approval History')
+@section('page_title', 'Approval History')
+@section('page_description', 'Review previous cart submissions, approvals, and delivery outcomes.')
+@php($breadcrumbs = [['label' => 'Approval History']])
 
 @section('content')
     <div class="space-y-6">
