@@ -175,6 +175,99 @@ class PurchaserDashboardTest extends TestCase
         $response->assertSee('Cucumber');
     }
 
+    public function test_daily_share_page_can_filter_by_multiple_products(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $supplyCategory = Category::create(['name' => 'Supply', 'is_active' => true]);
+        $vegCategory = Category::create(['name' => 'VEG', 'is_active' => true]);
+        $fruitCategory = Category::create(['name' => 'Frut', 'is_active' => true]);
+
+        $tomato = Product::factory()->create([
+            'category_id' => $supplyCategory->id,
+            'name' => 'Tomato',
+            'sku' => 'TOMATO-001',
+            'unit' => 'kg',
+        ]);
+
+        $beans = Product::factory()->create([
+            'category_id' => $vegCategory->id,
+            'name' => 'Beans',
+            'sku' => 'BEANS-001',
+            'unit' => 'kg',
+        ]);
+
+        $banana = Product::factory()->create([
+            'category_id' => $fruitCategory->id,
+            'name' => 'Banana',
+            'sku' => 'BANANA-001',
+            'unit' => 'kg',
+        ]);
+
+        $this->createApprovedOrder($date, $this->shopA, $tomato, 5);
+        $this->createApprovedOrder($date, $this->shopA, $beans, 3);
+        $this->createApprovedOrder($date, $this->shopA, $banana, 7);
+
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.daily.share', [
+            'date' => $date,
+            'share_mode' => 'tag',
+            'product_ids' => [$tomato->id, $beans->id],
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Daily share summary');
+
+        $shareSummary = $response->viewData('shareSummary');
+        $this->assertCount(2, $shareSummary);
+        $this->assertTrue($shareSummary->contains('product_name', 'Tomato'));
+        $this->assertTrue($shareSummary->contains('product_name', 'Beans'));
+        $this->assertFalse($shareSummary->contains('product_name', 'Banana'));
+
+        $sharePreviewText = $response->viewData('sharePreviewText');
+        $this->assertStringContainsString('Tomato', $sharePreviewText);
+        $this->assertStringContainsString('Beans', $sharePreviewText);
+        $this->assertStringNotContainsString('Banana', $sharePreviewText);
+    }
+
+    public function test_daily_share_page_can_filter_to_single_product(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $supplyCategory = Category::create(['name' => 'Supply', 'is_active' => true]);
+
+        $tomato = Product::factory()->create([
+            'category_id' => $supplyCategory->id,
+            'name' => 'Tomato',
+            'sku' => 'TOMATO-001',
+            'unit' => 'kg',
+        ]);
+
+        $onion = Product::factory()->create([
+            'category_id' => $supplyCategory->id,
+            'name' => 'Onion',
+            'sku' => 'ONION-001',
+            'unit' => 'kg',
+        ]);
+
+        $this->createApprovedOrder($date, $this->shopA, $tomato, 5);
+        $this->createApprovedOrder($date, $this->shopA, $onion, 8);
+
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.daily.share', [
+            'date' => $date,
+            'share_mode' => 'product',
+            'product_id' => $onion->id,
+        ]));
+
+        $response->assertOk();
+
+        $shareSummary = $response->viewData('shareSummary');
+        $this->assertCount(1, $shareSummary);
+        $this->assertTrue($shareSummary->contains('product_name', 'Onion'));
+        $this->assertFalse($shareSummary->contains('product_name', 'Tomato'));
+
+        $sharePreviewText = $response->viewData('sharePreviewText');
+        $this->assertStringContainsString('Onion', $sharePreviewText);
+        $this->assertStringNotContainsString('Tomato', $sharePreviewText);
+    }
+
     public function test_purchaser_can_add_off_list_product_and_flag_it_as_extra_purchase(): void
     {
         $date = Carbon::today()->format('Y-m-d');

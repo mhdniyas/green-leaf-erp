@@ -74,7 +74,7 @@
                         <a href="{{ route('purchaser.bulk-buy', ['date' => $date]) }}" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-teal-600 px-4 text-sm font-black text-white sm:w-auto lg:min-h-12 lg:rounded-2xl">
                             Bulk Purchase
                         </a>
-                        <a href="{{ $dailySummaryShareUrl }}" target="_blank" rel="noopener" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-black text-white sm:w-auto lg:min-h-12 lg:rounded-2xl">
+                        <a href="{{ route('purchaser.daily.share', ['date' => $date]) }}" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-black text-white sm:w-auto lg:min-h-12 lg:rounded-2xl">
                             Share Summary
                         </a>
                     </div>

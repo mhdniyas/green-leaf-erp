@@ -95,6 +95,88 @@ class PurchaserDashboardController extends Controller
         ]);
     }
 
+    public function dailyShare(Request $request): View|RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $date = $this->resolveBusinessDate($request);
+
+        if ($date instanceof RedirectResponse) {
+            return $date;
+        }
+
+        $user = $request->user();
+        $frequentProductIds = $this->frequentProductIds((int) $user->id);
+        $dailySummary = $this->buildDailySummary($date, $frequentProductIds);
+
+        $availableTags = $dailySummary
+            ->pluck('category_name')
+            ->filter(fn (?string $categoryName): bool => filled($categoryName))
+            ->unique()
+            ->sort()
+            ->values();
+
+        $shareMode = $this->resolveDailyShareMode($request->string('share_mode')->toString());
+        $availableProductIds = $dailySummary
+            ->pluck('product_id')
+            ->map(fn ($productId): int => (int) $productId)
+            ->all();
+
+        $selectedTags = collect($request->input('tags', []))
+            ->filter(fn ($tag): bool => is_string($tag) && $availableTags->contains($tag))
+            ->values()
+            ->all();
+        $selectedProductIds = collect($request->input('product_ids', []))
+            ->map(fn ($productId): int => (int) $productId)
+            ->filter(fn (int $productId): bool => in_array($productId, $availableProductIds, true))
+            ->unique()
+            ->values()
+            ->all();
+
+        $selectedProductId = $request->integer('product_id');
+        if (! $dailySummary->contains(fn (array $summary): bool => (int) $summary['product_id'] === $selectedProductId)) {
+            $selectedProductId = 0;
+        }
+
+        $shareSummary = $this->filterDailySummaryForShare(
+            dailySummary: $dailySummary,
+            shareMode: $shareMode,
+            selectedTags: $selectedTags,
+            selectedProductIds: $selectedProductIds,
+            selectedProductId: $selectedProductId,
+        );
+
+        $sharePreviewText = $this->buildDailySummaryShareText($shareSummary, $date);
+        $shareUrl = 'https://api.whatsapp.com/send?text='.rawurlencode($sharePreviewText);
+
+        return view('purchasing.purchaser.daily_share', [
+            'date' => $date->format('Y-m-d'),
+            'shareMode' => $shareMode,
+            'selectedTags' => $selectedTags,
+            'selectedProductIds' => $selectedProductIds,
+            'selectedProductId' => $selectedProductId,
+            'availableTags' => $availableTags,
+            'availableProducts' => $dailySummary
+                ->sortBy('product_name')
+                ->map(fn (array $summary): array => [
+                    'product_id' => (int) $summary['product_id'],
+                    'product_name' => (string) $summary['product_name'],
+                    'category_name' => (string) $summary['category_name'],
+                    'remaining_qty' => (float) $summary['remaining_qty'],
+                    'unit' => (string) $summary['unit'],
+                    'search_index' => strtolower(trim(implode(' ', [
+                        (string) $summary['product_name'],
+                        (string) $summary['category_name'],
+                        (string) ($summary['sku'] ?? ''),
+                    ]))),
+                ])
+                ->values(),
+            'shareSummary' => $shareSummary,
+            'sharePreviewText' => $sharePreviewText,
+            'shareUrl' => $shareUrl,
+        ]);
+    }
+
     public function bulkBuy(Request $request): View|RedirectResponse
     {
         $this->ensurePurchaser($request);
@@ -1460,6 +1542,33 @@ class PurchaserDashboardController extends Controller
     private function resolveQuickFilter(string $selectedChip): string
     {
         return in_array($selectedChip, self::QUICK_FILTERS, true) ? $selectedChip : 'Frequent';
+    }
+
+    private function resolveDailyShareMode(string $shareMode): string
+    {
+        return in_array($shareMode, ['all', 'tag', 'product'], true) ? $shareMode : 'all';
+    }
+
+    /**
+     * @param  array<int, string>  $selectedTags
+     * @param  array<int, int>  $selectedProductIds
+     */
+    private function filterDailySummaryForShare(
+        Collection $dailySummary,
+        string $shareMode,
+        array $selectedTags,
+        array $selectedProductIds,
+        int $selectedProductId,
+    ): Collection {
+        return match ($shareMode) {
+            'tag' => $dailySummary
+                ->filter(fn (array $summary): bool => in_array((int) $summary['product_id'], $selectedProductIds, true))
+                ->values(),
+            'product' => $dailySummary
+                ->filter(fn (array $summary): bool => (int) $summary['product_id'] === $selectedProductId)
+                ->values(),
+            default => $dailySummary->values(),
+        };
     }
 
     private function buildDailySummaryShareText(Collection $dailySummary, Carbon $date): string
