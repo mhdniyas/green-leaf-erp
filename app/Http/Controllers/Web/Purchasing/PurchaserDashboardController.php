@@ -84,7 +84,7 @@ class PurchaserDashboardController extends Controller
             'dailySummary' => $filteredDailySummary,
             'draftCarts' => $draftCarts,
             'buyOtherProducts' => $this->filterProductsForChip($productCatalog, $selectedChip, $search, $frequentProductIds),
-            'dailySummaryShareUrl' => 'https://wa.me/?text='.rawurlencode($this->buildDailySummaryShareText($dailySummary, $date)),
+            'dailySummaryShareUrl' => 'https://api.whatsapp.com/send?text='.rawurlencode($this->buildDailySummaryShareText($dailySummary, $date)),
             'dailyFulfillment' => [
                 'products' => $dailySummary->count(),
                 'approved_qty' => (float) $dailySummary->sum('total_approved_qty'),
@@ -92,6 +92,66 @@ class PurchaserDashboardController extends Controller
                 'remaining_qty' => (float) $dailySummary->sum('remaining_qty'),
                 'draft_carts' => $draftCarts->count(),
             ],
+        ]);
+    }
+
+    public function bulkBuy(Request $request): View|RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $date = $this->resolveBusinessDate($request);
+
+        if ($date instanceof RedirectResponse) {
+            return $date;
+        }
+
+        $user = $request->user();
+        $frequentProductIds = $this->frequentProductIds((int) $user->id);
+        $dailySummary = $this->buildDailySummary($date, $frequentProductIds);
+
+        return view('purchasing.purchaser.bulk_buy', [
+            'date' => $date->format('Y-m-d'),
+            'quickFilters' => self::QUICK_FILTERS,
+            'dailySummary' => $dailySummary,
+        ]);
+    }
+
+    public function bulkBuyDetails(Request $request): View|RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $date = $this->resolveBusinessDate($request);
+
+        if ($date instanceof RedirectResponse) {
+            return $date;
+        }
+
+        $productIds = $request->input('product_ids');
+        if (empty($productIds) || ! is_array($productIds)) {
+            return redirect()
+                ->route('purchaser.bulk-buy', ['date' => $date->format('Y-m-d')])
+                ->with('error', 'Please select at least one product.');
+        }
+
+        $user = $request->user();
+        $frequentProductIds = $this->frequentProductIds((int) $user->id);
+
+        $dailySummary = $this->buildDailySummary($date, $frequentProductIds)
+            ->filter(fn ($item) => in_array((int) $item['product_id'], array_map('intval', $productIds), true))
+            ->values();
+
+        if ($dailySummary->isEmpty()) {
+            return redirect()
+                ->route('purchaser.bulk-buy', ['date' => $date->format('Y-m-d')])
+                ->with('error', 'Selected products do not have approved demand.');
+        }
+
+        $draftCarts = $this->draftCartsForDate((int) $user->id, $date);
+
+        return view('purchasing.purchaser.bulk_buy_details', [
+            'date' => $date->format('Y-m-d'),
+            'dailySummary' => $dailySummary,
+            'draftCarts' => $draftCarts,
         ]);
     }
 
@@ -595,6 +655,7 @@ class PurchaserDashboardController extends Controller
             'payment_terms' => ['nullable', 'string', 'max:100'],
             'preferred_payment_method' => ['nullable', 'string', 'max:100'],
             'share_mode' => ['nullable', 'string', 'in:saved,custom,any'],
+            'show_price' => ['nullable', 'boolean'],
         ]);
 
         if ($request->string('share_mode')->toString() === 'custom') {
@@ -623,19 +684,20 @@ class PurchaserDashboardController extends Controller
             }
         }
 
-        $message = $this->buildCartShareText($cart->fresh(['items.product', 'supplier']), false);
+        $showPrice = $request->boolean('show_price', false);
+        $message = $this->buildCartShareText($cart->fresh(['items.product', 'supplier']), $showPrice);
 
         $shareMode = $request->string('share_mode')->toString() ?: 'saved';
         $customMobile = $request->input('vendor_mobile_number');
 
         if ($shareMode === 'any') {
-            $whatsAppUrl = 'https://wa.me/?text='.rawurlencode($message);
+            $whatsAppUrl = 'https://api.whatsapp.com/send?text='.rawurlencode($message);
         } elseif ($shareMode === 'custom') {
             $digits = preg_replace('/\D+/', '', (string) $customMobile);
             if ($digits !== null && strlen($digits) === 10) {
                 $digits = '91'.$digits;
             }
-            $whatsAppUrl = $digits ? 'https://wa.me/'.$digits.'?text='.rawurlencode($message) : null;
+            $whatsAppUrl = $digits ? 'https://api.whatsapp.com/send?phone='.$digits.'&text='.rawurlencode($message) : null;
         } else {
             $whatsAppUrl = $this->buildSupplierWhatsAppUrl($supplier, $message);
         }
@@ -1116,34 +1178,39 @@ class PurchaserDashboardController extends Controller
     {
         $approvedItems = ShopOrderItem::query()
             ->whereHas('order', function ($query) use ($date): void {
-                $query->whereDate('business_date', $date)->where('state', 'approved');
+                $query->whereDate('business_date', '<=', $date)->where('state', 'approved');
             })
-            ->with(['product.category', 'order.shop'])
+            ->with(['product.category', 'order.shop', 'order'])
             ->get();
 
         $draftCartItems = PurchaserCartItem::query()
             ->whereHas('cart', function ($query) use ($date): void {
-                $query->whereDate('business_date', $date)->where('status', 'draft');
+                $query->whereDate('business_date', '<=', $date)->where('status', 'draft');
             })
             ->with('cart.user')
             ->get()
-            ->groupBy('product_id');
+            ->groupBy(fn ($item) => $item->product_id.'_'.$item->cart->business_date->timezone(config('app.timezone'))->format('Y-m-d'));
 
         $submittedQuantities = PurchaserCartItem::query()
-            ->selectRaw('product_id, SUM(quantity) as total_quantity')
             ->whereHas('cart', function ($query) use ($date): void {
-                $query->whereDate('business_date', $date)->where('status', 'submitted');
+                $query->whereDate('business_date', '<=', $date)->where('status', 'submitted');
             })
-            ->groupBy('product_id')
-            ->pluck('total_quantity', 'product_id');
+            ->with('cart')
+            ->get()
+            ->groupBy(fn ($item) => $item->product_id.'_'.$item->cart->business_date->timezone(config('app.timezone'))->format('Y-m-d'))
+            ->map(fn ($group) => (float) $group->sum('quantity'));
 
         return $approvedItems
-            ->groupBy('product_id')
-            ->map(function (Collection $items, int|string $productId) use ($draftCartItems, $submittedQuantities, $frequentProductIds): array {
+            ->groupBy(fn (ShopOrderItem $item) => $item->product_id.'_'.$item->order->business_date->timezone(config('app.timezone'))->format('Y-m-d'))
+            ->map(function (Collection $items, string $key) use ($draftCartItems, $submittedQuantities, $frequentProductIds, $date): ?array {
+                [$productId, $itemDateStr] = explode('_', $key);
+                $itemDate = Carbon::parse($itemDateStr);
+
                 /** @var ShopOrderItem $firstItem */
                 $firstItem = $items->first();
                 $product = $firstItem->product;
-                $productDraftItems = $draftCartItems->get($productId) ?? collect();
+
+                $productDraftItems = $draftCartItems->get($key) ?? collect();
                 $draftQty = (float) $productDraftItems->sum('quantity');
                 $draftPurchasers = $productDraftItems
                     ->groupBy('cart.user_id')
@@ -1157,9 +1224,15 @@ class PurchaserDashboardController extends Controller
                     ->filter()
                     ->values()
                     ->all();
-                $boughtQty = (float) ($submittedQuantities[$productId] ?? 0);
 
+                $boughtQty = (float) ($submittedQuantities->get($key) ?? 0);
                 $totalApprovedQty = (float) $items->sum('approved_qty');
+                $remainingQty = max(0, $totalApprovedQty - $boughtQty);
+
+                if ($itemDate->lt($date) && $remainingQty <= 0) {
+                    return null;
+                }
+
                 $categoryName = (string) ($product->category?->name ?? '');
 
                 $quantityBuckets = $items
@@ -1188,8 +1261,9 @@ class PurchaserDashboardController extends Controller
                     'bought_qty' => $boughtQty,
                     'draft_qty' => $draftQty,
                     'draft_purchasers' => $draftPurchasers,
-                    'remaining_qty' => max(0, $totalApprovedQty - $boughtQty),
+                    'remaining_qty' => $remainingQty,
                     'quantity_buckets' => $quantityBuckets,
+                    'order_date' => $itemDate,
                     'shop_details' => $items->map(fn (ShopOrderItem $item): array => [
                         'shop_order_item_id' => $item->id,
                         'shop_name' => $item->order->shop->name,
@@ -1205,7 +1279,8 @@ class PurchaserDashboardController extends Controller
                     ])),
                 ];
             })
-            ->sortBy('product_name')
+            ->filter()
+            ->sortBy(fn ($item) => $item['product_name'].'_'.$item['order_date']->format('Y-m-d'))
             ->values();
     }
 
@@ -1349,14 +1424,14 @@ class PurchaserDashboardController extends Controller
         $approvedQuantity = (float) ShopOrderItem::query()
             ->where('product_id', $productId)
             ->whereHas('order', function ($query) use ($date): void {
-                $query->whereDate('business_date', $date)->where('state', 'approved');
+                $query->whereDate('business_date', '<=', $date)->where('state', 'approved');
             })
             ->sum('approved_qty');
 
         $alreadySubmittedQuantity = (float) PurchaserCartItem::query()
             ->where('product_id', $productId)
             ->whereHas('cart', function ($query) use ($date, $currentCartId): void {
-                $query->whereDate('business_date', $date)
+                $query->whereDate('business_date', '<=', $date)
                     ->where('status', 'submitted')
                     ->whereKeyNot($currentCartId);
             })
@@ -1390,12 +1465,19 @@ class PurchaserDashboardController extends Controller
     private function buildDailySummaryShareText(Collection $dailySummary, Carbon $date): string
     {
         $lines = [
-            'Daily Purchase Summary',
+            '*Daily Purchase Summary*',
             $date->format('d M Y'),
+            '---',
+            '',
         ];
 
         foreach ($dailySummary as $summary) {
-            $lines[] = $summary['product_name'];
+            $productHeader = '*'.$summary['product_name'].'*';
+            $orderDate = $summary['order_date'];
+            if ($orderDate->format('Y-m-d') !== $date->format('Y-m-d')) {
+                $productHeader .= ' (Pending '.$orderDate->format('d M Y').')';
+            }
+            $lines[] = $productHeader;
 
             foreach ($summary['quantity_buckets'] as $bucket) {
                 $lines[] = $bucket['formatted'].' x '.$bucket['count'];
@@ -1444,7 +1526,7 @@ class PurchaserDashboardController extends Controller
             $digits = '91'.$digits;
         }
 
-        return 'https://wa.me/'.$digits.'?text='.rawurlencode($message);
+        return 'https://api.whatsapp.com/send?phone='.$digits.'&text='.rawurlencode($message);
     }
 
     private function resolvePaymentStatus(string $paymentMethod, float $invoiceAmount, float $paidAmount): string

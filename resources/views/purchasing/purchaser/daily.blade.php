@@ -44,14 +44,23 @@
             <div class="min-w-0 flex-1 space-y-4">
                 <form action="{{ route('purchaser.daily') }}" method="GET" class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
                     <input type="hidden" name="date" value="{{ $date }}">
-                    <div class="flex flex-col gap-3">
-                        <input type="search" name="search" value="{{ $search }}" placeholder="Search product..." class="w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:px-4">
-                        <div class="flex gap-2 overflow-x-auto overscroll-x-contain pb-1">
-                            @foreach ($quickFilters as $filter)
-                                <button type="submit" name="chip" value="{{ $filter }}" class="{{ $selectedChip === $filter ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-600' }} shrink-0 rounded-full px-4 py-2.5 text-xs font-black">
-                                    {{ $filter }}
-                                </button>
-                            @endforeach
+                    <div class="flex flex-col gap-3 md:flex-row md:items-center">
+                        <div class="relative flex-1">
+                            <input type="search" name="search" value="{{ $search }}" placeholder="Search product..." class="w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:px-4">
+                        </div>
+                        <div class="relative w-full md:w-64 shrink-0">
+                            <select name="chip" onchange="this.form.submit()" class="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-4 pr-10 py-3.5 text-xs font-black text-slate-700 focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:pl-5">
+                                @foreach ($quickFilters as $filter)
+                                    <option value="{{ $filter }}" {{ $selectedChip === $filter ? 'selected' : '' }}>
+                                        {{ $filter }}
+                                    </option>
+                                @endforeach
+                            </select>
+                            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-500">
+                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </div>
                         </div>
                     </div>
                 </form>
@@ -61,113 +70,62 @@
                         <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Daily queue</p>
                         <p class="mt-1 text-sm font-semibold text-slate-600">{{ $dailySummary->count() }} products for {{ \Illuminate\Support\Carbon::parse($date)->format('d M Y') }}</p>
                     </div>
-                    <a href="{{ $dailySummaryShareUrl }}" target="_blank" rel="noopener" class="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-black text-white sm:w-auto lg:min-h-12 lg:rounded-2xl">
-                        Share Summary
-                    </a>
+                    <div class="flex flex-row gap-2 w-full sm:w-auto shrink-0">
+                        <a href="{{ route('purchaser.bulk-buy', ['date' => $date]) }}" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-teal-600 px-4 text-sm font-black text-white sm:w-auto lg:min-h-12 lg:rounded-2xl">
+                            Bulk Purchase
+                        </a>
+                        <a href="{{ $dailySummaryShareUrl }}" target="_blank" rel="noopener" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-black text-white sm:w-auto lg:min-h-12 lg:rounded-2xl">
+                            Share Summary
+                        </a>
+                    </div>
                 </div>
 
-                <div class="space-y-4">
-                    @forelse ($dailySummary as $summary)
-                        @php
-                            $step = $summary['unit'] === 'kg' ? '0.5' : '1';
-                        @endphp
-                        <article class="relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
-                            <div class="flex flex-col gap-4">
-                                {{-- Product header --}}
-                                <div class="min-w-0">
-                                    <div class="flex flex-wrap items-center gap-2">
-                                        <h2 class="min-w-0 break-words text-lg font-black text-slate-950">{{ $summary['product_name'] }}</h2>
-                                        <span class="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-slate-600">{{ $summary['category_name'] ?: 'Other' }}</span>
-                                        @if ($summary['draft_qty'] > 0)
-                                            <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-800">
-                                                {{ number_format($summary['draft_qty'], 2) }} {{ $summary['unit'] }} in cart
-                                                @if(!empty($summary['draft_purchasers']))
-                                                    (by {{ implode(', ', $summary['draft_purchasers']) }})
-                                                @endif
-                                            </span>
-                                        @endif
-                                        @if ($summary['remaining_qty'] <= 0 && $summary['bought_qty'] > 0)
-                                            <span class="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-emerald-700">Purchased ✓</span>
-                                        @endif
-                                    </div>
-                                    {{-- Stats: single grid row --}}
-                                    <div class="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-semibold text-slate-600">
-                                        <div class="min-w-0 rounded-xl bg-slate-50 p-2">
-                                            <span class="block text-[10px] font-bold uppercase tracking-wider text-slate-500">Need</span>
-                                            <span class="mt-0.5 block truncate font-black text-slate-955">{{ number_format($summary['total_approved_qty'], 2) }} {{ $summary['unit'] }}</span>
-                                        </div>
-                                        <div class="min-w-0 rounded-xl bg-amber-50 p-2">
-                                            <span class="block text-[10px] font-bold uppercase tracking-wider text-amber-600">Bought</span>
-                                            <span class="mt-0.5 block truncate font-black text-amber-700">{{ number_format($summary['bought_qty'], 2) }} {{ $summary['unit'] }}</span>
-                                        </div>
-                                        <div class="min-w-0 rounded-xl bg-emerald-50 p-2">
-                                            <span class="block text-[10px] font-bold uppercase tracking-wider text-emerald-600">Left</span>
-                                            <span class="mt-0.5 block truncate font-black text-emerald-700">{{ number_format($summary['remaining_qty'], 2) }} {{ $summary['unit'] }}</span>
-                                        </div>
-                                    </div>
-                                </div>
+                @php
+                    $pendingSummary = $dailySummary->filter(function($summary) {
+                        return ((float) $summary['remaining_qty'] - (float) $summary['draft_qty']) > 0;
+                    });
+                    $completedSummary = $dailySummary->filter(function($summary) {
+                        return ((float) $summary['remaining_qty'] - (float) $summary['draft_qty']) <= 0;
+                    });
+                @endphp
 
-                                <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 lg:rounded-2xl lg:px-4">
-                                    <div class="flex flex-wrap items-center gap-2">
-                                        @foreach ($summary['quantity_buckets'] as $bucket)
-                                            <span class="inline-flex rounded-full bg-cyan-100 px-3 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-cyan-700">{{ $bucket['formatted'] }} x {{ $bucket['count'] }}</span>
-                                        @endforeach
-                                    </div>
-                                    <button type="button" onclick="document.getElementById('info-product-{{ $summary['product_id'] }}').classList.remove('hidden'); document.body.classList.add('overflow-hidden')" class="mt-3 flex w-full items-center justify-between text-left text-[11px] font-black text-slate-500">
-                                        <span>Demand split</span>
-                                        <span class="rounded-full bg-white px-2.5 py-1 text-[10px] text-slate-700 shadow-sm">{{ count($summary['shop_details']) }} shops</span>
-                                    </button>
-                                </div>
+                <div class="flex gap-2 rounded-xl bg-slate-100 p-1">
+                    <button type="button" id="tab-pending" onclick="switchDailyTab('pending')" class="flex-1 rounded-lg py-2.5 text-center text-xs font-black transition-all">
+                        Pending Demand ({{ $pendingSummary->count() }})
+                    </button>
+                    <button type="button" id="tab-completed" onclick="switchDailyTab('completed')" class="flex-1 rounded-lg py-2.5 text-center text-xs font-black transition-all">
+                        Completed / In Cart ({{ $completedSummary->count() }})
+                    </button>
+                </div>
 
-                                @if ($summary['remaining_qty'] > 0)
-                                    <div class="mt-2.5">
-                                        <button type="button" onclick="openAddToCartModal({{ $summary['product_id'] }}, '{{ addslashes($summary['product_name']) }}', '{{ $summary['unit'] }}', {{ $summary['remaining_qty'] }}, {{ $summary['draft_qty'] }}, '{{ $step }}', '{{ addslashes(implode(', ', $summary['draft_purchasers'])) }}')" class="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-teal-600 px-3 text-xs font-black text-white shadow-sm transition-all hover:bg-teal-500">
-                                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                                            </svg>
-                                            <span>Add to Cart</span>
-                                        </button>
-                                    </div>
-                                @endif
+                <div class="space-y-6">
+                    <div id="section-pending" class="space-y-4 hidden">
+                        @forelse ($pendingSummary as $summary)
+                            @include('purchasing.purchaser.partials.daily_item', ['summary' => $summary, 'currentDate' => $date])
+                        @empty
+                            <div class="rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-sm font-bold text-slate-500 lg:rounded-[2rem] lg:px-4 lg:py-12">
+                                No pending demand for this date.
                             </div>
-                        </article>
+                        @endforelse
+                    </div>
 
-                        <div id="info-product-{{ $summary['product_id'] }}" class="fixed inset-0 z-[90] hidden p-4" onclick="if (event.target === this) { this.classList.add('hidden'); document.body.classList.remove('overflow-hidden'); }">
-                            <div class="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"></div>
-                            <div class="relative mx-auto flex min-h-full max-w-lg items-center justify-center">
-                                <div class="w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-xl lg:rounded-[2rem] lg:p-5">
-                                    <div class="flex items-start justify-between gap-3">
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Demand Details</p>
-                                            <h3 class="mt-1 text-lg font-black text-slate-950">{{ $summary['product_name'] }}</h3>
-                                            <p class="mt-1 text-sm font-semibold text-slate-600">{{ number_format($summary['total_approved_qty'], 2) }} {{ $summary['unit'] }} total needed</p>
-                                        </div>
-                                        <button type="button" onclick="document.getElementById('info-product-{{ $summary['product_id'] }}').classList.add('hidden'); document.body.classList.remove('overflow-hidden')" class="rounded-xl bg-slate-100 px-3 py-2 text-[11px] font-black text-slate-700">Close</button>
-                                    </div>
-                                    <div class="mt-4 flex flex-wrap gap-2">
-                                        @foreach ($summary['quantity_buckets'] as $bucket)
-                                            <span class="inline-flex rounded-full bg-cyan-100 px-3 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-cyan-700">{{ $bucket['formatted'] }} x {{ $bucket['count'] }}</span>
-                                        @endforeach
-                                    </div>
-                                    <div class="mt-4 space-y-2">
-                                        @foreach ($summary['shop_details'] as $detail)
-                                            <div class="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700 lg:rounded-2xl">
-                                                <div class="min-w-0">
-                                                    <p class="truncate font-black text-slate-900">{{ $detail['shop_name'] }}</p>
-                                                    <p class="truncate text-xs text-slate-500">{{ $detail['order_number'] }}</p>
-                                                </div>
-                                                <span class="shrink-0">{{ number_format($detail['approved_qty'], 2) }} {{ $detail['unit'] }}</span>
-                                            </div>
-                                        @endforeach
-                                    </div>
-                                </div>
+                    <div id="section-completed" class="space-y-4 hidden">
+                        @forelse ($completedSummary as $summary)
+                            <div class="opacity-80 hover:opacity-100 transition-opacity duration-200">
+                                @include('purchasing.purchaser.partials.daily_item', ['summary' => $summary, 'currentDate' => $date])
                             </div>
-                        </div>
-                    @empty
+                        @empty
+                            <div class="rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-sm font-bold text-slate-500 lg:rounded-[2rem] lg:px-4 lg:py-12">
+                                No completed items for this date.
+                            </div>
+                        @endforelse
+                    </div>
+
+                    @if ($dailySummary->isEmpty())
                         <div class="rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-sm font-bold text-slate-500 lg:rounded-[2rem] lg:px-4 lg:py-12">
                             No demand for this date. Try a different date or use Buy Other.
                         </div>
-                    @endforelse
+                    @endif
                 </div>
             </div>
 
@@ -394,18 +352,39 @@
                     </div>
                 </div>
 
+                {{-- Price Basis Selector --}}
+                <div id="modal-basis-container" class="space-y-1 hidden">
+                    <label class="block text-[9px] font-black uppercase tracking-wider text-slate-500">Price Basis</label>
+                    <div class="flex items-center gap-1 rounded-lg bg-slate-100 p-0.5 w-max">
+                        <button type="button" id="modal-basis-kg-btn" onclick="setModalBasis('kg')" class="rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all bg-white text-slate-955 shadow-xs">
+                            Per Kg
+                        </button>
+                        <button type="button" id="modal-basis-box-btn" onclick="setModalBasis('box')" class="rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all text-slate-600 hover:bg-slate-50">
+                            Per Box
+                        </button>
+                    </div>
+                </div>
+
                 {{-- Quantity input --}}
                 <div class="space-y-1">
                     <label for="add-to-cart-quantity" class="block text-[9px] font-black uppercase tracking-wider text-slate-500">
-                        Quantity (<span id="add-to-cart-unit-label">kg</span>) <span class="text-rose-500">*</span>
+                        <span id="add-to-cart-qty-label">Quantity (kg)</span> <span class="text-rose-500">*</span>
                     </label>
                     <input type="number" id="add-to-cart-quantity" name="quantity" required class="w-full h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-955 focus:border-teal-500 focus:bg-white focus:outline-none">
+                </div>
+
+                {{-- Box Conversion input --}}
+                <div id="modal-conversion-container" class="space-y-1 hidden">
+                    <label for="add-to-cart-conversion" class="block text-[9px] font-black uppercase tracking-wider text-slate-500">
+                        kg/Box <span class="text-rose-500">*</span>
+                    </label>
+                    <input type="number" step="0.1" min="0.1" id="add-to-cart-conversion" value="15" class="w-full h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-955 focus:border-teal-500 focus:bg-white focus:outline-none">
                 </div>
 
                 {{-- Price input --}}
                 <div class="space-y-1">
                     <label for="add-to-cart-price" class="block text-[9px] font-black uppercase tracking-wider text-slate-500">
-                        Price (Per <span id="add-to-cart-price-unit-label">unit</span>) <span class="text-slate-400 font-normal">(Optional)</span>
+                        <span id="add-to-cart-price-label">Price (Per kg)</span> <span class="text-slate-400 font-normal">(Optional)</span>
                     </label>
                     <input type="number" step="0.01" min="0" id="add-to-cart-price" name="unit_price" class="w-full h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-955 focus:border-teal-500 focus:bg-white focus:outline-none" placeholder="0.00">
                 </div>
@@ -430,6 +409,46 @@
     </div>
 
     <script>
+        let currentModalBasis = 'kg';
+        let currentProductUnit = 'kg';
+
+        function setModalBasis(basis) {
+            currentModalBasis = basis;
+            const btnKg = document.getElementById('modal-basis-kg-btn');
+            const btnBox = document.getElementById('modal-basis-box-btn');
+            const qtyLabel = document.getElementById('add-to-cart-qty-label');
+            const priceLabel = document.getElementById('add-to-cart-price-label');
+            const convContainer = document.getElementById('modal-conversion-container');
+            const qtyInput = document.getElementById('add-to-cart-quantity');
+
+            if (basis === 'box') {
+                btnKg.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all text-slate-600 hover:bg-slate-50';
+                btnBox.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all bg-white text-slate-955 shadow-xs';
+                qtyLabel.textContent = 'Boxes';
+                priceLabel.textContent = 'Price (Per box)';
+                convContainer.classList.remove('hidden');
+                
+                qtyInput.step = '1';
+                qtyInput.min = '1';
+                qtyInput.value = Math.round(parseFloat(qtyInput.value)) || 1;
+            } else {
+                btnBox.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all text-slate-600 hover:bg-slate-50';
+                btnKg.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all bg-white text-slate-955 shadow-xs';
+                qtyLabel.textContent = `Quantity (${currentProductUnit})`;
+                priceLabel.textContent = `Price (Per ${currentProductUnit})`;
+                convContainer.classList.add('hidden');
+                
+                if (currentProductUnit === 'kg') {
+                    qtyInput.step = 'any';
+                    qtyInput.min = '0.01';
+                } else {
+                    qtyInput.step = '1';
+                    qtyInput.min = '1';
+                }
+            }
+            updateModalTotalPrice();
+        }
+
         function updateModalTotalPrice() {
             const quantity = parseFloat(document.getElementById('add-to-cart-quantity').value) || 0;
             const price = parseFloat(document.getElementById('add-to-cart-price').value) || 0;
@@ -442,12 +461,43 @@
 
         document.getElementById('add-to-cart-quantity').addEventListener('input', updateModalTotalPrice);
         document.getElementById('add-to-cart-price').addEventListener('input', updateModalTotalPrice);
+        document.getElementById('add-to-cart-conversion').addEventListener('input', updateModalTotalPrice);
+
+        // Bind form conversion on submit
+        document.addEventListener('DOMContentLoaded', () => {
+            const modalForm = document.querySelector('#add-to-cart-modal form');
+            if (modalForm) {
+                modalForm.addEventListener('submit', (e) => {
+                    if (currentProductUnit === 'kg' && currentModalBasis === 'box') {
+                        const qtyInput = document.getElementById('add-to-cart-quantity');
+                        const priceInput = document.getElementById('add-to-cart-price');
+                        const convInput = document.getElementById('add-to-cart-conversion');
+
+                        const boxes = parseFloat(qtyInput.value) || 0;
+                        const kgPerBox = parseFloat(convInput.value) || 1;
+                        const pricePerBox = parseFloat(priceInput.value) || 0;
+
+                        const submitQty = boxes * kgPerBox;
+                        const submitPrice = kgPerBox > 0 ? (pricePerBox / kgPerBox) : 0;
+
+                        qtyInput.value = submitQty.toFixed(3);
+                        priceInput.value = submitPrice.toFixed(4);
+                    }
+                });
+            }
+        });
 
         function openAddToCartModal(productId, productName, productUnit, remainingQty, draftQty, step, draftPurchasers) {
             document.getElementById('add-to-cart-product-id').value = productId;
             document.getElementById('add-to-cart-product-name').textContent = productName;
-            document.getElementById('add-to-cart-unit-label').textContent = productUnit;
-            document.getElementById('add-to-cart-price-unit-label').textContent = productUnit;
+            currentProductUnit = productUnit;
+
+            const basisContainer = document.getElementById('modal-basis-container');
+            if (productUnit === 'kg') {
+                basisContainer.classList.remove('hidden');
+            } else {
+                basisContainer.classList.add('hidden');
+            }
             
             const inCartLabel = document.getElementById('add-to-cart-in-cart-label');
             if (parseFloat(draftQty) > 0) {
@@ -465,11 +515,10 @@
             
             const qtyInput = document.getElementById('add-to-cart-quantity');
             qtyInput.value = defaultQty > 0 ? defaultQty.toFixed(2) : parseFloat(step).toFixed(2);
-            qtyInput.step = step;
-            qtyInput.min = step;
             
             document.getElementById('add-to-cart-price').value = '';
-            updateModalTotalPrice();
+            
+            setModalBasis('kg');
             
             document.getElementById('add-to-cart-modal').classList.remove('hidden');
             document.body.classList.add('overflow-hidden');
@@ -480,5 +529,35 @@
             document.getElementById('add-to-cart-modal').classList.add('hidden');
             document.body.classList.remove('overflow-hidden');
         }
+
+        function switchDailyTab(tab) {
+            const tabPending = document.getElementById('tab-pending');
+            const tabCompleted = document.getElementById('tab-completed');
+            const secPending = document.getElementById('section-pending');
+            const secCompleted = document.getElementById('section-completed');
+
+            if (!tabPending || !tabCompleted || !secPending || !secCompleted) return;
+
+            if (tab === 'pending') {
+                tabPending.className = 'flex-1 rounded-lg py-2.5 text-center text-xs font-black bg-white text-slate-955 shadow-sm transition-all';
+                tabCompleted.className = 'flex-1 rounded-lg py-2.5 text-center text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-all';
+                secPending.classList.remove('hidden');
+                secCompleted.classList.add('hidden');
+                localStorage.setItem('daily_active_tab', 'pending');
+            } else {
+                tabCompleted.className = 'flex-1 rounded-lg py-2.5 text-center text-xs font-black bg-white text-slate-955 shadow-sm transition-all';
+                tabPending.className = 'flex-1 rounded-lg py-2.5 text-center text-xs font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-all';
+                secCompleted.classList.remove('hidden');
+                secPending.classList.add('hidden');
+                localStorage.setItem('daily_active_tab', 'completed');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const cachedTab = localStorage.getItem('daily_active_tab');
+            const hasPending = {{ $pendingSummary->isNotEmpty() ? 'true' : 'false' }};
+            const defaultTab = cachedTab || (hasPending ? 'pending' : 'completed');
+            switchDailyTab(defaultTab);
+        });
     </script>
 </x-layouts.app>

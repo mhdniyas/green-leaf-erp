@@ -129,6 +129,52 @@ class PurchaserDashboardTest extends TestCase
         $response->assertSee('2 shops');
     }
 
+    public function test_daily_screen_partitions_pending_and_completed_demand_sections(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $supplyCategory = Category::create(['name' => 'Supply', 'is_active' => true]);
+
+        $tomato = Product::factory()->create([
+            'category_id' => $supplyCategory->id,
+            'name' => 'Tomato',
+            'sku' => 'TOMATO-001',
+            'unit' => 'kg',
+        ]);
+
+        $cucumber = Product::factory()->create([
+            'category_id' => $supplyCategory->id,
+            'name' => 'Cucumber',
+            'sku' => 'CUCUMBER-001',
+            'unit' => 'kg',
+        ]);
+
+        // Create approved order for Tomato (10 kg) -> Left as pending
+        $this->createApprovedOrder($date, $this->shopA, $tomato, 10);
+
+        // Create approved order for Cucumber (5 kg) -> Will be fully added to draft cart
+        $this->createApprovedOrder($date, $this->shopA, $cucumber, 5);
+
+        // Add Cucumber fully to cart
+        $this->actingAs($this->purchaser)->post(route('purchaser.cart-items.store'), [
+            'business_date' => $date,
+            'product_id' => $cucumber->id,
+            'quantity' => 5,
+            'unit_price' => 15,
+            'return_to' => 'daily',
+        ])->assertRedirect(route('purchaser.daily', ['date' => $date]));
+
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.daily', [
+            'date' => $date,
+            'chip' => 'All',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Pending Demand (1)');
+        $response->assertSee('Completed / In Cart (1)');
+        $response->assertSee('Tomato');
+        $response->assertSee('Cucumber');
+    }
+
     public function test_purchaser_can_add_off_list_product_and_flag_it_as_extra_purchase(): void
     {
         $date = Carbon::today()->format('Y-m-d');
@@ -234,7 +280,7 @@ class PurchaserDashboardTest extends TestCase
         ]);
 
         $sendResponse->assertStatus(302);
-        $this->assertStringContainsString('wa.me', (string) $sendResponse->headers->get('Location'));
+        $this->assertStringContainsString('api.whatsapp.com/send', (string) $sendResponse->headers->get('Location'));
 
         $firstCart->refresh();
         $this->assertNotNull($firstCart->whatsapp_sent_at);
@@ -276,7 +322,7 @@ class PurchaserDashboardTest extends TestCase
         ]);
 
         $sendResponse2->assertStatus(302);
-        $this->assertStringContainsString('wa.me/919876543210', (string) $sendResponse2->headers->get('Location'));
+        $this->assertStringContainsString('api.whatsapp.com/send?phone=919876543210', (string) $sendResponse2->headers->get('Location'));
 
         $firstCart->refresh()->load(['purchaseOrder', 'goodsReceived', 'purchaseInvoice']);
         $this->assertSame($anotherSupplier->id, $firstCart->supplier_id);
@@ -847,7 +893,7 @@ class PurchaserDashboardTest extends TestCase
         ]);
 
         $response->assertStatus(302);
-        $this->assertStringContainsString('wa.me/919876543210', (string) $response->headers->get('Location'));
+        $this->assertStringContainsString('api.whatsapp.com/send?phone=919876543210', (string) $response->headers->get('Location'));
     }
 
     public function test_cart_share_can_open_whatsapp_without_number(): void
@@ -862,7 +908,7 @@ class PurchaserDashboardTest extends TestCase
         ]);
 
         $response->assertStatus(302);
-        $this->assertStringContainsString('wa.me/?text=', (string) $response->headers->get('Location'));
+        $this->assertStringContainsString('api.whatsapp.com/send?text=', (string) $response->headers->get('Location'));
     }
 
     public function test_partial_payment_updates_finance_but_does_not_complete_cart(): void
@@ -1030,7 +1076,241 @@ class PurchaserDashboardTest extends TestCase
         ]));
 
         $response->assertOk();
-        $response->assertSee(e($this->purchaser->name));
-        $response->assertSee(e($this->purchaseManager->name));
+        $response->assertSee($this->purchaser->name);
+        $response->assertSee($this->purchaseManager->name);
+    }
+
+    public function test_purchaser_can_view_bulk_buy_selection_page(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $supplyCategory = Category::create(['name' => 'Supply', 'is_active' => true]);
+
+        $tomato = Product::factory()->create([
+            'category_id' => $supplyCategory->id,
+            'name' => 'Tomato',
+            'sku' => 'TOMATO-001',
+            'unit' => 'kg',
+        ]);
+
+        $this->createApprovedOrder($date, $this->shopA, $tomato, 5);
+
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy', [
+            'date' => $date,
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Bulk Purchase (Step 1)');
+        $response->assertSee('Tomato');
+        $response->assertDontSee('id="layout-mobile-nav"');
+    }
+
+    public function test_purchaser_can_view_bulk_buy_details_page_with_selected_products(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $supplyCategory = Category::create(['name' => 'Supply', 'is_active' => true]);
+
+        $tomato = Product::factory()->create([
+            'category_id' => $supplyCategory->id,
+            'name' => 'Tomato',
+            'sku' => 'TOMATO-001',
+            'unit' => 'kg',
+        ]);
+
+        $this->createApprovedOrder($date, $this->shopA, $tomato, 5);
+
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy.details', [
+            'date' => $date,
+            'product_ids' => [$tomato->id],
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Bulk Purchase (Step 2)');
+        $response->assertSee('Tomato');
+        $response->assertSee('New cart');
+        $response->assertDontSee('id="layout-mobile-nav"');
+    }
+
+    public function test_purchaser_cannot_access_bulk_buy_details_without_selection(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy.details', [
+            'date' => $date,
+        ]));
+
+        $response->assertRedirect(route('purchaser.bulk-buy', ['date' => $date]));
+        $response->assertSessionHas('error', 'Please select at least one product.');
+    }
+
+    public function test_purchaser_can_view_bulk_buy_details_page_with_box_toggles_for_kg_products(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $supplyCategory = Category::create(['name' => 'Supply', 'is_active' => true]);
+
+        $tomato = Product::factory()->create([
+            'category_id' => $supplyCategory->id,
+            'name' => 'Tomato',
+            'sku' => 'TOMATO-001',
+            'unit' => 'kg',
+        ]);
+
+        $apple = Product::factory()->create([
+            'category_id' => $supplyCategory->id,
+            'name' => 'Apple',
+            'sku' => 'APPLE-001',
+            'unit' => 'box',
+        ]);
+
+        $this->createApprovedOrder($date, $this->shopA, $tomato, 5);
+        $this->createApprovedOrder($date, $this->shopA, $apple, 2);
+
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy.details', [
+            'date' => $date,
+            'product_ids' => [$tomato->id, $apple->id],
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('basis-kg-btn-'.$tomato->id);
+        $response->assertSee('basis-box-btn-'.$tomato->id);
+        $response->assertSee('qty-box-'.$tomato->id);
+        $response->assertSee('conv-box-'.$tomato->id);
+        $response->assertSee('price-box-'.$tomato->id);
+
+        // Apple is unit 'box', so it should not have basis selection toggle
+        $response->assertDontSee('basis-kg-btn-'.$apple->id);
+        $response->assertDontSee('basis-box-btn-'.$apple->id);
+        $response->assertDontSee('qty-box-'.$apple->id);
+    }
+
+    public function test_purchaser_send_whatsapp_with_show_price_toggle(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $vegCategory = Category::create(['name' => 'VEG', 'is_active' => true]);
+
+        $product = Product::factory()->create([
+            'category_id' => $vegCategory->id,
+            'name' => 'Bottle Gourd',
+            'sku' => 'BG-01',
+            'unit' => 'kg',
+        ]);
+
+        $cart = PurchaserCart::create([
+            'user_id' => $this->purchaser->id,
+            'business_date' => $date,
+            'cart_number' => 'VC-'.str_replace('-', '', $date).'-DRAFT-001',
+            'status' => 'draft',
+        ]);
+
+        $item = $cart->items()->create([
+            'product_id' => $product->id,
+            'quantity' => 10,
+            'unit_price' => 25.50,
+        ]);
+
+        // Scenario 1: show_price is false (default)
+        $response = $this->actingAs($this->purchaser)->post(route('purchaser.carts.send', $cart), [
+            'supplier_id' => $this->supplier->id,
+            'show_price' => '0',
+        ]);
+
+        $response->assertStatus(302);
+        $redirectUrl = (string) $response->headers->get('Location');
+        $this->assertStringContainsString('api.whatsapp.com/send', $redirectUrl);
+        // Message text should NOT contain the price
+        $this->assertStringNotContainsString('@ 25.50', rawurldecode($redirectUrl));
+
+        // Scenario 2: show_price is true
+        $response = $this->actingAs($this->purchaser)->post(route('purchaser.carts.send', $cart), [
+            'supplier_id' => $this->supplier->id,
+            'show_price' => '1',
+        ]);
+
+        $response->assertStatus(302);
+        $redirectUrl = (string) $response->headers->get('Location');
+        $this->assertStringContainsString('api.whatsapp.com/send', $redirectUrl);
+        // Message text should contain the price
+        $this->assertStringContainsString('@ 25.50', rawurldecode($redirectUrl));
+    }
+
+    public function test_daily_summary_includes_past_pending_demands_and_formats_whatsapp_text(): void
+    {
+        $dateToday = Carbon::today()->format('Y-m-d');
+        $dateYesterday = Carbon::yesterday()->format('Y-m-d');
+
+        $vegCategory = Category::create(['name' => 'VEG', 'is_active' => true]);
+
+        $productA = Product::factory()->create([
+            'category_id' => $vegCategory->id,
+            'name' => 'Tomato Today',
+            'sku' => 'TOM-TDY',
+            'unit' => 'kg',
+        ]);
+
+        $productB = Product::factory()->create([
+            'category_id' => $vegCategory->id,
+            'name' => 'Potato Past Pending',
+            'sku' => 'POT-PST',
+            'unit' => 'kg',
+        ]);
+
+        $productC = Product::factory()->create([
+            'category_id' => $vegCategory->id,
+            'name' => 'Onion Past Completed',
+            'sku' => 'ON-COMP',
+            'unit' => 'kg',
+        ]);
+
+        // 1. Order today (Tomato)
+        $this->createApprovedOrder($dateToday, $this->shopA, $productA, 10);
+
+        // 2. Order yesterday pending (Potato)
+        $this->createApprovedOrder($dateYesterday, $this->shopA, $productB, 5);
+
+        // 3. Order yesterday completed (Onion)
+        $this->createApprovedOrder($dateYesterday, $this->shopA, $productC, 8);
+        // Also mark Onion as bought yesterday
+        $cartYesterday = PurchaserCart::create([
+            'user_id' => $this->purchaser->id,
+            'business_date' => $dateYesterday,
+            'cart_number' => 'VC-'.str_replace('-', '', $dateYesterday).'-1',
+            'status' => 'submitted',
+        ]);
+        $cartYesterday->items()->create([
+            'product_id' => $productC->id,
+            'quantity' => 8,
+            'unit_price' => 20,
+        ]);
+
+        // Fetch daily page
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.daily', ['date' => $dateToday, 'chip' => 'All']));
+        $response->assertOk();
+
+        // Check dailySummary view data directly
+        $dailySummaryData = $response->viewData('dailySummary');
+        $this->assertTrue($dailySummaryData->contains('product_name', 'Tomato Today'));
+        $this->assertTrue($dailySummaryData->contains('product_name', 'Potato Past Pending'));
+        $this->assertFalse($dailySummaryData->contains('product_name', 'Onion Past Completed'));
+
+        // Tomato Today should be visible in HTML
+        $response->assertSee('Tomato Today');
+        // Potato Past Pending should be visible in HTML
+        $response->assertSee('Potato Past Pending');
+        // It should show its pending date
+        $response->assertSee('Pending ('.Carbon::parse($dateYesterday)->format('d M Y').')');
+
+        // Check the daily share URL text
+        $shareUrl = $response->viewData('dailySummaryShareUrl');
+        $this->assertStringContainsString('api.whatsapp.com/send', $shareUrl);
+        $decodedText = rawurldecode($shareUrl);
+
+        // Tomato should be present without pending prefix
+        $this->assertStringContainsString('*Tomato Today*', $decodedText);
+        $this->assertStringNotContainsString('*Tomato Today* (Pending', $decodedText);
+
+        // Potato should be present with pending prefix
+        $this->assertStringContainsString('*Potato Past Pending* (Pending '.Carbon::parse($dateYesterday)->format('d M Y').')', $decodedText);
+
+        // Onion should not be present
+        $this->assertStringNotContainsString('Onion Past Completed', $decodedText);
     }
 }

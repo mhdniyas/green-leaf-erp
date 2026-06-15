@@ -103,46 +103,70 @@
                         {{-- Cart Items --}}
                         <div class="mt-2 space-y-1.5">
                             @forelse ($cart->items as $item)
+                                @php
+                                    $approvedQty = \App\Models\ShopOrderItem::query()
+                                        ->where('product_id', $item->product_id)
+                                        ->whereHas('order', function ($q) use ($cart) {
+                                            $q->whereDate('business_date', $cart->business_date)->where('state', 'approved');
+                                        })
+                                        ->sum('approved_qty');
+                                @endphp
                                 <div class="flex flex-col gap-2 rounded-lg bg-slate-50 p-2.5 shadow-xs">
+                                    {{-- Row 1: Title, Info, and Total --}}
                                     <div class="flex items-center justify-between gap-2">
-                                        <div class="flex items-center gap-1.5 min-w-0">
-                                            <h4 class="font-black text-slate-900 text-[11px] truncate">{{ $item->product->name }}</h4>
-                                            @if ($item->is_extra_purchase)
-                                                <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.12em] text-amber-700">Extra</span>
-                                            @endif
+                                        <div class="min-w-0 flex-1">
+                                            <div class="flex flex-wrap items-center gap-1.5">
+                                                <h4 class="font-black text-slate-900 text-[11px] truncate">{{ $item->product->name }}</h4>
+                                                @if ($item->is_extra_purchase)
+                                                    @php
+                                                        $extraQty = max(0, (float) $item->quantity - (float) $approvedQty);
+                                                        $formattedExtra = $item->product->unit === 'kg' ? number_format($extraQty, 1) : number_format($extraQty, 0);
+                                                    @endphp
+                                                    <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.12em] text-amber-700">
+                                                        Extra (+{{ $formattedExtra }} {{ $item->product->unit }})
+                                                    </span>
+                                                @endif
+                                            </div>
+                                            
+
                                         </div>
-                                        <span class="text-[10px] font-semibold text-slate-500 shrink-0">
-                                            {{ $item->product->category?->name ?: 'Other' }} • {{ $item->product->unit }}
-                                        </span>
+
+                                        {{-- Total Price Badge --}}
+                                        <div class="shrink-0 flex items-center justify-end">
+                                            <span class="text-xs font-black text-slate-900">
+                                                ₹<span id="total-{{ $item->id }}">{{ number_format((float) $item->quantity * (float) $item->unit_price, 2) }}</span>
+                                            </span>
+                                        </div>
                                     </div>
 
-                                    {{-- Controls Container (Form + Delete) --}}
-                                    <div class="flex flex-wrap items-center justify-between gap-2 min-w-0 w-full">
+                                    {{-- Row 2: Controls Container (Form + Delete) --}}
+                                    <div class="flex flex-nowrap items-end justify-between gap-1.5 w-full mt-1">
                                         {{-- Inline Update Form --}}
-                                        <form action="{{ route('purchaser.cart-items.update', $item) }}" method="POST" class="flex flex-wrap items-center gap-1.5 min-w-0">
+                                        <form action="{{ route('purchaser.cart-items.update', $item) }}" method="POST" class="flex flex-nowrap items-end gap-1.5 min-w-0 flex-1">
                                             @csrf
                                             @method('PATCH')
                                             <input type="hidden" name="return_to" value="vendors">
                                             
                                             {{-- Stepper --}}
-                                            <div class="flex items-center border border-slate-200 bg-white rounded-lg overflow-hidden h-9 shrink-0 shadow-xs">
-                                                <button type="button" onclick="this.nextElementSibling.stepDown(); updateCartItemTotal({{ $item->id }})" class="w-8 h-full flex items-center justify-center text-sm font-bold text-slate-500 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer">-</button>
-                                                <input type="number" step="{{ $item->product->unit === 'kg' ? '0.5' : '1' }}" min="{{ $item->product->unit === 'kg' ? '0.5' : '1' }}" name="quantity" id="quantity-{{ $item->id }}" value="{{ number_format((float) $item->quantity, 2, '.', '') }}" oninput="updateCartItemTotal({{ $item->id }})" class="w-12 h-full text-center text-xs font-black bg-transparent focus:outline-none text-slate-900">
-                                                <button type="button" onclick="this.previousElementSibling.stepUp(); updateCartItemTotal({{ $item->id }})" class="w-8 h-full flex items-center justify-center text-sm font-bold text-slate-500 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer">+</button>
+                                            <div class="flex flex-col gap-0.5 min-w-0">
+                                                <span class="text-[8px] font-black text-slate-400 uppercase tracking-wider">Qty</span>
+                                                <div class="flex items-center border border-slate-200 bg-white rounded-lg overflow-hidden h-8 shrink-0 shadow-xs">
+                                                    <button type="button" onclick="this.nextElementSibling.stepDown(); updateCartItemTotal({{ $item->id }})" class="w-7 h-full flex items-center justify-center text-xs font-bold text-slate-500 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer">-</button>
+                                                    <input type="number" step="{{ $item->product->unit === 'kg' ? 'any' : '1' }}" min="{{ $item->product->unit === 'kg' ? '0.01' : '1' }}" name="quantity" id="quantity-{{ $item->id }}" value="{{ number_format((float) $item->quantity, 2, '.', '') }}" oninput="updateCartItemTotal({{ $item->id }})" class="w-10 h-full text-center text-[10px] font-black bg-transparent focus:outline-none text-slate-900">
+                                                    <button type="button" onclick="this.previousElementSibling.stepUp(); updateCartItemTotal({{ $item->id }})" class="w-7 h-full flex items-center justify-center text-xs font-bold text-slate-500 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer">+</button>
+                                                </div>
                                             </div>
 
-                                            <span class="text-xs text-slate-400 font-bold">@</span>
+                                            <span class="text-[10px] text-slate-400 font-bold mb-2 shrink-0">@</span>
 
                                             {{-- Price Input --}}
-                                            <input type="number" step="0.01" min="0" name="unit_price" id="price-{{ $item->id }}" value="{{ number_format((float) $item->unit_price, 2, '.', '') }}" oninput="updateCartItemTotal({{ $item->id }})" placeholder="Price" class="h-9 w-16 text-center text-xs font-bold border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-teal-500 shrink-0 text-slate-900 shadow-xs">
-
-                                            {{-- Total Price Badge --}}
-                                            <span class="h-9 flex items-center justify-center text-xs font-bold text-slate-700 bg-[#f1f5f9] border border-slate-200/60 px-2.5 rounded-lg shrink-0">
-                                                ₹<span id="total-{{ $item->id }}">{{ number_format((float) $item->quantity * (float) $item->unit_price, 2) }}</span>
-                                            </span>
+                                            <div class="flex flex-col gap-0.5 min-w-0">
+                                                <span class="text-[8px] font-black text-slate-400 uppercase tracking-wider">Per {{ $item->product->unit }}</span>
+                                                <input type="number" step="0.01" min="0" name="unit_price" id="price-{{ $item->id }}" value="{{ number_format((float) $item->unit_price, 2, '.', '') }}" oninput="updateCartItemTotal({{ $item->id }})" placeholder="Price" class="h-8 w-14 text-center text-[10px] font-bold border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-teal-500 shrink-0 text-slate-900 shadow-xs">
+                                            </div>
 
                                             {{-- Save Button --}}
-                                            <button type="submit" class="h-9 rounded-lg bg-slate-950 hover:bg-slate-900 px-3 text-xs font-black text-white transition-colors cursor-pointer shrink-0">Save</button>
+                                            <button type="submit" class="h-8 rounded-lg bg-slate-950 hover:bg-slate-900 px-3.5 text-[10px] font-black text-white transition-colors cursor-pointer shrink-0">Save</button>
                                         </form>
 
                                         {{-- Delete Form --}}
@@ -151,7 +175,7 @@
                                                 @csrf
                                                 @method('DELETE')
                                                 <input type="hidden" name="return_to" value="vendors">
-                                                <button type="submit" class="h-9 w-9 flex items-center justify-center rounded-lg bg-[#fff1f2] text-[#e11d48] hover:bg-[#ffe4e6] border border-[#fecdd3] cursor-pointer" title="Delete">
+                                                <button type="submit" class="h-8 w-8 flex items-center justify-center rounded-lg bg-[#fff1f2] text-[#e11d48] hover:bg-[#ffe4e6] border border-[#fecdd3] cursor-pointer" title="Delete">
                                                     <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                                                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                                     </svg>
@@ -309,6 +333,7 @@
         <input type="hidden" id="cart-share-supplier-id" name="supplier_id" value="">
         <input type="hidden" id="cart-share-mode" name="share_mode" value="saved">
         <input type="hidden" id="cart-share-mobile-hidden" name="vendor_mobile_number" value="">
+        <input type="hidden" id="cart-share-show-price" name="show_price" value="0">
     </form>
 
     {{-- Change Vendor Modal --}}
@@ -407,6 +432,15 @@
             </div>
 
             <div class="mt-4 space-y-3">
+                <div class="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2">
+                    <span class="text-xs font-bold text-slate-700">Show price in message</span>
+                    <button type="button" role="switch" aria-checked="false" id="toggle-show-price" 
+                            class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent bg-slate-200 transition-colors duration-200 ease-in-out focus:outline-none"
+                            onclick="togglePriceCheckbox()">
+                        <span aria-hidden="true" id="toggle-switch-handle" class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out translate-x-0"></span>
+                    </button>
+                </div>
+
                 <button type="button" id="cart-share-saved-button" onclick="submitCartShare('saved')" class="flex h-10 w-full items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-xs font-black text-emerald-700 hover:bg-emerald-100">
                     Share to Saved Number
                 </button>
@@ -550,6 +584,34 @@
         let cartPaymentAmount = 0;
         let cartPaymentCreditApproved = false;
 
+        function setPriceToggle(isOn) {
+            const btn = document.getElementById('toggle-show-price');
+            const handle = document.getElementById('toggle-switch-handle');
+            const input = document.getElementById('cart-share-show-price');
+            
+            if (isOn) {
+                btn.classList.remove('bg-slate-200');
+                btn.classList.add('bg-teal-600');
+                btn.setAttribute('aria-checked', 'true');
+                handle.classList.remove('translate-x-0');
+                handle.classList.add('translate-x-4');
+                input.value = '1';
+            } else {
+                btn.classList.remove('bg-teal-600');
+                btn.classList.add('bg-slate-200');
+                btn.setAttribute('aria-checked', 'false');
+                handle.classList.remove('translate-x-4');
+                handle.classList.add('translate-x-0');
+                input.value = '0';
+            }
+        }
+
+        function togglePriceCheckbox() {
+            const input = document.getElementById('cart-share-show-price');
+            const isOn = input.value === '1';
+            setPriceToggle(!isOn);
+        }
+
         function openCartShareModal(actionUrl, supplierId, supplierMobile, title) {
             cartShareState = {
                 actionUrl,
@@ -565,6 +627,9 @@
             document.getElementById('cart-share-saved-button').classList.toggle('opacity-50', !cartShareState.supplierMobile);
             document.getElementById('cart-share-modal').classList.remove('hidden');
             document.getElementById('cart-share-modal').classList.add('flex');
+            
+            // Default show price toggle to OFF
+            setPriceToggle(false);
         }
 
         function closeCartShareModal() {

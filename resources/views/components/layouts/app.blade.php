@@ -1,4 +1,4 @@
-@props(['title' => 'Green Leaf Traders'])
+@props(['title' => 'Green Leaf Traders', 'showMobileNav' => true])
 
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="h-full">
@@ -22,21 +22,21 @@
 @php
     $currentUser = auth()->user();
     $currentUserInitial = $currentUser ? strtoupper(substr($currentUser->name, 0, 1)) : 'U';
-    $showAdminMobileNav = $currentUser &&
+    $showAdminMobileNav = $showMobileNav && $currentUser &&
         ($currentUser->hasRole('admin') || $currentUser->can('admin.user.view') || $currentUser->can('admin.daily-progress.view') || $currentUser->can('admin.activity-log.view'));
-    $showWarehouseMobileNav = $currentUser &&
+    $showWarehouseMobileNav = $showMobileNav && $currentUser &&
         ! $showAdminMobileNav &&
         ($currentUser->hasRole('warehouse') || $currentUser->can('warehouse.checklist.view'));
-    $showPurchaserMobileNav = $currentUser &&
+    $showPurchaserMobileNav = $showMobileNav && $currentUser &&
         ! $showAdminMobileNav &&
         ! $showWarehouseMobileNav &&
         $currentUser->hasRole('purchaser');
-    $showPurchaseMobileNav = $currentUser &&
+    $showPurchaseMobileNav = $showMobileNav && $currentUser &&
         ! $showAdminMobileNav &&
         ! $showWarehouseMobileNav &&
         ! $showPurchaserMobileNav &&
         ($currentUser->hasRole('purchase') || $currentUser->can('purchasing.order.approve'));
-    $showWarehouseReceiverMobileNav = $currentUser &&
+    $showWarehouseReceiverMobileNav = $showMobileNav && $currentUser &&
         ! $showAdminMobileNav &&
         ! $showWarehouseMobileNav &&
         ! $showPurchaserMobileNav &&
