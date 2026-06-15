@@ -10,11 +10,7 @@ use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\Admin\WarehouseController;
 use App\Http\Controllers\Web\Auth\LoginController;
 use App\Http\Controllers\Web\DashboardController;
-use App\Http\Controllers\Web\Finance\AccountController;
-use App\Http\Controllers\Web\Finance\ExpenseController;
 use App\Http\Controllers\Web\Finance\FinanceController;
-use App\Http\Controllers\Web\Finance\FinancialReportController;
-use App\Http\Controllers\Web\Finance\LedgerController;
 use App\Http\Controllers\Web\Inventory\BatchController;
 use App\Http\Controllers\Web\Inventory\DeliveryDashboardController;
 use App\Http\Controllers\Web\Inventory\FulfillmentReportController;
@@ -144,6 +140,7 @@ Route::middleware('auth')->group(function () {
 
         // Invoices
         Route::resource('invoices', PurchaseInvoiceController::class)->only(['index', 'create', 'store', 'show']);
+        Route::get('invoices/vendors/{supplier}', [PurchaseInvoiceController::class, 'vendorReport'])->name('invoices.vendor-report');
         Route::get('invoices/{invoice}/pdf', [PurchaseInvoiceController::class, 'pdf'])->name('invoices.pdf');
         Route::post('invoices/{invoice}/status', [PurchaseInvoiceController::class, 'updateStatus'])->name('invoices.update-status');
         Route::patch('invoices/{invoice}/payment', [PurchaseInvoiceController::class, 'updatePayment'])->name('invoices.update-payment');
@@ -170,16 +167,23 @@ Route::middleware('auth')->group(function () {
     // ── Finance & Accounting ────────────────────────────────────────────────
     Route::prefix('finance')->name('finance.')->group(function () {
         Route::get('/', [FinanceController::class, 'index'])->name('index');
-        Route::get('/statement/export/csv', [FinanceController::class, 'exportCsv'])->name('statement.export.csv');
-        Route::get('/statement/export/pdf', [FinanceController::class, 'exportPdf'])->name('statement.export.pdf');
-        Route::get('accounts', [AccountController::class, 'index'])->name('accounts.index');
-        Route::get('ledger', [LedgerController::class, 'index'])->name('ledger.index');
-        Route::resource('expenses', ExpenseController::class);
-
-        // Reports
-        Route::get('reports/pnl', [FinancialReportController::class, 'pnl'])->name('reports.pnl');
-        Route::get('reports/balance-sheet', [FinancialReportController::class, 'balanceSheet'])->name('reports.balance-sheet');
-        Route::get('reports/cash-flow', [FinancialReportController::class, 'cashFlow'])->name('reports.cash-flow');
+        Route::get('/vendors', [FinanceController::class, 'vendors'])->name('vendors.index');
+        Route::get('/vendors/excel', [FinanceController::class, 'vendorsExcel'])->name('vendors.excel');
+        Route::get('/vendors/pdf', [FinanceController::class, 'vendorsPdf'])->name('vendors.pdf');
+        Route::get('/sales', [FinanceController::class, 'sales'])->name('sales.index');
+        Route::get('/sales/excel', [FinanceController::class, 'salesExcel'])->name('sales.excel');
+        Route::get('/sales/pdf', [FinanceController::class, 'salesPdf'])->name('sales.pdf');
+        Route::get('/vendor-daily', [FinanceController::class, 'vendorDaily'])->name('vendor-daily');
+        Route::get('/sales-daily', [FinanceController::class, 'salesDaily'])->name('sales-daily');
+        Route::get('/statement/export/csv', [FinanceController::class, 'legacyRedirect'])->name('statement.export.csv');
+        Route::get('/statement/export/pdf', [FinanceController::class, 'legacyRedirect'])->name('statement.export.pdf');
+        Route::get('accounts', [FinanceController::class, 'legacyRedirect'])->name('accounts.index');
+        Route::get('ledger', [FinanceController::class, 'legacyRedirect'])->name('ledger.index');
+        Route::get('expenses', [FinanceController::class, 'legacyRedirect'])->name('expenses.index');
+        Route::get('expenses/create', [FinanceController::class, 'legacyRedirect'])->name('expenses.create');
+        Route::get('reports/pnl', [FinanceController::class, 'legacyRedirect'])->name('reports.pnl');
+        Route::get('reports/balance-sheet', [FinanceController::class, 'legacyRedirect'])->name('reports.balance-sheet');
+        Route::get('reports/cash-flow', [FinanceController::class, 'legacyRedirect'])->name('reports.cash-flow');
     });
 
     // ── Requisition Presets ────────────────────────────────────────────────

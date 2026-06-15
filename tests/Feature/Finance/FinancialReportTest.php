@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Tests\Feature\Finance;
 
 use App\Models\User;
-use Database\Seeders\ChartOfAccountsSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -23,36 +22,29 @@ class FinancialReportTest extends TestCase
         parent::setUp();
 
         $this->seed(RolePermissionSeeder::class);
-        $this->seed(ChartOfAccountsSeeder::class);
 
         $this->authorizedUser = User::factory()->create();
-        $this->authorizedUser->givePermissionTo('accounting.report.view');
+        $this->authorizedUser->givePermissionTo('accounting.ledger.view');
 
         $this->unauthorizedUser = User::factory()->create();
     }
 
-    public function test_authorized_user_can_view_reports(): void
+    public function test_legacy_financial_reports_redirect_to_finance_board(): void
     {
-        // P&L
-        $response = $this->actingAs($this->authorizedUser)
-            ->get(route('finance.reports.pnl'));
-        $response->assertOk();
-        $response->assertSee('Profit & Loss Statement'); // HTML escaped automatically by assertSee
+        $this->actingAs($this->authorizedUser)
+            ->get(route('finance.reports.pnl'))
+            ->assertRedirect(route('finance.vendors.index'));
 
-        // Balance Sheet
-        $response = $this->actingAs($this->authorizedUser)
-            ->get(route('finance.reports.balance-sheet'));
-        $response->assertOk();
-        $response->assertSee('Balance Sheet');
+        $this->actingAs($this->authorizedUser)
+            ->get(route('finance.reports.balance-sheet'))
+            ->assertRedirect(route('finance.vendors.index'));
 
-        // Cash Flow
-        $response = $this->actingAs($this->authorizedUser)
-            ->get(route('finance.reports.cash-flow'));
-        $response->assertOk();
-        $response->assertSee('Cash Flow Statement');
+        $this->actingAs($this->authorizedUser)
+            ->get(route('finance.reports.cash-flow'))
+            ->assertRedirect(route('finance.vendors.index'));
     }
 
-    public function test_unauthorized_user_cannot_view_reports(): void
+    public function test_unauthorized_user_cannot_open_legacy_financial_reports(): void
     {
         $response = $this->actingAs($this->unauthorizedUser)
             ->get(route('finance.reports.pnl'));

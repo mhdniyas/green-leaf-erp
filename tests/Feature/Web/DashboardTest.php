@@ -9,6 +9,7 @@ use App\Enums\Sales\SOStatus;
 use App\Models\Customer;
 use App\Models\GoodsReceived;
 use App\Models\Product;
+use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
 use App\Models\SalesInvoice;
 use App\Models\SalesOrder;
@@ -445,6 +446,45 @@ class DashboardTest extends TestCase
         $this->actingAs($manager)
             ->get(route('purchasing.orders.create'))
             ->assertForbidden();
+    }
+
+    public function test_admin_overview_shows_vendor_and_shop_owner_finance_pillars(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+
+        $supplier = Supplier::factory()->create([
+            'name' => 'North Market Vendor',
+            'credit_approval_requested_at' => now(),
+            'credit_approval_requested_by' => $admin->id,
+            'credit_approved' => false,
+        ]);
+
+        PurchaseInvoice::factory()->create([
+            'supplier_id' => $supplier->id,
+            'amount' => 500.00,
+            'paid_amount' => 125.00,
+            'created_at' => today()->setTime(10, 0),
+        ]);
+
+        ShopInvoice::factory()->create([
+            'invoice_number' => 'SINV-ADMIN-PILLAR',
+            'business_date' => today()->toDateString(),
+            'final_total' => 700.00,
+            'paid_amount' => 400.00,
+            'balance_amount' => 300.00,
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.overview'))
+            ->assertOk()
+            ->assertSee('Vendor Reports')
+            ->assertSee('Sales Reports')
+            ->assertSee('Daily credit and debit table')
+            ->assertSee('North Market Vendor')
+            ->assertSee('Approve Credit')
+            ->assertDontSee('Cash Collected')
+            ->assertDontSee('Expense Outflow');
     }
 
     public function test_warehouse_manager_dashboard_shows_receive_goods_gateway(): void

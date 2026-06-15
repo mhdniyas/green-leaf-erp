@@ -4,11 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Finance;
 
-use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
-use App\Models\Account;
-use App\Models\JournalTransaction;
-use App\Models\PurchaseOrderItem;
+use App\Services\Finance\AdminFinancePillarService;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Gate;
@@ -17,239 +15,162 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FinanceController extends Controller
 {
-    public function index(Request $request): View
+    public function __construct(
+        private readonly AdminFinancePillarService $financePillars,
+    ) {}
+
+    public function index(): RedirectResponse
     {
         Gate::authorize('accounting.ledger.view');
 
-        // Resolve dates from query filter
-        $dateFilter = $request->input('date_filter', 'this_month');
-        $startDateInput = $request->input('start_date');
-        $endDateInput = $request->input('end_date');
-
-        if ($dateFilter === 'this_month') {
-            $startDate = today()->startOfMonth()->format('Y-m-d');
-            $endDate = today()->endOfMonth()->format('Y-m-d');
-        } elseif ($dateFilter === 'last_month') {
-            $startDate = today()->subMonth()->startOfMonth()->format('Y-m-d');
-            $endDate = today()->subMonth()->endOfMonth()->format('Y-m-d');
-        } elseif ($dateFilter === 'custom' && $startDateInput && $endDateInput) {
-            $startDate = $startDateInput;
-            $endDate = $endDateInput;
-        } else {
-            // Default fallback
-            $startDate = today()->startOfMonth()->format('Y-m-d');
-            $endDate = today()->endOfMonth()->format('Y-m-d');
-        }
-
-        // 1. Overview metrics (current/real-time balances)
-        $cashAccount = Account::where('code', '1010')->first();
-        $bankAccount = Account::where('code', '1020')->first();
-        $availableBalance = ($cashAccount?->balance ?? 0.0) + ($bankAccount?->balance ?? 0.0);
-
-        $apAccount = Account::where('code', '2100')->first();
-        $outstandingAmount = $apAccount?->balance ?? 0.0;
-
-        $arAccount = Account::where('code', '1100')->first();
-        $expectedCredit = $arAccount?->balance ?? 0.0;
-
-        // This Month Purchases (sum of non-draft POs)
-        $thisMonthPurchases = (float) PurchaseOrderItem::whereHas('purchaseOrder', function ($q) {
-            $q->whereYear('order_date', today()->year)
-                ->whereMonth('order_date', today()->month)
-                ->where('status', '!=', POStatus::Draft);
-        })->selectRaw('SUM(quantity * unit_price) as total')->value('total');
-
-        // 2. Payments list (filtered by date range)
-        $payments = $this->getPaymentsData($startDate, $endDate);
-
-        // 3. Running Ledger data (filtered by date range)
-        $ledgerData = $this->getLedgerData($startDate, $endDate);
-
-        $activeTab = $request->input('tab', 'overview');
-
-        return view('finance.index', compact(
-            'availableBalance',
-            'outstandingAmount',
-            'expectedCredit',
-            'thisMonthPurchases',
-            'payments',
-            'ledgerData',
-            'startDate',
-            'endDate',
-            'dateFilter',
-            'activeTab'
-        ));
+        return redirect()->route('finance.vendors.index');
     }
 
-    public function exportCsv(Request $request): StreamedResponse
+    public function vendors(Request $request): View
     {
         Gate::authorize('accounting.ledger.view');
 
-        $startDate = $request->input('start_date', today()->startOfMonth()->format('Y-m-d'));
-        $endDate = $request->input('end_date', today()->endOfMonth()->format('Y-m-d'));
+        [$startDate, $endDate] = $this->resolvePeriod($request);
+        $finance = $this->financePillars->forPeriod($startDate, $endDate);
 
-        $ledgerData = $this->getLedgerData($startDate, $endDate);
+        return view('finance.vendors.index', compact('startDate', 'endDate', 'finance'));
+    }
 
-        $headers = [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => 'attachment; filename="ledger_statement_'.$startDate.'_to_'.$endDate.'.csv"',
-        ];
+    public function sales(Request $request): View
+    {
+        Gate::authorize('accounting.ledger.view');
 
-        $callback = function () use ($ledgerData, $startDate, $endDate): void {
+        [$startDate, $endDate] = $this->resolvePeriod($request);
+        $finance = $this->financePillars->forPeriod($startDate, $endDate);
+
+        return view('finance.sales.index', compact('startDate', 'endDate', 'finance'));
+    }
+
+    public function vendorsExcel(Request $request): StreamedResponse
+    {
+        Gate::authorize('accounting.ledger.view');
+
+        [$startDate, $endDate] = $this->resolvePeriod($request);
+        $vendor = $this->financePillars->forPeriod($startDate, $endDate)['vendor'];
+
+        return response()->streamDownload(function () use ($vendor): void {
             $file = fopen('php://output', 'w');
-            if ($file) {
-                fputcsv($file, ['Ledger Account Statement']);
-                fputcsv($file, ['Period', $startDate.' to '.$endDate]);
-                fputcsv($file, ['Opening Balance', number_format($ledgerData['opening_balance'], 2)]);
-                fputcsv($file, ['Closing Balance', number_format($ledgerData['closing_balance'], 2)]);
-                fputcsv($file, []);
-                fputcsv($file, ['Date', 'Description', 'Debit (Outflow)', 'Credit (Inflow)', 'Balance']);
 
-                foreach ($ledgerData['lines'] as $line) {
-                    fputcsv($file, [
-                        $line->date ? $line->date->format('Y-m-d') : 'N/A',
-                        $line->description,
-                        $line->debit !== null ? number_format($line->debit, 2) : '',
-                        $line->credit !== null ? number_format($line->credit, 2) : '',
-                        number_format($line->balance, 2),
-                    ]);
-                }
-                fclose($file);
+            if ($file === false) {
+                return;
             }
-        };
 
-        return response()->stream($callback, 200, $headers);
+            fputcsv($file, ['Date', 'Lead Vendor', 'Credit', 'Debit', 'Balance', 'Status']);
+
+            foreach ($vendor['daily_rows'] as $row) {
+                fputcsv($file, [
+                    $row['date'],
+                    $row['lead_label'],
+                    number_format((float) $row['credit_amount'], 2, '.', ''),
+                    number_format((float) $row['debit_amount'], 2, '.', ''),
+                    number_format((float) $row['balance_amount'], 2, '.', ''),
+                    $row['status'],
+                ]);
+            }
+
+            fclose($file);
+        }, 'vendor-reports-'.$startDate->toDateString().'_'.$endDate->toDateString().'.csv', [
+            'Content-Type' => 'text/csv',
+        ]);
     }
 
-    public function exportPdf(Request $request): View
+    public function salesExcel(Request $request): StreamedResponse
     {
         Gate::authorize('accounting.ledger.view');
 
-        $startDate = $request->input('start_date', today()->startOfMonth()->format('Y-m-d'));
-        $endDate = $request->input('end_date', today()->endOfMonth()->format('Y-m-d'));
+        [$startDate, $endDate] = $this->resolvePeriod($request);
+        $sales = $this->financePillars->forPeriod($startDate, $endDate)['sales'];
 
-        $ledgerData = $this->getLedgerData($startDate, $endDate);
+        return response()->streamDownload(function () use ($sales): void {
+            $file = fopen('php://output', 'w');
 
-        return view('finance.statement_pdf', compact('ledgerData', 'startDate', 'endDate'));
+            if ($file === false) {
+                return;
+            }
+
+            fputcsv($file, ['Date', 'Lead Shop', 'Credit', 'Debit', 'Balance', 'Status']);
+
+            foreach ($sales['daily_rows'] as $row) {
+                fputcsv($file, [
+                    $row['date'],
+                    $row['lead_label'],
+                    number_format((float) $row['credit_amount'], 2, '.', ''),
+                    number_format((float) $row['debit_amount'], 2, '.', ''),
+                    number_format((float) $row['balance_amount'], 2, '.', ''),
+                    $row['status'],
+                ]);
+            }
+
+            fclose($file);
+        }, 'sales-reports-'.$startDate->toDateString().'_'.$endDate->toDateString().'.csv', [
+            'Content-Type' => 'text/csv',
+        ]);
     }
 
-    private function getLedgerData(string $startDate, string $endDate): array
+    public function vendorsPdf(Request $request): View
     {
-        $cashAccount = Account::where('code', '1010')->first();
-        $bankAccount = Account::where('code', '1020')->first();
-        $accountIds = array_filter([$cashAccount?->id, $bankAccount?->id]);
+        Gate::authorize('accounting.ledger.view');
 
-        $openingBalance = 0.0;
-        if (! empty($accountIds)) {
-            $startCarbon = Carbon::parse($startDate);
-            $dayBefore = $startCarbon->copy()->subDay()->format('Y-m-d');
+        [$startDate, $endDate] = $this->resolvePeriod($request);
+        $finance = $this->financePillars->forPeriod($startDate, $endDate);
 
-            $cashBalBefore = $cashAccount ? $cashAccount->getBalanceForPeriod(null, $dayBefore) : 0.0;
-            $bankBalBefore = $bankAccount ? $bankAccount->getBalanceForPeriod(null, $dayBefore) : 0.0;
-            $openingBalance = $cashBalBefore + $bankBalBefore;
-        }
-
-        $ledgerLines = [];
-        $currentBalance = $openingBalance;
-
-        // First item is opening balance
-        $ledgerLines[] = (object) [
-            'date' => Carbon::parse($startDate),
-            'description' => 'Opening Balance',
-            'debit' => null,
-            'credit' => null,
-            'balance' => $openingBalance,
-        ];
-
-        if (! empty($accountIds)) {
-            $txs = JournalTransaction::with(['journalEntry.transactions.account'])
-                ->whereIn('account_id', $accountIds)
-                ->whereHas('journalEntry', function ($q) use ($startDate, $endDate) {
-                    $q->where('entry_date', '>=', $startDate)
-                        ->where('entry_date', '<=', $endDate);
-                })
-                ->get()
-                ->sortBy(fn ($tx) => $tx->journalEntry->entry_date->timestamp);
-
-            foreach ($txs as $tx) {
-                $entry = $tx->journalEntry;
-                $amount = (float) $tx->amount;
-                $isDebit = $tx->type === 'debit'; // asset debit = inflow = credit in bank statement style
-
-                if ($isDebit) {
-                    // Inflow (Bank statement Credit)
-                    $debitVal = null;
-                    $creditVal = $amount;
-                    $currentBalance += $amount;
-                } else {
-                    // Outflow (Bank statement Debit)
-                    $debitVal = $amount;
-                    $creditVal = null;
-                    $currentBalance -= $amount;
-                }
-
-                $ledgerLines[] = (object) [
-                    'date' => $entry->entry_date,
-                    'description' => $entry->description ?? $entry->reference,
-                    'debit' => $debitVal,
-                    'credit' => $creditVal,
-                    'balance' => $currentBalance,
-                ];
-            }
-        }
-
-        return [
-            'opening_balance' => $openingBalance,
-            'closing_balance' => $currentBalance,
-            'lines' => $ledgerLines,
-        ];
+        return view('finance.vendors.pdf', compact('startDate', 'endDate', 'finance'));
     }
 
-    private function getPaymentsData(string $startDate, string $endDate): array
+    public function salesPdf(Request $request): View
     {
-        $cashAccount = Account::where('code', '1010')->first();
-        $bankAccount = Account::where('code', '1020')->first();
-        $accountIds = array_filter([$cashAccount?->id, $bankAccount?->id]);
+        Gate::authorize('accounting.ledger.view');
 
-        $payments = [];
-        if (! empty($accountIds)) {
-            $txs = JournalTransaction::with(['journalEntry.transactions.account'])
-                ->whereIn('account_id', $accountIds)
-                ->whereHas('journalEntry', function ($q) use ($startDate, $endDate) {
-                    $q->where('entry_date', '>=', $startDate)
-                        ->where('entry_date', '<=', $endDate);
-                })
-                ->get()
-                ->sortByDesc(fn ($tx) => $tx->journalEntry->entry_date->timestamp);
+        [$startDate, $endDate] = $this->resolvePeriod($request);
+        $finance = $this->financePillars->forPeriod($startDate, $endDate);
 
-            foreach ($txs as $tx) {
-                $entry = $tx->journalEntry;
-                $amount = (float) $tx->amount;
-                $isDebit = $tx->type === 'debit';
+        return view('finance.sales.pdf', compact('startDate', 'endDate', 'finance'));
+    }
 
-                $type = 'Other';
-                if (str_starts_with((string) $entry->reference, 'PAY-')) {
-                    $type = 'Sales Payment';
-                } elseif (str_starts_with((string) $entry->reference, 'PMT-')) {
-                    $type = 'Purchase Payment';
-                } elseif (str_starts_with((string) $entry->reference, 'EXP-')) {
-                    $type = 'Expense Payment';
-                } else {
-                    $type = $isDebit ? 'Cash Inflow' : 'Cash Outflow';
-                }
+    public function vendorDaily(Request $request): View
+    {
+        Gate::authorize('accounting.ledger.view');
 
-                $payments[] = (object) [
-                    'date' => $entry->entry_date,
-                    'type' => $type,
-                    'reference' => $entry->reference,
-                    'description' => $entry->description,
-                    'amount' => $amount,
-                    'flow' => $isDebit ? 'in' : 'out',
-                    'status' => 'Paid',
-                ];
-            }
+        $date = Carbon::parse($request->input('date', today()->toDateString()));
+        $report = $this->financePillars->vendorDailyDetail($date);
+
+        return view('finance.vendor-daily', compact('date', 'report'));
+    }
+
+    public function salesDaily(Request $request): View
+    {
+        Gate::authorize('accounting.ledger.view');
+
+        $date = Carbon::parse($request->input('date', today()->toDateString()));
+        $report = $this->financePillars->salesDailyDetail($date);
+
+        return view('finance.sales-daily', compact('date', 'report'));
+    }
+
+    public function legacyRedirect(): RedirectResponse
+    {
+        Gate::authorize('accounting.ledger.view');
+
+        return redirect()->route('finance.vendors.index');
+    }
+
+    /**
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    private function resolvePeriod(Request $request): array
+    {
+        $startDate = Carbon::parse($request->input('start_date', $request->input('date', today()->toDateString())));
+        $endDate = Carbon::parse($request->input('end_date', $request->input('date', today()->toDateString())));
+
+        if ($endDate->lt($startDate)) {
+            [$startDate, $endDate] = [$endDate, $startDate];
         }
 
-        return $payments;
+        return [$startDate, $endDate];
     }
 }

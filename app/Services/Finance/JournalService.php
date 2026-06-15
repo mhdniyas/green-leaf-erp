@@ -6,7 +6,6 @@ namespace App\Services\Finance;
 
 use App\DTOs\Finance\JournalEntryData;
 use App\Models\Account;
-use App\Models\Expense;
 use App\Models\GoodsReceived;
 use App\Models\JournalEntry;
 use App\Models\Payment;
@@ -202,34 +201,6 @@ class JournalService
         );
 
         return $this->createEntry($data, $wastage->recorded_by);
-    }
-
-    /**
-     * Record expense entry.
-     * Debit Expense Account, Credit Cash/Bank
-     */
-    public function recordExpense(Expense $expense): JournalEntry
-    {
-        $expense->load('account');
-
-        $expenseAccountId = $expense->account_id;
-        $creditAccountId = strtolower($expense->payment_method) === 'cash'
-            ? $this->getAccountIdByCode('1010')
-            : $this->getAccountIdByCode('1020');
-
-        $lines = [
-            ['account_id' => $expenseAccountId, 'type' => 'debit', 'amount' => (float) $expense->amount],
-            ['account_id' => $creditAccountId, 'type' => 'credit', 'amount' => (float) $expense->amount],
-        ];
-
-        $data = new JournalEntryData(
-            entryDate: $expense->expense_date->format('Y-m-d'),
-            reference: $expense->reference ?? "EXP-{$expense->id}",
-            description: $expense->description ?? "Expense: {$expense->account->name}",
-            lines: $lines
-        );
-
-        return $this->createEntry($data, $expense->recorded_by);
     }
 
     /**

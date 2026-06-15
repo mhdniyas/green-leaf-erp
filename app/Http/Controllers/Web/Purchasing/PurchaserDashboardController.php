@@ -1008,7 +1008,7 @@ class PurchaserDashboardController extends Controller
             ->firstOrFail();
 
         $validated = $request->validate([
-            'payment_method' => ['required', 'string', 'in:Cash,Online,Credit'],
+            'payment_method' => ['required', 'string', 'in:Cash,Online,GPay,Credit'],
             'paid_amount' => ['required', 'numeric', 'min:0'],
             'payment_note' => ['nullable', 'string', 'max:1000'],
             'payment_details' => ['nullable', 'string', 'max:1000'],

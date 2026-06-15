@@ -27,7 +27,7 @@ class SubmitPurchaserCartRequest extends FormRequest
             'payment_terms' => ['nullable', 'string', 'max:100'],
             'preferred_payment_method' => ['nullable', 'string', 'max:100'],
             'bill_number' => ['nullable', 'string', 'max:100'],
-            'payment_method' => ['required', 'string', 'in:Cash,Online,Credit'],
+            'payment_method' => ['required', 'string', 'in:Cash,Online,GPay,Credit'],
             'payment_status' => ['nullable', 'string', 'in:unpaid,partial,paid,credit_pending_approval'],
             'paid_amount' => ['nullable', 'numeric', 'min:0'],
             'discount_amount' => ['nullable', 'numeric', 'min:0'],

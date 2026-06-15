@@ -8,7 +8,6 @@ use App\Enums\Inventory\BatchStatus;
 use App\Enums\Purchasing\InvoiceStatus;
 use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
-use App\Models\Expense;
 use App\Models\GoodsReceived;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
@@ -16,6 +15,7 @@ use App\Models\ShopOrder;
 use App\Models\StockBatch;
 use App\Models\User;
 use App\Models\WastageEntry;
+use App\Services\Finance\AdminFinancePillarService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\View\View;
@@ -23,6 +23,10 @@ use Spatie\Activitylog\Models\Activity;
 
 class AdminOverviewController extends Controller
 {
+    public function __construct(
+        private readonly AdminFinancePillarService $financePillars,
+    ) {}
+
     public function __invoke(Request $request): View
     {
         abort_unless(
@@ -138,14 +142,7 @@ class AdminOverviewController extends Controller
             ->take(8)
             ->values();
 
-        $finance = [
-            'cash_collected_today' => (float) $ordersToday->sum('cash_collected'),
-            'cash_discrepancy_today' => (float) $ordersToday->sum('cash_discrepancy'),
-            'expense_outflow_today' => (float) Expense::whereDate('expense_date', $date)->sum('amount'),
-            'supplier_payments_today' => (float) PurchaseInvoice::whereDate('updated_at', $date)->where('status', InvoiceStatus::Paid)->sum('amount'),
-            'pending_supplier_dues' => (float) PurchaseInvoice::whereIn('status', [InvoiceStatus::Pending, InvoiceStatus::Approved])->sum('amount'),
-        ];
-        $finance['net_cash_position_today'] = $finance['cash_collected_today'] - $finance['expense_outflow_today'] - $finance['supplier_payments_today'];
+        $finance = $this->financePillars->forPeriod($date, $date);
 
         $overview = [
             'today_orders' => $ordersToday->count(),

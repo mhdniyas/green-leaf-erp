@@ -493,6 +493,7 @@
                     <select id="cart_payment_method" name="payment_method" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
                         <option value="Cash">Cash</option>
                         <option value="Online">Online</option>
+                        <option value="GPay">GPay</option>
                         <option value="Credit">Credit</option>
                     </select>
                 </div>

@@ -163,7 +163,7 @@ class ShopOwnerModulesTest extends TestCase
     }
 
     /**
-     * Test the consolidated Finance dashboard and exports.
+     * Test the consolidated Finance dashboard and retired internal finance URLs.
      */
     public function test_shop_owner_uses_shop_finance_and_cannot_access_internal_finance(): void
     {
@@ -184,6 +184,8 @@ class ShopOwnerModulesTest extends TestCase
         $this->actingAs($shopOwner)->get(route('finance.index'))->assertForbidden();
         $this->actingAs($shopOwner)->get(route('finance.statement.export.csv'))->assertForbidden();
         $this->actingAs($shopOwner)->get(route('finance.statement.export.pdf'))->assertForbidden();
+        $this->actingAs($shopOwner)->get(route('finance.accounts.index'))->assertForbidden();
+        $this->actingAs($shopOwner)->get(route('finance.reports.pnl'))->assertForbidden();
     }
 
     /**

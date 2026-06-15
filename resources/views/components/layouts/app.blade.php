@@ -518,30 +518,12 @@
                         </svg>
                     </button>
                     <div class="sidebar-group-items space-y-1 pl-3 pr-1 transition-all duration-200 {{ $isFinanceActive ? '' : 'hidden' }}">
-                        @can('accounting.ledger.view')
-                        <x-nav-item href="{{ route('finance.accounts.index') }}" :active="request()->routeIs('finance.accounts.*')" :sub="true">
-                            Chart of Accounts
+                        <x-nav-item href="{{ route('finance.vendors.index') }}" :active="request()->routeIs('finance.vendors.*') || request()->routeIs('finance.vendor-daily')" :sub="true">
+                            Vendor Reports
                         </x-nav-item>
-                        <x-nav-item href="{{ route('finance.ledger.index') }}" :active="request()->routeIs('finance.ledger.*')" :sub="true">
-                            General Ledger
+                        <x-nav-item href="{{ route('finance.sales.index') }}" :active="request()->routeIs('finance.sales.*') || request()->routeIs('finance.sales-daily')" :sub="true">
+                            Sales Reports
                         </x-nav-item>
-                        @endcan
-                        @if(auth()->user()->can('accounting.report.view') || auth()->user()->can('accounting.entry.create'))
-                        <x-nav-item href="{{ route('finance.expenses.index') }}" :active="request()->routeIs('finance.expenses.*')" :sub="true">
-                            Expenses
-                        </x-nav-item>
-                        @endif
-                        @can('accounting.report.view')
-                        <x-nav-item href="{{ route('finance.reports.pnl') }}" :active="request()->routeIs('finance.reports.pnl')" :sub="true">
-                            P&L Statement
-                        </x-nav-item>
-                        <x-nav-item href="{{ route('finance.reports.balance-sheet') }}" :active="request()->routeIs('finance.reports.balance-sheet')" :sub="true">
-                            Balance Sheet
-                        </x-nav-item>
-                        <x-nav-item href="{{ route('finance.reports.cash-flow') }}" :active="request()->routeIs('finance.reports.cash-flow')" :sub="true">
-                            Cash Flow
-                        </x-nav-item>
-                        @endcan
                     </div>
                 </div>
                 @endif

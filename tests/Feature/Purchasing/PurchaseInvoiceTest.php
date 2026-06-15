@@ -95,6 +95,50 @@ class PurchaseInvoiceTest extends TestCase
         $response->assertSee($invoice->invoice_number);
     }
 
+    public function test_purchase_invoice_report_groups_results_by_vendor_and_filters_payment_type(): void
+    {
+        $matchingVendor = Supplier::factory()->create([
+            'name' => 'City Vendor',
+            'mobile_number' => '9876543210',
+        ]);
+        $otherVendor = Supplier::factory()->create([
+            'name' => 'Credit Vendor',
+            'mobile_number' => '9999999999',
+        ]);
+
+        $matchingInvoice = PurchaseInvoice::factory()->create([
+            'goods_received_id' => $this->grn->id,
+            'supplier_id' => $matchingVendor->id,
+            'invoice_number' => 'PINV-GPAY-1001',
+            'payment_method' => 'GPay',
+            'paid_amount' => 200.00,
+            'payment_status' => 'paid',
+            'created_at' => now(),
+        ]);
+
+        PurchaseInvoice::factory()->create([
+            'goods_received_id' => $this->grn->id,
+            'supplier_id' => $otherVendor->id,
+            'invoice_number' => 'PINV-CREDIT-1001',
+            'payment_method' => 'Credit',
+            'payment_status' => 'credit_pending_approval',
+            'created_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->accountant)->get(route('purchasing.invoices.index', [
+            'date' => now()->format('Y-m-d'),
+            'search' => 'City Vendor',
+            'payment_type' => 'gpay',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Vendor Finance Report');
+        $response->assertSee('City Vendor');
+        $response->assertSee($matchingInvoice->invoice_number);
+        $response->assertDontSee('Credit Vendor');
+        $response->assertDontSee('PINV-CREDIT-1001');
+    }
+
     public function test_unauthorized_user_cannot_view_purchase_invoices_list(): void
     {
         $response = $this->actingAs($this->unauthorizedUser)
@@ -225,6 +269,39 @@ class PurchaseInvoiceTest extends TestCase
             ->assertSee('PINV-PDF-1001');
     }
 
+    public function test_accountant_can_view_vendor_finance_report_page(): void
+    {
+        $invoiceA = PurchaseInvoice::factory()->create([
+            'goods_received_id' => $this->grn->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'PINV-VENDOR-1001',
+            'amount' => 250.00,
+            'paid_amount' => 100.00,
+            'payment_method' => 'Cash',
+            'payment_status' => 'partial',
+            'created_at' => now()->subDay(),
+        ]);
+
+        $invoiceB = PurchaseInvoice::factory()->create([
+            'goods_received_id' => $this->grn->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'PINV-VENDOR-1002',
+            'amount' => 300.00,
+            'paid_amount' => 300.00,
+            'payment_method' => 'GPay',
+            'payment_status' => 'paid',
+            'created_at' => now(),
+        ]);
+
+        $this->actingAs($this->accountant)
+            ->get(route('purchasing.invoices.vendor-report', $this->supplier))
+            ->assertOk()
+            ->assertSee($this->supplier->name)
+            ->assertSee('Finance History')
+            ->assertSee($invoiceA->invoice_number)
+            ->assertSee($invoiceB->invoice_number);
+    }
+
     public function test_accountant_can_view_purchase_invoice_details_page(): void
     {
         $invoice = PurchaseInvoice::factory()->create([
@@ -239,5 +316,33 @@ class PurchaseInvoiceTest extends TestCase
             ->assertSee('PINV-SHOW-1001')
             ->assertSee('Line Items')
             ->assertSee('Open Bill');
+    }
+
+    public function test_accountant_can_update_invoice_payment_with_gpay(): void
+    {
+        $invoice = PurchaseInvoice::factory()->create([
+            'goods_received_id' => $this->grn->id,
+            'supplier_id' => $this->supplier->id,
+            'amount' => 200.00,
+            'paid_amount' => 0,
+            'payment_method' => null,
+            'payment_status' => 'unpaid',
+        ]);
+
+        $response = $this->actingAs($this->accountant)
+            ->patch(route('purchasing.invoices.update-payment', $invoice), [
+                'payment_method' => 'GPay',
+                'paid_amount' => 200,
+                'payment_note' => 'Settled by GPay',
+                'payment_details' => 'Ref: GP-9001',
+            ]);
+
+        $response->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('purchase_invoices', [
+            'id' => $invoice->id,
+            'payment_method' => 'GPay',
+            'payment_status' => 'paid',
+            'paid_amount' => 200.00,
+        ]);
     }
 }

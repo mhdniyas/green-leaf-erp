@@ -123,47 +123,13 @@
             </div>
         </section>
 
+        @include('finance.partials.admin-pillars', [
+            'finance' => $finance,
+            'startDate' => $date,
+            'endDate' => $date,
+        ])
+
         <section class="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-            <div class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-                <div class="flex items-center justify-between gap-3">
-                    <div>
-                        <p class="text-[10px] font-black uppercase tracking-[0.26em] text-slate-400">Finance Snapshot</p>
-                        <h2 class="mt-2 text-xl font-black tracking-tight text-slate-950">How cash moved today</h2>
-                    </div>
-                    <a href="{{ route('finance.reports.cash-flow') }}" class="rounded-full border border-slate-200 px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 transition hover:border-cyan-200 hover:text-cyan-700">Cash Flow</a>
-                </div>
-
-                <div class="mt-6 grid gap-4 sm:grid-cols-2">
-                    <article class="rounded-[1.5rem] border border-emerald-200 bg-emerald-50 p-5">
-                        <p class="text-[10px] font-black uppercase tracking-[0.24em] text-emerald-700">Cash Collected</p>
-                        <p class="mt-3 text-3xl font-black text-emerald-950">Rs. {{ number_format($finance['cash_collected_today'], 2) }}</p>
-                    </article>
-                    <article class="rounded-[1.5rem] border border-red-200 bg-red-50 p-5">
-                        <p class="text-[10px] font-black uppercase tracking-[0.24em] text-red-700">Cash Discrepancy</p>
-                        <p class="mt-3 text-3xl font-black text-red-950">Rs. {{ number_format($finance['cash_discrepancy_today'], 2) }}</p>
-                    </article>
-                    <article class="rounded-[1.5rem] border border-amber-200 bg-amber-50 p-5">
-                        <p class="text-[10px] font-black uppercase tracking-[0.24em] text-amber-700">Expense Outflow</p>
-                        <p class="mt-3 text-3xl font-black text-amber-950">Rs. {{ number_format($finance['expense_outflow_today'], 2) }}</p>
-                    </article>
-                    <article class="rounded-[1.5rem] border border-violet-200 bg-violet-50 p-5">
-                        <p class="text-[10px] font-black uppercase tracking-[0.24em] text-violet-700">Supplier Payments</p>
-                        <p class="mt-3 text-3xl font-black text-violet-950">Rs. {{ number_format($finance['supplier_payments_today'], 2) }}</p>
-                    </article>
-                </div>
-
-                <div class="mt-4 grid gap-4 lg:grid-cols-2">
-                    <article class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5">
-                        <p class="text-[10px] font-black uppercase tracking-[0.24em] text-slate-500">Pending Supplier Dues</p>
-                        <p class="mt-3 text-2xl font-black text-slate-950">Rs. {{ number_format($finance['pending_supplier_dues'], 2) }}</p>
-                    </article>
-                    <article class="rounded-[1.5rem] border {{ $finance['net_cash_position_today'] >= 0 ? 'border-cyan-200 bg-cyan-50' : 'border-rose-200 bg-rose-50' }} p-5">
-                        <p class="text-[10px] font-black uppercase tracking-[0.24em] {{ $finance['net_cash_position_today'] >= 0 ? 'text-cyan-700' : 'text-rose-700' }}">Net Cash Position</p>
-                        <p class="mt-3 text-2xl font-black {{ $finance['net_cash_position_today'] >= 0 ? 'text-cyan-950' : 'text-rose-950' }}">Rs. {{ number_format($finance['net_cash_position_today'], 2) }}</p>
-                    </article>
-                </div>
-            </div>
-
             <div class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
                 <div class="flex items-center justify-between gap-3">
                     <div>

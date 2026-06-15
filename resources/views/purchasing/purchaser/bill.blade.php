@@ -71,7 +71,7 @@
                         <div>
                             <p class="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">Payment Method</p>
                             <div class="mt-1 grid grid-cols-3 gap-1.5">
-                                @foreach (['Cash' => 'Paid', 'Online' => 'UPI', 'Credit' => 'Later'] as $method => $caption)
+                                @foreach (['Cash' => 'Paid', 'GPay' => 'UPI', 'Online' => 'Transfer', 'Credit' => 'Later'] as $method => $caption)
                                     <label class="flex cursor-pointer items-center gap-1 rounded-md border border-slate-200 bg-slate-50 p-1.5 hover:bg-slate-100">
                                         <input type="radio" name="payment_method" value="{{ $method }}" @checked(old('payment_method', $cart->payment_method ?: 'Cash') === $method) class="h-3.5 w-3.5 border-slate-300 text-teal-600 focus:ring-teal-500">
                                         <span class="min-w-0">

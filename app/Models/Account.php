@@ -53,11 +53,6 @@ class Account extends Model
         return $this->hasMany(JournalTransaction::class);
     }
 
-    public function expenses(): HasMany
-    {
-        return $this->hasMany(Expense::class);
-    }
-
     // Scopes
     public function scopeActive($query)
     {

@@ -23,7 +23,7 @@
                     <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Invoice Details</p>
                     <h1 class="mt-1 text-xl font-black text-slate-950">{{ $invoice->invoice_number }}</h1>
                     <p class="mt-1 text-xs font-semibold text-slate-600">
-                        {{ $invoice->supplier?->name ?: 'Supplier pending' }}
+                        {{ $invoice->supplier?->name ?: 'Vendor pending' }}
                         @if ($businessDate)
                             • {{ $businessDate->format('d M Y') }}
                         @endif
@@ -66,8 +66,8 @@
         <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:rounded-[2rem] lg:p-5">
             <div class="grid gap-3 md:grid-cols-2">
                 <div class="rounded-2xl bg-slate-50 p-4">
-                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Supplier</p>
-                    <p class="mt-1 text-sm font-black text-slate-950">{{ $invoice->supplier?->name ?: 'Supplier pending' }}</p>
+                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Vendor</p>
+                    <p class="mt-1 text-sm font-black text-slate-950">{{ $invoice->supplier?->name ?: 'Vendor pending' }}</p>
                     <p class="mt-1 text-sm font-semibold text-slate-600">{{ $invoice->supplier?->mobile_number ?: 'Mobile pending' }}</p>
                 </div>
                 <div class="rounded-2xl bg-slate-50 p-4">
@@ -135,6 +135,7 @@
                     <select id="show_payment_method" name="payment_method" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
                         <option value="Cash">Cash</option>
                         <option value="Online">Online</option>
+                        <option value="GPay">GPay</option>
                         <option value="Credit">Credit</option>
                     </select>
                 </div>
