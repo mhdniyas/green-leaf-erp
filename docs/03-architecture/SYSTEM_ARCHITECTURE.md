@@ -1,13 +1,13 @@
 # SYSTEM ARCHITECTURE
 
-**Green Leaf ERP — System Architecture Overview**
+**Green Leaf Traders — System Architecture Overview**
 **Version**: 1.0.0
 
 ---
 
 ## SYSTEM OVERVIEW
 
-Green Leaf ERP is a **Laravel 13 monolith** built with clean architecture principles. It serves an agricultural business needing inventory, sales, purchasing, accounting, and HR management in one unified system.
+Green Leaf Traders is a **Laravel 13 monolith** built with clean architecture principles. It serves an agricultural business needing inventory, sales, purchasing, accounting, and HR management in one unified system.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -74,7 +74,7 @@ Green Leaf ERP is a **Laravel 13 monolith** built with clean architecture princi
 ## ERP MODULES (Planned)
 
 ```
-Green Leaf ERP
+Green Leaf Traders
 ├── 🔐 Auth Module
 │   ├── Registration / Login / Logout
 │   ├── Token management
@@ -213,4 +213,4 @@ Keep core ERP as monolith
 
 ---
 
-**Owner**: Architecture Team | **Project**: Green Leaf ERP
+**Owner**: Architecture Team | **Project**: Green Leaf Traders

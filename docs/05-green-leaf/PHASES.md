@@ -1,6 +1,6 @@
 # GREEN LEAF ERP — PROJECT PHASES
 
-**Build Order for Green Leaf ERP**
+**Build Order for Green Leaf Traders**
 **Version**: 1.0.0 | **Current Phase**: Phase 4
 
 > Agents must build in this order. Each phase depends on the previous.
@@ -309,4 +309,4 @@ Payment           (id, invoice_id, amount, payment_method, paid_at)
 ---
 
 **Owner**: Engineering Team
-**Project**: Green Leaf ERP — Vegetable Trading & Distribution
+**Project**: Green Leaf Traders — Vegetable Trading & Distribution

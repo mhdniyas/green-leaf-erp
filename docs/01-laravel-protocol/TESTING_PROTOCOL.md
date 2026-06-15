@@ -1,6 +1,6 @@
 # TESTING PROTOCOL
 
-**Green Leaf ERP — Testing Standards**
+**Green Leaf Traders — Testing Standards**
 **Version**: 1.0.0 | **Framework**: PHPUnit 12
 
 > Tests are not optional. Every endpoint, every service method, every policy needs tests.
@@ -332,4 +332,4 @@ For every service method with business rules:
 
 ---
 
-**Owner**: Engineering Team | **Project**: Green Leaf ERP
+**Owner**: Engineering Team | **Project**: Green Leaf Traders

@@ -1,6 +1,6 @@
 # LARAVEL ARCHITECTURE
 
-**Green Leaf ERP — Laravel Architecture Reference**
+**Green Leaf Traders — Laravel Architecture Reference**
 **Version**: 1.0.0 | **Stack**: Laravel 13 + PHP 8.4 + MySQL + Redis
 
 > This document defines HOW code must be structured in this project.
@@ -10,7 +10,7 @@
 
 ## 1. ARCHITECTURE PHILOSOPHY
 
-Green Leaf ERP follows **Layered Architecture** with **SOLID principles** enforced at every layer.
+Green Leaf Traders follows **Layered Architecture** with **SOLID principles** enforced at every layer.
 
 ### Core Principles
 
@@ -511,5 +511,5 @@ php artisan test --compact
 ---
 
 **Owner**: Engineering Architecture Team
-**Project**: Green Leaf ERP
+**Project**: Green Leaf Traders
 **Laravel Version**: 13 | **PHP Version**: 8.4

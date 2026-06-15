@@ -1,6 +1,6 @@
 # DATABASE PROTOCOL
 
-**Green Leaf ERP — Database Standards**
+**Green Leaf Traders — Database Standards**
 **Version**: 1.0.0
 
 > All database design decisions must follow these rules.
@@ -298,4 +298,4 @@ Before running `php artisan migrate`:
 
 ---
 
-**Owner**: Engineering Team | **Project**: Green Leaf ERP
+**Owner**: Engineering Team | **Project**: Green Leaf Traders

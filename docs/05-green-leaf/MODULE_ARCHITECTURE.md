@@ -1,6 +1,6 @@
 # Module Architecture & Domain Boundaries
 
-This document defines the domain-driven design (DDD) boundaries for the **Green Leaf ERP** business workflow. While keeping the existing Laravel repository/service architecture, we organize our business domains inside `app/Domains/` to encapsulate logic and ensure high coherence.
+This document defines the domain-driven design (DDD) boundaries for the **Green Leaf Traders** business workflow. While keeping the existing Laravel repository/service architecture, we organize our business domains inside `app/Domains/` to encapsulate logic and ensure high coherence.
 
 ---
 

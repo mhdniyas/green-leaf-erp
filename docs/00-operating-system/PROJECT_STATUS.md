@@ -1,6 +1,6 @@
 # PROJECT STATUS
 
-**Green Leaf ERP — Live Project Status**
+**Green Leaf Traders — Live Project Status**
 **Last Updated**: 2026-05-22 | **Version**: 1.0.0 | **Environment**: Development
 
 > Agents: Read this file to understand what exists before building anything new.
@@ -244,4 +244,4 @@ php artisan migrate   ← Still needs to be executed
 ---
 
 **Maintained by**: Engineering Team
-**Project**: Green Leaf ERP — Agricultural Enterprise Resource Planning
+**Project**: Green Leaf Traders — Agricultural Enterprise Resource Planning

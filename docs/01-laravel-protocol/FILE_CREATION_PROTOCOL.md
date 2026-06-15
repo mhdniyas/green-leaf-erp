@@ -1,6 +1,6 @@
 # FILE CREATION PROTOCOL
 
-**Green Leaf ERP — How to Create Every File Type**
+**Green Leaf Traders — How to Create Every File Type**
 **Version**: 1.0.0 | **Stack**: Laravel 13 + PHP 8.4
 
 > This document answers: "I need to create X — what command do I run and what does the file look like?"
@@ -924,4 +924,4 @@ After creating any file:
 ---
 
 **Owner**: Engineering Team
-**Project**: Green Leaf ERP
+**Project**: Green Leaf Traders

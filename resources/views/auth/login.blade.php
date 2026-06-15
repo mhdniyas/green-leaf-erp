@@ -29,7 +29,8 @@
                 'badge' => 'Execution',
                 'accounts' => [
                     ['role' => 'Purchase Manager', 'email' => 'purchase@greenleaf.com', 'initial' => 'PM', 'accent' => 'bg-amber-500 text-slate-950'],
-                    ['role' => 'Purchaser', 'email' => 'purchaser@greenleaf.com', 'initial' => 'PU', 'accent' => 'bg-cyan-500 text-white'],
+                    ['role' => 'Purchaser Niyas', 'email' => 'purchaser@greenleaf.com', 'initial' => 'PN', 'accent' => 'bg-cyan-500 text-white'],
+                    ['role' => 'Purchaser Rahul', 'email' => 'purchaser2@greenleaf.com', 'initial' => 'PR', 'accent' => 'bg-cyan-600 text-white'],
                     ['role' => 'Warehouse Manager', 'email' => 'warehouse@greenleaf.com', 'initial' => 'WH', 'accent' => 'bg-rose-500 text-white'],
                     ['role' => 'Warehouse Receiver', 'email' => 'receiver@greenleaf.com', 'initial' => 'WR', 'accent' => 'bg-indigo-500 text-white'],
                 ],
@@ -50,7 +51,7 @@
 
                             <div class="space-y-2">
                                 <h1 class="text-3xl font-black tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">
-                                    Green Leaf ERP Demo Access
+                                    Green Leaf Traders Demo Access
                                 </h1>
                                 <p class="max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
                                     Full-screen QA login for role switching, shop validation, procurement review, and warehouse flow testing.
@@ -61,7 +62,7 @@
 
                         <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
                             @foreach ([
-                                ['label' => 'Demo Roles', 'value' => '8'],
+                                ['label' => 'Demo Roles', 'value' => '9'],
                                 ['label' => 'Shop Logins', 'value' => '4'],
                                 ['label' => 'Password', 'value' => 'Shared'],
                                 ['label' => 'Build', 'value' => 'Testing'],

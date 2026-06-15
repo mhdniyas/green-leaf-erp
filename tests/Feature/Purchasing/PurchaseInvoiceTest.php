@@ -210,4 +210,34 @@ class PurchaseInvoiceTest extends TestCase
             'status' => InvoiceStatus::Paid->value,
         ]);
     }
+
+    public function test_accountant_can_open_purchase_invoice_pdf_view(): void
+    {
+        $invoice = PurchaseInvoice::factory()->create([
+            'goods_received_id' => $this->grn->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'PINV-PDF-1001',
+        ]);
+
+        $this->actingAs($this->accountant)
+            ->get(route('purchasing.invoices.pdf', $invoice))
+            ->assertOk()
+            ->assertSee('PINV-PDF-1001');
+    }
+
+    public function test_accountant_can_view_purchase_invoice_details_page(): void
+    {
+        $invoice = PurchaseInvoice::factory()->create([
+            'goods_received_id' => $this->grn->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'PINV-SHOW-1001',
+        ]);
+
+        $this->actingAs($this->accountant)
+            ->get(route('purchasing.invoices.show', $invoice))
+            ->assertOk()
+            ->assertSee('PINV-SHOW-1001')
+            ->assertSee('Line Items')
+            ->assertSee('Open Bill');
+    }
 }

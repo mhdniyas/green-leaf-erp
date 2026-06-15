@@ -1,6 +1,6 @@
 # State Machine Specification
 
-This document defines the formal state transitions, events, triggers, and illegal transitions for the operational entities of Green Leaf ERP. 
+This document defines the formal state transitions, events, triggers, and illegal transitions for the operational entities of Green Leaf Traders. 
 
 ---
 

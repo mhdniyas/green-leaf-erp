@@ -11,12 +11,12 @@ class PurchaseInvoicePolicy
 {
     public function viewAny(User $user): bool
     {
-        return $user->can('accounting.ledger.view');
+        return $user->can('accounting.ledger.view') || $user->hasRole('purchase');
     }
 
     public function view(User $user, PurchaseInvoice $invoice): bool
     {
-        return $user->can('accounting.ledger.view');
+        return $user->can('accounting.ledger.view') || $user->hasRole('purchase');
     }
 
     public function create(User $user): bool
@@ -26,6 +26,6 @@ class PurchaseInvoicePolicy
 
     public function update(User $user, PurchaseInvoice $invoice): bool
     {
-        return $user->can('accounting.entry.create');
+        return $user->can('accounting.entry.create') || $user->hasRole('purchase');
     }
 }

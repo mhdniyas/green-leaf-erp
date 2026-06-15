@@ -1,6 +1,6 @@
 # API PROTOCOL
 
-**Green Leaf ERP — API Design Standards**
+**Green Leaf Traders — API Design Standards**
 **Version**: 1.0.0 | **Base URL**: `/api/v1`
 
 > All API design follows REST principles with consistent response formatting.
@@ -244,4 +244,4 @@ Retrieve a paginated list of active products.
 
 ---
 
-**Owner**: Engineering Team | **Project**: Green Leaf ERP
+**Owner**: Engineering Team | **Project**: Green Leaf Traders

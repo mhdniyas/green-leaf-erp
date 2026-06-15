@@ -1,6 +1,6 @@
 # AGENT WORKFLOW
 
-**Green Leaf ERP — Agent Operating Manual**
+**Green Leaf Traders — Agent Operating Manual**
 **Version**: 2.0.0 | **Updated**: 2026-05-22 | **Status**: ACTIVE
 
 > This is the **first document** every agent must read before touching any code.
@@ -397,5 +397,5 @@ git push origin feature/inventory-product-management
 ---
 
 **Maintained by**: Senior Engineering Team
-**Project**: Green Leaf ERP
+**Project**: Green Leaf Traders
 **Stack**: Laravel 13 + PHP 8.4 + MySQL + Redis

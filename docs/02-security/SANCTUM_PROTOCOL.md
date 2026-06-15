@@ -1,6 +1,6 @@
 # SANCTUM PROTOCOL
 
-**Green Leaf ERP — Laravel Sanctum Implementation Guide**
+**Green Leaf Traders — Laravel Sanctum Implementation Guide**
 **Version**: 1.0.0 | **Package**: laravel/sanctum ^4.3
 
 > Sanctum is this ERP's authentication backbone. All API access goes through it.
@@ -241,5 +241,5 @@ $this->getJson('/api/v1/products')
 
 ---
 
-**Owner**: Engineering Team | **Project**: Green Leaf ERP
+**Owner**: Engineering Team | **Project**: Green Leaf Traders
 **Package**: laravel/sanctum ^4.3

@@ -8,6 +8,7 @@ use Database\Factories\SupplierFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
@@ -29,6 +30,11 @@ class Supplier extends Model
         'payment_terms',
         'preferred_payment_method',
         'credit_approved',
+        'credit_approval_requested_at',
+        'credit_approval_requested_by',
+        'credit_approval_note',
+        'credit_approved_at',
+        'credit_approved_by',
         'credit_terms',
         'quality_score',
     ];
@@ -36,6 +42,8 @@ class Supplier extends Model
     protected $casts = [
         'is_default_purchase' => 'boolean',
         'credit_approved' => 'boolean',
+        'credit_approval_requested_at' => 'datetime',
+        'credit_approved_at' => 'datetime',
         'quality_score' => 'decimal:2',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
@@ -64,6 +72,16 @@ class Supplier extends Model
     public function purchaserCarts(): HasMany
     {
         return $this->hasMany(PurchaserCart::class);
+    }
+
+    public function creditApprovalRequestedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'credit_approval_requested_by');
+    }
+
+    public function creditApprovedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'credit_approved_by');
     }
 
     public function scopeDefaultPurchase(Builder $query): Builder

@@ -237,4 +237,4 @@ Reducing to 3% = RM 24,000 annual savings
 ---
 
 **Owner**: Business Analysis Team
-**Project**: Green Leaf ERP — Vegetable Trading & Distribution
+**Project**: Green Leaf Traders — Vegetable Trading & Distribution

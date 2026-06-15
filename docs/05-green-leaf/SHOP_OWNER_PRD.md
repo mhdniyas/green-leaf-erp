@@ -1,6 +1,6 @@
 # Phase 1: Shop Owner Perspective Product Requirements Document (PRD)
 
-The Shop Owner user experience is the most critical frontend entry point in Green Leaf ERP because they interact with it **every single day**. 
+The Shop Owner user experience is the most critical frontend entry point in Green Leaf Traders because they interact with it **every single day**. 
 
 The interface must be designed to feel:
 > **🚀 Fast like Excel + Simple like WhatsApp ordering + Structured like ERP**

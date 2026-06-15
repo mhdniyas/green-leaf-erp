@@ -1,215 +1,213 @@
-<x-layouts.app title="Purchase Invoice Details — {{ $invoice->invoice_number }}">
+<x-layouts.app title="Purchase Invoice">
+    @php
+        $lineItems = $invoice->purchaserCart?->items ?? $invoice->goodsReceived?->items ?? collect();
+        $businessDate = $invoice->purchaserCart?->business_date ?? $invoice->created_at;
+        $balance = max(0, round((float) $invoice->amount - (float) $invoice->paid_amount, 2));
+        $backParameters = array_filter($backRouteParameters ?? []);
+        $paymentModalData = [
+            'number' => $invoice->invoice_number,
+            'supplier' => $invoice->supplier?->name,
+            'amount' => round((float) $invoice->amount, 2),
+            'paidAmount' => round((float) $invoice->paid_amount, 2),
+            'paymentMethod' => $invoice->payment_method ?: 'Cash',
+            'paymentNote' => $invoice->payment_note,
+            'paymentDetails' => $invoice->payment_details,
+            'creditApproved' => (bool) $invoice->supplier?->credit_approved,
+        ];
+    @endphp
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-        {{-- Left column - Details & Linked Items --}}
-        <div class="lg:col-span-2 space-y-6">
-            {{-- Invoice Overview Card --}}
-            <div class="bg-white rounded-2xl border border-gray-200 p-6 space-y-6">
-                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                    <div>
-                        <h2 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Invoice Number</h2>
-                        <h1 class="text-xl font-bold text-gray-900 mt-1 font-mono">{{ $invoice->invoice_number }}</h1>
-                    </div>
-                    <div>
-                        <h2 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Status</h2>
-                        <span class="inline-flex items-center text-sm font-semibold border px-3 py-1 rounded-full {{ $invoice->status->color() }}">
-                            {{ $invoice->status->label() }}
-                        </span>
-                    </div>
+    <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-3 lg:max-w-5xl lg:gap-4 lg:px-6 lg:py-4">
+        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:rounded-[2rem] lg:p-5">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Invoice Details</p>
+                    <h1 class="mt-1 text-xl font-black text-slate-950">{{ $invoice->invoice_number }}</h1>
+                    <p class="mt-1 text-xs font-semibold text-slate-600">
+                        {{ $invoice->supplier?->name ?: 'Supplier pending' }}
+                        @if ($businessDate)
+                            • {{ $businessDate->format('d M Y') }}
+                        @endif
+                    </p>
                 </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-6 border-t border-gray-100 text-sm">
-                    <div>
-                        <span class="text-gray-500 block mb-1">Invoice Amount</span>
-                        <span class="text-lg font-bold text-brand-700">INR {{ number_format($invoice->amount, 2) }}</span>
-                    </div>
-                    <div>
-                        <span class="text-gray-500 block mb-1">Matched Date</span>
-                        <span class="text-gray-900 font-medium">{{ $invoice->created_at->format('Y-m-d H:i') }}</span>
-                    </div>
-                    <div>
-                        <span class="text-gray-500 block mb-1">Supplier Invoice Ref</span>
-                        <span class="text-gray-900 font-medium font-mono">{{ $invoice->invoice_number }}</span>
-                    </div>
-                </div>
-
-                @if($invoice->notes)
-                <div class="pt-6 border-t border-gray-100">
-                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Invoice Notes</h3>
-                    <p class="text-sm text-gray-700 whitespace-pre-line leading-relaxed">{{ $invoice->notes }}</p>
-                </div>
-                @endif
-            </div>
-
-            {{-- Matched GRN Items Card --}}
-            @if($invoice->goodsReceived)
-            <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-                <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-                    <h2 class="text-sm font-semibold text-gray-900">Matched Goods Received Note Items</h2>
-                    <a href="{{ route('purchasing.grns.show', $invoice->goodsReceived) }}" class="text-xs font-bold text-brand-600 hover:underline font-mono">
-                        {{ $invoice->goodsReceived->grn_number }}
+                <div class="flex flex-wrap gap-2">
+                    <a href="{{ route($backRouteName, $backParameters) }}" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 px-4 text-xs font-black text-slate-700 hover:bg-slate-50">
+                        Back
                     </a>
-                </div>
-
-                <div class="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
-                    <table class="min-w-[760px] text-sm">
-                        <thead>
-                            <tr class="border-b border-gray-100 text-gray-500 bg-gray-50/20 text-xs uppercase tracking-wide">
-                                <th class="px-6 py-3 text-left font-semibold">Product</th>
-                                <th class="px-6 py-3 text-right font-semibold">Received Qty</th>
-                                <th class="px-6 py-3 text-right font-semibold">PO Unit Price</th>
-                                <th class="px-6 py-3 text-right font-semibold">Line Material Cost</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-50">
-                            @php
-                                $expectedMaterialAmount = 0.00;
-                            @endphp
-                            @foreach($invoice->goodsReceived->items as $item)
-                                @php
-                                    $qty = (float) $item->received_qty;
-                                    $price = (float) ($item->purchaseOrderItem?->unit_price ?? 0);
-                                    $lineCost = $qty * $price;
-                                    $expectedMaterialAmount += $lineCost;
-                                @endphp
-                                <tr>
-                                    <td class="px-6 py-4">
-                                        <div class="flex items-center gap-3">
-                                            <div class="w-8 h-8 rounded-lg bg-brand-100 flex items-center justify-center shrink-0">
-                                                <span class="text-brand-700 text-xs font-bold">{{ strtoupper(substr($item->product->name, 0, 1)) }}</span>
-                                            </div>
-                                            <div>
-                                                <p class="font-medium text-gray-900">{{ $item->product->name }}</p>
-                                                <code class="text-[10px] font-mono text-gray-400">{{ $item->product->sku }}</code>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td class="px-6 py-4 text-right text-gray-950 font-medium">
-                                        {{ number_format($qty, 3) }} kg
-                                    </td>
-                                    <td class="px-6 py-4 text-right text-gray-600">
-                                        INR {{ number_format($price, 4) }}
-                                    </td>
-                                    <td class="px-6 py-4 text-right font-semibold text-gray-900">
-                                        INR {{ number_format($lineCost, 2) }}
-                                    </td>
-                                </tr>
-                            @endforeach
-                            <tr class="bg-gray-50/50 font-semibold border-t border-gray-100">
-                                <td colspan="3" class="px-6 py-4 text-right text-gray-500">Expected Materials Cost (excluding Landed Costs)</td>
-                                <td class="px-6 py-4 text-right text-gray-900">INR {{ number_format($expectedMaterialAmount, 2) }}</td>
-                            </tr>
-                            <tr class="bg-gray-50/50 font-semibold">
-                                <td colspan="3" class="px-6 py-4 text-right text-gray-500">GRN Landed Costs (Transport + Labour)</td>
-                                <td class="px-6 py-4 text-right text-gray-900">INR {{ number_format((float) $invoice->goodsReceived->transport_cost + (float) $invoice->goodsReceived->labour_cost, 2) }}</td>
-                            </tr>
-                            <tr class="bg-brand-50/50 font-bold border-t border-brand-100">
-                                <td colspan="3" class="px-6 py-4 text-right text-brand-900">Expected Invoice Total (Inc. Landed Costs)</td>
-                                <td class="px-6 py-4 text-right text-brand-700 text-base">INR {{ number_format($expectedMaterialAmount + (float) $invoice->goodsReceived->transport_cost + (float) $invoice->goodsReceived->labour_cost, 2) }}</td>
-                            </tr>
-                            <tr class="bg-gray-50 font-bold border-t border-gray-200">
-                                <td colspan="3" class="px-6 py-4 text-right text-gray-900">Actual Invoice Amount Registered</td>
-                                <td class="px-6 py-4 text-right text-gray-900 text-base">INR {{ number_format($invoice->amount, 2) }}</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                    <a href="{{ route($billPdfRouteName, $invoice) }}" target="_blank" class="inline-flex h-10 items-center justify-center rounded-xl border border-teal-200 bg-teal-50 px-4 text-xs font-black text-teal-700 hover:bg-teal-100">
+                        Open Bill
+                    </a>
+                    <button type="button" onclick='openShowPaymentModal(@json($paymentModalData), "{{ route($paymentUpdateRouteName, $invoice) }}")' class="inline-flex h-10 items-center justify-center rounded-xl bg-slate-950 px-4 text-xs font-black text-white hover:bg-slate-800">
+                        Update Payment
+                    </button>
                 </div>
             </div>
-            @endif
+        </section>
+
+        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Bill Amount</p>
+                <p class="mt-1 text-lg font-black text-slate-950">₹{{ number_format((float) $invoice->amount, 2) }}</p>
+            </div>
+            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Paid</p>
+                <p class="mt-1 text-lg font-black text-emerald-700">₹{{ number_format((float) $invoice->paid_amount, 2) }}</p>
+            </div>
+            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Balance</p>
+                <p class="mt-1 text-lg font-black {{ $balance > 0 ? 'text-amber-700' : 'text-emerald-700' }}">₹{{ number_format($balance, 2) }}</p>
+            </div>
+            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Payment</p>
+                <p class="mt-1 text-lg font-black text-slate-950">{{ $invoice->payment_method ?: 'Pending' }}</p>
+                <p class="mt-1 text-[11px] font-semibold text-slate-500">{{ str($invoice->payment_status ?: 'unpaid')->replace('_', ' ')->title() }}</p>
+            </div>
         </div>
 
-        {{-- Right column - Status Actions & References --}}
-        <div class="space-y-6">
-            {{-- Status Update Card --}}
-            <div class="bg-white rounded-2xl border border-gray-200 p-6 space-y-6">
-                <div>
-                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Workflow Actions</h3>
-                    <p class="text-xs text-gray-500 mt-1">Manage payment status transitions for this invoice.</p>
+        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:rounded-[2rem] lg:p-5">
+            <div class="grid gap-3 md:grid-cols-2">
+                <div class="rounded-2xl bg-slate-50 p-4">
+                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Supplier</p>
+                    <p class="mt-1 text-sm font-black text-slate-950">{{ $invoice->supplier?->name ?: 'Supplier pending' }}</p>
+                    <p class="mt-1 text-sm font-semibold text-slate-600">{{ $invoice->supplier?->mobile_number ?: 'Mobile pending' }}</p>
                 </div>
-
-                <div class="flex flex-col gap-2 pt-4 border-t border-gray-100">
-                    @can('update', $invoice)
-                        @if($invoice->status->value === 'pending')
-                            <form method="POST" action="{{ route('purchasing.invoices.update-status', $invoice) }}">
-                                @csrf
-                                <input type="hidden" name="status" value="approved">
-                                <button type="submit" class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors shadow-sm cursor-pointer">
-                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                                    </svg>
-                                    Approve for Payment
-                                </button>
-                            </form>
-                        @endif
-
-                        @if($invoice->status->value === 'pending' || $invoice->status->value === 'approved')
-                            <form method="POST" action="{{ route('purchasing.invoices.update-status', $invoice) }}">
-                                @csrf
-                                <input type="hidden" name="status" value="paid">
-                                <button type="submit" class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700 transition-colors shadow-sm cursor-pointer">
-                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-1.958-.59c-1.171-.879-1.171-2.303 0-3.182 1.172-.879 3.07-.879 4.242 0L15 9M9 5.25h6" />
-                                    </svg>
-                                    Mark as Paid
-                                </button>
-                            </form>
-                        @endif
-
-                        @if($invoice->status->value === 'approved' || $invoice->status->value === 'paid')
-                            <form method="POST" action="{{ route('purchasing.invoices.update-status', $invoice) }}">
-                                @csrf
-                                <input type="hidden" name="status" value="pending">
-                                <button type="submit" class="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-white border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer">
-                                    Revert to Pending
-                                </button>
-                            </form>
-                        @endif
-                    @endcan
-
-                    <a href="{{ route('purchasing.invoices.index') }}" class="text-xs text-center text-gray-500 hover:text-gray-700 transition-colors mt-2">
-                        ← Back to invoices
-                    </a>
+                <div class="rounded-2xl bg-slate-50 p-4">
+                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Linked Cart</p>
+                    <p class="mt-1 text-sm font-black text-slate-950">{{ $invoice->purchaserCart?->cart_number ?: 'Not linked' }}</p>
+                    <p class="mt-1 text-sm font-semibold text-slate-600">{{ $invoice->goodsReceived?->grn_number ?: 'GRN pending' }}</p>
                 </div>
             </div>
+        </section>
 
-            {{-- Supplier summary Card --}}
-            <div class="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
-                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Supplier</h3>
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
-                        <span class="text-amber-700 text-sm font-bold">{{ strtoupper(substr($invoice->supplier->name, 0, 1)) }}</span>
+        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:rounded-[2rem] lg:p-5">
+            <h2 class="text-sm font-black text-slate-950">Line Items</h2>
+            <div class="mt-4 space-y-2">
+                @forelse ($lineItems as $item)
+                    @php
+                        $productName = $item->product?->name ?? $item->product_name ?? 'Item';
+                        $quantity = $item->quantity ?? $item->received_qty ?? 0;
+                        $unit = $item->product?->unit ?? $item->unit ?? '-';
+                        $unitPrice = $item->unit_price ?? 0;
+                        $lineTotal = $item->line_total ?? ((float) $quantity * (float) $unitPrice);
+                    @endphp
+                    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                        <div class="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                                <p class="text-sm font-black text-slate-950">{{ $productName }}</p>
+                                <p class="mt-1 text-[11px] font-semibold text-slate-500">{{ number_format((float) $quantity, 2) }} {{ $unit }} @ ₹{{ number_format((float) $unitPrice, 2) }}</p>
+                            </div>
+                            <p class="text-sm font-black text-slate-950">₹{{ number_format((float) $lineTotal, 2) }}</p>
+                        </div>
                     </div>
-                    <div>
-                        <p class="text-sm font-bold text-gray-900">{{ $invoice->supplier->name }}</p>
-                        <p class="text-xs text-gray-400">{{ $invoice->supplier->type }}</p>
-                    </div>
-                </div>
-                <div class="grid grid-cols-2 gap-y-3 pt-3 border-t border-gray-100 text-xs">
-                    <span class="text-gray-500">Payment Terms</span>
-                    <span class="text-gray-800 font-medium text-right">{{ $invoice->supplier->payment_terms }}</span>
-                </div>
+                @empty
+                    <p class="rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm font-bold text-slate-500">No line items available for this invoice.</p>
+                @endforelse
             </div>
-
-            {{-- PO Reference Summary --}}
-            @if($invoice->goodsReceived && $invoice->goodsReceived->purchaseOrder)
-            <div class="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
-                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Purchase Order</h3>
-                <div class="grid grid-cols-2 gap-y-3 text-sm">
-                    <span class="text-gray-500">PO Number</span>
-                    <a href="{{ route('purchasing.orders.show', $invoice->goodsReceived->purchaseOrder) }}" class="text-brand-600 font-mono font-bold text-right hover:underline">
-                        {{ $invoice->goodsReceived->purchaseOrder->po_number }}
-                    </a>
-
-                    <span class="text-gray-500">PO Status</span>
-                    <span class="inline-flex items-center self-end px-2.5 py-0.5 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-full">
-                        {{ $invoice->goodsReceived->purchaseOrder->status->label() }}
-                    </span>
-                </div>
-            </div>
-            @endif
-        </div>
-
+        </section>
     </div>
 
+    <div id="show-payment-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs" onclick="if (event.target === this) closeShowPaymentModal()">
+        <div class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                <div>
+                    <h3 class="text-sm font-black text-slate-950">Payment Update</h3>
+                    <p id="show-payment-title" class="mt-1 text-[11px] font-semibold text-slate-500"></p>
+                </div>
+                <button type="button" onclick="closeShowPaymentModal()" class="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+
+            <form id="show-payment-form" method="POST" class="mt-4 space-y-3">
+                @csrf
+                @method('PATCH')
+                <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <div class="flex items-center justify-between text-[11px] font-bold text-slate-600">
+                        <span>Total Bill</span>
+                        <span id="show-payment-total" class="text-slate-900"></span>
+                    </div>
+                    <div class="mt-2 flex items-center justify-between text-[11px] font-bold text-slate-600">
+                        <span>Remaining</span>
+                        <span id="show-payment-balance" class="text-amber-700"></span>
+                    </div>
+                    <p id="show-payment-warning" class="mt-2 text-[10px] font-semibold text-amber-700"></p>
+                </div>
+
+                <div>
+                    <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Payment Method</label>
+                    <select id="show_payment_method" name="payment_method" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
+                        <option value="Cash">Cash</option>
+                        <option value="Online">Online</option>
+                        <option value="Credit">Credit</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Paid Amount</label>
+                    <input id="show_paid_amount" type="number" step="0.01" min="0" name="paid_amount" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
+                </div>
+
+                <div>
+                    <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Payment Note</label>
+                    <input id="show_payment_note" type="text" name="payment_note" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
+                </div>
+
+                <div>
+                    <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Payment Details</label>
+                    <textarea id="show_payment_details" name="payment_details" rows="3" class="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none"></textarea>
+                </div>
+
+                <button type="submit" class="h-10 w-full rounded-xl bg-teal-600 text-xs font-black text-white hover:bg-teal-500">Save Payment Update</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let showPaymentAmount = 0;
+        let showPaymentCreditApproved = false;
+
+        function openShowPaymentModal(invoice, actionUrl) {
+            showPaymentAmount = Number(invoice.amount || 0);
+            showPaymentCreditApproved = Boolean(invoice.creditApproved);
+
+            document.getElementById('show-payment-form').action = actionUrl;
+            document.getElementById('show-payment-title').textContent = `${invoice.number} • ${invoice.supplier ?? 'Supplier pending'}`;
+            document.getElementById('show-payment-total').textContent = `₹${Number(invoice.amount || 0).toFixed(2)}`;
+            document.getElementById('show_payment_method').value = invoice.paymentMethod || 'Cash';
+            document.getElementById('show_paid_amount').value = Number(invoice.paidAmount || 0).toFixed(2);
+            document.getElementById('show_payment_note').value = invoice.paymentNote || '';
+            document.getElementById('show_payment_details').value = invoice.paymentDetails || '';
+
+            updateShowPaymentStatus();
+            document.getElementById('show-payment-modal').classList.remove('hidden');
+            document.getElementById('show-payment-modal').classList.add('flex');
+        }
+
+        function closeShowPaymentModal() {
+            document.getElementById('show-payment-modal').classList.add('hidden');
+            document.getElementById('show-payment-modal').classList.remove('flex');
+        }
+
+        function updateShowPaymentStatus() {
+            const method = document.getElementById('show_payment_method').value;
+            const paidAmount = Number(document.getElementById('show_paid_amount').value || 0);
+            const balance = Math.max(0, showPaymentAmount - paidAmount);
+            const balanceNode = document.getElementById('show-payment-balance');
+            const warningNode = document.getElementById('show-payment-warning');
+
+            balanceNode.textContent = `₹${balance.toFixed(2)}`;
+            balanceNode.className = balance > 0 ? 'text-amber-700' : 'text-emerald-700';
+
+            if (method === 'Credit') {
+                warningNode.textContent = showPaymentCreditApproved
+                    ? 'Credit selected. Payment will stay pending until it is cleared in full.'
+                    : 'Credit selected but supplier credit is not approved yet.';
+                return;
+            }
+
+            warningNode.textContent = balance > 0
+                ? 'Payment is not done fully. Remaining balance will stay pending.'
+                : 'Full payment entered. This purchase will be marked received.';
+        }
+
+        document.getElementById('show_payment_method')?.addEventListener('change', updateShowPaymentStatus);
+        document.getElementById('show_paid_amount')?.addEventListener('input', updateShowPaymentStatus);
+    </script>
 </x-layouts.app>

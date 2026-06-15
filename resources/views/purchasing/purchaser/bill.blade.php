@@ -7,7 +7,7 @@
                 <div>
                     <p class="text-[9px] font-black uppercase tracking-[0.18em] text-slate-500">Stage 4</p>
                     <h1 class="mt-0.5 text-lg font-black text-slate-950">Bill processing</h1>
-                    <p class="mt-0.5 text-xs font-semibold text-slate-600">{{ $cart->cart_number }} • {{ $cart->supplier?->name ?: 'Vendor pending' }} • {{ \Illuminate\Support\Carbon::parse($date)->format('d M Y') }}</p>
+                    <p class="mt-0.5 text-xs font-semibold text-slate-600">{{ $cart->cart_number }} • {{ $cart->supplier?->name ?: 'Draft Cart' }} • {{ \Illuminate\Support\Carbon::parse($date)->format('d M Y') }}</p>
                 </div>
                 <div class="flex flex-wrap gap-1.5">
                     <a href="{{ route('purchaser.cart', ['date' => $date, 'cart' => $cart->id]) }}" class="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 px-3 text-xs font-black text-slate-700 hover:bg-slate-50">Back to Cart</a>
@@ -82,7 +82,7 @@
                                 @endforeach
                             </div>
                             @if ($cart->supplier && ! $cart->supplier->credit_approved)
-                                <p class="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] font-semibold text-amber-800">Credit is blocked for this vendor until approval.</p>
+                                <p class="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] font-semibold text-amber-800">Credit is blocked for this supplier until approval.</p>
                             @endif
                         </div>
                         <div>

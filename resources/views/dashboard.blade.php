@@ -2156,7 +2156,7 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
     <div class="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
             <h1 class="text-xl font-bold text-gray-900">Good {{ now()->hour < 12 ? 'morning' : (now()->hour < 17 ? 'afternoon' : 'evening') }}, {{ explode(' ', $user->name)[0] }} 👋</h1>
-            <p class="text-sm text-gray-500 mt-0.5">Here's what's happening in Green Leaf ERP today.</p>
+            <p class="text-sm text-gray-500 mt-0.5">Here's what's happening in Green Leaf Traders today.</p>
         </div>
         <span class="self-start sm:self-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold {{ $rc['color'] }}">
             <span class="w-1.5 h-1.5 rounded-full bg-current opacity-70"></span>

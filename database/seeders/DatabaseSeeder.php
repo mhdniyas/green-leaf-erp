@@ -22,5 +22,11 @@ class DatabaseSeeder extends Seeder
             WarehouseWorkflowSeeder::class,
             PurchaserDemoSeeder::class,
         ]);
+
+        if (! app()->runningUnitTests()) {
+            $this->call([
+                PurchaserRoleTestSeeder::class,
+            ]);
+        }
     }
 }

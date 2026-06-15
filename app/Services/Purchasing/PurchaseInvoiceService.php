@@ -71,4 +71,72 @@ class PurchaseInvoiceService
             return $invoice->fresh();
         });
     }
+
+    /**
+     * @param  array{payment_method:string, paid_amount:float, payment_note:?string, payment_details:?string}  $payload
+     */
+    public function updatePayment(PurchaseInvoice $invoice, array $payload): PurchaseInvoice
+    {
+        return DB::transaction(function () use ($invoice, $payload): PurchaseInvoice {
+            $invoice->loadMissing(['supplier', 'purchaserCart']);
+
+            $invoiceAmount = round((float) $invoice->amount, 2);
+            $paidAmount = min($invoiceAmount, round((float) $payload['paid_amount'], 2));
+            $paymentMethod = $payload['payment_method'];
+            $paymentStatus = $this->resolvePaymentStatus(
+                paymentMethod: $paymentMethod,
+                supplierCreditApproved: (bool) $invoice->supplier?->credit_approved,
+                invoiceAmount: $invoiceAmount,
+                paidAmount: $paidAmount,
+            );
+            $invoiceStatus = $paymentStatus === 'paid'
+                ? InvoiceStatus::Paid->value
+                : InvoiceStatus::Pending->value;
+            $oldStatus = $invoice->status;
+
+            $invoice->update([
+                'payment_method' => $paymentMethod,
+                'payment_status' => $paymentStatus,
+                'paid_amount' => $paidAmount,
+                'payment_note' => $payload['payment_note'],
+                'payment_details' => $payload['payment_details'],
+                'status' => $invoiceStatus,
+            ]);
+
+            if ($invoice->purchaserCart) {
+                $invoice->purchaserCart->update([
+                    'payment_method' => $paymentMethod,
+                    'payment_status' => $paymentStatus,
+                    'paid_amount' => $paidAmount,
+                    'payment_note' => $payload['payment_note'],
+                    'payment_details' => $payload['payment_details'],
+                    'goods_received_at' => $paymentStatus === 'paid' ? ($invoice->purchaserCart->goods_received_at ?? now()) : null,
+                    'payment_made_at' => $paymentStatus === 'paid' ? now() : null,
+                ]);
+            }
+
+            if ($invoiceStatus === InvoiceStatus::Paid->value && $oldStatus !== InvoiceStatus::Paid) {
+                $this->journalService->recordPurchasePayment($invoice->fresh());
+            }
+
+            return $invoice->fresh(['supplier', 'purchaserCart']);
+        });
+    }
+
+    private function resolvePaymentStatus(string $paymentMethod, bool $supplierCreditApproved, float $invoiceAmount, float $paidAmount): string
+    {
+        if (strcasecmp($paymentMethod, 'Credit') === 0) {
+            return $supplierCreditApproved ? 'credit_pending_approval' : 'credit_pending_approval';
+        }
+
+        if ($paidAmount <= 0) {
+            return 'unpaid';
+        }
+
+        if ($paidAmount < $invoiceAmount) {
+            return 'partial';
+        }
+
+        return 'paid';
+    }
 }

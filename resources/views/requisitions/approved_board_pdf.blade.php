@@ -217,7 +217,7 @@
     </div>
 
     <div class="footer">
-        <div>Generated automatically by Green Leaf ERP System.</div>
+        <div>Generated automatically by Green Leaf Traders System.</div>
         <div>Landscape Matrix View</div>
     </div>
 

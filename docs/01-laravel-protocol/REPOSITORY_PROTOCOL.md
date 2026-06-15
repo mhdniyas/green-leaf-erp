@@ -1,6 +1,6 @@
 # REPOSITORY PROTOCOL
 
-**Green Leaf ERP — Repository Layer Standards**
+**Green Leaf Traders — Repository Layer Standards**
 **Version**: 1.0.0
 
 > Repositories are the ONLY place database queries happen.
@@ -215,4 +215,4 @@ app/Repositories/
 
 ---
 
-**Owner**: Engineering Team | **Project**: Green Leaf ERP
+**Owner**: Engineering Team | **Project**: Green Leaf Traders

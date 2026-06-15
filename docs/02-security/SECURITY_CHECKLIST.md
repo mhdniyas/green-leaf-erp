@@ -1,6 +1,6 @@
 # SECURITY CHECKLIST
 
-**Green Leaf ERP — Pre-Deployment Security Checklist**
+**Green Leaf Traders — Pre-Deployment Security Checklist**
 **Version**: 1.0.0 | **Classification**: MANDATORY
 
 > Run through this checklist before every sprint release and production deployment.
@@ -159,5 +159,5 @@ Before going live:
 ---
 
 **Owner**: Engineering Lead + Security Team
-**Project**: Green Leaf ERP
+**Project**: Green Leaf Traders
 **Review Cycle**: Before every sprint release

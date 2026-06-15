@@ -1,4 +1,4 @@
-@props(['title' => 'Green Leaf ERP'])
+@props(['title' => 'Green Leaf Traders'])
 
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="h-full">
@@ -6,8 +6,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{{ $title }} — Green Leaf ERP</title>
-    <meta name="description" content="Green Leaf ERP — Vegetable Trading & Distribution Management System">
+    <title>{{ $title }} — Green Leaf Traders</title>
+    <meta name="description" content="Green Leaf Traders — Vegetable Trading & Distribution Management System">
     <script>
         if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
             document.documentElement.classList.add('dark');
@@ -162,6 +162,13 @@
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m3.75-9.75h-6a2.25 2.25 0 100 4.5h4.5a2.25 2.25 0 100 4.5h-6" /></svg>',
             'type' => 'link',
         ],
+        [
+            'label' => 'Bills',
+            'route' => 'purchasing.invoices.index',
+            'active' => request()->routeIs('purchasing.invoices.*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75h7.5m-9 3h10.5A2.25 2.25 0 0118.75 9v10.5A2.25 2.25 0 0116.5 21h-9A2.25 2.25 0 015.25 18.75V9A2.25 2.25 0 017.5 6.75Zm0 4.5h9m-9 3h6" /></svg>',
+            'type' => 'link',
+        ],
     ];
     $purchaserMobileNavItems = [
         [
@@ -179,7 +186,14 @@
             'type' => 'center',
         ],
         [
-            'label' => 'History',
+            'label' => 'Finance',
+            'route' => 'purchaser.finance',
+            'active' => request()->routeIs('purchaser.finance'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m3.75-9.75h-6a2.25 2.25 0 100 4.5h4.5a2.25 2.25 0 100 4.5h-6" /></svg>',
+            'type' => 'link',
+        ],
+        [
+            'label' => 'Report',
             'route' => 'purchaser.history',
             'active' => request()->routeIs('purchaser.history'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2m5-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
@@ -215,7 +229,7 @@
                     </svg>
                 </div>
                 <div class="min-w-0">
-                    <p class="truncate text-sm font-black leading-none text-white">Green Leaf ERP</p>
+                    <p class="truncate text-sm font-black leading-none text-white">Green Leaf Traders</p>
                     <p class="mt-1 text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300">Operations Hub</p>
                 </div>
                 <button id="sidebar-close" class="ml-auto text-slate-400 transition hover:text-white lg:hidden">
@@ -260,10 +274,13 @@
                         Daily
                     </x-nav-item>
                     <x-nav-item href="{{ route('purchaser.vendors') }}" :active="request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill')" :sub="true">
-                        Vendors
+                        Cart
+                    </x-nav-item>
+                    <x-nav-item href="{{ route('purchaser.finance') }}" :active="request()->routeIs('purchaser.finance')" :sub="true">
+                        Finance
                     </x-nav-item>
                     <x-nav-item href="{{ route('purchaser.history') }}" :active="request()->routeIs('purchaser.history')" :sub="true">
-                        History
+                        Report
                     </x-nav-item>
                 </div>
             @else
@@ -380,10 +397,13 @@
                                 Daily
                             </x-nav-item>
                             <x-nav-item href="{{ route('purchaser.vendors') }}" :active="request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill')" :sub="true">
-                                Vendors
+                                Cart
+                            </x-nav-item>
+                            <x-nav-item href="{{ route('purchaser.finance') }}" :active="request()->routeIs('purchaser.finance')" :sub="true">
+                                Finance
                             </x-nav-item>
                             <x-nav-item href="{{ route('purchaser.history') }}" :active="request()->routeIs('purchaser.history')" :sub="true">
-                                History
+                                Report
                             </x-nav-item>
                         </div>
                         @endif
@@ -418,6 +438,11 @@
                             Goods Receipts
                         </x-nav-item>
                         @endcan
+                        @if(auth()->user()->hasRole('purchase') || auth()->user()->hasRole('admin') || auth()->user()->can('accounting.ledger.view'))
+                        <x-nav-item href="{{ route('purchasing.invoices.index') }}" :active="request()->routeIs('purchasing.invoices.*')" :sub="true">
+                            Supplier Bills
+                        </x-nav-item>
+                        @endif
                     </div>
                 </div>
                 @endif
@@ -625,7 +650,7 @@
 
                 {{-- Page breadcrumb / title --}}
                 <div class="min-w-0 flex-1">
-                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Green Leaf ERP</p>
+                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Green Leaf Traders</p>
                     <h1 class="truncate text-xs font-bold text-slate-900 sm:text-sm">{{ $title }}</h1>
                 </div>
 

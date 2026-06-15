@@ -1,6 +1,6 @@
 # SECURITY PROTOCOL
 
-**Green Leaf ERP — Security Standards**
+**Green Leaf Traders — Security Standards**
 **Version**: 1.0.0 | **Classification**: MANDATORY — Non-negotiable
 
 > Security is not optional. Every line of code in this ERP handles business data.
@@ -86,7 +86,7 @@ public function update(UpdateProductRequest $request, Product $product): JsonRes
 }
 ```
 
-### RBAC Structure for Green Leaf ERP
+### RBAC Structure for Green Leaf Traders
 
 ```
 Roles:
@@ -458,5 +458,5 @@ Before any feature PR is merged:
 ---
 
 **Owner**: Security Team / Engineering Lead
-**Project**: Green Leaf ERP
+**Project**: Green Leaf Traders
 **Review Cycle**: Before every sprint release

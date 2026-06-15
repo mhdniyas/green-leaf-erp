@@ -1,6 +1,6 @@
 # Database Redesign Specification
 
-This document details the target relational database schema for the **Green Leaf ERP** workflow pivot. No migrations are created in this architectural phase. This document serves as the design specification.
+This document details the target relational database schema for the **Green Leaf Traders** workflow pivot. No migrations are created in this architectural phase. This document serves as the design specification.
 
 ---
 

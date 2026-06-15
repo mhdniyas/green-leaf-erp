@@ -9,7 +9,7 @@
 
 ## 1. EXECUTIVE SUMMARY
 
-Green Leaf ERP is a purpose-built enterprise resource planning system for vegetable trading and distribution businesses. It digitizes the entire operational lifecycle — from procurement to delivery — with specific support for the complexities of perishable, gradeable inventory.
+Green Leaf Traders is a purpose-built enterprise resource planning system for vegetable trading and distribution businesses. It digitizes the entire operational lifecycle — from procurement to delivery — with specific support for the complexities of perishable, gradeable inventory.
 
 Unlike off-the-shelf ERP solutions, Green Leaf is designed around the reality that:
 - **1000 kg of tomatoes purchased ≠ 1000 kg of sellable inventory** (damage, grade splits)
@@ -190,7 +190,7 @@ Monthly: Supplier/Customer statements sent
 
 ## 6. GRADING SYSTEM
 
-This is the most critical feature of Green Leaf ERP.
+This is the most critical feature of Green Leaf Traders.
 
 ### Default Grades (configurable per business)
 

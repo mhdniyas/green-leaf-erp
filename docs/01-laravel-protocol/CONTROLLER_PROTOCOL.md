@@ -1,6 +1,6 @@
 # CONTROLLER PROTOCOL
 
-**Green Leaf ERP — Controller Standards**
+**Green Leaf Traders — Controller Standards**
 **Version**: 1.0.0
 
 > Controllers are thin. They receive HTTP input, delegate to services, and return responses.
@@ -234,4 +234,4 @@ app/Http/Controllers/Api/
 
 ---
 
-**Owner**: Engineering Team | **Project**: Green Leaf ERP
+**Owner**: Engineering Team | **Project**: Green Leaf Traders

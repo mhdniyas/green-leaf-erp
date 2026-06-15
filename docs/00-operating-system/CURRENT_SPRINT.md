@@ -10,7 +10,7 @@
 
 ## 🎯 SPRINT GOAL
 
-Build the complete **Engineering Documentation System** that will serve as the source of truth for all agents working on Green Leaf ERP.
+Build the complete **Engineering Documentation System** that will serve as the source of truth for all agents working on Green Leaf Traders.
 
 Every agent that touches this codebase must be able to:
 1. Know exactly how to build anything (protocols)
@@ -153,5 +153,5 @@ This sprint is complete when:
 ---
 
 **Sprint Owner**: Engineering Lead
-**Project**: Green Leaf ERP
+**Project**: Green Leaf Traders
 **Next Sprint**: Authentication & User Management Module

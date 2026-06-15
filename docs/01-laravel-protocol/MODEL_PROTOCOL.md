@@ -1,6 +1,6 @@
 # MODEL PROTOCOL
 
-**Green Leaf ERP — Eloquent Model Standards**
+**Green Leaf Traders — Eloquent Model Standards**
 **Version**: 1.0.0
 
 > Models are data containers. They define structure, relationships, and casts.
@@ -278,4 +278,4 @@ class Product extends Model
 
 ---
 
-**Owner**: Engineering Team | **Project**: Green Leaf ERP
+**Owner**: Engineering Team | **Project**: Green Leaf Traders

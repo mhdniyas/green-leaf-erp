@@ -69,4 +69,40 @@ class SupplierController extends Controller
         return redirect()->route('purchasing.suppliers.index')
             ->with('success', 'Supplier deleted successfully.');
     }
+
+    public function requestCreditApproval(Request $request, Supplier $supplier): RedirectResponse
+    {
+        abort_unless(
+            $request->user()->hasRole('purchase') || $request->user()->hasRole('admin') || $request->user()->hasRole('purchaser'),
+            403,
+        );
+
+        $validated = $request->validate([
+            'credit_approval_note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $supplier->update([
+            'credit_approval_requested_at' => now(),
+            'credit_approval_requested_by' => $request->user()->id,
+            'credit_approval_note' => $validated['credit_approval_note'] ?? null,
+        ]);
+
+        return redirect()->back()->with('success', 'Credit approval request sent for this supplier.');
+    }
+
+    public function approveCreditApproval(Request $request, Supplier $supplier): RedirectResponse
+    {
+        abort_unless(
+            $request->user()->hasRole('purchase') || $request->user()->hasRole('admin') || $request->user()->can('purchasing.supplier.update'),
+            403,
+        );
+
+        $supplier->update([
+            'credit_approved' => true,
+            'credit_approved_at' => now(),
+            'credit_approved_by' => $request->user()->id,
+        ]);
+
+        return redirect()->back()->with('success', 'Supplier credit approved successfully.');
+    }
 }

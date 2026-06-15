@@ -1,6 +1,6 @@
 # SERVICE LAYER PROTOCOL
 
-**Green Leaf ERP — Service Layer Standards**
+**Green Leaf Traders — Service Layer Standards**
 **Version**: 1.0.0
 
 > Services are the business logic brain of this application.
@@ -221,4 +221,4 @@ app/Services/
 
 ---
 
-**Owner**: Engineering Team | **Project**: Green Leaf ERP
+**Owner**: Engineering Team | **Project**: Green Leaf Traders

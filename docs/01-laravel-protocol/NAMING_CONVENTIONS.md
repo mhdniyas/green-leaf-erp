@@ -1,6 +1,6 @@
 # NAMING CONVENTIONS
 
-**Green Leaf ERP — Naming Standards Reference**
+**Green Leaf Traders — Naming Standards Reference**
 **Version**: 1.0.0 | **Enforced by**: Pint + Code Review
 
 > Every name in this codebase must follow these rules. Inconsistent naming is a bug.
@@ -222,7 +222,7 @@ return [
 // .env
 DEFAULT_CURRENCY=MYR
 LOW_STOCK_THRESHOLD=10
-COMPANY_NAME="Green Leaf ERP"
+COMPANY_NAME="Green Leaf Traders"
 ```
 
 ---
@@ -317,4 +317,4 @@ RecordAuditTrailOnUserLogin
 ---
 
 **Owner**: Engineering Standards Team
-**Project**: Green Leaf ERP
+**Project**: Green Leaf Traders

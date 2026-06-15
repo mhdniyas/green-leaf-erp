@@ -1,6 +1,6 @@
 # Current Business Flow — Centralized Procurement & Distribution
 
-Green Leaf ERP operates as a **centralized procurement and distribution system** for multiple retail shops. This is NOT a classic customer-sales ERP; instead, the system is designed to fulfill daily inventory demand requested internally by individual shop owners.
+Green Leaf Traders operates as a **centralized procurement and distribution system** for multiple retail shops. This is NOT a classic customer-sales ERP; instead, the system is designed to fulfill daily inventory demand requested internally by individual shop owners.
 
 ---
 

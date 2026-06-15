@@ -11,7 +11,7 @@
 <aside class="hidden border-r border-slate-200 bg-slate-950 text-white lg:fixed lg:inset-y-0 lg:flex lg:w-72 lg:flex-col">
     <div class="border-b border-white/10 px-6 py-6">
         <p class="text-xs font-black uppercase tracking-[0.2em] text-emerald-300">Shop Owner Portal</p>
-        <h1 class="mt-2 text-xl font-black">{{ auth()->user()->shop?->name ?? 'Green Leaf ERP' }}</h1>
+        <h1 class="mt-2 text-xl font-black">{{ auth()->user()->shop?->name ?? 'Green Leaf Traders' }}</h1>
         <p class="mt-1 text-sm text-slate-400">Marketplace ordering, delivery follow-up, and finance tracking.</p>
     </div>
 

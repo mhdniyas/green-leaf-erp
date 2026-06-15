@@ -1,6 +1,6 @@
 # Phase 1 Product Requirements Document (PRD)
 
-This document establishes the product requirements for **Phase 1 (Upstream Demand & Procurement Planning)** of the Green Leaf ERP redesign. 
+This document establishes the product requirements for **Phase 1 (Upstream Demand & Procurement Planning)** of the Green Leaf Traders redesign. 
 
 The goal is to implement the daily demand collection system from retail shops, enforce cutoff validation, allow managers to approve/reject demands, and compile them into a consolidated procurement view for suppliers.
 

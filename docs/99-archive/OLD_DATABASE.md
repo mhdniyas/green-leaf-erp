@@ -5,7 +5,7 @@ This archive preserves the previous database direction without deleting any exis
 ## Why this is archived
 
 The earlier design mixes procurement and warehouse concepts with a traditional customer-sales ERP flow.
-The real Green Leaf ERP flow is centralized multi-shop demand collection, approval, procurement, warehouse allocation, dispatch, delivery, reporting, and audit.
+The real Green Leaf Traders flow is centralized multi-shop demand collection, approval, procurement, warehouse allocation, dispatch, delivery, reporting, and audit.
 
 ## Assumptions identified for redesign
 

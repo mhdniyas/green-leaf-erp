@@ -19,6 +19,7 @@ use App\Models\PurchaserCartItem;
 use App\Models\PurchaserCorrectionRequest;
 use App\Models\ShopOrderItem;
 use App\Models\Supplier;
+use App\Services\Purchasing\PurchaseInvoiceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -187,6 +188,13 @@ class PurchaserDashboardController extends Controller
 
         $orders = $carts->whereNull('goods_received_at')->values();
         $delivered = $carts->whereNotNull('goods_received_at')->values();
+        $draftOrders = $orders->where('status', 'draft')->values();
+        $mergeSuggestions = $this->buildDraftMergeSuggestions($draftOrders);
+        $mergeableDraftCounts = $mergeSuggestions
+            ->mapWithKeys(fn (array $suggestion): array => [
+                (int) $suggestion['target_cart']->id => (int) $suggestion['count'] - 1,
+            ])
+            ->all();
 
         $productCatalog = Product::query()
             ->with('category')
@@ -200,9 +208,117 @@ class PurchaserDashboardController extends Controller
             'date' => $date->format('Y-m-d'),
             'orders' => $orders,
             'delivered' => $delivered,
+            'mergeSuggestions' => $mergeSuggestions,
+            'mergeableDraftCounts' => $mergeableDraftCounts,
             'productCatalog' => $productCatalog,
             'suppliers' => $suppliers,
         ]);
+    }
+
+    public function finance(Request $request): View|RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $date = $this->resolveBusinessDate($request);
+
+        if ($date instanceof RedirectResponse) {
+            return $date;
+        }
+
+        $invoices = PurchaseInvoice::query()
+            ->with(['supplier', 'goodsReceived', 'purchaserCart'])
+            ->whereHas('purchaserCart', function ($query) use ($request, $date): void {
+                $query
+                    ->where('user_id', $request->user()->id)
+                    ->whereDate('business_date', $date);
+            })
+            ->orderByDesc('id')
+            ->paginate(20);
+
+        return view('purchasing.purchaser.finance', [
+            'date' => $date->format('Y-m-d'),
+            'invoices' => $invoices,
+            'financeAudience' => 'purchaser',
+            'canManageSuppliers' => true,
+        ]);
+    }
+
+    public function invoicePdf(Request $request, PurchaseInvoice $invoice): View
+    {
+        $this->ensurePurchaser($request);
+
+        $invoice = PurchaseInvoice::query()
+            ->whereKey($invoice->id)
+            ->whereHas('purchaserCart', function ($query) use ($request): void {
+                $query->where('user_id', $request->user()->id);
+            })
+            ->with([
+                'supplier',
+                'purchaserCart.items.product',
+                'goodsReceived.items.product',
+                'goodsReceived.purchaseOrder',
+            ])
+            ->firstOrFail();
+
+        return view('purchasing.invoices.pdf', compact('invoice'));
+    }
+
+    public function invoiceShow(Request $request, PurchaseInvoice $invoice): View
+    {
+        $this->ensurePurchaser($request);
+
+        $invoice = PurchaseInvoice::query()
+            ->whereKey($invoice->id)
+            ->whereHas('purchaserCart', function ($query) use ($request): void {
+                $query->where('user_id', $request->user()->id);
+            })
+            ->with([
+                'supplier',
+                'purchaserCart.items.product',
+                'goodsReceived.items.product',
+                'goodsReceived.purchaseOrder',
+                'purchaserCart',
+            ])
+            ->firstOrFail();
+
+        return view('purchasing.invoices.show', [
+            'invoice' => $invoice,
+            'paymentUpdateRouteName' => 'purchaser.invoices.payment',
+            'billPdfRouteName' => 'purchaser.invoices.pdf',
+            'backRouteName' => 'purchaser.finance',
+            'backRouteParameters' => ['date' => $invoice->purchaserCart?->business_date?->format('Y-m-d')],
+            'financeAudience' => 'purchaser',
+        ]);
+    }
+
+    public function mergeDraftCarts(Request $request, PurchaserCart $cart): RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $cart = $this->ownedCart($request, $cart, ['draft']);
+        $mergeGroup = $this->mergeGroupDraftCarts($cart)->values();
+
+        if ($mergeGroup->count() <= 1) {
+            return redirect()
+                ->route('purchaser.vendors', ['date' => $cart->business_date->format('Y-m-d')])
+                ->with('error', 'No other draft carts are available to merge.');
+        }
+
+        /** @var PurchaserCart $targetCart */
+        $targetCart = $mergeGroup->sortByDesc('updated_at')->first();
+
+        foreach ($mergeGroup as $sourceCart) {
+            if ($sourceCart->is($targetCart)) {
+                continue;
+            }
+
+            $this->mergeDraftCartIntoTarget($sourceCart, $targetCart);
+            $targetCart = $targetCart->fresh(['supplier', 'items.product.category', 'goodsReceived']);
+        }
+
+        return redirect()
+            ->route('purchaser.vendors', ['date' => $targetCart->business_date->format('Y-m-d')])
+            ->with('success', 'Draft carts merged into one cart.');
     }
 
     public function bulkStoreCart(Request $request): RedirectResponse
@@ -213,24 +329,33 @@ class PurchaserDashboardController extends Controller
             'business_date' => ['required', 'date'],
             'product_ids' => ['required', 'array'],
             'product_ids.*' => ['required', 'exists:products,id'],
-            'supplier_id' => ['nullable', 'exists:suppliers,id'],
+            'cart_id' => ['nullable', 'integer'],
+            'items' => ['required', 'array'],
+            'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
+            'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         $date = Carbon::parse($validated['business_date']);
         $user = $request->user();
-        $supplierId = $validated['supplier_id'] ? (int) $validated['supplier_id'] : null;
+        $cartId = filled($validated['cart_id'] ?? null) ? (int) $validated['cart_id'] : null;
 
-        $cart = PurchaserCart::query()
-            ->where('user_id', $user->id)
-            ->whereDate('business_date', $date)
-            ->when($supplierId, fn($q) => $q->where('supplier_id', $supplierId), fn($q) => $q->whereNull('supplier_id'))
-            ->where('status', 'draft')
-            ->first();
+        $cart = $cartId
+            ? PurchaserCart::query()
+                ->whereKey($cartId)
+                ->where('user_id', $user->id)
+                ->whereDate('business_date', $date)
+                ->where('status', 'draft')
+                ->firstOrFail()
+            : PurchaserCart::query()
+                ->where('user_id', $user->id)
+                ->whereDate('business_date', $date)
+                ->whereNull('supplier_id')
+                ->where('status', 'draft')
+                ->first();
 
         if (! $cart) {
             $cart = PurchaserCart::query()->create([
                 'user_id' => $user->id,
-                'supplier_id' => $supplierId,
                 'business_date' => $date,
                 'cart_number' => PurchaserCart::generateCartNumber($date),
                 'status' => 'draft',
@@ -241,18 +366,34 @@ class PurchaserDashboardController extends Controller
         foreach ($validated['product_ids'] as $productId) {
             $productId = (int) $productId;
             $product = Product::query()->findOrFail($productId);
+            $itemData = $validated['items'][$productId] ?? null;
+
+            if (! is_array($itemData)) {
+                continue;
+            }
 
             $remainingApproved = $this->remainingApprovedQuantityForProduct($date, $productId, (int) $cart->id);
-            $step = $product->unit === 'kg' ? 0.5 : 1.0;
-            $quantity = max($remainingApproved, $step);
+            $quantity = (float) $itemData['quantity'];
+            $unitPrice = (float) ($itemData['unit_price'] ?? 0);
 
             $existingItem = $cart->items()->where('product_id', $productId)->first();
-            if (! $existingItem) {
+            $newQuantity = $existingItem instanceof PurchaserCartItem
+                ? (float) $existingItem->quantity + $quantity
+                : $quantity;
+
+            if ($existingItem instanceof PurchaserCartItem) {
+                $existingItem->update([
+                    'quantity' => $newQuantity,
+                    'unit_price' => $unitPrice,
+                    'line_total' => round($newQuantity * $unitPrice, 2),
+                    'is_extra_purchase' => $newQuantity > $remainingApproved,
+                ]);
+            } else {
                 $cart->items()->create([
                     'product_id' => $productId,
                     'quantity' => $quantity,
-                    'unit_price' => 0.0,
-                    'line_total' => 0.0,
+                    'unit_price' => $unitPrice,
+                    'line_total' => round($quantity * $unitPrice, 2),
                     'is_extra_purchase' => $quantity > $remainingApproved,
                 ]);
                 $addedCount++;
@@ -273,7 +414,11 @@ class PurchaserDashboardController extends Controller
         ]);
 
         $date = Carbon::parse($validated['business_date']);
-        $cart = PurchaserCart::query()->create([
+        $cart = $this->findReusableDraftCart(
+            userId: (int) $request->user()->id,
+            date: $date,
+            supplierId: null,
+        ) ?? PurchaserCart::query()->create([
             'user_id' => $request->user()->id,
             'business_date' => $date,
             'cart_number' => PurchaserCart::generateCartNumber($date),
@@ -282,7 +427,7 @@ class PurchaserDashboardController extends Controller
 
         return redirect()
             ->route('purchaser.vendors', ['date' => $date->format('Y-m-d')])
-            ->with('success', 'Draft vendor cart created.');
+            ->with('success', 'Draft cart ready.');
     }
 
     public function storeCartItem(StorePurchaserCartItemRequest $request): RedirectResponse
@@ -305,10 +450,10 @@ class PurchaserDashboardController extends Controller
                 ->where('status', 'draft')
                 ->first()
               ?? PurchaserCart::query()->create([
-                'user_id' => $user->id,
-                'business_date' => $date,
-                'cart_number' => PurchaserCart::generateCartNumber($date),
-                'status' => 'draft',
+                  'user_id' => $user->id,
+                  'business_date' => $date,
+                  'cart_number' => PurchaserCart::generateCartNumber($date),
+                  'status' => 'draft',
               ]));
 
         $product = Product::query()->with('category')->findOrFail($request->integer('product_id'));
@@ -396,7 +541,7 @@ class PurchaserDashboardController extends Controller
                     $ratio = $quantity / $totalCurrentApproved;
                     foreach ($shopOrderItems as $shopOrderItem) {
                         $shopOrderItem->update([
-                            'approved_qty' => round($shopOrderItem->approved_qty * $ratio, 2)
+                            'approved_qty' => round($shopOrderItem->approved_qty * $ratio, 2),
                         ]);
                     }
                 } else {
@@ -449,9 +594,21 @@ class PurchaserDashboardController extends Controller
             'vendor_type' => ['nullable', 'string', 'max:255'],
             'payment_terms' => ['nullable', 'string', 'max:100'],
             'preferred_payment_method' => ['nullable', 'string', 'max:100'],
+            'share_mode' => ['nullable', 'string', 'in:saved,custom,any'],
         ]);
 
+        if ($request->string('share_mode')->toString() === 'custom') {
+            $digits = preg_replace('/\D+/', '', (string) $request->input('vendor_mobile_number'));
+
+            if ($digits === null || strlen($digits) !== 10) {
+                return $this->redirectAfterMutation($request->input('return_to', 'cart'), $cart->business_date, $cart->id, '')
+                    ->withErrors(['Enter a valid 10 digit India mobile number.']);
+            }
+        }
+
         $supplier = $this->resolveSubmissionSupplier($request);
+        $cart = $this->assignSupplierToCart($cart, $supplier);
+
         $cart->update([
             'supplier_id' => $supplier->id,
             'whatsapp_sent_at' => now(),
@@ -468,9 +625,16 @@ class PurchaserDashboardController extends Controller
 
         $message = $this->buildCartShareText($cart->fresh(['items.product', 'supplier']), false);
 
+        $shareMode = $request->string('share_mode')->toString() ?: 'saved';
         $customMobile = $request->input('vendor_mobile_number');
-        if ($customMobile) {
+
+        if ($shareMode === 'any') {
+            $whatsAppUrl = 'https://wa.me/?text='.rawurlencode($message);
+        } elseif ($shareMode === 'custom') {
             $digits = preg_replace('/\D+/', '', (string) $customMobile);
+            if ($digits !== null && strlen($digits) === 10) {
+                $digits = '91'.$digits;
+            }
             $whatsAppUrl = $digits ? 'https://wa.me/'.$digits.'?text='.rawurlencode($message) : null;
         } else {
             $whatsAppUrl = $this->buildSupplierWhatsAppUrl($supplier, $message);
@@ -500,6 +664,7 @@ class PurchaserDashboardController extends Controller
         ]);
 
         $supplier = $this->resolveSubmissionSupplier($request);
+        $cart = $this->assignSupplierToCart($cart, $supplier);
 
         $cart->update([
             'supplier_id' => $supplier->id,
@@ -637,8 +802,6 @@ class PurchaserDashboardController extends Controller
                 'notes' => $request->validated('notes'),
             ]);
 
-            $paymentMadeAt = $paidAmount > 0 ? now() : null;
-
             $cart->update([
                 'supplier_id' => $supplier->id,
                 'bill_number' => $request->validated('bill_number'),
@@ -654,7 +817,9 @@ class PurchaserDashboardController extends Controller
                 'goods_received_id' => $primaryDocuments['grn']->id,
                 'purchase_invoice_id' => $invoice->id,
                 'submitted_at' => now(),
-                'payment_made_at' => $paymentMadeAt,
+                'bill_received_at' => now(),
+                'goods_received_at' => $paymentStatus === 'paid' ? now() : null,
+                'payment_made_at' => $paymentStatus === 'paid' ? now() : null,
             ]);
         });
 
@@ -670,13 +835,11 @@ class PurchaserDashboardController extends Controller
         $cart = $this->ownedCart($request, $cart, ['submitted']);
 
         $validated = $request->validate([
-            'flag' => ['required', 'string', 'in:goods_received,bill_received,payment_made'],
+            'flag' => ['required', 'string', 'in:goods_received'],
         ]);
 
         $column = match ($validated['flag']) {
             'goods_received' => 'goods_received_at',
-            'bill_received' => 'bill_received_at',
-            'payment_made' => 'payment_made_at',
         };
 
         $cart->update([
@@ -686,6 +849,42 @@ class PurchaserDashboardController extends Controller
         return redirect()
             ->route('purchaser.history', ['date' => $cart->business_date->format('Y-m-d')])
             ->with('success', 'Purchase status updated.');
+    }
+
+    public function updateInvoicePayment(Request $request, PurchaseInvoice $invoice): RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $invoice = PurchaseInvoice::query()
+            ->whereKey($invoice->id)
+            ->whereHas('purchaserCart', function ($query) use ($request): void {
+                $query->where('user_id', $request->user()->id);
+            })
+            ->with(['supplier', 'purchaserCart'])
+            ->firstOrFail();
+
+        $validated = $request->validate([
+            'payment_method' => ['required', 'string', 'in:Cash,Online,Credit'],
+            'paid_amount' => ['required', 'numeric', 'min:0'],
+            'payment_note' => ['nullable', 'string', 'max:1000'],
+            'payment_details' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $updatedInvoice = app(PurchaseInvoiceService::class)->updatePayment($invoice, [
+            'payment_method' => $validated['payment_method'],
+            'paid_amount' => (float) $validated['paid_amount'],
+            'payment_note' => $validated['payment_note'] ?? null,
+            'payment_details' => $validated['payment_details'] ?? null,
+        ]);
+
+        $remainingBalance = max(0, round((float) $updatedInvoice->amount - (float) $updatedInvoice->paid_amount, 2));
+        $message = $remainingBalance > 0 || $updatedInvoice->payment_method === 'Credit'
+            ? 'Payment updated. Remaining balance or credit is still pending.'
+            : 'Payment completed successfully.';
+
+        return redirect()
+            ->route('purchaser.finance', ['date' => $updatedInvoice->purchaserCart?->business_date?->format('Y-m-d') ?? now()->format('Y-m-d')])
+            ->with('success', $message);
     }
 
     public function storeCorrectionRequest(StorePurchaserCorrectionRequest $request): RedirectResponse
@@ -770,6 +969,125 @@ class PurchaserDashboardController extends Controller
             ->get();
     }
 
+    private function findReusableDraftCart(int $userId, Carbon $date, ?int $supplierId, ?int $exceptCartId = null): ?PurchaserCart
+    {
+        return PurchaserCart::query()
+            ->where('user_id', $userId)
+            ->whereDate('business_date', $date)
+            ->where('status', 'draft')
+            ->when(
+                $supplierId !== null,
+                fn ($query) => $query->where('supplier_id', $supplierId),
+                fn ($query) => $query->whereNull('supplier_id'),
+            )
+            ->when($exceptCartId !== null, fn ($query) => $query->whereKeyNot($exceptCartId))
+            ->with(['supplier', 'items.product.category', 'goodsReceived'])
+            ->orderByDesc('updated_at')
+            ->first();
+    }
+
+    private function assignSupplierToCart(PurchaserCart $cart, Supplier $supplier): PurchaserCart
+    {
+        if ($cart->status !== 'draft') {
+            return $cart;
+        }
+
+        $targetCart = $this->findReusableDraftCart(
+            userId: (int) $cart->user_id,
+            date: $cart->business_date,
+            supplierId: (int) $supplier->id,
+            exceptCartId: (int) $cart->id,
+        );
+
+        if (! $targetCart instanceof PurchaserCart) {
+            return $cart;
+        }
+
+        $targetCart->update(['supplier_id' => $supplier->id]);
+
+        return $this->mergeDraftCartIntoTarget($cart, $targetCart);
+    }
+
+    private function mergeDraftCartIntoTarget(PurchaserCart $sourceCart, PurchaserCart $targetCart): PurchaserCart
+    {
+        if ($sourceCart->is($targetCart)) {
+            return $targetCart;
+        }
+
+        return DB::transaction(function () use ($sourceCart, $targetCart): PurchaserCart {
+            $sourceCart->loadMissing('items.product');
+            $targetCart->loadMissing('items.product');
+
+            foreach ($sourceCart->items as $sourceItem) {
+                $targetItem = $targetCart->items()->where('product_id', $sourceItem->product_id)->first();
+                $mergedQuantity = $sourceItem->quantity + (float) ($targetItem?->quantity ?? 0);
+                $remainingApproved = $this->remainingApprovedQuantityForProduct($sourceCart->business_date, (int) $sourceItem->product_id, (int) $targetCart->id);
+
+                if ($targetItem instanceof PurchaserCartItem) {
+                    $unitPrice = (float) ($sourceItem->unit_price > 0 ? $sourceItem->unit_price : $targetItem->unit_price);
+
+                    $targetItem->update([
+                        'quantity' => $mergedQuantity,
+                        'unit_price' => $unitPrice,
+                        'line_total' => round($mergedQuantity * $unitPrice, 2),
+                        'is_extra_purchase' => $mergedQuantity > $remainingApproved,
+                        'notes' => $targetItem->notes ?: $sourceItem->notes,
+                    ]);
+
+                    $sourceItem->delete();
+
+                    continue;
+                }
+
+                $sourceItem->update([
+                    'purchaser_cart_id' => $targetCart->id,
+                    'quantity' => $mergedQuantity,
+                    'line_total' => round($mergedQuantity * (float) $sourceItem->unit_price, 2),
+                    'is_extra_purchase' => $mergedQuantity > $remainingApproved,
+                ]);
+            }
+
+            $targetCart->touch();
+            $sourceCart->delete();
+
+            return $targetCart->fresh(['supplier', 'items.product.category', 'goodsReceived']);
+        });
+    }
+
+    private function mergeGroupDraftCarts(PurchaserCart $cart): Collection
+    {
+        return PurchaserCart::query()
+            ->where('user_id', $cart->user_id)
+            ->whereDate('business_date', $cart->business_date)
+            ->where('status', 'draft')
+            ->when(
+                $cart->supplier_id !== null,
+                fn ($query) => $query->where('supplier_id', $cart->supplier_id),
+                fn ($query) => $query->whereNull('supplier_id'),
+            )
+            ->with(['supplier', 'items.product.category', 'goodsReceived'])
+            ->orderByDesc('updated_at')
+            ->get();
+    }
+
+    private function buildDraftMergeSuggestions(Collection $draftOrders): Collection
+    {
+        return $draftOrders
+            ->groupBy(fn (PurchaserCart $cart): string => $cart->supplier_id !== null ? 'supplier:'.$cart->supplier_id : 'pending')
+            ->filter(fn (Collection $group): bool => $group->count() > 1)
+            ->map(function (Collection $group): array {
+                /** @var PurchaserCart $targetCart */
+                $targetCart = $group->sortByDesc('updated_at')->first();
+
+                return [
+                    'target_cart' => $targetCart,
+                    'count' => $group->count(),
+                    'label' => $targetCart->supplier?->name ?: 'draft carts',
+                ];
+            })
+            ->values();
+    }
+
     private function ownedCart(Request $request, PurchaserCart $cart, array $statuses): PurchaserCart
     {
         return PurchaserCart::query()
@@ -786,7 +1104,11 @@ class PurchaserDashboardController extends Controller
             'bill' => redirect()->route('purchaser.bill', ['cart' => $cartId, 'date' => $date->format('Y-m-d')])->with('success', $message),
             'cart' => redirect()->route('purchaser.vendors', ['date' => $date->format('Y-m-d')])->with('success', $message),
             'vendors' => redirect()->route('purchaser.vendors', ['date' => $date->format('Y-m-d')])->with('success', $message),
-            default => redirect()->route('purchaser.daily', ['date' => $date->format('Y-m-d')])->with('success', $message),
+            default => redirect()->route('purchaser.daily', array_filter([
+                'date' => $date->format('Y-m-d'),
+                'chip' => request()->input('chip'),
+                'search' => request()->input('search'),
+            ]))->with('success', $message),
         };
     }
 
@@ -799,13 +1121,13 @@ class PurchaserDashboardController extends Controller
             ->with(['product.category', 'order.shop'])
             ->get();
 
-        $draftQuantities = PurchaserCartItem::query()
-            ->selectRaw('product_id, SUM(quantity) as total_quantity')
+        $draftCartItems = PurchaserCartItem::query()
             ->whereHas('cart', function ($query) use ($date): void {
                 $query->whereDate('business_date', $date)->where('status', 'draft');
             })
-            ->groupBy('product_id')
-            ->pluck('total_quantity', 'product_id');
+            ->with('cart.user')
+            ->get()
+            ->groupBy('product_id');
 
         $submittedQuantities = PurchaserCartItem::query()
             ->selectRaw('product_id, SUM(quantity) as total_quantity')
@@ -817,12 +1139,26 @@ class PurchaserDashboardController extends Controller
 
         return $approvedItems
             ->groupBy('product_id')
-            ->map(function (Collection $items, int|string $productId) use ($draftQuantities, $submittedQuantities, $frequentProductIds): array {
+            ->map(function (Collection $items, int|string $productId) use ($draftCartItems, $submittedQuantities, $frequentProductIds): array {
                 /** @var ShopOrderItem $firstItem */
                 $firstItem = $items->first();
                 $product = $firstItem->product;
-                $draftQty = (float) ($draftQuantities[$productId] ?? 0);
+                $productDraftItems = $draftCartItems->get($productId) ?? collect();
+                $draftQty = (float) $productDraftItems->sum('quantity');
+                $draftPurchasers = $productDraftItems
+                    ->groupBy('cart.user_id')
+                    ->map(function ($itemsByPurchaser) use ($product) {
+                        $user = $itemsByPurchaser->first()->cart->user;
+                        $purchaserQty = (float) $itemsByPurchaser->sum('quantity');
+                        $formattedQty = $product->unit === 'kg' ? number_format($purchaserQty, 1) : number_format($purchaserQty, 0);
+
+                        return $user ? "{$user->name} ({$formattedQty} {$product->unit})" : null;
+                    })
+                    ->filter()
+                    ->values()
+                    ->all();
                 $boughtQty = (float) ($submittedQuantities[$productId] ?? 0);
+
                 $totalApprovedQty = (float) $items->sum('approved_qty');
                 $categoryName = (string) ($product->category?->name ?? '');
 
@@ -851,6 +1187,7 @@ class PurchaserDashboardController extends Controller
                     'total_approved_qty' => $totalApprovedQty,
                     'bought_qty' => $boughtQty,
                     'draft_qty' => $draftQty,
+                    'draft_purchasers' => $draftPurchasers,
                     'remaining_qty' => max(0, $totalApprovedQty - $boughtQty),
                     'quantity_buckets' => $quantityBuckets,
                     'shop_details' => $items->map(fn (ShopOrderItem $item): array => [
@@ -1074,7 +1411,7 @@ class PurchaserDashboardController extends Controller
     private function buildCartShareText(PurchaserCart $cart, bool $includePrice): string
     {
         $lines = [
-            'Green Leaf ERP - Purchase Order',
+            'Green Leaf Traders - Purchase Order',
             'Date: '.$cart->business_date->format('d/m/Y').' | '.$cart->cart_number,
             '---',
         ];
@@ -1101,6 +1438,10 @@ class PurchaserDashboardController extends Controller
 
         if ($digits === null || $digits === '') {
             return null;
+        }
+
+        if (strlen($digits) === 10) {
+            $digits = '91'.$digits;
         }
 
         return 'https://wa.me/'.$digits.'?text='.rawurlencode($message);

@@ -1,4 +1,4 @@
-# 🌿 Green Leaf ERP — Current State & Database Schema
+# 🌿 Green Leaf Traders — Current State & Database Schema
 
 **Last Updated**: May 25, 2026  
 **Status**: ✅ Foundation Complete (v1.0.0)  
@@ -19,7 +19,7 @@
 
 ## 🎯 APPLICATION OVERVIEW
 
-### What is Green Leaf ERP?
+### What is Green Leaf Traders?
 
 Green Leaf is a purpose-built **Enterprise Resource Planning (ERP) system for vegetable trading and distribution businesses**. It digitizes the entire operational lifecycle from procurement to delivery, with specific support for:
 

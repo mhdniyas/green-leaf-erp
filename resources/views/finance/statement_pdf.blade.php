@@ -200,7 +200,7 @@
     </table>
 
     <div class="footer">
-        <div>Generated automatically by Green Leaf ERP System.</div>
+        <div>Generated automatically by Green Leaf Traders System.</div>
         <div>Page 1 of 1</div>
     </div>
 

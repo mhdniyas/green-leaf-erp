@@ -12,6 +12,7 @@ use App\Models\PurchaseInvoice;
 use App\Services\Purchasing\PurchaseInvoiceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\View\View;
 
@@ -25,9 +26,26 @@ class PurchaseInvoiceController extends Controller
     {
         Gate::authorize('viewAny', PurchaseInvoice::class);
 
-        $invoices = $this->service->paginate(20);
+        $date = Carbon::parse($request->input('date', now()->format('Y-m-d')));
 
-        return view('purchase-manager.invoices.index', compact('invoices'));
+        $invoices = PurchaseInvoice::query()
+            ->with(['goodsReceived', 'supplier', 'purchaserCart'])
+            ->where(function ($query) use ($date): void {
+                $query
+                    ->whereNull('purchaser_cart_id')
+                    ->orWhereHas('purchaserCart', function ($purchaserCartQuery) use ($date): void {
+                        $purchaserCartQuery->whereDate('business_date', $date);
+                    });
+            })
+            ->orderByDesc('id')
+            ->paginate(20);
+
+        return view('purchasing.invoices.index', [
+            'date' => $date->format('Y-m-d'),
+            'invoices' => $invoices,
+            'financeAudience' => 'manager',
+            'canManageSuppliers' => $request->user()->hasRole('admin') || $request->user()->hasRole('purchase') || $request->user()->can('purchasing.supplier.update'),
+        ]);
     }
 
     public function create(Request $request): View|RedirectResponse
@@ -88,9 +106,36 @@ class PurchaseInvoiceController extends Controller
     {
         Gate::authorize('view', $invoice);
 
-        $invoice->load(['goodsReceived.purchaseOrder', 'supplier']);
+        $invoice->load([
+            'supplier',
+            'purchaserCart.items.product',
+            'goodsReceived.items.product',
+            'goodsReceived.purchaseOrder',
+            'purchaserCart',
+        ]);
 
-        return view('purchase-manager.invoices.show', compact('invoice'));
+        return view('purchasing.invoices.show', [
+            'invoice' => $invoice,
+            'paymentUpdateRouteName' => 'purchasing.invoices.update-payment',
+            'billPdfRouteName' => 'purchasing.invoices.pdf',
+            'backRouteName' => 'purchasing.invoices.index',
+            'backRouteParameters' => ['date' => $invoice->purchaserCart?->business_date?->format('Y-m-d')],
+            'financeAudience' => 'manager',
+        ]);
+    }
+
+    public function pdf(PurchaseInvoice $invoice): View
+    {
+        Gate::authorize('view', $invoice);
+
+        $invoice->load([
+            'supplier',
+            'purchaserCart.items.product',
+            'goodsReceived.items.product',
+            'goodsReceived.purchaseOrder',
+        ]);
+
+        return view('purchasing.invoices.pdf', compact('invoice'));
     }
 
     public function updateStatus(Request $request, PurchaseInvoice $invoice): RedirectResponse
@@ -105,5 +150,31 @@ class PurchaseInvoiceController extends Controller
 
         return redirect()->route('purchasing.invoices.show', $invoice)
             ->with('success', 'Purchase invoice status updated successfully.');
+    }
+
+    public function updatePayment(Request $request, PurchaseInvoice $invoice): RedirectResponse
+    {
+        Gate::authorize('update', $invoice);
+
+        $validated = $request->validate([
+            'payment_method' => ['required', 'string', 'in:Cash,Online,Credit'],
+            'paid_amount' => ['required', 'numeric', 'min:0'],
+            'payment_note' => ['nullable', 'string', 'max:1000'],
+            'payment_details' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $updatedInvoice = $this->service->updatePayment($invoice, [
+            'payment_method' => $validated['payment_method'],
+            'paid_amount' => (float) $validated['paid_amount'],
+            'payment_note' => $validated['payment_note'] ?? null,
+            'payment_details' => $validated['payment_details'] ?? null,
+        ]);
+
+        $remainingBalance = max(0, round((float) $updatedInvoice->amount - (float) $updatedInvoice->paid_amount, 2));
+        $message = $remainingBalance > 0 || $updatedInvoice->payment_method === 'Credit'
+            ? 'Payment updated. Invoice is not complete yet.'
+            : 'Payment completed successfully.';
+
+        return redirect()->back()->with('success', $message);
     }
 }
