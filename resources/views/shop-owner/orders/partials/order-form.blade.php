@@ -39,7 +39,7 @@
             @csrf
             
             <!-- Hidden master reason input to sync with drawers and fields -->
-            <textarea name="reason" id="hidden-reason-input" class="hidden">{{ old('reason', $tomorrowOrder->update_reason) }}</textarea>
+            <textarea name="reason" id="hidden-reason-input" class="hidden">{{ old('reason', $tomorrowOrder->state === 'update_requested' ? $tomorrowOrder->update_reason : '') }}</textarea>
 
             @include('shop-owner.orders.partials.product-selection-table', [
                 'productsByCategory' => $productsByCategory,
@@ -59,7 +59,7 @@
                     placeholder="Provide a reason for modifying this order (e.g. customer requested extra items)..."
                     class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 focus:border-amber-500 focus:outline-none transition"
                     required
-                >{{ old('reason', $tomorrowOrder->update_reason) }}</textarea>
+                >{{ old('reason', $tomorrowOrder->state === 'update_requested' ? $tomorrowOrder->update_reason : '') }}</textarea>
             </div>
 
             <div class="flex flex-col gap-4 border-t border-slate-100 pt-5 md:flex-row md:items-center md:justify-between">

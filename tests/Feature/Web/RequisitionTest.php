@@ -667,6 +667,10 @@ class RequisitionTest extends TestCase
         $response = $this->actingAs($manager)
             ->post(route('requisitions.review', $order->order_number), [
                 'action' => 'reject',
+                'approved_qty' => [
+                    $item->id => 4.00,
+                ],
+                'manager_note' => 'Only 4 kg can be accepted from this request.',
             ]);
 
         $response->assertRedirect(route('requisitions.show', $order->order_number));
@@ -675,11 +679,13 @@ class RequisitionTest extends TestCase
         $this->assertDatabaseHas('shop_orders', [
             'id' => $order->id,
             'state' => 'rejected',
+            'update_reason' => 'Only 4 kg can be accepted from this request.',
         ]);
 
         $this->assertDatabaseHas('shop_order_items', [
             'id' => $item->id,
-            'approved_qty' => 0.00,
+            'approved_qty' => 4.00,
+            'notes' => 'Purchase manager kept 4.00 '.$item->unit.' and rejected 6.00 '.$item->unit.'.',
         ]);
     }
 
@@ -1803,14 +1809,30 @@ class RequisitionTest extends TestCase
             'created_by' => $this->shopOwner->id,
         ]);
 
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 10.00,
+            'unit' => $this->product->unit,
+        ]);
+
         $response = $this->actingAs($manager)
-            ->post(route('requisitions.reject-late', $order->order_number));
+            ->post(route('requisitions.reject-late', $order->order_number), [
+                'approved_qty' => [
+                    $item->id => 3.00,
+                ],
+                'manager_note' => 'Late request reduced after cutoff review.',
+            ]);
 
         $response->assertRedirect();
         $response->assertSessionHas('success');
 
         $order->refresh();
         $this->assertSame('rejected', $order->state);
+        $this->assertSame('Late request reduced after cutoff review.', $order->update_reason);
+
+        $item->refresh();
+        $this->assertEquals(3.00, $item->approved_qty);
     }
 
     public function test_purchase_manager_can_approve_update_request(): void
@@ -1914,7 +1936,9 @@ class RequisitionTest extends TestCase
         ]);
 
         $response = $this->actingAs($manager)
-            ->post(route('requisitions.reject-update', $order->order_number));
+            ->post(route('requisitions.reject-update', $order->order_number), [
+                'manager_note' => 'Current approved quantity remains unchanged.',
+            ]);
 
         $response->assertRedirect();
         $response->assertSessionHas('success');
@@ -1922,6 +1946,7 @@ class RequisitionTest extends TestCase
         $order->refresh();
         $this->assertSame('approved', $order->state);
         $this->assertFalse($order->has_pending_revision);
+        $this->assertSame('Current approved quantity remains unchanged.', $order->update_reason);
 
         $item->refresh();
         $this->assertEquals(8.00, $item->approved_qty); // Keeps old quantity
@@ -1953,6 +1978,7 @@ class RequisitionTest extends TestCase
         $response = $this->actingAs($manager)
             ->post(route('requisitions.review', $order->order_number), [
                 'action' => 'reject',
+                'manager_note' => 'Late order was rejected after review.',
             ]);
 
         $response->assertRedirect(route('requisitions.show', $order->order_number));
@@ -1960,6 +1986,7 @@ class RequisitionTest extends TestCase
         $order->refresh();
         $this->assertSame('rejected', $order->state);
         $this->assertFalse($order->is_late);
+        $this->assertSame('Late order was rejected after review.', $order->update_reason);
     }
 
     public function test_reject_late_requisition_route_sets_is_late_to_false(): void
@@ -1983,6 +2010,107 @@ class RequisitionTest extends TestCase
         $order->refresh();
         $this->assertSame('rejected', $order->state);
         $this->assertFalse($order->is_late);
+    }
+
+    public function test_shop_owner_can_see_purchase_manager_rejection_details_on_cart_page(): void
+    {
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => Carbon::tomorrow()->format('Y-m-d'),
+            'state' => 'rejected',
+            'update_reason' => 'Only part of the late request could be accepted.',
+            'created_by' => $this->shopOwner->id,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 10.00,
+            'approved_qty' => 4.00,
+            'unit' => $this->product->unit,
+            'notes' => 'Purchase manager kept 4.00 '.$this->product->unit.' and rejected 6.00 '.$this->product->unit.'.',
+        ]);
+
+        $response = $this->actingAs($this->shopOwner)
+            ->get(route('shop-owner.orders.show', $order->order_number));
+
+        $response->assertOk();
+        $response->assertSee('Purchase Manager Note');
+        $response->assertSee('Only part of the late request could be accepted.');
+        $response->assertSee('Rejected');
+        $response->assertSee('6.00');
+    }
+
+    public function test_purchase_manager_can_approve_all_pending_daily_orders_for_selected_date(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $date = Carbon::tomorrow()->format('Y-m-d');
+
+        $firstOrder = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => $date,
+            'state' => 'submitted',
+            'created_by' => $this->shopOwner->id,
+        ]);
+        ShopOrderItem::create([
+            'shop_order_id' => $firstOrder->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 9.00,
+            'unit' => $this->product->unit,
+        ]);
+
+        $secondShop = Shop::create([
+            'code' => 'SHOP_APPROVE_ALL',
+            'name' => 'Approve All Shop',
+        ]);
+        $secondOwner = User::factory()->create([
+            'shop_id' => $secondShop->id,
+        ]);
+        $secondOwner->assignRole('shop');
+
+        $secondOrder = ShopOrder::create([
+            'shop_id' => $secondShop->id,
+            'business_date' => $date,
+            'state' => 'update_requested',
+            'update_reason' => 'Need final confirmation.',
+            'created_by' => $secondOwner->id,
+            'has_pending_revision' => false,
+        ]);
+        ShopOrderItem::create([
+            'shop_order_id' => $secondOrder->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 12.00,
+            'unit' => $this->product->unit,
+        ]);
+
+        $response = $this->actingAs($manager)
+            ->post(route('requisitions.board.approve-all'), [
+                'date' => $date,
+            ]);
+
+        $response->assertRedirect(route('requisitions.board', ['date' => $date]));
+        $response->assertSessionHas('success');
+
+        $this->assertDatabaseHas('shop_orders', [
+            'id' => $firstOrder->id,
+            'state' => 'approved',
+            'update_reason' => null,
+        ]);
+        $this->assertDatabaseHas('shop_orders', [
+            'id' => $secondOrder->id,
+            'state' => 'approved',
+            'update_reason' => null,
+        ]);
+        $this->assertDatabaseHas('shop_order_items', [
+            'shop_order_id' => $firstOrder->id,
+            'approved_qty' => 9.00,
+        ]);
+        $this->assertDatabaseHas('shop_order_items', [
+            'shop_order_id' => $secondOrder->id,
+            'approved_qty' => 12.00,
+        ]);
     }
 
     public function test_board_displays_pre_approval_update_requested_orders_in_daily_requisitions(): void

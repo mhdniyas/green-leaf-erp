@@ -18,9 +18,21 @@
                     <p class="mt-1 text-sm font-bold text-slate-900">{{ number_format((float) ($item->approved_qty ?? 0), 2) }}</p>
                 </div>
                 <div>
+                    <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Rejected</p>
+                    <p class="mt-1 text-sm font-bold text-rose-700">{{ number_format(max(0, (float) $item->requested_qty - (float) ($item->approved_qty ?? 0)), 2) }}</p>
+                </div>
+            </div>
+            <div class="mt-3 grid grid-cols-1 gap-3">
+                <div>
                     <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Delivered</p>
                     <p class="mt-1 text-sm font-bold text-slate-900">{{ number_format((float) ($item->delivered_qty ?? 0), 2) }}</p>
                 </div>
+                @if ($item->notes)
+                    <div>
+                        <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Review Note</p>
+                        <p class="mt-1 text-sm font-semibold leading-6 text-slate-700">{{ $item->notes }}</p>
+                    </div>
+                @endif
             </div>
         </article>
     @endforeach
@@ -33,7 +45,9 @@
                 <th class="py-3 pr-4">Product</th>
                 <th class="py-3 pr-4 text-right">Requested</th>
                 <th class="py-3 pr-4 text-right">Approved</th>
+                <th class="py-3 pr-4 text-right">Rejected</th>
                 <th class="py-3 pr-4 text-right">Delivered</th>
+                <th class="py-3 pr-4">Review Note</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 text-sm text-slate-700">
@@ -45,7 +59,9 @@
                     </td>
                     <td class="py-4 pr-4 text-right font-bold">{{ number_format((float) $item->requested_qty, 2) }} {{ $item->unit }}</td>
                     <td class="py-4 pr-4 text-right font-bold">{{ number_format((float) ($item->approved_qty ?? 0), 2) }} {{ $item->unit }}</td>
+                    <td class="py-4 pr-4 text-right font-bold text-rose-700">{{ number_format(max(0, (float) $item->requested_qty - (float) ($item->approved_qty ?? 0)), 2) }} {{ $item->unit }}</td>
                     <td class="py-4 pr-4 text-right font-bold">{{ number_format((float) ($item->delivered_qty ?? 0), 2) }} {{ $item->unit }}</td>
+                    <td class="py-4 pr-4 text-sm font-semibold text-slate-600">{{ $item->notes ?? '—' }}</td>
                 </tr>
             @endforeach
         </tbody>

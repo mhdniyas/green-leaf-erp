@@ -27,6 +27,13 @@
         @include('shop-owner.orders.partials.order-tabs')
         @include('shop-owner.orders.partials.order-summary-card', ['order' => $order])
 
+        @if ($order->update_reason && in_array($order->state, ['approved', 'rejected'], true))
+            <section class="rounded-[2rem] border border-amber-200 bg-amber-50 p-5 shadow-sm">
+                <p class="text-[11px] font-black uppercase tracking-[0.18em] text-amber-700">Purchase Manager Note</p>
+                <p class="mt-3 text-sm font-semibold leading-6 text-amber-900">{{ $order->update_reason }}</p>
+            </section>
+        @endif
+
         <section class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
             <h2 class="text-xl font-black text-slate-950">Cart Items</h2>
             <div class="mt-5">

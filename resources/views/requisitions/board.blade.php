@@ -17,6 +17,16 @@
             </div>
             
             <div class="flex flex-wrap items-center gap-3">
+                @if($pendingDailyOrders->isNotEmpty())
+                    <form method="POST" action="{{ route('requisitions.board.approve-all') }}">
+                        @csrf
+                        <input type="hidden" name="date" value="{{ $date }}">
+                        <button type="submit" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black px-4 py-2.5 rounded-2xl transition shadow-md">
+                            Approve All Shops
+                        </button>
+                    </form>
+                @endif
+
                 {{-- Date Selector --}}
                 <form action="{{ route('requisitions.board') }}" method="GET" class="flex items-center gap-2 bg-white dark:bg-slate-900 px-4 py-2.5 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm">
                     <label for="date-select" class="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">Delivery Date:</label>
@@ -205,6 +215,11 @@
                                             </table>
                                         </div>
 
+                                        <div class="mb-4">
+                                            <label for="manager-note-{{ $order->order_number }}" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Manager Note</label>
+                                            <textarea id="manager-note-{{ $order->order_number }}" name="manager_note" rows="3" class="mt-2 w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-200 focus:border-cyan-500 focus:outline-none" placeholder="Explain what was reduced or why this order is rejected."></textarea>
+                                        </div>
+
                                         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2.5">
                                             <button type="submit" onclick="document.getElementById('action-{{ $order->order_number }}').value='reject'" class="rounded-xl border border-red-200 dark:border-red-900/60 bg-white dark:bg-slate-900 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 px-4 py-2.5 text-xs font-black cursor-pointer shadow-sm">
                                                 Reject Order
@@ -309,18 +324,19 @@
                                         </table>
                                     </div>
 
+                                    <div class="mb-4">
+                                        <label for="update-manager-note-{{ $order->order_number }}" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Manager Note</label>
+                                        <textarea id="update-manager-note-{{ $order->order_number }}" name="manager_note" rows="3" class="mt-2 w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-200 focus:border-indigo-500 focus:outline-none" placeholder="Tell the shop owner why this update was declined or what was approved."></textarea>
+                                    </div>
+
                                     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2.5">
-                                        <button type="button" onclick="document.getElementById('reject-update-form-{{ $order->order_number }}').submit()" class="rounded-xl border border-red-200 dark:border-red-900/60 bg-white dark:bg-slate-900 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 px-4 py-2.5 text-xs font-black cursor-pointer shadow-sm">
+                                        <button type="submit" formaction="{{ route('requisitions.reject-update', $order->order_number) }}" class="rounded-xl border border-red-200 dark:border-red-900/60 bg-white dark:bg-slate-900 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 px-4 py-2.5 text-xs font-black cursor-pointer shadow-sm">
                                             Decline Update
                                         </button>
                                         <button type="submit" class="rounded-xl bg-indigo-600 hover:bg-indigo-750 text-white px-5 py-2.5 text-xs font-black cursor-pointer shadow-md">
                                             Approve & Apply Update
                                         </button>
                                     </div>
-                                </form>
-
-                                <form method="POST" action="{{ route('requisitions.reject-update', $order->order_number) }}" id="reject-update-form-{{ $order->order_number }}" class="hidden">
-                                    @csrf
                                 </form>
                             </div>
                         </div>
@@ -406,6 +422,11 @@
                                                 @endforeach
                                             </tbody>
                                         </table>
+                                    </div>
+
+                                    <div class="mb-4">
+                                        <label for="late-manager-note-{{ $order->order_number }}" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Manager Note</label>
+                                        <textarea id="late-manager-note-{{ $order->order_number }}" name="manager_note" rows="3" class="mt-2 w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-200 focus:border-amber-500 focus:outline-none" placeholder="Explain what was accepted or why this late request was rejected."></textarea>
                                     </div>
 
                                     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2.5">

@@ -391,14 +391,11 @@ class RequisitionController extends Controller
 
         $action = $request->input('action');
         if ($action === 'reject') {
-            DB::transaction(function () use ($order) {
-                $order->update([
-                    'state' => 'rejected',
-                    'is_late' => false,
-                ]);
-                foreach ($order->items as $item) {
-                    $item->update(['approved_qty' => 0.00]);
-                }
+            $approvedQtys = $request->input('approved_qty', []);
+            $managerNote = $this->normalizedManagerNote((string) $request->input('manager_note', ''));
+
+            DB::transaction(function () use ($order, $approvedQtys, $managerNote): void {
+                $this->applyRejectedReviewOutcome($order, $approvedQtys, $managerNote);
             });
 
             return redirect()->route('requisitions.show', $order->order_number)
@@ -412,16 +409,18 @@ class RequisitionController extends Controller
         DB::transaction(function () use ($order, $approvedQtys, $fulfillmentTypes) {
             foreach ($order->items as $item) {
                 // If an approved quantity is supplied, use it; otherwise default to requested quantity
-                $qty = $approvedQtys[$item->id] ?? $item->requested_qty;
+                $qty = max(0.0, (float) ($approvedQtys[$item->id] ?? $item->requested_qty));
                 $type = $fulfillmentTypes[$item->id] ?? $item->fulfillment_type ?? 'warehouse';
                 $item->update([
-                    'approved_qty' => max(0.00, (float) $qty),
+                    'approved_qty' => $qty,
                     'fulfillment_type' => $type,
+                    'notes' => null,
                 ]);
             }
             $order->update([
                 'state' => 'approved',
                 'is_late' => false,
+                'update_reason' => null,
             ]);
 
             // No longer sync Purchase Orders here; that is handled by the purchaser dashboard
@@ -450,14 +449,11 @@ class RequisitionController extends Controller
         }
 
         $order = ShopOrder::where('order_number', $orderNumber)->firstOrFail();
-        DB::transaction(function () use ($order) {
-            $order->update([
-                'state' => 'rejected',
-                'is_late' => false,
-            ]);
-            foreach ($order->items as $item) {
-                $item->update(['approved_qty' => 0.00]);
-            }
+        $approvedQtys = $request->input('approved_qty', []);
+        $managerNote = $this->normalizedManagerNote((string) $request->input('manager_note', ''));
+
+        DB::transaction(function () use ($order, $approvedQtys, $managerNote): void {
+            $this->applyRejectedReviewOutcome($order, $approvedQtys, $managerNote);
         });
 
         return redirect()->back()->with('success', 'Late requisition request rejected.');
@@ -490,6 +486,10 @@ class RequisitionController extends Controller
                         'purchase_orders' => 'This revision cannot be applied because goods receipt has already started for the linked purchase order.',
                     ]);
                 }
+
+                $order->update([
+                    'update_reason' => null,
+                ]);
             });
         } catch (ValidationException $e) {
             return redirect()->back()->withErrors($e->errors())->with('error', $e->getMessage());
@@ -505,8 +505,9 @@ class RequisitionController extends Controller
         }
 
         $order = ShopOrder::where('order_number', $orderNumber)->firstOrFail();
+        $managerNote = $this->normalizedManagerNote((string) $request->input('manager_note', ''));
 
-        DB::transaction(function () use ($order, $request): void {
+        DB::transaction(function () use ($order, $request, $managerNote): void {
             $revision = $order->latestPendingRevision()->first();
             if ($revision) {
                 $revision->update([
@@ -517,12 +518,49 @@ class RequisitionController extends Controller
             }
             $order->update([
                 'state' => 'approved',
-                'update_reason' => null,
+                'update_reason' => $managerNote ?? 'Purchase manager rejected the requested update.',
                 'has_pending_revision' => false,
             ]);
         });
 
         return redirect()->back()->with('success', 'Order update request rejected successfully.');
+    }
+
+    public function approveAllForDate(Request $request): RedirectResponse
+    {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+            abort(403, 'Unauthorized access.');
+        }
+
+        $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
+
+        $orders = ShopOrder::query()
+            ->whereDate('business_date', $date)
+            ->where('is_late', false)
+            ->whereIn('state', ['submitted', 'update_requested'])
+            ->where('has_pending_revision', false)
+            ->with('items')
+            ->get();
+
+        DB::transaction(function () use ($orders): void {
+            foreach ($orders as $order) {
+                foreach ($order->items as $item) {
+                    $item->update([
+                        'approved_qty' => (float) $item->requested_qty,
+                        'notes' => null,
+                    ]);
+                }
+
+                $order->update([
+                    'state' => 'approved',
+                    'is_late' => false,
+                    'update_reason' => null,
+                ]);
+            }
+        });
+
+        return redirect()->route('requisitions.board', ['date' => $date])
+            ->with('success', "Approved {$orders->count()} shop orders for {$date}.");
     }
 
     /**
@@ -2200,5 +2238,55 @@ class RequisitionController extends Controller
             'label' => 'PO Created',
             'po_count' => $linkedPos->count(),
         ];
+    }
+
+    private function normalizedManagerNote(string $managerNote): ?string
+    {
+        $trimmedManagerNote = trim($managerNote);
+
+        return $trimmedManagerNote !== '' ? $trimmedManagerNote : null;
+    }
+
+    private function resolvedApprovedQty(ShopOrderItem $item, mixed $approvedQty): float
+    {
+        return max(0.0, min((float) $item->requested_qty, (float) $approvedQty));
+    }
+
+    private function applyRejectedReviewOutcome(ShopOrder $order, array $approvedQtys, ?string $managerNote): void
+    {
+        foreach ($order->items as $item) {
+            $approvedQty = $this->resolvedApprovedQty($item, $approvedQtys[$item->id] ?? 0);
+            $rejectedQty = max(0.0, (float) $item->requested_qty - $approvedQty);
+
+            $item->update([
+                'approved_qty' => $approvedQty,
+                'notes' => $this->rejectionLineNote($item, $approvedQty, $rejectedQty),
+            ]);
+        }
+
+        $order->update([
+            'state' => 'rejected',
+            'is_late' => false,
+            'update_reason' => $managerNote ?? 'Purchase manager rejected this order after review.',
+        ]);
+    }
+
+    private function rejectionLineNote(ShopOrderItem $item, float $approvedQty, float $rejectedQty): string
+    {
+        if ($approvedQty <= 0) {
+            return sprintf(
+                'Rejected by purchase manager. Rejected qty: %s %s.',
+                number_format($rejectedQty, 2, '.', ''),
+                $item->unit
+            );
+        }
+
+        return sprintf(
+            'Purchase manager kept %s %s and rejected %s %s.',
+            number_format($approvedQty, 2, '.', ''),
+            $item->unit,
+            number_format($rejectedQty, 2, '.', ''),
+            $item->unit
+        );
     }
 }
