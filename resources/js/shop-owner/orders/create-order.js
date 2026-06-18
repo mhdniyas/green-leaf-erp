@@ -176,9 +176,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // ── CATEGORY & SEARCH FILTERING ─────────────────────────────────────────
-    let activeCategory = categoryPills.some((pill) => pill.getAttribute('data-category-pill') === 'frequent')
-        ? 'frequent'
-        : 'all';
+    let activeCategory = categoryPills.find((pill) => pill.hasAttribute('data-default-category'))
+        ?.getAttribute('data-default-category') ?? 'all';
 
     const filterProducts = () => {
         const query = searchInput ? searchInput.value.toLowerCase().trim() : '';

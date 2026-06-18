@@ -1,5 +1,6 @@
 @php
     $allProductsForOrder = collect();
+    $defaultCategory = 'all';
 
     foreach ($productsByCategory as $category) {
         foreach ($category->products as $product) {
@@ -60,12 +61,12 @@
         </div>
 
         <!-- Horizontal scrollable category pills -->
-        <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-none snap-x snap-mandatory -mx-6 px-6 sm:mx-0 sm:px-0">
+        <div class="flex gap-1.5 overflow-x-auto pb-1.5 scrollbar-none snap-x snap-mandatory -mx-4 px-4 sm:mx-0 sm:px-0">
             @if ($frequentProducts->isNotEmpty())
                 <button
                     type="button"
                     data-category-pill="frequent"
-                    class="snap-start shrink-0 rounded-full px-4 py-2 text-xs font-black uppercase tracking-wider bg-emerald-600 text-white shadow-sm transition active:scale-95 duration-150"
+                    class="snap-start shrink-0 rounded-full px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] bg-slate-100 text-slate-600 hover:bg-slate-200 transition active:scale-95 duration-150"
                 >
                     Frequent
                 </button>
@@ -73,7 +74,8 @@
             <button
                 type="button"
                 data-category-pill="all"
-                class="snap-start shrink-0 rounded-full px-4 py-2 text-xs font-black uppercase tracking-wider {{ $frequentProducts->isEmpty() ? 'bg-emerald-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }} transition active:scale-95 duration-150"
+                data-default-category="{{ $defaultCategory }}"
+                class="snap-start shrink-0 rounded-full px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] bg-emerald-600 text-white shadow-sm transition active:scale-95 duration-150"
             >
                 All
             </button>
@@ -81,7 +83,7 @@
                 <button
                     type="button"
                     data-category-pill="{{ $category->name }}"
-                    class="snap-start shrink-0 rounded-full px-4 py-2 text-xs font-black uppercase tracking-wider bg-slate-100 text-slate-600 hover:bg-slate-200 transition active:scale-95 duration-150"
+                    class="snap-start shrink-0 rounded-full px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] bg-slate-100 text-slate-600 hover:bg-slate-200 transition active:scale-95 duration-150"
                 >
                     {{ $category->name }}
                 </button>
@@ -93,7 +95,7 @@
     <div class="space-y-2">
         <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
             <h3 id="current-list-title" class="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
-                Frequently Ordered
+                All Products
             </h3>
             <span id="list-results-count" class="text-[10px] font-black uppercase tracking-wider text-slate-400 bg-slate-50 px-2.5 py-1 rounded-lg">
                 0 products
@@ -118,7 +120,7 @@
                     data-is-frequent="{{ $productData['is_frequent'] ? 'true' : 'false' }}"
                     data-is-selected="{{ $productData['is_selected'] ? 'true' : 'false' }}"
                     data-search-text="{{ \Illuminate\Support\Str::lower($productData['name'].' '.$productData['sku'].' '.$productData['category']) }}"
-                    class="flex items-center justify-between rounded-2xl p-3.5 transition duration-150 {{ $productData['is_frequent'] || $productData['is_selected'] ? '' : 'hidden' }} cursor-pointer hover:bg-slate-50 active:bg-slate-100"
+                    class="flex items-center justify-between rounded-2xl p-3.5 transition duration-150 cursor-pointer hover:bg-slate-50 active:bg-slate-100"
                 >
                     <div class="min-w-0 flex-1">
                         <h4 class="font-bold text-slate-900 text-sm truncate">{{ $productData['name'] }}</h4>

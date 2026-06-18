@@ -98,11 +98,28 @@ class PurchaserRoleTestSeeder extends Seeder
                     $email = 'shop@greenleaf.com';
                 }
 
+                $shopPasswords = [
+                    'SHOP_CASIO' => 'Casio17',
+                    'SHOP_BUDEGERE' => 'Budegere18',
+                    'SHOP_GRANCITY' => 'Grancity19',
+                    'SHOP_ASHIRWAD' => 'Ashirwad20',
+                    'SHOP_METRO' => 'Metro21',
+                    'SHOP_RELIANCE' => 'Reliance22',
+                    'SHOP_SPAR' => 'Spar23',
+                    'SHOP_MORE' => 'More24',
+                    'SHOP_LULU' => 'Lulu25',
+                    'SHOP_STAR' => 'Star26',
+                    'SHOP_FOODWORLD' => 'Foodworld27',
+                    'SHOP_NILGIRIS' => 'Nilgiris28',
+                    'SHOP_DMART' => 'Dmart29',
+                    'SHOP_EASYDAY' => 'Easyday30',
+                ];
+
                 $user = User::updateOrCreate(
                     ['email' => $email],
                     [
                         'name' => $shop->name.' Owner',
-                        'password' => Hash::make('password'),
+                        'password' => Hash::make($shopPasswords[$shop->code]),
                         'email_verified_at' => now(),
                         'shop_id' => $shop->id,
                     ]

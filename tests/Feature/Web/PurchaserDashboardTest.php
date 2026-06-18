@@ -1282,7 +1282,7 @@ class PurchaserDashboardTest extends TestCase
 
         $product = Product::factory()->create([
             'category_id' => $vegCategory->id,
-            'name' => 'Bottle Gourd',
+            'name' => 'Armenian Cucumber Long',
             'sku' => 'BG-01',
             'unit' => 'kg',
         ]);
@@ -1310,19 +1310,47 @@ class PurchaserDashboardTest extends TestCase
         $redirectUrl = (string) $response->headers->get('Location');
         $this->assertStringContainsString('api.whatsapp.com/send', $redirectUrl);
         // Message text should NOT contain the price
-        $this->assertStringNotContainsString('@ 25.50', rawurldecode($redirectUrl));
+        $decodedWithoutPrice = rawurldecode($redirectUrl);
+        $this->assertStringNotContainsString('25.5', $decodedWithoutPrice);
+        $this->assertStringNotContainsString('Net Total', $decodedWithoutPrice);
 
-        // Scenario 2: show_price is true
+        // Scenario 2: show_price is true and discount is applied
         $response = $this->actingAs($this->purchaser)->post(route('purchaser.carts.send', $cart), [
             'supplier_id' => $this->supplier->id,
             'show_price' => '1',
+            'discount_amount' => '5.50',
         ]);
 
         $response->assertStatus(302);
         $redirectUrl = (string) $response->headers->get('Location');
         $this->assertStringContainsString('api.whatsapp.com/send', $redirectUrl);
-        // Message text should contain the price
-        $this->assertStringContainsString('@ 25.50', rawurldecode($redirectUrl));
+        $decodedWithPrice = rawurldecode($redirectUrl);
+        $dateFormatted = \Carbon\Carbon::parse($date)->format('d/m/Y');
+        $this->assertStringContainsString("Green Leaf Traders - Purchase Order\nDate:", $decodedWithPrice);
+        $this->assertStringContainsString("Date: {$dateFormatted} |", $decodedWithPrice);
+        $this->assertStringContainsString("```\nItem", $decodedWithPrice);
+        $this->assertStringContainsString('Armenian', $decodedWithPrice);
+        $this->assertStringContainsString('Cucumber Long', $decodedWithPrice);
+        $this->assertStringContainsString('25.5', $decodedWithPrice);
+        $this->assertStringContainsString('255', $decodedWithPrice);
+        $this->assertStringContainsString("\n\nTotal", $decodedWithPrice);
+        $this->assertStringContainsString('Discount', $decodedWithPrice);
+        $this->assertStringContainsString('5.5', $decodedWithPrice);
+        $this->assertStringContainsString('Net Total', $decodedWithPrice);
+        $this->assertStringContainsString('249.5', $decodedWithPrice);
+
+        // Scenario 3: discount alone should force bill-format share
+        $response = $this->actingAs($this->purchaser)->post(route('purchaser.carts.send', $cart), [
+            'supplier_id' => $this->supplier->id,
+            'show_price' => '0',
+            'discount_amount' => '10.00',
+        ]);
+
+        $response->assertStatus(302);
+        $decodedDiscountOnly = rawurldecode((string) $response->headers->get('Location'));
+        $this->assertStringContainsString('Discount', $decodedDiscountOnly);
+        $this->assertStringContainsString('Net Total', $decodedDiscountOnly);
+        $this->assertStringContainsString('245', $decodedDiscountOnly);
     }
 
     public function test_daily_summary_includes_past_pending_demands_and_formats_whatsapp_text(): void

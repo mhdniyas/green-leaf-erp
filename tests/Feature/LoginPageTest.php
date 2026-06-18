@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Models\Shop;
+use App\Models\User;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -12,15 +14,28 @@ class LoginPageTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_login_page_lists_multiple_shop_demo_accounts(): void
+    public function test_login_page_hides_demo_credentials_and_keeps_sign_in_form_available(): void
     {
         $response = $this->get(route('login'));
 
         $response->assertOk();
-        $response->assertSee('shop@greenleaf.com');
-        $response->assertSee('shop-budegere@greenleaf.com');
-        $response->assertSee('shop-grancity@greenleaf.com');
-        $response->assertSee('shop-ashirwad@greenleaf.com');
+        $response->assertSee('Sign in to continue');
+        $response->assertDontSee('Green Leaf Traders Demo Access');
+        $response->assertDontSee('Testing Environment');
+        $response->assertDontSee('shop@greenleaf.com');
+        $response->assertDontSee('shop-budegere@greenleaf.com');
+        $response->assertDontSee('shop-grancity@greenleaf.com');
+        $response->assertDontSee('shop-ashirwad@greenleaf.com');
+    }
+
+    public function test_database_seeder_creates_fourteen_shop_owner_accounts(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        $this->assertSame(14, Shop::query()->count());
+        $this->assertSame(14, User::query()->whereNotNull('shop_id')->count());
+        $this->assertDatabaseHas('users', ['email' => 'shop@greenleaf.com']);
+        $this->assertDatabaseHas('users', ['email' => 'shop-easyday@greenleaf.com']);
     }
 
     public function test_seeded_demo_admin_can_sign_in_with_shared_password(): void
@@ -29,7 +44,7 @@ class LoginPageTest extends TestCase
 
         $response = $this->post(route('login.submit'), [
             'email' => 'admin@greenleaf.com',
-            'password' => 'password',
+            'password' => 'Admin11',
         ]);
 
         $response->assertRedirect(route('dashboard'));

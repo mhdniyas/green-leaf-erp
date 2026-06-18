@@ -26,7 +26,7 @@ class DemoWorkflowSeederTest extends TestCase
         );
 
         $this->assertSame(
-            ['SHOP_ASHIRWAD', 'SHOP_BUDEGERE', 'SHOP_CASIO', 'SHOP_GRANCITY'],
+            ['SHOP_ASHIRWAD', 'SHOP_BUDEGERE', 'SHOP_CASIO', 'SHOP_DMART', 'SHOP_EASYDAY', 'SHOP_FOODWORLD', 'SHOP_GRANCITY', 'SHOP_LULU', 'SHOP_METRO', 'SHOP_MORE', 'SHOP_NILGIRIS', 'SHOP_RELIANCE', 'SHOP_SPAR', 'SHOP_STAR'],
             Shop::query()->orderBy('code')->pluck('code')->all()
         );
 

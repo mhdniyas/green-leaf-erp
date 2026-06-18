@@ -738,6 +738,7 @@ class PurchaserDashboardController extends Controller
             'preferred_payment_method' => ['nullable', 'string', 'max:100'],
             'share_mode' => ['nullable', 'string', 'in:saved,custom,any'],
             'show_price' => ['nullable', 'boolean'],
+            'discount_amount' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         if ($request->string('share_mode')->toString() === 'custom') {
@@ -766,8 +767,9 @@ class PurchaserDashboardController extends Controller
             }
         }
 
-        $showPrice = $request->boolean('show_price', false);
-        $message = $this->buildCartShareText($cart->fresh(['items.product', 'supplier']), $showPrice);
+        $discountAmount = round((float) $request->input('discount_amount', 0), 2);
+        $showPrice = $request->boolean('show_price', false) || $discountAmount > 0;
+        $message = $this->buildCartShareText($cart->fresh(['items.product', 'supplier']), $showPrice, $discountAmount);
 
         $shareMode = $request->string('share_mode')->toString() ?: 'saved';
         $customMobile = $request->input('vendor_mobile_number');
@@ -1599,28 +1601,179 @@ class PurchaserDashboardController extends Controller
         return trim(implode("\n", $lines));
     }
 
-    private function buildCartShareText(PurchaserCart $cart, bool $includePrice): string
+    private function buildCartShareText(PurchaserCart $cart, bool $includePrice, float $discountAmount = 0): string
     {
+        $nameWidth = 14;
+        $qtyWidth = 4;
+        $rateWidth = 5;
+        $totalWidth = 6;
+
         $lines = [
             'Green Leaf Traders - Purchase Order',
             'Date: '.$cart->business_date->format('d/m/Y').' | '.$cart->cart_number,
+            '',
             '---',
         ];
 
-        foreach ($cart->items as $item) {
-            $line = str_pad($item->product->name, 14).' '.$this->formatShareQuantity((float) $item->quantity, $item->product->unit);
+        $subTotal = 0.0;
+        $formattedRows = [];
 
+        foreach ($cart->items as $item) {
             if ($includePrice) {
-                $line .= ' @ '.number_format((float) $item->unit_price, 2);
+                $quantity = $this->formatCompactShareNumber((float) $item->quantity);
+                $unitPrice = (float) $item->unit_price;
+                $lineTotal = round((float) $item->quantity * $unitPrice, 2);
+                $subTotal += $lineTotal;
+
+                array_push(
+                    $formattedRows,
+                    ...$this->formatSharePriceRows(
+                        (string) $item->product->name,
+                        $quantity,
+                        $this->formatCompactShareNumber($unitPrice),
+                        $this->formatCompactShareNumber($lineTotal),
+                        $nameWidth,
+                        $qtyWidth,
+                        $rateWidth,
+                        $totalWidth,
+                    )
+                );
+
+                continue;
             }
 
-            $lines[] = $line;
+            foreach ($this->wrapShareProductName((string) $item->product->name, $nameWidth) as $index => $wrappedLine) {
+                if ($index === 0) {
+                    $lines[] = str_pad($wrappedLine, $nameWidth).' '.$this->formatShareQuantity((float) $item->quantity, $item->product->unit);
+
+                    continue;
+                }
+
+                $lines[] = $wrappedLine;
+            }
         }
 
+        if ($includePrice) {
+            $netTotal = max(0, round($subTotal - $discountAmount, 2));
+
+            $lines[] = '```';
+            $lines[] = rtrim(sprintf("%-{$nameWidth}s %{$qtyWidth}s %{$rateWidth}s %{$totalWidth}s", 'Item', 'Qty', 'Rate', 'Total'));
+            $lines[] = rtrim(sprintf("%-{$nameWidth}s %{$qtyWidth}s %{$rateWidth}s %{$totalWidth}s", str_repeat('-', $nameWidth), str_repeat('-', $qtyWidth), str_repeat('-', $rateWidth), str_repeat('-', $totalWidth)));
+            $lines[] = '';
+            foreach ($formattedRows as $formattedRow) {
+                $lines[] = rtrim($formattedRow);
+            }
+            $lines[] = '';
+            $lines[] = sprintf("%-{$nameWidth}s %{$qtyWidth}s %{$rateWidth}s %{$totalWidth}s", 'Total', '', '', $this->formatCompactShareNumber($subTotal));
+            $lines[] = sprintf("%-{$nameWidth}s %{$qtyWidth}s %{$rateWidth}s %{$totalWidth}s", 'Discount', '', '', $this->formatCompactShareNumber($discountAmount));
+            $lines[] = sprintf("%-{$nameWidth}s %{$qtyWidth}s %{$rateWidth}s %{$totalWidth}s", 'Net Total', '', '', $this->formatCompactShareNumber($netTotal));
+            $lines[] = '```';
+        }
+
+        $lines[] = '';
         $lines[] = '---';
         $lines[] = 'Please pack and confirm.';
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function formatSharePriceRows(
+        string $productName,
+        string $quantity,
+        string $unitPrice,
+        string $lineTotal,
+        int $nameWidth,
+        int $qtyWidth,
+        int $rateWidth,
+        int $totalWidth,
+    ): array {
+        $nameLines = $this->wrapShareProductName($productName, $nameWidth);
+
+        if (count($nameLines) === 1) {
+            return [
+                sprintf(
+                    "%-{$nameWidth}s %{$qtyWidth}s %{$rateWidth}s %{$totalWidth}s",
+                    $nameLines[0],
+                    $quantity,
+                    $unitPrice,
+                    $lineTotal,
+                ),
+            ];
+        }
+
+        return [
+            $nameLines[0],
+            sprintf(
+                "%-{$nameWidth}s %{$qtyWidth}s %{$rateWidth}s %{$totalWidth}s",
+                $nameLines[1],
+                $quantity,
+                $unitPrice,
+                $lineTotal,
+            ),
+        ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function wrapShareProductName(string $productName, int $lineWidth): array
+    {
+        $trimmed = preg_replace('/\s+/', ' ', trim($productName)) ?? trim($productName);
+
+        if (mb_strlen($trimmed) <= $lineWidth) {
+            return [$trimmed];
+        }
+
+        $words = preg_split('/\s+/', $trimmed) ?: [$trimmed];
+        $firstLine = '';
+        $usedWords = 0;
+
+        foreach ($words as $index => $word) {
+            $candidate = $firstLine === '' ? $word : $firstLine.' '.$word;
+
+            if (mb_strlen($candidate) > $lineWidth) {
+                break;
+            }
+
+            $firstLine = $candidate;
+            $usedWords = $index + 1;
+        }
+
+        if ($firstLine === '') {
+            return [$this->truncateShareProductName($trimmed, $lineWidth)];
+        }
+
+        $secondLine = trim(implode(' ', array_slice($words, $usedWords)));
+
+        if ($secondLine === '') {
+            return [$firstLine];
+        }
+
+        return [
+            $firstLine,
+            $this->truncateShareProductName($secondLine, $lineWidth),
+        ];
+    }
+
+    private function truncateShareProductName(string $productName, int $maxLength = 14): string
+    {
+        $trimmed = trim($productName);
+
+        if (mb_strlen($trimmed) <= $maxLength) {
+            return $trimmed;
+        }
+
+        return rtrim(mb_substr($trimmed, 0, max(1, $maxLength - 1))).'.';
+    }
+
+    private function formatCompactShareNumber(float $value): string
+    {
+        $formatted = number_format($value, 2, '.', '');
+
+        return rtrim(rtrim($formatted, '0'), '.');
     }
 
     private function buildSupplierWhatsAppUrl(Supplier $supplier, string $message): ?string

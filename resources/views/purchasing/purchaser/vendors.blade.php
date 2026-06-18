@@ -69,7 +69,7 @@
                                     @if ($cart->supplier)
                                         <button
                                             type="button"
-                                            onclick="openCartShareModal('{{ route('purchaser.carts.send', $cart) }}', {{ $cart->supplier_id }}, @js($cart->supplier->mobile_number), @js($cart->cart_number))"
+                                            onclick="openCartShareModal('{{ route('purchaser.carts.send', $cart) }}', {{ $cart->supplier_id }}, @js($cart->supplier->mobile_number), @js($cart->cart_number), {{ round((float) $cart->items->sum('line_total'), 2) }})"
                                             class="text-emerald-600 hover:text-emerald-500 flex items-center focus:outline-none transition-colors"
                                             title="Share Cart"
                                         >
@@ -249,7 +249,7 @@
                                     @if ($cart->supplier)
                                         <button
                                             type="button"
-                                            onclick="openCartShareModal('{{ route('purchaser.carts.send', $cart) }}', {{ $cart->supplier_id }}, @js($cart->supplier->mobile_number), @js($cart->cart_number))"
+                                            onclick="openCartShareModal('{{ route('purchaser.carts.send', $cart) }}', {{ $cart->supplier_id }}, @js($cart->supplier->mobile_number), @js($cart->cart_number), {{ round((float) $cart->items->sum('line_total'), 2) }})"
                                             class="text-emerald-600 hover:text-emerald-500 flex items-center focus:outline-none transition-colors"
                                             title="Share Cart"
                                         >
@@ -334,6 +334,7 @@
         <input type="hidden" id="cart-share-mode" name="share_mode" value="saved">
         <input type="hidden" id="cart-share-mobile-hidden" name="vendor_mobile_number" value="">
         <input type="hidden" id="cart-share-show-price" name="show_price" value="0">
+        <input type="hidden" id="cart-share-discount-hidden" name="discount_amount" value="0">
     </form>
 
     {{-- Change Vendor Modal --}}
@@ -432,6 +433,17 @@
             </div>
 
             <div class="mt-4 space-y-3">
+                <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div class="flex items-center justify-between text-[11px] font-bold text-slate-500">
+                        <span>Cart Total</span>
+                        <span id="cart-share-total" class="text-slate-900">Rs. 0.00</span>
+                    </div>
+                    <div class="mt-2 flex items-center justify-between text-[11px] font-bold text-slate-500">
+                        <span>Net After Discount</span>
+                        <span id="cart-share-net-total" class="text-emerald-700">Rs. 0.00</span>
+                    </div>
+                </div>
+
                 <div class="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2">
                     <span class="text-xs font-bold text-slate-700">Show price in message</span>
                     <button type="button" role="switch" aria-checked="false" id="toggle-show-price" 
@@ -441,13 +453,21 @@
                     </button>
                 </div>
 
+                <div id="cart-share-discount-wrap" class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Discount in Share</label>
+                    <div class="mt-2 flex items-center gap-2">
+                        <div class="flex h-10 items-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600">Rs.</div>
+                        <input id="cart-share-discount-input" type="number" min="0" step="0.01" value="0" class="h-10 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 focus:border-teal-500 focus:outline-none" oninput="updateCartShareDiscount()">
+                    </div>
+                    <p class="mt-2 text-[10px] font-semibold text-slate-500">If discount is added, the share will automatically use the bill format with price.</p>
+                </div>
+
                 <button type="button" id="cart-share-saved-button" onclick="submitCartShare('saved')" class="flex h-10 w-full items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-xs font-black text-emerald-700 hover:bg-emerald-100">
                     Share to Saved Number
                 </button>
                 <button type="button" onclick="submitCartShare('any')" class="flex h-10 w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-xs font-black text-slate-700 hover:bg-slate-100">
                     Share to Any WhatsApp
                 </button>
-
                 <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
                     <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Custom India Mobile</label>
                     <div class="mt-2 flex gap-2">
@@ -580,6 +600,7 @@
             supplierId: '',
             supplierMobile: '',
             title: '',
+            totalAmount: 0,
         };
 
         let cartPaymentAmount = 0;
@@ -613,16 +634,33 @@
             setPriceToggle(!isOn);
         }
 
-        function openCartShareModal(actionUrl, supplierId, supplierMobile, title) {
+        function updateCartShareDiscount() {
+            const discountInput = document.getElementById('cart-share-discount-input');
+            const totalNode = document.getElementById('cart-share-total');
+            const netNode = document.getElementById('cart-share-net-total');
+            const discountValue = Math.max(0, Number(discountInput.value || 0));
+            const netTotal = Math.max(0, cartShareState.totalAmount - discountValue);
+
+            if (discountValue > 0) {
+                setPriceToggle(true);
+            }
+
+            totalNode.textContent = `Rs. ${cartShareState.totalAmount.toFixed(2)}`;
+            netNode.textContent = `Rs. ${netTotal.toFixed(2)}`;
+        }
+
+        function openCartShareModal(actionUrl, supplierId, supplierMobile, title, totalAmount) {
             cartShareState = {
                 actionUrl,
                 supplierId,
                 supplierMobile: supplierMobile || '',
                 title: title || 'Cart',
+                totalAmount: Number(totalAmount || 0),
             };
 
             document.getElementById('cart-share-title').textContent = cartShareState.title;
             document.getElementById('cart-share-mobile-input').value = '';
+            document.getElementById('cart-share-discount-input').value = '0';
             document.getElementById('cart-share-mobile-error').classList.add('hidden');
             document.getElementById('cart-share-saved-button').disabled = !cartShareState.supplierMobile;
             document.getElementById('cart-share-saved-button').classList.toggle('opacity-50', !cartShareState.supplierMobile);
@@ -631,6 +669,7 @@
             
             // Default show price toggle to OFF
             setPriceToggle(false);
+            updateCartShareDiscount();
         }
 
         function closeCartShareModal() {
@@ -643,11 +682,14 @@
             const mobileInput = document.getElementById('cart-share-mobile-input');
             const mobileHidden = document.getElementById('cart-share-mobile-hidden');
             const mobileError = document.getElementById('cart-share-mobile-error');
+            const discountInput = document.getElementById('cart-share-discount-input');
+            const discountHidden = document.getElementById('cart-share-discount-hidden');
 
             form.action = cartShareState.actionUrl;
             document.getElementById('cart-share-supplier-id').value = cartShareState.supplierId || '';
             document.getElementById('cart-share-mode').value = mode;
             mobileHidden.value = '';
+            discountHidden.value = discountInput.value || '0';
             mobileError.classList.add('hidden');
 
             if (mode === 'saved') {

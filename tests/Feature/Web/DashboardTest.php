@@ -416,8 +416,11 @@ class DashboardTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('id="shop-owner-product-catalog"', false);
-        $response->assertSee('id="review-total-value"', false);
+        $response->assertSee('data-order-total-items', false);
+        $response->assertSee('data-order-total-qty', false);
         $response->assertSee('data-category-pill="all"', false);
+        $response->assertSee('data-default-category="all"', false);
+        $response->assertSee('All Products');
     }
 
     public function test_purchase_manager_cannot_access_removed_supplier_and_admin_only_sections(): void
