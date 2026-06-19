@@ -44,6 +44,7 @@ Route::get('/', fn () => redirect()->route('login'));
 // Guest routes (unauthenticated only)
 Route::middleware('guest')->group(function () {
     Route::get('/login', [LoginController::class, 'show'])->name('login');
+    Route::get('/green-leaf', [LoginController::class, 'demo'])->name('login.demo');
     Route::post('/login', [LoginController::class, 'store'])->name('login.submit');
 });
 
