@@ -174,6 +174,13 @@
                                 Test credentials are no longer displayed on this page. Use the assigned shop-owner or staff account details provided separately.
                             </p>
                         </div>
+
+                        <a
+                            href="{{ route('shop-owner.register') }}"
+                            class="flex w-full items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 px-6 py-3 text-sm font-black text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:ring-offset-2"
+                        >
+                            New shop owner? Register here
+                        </a>
                     </form>
                 </div>
             </aside>

@@ -16,9 +16,9 @@ class UserService
         private readonly UserRepository $repository,
     ) {}
 
-    public function paginate(int $perPage = 15, ?string $search = null): LengthAwarePaginator
+    public function paginate(int $perPage = 15, ?string $search = null, string $scope = 'all'): LengthAwarePaginator
     {
-        return $this->repository->paginateFiltered($perPage, $search);
+        return $this->repository->paginateFiltered($perPage, $search, $scope);
     }
 
     public function create(UserData $data): User
@@ -49,5 +49,26 @@ class UserService
     public function delete(User $user): void
     {
         $this->repository->delete($user);
+    }
+
+    public function approve(User $user, User $approver): User
+    {
+        return DB::transaction(function () use ($user, $approver): User {
+            $user->forceFill([
+                'registration_status' => 'approved',
+                'approved_at' => now(),
+                'approved_by' => $approver->id,
+                'email_verified_at' => $user->email_verified_at ?? now(),
+            ])->save();
+
+            if ($user->shop !== null) {
+                $user->shop->update([
+                    'status' => 'active',
+                    'approved_at' => now(),
+                ]);
+            }
+
+            return $user->fresh(['shop']);
+        });
     }
 }

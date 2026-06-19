@@ -13,7 +13,6 @@ use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 
 class PurchaserRoleTestSeeder extends Seeder
 {
@@ -91,43 +90,7 @@ class PurchaserRoleTestSeeder extends Seeder
                 ->whereIn('shop_id', $shops->pluck('id'))
                 ->delete();
 
-            // Create users (owners) for the shops
-            foreach ($shops as $shop) {
-                $email = 'shop-'.strtolower(str_replace('SHOP_', '', $shop->code)).'@greenleaf.com';
-                if ($shop->code === 'SHOP_CASIO') {
-                    $email = 'shop@greenleaf.com';
-                }
-
-                $shopPasswords = [
-                    'SHOP_CASIO' => 'Casio17',
-                    'SHOP_BUDEGERE' => 'Budegere18',
-                    'SHOP_GRANCITY' => 'Grancity19',
-                    'SHOP_ASHIRWAD' => 'Ashirwad20',
-                    'SHOP_METRO' => 'Metro21',
-                    'SHOP_RELIANCE' => 'Reliance22',
-                    'SHOP_SPAR' => 'Spar23',
-                    'SHOP_MORE' => 'More24',
-                    'SHOP_LULU' => 'Lulu25',
-                    'SHOP_STAR' => 'Star26',
-                    'SHOP_FOODWORLD' => 'Foodworld27',
-                    'SHOP_NILGIRIS' => 'Nilgiris28',
-                    'SHOP_DMART' => 'Dmart29',
-                    'SHOP_EASYDAY' => 'Easyday30',
-                ];
-
-                $user = User::updateOrCreate(
-                    ['email' => $email],
-                    [
-                        'name' => $shop->name.' Owner',
-                        'password' => Hash::make($shopPasswords[$shop->code]),
-                        'email_verified_at' => now(),
-                        'shop_id' => $shop->id,
-                    ]
-                );
-                $user->syncRoles(['shop']);
-            }
-
-            $this->command?->info('Ensured shop owner users are seeded.');
+            $orderCreator = User::query()->where('email', 'purchase@greenleaf.com')->firstOrFail();
 
             $businessDate = Carbon::today()->startOfDay();
             $sharedProducts = $products
@@ -153,7 +116,6 @@ class PurchaserRoleTestSeeder extends Seeder
 
             $orderCount = 0;
             foreach ($shops->values() as $shopIndex => $shop) {
-                $shopOwner = $shop->users()->first();
                 $orderDateString = $businessDate->toDateString();
                 $datePrefix = $businessDate->format('Ymd');
                 $suffix = strtoupper(substr(md5($shop->code.$orderDateString), 0, 4));
@@ -169,7 +131,7 @@ class PurchaserRoleTestSeeder extends Seeder
                         'business_date' => $orderDateString,
                         'submitted_at' => $businessDate->copy()->subDay()->setTime(18, 0, 0),
                         'deadline_at' => $businessDate->copy()->subDay()->setTime(21, 30, 0),
-                        'created_by' => $shopOwner->id,
+                        'created_by' => $orderCreator->id,
                         'latest_revision_no' => 1,
                         'has_pending_revision' => false,
                         'is_allocation_completed' => false,

@@ -28,9 +28,12 @@ class UserController extends Controller
     {
         Gate::authorize('viewAny', User::class);
 
-        $users = $this->service->paginate(20, $request->input('search'));
+        $scope = $request->string('scope')->toString() === 'pending' ? 'pending' : 'all';
+        $users = $this->service->paginate(20, $request->input('search'), $scope);
+        $allUsersCount = User::query()->count();
+        $pendingRegistrationsCount = User::query()->where('registration_status', 'pending')->count();
 
-        return view('admin.users.index', compact('users'));
+        return view('admin.users.index', compact('users', 'scope', 'allUsersCount', 'pendingRegistrationsCount'));
     }
 
     public function create(): View
@@ -80,5 +83,15 @@ class UserController extends Controller
 
         return redirect()->route('admin.users.index')
             ->with('success', "User {$user->name} deleted successfully.");
+    }
+
+    public function approve(User $user): RedirectResponse
+    {
+        Gate::authorize('update', $user);
+
+        $this->service->approve($user, request()->user());
+
+        return redirect()->route('admin.users.index', ['scope' => 'pending'])
+            ->with('success', "Registration for {$user->name} approved successfully.");
     }
 }

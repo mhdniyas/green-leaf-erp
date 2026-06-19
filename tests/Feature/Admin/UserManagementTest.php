@@ -151,4 +151,35 @@ class UserManagementTest extends TestCase
         $response->assertRedirect(route('admin.users.index'));
         $this->assertModelMissing($targetUser);
     }
+
+    public function test_authorized_user_can_approve_pending_shop_owner_registration(): void
+    {
+        $shop = Shop::create([
+            'code' => 'REG-SHOP-101',
+            'name' => 'Pending Branch',
+            'status' => 'pending_approval',
+        ]);
+
+        $targetUser = User::factory()->create([
+            'shop_id' => $shop->id,
+            'registration_status' => 'pending',
+            'approved_at' => null,
+            'approved_by' => null,
+        ]);
+        $targetUser->syncRoles(['shop']);
+
+        $response = $this->actingAs($this->admin)
+            ->post(route('admin.users.approve', $targetUser));
+
+        $response->assertRedirect(route('admin.users.index', ['scope' => 'pending']));
+
+        $targetUser->refresh();
+        $shop->refresh();
+
+        $this->assertSame('approved', $targetUser->registration_status);
+        $this->assertSame($this->admin->id, $targetUser->approved_by);
+        $this->assertNotNull($targetUser->approved_at);
+        $this->assertSame('active', $shop->status);
+        $this->assertNotNull($shop->approved_at);
+    }
 }

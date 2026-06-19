@@ -17,7 +17,7 @@ use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Permission\Traits\HasPermissions;
 use Spatie\Permission\Traits\HasRoles;
 
-#[Fillable(['name', 'email', 'password', 'shop_id'])]
+#[Fillable(['name', 'email', 'password', 'shop_id', 'registration_status', 'approved_at', 'approved_by'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements AuditableContract
 {
@@ -35,6 +35,7 @@ class User extends Authenticatable implements AuditableContract
             'email_verified_at' => 'datetime',
             'last_seen_at' => 'datetime',
             'password' => 'hashed',
+            'approved_at' => 'datetime',
         ];
     }
 
@@ -51,5 +52,10 @@ class User extends Authenticatable implements AuditableContract
     public function isOnline(): bool
     {
         return $this->last_seen_at !== null && $this->last_seen_at->gte(now()->subMinutes(5));
+    }
+
+    public function isPendingRegistration(): bool
+    {
+        return $this->registration_status === 'pending';
     }
 }

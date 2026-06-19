@@ -41,16 +41,6 @@ class WarehouseWorkflowSeeder extends Seeder
                 ->get()
                 ->keyBy('code');
 
-            $shopOwners = User::query()
-                ->whereIn('email', [
-                    'shop@greenleaf.com',
-                    'shop-budegere@greenleaf.com',
-                    'shop-grancity@greenleaf.com',
-                    'shop-ashirwad@greenleaf.com',
-                ])
-                ->get()
-                ->keyBy('email');
-
             $products = Product::query()
                 ->whereIn('sku', [
                     'TOMATOH-001',
@@ -69,7 +59,7 @@ class WarehouseWorkflowSeeder extends Seeder
                 warehouseManager: $warehouseManager,
                 supplier: $marketA,
                 shop: $shops['SHOP_CASIO'],
-                shopOwner: $shopOwners['shop@greenleaf.com'],
+                shopOwner: $purchaseManager,
                 products: $products,
                 orderNumber: 'RQ-DEMO-D2-CASIO',
                 poNumber: 'PO-DEMO-D2-A',
@@ -89,7 +79,7 @@ class WarehouseWorkflowSeeder extends Seeder
                 warehouseManager: $warehouseManager,
                 supplier: $marketB,
                 shop: $shops['SHOP_BUDEGERE'],
-                shopOwner: $shopOwners['shop-budegere@greenleaf.com'],
+                shopOwner: $purchaseManager,
                 products: $products,
                 orderNumber: 'RQ-DEMO-D1-BUD',
                 poNumber: 'PO-DEMO-D1-B',
@@ -109,7 +99,7 @@ class WarehouseWorkflowSeeder extends Seeder
                 warehouseManager: $warehouseManager,
                 supplier: $marketA,
                 shop: $shops['SHOP_GRANCITY'],
-                shopOwner: $shopOwners['shop-grancity@greenleaf.com'],
+                shopOwner: $purchaseManager,
                 products: $products,
                 orderNumber: 'RQ-DEMO-TODAY-GRAND',
                 poNumber: 'PO-DEMO-TODAY-A',
@@ -126,7 +116,7 @@ class WarehouseWorkflowSeeder extends Seeder
                 warehouseManager: $warehouseManager,
                 supplier: $marketB,
                 shop: $shops['SHOP_ASHIRWAD'],
-                shopOwner: $shopOwners['shop-ashirwad@greenleaf.com'],
+                shopOwner: $purchaseManager,
                 products: $products,
                 orderNumber: 'RQ-DEMO-TODAY-ASH',
                 poNumber: 'PO-DEMO-TODAY-B',
@@ -144,7 +134,6 @@ class WarehouseWorkflowSeeder extends Seeder
                 warehouseManager: $warehouseManager,
                 supplier: $marketB,
                 shops: $shops,
-                shopOwners: $shopOwners,
                 products: $products,
             );
 
@@ -370,12 +359,11 @@ class WarehouseWorkflowSeeder extends Seeder
         User $warehouseManager,
         Supplier $supplier,
         Collection $shops,
-        Collection $shopOwners,
         Collection $products,
     ): void {
         $casioOrder = $this->upsertShopOrder(
             shop: $shops['SHOP_CASIO'],
-            shopOwner: $shopOwners['shop@greenleaf.com'],
+            shopOwner: $purchaseManager,
             orderNumber: 'RQ-WEEK-05-CASIO',
             businessDate: $businessDate,
             attributes: [
@@ -399,7 +387,7 @@ class WarehouseWorkflowSeeder extends Seeder
 
         $budegereOrder = $this->upsertShopOrder(
             shop: $shops['SHOP_BUDEGERE'],
-            shopOwner: $shopOwners['shop-budegere@greenleaf.com'],
+            shopOwner: $purchaseManager,
             orderNumber: 'RQ-WEEK-05-BUD',
             businessDate: $businessDate,
             attributes: [
@@ -419,7 +407,7 @@ class WarehouseWorkflowSeeder extends Seeder
 
         $grancityOrder = $this->upsertShopOrder(
             shop: $shops['SHOP_GRANCITY'],
-            shopOwner: $shopOwners['shop-grancity@greenleaf.com'],
+            shopOwner: $purchaseManager,
             orderNumber: 'RQ-WEEK-05-GRAND',
             businessDate: $businessDate,
             attributes: [

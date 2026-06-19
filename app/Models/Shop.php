@@ -19,10 +19,18 @@ class Shop extends Model
         'warehouse_tag',
         'shop_price_group_id',
         'status',
+        'approved_at',
         'address',
         'contact_name',
         'contact_phone',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'approved_at' => 'datetime',
+        ];
+    }
 
     public function priceGroup(): BelongsTo
     {

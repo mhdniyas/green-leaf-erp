@@ -28,38 +28,57 @@ class LoginController extends Controller
     /**
      * Show the hidden demo access page.
      */
-    public function demo(): View|RedirectResponse
+    public function demo(Request $request): View|RedirectResponse
     {
         if (Auth::check()) {
             return redirect()->route('dashboard');
         }
 
         return view('auth.demo-login', [
-            'staffAccounts' => [
-                ['name' => 'Administrator', 'role' => 'Admin', 'email' => 'admin@greenleaf.com', 'password' => 'Admin11'],
-                ['name' => 'Purchase Manager', 'role' => 'Purchase', 'email' => 'purchase@greenleaf.com', 'password' => 'Purchase12'],
-                ['name' => 'Warehouse Manager', 'role' => 'Warehouse', 'email' => 'warehouse@greenleaf.com', 'password' => 'Warehouse13'],
-                ['name' => 'Purchaser Niyas', 'role' => 'Purchaser', 'email' => 'purchaser@greenleaf.com', 'password' => 'Purchaser14'],
-                ['name' => 'Purchaser Fallback', 'role' => 'Purchaser', 'email' => 'purchaser2@greenleaf.com', 'password' => 'Purchaser15'],
-                ['name' => 'Warehouse Receiver', 'role' => 'Receiver', 'email' => 'receiver@greenleaf.com', 'password' => 'Receiver16'],
-            ],
-            'shopAccounts' => [
-                ['name' => 'Casio Shop', 'code' => 'SHOP-001', 'email' => 'shop@greenleaf.com', 'password' => 'Casio17'],
-                ['name' => 'Budegere Shop', 'code' => 'SHOP-002', 'email' => 'shop-budegere@greenleaf.com', 'password' => 'Budegere18'],
-                ['name' => 'Grancity Shop', 'code' => 'SHOP-003', 'email' => 'shop-grancity@greenleaf.com', 'password' => 'Grancity19'],
-                ['name' => 'Ashirwad Shop', 'code' => 'SHOP-004', 'email' => 'shop-ashirwad@greenleaf.com', 'password' => 'Ashirwad20'],
-                ['name' => 'Metro Shop', 'code' => 'SHOP-005', 'email' => 'shop-metro@greenleaf.com', 'password' => 'Metro21'],
-                ['name' => 'Reliance Shop', 'code' => 'SHOP-006', 'email' => 'shop-reliance@greenleaf.com', 'password' => 'Reliance22'],
-                ['name' => 'Spar Shop', 'code' => 'SHOP-007', 'email' => 'shop-spar@greenleaf.com', 'password' => 'Spar23'],
-                ['name' => 'More Shop', 'code' => 'SHOP-008', 'email' => 'shop-more@greenleaf.com', 'password' => 'More24'],
-                ['name' => 'Lulu Shop', 'code' => 'SHOP-009', 'email' => 'shop-lulu@greenleaf.com', 'password' => 'Lulu25'],
-                ['name' => 'Star Shop', 'code' => 'SHOP-010', 'email' => 'shop-star@greenleaf.com', 'password' => 'Star26'],
-                ['name' => 'Foodworld Shop', 'code' => 'SHOP-011', 'email' => 'shop-foodworld@greenleaf.com', 'password' => 'Foodworld27'],
-                ['name' => 'Nilgiris Shop', 'code' => 'SHOP-012', 'email' => 'shop-nilgiris@greenleaf.com', 'password' => 'Nilgiris28'],
-                ['name' => 'Dmart Shop', 'code' => 'SHOP-013', 'email' => 'shop-dmart@greenleaf.com', 'password' => 'Dmart29'],
-                ['name' => 'Easyday Shop', 'code' => 'SHOP-014', 'email' => 'shop-easyday@greenleaf.com', 'password' => 'Easyday30'],
-            ],
+            'hasDemoAccess' => $request->session()->get('demo_access_granted', false),
+            'staffAccounts' => $this->staffAccounts(),
         ]);
+    }
+
+    public function unlockDemoAccess(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'page_password' => ['required', 'string'],
+        ]);
+
+        if ($validated['page_password'] !== '2525') {
+            return back()->withErrors(['page_password' => 'The access password is incorrect.']);
+        }
+
+        $request->session()->put('demo_access_granted', true);
+
+        return redirect()->route('login.demo');
+    }
+
+    public function demoLogin(Request $request): RedirectResponse
+    {
+        abort_unless($request->session()->get('demo_access_granted', false), 403);
+
+        $validated = $request->validate([
+            'account' => ['required', 'string'],
+        ]);
+
+        $account = collect($this->staffAccounts())
+            ->firstWhere('key', $validated['account']);
+
+        abort_unless($account !== null, 404);
+
+        if (! Auth::attempt([
+            'email' => $account['email'],
+            'password' => $account['password'],
+        ])) {
+            return redirect()->route('login.demo')
+                ->withErrors(['page_password' => 'The selected demo account is unavailable.']);
+        }
+
+        $request->session()->regenerate();
+
+        return redirect()->intended(route('dashboard'));
     }
 
     /**
@@ -72,6 +91,18 @@ class LoginController extends Controller
         $remember = $request->boolean('remember');
 
         if (Auth::attempt($credentials, $remember)) {
+            $user = Auth::user();
+
+            if ($user !== null && $user->isPendingRegistration()) {
+                Auth::logout();
+                $request->session()->invalidate();
+                $request->session()->regenerateToken();
+
+                return back()
+                    ->withInput($request->only('email'))
+                    ->withErrors(['email' => 'Your registration is pending admin approval.']);
+            }
+
             $request->session()->regenerate();
 
             return redirect()->intended(route('dashboard'));
@@ -93,5 +124,20 @@ class LoginController extends Controller
         $request->session()->regenerateToken();
 
         return redirect()->route('login');
+    }
+
+    /**
+     * @return array<int, array{key: string, name: string, role: string, email: string, password: string}>
+     */
+    private function staffAccounts(): array
+    {
+        return [
+            ['key' => 'admin', 'name' => 'Administrator', 'role' => 'Admin', 'email' => 'admin@greenleaf.com', 'password' => 'Admin11'],
+            ['key' => 'purchase-manager', 'name' => 'Purchase Manager', 'role' => 'Purchase', 'email' => 'purchase@greenleaf.com', 'password' => 'Purchase12'],
+            ['key' => 'warehouse-manager', 'name' => 'Warehouse Manager', 'role' => 'Warehouse', 'email' => 'warehouse@greenleaf.com', 'password' => 'Warehouse13'],
+            ['key' => 'purchaser-niyas', 'name' => 'Purchaser Niyas', 'role' => 'Purchaser', 'email' => 'purchaser@greenleaf.com', 'password' => 'Purchaser14'],
+            ['key' => 'purchaser-fallback', 'name' => 'Purchaser Fallback', 'role' => 'Purchaser', 'email' => 'purchaser2@greenleaf.com', 'password' => 'Purchaser15'],
+            ['key' => 'warehouse-receiver', 'name' => 'Warehouse Receiver', 'role' => 'Receiver', 'email' => 'receiver@greenleaf.com', 'password' => 'Receiver16'],
+        ];
     }
 }

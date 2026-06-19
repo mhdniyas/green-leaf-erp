@@ -9,6 +9,7 @@ use App\Http\Controllers\Web\Admin\DailyProgressController;
 use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\Admin\WarehouseController;
 use App\Http\Controllers\Web\Auth\LoginController;
+use App\Http\Controllers\Web\Auth\ShopOwnerRegistrationController;
 use App\Http\Controllers\Web\DashboardController;
 use App\Http\Controllers\Web\Finance\FinanceController;
 use App\Http\Controllers\Web\Inventory\BatchController;
@@ -45,6 +46,13 @@ Route::get('/', fn () => redirect()->route('login'));
 Route::middleware('guest')->group(function () {
     Route::get('/login', [LoginController::class, 'show'])->name('login');
     Route::get('/green-leaf', [LoginController::class, 'demo'])->name('login.demo');
+    Route::get('/gree-leaf', [LoginController::class, 'demo']);
+    Route::post('/green-leaf/access', [LoginController::class, 'unlockDemoAccess'])->name('login.demo.unlock');
+    Route::post('/gree-leaf/access', [LoginController::class, 'unlockDemoAccess']);
+    Route::post('/green-leaf/login', [LoginController::class, 'demoLogin'])->name('login.demo.account');
+    Route::post('/gree-leaf/login', [LoginController::class, 'demoLogin']);
+    Route::get('/shop-owner/register', [ShopOwnerRegistrationController::class, 'create'])->name('shop-owner.register');
+    Route::post('/shop-owner/register', [ShopOwnerRegistrationController::class, 'store'])->name('shop-owner.register.store');
     Route::post('/login', [LoginController::class, 'store'])->name('login.submit');
 });
 
@@ -258,6 +266,7 @@ Route::middleware('auth')->group(function () {
     // ── Admin ──────────────────────────────────────────────────────────────
     Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('/', AdminOverviewController::class)->name('overview');
+        Route::post('users/{user}/approve', [UserController::class, 'approve'])->name('users.approve');
         Route::resource('users', UserController::class);
         Route::resource('warehouses', WarehouseController::class);
         Route::get('daily-progress', DailyProgressController::class)->name('daily-progress');
