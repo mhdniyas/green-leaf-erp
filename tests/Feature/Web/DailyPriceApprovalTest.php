@@ -152,6 +152,7 @@ class DailyPriceApprovalTest extends TestCase
         $approval->refresh();
         $this->assertEquals('approved', $approval->status);
         $this->assertEquals(25.00, $approval->price_a);
+        $this->assertSame(20.0, (float) $this->product->fresh()->vendor_price);
 
         // Assert that the active prices are saved in daily_product_prices
         $groupA = ShopPriceGroup::where('name', 'A')->first();

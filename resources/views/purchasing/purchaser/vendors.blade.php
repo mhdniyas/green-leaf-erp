@@ -161,8 +161,14 @@
 
                                             {{-- Price Input --}}
                                             <div class="flex flex-col gap-0.5 min-w-0">
+                                                @php
+                                                    $vendorPriceHint = $vendorPriceHintsByCart[$cart->id][$item->product_id] ?? 0;
+                                                @endphp
                                                 <span class="text-[8px] font-black text-slate-400 uppercase tracking-wider">Per {{ $item->product->unit }}</span>
                                                 <input type="number" step="0.01" min="0" name="unit_price" id="price-{{ $item->id }}" value="{{ number_format((float) $item->unit_price, 2, '.', '') }}" oninput="updateCartItemTotal({{ $item->id }})" placeholder="Price" class="h-8 w-14 text-center text-[10px] font-bold border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-teal-500 shrink-0 text-slate-900 shadow-xs">
+                                                @if ($vendorPriceHint > 0)
+                                                    <span class="text-[8px] font-bold text-amber-700">Prev ₹{{ number_format((float) $vendorPriceHint, 2) }}</span>
+                                                @endif
                                             </div>
 
                                             {{-- Save Button --}}

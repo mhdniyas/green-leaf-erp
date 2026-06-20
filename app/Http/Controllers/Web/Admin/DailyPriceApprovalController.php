@@ -11,6 +11,7 @@ use App\Models\DailyProductPrice;
 use App\Models\DailyProductPriceRevision;
 use App\Models\Product;
 use App\Models\ShopPriceGroup;
+use App\Services\Purchasing\VendorPriceService;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -22,6 +23,7 @@ class DailyPriceApprovalController extends Controller
 {
     public function __construct(
         private readonly ShopInvoiceService $shopInvoiceService,
+        private readonly VendorPriceService $vendorPriceService,
     ) {}
 
     public function index(Request $request): View
@@ -154,6 +156,7 @@ class DailyPriceApprovalController extends Controller
                     $this->updateActivePricesForGroup($product, $groupA, $priceA, $userId);
                     $this->updateActivePricesForGroup($product, $groupB, $priceB, $userId);
                     $this->updateActivePricesForGroup($product, $groupC, $priceC, $userId);
+                    $this->vendorPriceService->syncPrice($product->id, (float) $approval->purchase_price);
                 }
             });
 

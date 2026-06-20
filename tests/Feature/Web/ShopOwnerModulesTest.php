@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Web;
 
 use App\Enums\Purchasing\POStatus;
+use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\Shop;
 use App\Models\ShopOrder;
@@ -106,7 +107,7 @@ class ShopOwnerModulesTest extends TestCase
         $response->assertForbidden();
     }
 
-    public function test_shop_owner_dashboard_shows_approved_revision_status_label(): void
+    public function test_shop_owner_dashboard_shows_accepted_revision_status_label(): void
     {
         $shop = Shop::create([
             'code' => 'SHOP_REV_STATUS',
@@ -125,6 +126,7 @@ class ShopOwnerModulesTest extends TestCase
             'created_by' => $shopOwner->id,
             'latest_revision_no' => 2,
         ]);
+        $product = Product::factory()->create();
 
         ShopOrderRevision::create([
             'shop_order_id' => $order->id,
@@ -134,12 +136,18 @@ class ShopOwnerModulesTest extends TestCase
             'requested_by' => $shopOwner->id,
             'reviewed_by' => $shopOwner->id,
             'reviewed_at' => now(),
+        ])->items()->create([
+            'product_id' => $product->id,
+            'old_requested_qty' => 5.00,
+            'new_requested_qty' => 8.00,
+            'delta_qty' => 3.00,
+            'final_approved_qty' => 8.00,
         ]);
 
         $response = $this->actingAs($shopOwner)->get(route('shop-owner.dashboard'));
 
         $response->assertOk();
-        $response->assertSee('Update #2 Approved');
+        $response->assertSee('Update #2 Accepted');
     }
 
     public function test_shop_owner_dashboard_uses_purchaser_style_mobile_bottom_nav(): void

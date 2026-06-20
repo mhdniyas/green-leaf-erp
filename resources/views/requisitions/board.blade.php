@@ -1,6 +1,12 @@
 @php
     $pendingDailyOrders = $orders->filter(fn($o) => !$o->is_late && ($o->state === 'submitted' || ($o->state === 'update_requested' && !$o->has_pending_revision)));
     $updateRequests = $orders->filter(fn($o) => $o->has_pending_revision);
+    $historyOrders = $orders
+        ->concat($lateOrders)
+        ->unique('id')
+        ->filter(fn ($order) => $order->reviewed_at !== null || $order->revisions->whereIn('status', ['applied', 'rejected', 'blocked'])->isNotEmpty())
+        ->sortByDesc(fn ($order) => optional($order->latestResolvedRevision?->reviewed_at ?? $order->reviewed_at ?? $order->updated_at)->timestamp ?? 0)
+        ->values();
 @endphp
 
 <x-layouts.app title="Approval Center (Consolidated Requisitions Board)">
@@ -127,6 +133,17 @@
                     Late Requests
                     <span class="rounded-full px-2 py-0.5 text-xs font-black {{ $lateOrders->isNotEmpty() ? 'bg-amber-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400' }}">
                         {{ $lateOrders->count() }}
+                    </span>
+                </button>
+
+                <button
+                    id="tab-btn-history"
+                    onclick="switchTab('history')"
+                    class="tab-btn shrink-0 border-b-2 py-4 px-4 text-sm font-bold border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 flex items-center gap-2 transition"
+                >
+                    History
+                    <span class="rounded-full px-2 py-0.5 text-xs font-black {{ $historyOrders->isNotEmpty() ? 'bg-slate-900 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400' }}">
+                        {{ $historyOrders->count() }}
                     </span>
                 </button>
             </nav>
@@ -440,6 +457,37 @@
                                 </form>
                             </div>
                         </div>
+                    @endforeach
+                </div>
+            @endif
+        </div>
+
+        <div id="tab-panel-history" class="tab-panel hidden space-y-4">
+            @if($historyOrders->isEmpty())
+                <div class="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-12 text-center">
+                    <svg class="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <h3 class="mt-4 text-sm font-black text-slate-900 dark:text-white">No review history yet</h3>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Approved, rejected, and resolved update requests for this date will appear here.</p>
+                </div>
+            @else
+                <div class="space-y-4">
+                    @foreach($historyOrders as $order)
+                        <article class="rounded-[2rem] border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/80 p-5">
+                            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                <div>
+                                    <div class="flex flex-wrap items-center gap-3">
+                                        <h3 class="text-base font-black text-slate-900 dark:text-white">{{ $order->shop?->name ?? 'Unknown Shop' }}</h3>
+                                        <span class="font-mono text-xs font-bold text-slate-500 dark:text-slate-400">{{ $order->order_number }}</span>
+                                        <span class="text-xs font-semibold text-slate-500 dark:text-slate-400">{{ $order->items->count() }} items</span>
+                                    </div>
+                                    <p class="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-400">Business date {{ $order->business_date->format('d M Y') }}</p>
+                                </div>
+                                <a href="{{ route('requisitions.show', $order->order_number) }}" class="text-sm font-bold text-cyan-700 hover:text-cyan-900 dark:text-cyan-400 dark:hover:text-cyan-300">Open cart</a>
+                            </div>
+                            <div class="mt-4 border-t border-slate-200/80 dark:border-slate-800 pt-4">
+                                @include('requisitions.partials.review-history', ['order' => $order])
+                            </div>
+                        </article>
                     @endforeach
                 </div>
             @endif

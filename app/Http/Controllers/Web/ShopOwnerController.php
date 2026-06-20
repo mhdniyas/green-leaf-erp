@@ -257,7 +257,17 @@ class ShopOwnerController extends Controller
     {
         return ShopOrder::query()
             ->where('shop_id', $user->shop_id)
-            ->with(['shop', 'items.product', 'deliveredBy', 'creator']);
+            ->with([
+                'shop',
+                'items.product',
+                'deliveredBy',
+                'creator',
+                'reviewedBy',
+                'latestResolvedRevision.items.product',
+                'latestResolvedRevision.reviewedBy',
+                'revisions.items.product',
+                'revisions.reviewedBy',
+            ]);
     }
 
     private function frequentProducts(User $user)

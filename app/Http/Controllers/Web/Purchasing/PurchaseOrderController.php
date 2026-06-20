@@ -10,11 +10,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\StorePurchaseOrderRequest;
 use App\Http\Requests\Web\Purchasing\UpdatePurchaseOrderRequest;
 use App\Models\PurchaseOrder;
-use App\Models\PurchaseOrderItem;
 use App\Models\ShopOrder;
 use App\Repositories\Inventory\ProductRepository;
 use App\Services\Purchasing\PurchaseOrderService;
 use App\Services\Purchasing\SupplierService;
+use App\Services\Purchasing\VendorPriceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -27,6 +27,7 @@ class PurchaseOrderController extends Controller
         private readonly PurchaseOrderService $service,
         private readonly SupplierService $supplierService,
         private readonly ProductRepository $productRepository,
+        private readonly VendorPriceService $vendorPriceService,
     ) {}
 
     public function index(Request $request): View
@@ -98,18 +99,11 @@ class PurchaseOrderController extends Controller
 
         $order->load(['supplier', 'items.product', 'createdBy']);
 
-        // Query the most recent prior PO unit price for each product in the order
-        $previousPrices = PurchaseOrderItem::join('purchase_orders', 'purchase_orders.id', '=', 'purchase_order_items.purchase_order_id')
-            ->whereIn('purchase_order_items.product_id', $order->items->pluck('product_id'))
-            ->where('purchase_orders.id', '<', $order->id)
-            ->whereIn('purchase_order_items.id', function ($query) use ($order) {
-                $query->selectRaw('MAX(poi.id)')
-                    ->from('purchase_order_items as poi')
-                    ->join('purchase_orders as po', 'po.id', '=', 'poi.purchase_order_id')
-                    ->where('po.id', '<', $order->id)
-                    ->groupBy('poi.product_id');
-            })
-            ->pluck('unit_price', 'product_id');
+        $previousPrices = $this->vendorPriceService->previousPricesForSupplier(
+            $order->supplier_id,
+            $order->items->pluck('product_id')->all(),
+            $order->id,
+        );
 
         $products = $this->productRepository->findAllActive();
 
@@ -159,6 +153,12 @@ class PurchaseOrderController extends Controller
             }
 
             $item->update($updateFields);
+
+            $this->vendorPriceService->syncPrice(
+                productId: (int) $itemData['product_id'],
+                price: (float) $itemData['unit_price'],
+                supplierId: (int) $order->supplier_id,
+            );
         }
 
         return redirect()->route('purchasing.orders.show', $order)

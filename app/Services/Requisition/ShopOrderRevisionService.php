@@ -106,7 +106,8 @@ class ShopOrderRevisionService
         User $reviewer,
         array $shopQuantities = [],
         array $fulfillmentTypes = [],
-        array $suppliers = []
+        array $suppliers = [],
+        ?string $managerNote = null
     ): ?ShopOrderRevision {
         /** @var ShopOrderRevision|null $revision */
         $revision = $order->latestPendingRevision()
@@ -124,12 +125,14 @@ class ShopOrderRevisionService
                 'status' => 'blocked',
                 'reviewed_by' => $reviewer->id,
                 'reviewed_at' => now(),
+                'manager_note' => $managerNote,
             ]);
 
             $order->update([
                 'state' => 'approved',
                 'update_reason' => null,
                 'has_pending_revision' => false,
+                'manager_note' => $managerNote,
             ]);
 
             return $revision->fresh(['items.product', 'shopOrder']);
@@ -180,18 +183,24 @@ class ShopOrderRevisionService
             if (abs((float) $revisionItem->old_requested_qty - $finalQuantity) > 0.0001) {
                 $wasApplied = true;
             }
+
+            $revisionItem->update([
+                'final_approved_qty' => $finalQuantity,
+            ]);
         }
 
         $order->update([
             'state' => 'approved',
             'update_reason' => null,
             'has_pending_revision' => false,
+            'manager_note' => $managerNote,
         ]);
 
         $revision->update([
             'status' => $wasApplied ? 'applied' : 'rejected',
             'reviewed_by' => $reviewer->id,
             'reviewed_at' => now(),
+            'manager_note' => $managerNote,
         ]);
 
         if ($this->linkedPurchaseOrdersQuery($order, $changedProductIds)->exists()) {

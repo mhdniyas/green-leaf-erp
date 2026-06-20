@@ -15,6 +15,7 @@ class PurchaseOrderService
 {
     public function __construct(
         private readonly PurchaseOrderRepository $repository,
+        private readonly VendorPriceService $vendorPriceService,
     ) {}
 
     public function paginate(int $perPage = 15): LengthAwarePaginator
@@ -51,6 +52,8 @@ class PurchaseOrderService
                 ]);
             }
 
+            $this->vendorPriceService->syncMany($data->supplierId, $data->items);
+
             return $po;
         });
     }
@@ -75,6 +78,8 @@ class PurchaseOrderService
                     'price_basis' => $item['price_basis'],
                 ]);
             }
+
+            $this->vendorPriceService->syncMany($data->supplierId, $data->items);
 
             return $po;
         });

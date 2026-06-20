@@ -28,6 +28,9 @@ class ShopOrder extends Model
         'latest_revision_no',
         'has_pending_revision',
         'created_by',
+        'reviewed_by',
+        'reviewed_at',
+        'manager_note',
         'is_allocation_completed',
         'sorting_notes',
         'is_delivered',
@@ -47,6 +50,7 @@ class ShopOrder extends Model
         'submitted_at' => 'datetime',
         'deadline_at' => 'datetime',
         'has_pending_revision' => 'boolean',
+        'reviewed_at' => 'datetime',
         'is_allocation_completed' => 'boolean',
         'is_delivered' => 'boolean',
         'is_late' => 'boolean',
@@ -112,6 +116,16 @@ class ShopOrder extends Model
     }
 
     /**
+     * Get the user who reviewed the order.
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function reviewedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    /**
      * Get the items in this order.
      *
      * @return HasMany<ShopOrderItem, $this>
@@ -139,6 +153,16 @@ class ShopOrder extends Model
             ->latestOfMany('revision_no');
     }
 
+    /**
+     * @return HasOne<ShopOrderRevision, $this>
+     */
+    public function latestResolvedRevision(): HasOne
+    {
+        return $this->hasOne(ShopOrderRevision::class)
+            ->whereIn('status', ['applied', 'rejected', 'blocked'])
+            ->latestOfMany('revision_no');
+    }
+
     public function invoice(): HasOne
     {
         return $this->hasOne(ShopInvoice::class);
@@ -152,14 +176,14 @@ class ShopOrder extends Model
     public function displayStateLabel(): string
     {
         $revisionNumber = max(1, (int) $this->latest_revision_no);
+        $latestResolvedRevision = $this->relationLoaded('latestResolvedRevision') ? $this->latestResolvedRevision : null;
 
-        if ($revisionNumber > 1) {
-            return match ($this->state) {
-                'approved' => "Update #{$revisionNumber} Approved",
-                'update_requested' => "Update #{$revisionNumber} Pending",
-                'rejected' => "Update #{$revisionNumber} Rejected",
-                default => (string) str($this->state)->replace('_', ' ')->title(),
-            };
+        if ($latestResolvedRevision && $latestResolvedRevision->revision_no === $revisionNumber) {
+            return $latestResolvedRevision->resolvedLabel();
+        }
+
+        if ($revisionNumber > 1 && $this->has_pending_revision) {
+            return "Update #{$revisionNumber} Pending";
         }
 
         return (string) str($this->state)->replace('_', ' ')->title();

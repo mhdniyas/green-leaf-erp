@@ -23,11 +23,54 @@ class ShopOrderRevision extends Model
         'requested_by',
         'reviewed_by',
         'reviewed_at',
+        'manager_note',
     ];
 
     protected $casts = [
         'reviewed_at' => 'datetime',
     ];
+
+    public function resolvedLabel(): string
+    {
+        return match ($this->status) {
+            'pending' => sprintf('Update #%d Pending', $this->revision_no),
+            'rejected' => sprintf('Update #%d Rejected', $this->revision_no),
+            'blocked' => sprintf('Update #%d Blocked', $this->revision_no),
+            'applied' => sprintf(
+                'Update #%d %s',
+                $this->revision_no,
+                $this->isFullyAccepted() ? 'Accepted' : 'Partially Accepted'
+            ),
+            default => sprintf('Update #%d %s', $this->revision_no, str($this->status)->replace('_', ' ')->title()),
+        };
+    }
+
+    public function isFullyAccepted(): bool
+    {
+        if (! $this->relationLoaded('items')) {
+            return false;
+        }
+
+        return $this->items->isNotEmpty()
+            && $this->items->every(
+                fn (ShopOrderRevisionItem $item): bool => $item->final_approved_qty !== null
+                    && abs((float) $item->final_approved_qty - (float) $item->new_requested_qty) < 0.0001
+            );
+    }
+
+    public function acceptedItemsCount(): int
+    {
+        if (! $this->relationLoaded('items')) {
+            return 0;
+        }
+
+        return $this->items
+            ->filter(
+                fn (ShopOrderRevisionItem $item): bool => $item->final_approved_qty !== null
+                    && abs((float) $item->final_approved_qty - (float) $item->old_requested_qty) > 0.0001
+            )
+            ->count();
+    }
 
     /**
      * @return BelongsTo<ShopOrder, $this>

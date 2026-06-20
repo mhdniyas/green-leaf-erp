@@ -20,12 +20,14 @@ class ShopOrderRevisionItem extends Model
         'old_requested_qty',
         'new_requested_qty',
         'delta_qty',
+        'final_approved_qty',
     ];
 
     protected $casts = [
         'old_requested_qty' => 'decimal:2',
         'new_requested_qty' => 'decimal:2',
         'delta_qty' => 'decimal:2',
+        'final_approved_qty' => 'decimal:2',
     ];
 
     /**

@@ -952,8 +952,8 @@ class RequisitionTest extends TestCase
             ->get(route('requisitions.board', ['date' => $date]));
 
         $response->assertOk();
-        $response->assertDontSee($order->order_number);
-        $response->assertDontSee('Processed Daily Requisitions');
+        $response->assertSee('History');
+        $response->assertSee($order->order_number);
         $response->assertSee('No daily orders');
     }
 
@@ -1889,12 +1889,19 @@ class RequisitionTest extends TestCase
         $order->refresh();
         $this->assertSame('approved', $order->state);
         $this->assertFalse($order->has_pending_revision);
+        $this->assertSame($manager->id, $order->reviewed_by);
 
         $item->refresh();
         $this->assertEquals(12.00, $item->approved_qty);
 
         $revision->refresh();
         $this->assertSame('applied', $revision->status);
+        $this->assertNull($revision->manager_note);
+        $this->assertDatabaseHas('shop_order_revision_items', [
+            'shop_order_revision_id' => $revision->id,
+            'product_id' => $this->product->id,
+            'final_approved_qty' => 12.00,
+        ]);
     }
 
     public function test_purchase_manager_can_reject_update_request(): void
@@ -1947,12 +1954,14 @@ class RequisitionTest extends TestCase
         $this->assertSame('approved', $order->state);
         $this->assertFalse($order->has_pending_revision);
         $this->assertSame('Current approved quantity remains unchanged.', $order->update_reason);
+        $this->assertSame('Current approved quantity remains unchanged.', $order->manager_note);
 
         $item->refresh();
         $this->assertEquals(8.00, $item->approved_qty); // Keeps old quantity
 
         $revision->refresh();
         $this->assertSame('rejected', $revision->status);
+        $this->assertSame('Current approved quantity remains unchanged.', $revision->manager_note);
     }
 
     public function test_late_order_rejection_sets_is_late_to_false(): void
@@ -2039,6 +2048,106 @@ class RequisitionTest extends TestCase
         $response->assertSee('Only part of the late request could be accepted.');
         $response->assertSee('Rejected');
         $response->assertSee('6.00');
+    }
+
+    public function test_shop_owner_cart_page_shows_rejected_update_history_label_and_note(): void
+    {
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => Carbon::tomorrow()->format('Y-m-d'),
+            'state' => 'approved',
+            'created_by' => $this->shopOwner->id,
+            'latest_revision_no' => 2,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 10.00,
+            'approved_qty' => 8.00,
+            'unit' => $this->product->unit,
+        ]);
+
+        $revision = ShopOrderRevision::create([
+            'shop_order_id' => $order->id,
+            'revision_no' => 2,
+            'status' => 'rejected',
+            'reason' => 'Need more tomatoes.',
+            'requested_by' => $this->shopOwner->id,
+            'reviewed_by' => $this->shopOwner->id,
+            'reviewed_at' => now(),
+            'manager_note' => 'Current approved quantity remains unchanged.',
+        ]);
+        $revision->items()->create([
+            'product_id' => $this->product->id,
+            'old_requested_qty' => 8.00,
+            'new_requested_qty' => 12.00,
+            'delta_qty' => 4.00,
+        ]);
+
+        $response = $this->actingAs($this->shopOwner)
+            ->get(route('shop-owner.orders.show', $order->order_number));
+
+        $response->assertOk();
+        $response->assertSee('Update #2 Rejected');
+        $response->assertSee('Update request rejected. Try again in tomorrow');
+        $response->assertSee('Current approved quantity remains unchanged.');
+        $response->assertSee('Approval History');
+        $response->assertSee($this->product->name);
+    }
+
+    public function test_purchase_manager_board_history_tab_shows_review_notes(): void
+    {
+        $manager = User::factory()->create();
+        $manager->assignRole('purchase');
+
+        $date = Carbon::tomorrow()->format('Y-m-d');
+        $order = ShopOrder::create([
+            'shop_id' => $this->shop->id,
+            'business_date' => $date,
+            'state' => 'approved',
+            'created_by' => $this->shopOwner->id,
+            'reviewed_by' => $manager->id,
+            'reviewed_at' => now(),
+            'manager_note' => 'Initial request approved with reduced quantity.',
+            'latest_revision_no' => 2,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'requested_qty' => 10.00,
+            'approved_qty' => 6.00,
+            'unit' => $this->product->unit,
+        ]);
+
+        $revision = ShopOrderRevision::create([
+            'shop_order_id' => $order->id,
+            'revision_no' => 2,
+            'status' => 'applied',
+            'reason' => 'Need more tomatoes.',
+            'requested_by' => $this->shopOwner->id,
+            'reviewed_by' => $manager->id,
+            'reviewed_at' => now(),
+            'manager_note' => 'Accepted only 2 extra kg for this update.',
+        ]);
+        $revision->items()->create([
+            'product_id' => $this->product->id,
+            'old_requested_qty' => 6.00,
+            'new_requested_qty' => 10.00,
+            'delta_qty' => 4.00,
+            'final_approved_qty' => 8.00,
+        ]);
+
+        $response = $this->actingAs($manager)
+            ->get(route('requisitions.board', ['date' => $date]));
+
+        $response->assertOk();
+        $response->assertSee('History');
+        $response->assertSee('Initial request approved with reduced quantity.');
+        $response->assertSee('Update #2 Partially Accepted');
+        $response->assertSee('Accepted only 2 extra kg for this update.');
+        $response->assertSee($this->product->name);
     }
 
     public function test_purchase_manager_can_approve_all_pending_daily_orders_for_selected_date(): void

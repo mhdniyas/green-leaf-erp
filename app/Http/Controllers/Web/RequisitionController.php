@@ -141,7 +141,7 @@ class RequisitionController extends Controller
     public function show(Request $request, string $orderNumber): View|RedirectResponse
     {
         $order = ShopOrder::where('order_number', $orderNumber)
-            ->with(['items.product', 'shop', 'creator'])
+            ->with(['items.product', 'shop', 'creator', 'reviewedBy', 'latestResolvedRevision.items', 'latestResolvedRevision.reviewedBy'])
             ->firstOrFail();
 
         $user = $request->user();
@@ -390,12 +390,12 @@ class RequisitionController extends Controller
         }
 
         $action = $request->input('action');
+        $managerNote = $this->normalizedManagerNote((string) $request->input('manager_note', ''));
         if ($action === 'reject') {
             $approvedQtys = $request->input('approved_qty', []);
-            $managerNote = $this->normalizedManagerNote((string) $request->input('manager_note', ''));
 
-            DB::transaction(function () use ($order, $approvedQtys, $managerNote): void {
-                $this->applyRejectedReviewOutcome($order, $approvedQtys, $managerNote);
+            DB::transaction(function () use ($order, $approvedQtys, $managerNote, $request): void {
+                $this->applyRejectedReviewOutcome($order, $approvedQtys, $managerNote, $request->user()->id);
             });
 
             return redirect()->route('requisitions.show', $order->order_number)
@@ -406,7 +406,7 @@ class RequisitionController extends Controller
         $approvedQtys = $request->input('approved_qty', []);
         $fulfillmentTypes = $request->input('fulfillment_types', []);
 
-        DB::transaction(function () use ($order, $approvedQtys, $fulfillmentTypes) {
+        DB::transaction(function () use ($order, $approvedQtys, $fulfillmentTypes, $managerNote, $request) {
             foreach ($order->items as $item) {
                 // If an approved quantity is supplied, use it; otherwise default to requested quantity
                 $qty = max(0.0, (float) ($approvedQtys[$item->id] ?? $item->requested_qty));
@@ -421,6 +421,9 @@ class RequisitionController extends Controller
                 'state' => 'approved',
                 'is_late' => false,
                 'update_reason' => null,
+                'reviewed_by' => $request->user()->id,
+                'reviewed_at' => now(),
+                'manager_note' => $managerNote,
             ]);
 
             // No longer sync Purchase Orders here; that is handled by the purchaser dashboard
@@ -437,7 +440,11 @@ class RequisitionController extends Controller
         }
 
         $order = ShopOrder::where('order_number', $orderNumber)->firstOrFail();
-        $order->update(['is_late' => false]);
+        $order->update([
+            'is_late' => false,
+            'reviewed_by' => $request->user()->id,
+            'reviewed_at' => now(),
+        ]);
 
         return redirect()->back()->with('success', 'Late requisition request accepted.');
     }
@@ -452,8 +459,8 @@ class RequisitionController extends Controller
         $approvedQtys = $request->input('approved_qty', []);
         $managerNote = $this->normalizedManagerNote((string) $request->input('manager_note', ''));
 
-        DB::transaction(function () use ($order, $approvedQtys, $managerNote): void {
-            $this->applyRejectedReviewOutcome($order, $approvedQtys, $managerNote);
+        DB::transaction(function () use ($order, $approvedQtys, $managerNote, $request): void {
+            $this->applyRejectedReviewOutcome($order, $approvedQtys, $managerNote, $request->user()->id);
         });
 
         return redirect()->back()->with('success', 'Late requisition request rejected.');
@@ -470,15 +477,17 @@ class RequisitionController extends Controller
         $approvedQtys = $request->input('approved_qty', []);
         $fulfillmentTypes = $request->input('fulfillment_types', []);
         $suppliers = $request->input('suppliers', []);
+        $managerNote = $this->normalizedManagerNote((string) $request->input('manager_note', ''));
 
         try {
-            DB::transaction(function () use ($order, $approvedQtys, $fulfillmentTypes, $suppliers, $request): void {
+            DB::transaction(function () use ($order, $approvedQtys, $fulfillmentTypes, $suppliers, $managerNote, $request): void {
                 $revision = $this->shopOrderRevisionService->applyPendingRevision(
                     $order,
                     $request->user(),
                     $approvedQtys,
                     $fulfillmentTypes,
-                    $suppliers
+                    $suppliers,
+                    $managerNote
                 );
 
                 if ($revision && $revision->status === 'blocked') {
@@ -489,6 +498,8 @@ class RequisitionController extends Controller
 
                 $order->update([
                     'update_reason' => null,
+                    'reviewed_by' => $request->user()->id,
+                    'reviewed_at' => now(),
                 ]);
             });
         } catch (ValidationException $e) {
@@ -514,12 +525,16 @@ class RequisitionController extends Controller
                     'status' => 'rejected',
                     'reviewed_by' => $request->user()->id,
                     'reviewed_at' => now(),
+                    'manager_note' => $managerNote,
                 ]);
             }
             $order->update([
                 'state' => 'approved',
                 'update_reason' => $managerNote ?? 'Purchase manager rejected the requested update.',
                 'has_pending_revision' => false,
+                'reviewed_by' => $request->user()->id,
+                'reviewed_at' => now(),
+                'manager_note' => $managerNote,
             ]);
         });
 
@@ -542,7 +557,7 @@ class RequisitionController extends Controller
             ->with('items')
             ->get();
 
-        DB::transaction(function () use ($orders): void {
+        DB::transaction(function () use ($orders, $request): void {
             foreach ($orders as $order) {
                 foreach ($order->items as $item) {
                     $item->update([
@@ -555,6 +570,9 @@ class RequisitionController extends Controller
                     'state' => 'approved',
                     'is_late' => false,
                     'update_reason' => null,
+                    'reviewed_by' => $request->user()->id,
+                    'reviewed_at' => now(),
+                    'manager_note' => null,
                 ]);
             }
         });
@@ -584,14 +602,23 @@ class RequisitionController extends Controller
         // Load all shop orders for the selected date
         $orders = ShopOrder::whereDate('business_date', $date)
             ->where('is_late', false)
-            ->with(['items.product', 'latestPendingRevision.items.product', 'shop'])
+            ->with([
+                'items.product',
+                'latestPendingRevision.items.product',
+                'latestResolvedRevision.items.product',
+                'latestResolvedRevision.reviewedBy',
+                'revisions.items.product',
+                'revisions.reviewedBy',
+                'shop',
+                'reviewedBy',
+            ])
             ->get();
 
         // Load all late pending requests for the selected date
         $lateOrders = ShopOrder::whereDate('business_date', $date)
             ->where('is_late', true)
             ->whereIn('state', ['submitted', 'update_requested'])
-            ->with(['shop', 'items.product'])
+            ->with(['shop', 'items.product', 'reviewedBy', 'revisions.items.product', 'revisions.reviewedBy'])
             ->get();
 
         [
@@ -673,6 +700,9 @@ class RequisitionController extends Controller
                         $order->update([
                             'state' => 'approved',
                             'update_reason' => null,
+                            'reviewed_by' => $request->user()->id,
+                            'reviewed_at' => now(),
+                            'manager_note' => null,
                         ]);
                     }
 
@@ -948,6 +978,9 @@ class RequisitionController extends Controller
                         $order->update([
                             'state' => 'approved',
                             'update_reason' => null,
+                            'reviewed_by' => $request->user()->id,
+                            'reviewed_at' => now(),
+                            'manager_note' => null,
                         ]);
                     }
 
@@ -2252,7 +2285,7 @@ class RequisitionController extends Controller
         return max(0.0, min((float) $item->requested_qty, (float) $approvedQty));
     }
 
-    private function applyRejectedReviewOutcome(ShopOrder $order, array $approvedQtys, ?string $managerNote): void
+    private function applyRejectedReviewOutcome(ShopOrder $order, array $approvedQtys, ?string $managerNote, int $reviewerId): void
     {
         foreach ($order->items as $item) {
             $approvedQty = $this->resolvedApprovedQty($item, $approvedQtys[$item->id] ?? 0);
@@ -2268,6 +2301,9 @@ class RequisitionController extends Controller
             'state' => 'rejected',
             'is_late' => false,
             'update_reason' => $managerNote ?? 'Purchase manager rejected this order after review.',
+            'reviewed_by' => $reviewerId,
+            'reviewed_at' => now(),
+            'manager_note' => $managerNote,
         ]);
     }
 

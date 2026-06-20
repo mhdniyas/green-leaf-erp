@@ -20,6 +20,7 @@ use App\Models\PurchaserCorrectionRequest;
 use App\Models\ShopOrderItem;
 use App\Models\Supplier;
 use App\Services\Purchasing\PurchaseInvoiceService;
+use App\Services\Purchasing\VendorPriceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -44,6 +45,10 @@ class PurchaserDashboardController extends Controller
         'Frut',
         'Stationory',
     ];
+
+    public function __construct(
+        private readonly VendorPriceService $vendorPriceService,
+    ) {}
 
     public function index(): RedirectResponse
     {
@@ -267,6 +272,10 @@ class PurchaserDashboardController extends Controller
             'cart' => $cart,
             'suppliers' => Supplier::query()->orderBy('name')->get(),
             'subtotal' => (float) $cart->items->sum('line_total'),
+            'vendorPriceHints' => $this->vendorPriceService->previousPricesForSupplier(
+                $cart->supplier_id,
+                $cart->items->pluck('product_id')->all(),
+            ),
         ]);
     }
 
@@ -354,6 +363,12 @@ class PurchaserDashboardController extends Controller
             'mergeableDraftCounts' => $mergeableDraftCounts,
             'productCatalog' => $productCatalog,
             'suppliers' => $suppliers,
+            'vendorPriceHintsByCart' => $carts->mapWithKeys(fn (PurchaserCart $cart): array => [
+                $cart->id => $this->vendorPriceService->previousPricesForSupplier(
+                    $cart->supplier_id,
+                    $cart->items->pluck('product_id')->all(),
+                ),
+            ])->all(),
         ]);
     }
 
@@ -967,6 +982,14 @@ class PurchaserDashboardController extends Controller
                 'goods_received_at' => $paymentStatus === 'paid' ? now() : null,
                 'payment_made_at' => $paymentStatus === 'paid' ? now() : null,
             ]);
+
+            $this->vendorPriceService->syncMany(
+                $supplier->id,
+                $cart->items->map(fn (PurchaserCartItem $item): array => [
+                    'product_id' => (int) $item->product_id,
+                    'unit_price' => (float) $item->unit_price,
+                ])->all(),
+            );
         });
 
         return redirect()

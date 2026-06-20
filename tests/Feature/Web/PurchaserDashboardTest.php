@@ -935,6 +935,100 @@ class PurchaserDashboardTest extends TestCase
         $response->assertSee('Received');
     }
 
+    public function test_vendors_screen_shows_previous_vendor_price_hint(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $category = Category::create(['name' => 'VEG', 'is_active' => true]);
+        $product = Product::factory()->create([
+            'category_id' => $category->id,
+            'name' => 'Ladies Finger',
+            'sku' => 'LF-101',
+            'unit' => 'kg',
+            'vendor_price' => 31.25,
+        ]);
+
+        $cart = PurchaserCart::create([
+            'user_id' => $this->purchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'business_date' => $date,
+            'cart_number' => 'VC-'.str_replace('-', '', $date).'-HINT',
+            'status' => 'draft',
+        ]);
+
+        $cart->items()->create([
+            'product_id' => $product->id,
+            'quantity' => 4,
+            'unit_price' => 0,
+            'line_total' => 0,
+        ]);
+
+        $this->supplier->products()->attach($product->id, [
+            'last_price' => 29.5,
+            'last_purchased_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.vendors', ['date' => $date]));
+
+        $response->assertOk();
+        $response->assertSee('Prev ₹29.50');
+    }
+
+    public function test_submitting_cart_updates_product_and_vendor_latest_price(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $category = Category::create(['name' => 'VEG', 'is_active' => true]);
+        $product = Product::factory()->create([
+            'category_id' => $category->id,
+            'name' => 'Drumstick',
+            'sku' => 'DRM-101',
+            'unit' => 'kg',
+            'vendor_price' => 15,
+        ]);
+
+        $cart = PurchaserCart::create([
+            'user_id' => $this->purchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'business_date' => $date,
+            'cart_number' => 'VC-'.str_replace('-', '', $date).'-SUB',
+            'status' => 'draft',
+        ]);
+
+        $cartItem = $cart->items()->create([
+            'product_id' => $product->id,
+            'quantity' => 3,
+            'unit_price' => 0,
+            'line_total' => 0,
+        ]);
+
+        $response = $this->actingAs($this->purchaser)->post(route('purchaser.carts.submit'), [
+            'business_date' => $date,
+            'cart_id' => $cart->id,
+            'supplier_id' => $this->supplier->id,
+            'bill_number' => 'BILL-101',
+            'payment_method' => 'Cash',
+            'paid_amount' => 0,
+            'discount_amount' => 0,
+            'payment_note' => null,
+            'payment_details' => null,
+            'notes' => 'Submitted from test.',
+            'items' => [
+                (string) $cartItem->id => ['unit_price' => 42.75],
+            ],
+        ]);
+
+        $response->assertRedirect(route('purchaser.history', ['date' => $date]));
+
+        $this->assertDatabaseHas('products', [
+            'id' => $product->id,
+            'vendor_price' => 42.75,
+        ]);
+        $this->assertDatabaseHas('product_supplier', [
+            'product_id' => $product->id,
+            'supplier_id' => $this->supplier->id,
+            'last_price' => 42.75,
+        ]);
+    }
+
     public function test_purchaser_finance_screen_shows_generated_bills(): void
     {
         $date = Carbon::today()->format('Y-m-d');

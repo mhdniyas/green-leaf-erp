@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use OwenIt\Auditing\Auditable;
@@ -29,6 +30,7 @@ class Product extends Model implements AuditableContract
         'unit',
         'description',
         'base_price',
+        'vendor_price',
         'image',
         'is_active',
     ];
@@ -36,6 +38,7 @@ class Product extends Model implements AuditableContract
     protected $casts = [
         'default_warehouse_id' => 'integer',
         'base_price' => 'decimal:2',
+        'vendor_price' => 'decimal:4',
         'is_active' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
@@ -84,6 +87,13 @@ class Product extends Model implements AuditableContract
     public function wholesalePrices(): HasMany
     {
         return $this->hasMany(ProductWholesalePrice::class);
+    }
+
+    public function suppliers(): BelongsToMany
+    {
+        return $this->belongsToMany(Supplier::class)
+            ->withPivot(['last_price', 'last_purchased_at'])
+            ->withTimestamps();
     }
 
     // Scopes
