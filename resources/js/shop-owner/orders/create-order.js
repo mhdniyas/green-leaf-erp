@@ -112,6 +112,16 @@ document.addEventListener('DOMContentLoaded', () => {
         return input && Number.parseFloat(input.value) > 0;
     });
 
+    const getSkuSortValue = (sku) => {
+        const normalizedSku = String(sku ?? '').trim();
+
+        if (/^\d+$/.test(normalizedSku)) {
+            return `0${normalizedSku.padStart(12, '0')}`;
+        }
+
+        return `1${normalizedSku.toUpperCase()}`;
+    };
+
     const syncPageOpenCartButtons = () => {
         const selectedCount = getSelectedProducts().length;
 
@@ -518,7 +528,7 @@ document.addEventListener('DOMContentLoaded', () => {
         reviewItemsCount.textContent = `${selected.length} ${selected.length === 1 ? 'item' : 'items'} selected`;
 
         selected
-            .sort((a, b) => a.name.localeCompare(b.name))
+            .sort((left, right) => getSkuSortValue(left.sku).localeCompare(getSkuSortValue(right.sku)))
             .forEach((p) => {
                 const masterInput = masterInputsById.get(String(p.id));
                 const qty = masterInput ? Number.parseFloat(masterInput.value) : 0;
@@ -529,7 +539,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="min-w-0 flex-1">
                         <h4 class="font-bold text-slate-900 text-sm truncate" title="${p.name}">${p.name}</h4>
                         <p class="text-[11px] text-slate-500 truncate mt-0.5">
-                            <span class="font-black text-slate-400 text-[10px] uppercase">${p.sku}</span>
+                            <span class="font-black text-slate-400 text-[10px]">Code ${p.sku}</span>
                         </p>
                     </div>
                     <div class="flex items-center gap-3 shrink-0">
