@@ -1124,7 +1124,7 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
                     }
                 });
             } else if (type === 'favorites') {
-                const staples = ['TOMATOH-001', 'TOMATON-002', 'FRENCHBEANS-013', 'LADIESFINGER-015', 'CORRIANDER-101', 'PUDINA-104'];
+                const staples = ['1', '2', '13', '15', '101', '104'];
                 ALL_CATALOG_PRODUCTS.forEach(p => {
                     if (staples.includes(p.sku)) {
                         activeRequisition[p.sku] = p.suggested;

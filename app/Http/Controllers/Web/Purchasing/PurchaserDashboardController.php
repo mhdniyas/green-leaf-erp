@@ -78,7 +78,7 @@ class PurchaserDashboardController extends Controller
         $productCatalog = Product::query()
             ->with('category')
             ->active()
-            ->orderBy('name')
+            ->ordered()
             ->get();
 
         return view('purchasing.purchaser.daily', [
@@ -162,7 +162,7 @@ class PurchaserDashboardController extends Controller
             'selectedProductId' => $selectedProductId,
             'availableTags' => $availableTags,
             'availableProducts' => $dailySummary
-                ->sortBy('product_name')
+                ->sortBy(fn (array $summary): string => Product::sortableSku((string) ($summary['sku'] ?? '')))
                 ->map(fn (array $summary): array => [
                     'product_id' => (int) $summary['product_id'],
                     'product_name' => (string) $summary['product_name'],
@@ -350,7 +350,7 @@ class PurchaserDashboardController extends Controller
         $productCatalog = Product::query()
             ->with('category')
             ->active()
-            ->orderBy('name')
+            ->ordered()
             ->get();
 
         $suppliers = Supplier::query()->orderBy('name')->get();
@@ -1387,7 +1387,7 @@ class PurchaserDashboardController extends Controller
                 ];
             })
             ->filter()
-            ->sortBy(fn ($item) => $item['product_name'].'_'.$item['order_date']->format('Y-m-d'))
+            ->sortBy(fn (array $item): string => Product::sortableSku((string) $item['sku']).'_'.$item['order_date']->format('Y-m-d'))
             ->values();
     }
 
@@ -1443,7 +1443,7 @@ class PurchaserDashboardController extends Controller
             ->whereHas('category', function ($query): void {
                 $query->whereIn('name', ['Supply', 'VEG']);
             })
-            ->orderBy('name')
+            ->ordered()
             ->limit(12)
             ->pluck('id')
             ->map(fn ($productId): int => (int) $productId)

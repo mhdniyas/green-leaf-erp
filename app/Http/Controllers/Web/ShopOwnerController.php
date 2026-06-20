@@ -170,7 +170,7 @@ class ShopOwnerController extends Controller
         $tomorrowDate = Carbon::tomorrow();
 
         $productsByCategory = Category::with(['products' => function ($query): void {
-            $query->where('is_active', true)->orderBy('name');
+            $query->where('is_active', true)->ordered();
         }])
             ->where('is_active', true)
             ->get()

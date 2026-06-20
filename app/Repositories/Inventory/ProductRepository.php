@@ -25,7 +25,7 @@ class ProductRepository extends BaseRepository
                 $q->where('name', 'like', "%{$search}%")
                     ->orWhere('sku', 'like', "%{$search}%");
             }))
-            ->orderBy('name')
+            ->ordered()
             ->paginate($perPage);
     }
 
@@ -34,7 +34,7 @@ class ProductRepository extends BaseRepository
         return $this->query()
             ->with(['category'])
             ->where('is_active', true)
-            ->orderBy('name')
+            ->ordered()
             ->get();
     }
 

@@ -1,10 +1,16 @@
+@php
+    $sortedItems = $order->items->sortBy(
+        fn ($item) => \App\Models\Product::sortableSku((string) ($item->product?->sku ?? ''))
+    );
+@endphp
+
 <div class="space-y-3 md:hidden">
-    @foreach ($order->items as $item)
+    @foreach ($sortedItems as $item)
         <article class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
             <div class="flex items-start justify-between gap-3">
                 <div>
                     <p class="font-bold text-slate-900">{{ $item->product->name }}</p>
-                    <p class="mt-1 text-xs text-slate-500">{{ $item->product->sku }}</p>
+                    <p class="mt-1 text-xs text-slate-500">Code {{ $item->product->sku }}</p>
                 </div>
                 <span class="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-600">{{ $item->unit }}</span>
             </div>
@@ -51,11 +57,11 @@
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 text-sm text-slate-700">
-            @foreach ($order->items as $item)
+            @foreach ($sortedItems as $item)
                 <tr>
                     <td class="py-4 pr-4">
                         <p class="font-bold text-slate-900">{{ $item->product->name }}</p>
-                        <p class="mt-1 text-xs text-slate-500">{{ $item->product->sku }}</p>
+                        <p class="mt-1 text-xs text-slate-500">Code {{ $item->product->sku }}</p>
                     </td>
                     <td class="py-4 pr-4 text-right font-bold">{{ number_format((float) $item->requested_qty, 2) }} {{ $item->unit }}</td>
                     <td class="py-4 pr-4 text-right font-bold">{{ number_format((float) ($item->approved_qty ?? 0), 2) }} {{ $item->unit }}</td>

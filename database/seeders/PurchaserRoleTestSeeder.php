@@ -22,11 +22,11 @@ class PurchaserRoleTestSeeder extends Seeder
      * @var array<string, float>
      */
     private const SHARED_PRODUCT_QUANTITIES = [
-        'TOMATOH-001' => 5.0,
-        'ONION-003' => 8.0,
-        'POTATOAGRA-005' => 10.0,
-        'CORRIANDER-101' => 3.0,
-        'BANANANENDRAN-164' => 6.0,
+        '1' => 5.0,
+        '3' => 8.0,
+        '5' => 10.0,
+        '101' => 3.0,
+        '164' => 6.0,
     ];
 
     /**

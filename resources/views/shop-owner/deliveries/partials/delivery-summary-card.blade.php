@@ -1,3 +1,9 @@
+@php
+    $sortedItems = $order->items->sortBy(
+        fn ($item) => \App\Models\Product::sortableSku((string) ($item->product?->sku ?? ''))
+    );
+@endphp
+
 <section class="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
     <div class="bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.18),_transparent_38%),linear-gradient(135deg,_#ffffff,_#f8fafc)] px-5 py-6 sm:px-6">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -43,12 +49,12 @@
         </div>
 
         <div class="mt-4 grid gap-3 md:grid-cols-2">
-            @foreach ($order->items as $item)
+            @foreach ($sortedItems as $item)
                 <article class="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-3">
                     <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
                             <p class="font-black text-slate-950">{{ $item->product->name }}</p>
-                            <p class="mt-1 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">{{ $item->product->sku }} · {{ strtoupper($item->unit) }}</p>
+                            <p class="mt-1 text-[11px] font-bold tracking-[0.14em] text-slate-500">Code {{ $item->product->sku }} · {{ strtoupper($item->unit) }}</p>
                         </div>
                         @include('shop-owner.components.status-badge', ['label' => $item->warehouseWorkflowLabel(), 'tone' => $item->warehouseWorkflowTone()])
                     </div>

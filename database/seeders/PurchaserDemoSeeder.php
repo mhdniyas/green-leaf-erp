@@ -36,14 +36,14 @@ class PurchaserDemoSeeder extends Seeder
 
             $products = Product::query()
                 ->whereIn('sku', [
-                    'TOMATOH-001',
-                    'ONION-003',
-                    'FRENCHBEANS-013',
-                    'ENGCUCUMBER-054',
-                    'CORRIANDER-101',
-                    'CHERRYTMTOBOX-126',
-                    'POTATOAGRA-005',
-                    'BANANANENDRAN-164',
+                    '1',
+                    '3',
+                    '13',
+                    '54',
+                    '101',
+                    '126',
+                    '5',
+                    '164',
                 ])
                 ->get()
                 ->keyBy('sku');
@@ -55,9 +55,9 @@ class PurchaserDemoSeeder extends Seeder
                 cartNumber: 'VC-DEMO-DRAFT-001',
                 products: $products,
                 items: [
-                    ['sku' => 'TOMATOH-001', 'quantity' => 5, 'unit_price' => 28.00, 'notes' => 'Hot market pickup.'],
-                    ['sku' => 'ONION-003', 'quantity' => 13, 'unit_price' => 24.00, 'notes' => 'Loose bag.'],
-                    ['sku' => 'CHERRYTMTOBOX-126', 'quantity' => 2, 'unit_price' => 120.00, 'notes' => 'Box pack.'],
+                    ['sku' => '1', 'quantity' => 5, 'unit_price' => 28.00, 'notes' => 'Hot market pickup.'],
+                    ['sku' => '3', 'quantity' => 13, 'unit_price' => 24.00, 'notes' => 'Loose bag.'],
+                    ['sku' => '126', 'quantity' => 2, 'unit_price' => 120.00, 'notes' => 'Box pack.'],
                 ],
                 notes: 'Draft cart for mobile purchaser testing.',
             );
@@ -70,8 +70,8 @@ class PurchaserDemoSeeder extends Seeder
                 status: POStatus::Draft,
                 products: $products,
                 items: [
-                    ['sku' => 'TOMATOH-001', 'quantity' => 10, 'unit_price' => 26.00],
-                    ['sku' => 'ONION-003', 'quantity' => 8, 'unit_price' => 22.50],
+                    ['sku' => '1', 'quantity' => 10, 'unit_price' => 26.00],
+                    ['sku' => '3', 'quantity' => 8, 'unit_price' => 22.50],
                 ],
                 notes: 'Draft PO for purchaser purchase-order screen testing.',
             );
@@ -84,8 +84,8 @@ class PurchaserDemoSeeder extends Seeder
                 status: POStatus::Approved,
                 products: $products,
                 items: [
-                    ['sku' => 'FRENCHBEANS-013', 'quantity' => 6, 'unit_price' => 31.00],
-                    ['sku' => 'ENGCUCUMBER-054', 'quantity' => 5, 'unit_price' => 18.50],
+                    ['sku' => '13', 'quantity' => 6, 'unit_price' => 31.00],
+                    ['sku' => '54', 'quantity' => 5, 'unit_price' => 18.50],
                 ],
                 notes: 'Approved PO for purchaser purchase-order screen testing.',
             );
@@ -98,7 +98,7 @@ class PurchaserDemoSeeder extends Seeder
                 status: POStatus::SentToSupplier,
                 products: $products,
                 items: [
-                    ['sku' => 'BANANANENDRAN-164', 'quantity' => 4, 'unit_price' => 46.00],
+                    ['sku' => '164', 'quantity' => 4, 'unit_price' => 46.00],
                 ],
                 notes: 'Sent-to-supplier PO for purchaser purchase-order screen testing.',
             );
@@ -122,8 +122,8 @@ class PurchaserDemoSeeder extends Seeder
                 paymentDetails: 'Cash handover after vendor WhatsApp share.',
                 products: $products,
                 items: [
-                    ['sku' => 'FRENCHBEANS-013', 'quantity' => 4, 'unit_price' => 32.00, 'notes' => 'Approved bundle.'],
-                    ['sku' => 'ENGCUCUMBER-054', 'quantity' => 6, 'unit_price' => 18.00, 'notes' => 'English cucumber mix.'],
+                    ['sku' => '13', 'quantity' => 4, 'unit_price' => 32.00, 'notes' => 'Approved bundle.'],
+                    ['sku' => '54', 'quantity' => 6, 'unit_price' => 18.00, 'notes' => 'English cucumber mix.'],
                 ],
                 notes: 'Submitted cash cart with linked PO, GRN, and invoice.',
             );
@@ -147,8 +147,8 @@ class PurchaserDemoSeeder extends Seeder
                 paymentDetails: 'WhatsApp order list sent to vendor.',
                 products: $products,
                 items: [
-                    ['sku' => 'POTATOAGRA-005', 'quantity' => 12, 'unit_price' => 62.50, 'notes' => 'Credit line item.'],
-                    ['sku' => 'BANANANENDRAN-164', 'quantity' => 3, 'unit_price' => 48.00, 'notes' => 'Urgent delivery.'],
+                    ['sku' => '5', 'quantity' => 12, 'unit_price' => 62.50, 'notes' => 'Credit line item.'],
+                    ['sku' => '164', 'quantity' => 3, 'unit_price' => 48.00, 'notes' => 'Urgent delivery.'],
                 ],
                 notes: 'Submitted credit cart for purchase manager approval.',
             );
@@ -157,7 +157,7 @@ class PurchaserDemoSeeder extends Seeder
                 purchaser: $purchaser,
                 businessDate: $today,
                 shopOrderNumber: 'RQ-DEMO-TODAY-GRAND',
-                productSku: 'TOMATOH-001',
+                productSku: '1',
                 proposedQty: 15,
                 note: 'Shop typed extra 3 kg. Please approve 15 kg only.',
             );

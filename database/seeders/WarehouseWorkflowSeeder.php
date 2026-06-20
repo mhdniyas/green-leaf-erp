@@ -43,12 +43,12 @@ class WarehouseWorkflowSeeder extends Seeder
 
             $products = Product::query()
                 ->whereIn('sku', [
-                    'TOMATOH-001',
-                    'TOMATON-002',
-                    'ONION-003',
-                    'POTATOAGRA-005',
-                    'CORRIANDER-101',
-                    'CHERRYTMTOBOX-126',
+                    '1',
+                    '2',
+                    '3',
+                    '5',
+                    '101',
+                    '126',
                 ])
                 ->get()
                 ->keyBy('sku');
@@ -67,9 +67,9 @@ class WarehouseWorkflowSeeder extends Seeder
                 invoiceNumber: 'PINV-DEMO-D2-A',
                 invoiceStatus: InvoiceStatus::Paid,
                 orderItems: [
-                    ['sku' => 'TOMATOH-001', 'requested' => 24, 'approved' => 24, 'delivered' => 24, 'sorting_status' => 'loaded', 'unit_cost' => 28.00],
-                    ['sku' => 'ONION-003', 'requested' => 18, 'approved' => 18, 'delivered' => 18, 'sorting_status' => 'loaded', 'unit_cost' => 24.00],
-                    ['sku' => 'CORRIANDER-101', 'requested' => 8, 'approved' => 8, 'delivered' => 8, 'sorting_status' => 'loaded', 'unit_cost' => 19.50],
+                    ['sku' => '1', 'requested' => 24, 'approved' => 24, 'delivered' => 24, 'sorting_status' => 'loaded', 'unit_cost' => 28.00],
+                    ['sku' => '3', 'requested' => 18, 'approved' => 18, 'delivered' => 18, 'sorting_status' => 'loaded', 'unit_cost' => 24.00],
+                    ['sku' => '101', 'requested' => 8, 'approved' => 8, 'delivered' => 8, 'sorting_status' => 'loaded', 'unit_cost' => 19.50],
                 ],
             );
 
@@ -87,9 +87,9 @@ class WarehouseWorkflowSeeder extends Seeder
                 invoiceNumber: 'PINV-DEMO-D1-B',
                 invoiceStatus: InvoiceStatus::Approved,
                 orderItems: [
-                    ['sku' => 'POTATOAGRA-005', 'requested' => 16, 'approved' => 16, 'delivered' => 15, 'shortage' => 1, 'sorting_status' => 'loaded', 'unit_cost' => 62.50],
-                    ['sku' => 'TOMATON-002', 'requested' => 20, 'approved' => 20, 'delivered' => 20, 'sorting_status' => 'loaded', 'unit_cost' => 31.00],
-                    ['sku' => 'CHERRYTMTOBOX-126', 'requested' => 4, 'approved' => 4, 'delivered' => 4, 'sorting_status' => 'loaded', 'unit_cost' => 120.00],
+                    ['sku' => '5', 'requested' => 16, 'approved' => 16, 'delivered' => 15, 'shortage' => 1, 'sorting_status' => 'loaded', 'unit_cost' => 62.50],
+                    ['sku' => '2', 'requested' => 20, 'approved' => 20, 'delivered' => 20, 'sorting_status' => 'loaded', 'unit_cost' => 31.00],
+                    ['sku' => '126', 'requested' => 4, 'approved' => 4, 'delivered' => 4, 'sorting_status' => 'loaded', 'unit_cost' => 120.00],
                 ],
             );
 
@@ -105,8 +105,8 @@ class WarehouseWorkflowSeeder extends Seeder
                 poNumber: 'PO-DEMO-TODAY-A',
                 grnNumber: 'GRN-DEMO-TODAY-A',
                 orderItems: [
-                    ['sku' => 'TOMATOH-001', 'requested' => 18, 'approved' => 18, 'sorting_status' => 'allocated', 'unit_cost' => 28.00],
-                    ['sku' => 'ONION-003', 'requested' => 10, 'approved' => 10, 'sorting_status' => 'allocated', 'unit_cost' => 24.00],
+                    ['sku' => '1', 'requested' => 18, 'approved' => 18, 'sorting_status' => 'allocated', 'unit_cost' => 28.00],
+                    ['sku' => '3', 'requested' => 10, 'approved' => 10, 'sorting_status' => 'allocated', 'unit_cost' => 24.00],
                 ],
             );
 
@@ -123,8 +123,8 @@ class WarehouseWorkflowSeeder extends Seeder
                 grnNumber: 'GRN-DEMO-TODAY-B',
                 invoiceNumber: 'PINV-DEMO-TODAY-B',
                 orderItems: [
-                    ['sku' => 'POTATOAGRA-005', 'requested' => 22, 'approved' => 22, 'sorting_status' => 'pending', 'unit_cost' => 62.50],
-                    ['sku' => 'CORRIANDER-101', 'requested' => 11, 'approved' => 11, 'sorting_status' => 'pending', 'unit_cost' => 19.50],
+                    ['sku' => '5', 'requested' => 22, 'approved' => 22, 'sorting_status' => 'pending', 'unit_cost' => 62.50],
+                    ['sku' => '101', 'requested' => 11, 'approved' => 11, 'sorting_status' => 'pending', 'unit_cost' => 19.50],
                 ],
             );
 
@@ -381,8 +381,8 @@ class WarehouseWorkflowSeeder extends Seeder
         );
 
         $this->syncShopOrderItems($casioOrder, [
-            ['sku' => 'POTATOAGRA-005', 'requested' => 10, 'approved' => 10, 'delivered' => 9, 'shortage' => 1, 'sorting_status' => 'loaded', 'unit_cost' => 62.50],
-            ['sku' => 'TOMATOH-001', 'requested' => 20, 'approved' => 20, 'delivered' => 20, 'sorting_status' => 'loaded', 'unit_cost' => 28.00],
+            ['sku' => '5', 'requested' => 10, 'approved' => 10, 'delivered' => 9, 'shortage' => 1, 'sorting_status' => 'loaded', 'unit_cost' => 62.50],
+            ['sku' => '1', 'requested' => 20, 'approved' => 20, 'delivered' => 20, 'sorting_status' => 'loaded', 'unit_cost' => 28.00],
         ], $products, $warehouseManager);
 
         $budegereOrder = $this->upsertShopOrder(
@@ -401,8 +401,8 @@ class WarehouseWorkflowSeeder extends Seeder
         );
 
         $this->syncShopOrderItems($budegereOrder, [
-            ['sku' => 'ONION-003', 'requested' => 16, 'approved' => 16, 'sorting_status' => 'loaded', 'unit_cost' => 24.00],
-            ['sku' => 'CORRIANDER-101', 'requested' => 7, 'approved' => 7, 'sorting_status' => 'loaded', 'unit_cost' => 19.50],
+            ['sku' => '3', 'requested' => 16, 'approved' => 16, 'sorting_status' => 'loaded', 'unit_cost' => 24.00],
+            ['sku' => '101', 'requested' => 7, 'approved' => 7, 'sorting_status' => 'loaded', 'unit_cost' => 19.50],
         ], $products, $warehouseManager);
 
         $grancityOrder = $this->upsertShopOrder(
@@ -421,8 +421,8 @@ class WarehouseWorkflowSeeder extends Seeder
         );
 
         $this->syncShopOrderItems($grancityOrder, [
-            ['sku' => 'TOMATON-002', 'requested' => 14, 'approved' => 14, 'sorting_status' => 'allocated', 'unit_cost' => 31.00],
-            ['sku' => 'CHERRYTMTOBOX-126', 'requested' => 5, 'approved' => 5, 'sorting_status' => 'pending', 'unit_cost' => 120.00],
+            ['sku' => '2', 'requested' => 14, 'approved' => 14, 'sorting_status' => 'allocated', 'unit_cost' => 31.00],
+            ['sku' => '126', 'requested' => 5, 'approved' => 5, 'sorting_status' => 'pending', 'unit_cost' => 120.00],
         ], $products, $warehouseManager);
 
         $po = $this->upsertPurchaseOrder(
@@ -432,9 +432,9 @@ class WarehouseWorkflowSeeder extends Seeder
             businessDate: $businessDate,
             status: POStatus::PartiallyReceived,
             items: [
-                ['sku' => 'POTATOAGRA-005', 'quantity' => 30, 'unit_price' => 62.50, 'purchase_unit' => 'kg', 'price_basis' => 'per_kg'],
-                ['sku' => 'ONION-003', 'quantity' => 20, 'unit_price' => 24.00, 'purchase_unit' => 'kg', 'price_basis' => 'per_kg'],
-                ['sku' => 'TOMATON-002', 'quantity' => 14, 'unit_price' => 31.00, 'purchase_unit' => 'kg', 'price_basis' => 'per_kg'],
+                ['sku' => '5', 'quantity' => 30, 'unit_price' => 62.50, 'purchase_unit' => 'kg', 'price_basis' => 'per_kg'],
+                ['sku' => '3', 'quantity' => 20, 'unit_price' => 24.00, 'purchase_unit' => 'kg', 'price_basis' => 'per_kg'],
+                ['sku' => '2', 'quantity' => 14, 'unit_price' => 31.00, 'purchase_unit' => 'kg', 'price_basis' => 'per_kg'],
             ],
             products: $products,
         );
@@ -446,9 +446,9 @@ class WarehouseWorkflowSeeder extends Seeder
             businessDate: $businessDate,
             status: 'pending_approval',
             items: [
-                ['sku' => 'POTATOAGRA-005', 'received_qty' => 29.0, 'variance' => -1.0],
-                ['sku' => 'ONION-003', 'received_qty' => 20.0, 'variance' => 0.0],
-                ['sku' => 'TOMATON-002', 'received_qty' => 14.0, 'variance' => 0.0],
+                ['sku' => '5', 'received_qty' => 29.0, 'variance' => -1.0],
+                ['sku' => '3', 'received_qty' => 20.0, 'variance' => 0.0],
+                ['sku' => '2', 'received_qty' => 14.0, 'variance' => 0.0],
             ],
             products: $products,
         );

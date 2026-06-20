@@ -56,7 +56,7 @@ class PurchaserRoleTestSeederTest extends TestCase
         $this->assertSame(560, $loadItems->count());
         $this->assertGreaterThanOrEqual(200, $loadItems->distinct('product_id')->count('product_id'));
 
-        $tomatoId = Product::query()->where('sku', 'TOMATOH-001')->value('id');
+        $tomatoId = Product::query()->where('sku', '1')->value('id');
         $this->assertNotNull($tomatoId);
 
         $this->assertGreaterThanOrEqual(

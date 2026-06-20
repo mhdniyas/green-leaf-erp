@@ -1,6 +1,9 @@
 @php
     $isPendingApproval = $order->delivery_status === 'pending_approval';
     $isEditable = $order->is_allocation_completed && ! $order->is_delivered && ! $isPendingApproval;
+    $sortedItems = $order->items->sortBy(
+        fn ($item) => \App\Models\Product::sortableSku((string) ($item->product?->sku ?? ''))
+    );
 @endphp
 
 <section class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
@@ -29,7 +32,7 @@
             @csrf
 
             <div class="space-y-3">
-                @foreach ($order->items as $item)
+                @foreach ($sortedItems as $item)
                     @php
                         $approvedQty = (float) ($item->approved_qty ?? 0.00);
                     @endphp
@@ -41,7 +44,7 @@
                         <div class="flex items-start justify-between gap-3">
                             <div class="min-w-0">
                                 <h4 class="text-base font-black text-slate-950">{{ $item->product->name }}</h4>
-                                <p class="mt-1 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">{{ $item->product->sku }} · {{ strtoupper($item->unit) }}</p>
+                                <p class="mt-1 text-[11px] font-bold tracking-[0.16em] text-slate-500">Code {{ $item->product->sku }} · {{ strtoupper($item->unit) }}</p>
                             </div>
                             <div class="status-indicator-container shrink-0">
                                 <span class="indicator-ok inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">
@@ -104,12 +107,12 @@
         </form>
     @else
         <div class="mt-5 space-y-3">
-            @foreach ($order->items as $item)
+            @foreach ($sortedItems as $item)
                 <article class="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-4">
                     <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
                             <h4 class="text-base font-black text-slate-950">{{ $item->product->name }}</h4>
-                            <p class="mt-1 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">{{ $item->product->sku }} · {{ strtoupper($item->unit) }}</p>
+                            <p class="mt-1 text-[11px] font-bold tracking-[0.16em] text-slate-500">Code {{ $item->product->sku }} · {{ strtoupper($item->unit) }}</p>
                         </div>
                         <div class="shrink-0">
                             @include('shop-owner.components.status-badge', ['label' => $item->warehouseWorkflowLabel(), 'tone' => $item->warehouseWorkflowTone()])

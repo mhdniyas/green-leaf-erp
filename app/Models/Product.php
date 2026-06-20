@@ -102,6 +102,55 @@ class Product extends Model implements AuditableContract
         return $query->where('is_active', true);
     }
 
+    public function scopeOrdered(Builder $query): Builder
+    {
+        $driver = $query->getModel()->getConnection()->getDriverName();
+
+        return $query
+            ->orderByRaw(self::numericSkuPriorityExpression('sku', $driver))
+            ->orderByRaw(self::numericSkuValueExpression('sku', $driver))
+            ->orderBy('sku')
+            ->orderBy('name');
+    }
+
+    public function getSkuSortValueAttribute(): string
+    {
+        return self::sortableSku($this->sku);
+    }
+
+    public static function sortableSku(string $sku): string
+    {
+        if (preg_match('/^\d+$/', $sku) === 1) {
+            return '0'.str_pad($sku, 12, '0', STR_PAD_LEFT);
+        }
+
+        return '1'.strtoupper($sku);
+    }
+
+    public static function numericSkuPriorityExpression(string $column, string $driver): string
+    {
+        $isNumeric = self::numericSkuCondition($column, $driver);
+
+        return "CASE WHEN {$isNumeric} THEN 0 ELSE 1 END";
+    }
+
+    public static function numericSkuValueExpression(string $column, string $driver): string
+    {
+        $isNumeric = self::numericSkuCondition($column, $driver);
+        $castType = $driver === 'sqlite' ? 'INTEGER' : 'UNSIGNED';
+
+        return "CASE WHEN {$isNumeric} THEN CAST({$column} AS {$castType}) END";
+    }
+
+    private static function numericSkuCondition(string $column, string $driver): string
+    {
+        if ($driver === 'sqlite') {
+            return "{$column} GLOB '[0-9]*' AND {$column} NOT GLOB '*[^0-9]*'";
+        }
+
+        return "{$column} REGEXP '^[0-9]+$'";
+    }
+
     public function getImageUrl(): ?string
     {
         return $this->image ? asset('storage/'.$this->image) : null;

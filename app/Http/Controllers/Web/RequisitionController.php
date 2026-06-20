@@ -597,7 +597,7 @@ class RequisitionController extends Controller
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
 
         // Load all active products (optionally grouped by category)
-        $products = Product::with('category')->where('is_active', true)->orderBy('name')->get();
+        $products = Product::with('category')->where('is_active', true)->ordered()->get();
 
         // Load all shop orders for the selected date
         $orders = ShopOrder::whereDate('business_date', $date)
@@ -804,7 +804,7 @@ class RequisitionController extends Controller
         // Load all active products (optionally grouped by category)
         $products = Product::with('category')
             ->where('is_active', true)
-            ->orderBy('name')
+            ->ordered()
             ->get();
 
         // Load only APPROVED shop orders for the selected date
@@ -1046,7 +1046,7 @@ class RequisitionController extends Controller
 
         $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
-        $products = Product::with('category')->where('is_active', true)->orderBy('name')->get();
+        $products = Product::with('category')->where('is_active', true)->ordered()->get();
         $orders = ShopOrder::whereDate('business_date', $date)
             ->whereIn('state', ['approved', 'update_requested'])
             ->with(['items'])
@@ -1117,7 +1117,7 @@ class RequisitionController extends Controller
         $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
         $type = (string) $request->input('type', 'both');
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
-        $products = Product::with('category')->where('is_active', true)->orderBy('name')->get();
+        $products = Product::with('category')->where('is_active', true)->ordered()->get();
         $orders = ShopOrder::whereDate('business_date', $date)
             ->whereIn('state', ['approved', 'update_requested'])
             ->with(['items'])
@@ -1150,7 +1150,7 @@ class RequisitionController extends Controller
 
         $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
-        $products = Product::with('category')->where('is_active', true)->orderBy('name')->get();
+        $products = Product::with('category')->where('is_active', true)->ordered()->get();
         $orders = ShopOrder::whereDate('business_date', $date)
             ->where('is_late', false)
             ->with(['items'])
@@ -1215,7 +1215,7 @@ class RequisitionController extends Controller
 
         $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
-        $products = Product::with('category')->where('is_active', true)->orderBy('name')->get();
+        $products = Product::with('category')->where('is_active', true)->ordered()->get();
         $orders = ShopOrder::whereDate('business_date', $date)
             ->where('is_late', false)
             ->with(['items'])

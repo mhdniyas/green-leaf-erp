@@ -14,6 +14,7 @@
             $allProductsForOrder->push([
                 'id' => $product->id,
                 'sku' => $product->sku,
+                'sku_sort_value' => $product->sku_sort_value,
                 'name' => $product->name,
                 'unit' => $product->unit,
                 'category' => $category->name,
@@ -37,7 +38,7 @@
                 return $left['is_frequent'] ? -1 : 1;
             }
 
-            return strcmp($left['name'], $right['name']);
+            return strcmp($left['sku_sort_value'], $right['sku_sort_value']);
         })
         ->values();
 @endphp
@@ -50,7 +51,7 @@
                 id="order-product-search"
                 type="search"
                 data-product-search
-                placeholder="Search products by name, SKU or category..."
+                placeholder="Search products by name, code or category..."
                 class="w-full rounded-2xl border border-slate-200 bg-white py-3.5 pl-11 pr-4 text-sm font-semibold text-slate-900 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             >
             <div class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
@@ -125,7 +126,7 @@
                     <div class="min-w-0 flex-1">
                         <h4 class="font-bold text-slate-900 text-sm truncate">{{ $productData['name'] }}</h4>
                         <p class="text-[11px] text-slate-500 truncate mt-1">
-                            <span class="bg-slate-100 px-1.5 py-0.5 rounded font-black text-[10px] text-slate-500 mr-1.5 uppercase">{{ $productData['sku'] }}</span>
+                            <span class="bg-slate-100 px-1.5 py-0.5 rounded font-black text-[10px] text-slate-500 mr-1.5">Code {{ $productData['sku'] }}</span>
                             {{ $productData['category'] }}
                         </p>
                     </div>
@@ -180,7 +181,7 @@
         <div class="px-6 pb-8 pt-2">
             <div class="flex items-start justify-between gap-4">
                 <div class="min-w-0">
-                    <span id="modal-product-sku" class="inline-block bg-slate-100 px-1.5 py-0.5 rounded font-black text-[10px] text-slate-500 uppercase">SKU</span>
+                    <span id="modal-product-sku" class="inline-block bg-slate-100 px-1.5 py-0.5 rounded font-black text-[10px] text-slate-500">Code</span>
                     <h3 id="modal-product-name" class="text-lg font-black text-slate-900 mt-1.5 truncate">Product Name</h3>
                 </div>
                 <button type="button" id="qty-modal-close" class="rounded-full bg-slate-100 p-2 text-slate-500 hover:bg-slate-200 transition">

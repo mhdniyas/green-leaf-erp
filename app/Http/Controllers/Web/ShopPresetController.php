@@ -31,8 +31,8 @@ class ShopPresetController extends Controller
             ->orderBy('name')
             ->get();
 
-        $staplesSkus = ['TOMATOH-001', 'TOMATON-002', 'FRENCHBEANS-013', 'LADIESFINGER-015', 'CORRIANDER-101', 'PUDINA-104'];
-        $favoriteProducts = Product::whereIn('sku', $staplesSkus)->get();
+        $staplesSkus = ['1', '2', '13', '15', '101', '104'];
+        $favoriteProducts = Product::whereIn('sku', $staplesSkus)->ordered()->get();
 
         return view('requisitions.presets.index', compact('presets', 'favoriteProducts'));
     }
@@ -48,13 +48,13 @@ class ShopPresetController extends Controller
         }
 
         $products = Product::where('is_active', true)
-            ->orderBy('name')
+            ->ordered()
             ->get();
 
         $prefilledProducts = collect();
         if ($request->has('copy_favorites')) {
-            $staplesSkus = ['TOMATOH-001', 'TOMATON-002', 'FRENCHBEANS-013', 'LADIESFINGER-015', 'CORRIANDER-101', 'PUDINA-104'];
-            $prefilledProducts = Product::whereIn('sku', $staplesSkus)->get();
+            $staplesSkus = ['1', '2', '13', '15', '101', '104'];
+            $prefilledProducts = Product::whereIn('sku', $staplesSkus)->ordered()->get();
         }
 
         return view('requisitions.presets.create', compact('products', 'prefilledProducts'));
@@ -127,7 +127,7 @@ class ShopPresetController extends Controller
         $preset->load('items.product');
 
         $products = Product::where('is_active', true)
-            ->orderBy('name')
+            ->ordered()
             ->get();
 
         return view('requisitions.presets.edit', compact('preset', 'products'));

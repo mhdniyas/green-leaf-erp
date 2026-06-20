@@ -37,7 +37,7 @@ class SalesOrderController extends Controller
         Gate::authorize('create', SalesOrder::class);
 
         $customers = $this->customerService->all();
-        $products = Product::with('category')->where('is_active', true)->orderBy('name')->get();
+        $products = Product::with('category')->where('is_active', true)->ordered()->get();
 
         return view('sales.orders.create', compact('customers', 'products'));
     }
@@ -69,7 +69,7 @@ class SalesOrderController extends Controller
         abort_unless($order->status->canBeConfirmed(), 403, 'Only draft orders can be edited.');
 
         $customers = $this->customerService->all();
-        $products = Product::with('category')->where('is_active', true)->orderBy('name')->get();
+        $products = Product::with('category')->where('is_active', true)->ordered()->get();
 
         return view('sales.orders.edit', compact('order', 'customers', 'products'));
     }

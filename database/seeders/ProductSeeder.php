@@ -10,297 +10,375 @@ use Illuminate\Database\Seeder;
 
 class ProductSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     * Seeds the real product master catalog.
-     * Skipped all rows containing "selection" or "Wharehouse" per rules.
-     */
+    private const PRODUCT_LINES = <<<'DATA'
+1|Tomato H
+2|Tomato N
+3|Onion
+4|Pickle Onion Bag
+5|Potato Agra
+6|Potato Local
+7|Baby Potato
+8|Sambar Onion
+9|Onion White
+10|Garlic Natti
+11|Garlic Ootty
+12|Carrot
+13|French Beans
+14|Beans Natty
+15|ladies Finger
+16|Green Peas
+17|Broad beans S / Belt
+18|Paper Chikkdi
+19|White Karamani
+20|Green Karamani
+21|Avarakkai/lablab Beans
+22|Cluster Beans / Gorikkai
+23|Green Chilli Normal
+24|Chilli Spicy / Akash G4
+25|Bajji Chilli
+26|Red Chilli
+27|Brinjal White Long
+28|Brinjal Big (Bertha)
+29|Brinjal Small
+30|Brinjal White Kolkata
+31|Brinjol Rampuri
+32|Brinjal Blue Long
+33|Capsicum
+34|Beetroot Ootty
+35|Chow Chow
+36|Noolkol (Kohlrbi)
+37|Radish
+38|Tinda (Round Gurad)
+39|Bitter Gourd Big
+40|Bitter Gourd Small
+41|Bitter Gourd White
+42|Bottle Gourd (Loki)
+43|Ridge Gourd
+44|Drum Stick
+45|Snake Gourd White
+46|Snake Gourd Green
+47|Raw Jack Fruit
+48|Banana Flower
+49|Banana Stem
+50|Raw Banana
+51|Banana Leaf
+52|Sambar Cucbr / Southikai
+53|Cucumber
+54|English Cucumber
+55|Yam
+56|Pickle Mango
+57|Raw Mango Gund
+58|Raw Mango totapuri
+59|Lemon
+60|Cauliflower
+61|Cabbage
+62|Arbi /Taroroot
+63|Big Arbi
+64|Koorka Chinees Potato
+65|Amla
+66|Peeled Green Peas
+67|Jack Fruit Ripe
+68|Jack Fruit Cut
+69|Raw Turmeric Kalkata
+70|Delhi / Red Carrot
+71|Kovakka Normal
+72|Parval / Potol
+73|Sweet Potato
+74|Tapioca
+75|Ginger
+76|Ground Nut
+77|Round Lauki White
+78|Round Lauki Green
+79|Raw Pappaya
+80|SP Natti Thondakai
+81|Armenian Cucumber / Kakdi
+82|Disco Pumkin
+83|White Pumkin
+84|Yellow Pumkin
+85|Natti Pumkin
+86|Turnip / Shalgam
+87|Mango Ginger
+88|Red Radish
+89|Turmeric Stick Fresh
+90|Flower K
+91|kakrol / Kantola
+92|Kanikonna Flower
+93|Lotus Stump
+94|Saagaloo
+95|Singada
+96|Nenua gourd
+97|Jeegujji / Kada Chakka
+101|Corriander
+102|Corriander Natti
+103|Curry Leaf
+104|Pudina / Mint Leaf
+105|Palak
+106|Green Cheera
+107|Red Cheera
+108|Methi / Menthaya
+109|Spring Onion
+110|Gongura
+111|Basella leaf / Basala
+112|Sabbakki / Dil Leaf
+113|Chakotha
+114|Mustard Leaf
+115|Drum Stick Leaf
+116|Arai Keerai
+117|Siru Keerai
+118|Radish Leaf
+120|Sweet Corn
+121|Peeled Corn
+122|Baby Corn
+123|Peeled Garlic
+124|Peeled Onion
+125|Sprouds
+126|Cherry Tomato Box
+127|Cherry Tomato Loose
+128|Mushroom
+129|Oyster Mushroom
+130|Broccoli
+131|bockchoy
+132|roman lettuce
+133|Lettuce
+134|Ice Berg Lettuce
+135|Colur Capcicum Yellow
+136|Colur Capcicum Red
+137|Zuchini Green
+138|Zuchini Yellow
+139|Red Cabbage
+140|Chinees Cabbage
+141|Celery Leaf
+142|Parsley Leaf
+143|Basaley Leaf
+144|Lemon Grass
+145|Leaks
+146|Bel (Kolkata Item)
+147|Misty Pumkin
+148|Kolkata Lemon
+149|Kochu Loti
+150|White Parwal
+151|Maankochoo
+161|Garlic Leafs
+162|Banana yelakki Green
+163|Banana Yelakki Color
+164|Banana Nendran
+165|Banana Nendran Color
+166|Banana Robusta
+167|Red Banana
+168|Natti Banana
+169|Karpoora Banana
+170|Coconut
+181|Pappaya
+182|Gala NZ
+183|Gala Apple
+184|Irani Apple
+185|Fuji Apple
+186|Green Apple
+187|Apple Pink lady
+188|Red Apple
+189|Indian Apple
+190|Apple Misri
+191|Rockit Apple
+192|Washington Apple
+193|Mini Orange
+194|Mini Orange SL
+195|Pears
+196|Citrus Orange
+197|Kinnow Orange
+198|Dragon Fruit
+199|Red Dragon
+200|Kiwi
+201|Golden Kiwi
+202|Imp Butter Fruit
+203|Red Pear
+204|Redglobe
+205|Redglobe SL
+206|Muscat Grape
+207|Cherry
+208|Plum
+209|Persimmon Fruit
+210|Blue Berry
+211|S Tamrind
+212|Raspberry
+213|Bare Apple
+214|Custard Apple
+215|Golden Custard
+216|Orange
+217|Watermelon
+218|Watermelon Namdhari
+219|Watermelon Outside Yellow
+220|Watermelon Inside Yellow
+221|Pineapple
+222|Strawberry
+223|Musambi
+224|Anar / Pomegranate
+225|Anar Gujrath
+226|Anar S S
+227|Supporta / Chikoo
+228|Thai Guava
+229|Jappan Guava
+230|Muskmelon
+231|Patta Jam
+232|Black Grapes
+233|Green Grapes
+234|Local Redglobe
+235|Butter Fruit
+236|Litchi
+237|Fig / Anjeer
+238|Rambutan
+239|Passion Fruit
+240|Orange Malta
+241|Jamun
+242|Mangosteen
+243|Mulberry
+244|Mango BP
+245|Mango BP SPL
+246|Mango Bdmi
+247|Mango Bdmi SPL
+248|Mango Malliga
+249|Mango Malliga SPL
+250|Mango IP
+251|Mango IP SPL
+252|Mango Sindura
+253|Mango Kesar
+254|Mango Neelam
+255|Mango Malgova
+256|Mango Langada
+257|Mango Dasari
+258|Mango Raspuri
+259|Amrapalli Mango
+260|Kalapad Mango
+261|Sugar Baby Mango
+262|Nambiar Mango
+263|Mango Chausa
+264|Mango Javvari
+265|Himsagar Mango
+266|Alphonso Mango / Hapus
+267|Kalapad Mango
+268|Piyyur Mango
+269|Natti Mango
+270|Mango Sundari
+271|Rumani Mango
+272|Mango South Africa
+273|Movaandan Mago
+300|Plate 1d
+301|Plate 2D
+302|Wrapping Roll
+303|Container 250G
+304|Container 500 G
+DATA;
+
     public function run(): void
     {
-        $products = [
-            // Supply
-            ['category' => 'Supply', 'name' => 'Tomato H', 'sku' => 'TOMATOH-001', 'unit' => 'kg'],
-            ['category' => 'Supply', 'name' => 'Tomato N', 'sku' => 'TOMATON-002', 'unit' => 'kg'],
+        $seededProductIds = [];
 
-            // VEG
-            ['category' => 'VEG', 'name' => 'French Beans', 'sku' => 'FRENCHBEANS-013', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Beans Natty', 'sku' => 'BEANSNATTY-014', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Ladies Finger', 'sku' => 'LADIESFINGER-015', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Green Peas', 'sku' => 'GREENPEAS-016', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'White Karamani', 'sku' => 'WHITEKARAMANI-019', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Green Karamani', 'sku' => 'GREENKARAMANI-020', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Avarakkai/lablab Beans', 'sku' => 'AVARAKKAI-021', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Bajji Chilli', 'sku' => 'BAJJICHILLI-025', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Red Chilli', 'sku' => 'REDCHILLI-026', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Brinjal White Long', 'sku' => 'BRINJALWHTLNG-027', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Brinjal Big (Bertha)', 'sku' => 'BRINJALBIG-028', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Brinjal Small', 'sku' => 'BRINJALSMALL-029', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Brinjal White Kolkata', 'sku' => 'BRINJALWHTKOL-030', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Brinjol Rampuri', 'sku' => 'BRINJOLRAMPURI-031', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Brinjal Blue Long', 'sku' => 'BRINJALBLULNG-032', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Capsicum', 'sku' => 'CAPSICUM-033', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Radish', 'sku' => 'RADISH-037', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Tinda (Round Gurad)', 'sku' => 'TINDA-038', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Bitter Gourd White', 'sku' => 'BITTERGOURDWHT-041', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Bottle Gourd (Loki)', 'sku' => 'BOTTLEGOURDLOKI-042', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Ridge Gourd', 'sku' => 'RIDGEGOURD-043', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Snake Gourd White', 'sku' => 'SNAKEGOURDWHT-045', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Snake Gourd Green', 'sku' => 'SNAKEGOURDGRN-046', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Raw Jack Fruit', 'sku' => 'RAWJACKFRUIT-047', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Banana Flower', 'sku' => 'BANANAFLOWER-048', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Banana Stem', 'sku' => 'BANANASTEM-049', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Raw Banana', 'sku' => 'RAWBANANA-050', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Banana Leaf', 'sku' => 'BANANALEAF-051', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Sambar Cucbr / Southikai', 'sku' => 'SAMBARCUCBR-052', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'English Cucumber', 'sku' => 'ENGCUCUMBER-054', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Yam', 'sku' => 'YAM-055', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Pickle Mango', 'sku' => 'PICKLEMANGO-056', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Raw Mango Gund', 'sku' => 'RAWMANGOGUND-057', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Raw Mango totapuri', 'sku' => 'RAWMANGOTOTA-058', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Cabbage', 'sku' => 'CABBAGE-061', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Arbi /Taroroot', 'sku' => 'ARBITARO-062', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Big Arbi', 'sku' => 'BIGARBI-063', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Koorka Chinees Potato', 'sku' => 'KOORKAPOTATO-064', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Amla', 'sku' => 'AMLA-065', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Peeled Green Peas', 'sku' => 'PEELEDPEAS-066', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Delhi / Red Carrot', 'sku' => 'DELHICARROT-070', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Sweet Potato', 'sku' => 'SWEETPOTATO-073', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Tapioca', 'sku' => 'TAPIOCA-074', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Ginger', 'sku' => 'GINGER-075', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Ground Nut', 'sku' => 'GROUNDNUT-076', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Raw Pappaya', 'sku' => 'RAWPAPPAYA-079', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'SP Natti Thondakai', 'sku' => 'SPNATTITHONDAKAI-080', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Armenian Cucumber / Kakdi', 'sku' => 'ARMENIANCUCUMBER-081', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Disco Pumkin', 'sku' => 'DISCOPUMKIN-082', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'White Pumkin', 'sku' => 'WHITEPUMKIN-083', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Yellow Pumkin', 'sku' => 'YELLOWPUMKIN-084', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Natti Pumkin', 'sku' => 'NATTIPUMKIN-085', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Turnip / Shalgam', 'sku' => 'TURNIP-086', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Mango Ginger', 'sku' => 'MANGOGINGER-087', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Red Radish', 'sku' => 'REDRADISH-088', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Turmeric Stick Fresh', 'sku' => 'TURMERICSTICK-089', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Flower K', 'sku' => 'FLOWERK-090', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'kakrol / Kantola', 'sku' => 'KAKROLKANTOLA-091', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Kanikonna Flower', 'sku' => 'KANIKONNAFLWR-092', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Lotus Stump', 'sku' => 'LOTUSSTUMP-093', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Saagaloo', 'sku' => 'SAAGALOO-094', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Singada', 'sku' => 'SINGADA-095', 'unit' => 'kg'],
-            ['category' => 'VEG', 'name' => 'Jeegujji / Kada Chakka', 'sku' => 'JEEGUJJI-097', 'unit' => 'kg'],
+        foreach ($this->catalog() as $data) {
+            $category = Category::query()->where('name', $data['category'])->first();
 
-            // Leaf
-            ['category' => 'Leaf', 'name' => 'Corriander', 'sku' => 'CORRIANDER-101', 'unit' => 'kg'],
-            ['category' => 'Leaf', 'name' => 'Corriander Natti', 'sku' => 'CORRIANDERNATTI-102', 'unit' => 'kg'],
-            ['category' => 'Leaf', 'name' => 'Curry Leaf', 'sku' => 'CURRYLEAF-103', 'unit' => 'kg'],
-            ['category' => 'Leaf', 'name' => 'Pudina / Mint Leaf', 'sku' => 'PUDINA-104', 'unit' => 'kg'],
-            ['category' => 'Leaf', 'name' => 'Palak', 'sku' => 'PALAK-105', 'unit' => 'kg'],
-            ['category' => 'Leaf', 'name' => 'Green Cheera', 'sku' => 'GREENCHEERA-106', 'unit' => 'kg'],
-            ['category' => 'Leaf', 'name' => 'Red Cheera', 'sku' => 'REDCHEERA-107', 'unit' => 'kg'],
-            ['category' => 'Leaf', 'name' => 'Methi / Menthaya', 'sku' => 'METHI-108', 'unit' => 'kg'],
-            ['category' => 'Leaf', 'name' => 'Spring Onion', 'sku' => 'SPRINGONION-109', 'unit' => 'kg'],
-            ['category' => 'Leaf', 'name' => 'Gongura', 'sku' => 'GONGURA-110', 'unit' => 'kg'],
-            ['category' => 'Leaf', 'name' => 'Basella leaf / Basala', 'sku' => 'BASELLALEAF-111', 'unit' => 'kg'],
-            ['category' => 'Leaf', 'name' => 'Sabbakki / Dil Leaf', 'sku' => 'SABBAKKI-112', 'unit' => 'kg'],
-            ['category' => 'Leaf', 'name' => 'Chakotha', 'sku' => 'CHAKOTHA-113', 'unit' => 'kg'],
-            ['category' => 'Leaf', 'name' => 'Mustard Leaf', 'sku' => 'MUSTARDLEAF-114', 'unit' => 'kg'],
-            ['category' => 'Leaf', 'name' => 'Drum Stick Leaf', 'sku' => 'DRUMSTICKLEAF-115', 'unit' => 'kg'],
-            ['category' => 'Leaf', 'name' => 'Arai Keerai', 'sku' => 'ARAIKEERAI-116', 'unit' => 'kg'],
-            ['category' => 'Leaf', 'name' => 'Siru Keerai', 'sku' => 'SIRUKEERAI-117', 'unit' => 'kg'],
-            ['category' => 'Leaf', 'name' => 'Radish Leaf', 'sku' => 'RADISHLEAF-118', 'unit' => 'kg'],
-
-            // English
-            ['category' => 'English', 'name' => 'Sweet Corn', 'sku' => 'SWEETCORN-120', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Peeled Corn', 'sku' => 'PEELEDCORN-121', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Baby Corn', 'sku' => 'BABYCORN-122', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Peeled Garlic', 'sku' => 'PEELEDGARLIC-123', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Peeled Onion', 'sku' => 'PEELEDONION-124', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Sprouds', 'sku' => 'SPROUDS-125', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Cherry Tomato Box', 'sku' => 'CHERRYTMTOBOX-126', 'unit' => 'box'],
-            ['category' => 'English', 'name' => 'Cherry Tomato Loose', 'sku' => 'CHERRYTMTOVSE-127', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Mushroom', 'sku' => 'MUSHROOM-128', 'unit' => 'box'],
-            ['category' => 'English', 'name' => 'Oyster Mushroom', 'sku' => 'OYSTERMUSHROOM-129', 'unit' => 'box'],
-            ['category' => 'English', 'name' => 'Broccoli', 'sku' => 'BROCCOLI-130', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'bockchoy', 'sku' => 'BOCKCHOY-131', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'roman lettuce', 'sku' => 'ROMANLETTUCE-132', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Lettuce', 'sku' => 'LETTUCE-133', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Ice Berg Lettuce', 'sku' => 'ICEBERGLETTUCE-134', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Colur Capcicum Yellow', 'sku' => 'COLCAPSICUMYEL-135', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Colur Capcicum Red', 'sku' => 'COLCAPSICUMRED-136', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Zuchini Green', 'sku' => 'ZUCHINIGREEN-137', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Zuchini Yellow', 'sku' => 'ZUCHINIYELLOW-138', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Red Cabbage', 'sku' => 'REDCABBAGE-139', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Chinees Cabbage', 'sku' => 'CHINEESCABBAGE-140', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Celery Leaf', 'sku' => 'CELERYLEAF-141', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Parsley Leaf', 'sku' => 'PARSLEYLEAF-142', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Basaley Leaf', 'sku' => 'BASALEYLEAF-143', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Lemon Grass', 'sku' => 'LEMONGRASS-144', 'unit' => 'kg'],
-            ['category' => 'English', 'name' => 'Leaks', 'sku' => 'LEAKS-145', 'unit' => 'kg'],
-
-            // Kolkata
-            ['category' => 'Kolkata', 'name' => 'Bel (Kolkata Item)', 'sku' => 'BELKOLKATA-146', 'unit' => 'kg'],
-            ['category' => 'Kolkata', 'name' => 'Misty Pumkin', 'sku' => 'MISTYPUMKIN-147', 'unit' => 'kg'],
-            ['category' => 'Kolkata', 'name' => 'Kolkata Lemon', 'sku' => 'KOLKATALEMON-148', 'unit' => 'kg'],
-            ['category' => 'Kolkata', 'name' => 'Kochu Loti', 'sku' => 'KOCHULOTI-149', 'unit' => 'kg'],
-            ['category' => 'Kolkata', 'name' => 'White Parwal', 'sku' => 'WHITEPARWAL-150', 'unit' => 'kg'],
-            ['category' => 'Kolkata', 'name' => 'Maankochoo', 'sku' => 'MAANKOCHOO-151', 'unit' => 'kg'],
-            ['category' => 'Kolkata', 'name' => 'Garlic Leafs', 'sku' => 'GARLICLEAFS-161', 'unit' => 'kg'],
-
-            // Banana
-            ['category' => 'Banana', 'name' => 'Banana yelakki Green', 'sku' => 'BANANAYELGRN-162', 'unit' => 'kg'],
-            ['category' => 'Banana', 'name' => 'Banana Yelakki Color', 'sku' => 'BANANAYELCLR-163', 'unit' => 'kg'],
-            ['category' => 'Banana', 'name' => 'Banana Nendran', 'sku' => 'BANANANENDRAN-164', 'unit' => 'kg'],
-            ['category' => 'Banana', 'name' => 'Banana Nendran Color', 'sku' => 'BANANANENCLR-165', 'unit' => 'kg'],
-            ['category' => 'Banana', 'name' => 'Banana Robusta', 'sku' => 'BANANAROBUSTA-166', 'unit' => 'kg'],
-            ['category' => 'Banana', 'name' => 'Red Banana', 'sku' => 'REDBANANA-167', 'unit' => 'kg'],
-            ['category' => 'Banana', 'name' => 'Natti Banana', 'sku' => 'NATTIBANANA-168', 'unit' => 'kg'],
-            ['category' => 'Banana', 'name' => 'Karpoora Banana', 'sku' => 'KARPOORABANANA-169', 'unit' => 'kg'],
-
-            // Onion
-            ['category' => 'Onion', 'name' => 'Onion', 'sku' => 'ONION-003', 'unit' => 'kg'],
-            ['category' => 'Onion', 'name' => 'Pickle Onion Bag', 'sku' => 'PICKLEONIONBAG-004', 'unit' => 'bag'],
-            ['category' => 'Onion', 'name' => 'Potato Agra', 'sku' => 'POTATOAGRA-005', 'unit' => 'kg'],
-            ['category' => 'Onion', 'name' => 'Potato Local', 'sku' => 'POTATOLOCAL-006', 'unit' => 'kg'],
-            ['category' => 'Onion', 'name' => 'Baby Potato', 'sku' => 'BABYPOTATO-007', 'unit' => 'kg'],
-            ['category' => 'Onion', 'name' => 'Garlic Natti', 'sku' => 'GARLICNATTI-010', 'unit' => 'kg'],
-            ['category' => 'Onion', 'name' => 'Garlic Ootty', 'sku' => 'GARLICOOTTY-011', 'unit' => 'kg'],
-
-            // C
-            ['category' => 'C', 'name' => 'Coconut', 'sku' => 'COCONUT-170', 'unit' => 'pcs'],
-
-            // Frut
-            ['category' => 'Frut', 'name' => 'Gala NZ', 'sku' => 'GALANZ-182', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Gala Apple', 'sku' => 'GALAAPPLE-183', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Irani Apple', 'sku' => 'IRANIAPPLE-184', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Fuji Apple', 'sku' => 'FUJIAPPLE-185', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Green Apple', 'sku' => 'GREENAPPLE-186', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Apple Pink lady', 'sku' => 'APPLEPINKLADY-187', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Red Apple', 'sku' => 'REDAPPLE-188', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Indian Apple', 'sku' => 'INDIANAPPLE-189', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Apple Misri', 'sku' => 'APPLEMISRI-190', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Rockit Apple', 'sku' => 'ROCKITAPPLE-191', 'unit' => 'box'],
-            ['category' => 'Frut', 'name' => 'Washington Apple', 'sku' => 'WASHINGTONAPL-192', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mini Orange', 'sku' => 'MINIORANGE-193', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mini Orange SL', 'sku' => 'MINIORANGESL-194', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Pears', 'sku' => 'PEARS-195', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Citrus Orange', 'sku' => 'CITRUSORANGE-196', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Kinnow Orange', 'sku' => 'KINNOWORANGE-197', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Dragon Fruit', 'sku' => 'DRAGONFRUIT-198', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Red Dragon', 'sku' => 'REDDRAGON-199', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Kiwi', 'sku' => 'KIWI-200', 'unit' => 'box'],
-            ['category' => 'Frut', 'name' => 'Golden Kiwi', 'sku' => 'GOLDENKIWI-201', 'unit' => 'box'],
-            ['category' => 'Frut', 'name' => 'Imp Butter Fruit', 'sku' => 'IMPBUTTERFRUIT-202', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Red Pear', 'sku' => 'REDPEAR-203', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Redglobe', 'sku' => 'REDGLOBE-204', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Redglobe SL', 'sku' => 'REDGLOBESL-205', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Muscat Grape', 'sku' => 'MUSCATGRAPE-206', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Cherry', 'sku' => 'CHERRY-207', 'unit' => 'box'],
-            ['category' => 'Frut', 'name' => 'Plum', 'sku' => 'PLUM-208', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Persimmon Fruit', 'sku' => 'PERSIMMON-209', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Blue Berry', 'sku' => 'BLUEBERRY-210', 'unit' => 'box'],
-            ['category' => 'Frut', 'name' => 'S Tamrind', 'sku' => 'STAMRIND-211', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Raspberry', 'sku' => 'RASPBERRY-212', 'unit' => 'box'],
-            ['category' => 'Frut', 'name' => 'Bare Apple', 'sku' => 'BAREAPPLE-213', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Custard Apple', 'sku' => 'CUSTARDAPPLE-214', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Golden Custard', 'sku' => 'GOLDENCUSTARD-215', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Orange', 'sku' => 'ORANGE-216', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Watermelon', 'sku' => 'WATERMELON-217', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Watermelon Namdhari', 'sku' => 'WATERMELONNAM-218', 'unit' => 'pcs'],
-            ['category' => 'Frut', 'name' => 'Watermelon Outside Yellow', 'sku' => 'WATERMELONOUTYEL-219', 'unit' => 'pcs'],
-            ['category' => 'Frut', 'name' => 'Watermelon Inside Yellow', 'sku' => 'WATERMELONINSYEL-220', 'unit' => 'pcs'],
-            ['category' => 'Frut', 'name' => 'Pineapple', 'sku' => 'PINEAPPLE-221', 'unit' => 'pcs'],
-            ['category' => 'Frut', 'name' => 'Strawberry', 'sku' => 'STRAWBERRY-222', 'unit' => 'box'],
-            ['category' => 'Frut', 'name' => 'Musambi', 'sku' => 'MUSAMBI-223', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Anar / Pomegranate', 'sku' => 'ANAR-224', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Anar Gujrath', 'sku' => 'ANARGUJRATH-225', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Anar S S', 'sku' => 'ANARSS-226', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Supporta / Chikoo', 'sku' => 'SUPPORTACHIKOO-227', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Thai Guava', 'sku' => 'THAIGUAVA-228', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Jappan Guava', 'sku' => 'JAPPANGUAVA-229', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Muskmelon', 'sku' => 'MUSKMELON-230', 'unit' => 'pcs'],
-            ['category' => 'Frut', 'name' => 'Patta Jam', 'sku' => 'PATTAJAM-231', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Black Grapes', 'sku' => 'BLACKGRAPES-232', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Green Grapes', 'sku' => 'GREENGRAPES-233', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Local Redglobe', 'sku' => 'LOCALREDGLOBE-234', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Butter Fruit', 'sku' => 'BUTTERFRUIT-235', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Litchi', 'sku' => 'LITCHI-236', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Fig / Anjeer', 'sku' => 'FIGANJEER-237', 'unit' => 'box'],
-            ['category' => 'Frut', 'name' => 'Rambutan', 'sku' => 'RAMBUTAN-238', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Passion Fruit', 'sku' => 'PASSIONFRUIT-239', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Orange Malta', 'sku' => 'ORANGEMALTA-240', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Jamun', 'sku' => 'JAMUN-241', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mangosteen', 'sku' => 'MANGOSTEEN-242', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mulberry', 'sku' => 'MULBERRY-243', 'unit' => 'box'],
-            ['category' => 'Frut', 'name' => 'Mango BP', 'sku' => 'MANGOBP-244', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango BP SPL', 'sku' => 'MANGOFPSPL-245', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango Bdmi', 'sku' => 'MANGOBDMI-246', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango Bdmi SPL', 'sku' => 'MANGOBDMISPL-247', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango Malliga', 'sku' => 'MANGOMALLIGA-248', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango Malliga SPL', 'sku' => 'MANGOMALLIGASPL-249', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango IP', 'sku' => 'MANGOIP-250', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango IP SPL', 'sku' => 'MANGOIPSPL-251', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango Sindura', 'sku' => 'MANGOSINDURA-252', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango Kesar', 'sku' => 'MANGOKESAR-253', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango Neelam', 'sku' => 'MANGONEELAM-254', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango Malgova', 'sku' => 'MANGOMALGOVA-255', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango Langada', 'sku' => 'MANGOLANGADA-256', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango Dasari', 'sku' => 'MANGODASARI-257', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango Raspuri', 'sku' => 'MANGORASPURI-258', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Amrapalli Mango', 'sku' => 'AMRAPALLIMANGO-259', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Kalapad Mango', 'sku' => 'KALAPADMANGO-260', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Sugar Baby Mango', 'sku' => 'SUGARBABYMANGO-261', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Nambiar Mango', 'sku' => 'NAMBIARMANGO-262', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango Chausa', 'sku' => 'MANGOCHAUSA-263', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango Javvari', 'sku' => 'MANGOJAVVARI-264', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Himsagar Mango', 'sku' => 'HIMSAGARMANGO-265', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Alphonso Mango / Hapus', 'sku' => 'ALPHONSOMANGO-266', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Kalapad Mango (Duplicate)', 'sku' => 'KALAPADMANGO-267', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Piyyur Mango', 'sku' => 'PIYYURMANGO-268', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Natti Mango', 'sku' => 'NATTIMANGO-269', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango Sundari', 'sku' => 'MANGOSUNDARI-270', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Rumani Mango', 'sku' => 'RUMANIMANGO-271', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Mango South Africa', 'sku' => 'MANGOSOUTHAFRICA-272', 'unit' => 'kg'],
-            ['category' => 'Frut', 'name' => 'Movaandan Mago', 'sku' => 'MOVAANDANMANGO-273', 'unit' => 'kg'],
-
-            // Stationory
-            ['category' => 'Stationory', 'name' => 'Plate 1d', 'sku' => 'PLATE1D-300', 'unit' => 'pcs'],
-            ['category' => 'Stationory', 'name' => 'Plate 2D', 'sku' => 'PLATE2D-301', 'unit' => 'pcs'],
-            ['category' => 'Stationory', 'name' => 'Wrapping Roll', 'sku' => 'WRAPPINGROLL-302', 'unit' => 'roll'],
-            ['category' => 'Stationory', 'name' => 'Container 250G', 'sku' => 'CONTAINER250G-303', 'unit' => 'pcs'],
-            ['category' => 'Stationory', 'name' => 'Container 500 G', 'sku' => 'CONTAINER500G-304', 'unit' => 'pcs'],
-        ];
-
-        foreach ($products as $data) {
-            $category = Category::where('name', $data['category'])->first();
             if (! $category) {
                 continue;
             }
 
-            Product::updateOrCreate(
-                ['sku' => $data['sku']],
-                [
+            $legacySkuSuffix = str_pad($data['sku'], 3, '0', STR_PAD_LEFT);
+
+            $product = Product::query()
+                ->where('sku', $data['sku'])
+                ->orWhere('sku', 'like', '%-'.$legacySkuSuffix)
+                ->first();
+
+            if ($product) {
+                $product->update([
                     'category_id' => $category->id,
                     'name' => $data['name'],
                     'sku' => $data['sku'],
                     'unit' => $data['unit'],
                     'base_price' => $this->resolveBasePrice($data['sku'], $data['unit']),
                     'is_active' => true,
-                ]
-            );
+                ]);
+            } else {
+                $product = Product::query()->create([
+                    'category_id' => $category->id,
+                    'name' => $data['name'],
+                    'sku' => $data['sku'],
+                    'unit' => $data['unit'],
+                    'base_price' => $this->resolveBasePrice($data['sku'], $data['unit']),
+                    'is_active' => true,
+                ]);
+            }
+
+            $seededProductIds[] = $product->id;
         }
 
-        $this->command->info('✅ '.Product::count().' products seeded successfully.');
+        Product::query()
+            ->whereNotIn('id', $seededProductIds)
+            ->update(['is_active' => false]);
+
+        $this->command?->info('✅ '.count($seededProductIds).' products seeded successfully.');
+    }
+
+    /**
+     * @return array<int, array{category: string, name: string, sku: string, unit: string}>
+     */
+    private function catalog(): array
+    {
+        $products = [];
+
+        foreach (preg_split('/\r\n|\r|\n/', self::PRODUCT_LINES) as $line) {
+            if (! $line) {
+                continue;
+            }
+
+            [$sku, $name] = explode('|', $line, 2);
+
+            $products[] = [
+                'category' => $this->resolveCategory((int) $sku),
+                'name' => $name,
+                'sku' => $sku,
+                'unit' => $this->resolveUnit((int) $sku),
+            ];
+        }
+
+        return $products;
+    }
+
+    private function resolveCategory(int $sku): string
+    {
+        return match (true) {
+            $sku <= 2 => 'Supply',
+            $sku <= 11 => 'Onion',
+            $sku <= 97 => 'VEG',
+            $sku <= 118 => 'Leaf',
+            $sku <= 145 => 'English',
+            $sku <= 161 => 'Kolkata',
+            $sku <= 169 => 'Banana',
+            $sku === 170 => 'C',
+            $sku <= 273 => 'Frut',
+            default => 'Stationory',
+        };
+    }
+
+    private function resolveUnit(int $sku): string
+    {
+        return match (true) {
+            $sku === 4 => 'bag',
+            in_array($sku, [126, 128, 129, 191, 200, 201, 207, 210, 212, 222, 237, 243], true) => 'box',
+            in_array($sku, [170, 218, 219, 220, 221, 230, 300, 301, 303, 304], true) => 'pcs',
+            $sku === 302 => 'roll',
+            default => 'kg',
+        };
     }
 
     private function resolveBasePrice(string $sku, string $unit): float
     {
         $skuOverrides = [
-            'APPLEPINKLADY-187' => 185.00,
-            'BABYPOTATO-007' => 42.00,
-            'PINEAPPLE-221' => 65.00,
-            'TOMATON-002' => 38.00,
-            'WRAPPINGROLL-302' => 48.00,
-            'CHERRYTMTOBOX-126' => 220.00,
-            'POTATOAGRA-005' => 34.00,
-            'TOMATOH-001' => 36.00,
+            '1' => 36.00,
+            '2' => 38.00,
+            '5' => 34.00,
+            '7' => 42.00,
+            '126' => 220.00,
+            '187' => 185.00,
+            '221' => 65.00,
+            '302' => 48.00,
         ];
 
         if (array_key_exists($sku, $skuOverrides)) {

@@ -7,6 +7,7 @@ namespace App\Repositories\Inventory;
 use App\Enums\Inventory\BatchStatus;
 use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
+use App\Models\Product;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Repositories\BaseRepository;
@@ -37,6 +38,7 @@ class StockMovementRepository extends BaseRepository
      */
     public function currentStockByProductAndGrade(?string $date = null): Collection
     {
+        $driver = (new Product)->getConnection()->getDriverName();
         $positiveMovementTypes = [
             StockMovementType::In->value,
             StockMovementType::SaleReversal->value,
@@ -50,7 +52,7 @@ class StockMovementRepository extends BaseRepository
         $movementsStock = $this->query()
             ->join('products', 'stock_movements.product_id', '=', 'products.id')
             ->selectRaw(
-                'stock_movements.product_id, products.name as product_name, products.image as product_image, stock_movements.grade, '.
+                'stock_movements.product_id, products.name as product_name, products.sku as product_sku, products.image as product_image, stock_movements.grade, '.
                 'SUM(CASE '.
                 'WHEN stock_movements.type IN (?, ?) THEN stock_movements.quantity '.
                 'WHEN stock_movements.type IN (?, ?, ?) THEN -stock_movements.quantity '.
@@ -64,9 +66,11 @@ class StockMovementRepository extends BaseRepository
                 ]
             )
             ->when($date, fn ($q) => $q->whereDate('stock_movements.created_at', '<=', $date))
-            ->groupBy('stock_movements.product_id', 'products.name', 'products.image', 'stock_movements.grade')
+            ->groupBy('stock_movements.product_id', 'products.name', 'products.sku', 'products.image', 'stock_movements.grade')
             ->having('current_stock', '>', 0)
-            ->orderBy('products.name')
+            ->orderByRaw(Product::numericSkuPriorityExpression('products.sku', $driver))
+            ->orderByRaw(Product::numericSkuValueExpression('products.sku', $driver))
+            ->orderBy('products.sku')
             ->orderBy('stock_movements.grade')
             ->toBase()
             ->get();
@@ -95,6 +99,7 @@ class StockMovementRepository extends BaseRepository
                 $unsortedStock[$productId] = [
                     'product_id' => $productId,
                     'product_name' => $batch->product->name,
+                    'product_sku' => $batch->product->sku,
                     'product_image' => $batch->product->image,
                     'grade' => 'Unsorted',
                     'current_stock' => 0.0,
@@ -110,7 +115,9 @@ class StockMovementRepository extends BaseRepository
         });
 
         // 3. Merge the two collections and sort by product_name
-        return $movementsStock->concat($unsortedCollection)->sortBy('product_name');
+        return $movementsStock->concat($unsortedCollection)->sortBy(
+            fn ($item): string => Product::sortableSku((string) ($item->product_sku ?? ''))
+        );
     }
 
     /**
