@@ -16,6 +16,9 @@
     {{-- Search Filter --}}
     <form method="GET" class="mb-4 flex flex-wrap items-center gap-3">
         <input type="hidden" name="scope" value="{{ $scope }}">
+        @if($role)
+            <input type="hidden" name="role" value="{{ $role }}">
+        @endif
         <input type="text" name="search" value="{{ request('search') }}"
                placeholder="Search by name or email…"
                class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100 w-64">
@@ -26,23 +29,44 @@
     </form>
 
     <div class="mb-4 flex flex-wrap items-center gap-3">
-        <a href="{{ route('admin.users.index') }}"
+        <a href="{{ route('admin.users.index', array_filter(['role' => $role])) }}"
            class="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-black uppercase tracking-[0.18em] transition-colors {{ $scope === 'all' ? 'border-brand-200 bg-brand-50 text-brand-700' : 'border-gray-200 bg-white text-gray-500 hover:border-brand-200 hover:text-brand-700' }}">
             All Users
             <span class="rounded-full bg-white/80 px-2 py-0.5 text-[10px]">{{ $allUsersCount }}</span>
         </a>
 
-        <a href="{{ route('admin.users.index', ['scope' => 'pending']) }}"
+        <a href="{{ route('admin.users.index', array_filter(['scope' => 'pending', 'role' => $role])) }}"
            class="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-black uppercase tracking-[0.18em] transition-colors {{ $scope === 'pending' ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-gray-200 bg-white text-gray-500 hover:border-amber-200 hover:text-amber-700' }}">
             New Registrations
             <span class="rounded-full bg-white/80 px-2 py-0.5 text-[10px]">{{ $pendingRegistrationsCount }}</span>
         </a>
     </div>
 
+    <div class="mb-4 flex flex-wrap items-center gap-3">
+        <a href="{{ route('admin.users.index', array_filter(['scope' => $scope !== 'all' ? $scope : null, 'search' => request('search') ?: null])) }}"
+           class="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-black uppercase tracking-[0.18em] transition-colors {{ $role === null ? 'border-slate-200 bg-slate-900 text-white' : 'border-gray-200 bg-white text-gray-500 hover:border-slate-300 hover:text-slate-900' }}">
+            All Roles
+            <span class="rounded-full bg-white/90 px-2 py-0.5 text-[10px] text-slate-700">{{ $allUsersCount }}</span>
+        </a>
+
+        @foreach($availableRoles as $roleMeta)
+            <a href="{{ route('admin.users.index', array_filter(['scope' => $scope !== 'all' ? $scope : null, 'role' => $roleMeta['name'], 'search' => request('search') ?: null])) }}"
+               class="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-black uppercase tracking-[0.18em] transition-colors {{ $role === $roleMeta['name'] ? 'border-brand-200 bg-brand-50 text-brand-700' : 'border-gray-200 bg-white text-gray-500 hover:border-brand-200 hover:text-brand-700' }}">
+                {{ $roleMeta['name'] }}
+                <span class="rounded-full bg-white/80 px-2 py-0.5 text-[10px]">{{ $roleMeta['count'] }}</span>
+            </a>
+        @endforeach
+    </div>
+
     {{-- Users Table --}}
     <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
         <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-            <h2 class="text-sm font-semibold text-gray-900">{{ $scope === 'pending' ? 'Pending Registrations' : 'All User Accounts' }}</h2>
+            <h2 class="text-sm font-semibold text-gray-900">
+                {{ $scope === 'pending' ? 'Pending Registrations' : 'User Accounts' }}
+                @if($role)
+                    <span class="text-gray-400">· {{ $role }}</span>
+                @endif
+            </h2>
             <span class="text-xs text-gray-500">{{ $users->total() }} users</span>
         </div>
 

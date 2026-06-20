@@ -50,6 +50,24 @@ class UserManagementTest extends TestCase
         $response->assertSee('John Doe');
     }
 
+    public function test_authorized_user_can_filter_users_by_role_tab(): void
+    {
+        $shopUser = User::factory()->create(['name' => 'Shop User']);
+        $shopUser->syncRoles(['shop']);
+
+        $purchaseUser = User::factory()->create(['name' => 'Purchase User']);
+        $purchaseUser->syncRoles(['purchase']);
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.users.index', ['role' => 'shop']));
+
+        $response->assertOk();
+        $response->assertSee('Shop User');
+        $response->assertDontSee('Purchase User');
+        $response->assertSee('All Roles');
+        $response->assertSee('shop');
+    }
+
     public function test_unauthorized_user_cannot_view_users_list(): void
     {
         $response = $this->actingAs($this->unauthorizedUser)

@@ -16,9 +16,17 @@ class UserService
         private readonly UserRepository $repository,
     ) {}
 
-    public function paginate(int $perPage = 15, ?string $search = null, string $scope = 'all'): LengthAwarePaginator
+    public function paginate(int $perPage = 15, ?string $search = null, string $scope = 'all', ?string $role = null): LengthAwarePaginator
     {
-        return $this->repository->paginateFiltered($perPage, $search, $scope);
+        return $this->repository->paginateFiltered($perPage, $search, $scope, $role);
+    }
+
+    /**
+     * @return array<int, array{name: string, count: int}>
+     */
+    public function roleCounts(): array
+    {
+        return $this->repository->roleCounts();
     }
 
     public function create(UserData $data): User

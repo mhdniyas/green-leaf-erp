@@ -29,11 +29,24 @@ class UserController extends Controller
         Gate::authorize('viewAny', User::class);
 
         $scope = $request->string('scope')->toString() === 'pending' ? 'pending' : 'all';
-        $users = $this->service->paginate(20, $request->input('search'), $scope);
+        $availableRoles = collect($this->service->roleCounts());
+        $selectedRole = $request->string('role')->toString();
+        $role = $availableRoles->contains(fn (array $roleMeta): bool => $roleMeta['name'] === $selectedRole)
+            ? $selectedRole
+            : null;
+
+        $users = $this->service->paginate(20, $request->input('search'), $scope, $role);
         $allUsersCount = User::query()->count();
         $pendingRegistrationsCount = User::query()->where('registration_status', 'pending')->count();
 
-        return view('admin.users.index', compact('users', 'scope', 'allUsersCount', 'pendingRegistrationsCount'));
+        return view('admin.users.index', compact(
+            'users',
+            'scope',
+            'role',
+            'availableRoles',
+            'allUsersCount',
+            'pendingRegistrationsCount',
+        ));
     }
 
     public function create(): View
