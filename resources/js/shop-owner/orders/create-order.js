@@ -43,6 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const cartBarItemsCount = document.getElementById('cart-bar-items-count');
     const cartBarReviewBtn = document.getElementById('cart-bar-review-btn');
     const pageOpenCartButtons = Array.from(document.querySelectorAll('[data-open-cart-submit]'));
+    const itemsErrorBanner = document.querySelector('[data-items-error-banner]');
 
     // Cart Review Drawer
     const cartReviewBackdrop = document.getElementById('cart-review-backdrop');
@@ -122,6 +123,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
+    const syncItemsErrorBanner = () => {
+        if (!itemsErrorBanner) {
+            return;
+        }
+
+        itemsErrorBanner.classList.toggle('hidden', getSelectedProducts().length > 0);
+    };
+
     // ── RENDER & UI SYNC ────────────────────────────────────────────────────
     const updateProductCardBadge = (productId, qty, unit) => {
         const card = document.querySelector(`[data-product-card][data-product-id="${productId}"]`);
@@ -173,6 +182,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         syncPageOpenCartButtons();
+        syncItemsErrorBanner();
     };
 
     // ── CATEGORY & SEARCH FILTERING ─────────────────────────────────────────

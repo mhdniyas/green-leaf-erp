@@ -321,4 +321,28 @@ class ShopOwnerModulesTest extends TestCase
         $response->assertSee('Approval History');
         $response->assertDontSee('Recent Orders');
     }
+
+    public function test_shop_owner_marketplace_marks_empty_cart_validation_banner_for_js_dismissal(): void
+    {
+        $shop = Shop::create([
+            'code' => 'SHOP_CART_ERROR_UI',
+            'name' => 'Cart Error Ui Shop',
+        ]);
+
+        $shopOwner = User::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+        $shopOwner->assignRole('shop');
+
+        $response = $this->actingAs($shopOwner)
+            ->from(route('shop-owner.orders.create'))
+            ->followingRedirects()
+            ->post(route('requisitions.store'), [
+                'items' => [],
+            ]);
+
+        $response->assertOk();
+        $response->assertSee('Requisition cannot be empty.');
+        $response->assertSee('data-items-error-banner', false);
+    }
 }
