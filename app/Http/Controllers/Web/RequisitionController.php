@@ -1902,13 +1902,18 @@ class RequisitionController extends Controller
         $requestedQuantities = [];
 
         foreach ($rawItems as $sku => $quantity) {
-            $numericQuantity = (float) $quantity;
-
-            if (! is_string($sku) || $numericQuantity <= 0) {
+            if (! is_string($sku) && ! is_int($sku)) {
                 continue;
             }
 
-            $requestedQuantities[$sku] = $numericQuantity;
+            $normalizedSku = (string) $sku;
+            $numericQuantity = (float) $quantity;
+
+            if ($numericQuantity <= 0) {
+                continue;
+            }
+
+            $requestedQuantities[$normalizedSku] = $numericQuantity;
         }
 
         if ($requestedQuantities === []) {
