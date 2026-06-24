@@ -1285,14 +1285,14 @@ class PurchaserDashboardController extends Controller
     {
         $approvedItems = ShopOrderItem::query()
             ->whereHas('order', function ($query) use ($date): void {
-                $query->whereDate('business_date', '<=', $date)->where('state', 'approved');
+                $query->whereDate('business_date', $date)->where('state', 'approved');
             })
             ->with(['product.category', 'order.shop', 'order'])
             ->get();
 
         $draftCartItems = PurchaserCartItem::query()
             ->whereHas('cart', function ($query) use ($date): void {
-                $query->whereDate('business_date', '<=', $date)->where('status', 'draft');
+                $query->whereDate('business_date', $date)->where('status', 'draft');
             })
             ->with('cart.user')
             ->get()
@@ -1300,7 +1300,7 @@ class PurchaserDashboardController extends Controller
 
         $submittedQuantities = PurchaserCartItem::query()
             ->whereHas('cart', function ($query) use ($date): void {
-                $query->whereDate('business_date', '<=', $date)->where('status', 'submitted');
+                $query->whereDate('business_date', $date)->where('status', 'submitted');
             })
             ->with('cart')
             ->get()
@@ -1531,14 +1531,14 @@ class PurchaserDashboardController extends Controller
         $approvedQuantity = (float) ShopOrderItem::query()
             ->where('product_id', $productId)
             ->whereHas('order', function ($query) use ($date): void {
-                $query->whereDate('business_date', '<=', $date)->where('state', 'approved');
+                $query->whereDate('business_date', $date)->where('state', 'approved');
             })
             ->sum('approved_qty');
 
         $alreadySubmittedQuantity = (float) PurchaserCartItem::query()
             ->where('product_id', $productId)
             ->whereHas('cart', function ($query) use ($date, $currentCartId): void {
-                $query->whereDate('business_date', '<=', $date)
+                $query->whereDate('business_date', $date)
                     ->where('status', 'submitted')
                     ->whereKeyNot($currentCartId);
             })

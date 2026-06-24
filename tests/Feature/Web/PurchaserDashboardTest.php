@@ -1447,7 +1447,7 @@ class PurchaserDashboardTest extends TestCase
         $this->assertStringContainsString('245', $decodedDiscountOnly);
     }
 
-    public function test_daily_summary_includes_past_pending_demands_and_formats_whatsapp_text(): void
+    public function test_daily_summary_only_shows_selected_business_date_and_matching_cart_quantities(): void
     {
         $dateToday = Carbon::today()->format('Y-m-d');
         $dateYesterday = Carbon::yesterday()->format('Y-m-d');
@@ -1463,69 +1463,55 @@ class PurchaserDashboardTest extends TestCase
 
         $productB = Product::factory()->create([
             'category_id' => $vegCategory->id,
-            'name' => 'Potato Past Pending',
+            'name' => 'Potato Yesterday',
             'sku' => 'POT-PST',
             'unit' => 'kg',
         ]);
 
         $productC = Product::factory()->create([
             'category_id' => $vegCategory->id,
-            'name' => 'Onion Past Completed',
-            'sku' => 'ON-COMP',
+            'name' => 'Mint Carryover',
+            'sku' => 'MINT-CRY',
             'unit' => 'kg',
         ]);
 
-        // 1. Order today (Tomato)
         $this->createApprovedOrder($dateToday, $this->shopA, $productA, 10);
-
-        // 2. Order yesterday pending (Potato)
         $this->createApprovedOrder($dateYesterday, $this->shopA, $productB, 5);
+        $this->createApprovedOrder($dateToday, $this->shopA, $productC, 6);
 
-        // 3. Order yesterday completed (Onion)
-        $this->createApprovedOrder($dateYesterday, $this->shopA, $productC, 8);
-        // Also mark Onion as bought yesterday
-        $cartYesterday = PurchaserCart::create([
+        $yesterdayDraftCart = PurchaserCart::create([
             'user_id' => $this->purchaser->id,
             'business_date' => $dateYesterday,
-            'cart_number' => 'VC-'.str_replace('-', '', $dateYesterday).'-1',
-            'status' => 'submitted',
+            'cart_number' => 'VC-'.str_replace('-', '', $dateYesterday).'-DRAFT',
+            'status' => 'draft',
         ]);
-        $cartYesterday->items()->create([
-            'product_id' => $productC->id,
-            'quantity' => 8,
+
+        $yesterdayDraftCart->items()->create([
+            'product_id' => $productB->id,
+            'quantity' => 5,
             'unit_price' => 20,
         ]);
 
-        // Fetch daily page
         $response = $this->actingAs($this->purchaser)->get(route('purchaser.daily', ['date' => $dateToday, 'chip' => 'All']));
         $response->assertOk();
 
-        // Check dailySummary view data directly
         $dailySummaryData = $response->viewData('dailySummary');
+        $this->assertCount(2, $dailySummaryData);
         $this->assertTrue($dailySummaryData->contains('product_name', 'Tomato Today'));
-        $this->assertTrue($dailySummaryData->contains('product_name', 'Potato Past Pending'));
-        $this->assertFalse($dailySummaryData->contains('product_name', 'Onion Past Completed'));
+        $this->assertTrue($dailySummaryData->contains('product_name', 'Mint Carryover'));
+        $this->assertFalse($dailySummaryData->contains('product_name', 'Potato Yesterday'));
 
-        // Tomato Today should be visible in HTML
         $response->assertSee('Tomato Today');
-        // Potato Past Pending should be visible in HTML
-        $response->assertSee('Potato Past Pending');
-        // It should show its pending date
-        $response->assertSee('Pending ('.Carbon::parse($dateYesterday)->format('d M Y').')');
+        $response->assertSee('Mint Carryover');
+        $response->assertDontSee('Pending ('.Carbon::parse($dateYesterday)->format('d M Y').')');
+        $response->assertDontSee('5.00 kg in cart');
 
-        // Check the daily share URL text
         $shareUrl = $response->viewData('dailySummaryShareUrl');
         $this->assertStringContainsString('api.whatsapp.com/send', $shareUrl);
         $decodedText = rawurldecode($shareUrl);
 
-        // Tomato should be present without pending prefix
         $this->assertStringContainsString('*Tomato Today*', $decodedText);
-        $this->assertStringNotContainsString('*Tomato Today* (Pending', $decodedText);
-
-        // Potato should be present with pending prefix
-        $this->assertStringContainsString('*Potato Past Pending* (Pending '.Carbon::parse($dateYesterday)->format('d M Y').')', $decodedText);
-
-        // Onion should not be present
-        $this->assertStringNotContainsString('Onion Past Completed', $decodedText);
+        $this->assertStringContainsString('*Mint Carryover*', $decodedText);
+        $this->assertStringNotContainsString('Potato Yesterday', $decodedText);
     }
 }
