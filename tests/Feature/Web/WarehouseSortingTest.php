@@ -380,36 +380,19 @@ class WarehouseSortingTest extends TestCase
 
         $response->assertOk();
         $response->assertJsonPath('success', true);
-        $response->assertJsonPath('message', 'Warehouse report submitted. Awaiting purchase manager approval.');
-        $response->assertJsonPath('status', 'pending_approval');
+        $response->assertJsonPath('status', 'approved');
 
         $this->assertDatabaseHas('purchase_orders', [
             'id' => $po->id,
-            'status' => POStatus::Received->value,
+            'status' => POStatus::Closed->value,
         ]);
 
         $this->assertDatabaseHas('goods_received', [
             'purchase_order_id' => $po->id,
             'received_by' => $user->id,
             'notes' => 'Received with some shortage',
-            'status' => 'pending_approval',
+            'status' => 'approved',
         ]);
-
-        // Assert that Stock Batch was NOT created yet
-        $this->assertDatabaseMissing('stock_batches', [
-            'product_id' => $product->id,
-        ]);
-
-        // Create a manager and approve the GRN
-        $manager = User::factory()->create();
-        $manager->assignRole('purchase');
-
-        $grn = GoodsReceived::latest('id')->first();
-        $approveResponse = $this->actingAs($manager)
-            ->post(route('purchasing.grns.approve', $grn));
-
-        $approveResponse->assertRedirect(route('purchasing.grns.show', $grn));
-        $this->assertEquals('approved', $grn->fresh()->status);
 
         // Check Stock Batch was created now
         $this->assertDatabaseHas('stock_batches', [
@@ -611,7 +594,7 @@ class WarehouseSortingTest extends TestCase
             ->get(route('shop-owner.deliveries.show', $order->order_number));
 
         $response->assertOk();
-        $response->assertSee('Warehouse Product Progress');
+        $response->assertSee('Product Progress');
         $response->assertSee('In Transit');
         $response->assertSee('Transit Tomato');
     }

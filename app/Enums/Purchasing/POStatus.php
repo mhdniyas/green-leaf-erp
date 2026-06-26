@@ -13,6 +13,7 @@ enum POStatus: string
     case Received = 'received';
     case Closed = 'closed';
     case Rejected = 'rejected';
+    case Cancelled = 'cancelled';
 
     public function label(): string
     {
@@ -24,6 +25,7 @@ enum POStatus: string
             self::Received => 'Received',
             self::Closed => 'Closed',
             self::Rejected => 'Rejected',
+            self::Cancelled => 'Cancelled',
         };
     }
 
@@ -37,6 +39,7 @@ enum POStatus: string
             self::Received => 'bg-amber-100 text-amber-800 border-amber-200',
             self::Closed => 'bg-green-100 text-green-800 border-green-200',
             self::Rejected => 'bg-red-100 text-red-800 border-red-200',
+            self::Cancelled => 'bg-slate-100 text-slate-800 border-slate-200',
         };
     }
 }

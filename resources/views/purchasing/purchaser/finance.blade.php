@@ -1,6 +1,7 @@
 <x-layouts.app title="Purchaser Finance">
     <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-3 lg:max-w-6xl lg:gap-4 lg:px-6 lg:py-4">
         @include('purchasing.purchaser.partials.feedback')
+        @include('purchasing.purchaser.partials.deadline_alert')
 
         <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
             <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

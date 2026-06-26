@@ -14,8 +14,10 @@ use App\Models\PurchaserCartItem;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Models\StockBatch;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Services\Purchasing\VendorPriceService;
 use Database\Seeders\ChartOfAccountsSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -96,6 +98,33 @@ class PurchaserDashboardTest extends TestCase
         $this->actingAs($this->shopUser)
             ->get(route('purchaser.daily'))
             ->assertForbidden();
+    }
+
+    public function test_daily_screen_defaults_to_next_business_date_after_nine_thirty_pm(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-24 21:30:00'));
+
+        try {
+            $nextDate = '2026-06-25';
+            $supplyCategory = Category::create(['name' => 'Supply', 'is_active' => true]);
+
+            $tomato = Product::factory()->create([
+                'category_id' => $supplyCategory->id,
+                'name' => 'Tomorrow Tomato',
+                'sku' => 'TOM-NXT-001',
+                'unit' => 'kg',
+            ]);
+
+            $this->createApprovedOrder($nextDate, $this->shopA, $tomato, 6);
+
+            $response = $this->actingAs($this->purchaser)->get(route('purchaser.daily'));
+
+            $response->assertOk();
+            $response->assertSee('Tomorrow Tomato');
+            $this->assertSame($nextDate, $response->viewData('date'));
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     public function test_daily_screen_renders_grouped_buckets_and_stats(): void
@@ -538,9 +567,9 @@ class PurchaserDashboardTest extends TestCase
         $response = $this->actingAs($this->purchaser)->get(route('purchaser.history', ['date' => $date]));
         $response->assertOk();
         $response->assertSee('Purchase report');
-        $response->assertSee('Draft');
+        $response->assertSee('Today');
+        $response->assertSee('History');
         $response->assertSee('Processing');
-        $response->assertSee('Completed');
         $response->assertSee($cart->cart_number);
 
         $this->actingAs($this->purchaser)->patch(route('purchaser.carts.status', $cart), [
@@ -862,7 +891,7 @@ class PurchaserDashboardTest extends TestCase
         $response->assertSee('Merge as One');
     }
 
-    public function test_updating_cart_item_quantity_syncs_daily_order_quantity(): void
+    public function test_updating_cart_item_quantity_keeps_daily_order_quantity_intact(): void
     {
         $date = Carbon::today()->format('Y-m-d');
         $vegCategory = Category::create(['name' => 'VEG', 'is_active' => true]);
@@ -892,7 +921,7 @@ class PurchaserDashboardTest extends TestCase
         ])->assertRedirect(route('purchaser.vendors', ['date' => $date]));
 
         $this->assertSame('7.000', (string) $cartItem->fresh()->quantity);
-        $this->assertSame('7.00', (string) ShopOrderItem::query()->firstOrFail()->approved_qty);
+        $this->assertSame('5.00', (string) ShopOrderItem::query()->firstOrFail()->approved_qty);
     }
 
     public function test_vendors_screen_displays_active_and_delivered_orders(): void
@@ -1141,6 +1170,28 @@ class PurchaserDashboardTest extends TestCase
         $this->assertNotNull($cart->goods_received_at);
     }
 
+    public function test_full_payment_after_discount_marks_cart_and_invoice_as_paid(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $cart = $this->createSubmittedCartWithInvoice($date, 175.0, 0.0);
+
+        $this->actingAs($this->purchaser)->patch(route('purchaser.invoices.payment', $cart->purchaseInvoice), [
+            'payment_method' => 'Cash',
+            'discount_amount' => 15,
+            'paid_amount' => 160,
+            'payment_note' => 'Discount settled with supplier',
+            'payment_details' => 'Adjusted after final weighing',
+        ])->assertRedirect(route('purchaser.finance', ['date' => $date]));
+
+        $cart->refresh();
+        $invoice = $cart->purchaseInvoice()->firstOrFail();
+
+        $this->assertSame('15.00', (string) $invoice->discount_amount);
+        $this->assertSame('160.00', (string) $invoice->paid_amount);
+        $this->assertSame('paid', $cart->payment_status);
+        $this->assertSame('paid', $invoice->payment_status);
+    }
+
     public function test_credit_payment_update_stays_pending_and_not_completed(): void
     {
         $date = Carbon::today()->format('Y-m-d');
@@ -1165,8 +1216,9 @@ class PurchaserDashboardTest extends TestCase
         $this->assertNull($cart->payment_made_at);
     }
 
-    private function createSubmittedCartWithInvoice(string $date, float $amount, float $paidAmount): PurchaserCart
+    private function createSubmittedCartWithInvoice(string $date, float $amount, float $paidAmount, ?Supplier $supplier = null): PurchaserCart
     {
+        $supplier ??= $this->supplier;
         $category = Category::factory()->create();
         $product = Product::factory()->create([
             'category_id' => $category->id,
@@ -1175,7 +1227,7 @@ class PurchaserDashboardTest extends TestCase
 
         $cart = PurchaserCart::create([
             'user_id' => $this->purchaser->id,
-            'supplier_id' => $this->supplier->id,
+            'supplier_id' => $supplier->id,
             'business_date' => $date,
             'cart_number' => 'VC-'.str_replace('-', '', $date).'-FIN'.random_int(100, 999),
             'status' => 'submitted',
@@ -1192,7 +1244,7 @@ class PurchaserDashboardTest extends TestCase
         ]);
 
         $invoice = PurchaseInvoice::factory()->create([
-            'supplier_id' => $this->supplier->id,
+            'supplier_id' => $supplier->id,
             'purchaser_cart_id' => $cart->id,
             'invoice_number' => 'PINV-TEST-'.random_int(1000, 9999),
             'amount' => $amount,
@@ -1211,6 +1263,43 @@ class PurchaserDashboardTest extends TestCase
         ]);
 
         return $cart->fresh(['purchaseInvoice']);
+    }
+
+    private function attachReceiptState(PurchaserCart $cart, bool $warehouseConfirmed, string $receiptNotes): void
+    {
+        $purchaseOrder = PurchaseOrder::factory()->create([
+            'supplier_id' => $cart->supplier_id ?? $this->supplier->id,
+            'created_by' => $this->purchaser->id,
+            'order_date' => $cart->business_date->format('Y-m-d'),
+        ]);
+
+        $goodsReceived = GoodsReceived::factory()->create([
+            'purchase_order_id' => $purchaseOrder->id,
+            'received_by' => $this->purchaser->id,
+            'received_at' => $cart->business_date->format('Y-m-d'),
+            'grn_number' => 'GRN-'.$cart->business_date->format('Ymd').'-'.random_int(10000, 99999),
+            'notes' => $receiptNotes."\nCart: ".$cart->cart_number,
+        ]);
+
+        $cart->update([
+            'purchase_order_id' => $purchaseOrder->id,
+            'goods_received_id' => $goodsReceived->id,
+            'goods_received_at' => $warehouseConfirmed ? now() : null,
+        ]);
+
+        $invoice = $cart->purchaseInvoice()->firstOrFail();
+        $invoice->update(['goods_received_id' => $goodsReceived->id]);
+
+        StockBatch::factory()
+            ->for($cart->items()->firstOrFail()->product)
+            ->create([
+                'created_by' => $this->purchaser->id,
+                'received_at' => $cart->business_date->format('Y-m-d'),
+                'warehouse_receive_pending' => ! $warehouseConfirmed,
+                'warehouse_confirmed_at' => $warehouseConfirmed ? now() : null,
+                'warehouse_confirmed_by' => $warehouseConfirmed ? $this->purchaser->id : null,
+                'notes' => 'Auto-created from GRN: '.$goodsReceived->grn_number,
+            ]);
     }
 
     public function test_daily_screen_displays_names_of_purchasers_who_added_items_to_cart(): void
@@ -1513,5 +1602,474 @@ class PurchaserDashboardTest extends TestCase
         $this->assertStringContainsString('*Tomato Today*', $decodedText);
         $this->assertStringContainsString('*Mint Carryover*', $decodedText);
         $this->assertStringNotContainsString('Potato Yesterday', $decodedText);
+    }
+
+    public function test_deadline_banner_shows_after_four_pm_for_unresolved_same_day_draft_carts(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-24 16:00:00'));
+
+        try {
+            $date = '2026-06-24';
+
+            $cart = PurchaserCart::create([
+                'user_id' => $this->purchaser->id,
+                'business_date' => $date,
+                'cart_number' => 'VC-20260624-WARN',
+                'status' => 'draft',
+            ]);
+            $cart->items()->create([
+                'product_id' => Product::factory()->create()->id,
+                'quantity' => 2,
+                'unit_price' => 0,
+                'line_total' => 0,
+            ]);
+
+            $response = $this->actingAs($this->purchaser)->get(route('purchaser.vendors', ['date' => $date]));
+
+            $response->assertOk();
+            $response->assertSee('Purchaser Action Required');
+            $response->assertSee('Vendor pending: 1');
+            $response->assertSee('Resolve carts before the 9:30 PM business-day rollover.');
+            $response->assertSee('Vendor Hub');
+            $this->assertSame(1, $response->viewData('deadlineAlert')['pending_total_count']);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_deadline_banner_explains_when_overdue_cart_is_waiting_for_receipt_confirmation(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-25 10:00:00'));
+
+        try {
+            $cart = $this->createSubmittedCartWithInvoice('2026-06-24', 120.0, 50.0);
+            $this->attachReceiptState($cart, warehouseConfirmed: true, receiptNotes: 'Needs payment update.');
+
+            $response = $this->actingAs($this->purchaser)->get(route('purchaser.history', ['date' => '2026-06-25']));
+
+            $response->assertOk();
+            $response->assertDontSee('Receipt pending: 1');
+            $response->assertSee('still need warehouse confirmation or payment follow-up');
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_history_shows_overdue_processing_payment_pending_and_completed_sections(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-25 10:00:00'));
+
+        try {
+            $overdueCart = PurchaserCart::create([
+                'user_id' => $this->purchaser->id,
+                'business_date' => '2026-06-24',
+                'cart_number' => 'VC-20260624-OVERDUE',
+                'status' => 'draft',
+            ]);
+            $overdueCart->items()->create([
+                'product_id' => Product::factory()->create()->id,
+                'quantity' => 2,
+                'unit_price' => 12,
+                'line_total' => 24,
+            ]);
+
+            $processingCart = $this->createSubmittedCartWithInvoice('2026-06-25', 100.0, 0.0);
+            $this->attachReceiptState($processingCart, warehouseConfirmed: false, receiptNotes: 'Receiver pending for unloading.');
+
+            $paymentPendingCart = $this->createSubmittedCartWithInvoice('2026-06-25', 140.0, 0.0);
+            $this->attachReceiptState($paymentPendingCart, warehouseConfirmed: true, receiptNotes: 'Short load checked.');
+
+            $completedCart = $this->createSubmittedCartWithInvoice('2026-06-25', 160.0, 160.0);
+            $this->attachReceiptState($completedCart, warehouseConfirmed: true, receiptNotes: 'Stored on rack 2.');
+
+            $response = $this->actingAs($this->purchaser)->get(route('purchaser.history'));
+
+            $response->assertOk();
+            $response->assertSee('Overdue');
+            $response->assertSee('Payment Pending');
+            $response->assertSee($overdueCart->cart_number);
+            $response->assertSee($processingCart->cart_number);
+            $response->assertSee($paymentPendingCart->cart_number);
+            $response->assertSee($completedCart->cart_number);
+            $response->assertSee('Short load checked.');
+
+            // Verify tab totals (remaining amounts):
+            // Overdue draft cart (24.00 remaining)
+            $response->assertSee('₹24.00');
+            // Payment pending cart (140.00 remaining)
+            $response->assertSee('₹140.00');
+            // Completed cart (0.00 remaining) and Processing cart (0.00 remaining because pending receipt confirmation)
+            $response->assertSee('₹0.00');
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_history_continue_cart_link_targets_the_matching_vendor_tab_and_cart(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-25 10:00:00'));
+
+        try {
+            $category = Category::factory()->create();
+            $product = Product::factory()->create(['category_id' => $category->id, 'unit' => 'kg']);
+            $cart = PurchaserCart::create([
+                'user_id' => $this->purchaser->id,
+                'supplier_id' => $this->supplier->id,
+                'business_date' => '2026-06-25',
+                'cart_number' => 'VC-20260625-TEST',
+                'status' => 'draft',
+            ]);
+            $cart->items()->create([
+                'product_id' => $product->id,
+                'quantity' => 2,
+                'unit_price' => 45.0,
+                'line_total' => 90.0,
+                'is_extra_purchase' => false,
+            ]);
+            $cart->update(['goods_received_at' => now()]);
+
+            $response = $this->actingAs($this->purchaser)->get(route('purchaser.history', ['date' => '2026-06-25']));
+
+            $response->assertOk();
+            $response->assertSee('date=2026-06-25&amp;tab=delivered&amp;focus_cart='.$cart->id, false);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_supplier_hub_can_search_pending_vendor_and_show_recent_history(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+
+        $pendingCart = $this->createSubmittedCartWithInvoice($date, 125.0, 0.0);
+        $this->attachReceiptState($pendingCart, warehouseConfirmed: true, receiptNotes: 'Pending payment with GRN note.');
+
+        $paidSupplier = Supplier::factory()->create([
+            'credit_approved' => true,
+            'mobile_number' => '9990001111',
+        ]);
+        $paidCart = $this->createSubmittedCartWithInvoice($date, 90.0, 90.0, $paidSupplier);
+        $this->attachReceiptState($paidCart, warehouseConfirmed: true, receiptNotes: 'Settled and stored.');
+
+        $hubResponse = $this->actingAs($this->purchaser)->get(route('purchaser.suppliers', [
+            'date' => $date,
+            'search' => 'pending',
+        ]));
+
+        $hubResponse->assertOk();
+        $hubResponse->assertSee('Purchaser vendors');
+        $hubResponse->assertSee($this->supplier->name);
+        $hubResponse->assertDontSee($paidSupplier->name);
+
+        $detailResponse = $this->actingAs($this->purchaser)->get(route('purchaser.suppliers.show', [
+            'supplier' => $this->supplier,
+            'date' => $date,
+        ]));
+
+        $detailResponse->assertOk();
+        $detailResponse->assertSee('Vendor history');
+        $detailResponse->assertSee('Pending payment with GRN note.');
+        $detailResponse->assertSee('Update Payment');
+    }
+
+    public function test_supplier_detail_shows_dated_history_and_completed_discrepancy_info(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-25 10:00:00'));
+
+        try {
+            $pendingCart = $this->createSubmittedCartWithInvoice('2026-06-25', 125.0, 0.0);
+            $this->attachReceiptState($pendingCart, warehouseConfirmed: true, receiptNotes: 'Payment still open.');
+
+            $completedCart = $this->createSubmittedCartWithInvoice('2026-06-24', 90.0, 90.0);
+            $this->attachReceiptState($completedCart, warehouseConfirmed: true, receiptNotes: 'Short bag checked at receiving.');
+
+            $completedCart = $completedCart->fresh(['purchaseOrder', 'goodsReceived', 'items.product']);
+            $product = $completedCart->items->firstOrFail()->product;
+            $purchaseOrderItem = $completedCart->purchaseOrder->items()->create([
+                'product_id' => $product->id,
+                'purchase_unit' => 'kg',
+                'packet_qty' => 0,
+                'weight_per_packet' => 0,
+                'actual_weight' => null,
+                'quantity' => 2,
+                'unit_price' => 45,
+                'price_basis' => 'per_kg',
+            ]);
+            $completedCart->goodsReceived->items()->create([
+                'purchase_order_item_id' => $purchaseOrderItem->id,
+                'product_id' => $product->id,
+                'received_qty' => 1.5,
+                'variance' => -0.5,
+            ]);
+
+            $response = $this->actingAs($this->purchaser)->get(route('purchaser.suppliers.show', [
+                'supplier' => $this->supplier,
+                'date' => '2026-06-25',
+            ]));
+
+            $response->assertOk();
+            $response->assertSee('Vendor history');
+            $response->assertSee('25 Jun 2026');
+            $response->assertSee('24 Jun 2026');
+            $response->assertSee('Update Payment');
+            $response->assertSee('Delivery Discrepancy');
+            $response->assertSee('Short 0.50 kg');
+            $response->assertSee('Short bag checked at receiving.');
+            $response->assertDontSee('Completed Bills');
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_payment_update_from_supplier_detail_redirects_back_to_vendor_history(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $cart = $this->createSubmittedCartWithInvoice($date, 100.0, 20.0);
+        $this->attachReceiptState($cart, warehouseConfirmed: true, receiptNotes: 'Follow up later.');
+
+        $response = $this->actingAs($this->purchaser)->patch(route('purchaser.invoices.payment', $cart->purchaseInvoice), [
+            'payment_method' => 'Cash',
+            'discount_amount' => 5,
+            'paid_amount' => 95,
+            'payment_note' => 'Settled from vendor history popup',
+            'payment_details' => 'Cash settled at market',
+            'return_to' => 'supplier_detail',
+            'supplier_id' => $this->supplier->id,
+            'date' => $date,
+        ]);
+
+        $response->assertRedirect(route('purchaser.suppliers.show', [
+            'supplier' => $this->supplier,
+            'date' => $date,
+        ]));
+    }
+
+    public function test_supplier_hub_groups_vendor_issues_with_resolve_actions(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-25 10:00:00'));
+
+        try {
+            $activeDate = '2026-06-25';
+            $overdueDate = '2026-06-24';
+
+            $billPendingSupplier = Supplier::factory()->create(['name' => 'Bill Pending Vendor']);
+            $billPendingCart = PurchaserCart::create([
+                'user_id' => $this->purchaser->id,
+                'supplier_id' => $billPendingSupplier->id,
+                'business_date' => $activeDate,
+                'cart_number' => 'VC-BILL-PENDING-001',
+                'status' => 'draft',
+            ]);
+            $billPendingCart->items()->create([
+                'product_id' => Product::factory()->create([
+                    'category_id' => Category::factory()->create()->id,
+                    'unit' => 'kg',
+                ])->id,
+                'quantity' => 3,
+                'unit_price' => 22,
+                'line_total' => 66,
+                'is_extra_purchase' => false,
+            ]);
+
+            $receiptPendingSupplier = Supplier::factory()->create(['name' => 'Warehouse Receipt Vendor']);
+            $receiptPendingCart = $this->createSubmittedCartWithInvoice($overdueDate, 140.0, 0.0, $receiptPendingSupplier);
+            $this->attachReceiptState($receiptPendingCart, warehouseConfirmed: false, receiptNotes: 'Receipt waiting in warehouse.');
+
+            $overdueSupplier = Supplier::factory()->create(['name' => 'Overdue Vendor']);
+            $overdueCart = $this->createSubmittedCartWithInvoice($overdueDate, 180.0, 20.0, $overdueSupplier);
+            $this->attachReceiptState($overdueCart, warehouseConfirmed: true, receiptNotes: 'Receipt done but payment follow-up pending.');
+
+            $response = $this->actingAs($this->purchaser)->get(route('purchaser.suppliers', [
+                'date' => $activeDate,
+            ]));
+
+            $response->assertOk();
+            $response->assertSee('Resolve issues vendor by vendor');
+            $response->assertSee('Bill Pending');
+            $response->assertDontSee('Receipt Pending');
+            $response->assertSee('Overdue');
+            $response->assertSee('Bill Pending Vendor');
+            $response->assertSee('Warehouse Receipt Vendor');
+            $response->assertSee('Overdue Vendor');
+            $response->assertSee('Process Bill');
+            $response->assertDontSee('Confirm Receipt');
+            $response->assertSee('Update Payment');
+            $response->assertDontSee('Finish receipt confirmation');
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_bulk_buy_price_is_preloaded_into_bill_screen(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $category = Category::create(['name' => 'VEG', 'is_active' => true]);
+        $product = Product::factory()->create([
+            'category_id' => $category->id,
+            'name' => 'Preload Potato',
+            'sku' => 'PRE-POT-1',
+            'unit' => 'kg',
+        ]);
+
+        $this->createApprovedOrder($date, $this->shopA, $product, 8);
+
+        $this->actingAs($this->purchaser)->post(route('purchaser.carts.bulk-store'), [
+            'business_date' => $date,
+            'product_ids' => [$product->id],
+            'items' => [
+                $product->id => ['quantity' => 5, 'unit_price' => 37.5],
+            ],
+        ])->assertRedirect();
+
+        $cart = PurchaserCart::query()->firstOrFail();
+        $cart->update(['supplier_id' => $this->supplier->id]);
+
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.bill', [
+            'cart' => $cart,
+            'date' => $date,
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('37.5');
+    }
+
+    public function test_history_shows_correct_action_buttons_based_on_submitted_cart_state(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-25 10:00:00'));
+
+        try {
+            // 1. Draft cart for the day -> "Continue Cart"
+            $draftCart = PurchaserCart::create([
+                'user_id' => $this->purchaser->id,
+                'supplier_id' => $this->supplier->id,
+                'business_date' => '2026-06-25',
+                'cart_number' => 'VC-20260625-DRAFT',
+                'status' => 'draft',
+            ]);
+            $draftCart->items()->create([
+                'product_id' => Product::factory()->create()->id,
+                'quantity' => 2,
+                'unit_price' => 20.0,
+                'line_total' => 40.0,
+                'is_extra_purchase' => false,
+            ]);
+
+            // 2. Overdue submitted cart (warehouse receipt pending) -> "View Bill" & "Confirm Receipt"
+            $processingCart = $this->createSubmittedCartWithInvoice('2026-06-24', 100.0, 0.0);
+            $this->attachReceiptState($processingCart, warehouseConfirmed: false, receiptNotes: 'Processing overdue.');
+
+            // 3. Overdue submitted cart (warehouse receipt confirmed, payment pending) -> "Update Payment"
+            $paymentPendingCart = $this->createSubmittedCartWithInvoice('2026-06-24', 120.0, 0.0);
+            $this->attachReceiptState($paymentPendingCart, warehouseConfirmed: true, receiptNotes: 'Payment pending overdue.');
+
+            // 4. Overdue submitted cart (completed) -> "View Bill" (no longer overdue, so it shouldn't show up in overdue, but if it is completed it shows View Bill)
+            $completedCart = $this->createSubmittedCartWithInvoice('2026-06-24', 150.0, 150.0);
+            $this->attachReceiptState($completedCart, warehouseConfirmed: true, receiptNotes: 'Completed overdue.');
+
+            $response = $this->actingAs($this->purchaser)->get(route('purchaser.history', ['date' => '2026-06-25']));
+
+            $response->assertOk();
+
+            // Draft overdue shows Continue Cart
+            $response->assertSee('Continue Cart');
+
+            // Processing overdue shows View Bill and does not show Confirm Receipt
+            $response->assertDontSee('Confirm Receipt');
+
+            // Payment pending overdue shows Update Payment
+            $response->assertSee('Update Payment');
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_supplier_hub_issues_include_price_hints_and_invoice_details(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-25 10:00:00'));
+
+        try {
+            $activeDate = '2026-06-25';
+            $overdueDate = '2026-06-24';
+
+            $supplier = Supplier::factory()->create(['name' => 'Test Vendor', 'credit_approved' => true]);
+
+            // Create previous price hint record
+            $product = Product::factory()->create([
+                'category_id' => Category::factory()->create()->id,
+                'unit' => 'kg',
+            ]);
+            app(VendorPriceService::class)->syncMany($supplier->id, [
+                [
+                    'product_id' => $product->id,
+                    'unit_price' => 35.5,
+                ],
+            ]);
+
+            // Create draft cart
+            $draftCart = PurchaserCart::create([
+                'user_id' => $this->purchaser->id,
+                'supplier_id' => $supplier->id,
+                'business_date' => $activeDate,
+                'cart_number' => 'VC-DRAFT-999',
+                'status' => 'draft',
+            ]);
+            $draftCart->items()->create([
+                'product_id' => $product->id,
+                'quantity' => 10,
+                'unit_price' => 0.0,
+                'line_total' => 0.0,
+                'is_extra_purchase' => false,
+            ]);
+
+            // Create payment pending overdue invoice
+            $overdueCart = $this->createSubmittedCartWithInvoice($overdueDate, 200.0, 50.0, $supplier);
+            $this->attachReceiptState($overdueCart, warehouseConfirmed: true, receiptNotes: 'Needs payment update');
+
+            $response = $this->actingAs($this->purchaser)->get(route('purchaser.suppliers', [
+                'date' => $activeDate,
+            ]));
+
+            $response->assertOk();
+
+            // Assert that the page contains the json encoded previous price hint
+            $response->assertSee(e(json_encode(35.5)));
+
+            // Assert that the page contains the invoice ID and amount for payment update
+            $response->assertSee('data-invoice-id="'.$overdueCart->purchaseInvoice->id.'"', false);
+            $response->assertSee('data-amount="200"', false);
+            $response->assertSee('data-discount-amount="0"', false);
+            $response->assertSee('data-paid-amount="50"', false);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_paid_carts_are_visible_in_vendors_delivered_tab_and_payment_redirects_to_vendors(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $cart = $this->createSubmittedCartWithInvoice($date, 150.0, 0.0);
+        $this->attachReceiptState($cart, warehouseConfirmed: true, receiptNotes: 'Delivered');
+
+        // Let's assert initially it is visible under the delivered tab
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.vendors', ['date' => $date]));
+        $response->assertSee($cart->cart_number);
+
+        // Update payment with return_to => vendors
+        $this->actingAs($this->purchaser)->patch(route('purchaser.invoices.payment', $cart->purchaseInvoice), [
+            'payment_method' => 'Cash',
+            'paid_amount' => 150.0,
+            'payment_note' => 'Fully paid',
+            'payment_details' => 'Hand cash',
+            'return_to' => 'vendors',
+            'date' => $date,
+        ])->assertRedirect(route('purchaser.vendors', ['date' => $date]));
+
+        // Refresh and check that it is indeed paid
+        $cart->refresh();
+        $this->assertSame('paid', $cart->payment_status);
+
+        // Access the vendors tab again, and check that it is STILL visible under the delivered tab
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.vendors', ['date' => $date]));
+        $response->assertSee($cart->cart_number);
     }
 }

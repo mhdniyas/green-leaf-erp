@@ -190,6 +190,7 @@ class RequisitionDeliveryTest extends TestCase
             'product_id' => $product->id,
             'requested_qty' => 15,
             'approved_qty' => 15,
+            'locked_selling_price' => 10.00,
             'unit' => 'kg',
         ]);
 

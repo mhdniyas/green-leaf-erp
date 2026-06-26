@@ -3,6 +3,7 @@
         ['label' => 'Dashboard', 'route' => 'shop-owner.dashboard'],
         ['label' => 'Cart', 'route' => 'shop-owner.orders.index'],
         ['label' => 'Deliveries', 'route' => 'shop-owner.deliveries.index'],
+        ...((auth()->user()->shop?->isOwnedAccountingEnabled() ?? false) ? [['label' => 'Accounting', 'route' => 'shop-owner.accounting.index']] : []),
         ['label' => 'Finance', 'route' => 'shop-owner.finance.index'],
         ['label' => 'Approval History', 'route' => 'shop-owner.orders.history'],
     ];
@@ -21,8 +22,14 @@
                 href="{{ route($item['route']) }}"
                 @class([
                     'block rounded-2xl px-4 py-3 text-sm font-bold transition',
-                    'bg-emerald-500 text-slate-950 shadow-sm' => request()->routeIs($item['route']) || ($item['route'] === 'shop-owner.orders.index' && request()->routeIs('shop-owner.orders.create', 'shop-owner.orders.show')),
-                    'text-slate-300 hover:bg-white/5 hover:text-white' => ! (request()->routeIs($item['route']) || ($item['route'] === 'shop-owner.orders.index' && request()->routeIs('shop-owner.orders.create', 'shop-owner.orders.show'))),
+                    'bg-emerald-500 text-slate-950 shadow-sm' => request()->routeIs($item['route'])
+                        || ($item['route'] === 'shop-owner.orders.index' && request()->routeIs('shop-owner.orders.create', 'shop-owner.orders.show'))
+                        || ($item['route'] === 'shop-owner.accounting.index' && request()->routeIs('shop-owner.accounting.*')),
+                    'text-slate-300 hover:bg-white/5 hover:text-white' => ! (
+                        request()->routeIs($item['route'])
+                        || ($item['route'] === 'shop-owner.orders.index' && request()->routeIs('shop-owner.orders.create', 'shop-owner.orders.show'))
+                        || ($item['route'] === 'shop-owner.accounting.index' && request()->routeIs('shop-owner.accounting.*'))
+                    ),
                 ])
             >
                 {{ $item['label'] }}

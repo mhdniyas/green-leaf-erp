@@ -113,9 +113,9 @@
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12h4l3 8 4-16 3 8h4"/></svg>',
         ],
         [
-            'label' => 'Finance',
-            'route' => 'finance.index',
-            'active' => request()->routeIs('finance.*'),
+            'label' => 'Accounting',
+            'route' => 'admin.accounting.index',
+            'active' => request()->routeIs('admin.accounting.*') || request()->routeIs('finance.*'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m0 0c-2.21 0-4-1.343-4-3s1.79-3 4-3 4-1.343 4-3-1.79-3-4-3m0 12c2.21 0 4-1.343 4-3"/></svg>',
         ],
     ];
@@ -276,11 +276,17 @@
                     <x-nav-item href="{{ route('purchaser.vendors') }}" :active="request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill')" :sub="true">
                         Cart
                     </x-nav-item>
+                    <x-nav-item href="{{ route('purchaser.suppliers') }}" :active="request()->routeIs('purchaser.suppliers.*') || request()->routeIs('purchaser.suppliers')" :sub="true">
+                        Vendors
+                    </x-nav-item>
                     <x-nav-item href="{{ route('purchaser.finance') }}" :active="request()->routeIs('purchaser.finance')" :sub="true">
                         Finance
                     </x-nav-item>
                     <x-nav-item href="{{ route('purchaser.history') }}" :active="request()->routeIs('purchaser.history')" :sub="true">
                         Report
+                    </x-nav-item>
+                    <x-nav-item href="{{ route('purchaser.credits') }}" :active="request()->routeIs('purchaser.credits')" :sub="true">
+                        Credits
                     </x-nav-item>
                 </div>
             @else
@@ -399,11 +405,17 @@
                             <x-nav-item href="{{ route('purchaser.vendors') }}" :active="request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill')" :sub="true">
                                 Cart
                             </x-nav-item>
+                            <x-nav-item href="{{ route('purchaser.suppliers') }}" :active="request()->routeIs('purchaser.suppliers.*') || request()->routeIs('purchaser.suppliers')" :sub="true">
+                                Vendors
+                            </x-nav-item>
                             <x-nav-item href="{{ route('purchaser.finance') }}" :active="request()->routeIs('purchaser.finance')" :sub="true">
                                 Finance
                             </x-nav-item>
                             <x-nav-item href="{{ route('purchaser.history') }}" :active="request()->routeIs('purchaser.history')" :sub="true">
                                 Report
+                            </x-nav-item>
+                            <x-nav-item href="{{ route('purchaser.credits') }}" :active="request()->routeIs('purchaser.credits')" :sub="true">
+                                Credits
                             </x-nav-item>
                         </div>
                         @endif
@@ -499,7 +511,7 @@
                     auth()->user()->can('accounting.entry.create')
                 )
                 @php
-                    $isFinanceActive = request()->routeIs('finance.*');
+                    $isFinanceActive = request()->routeIs('finance.*') || request()->routeIs('admin.accounting.*');
                 @endphp
                 <div class="sidebar-group space-y-1">
                     <button
@@ -524,6 +536,16 @@
                         <x-nav-item href="{{ route('finance.sales.index') }}" :active="request()->routeIs('finance.sales.*') || request()->routeIs('finance.sales-daily')" :sub="true">
                             Sales Reports
                         </x-nav-item>
+                        @if(auth()->user()->hasRole('admin') || auth()->user()->can('admin.user.view'))
+                        <x-nav-item href="{{ route('admin.accounting.index') }}" :active="request()->routeIs('admin.accounting.*') && !request()->routeIs('admin.accounting.purchasers.*')" :sub="true">
+                            Accounting Dashboard
+                        </x-nav-item>
+                        @endif
+                        @if(auth()->user()->hasRole('admin'))
+                        <x-nav-item href="{{ route('admin.accounting.purchasers.index') }}" :active="request()->routeIs('admin.accounting.purchasers.*')" :sub="true">
+                            Purchaser Credits
+                        </x-nav-item>
+                        @endif
                     </div>
                 </div>
                 @endif
@@ -561,6 +583,11 @@
                         </x-nav-item>
                         @endcan
                         @can('admin.user.view')
+                        <x-nav-item href="{{ route('admin.accounting.index') }}" :active="request()->routeIs('admin.accounting.*')" :sub="true">
+                            Accounting Dashboard
+                        </x-nav-item>
+                        @endcan
+                        @can('admin.user.view')
                         <x-nav-item href="{{ route('admin.users.index') }}" :active="request()->routeIs('admin.users.*')" :sub="true">
                             Users & Roles
                         </x-nav-item>
@@ -585,6 +612,11 @@
                             Daily Price Approvals
                         </x-nav-item>
                         @endcan
+                        @if(auth()->user()->hasRole('admin') || auth()->user()->can('admin.discrepancies.view'))
+                        <x-nav-item href="{{ route('admin.discrepancies.index') }}" :active="request()->routeIs('admin.discrepancies.*')" :sub="true">
+                            Discrepancies & Wastage
+                        </x-nav-item>
+                        @endif
                     </div>
                 </div>
                 @endif
@@ -844,10 +876,44 @@
                 document.documentElement.classList.add('dark');
                 localStorage.setItem('theme', 'dark');
                 moonIcon.classList.add('hidden');
-                sunIcon.classList.remove('hidden');
-            }
         });
     }
+
+    // Hide mobile bottom nav when any modal/popup is visible
+    (() => {
+        const mobileNav = document.getElementById('layout-mobile-nav');
+        if (!mobileNav) {
+            return;
+        }
+
+        const checkModals = () => {
+            const modals = Array.from(document.querySelectorAll('.fixed.inset-0')).filter(el => {
+                if (el === mobileNav || el.id === 'sidebar' || el.id === 'sidebar-overlay') {
+                    return false;
+                }
+                const style = window.getComputedStyle(el);
+                return !el.classList.contains('hidden') && style.display !== 'none' && style.visibility !== 'hidden';
+            });
+
+            if (modals.length > 0) {
+                mobileNav.style.display = 'none';
+            } else {
+                mobileNav.style.removeProperty('display');
+            }
+        };
+
+        checkModals();
+
+        const observer = new MutationObserver(() => {
+            checkModals();
+        });
+
+        observer.observe(document.body, {
+            attributes: true,
+            subtree: true,
+            attributeFilter: ['class', 'style']
+        });
+    })();
 </script>
 @stack('scripts')
 </body>

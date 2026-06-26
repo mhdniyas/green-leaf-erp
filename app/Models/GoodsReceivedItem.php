@@ -23,11 +23,15 @@ class GoodsReceivedItem extends Model
         'product_id',
         'received_qty',
         'variance',
+        'purchased_qty',
+        'discrepancy_type',
+        'discrepancy_note',
     ];
 
     protected $casts = [
         'received_qty' => 'decimal:3',
         'variance' => 'decimal:3',
+        'purchased_qty' => 'decimal:3',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',

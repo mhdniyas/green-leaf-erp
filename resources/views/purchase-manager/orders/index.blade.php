@@ -64,5 +64,96 @@
                 @endif
             </div>
         </section>
+
+        <section class="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
+            <div>
+                <p class="text-[11px] font-black uppercase tracking-[0.18em] text-red-500">History</p>
+                <h3 class="mt-2 text-xl font-black text-slate-950">Cancelled purchases</h3>
+                <p class="mt-2 text-sm font-semibold text-slate-600">Past draft purchaser carts and unfulfilled purchase orders that were automatically cancelled.</p>
+            </div>
+
+            @if ($cancelledCarts->isEmpty() && $cancelledPOs->isEmpty())
+                <p class="mt-5 text-sm font-semibold text-slate-500 bg-slate-50 p-4 rounded-[1.5rem]">No cancelled purchases found.</p>
+            @else
+                <div class="mt-5 overflow-hidden rounded-[1.5rem] border border-slate-200">
+                    <div class="overflow-x-auto">
+                        <table class="w-full border-collapse text-left text-sm text-slate-600">
+                            <thead class="bg-slate-50 text-xs font-black uppercase tracking-wider text-slate-700">
+                                <tr>
+                                    <th class="px-4 py-3 sm:px-6">Type / Number</th>
+                                    <th class="px-4 py-3 sm:px-6">Date</th>
+                                    <th class="px-4 py-3 sm:px-6">Purchaser</th>
+                                    <th class="px-4 py-3 sm:px-6">Supplier</th>
+                                    <th class="px-4 py-3 sm:px-6">Items</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-200 bg-white font-medium">
+                                @foreach ($cancelledCarts as $cart)
+                                    <tr class="hover:bg-slate-50/50">
+                                        <td class="whitespace-nowrap px-4 py-4 sm:px-6">
+                                            <span class="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-600 ring-1 ring-inset ring-slate-500/10 mr-1.5">Cart</span>
+                                            <span class="font-black text-slate-950">{{ $cart->cart_number }}</span>
+                                        </td>
+                                        <td class="whitespace-nowrap px-4 py-4 sm:px-6 text-xs">
+                                            {{ $cart->business_date?->format('d M Y') }}
+                                        </td>
+                                        <td class="whitespace-nowrap px-4 py-4 sm:px-6 text-xs text-slate-900">
+                                            {{ $cart->user?->name ?? 'N/A' }}
+                                        </td>
+                                        <td class="whitespace-nowrap px-4 py-4 sm:px-6 text-xs">
+                                            {{ $cart->supplier?->name ?? 'N/A' }}
+                                        </td>
+                                        <td class="px-4 py-4 sm:px-6 text-xs">
+                                            @if ($cart->items->isEmpty())
+                                                <span class="text-slate-400">No items</span>
+                                            @else
+                                                <div class="flex flex-wrap gap-1">
+                                                    @foreach ($cart->items as $item)
+                                                        <span class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700 ring-1 ring-inset ring-red-600/10">
+                                                            {{ $item->product?->name ?? 'Unknown' }}: {{ (float)$item->quantity }} {{ $item->product?->unit ?? '' }}
+                                                        </span>
+                                                    @endforeach
+                                                </div>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+
+                                @foreach ($cancelledPOs as $po)
+                                    <tr class="hover:bg-slate-50/50">
+                                        <td class="whitespace-nowrap px-4 py-4 sm:px-6">
+                                            <span class="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-600 ring-1 ring-inset ring-slate-500/10 mr-1.5">PO</span>
+                                            <a href="{{ route('purchasing.orders.show', $po) }}" class="font-black text-cyan-600 hover:text-cyan-700 underline">{{ $po->po_number }}</a>
+                                        </td>
+                                        <td class="whitespace-nowrap px-4 py-4 sm:px-6 text-xs">
+                                            {{ $po->order_date?->format('d M Y') }}
+                                        </td>
+                                        <td class="whitespace-nowrap px-4 py-4 sm:px-6 text-xs text-slate-900">
+                                            {{ $po->createdBy?->name ?? 'N/A' }}
+                                        </td>
+                                        <td class="whitespace-nowrap px-4 py-4 sm:px-6 text-xs">
+                                            {{ $po->supplier?->name ?? 'N/A' }}
+                                        </td>
+                                        <td class="px-4 py-4 sm:px-6 text-xs">
+                                            @if ($po->items->isEmpty())
+                                                <span class="text-slate-400">No items</span>
+                                            @else
+                                                <div class="flex flex-wrap gap-1">
+                                                    @foreach ($po->items as $item)
+                                                        <span class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700 ring-1 ring-inset ring-red-600/10">
+                                                            {{ $item->product?->name ?? 'Unknown' }}: {{ (float)$item->quantity }} {{ $item->product?->unit ?? '' }}
+                                                        </span>
+                                                    @endforeach
+                                                </div>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            @endif
+        </section>
     </div>
 @endsection

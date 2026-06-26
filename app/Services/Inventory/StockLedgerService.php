@@ -78,7 +78,7 @@ class StockLedgerService
                 'stock_batches.warehouse_id, '.
                 'SUM(CASE '.
                 'WHEN stock_movements.type IN (?, ?) THEN stock_movements.quantity '.
-                'WHEN stock_movements.type IN (?, ?, ?) THEN -stock_movements.quantity '.
+                'WHEN stock_movements.type IN (?, ?, ?, ?) THEN -stock_movements.quantity '.
                 'ELSE 0 END) as available_quantity',
                 [
                     StockMovementType::In->value,
@@ -86,6 +86,7 @@ class StockLedgerService
                     StockMovementType::Out->value,
                     StockMovementType::Wastage->value,
                     StockMovementType::Sale->value,
+                    StockMovementType::Adjustment->value,
                 ]
             )
             ->groupBy('stock_movements.batch_id', 'stock_movements.grade', 'stock_batches.received_at', 'stock_batches.id', 'stock_batches.warehouse_id')

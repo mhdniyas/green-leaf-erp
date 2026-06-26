@@ -6,7 +6,9 @@ namespace Tests\Feature;
 
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\PurchaserCart;
 use App\Models\StockBatch;
+use App\Models\Supplier;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -137,5 +139,48 @@ class RouteModelBindingAndFormRequestsTest extends TestCase
             'unit' => 'kg',
         ]);
         $response->assertRedirect(route('login'));
+    }
+
+    public function test_purchaser_routes_use_non_id_keys(): void
+    {
+        $purchaser = User::factory()->create();
+        $purchaser->assignRole('purchaser');
+
+        $supplier = Supplier::factory()->create([
+            'public_uuid' => 'supp-uuid-999',
+        ]);
+
+        $cart = PurchaserCart::create([
+            'user_id' => $purchaser->id,
+            'supplier_id' => $supplier->id,
+            'business_date' => now(),
+            'cart_number' => 'VC-TEST-12345',
+            'status' => 'draft',
+        ]);
+
+        // Assert route() generates URL with public_uuid or cart_number
+        $supplierUrl = route('purchaser.suppliers.show', $supplier);
+        $this->assertStringContainsString('supp-uuid-999', $supplierUrl);
+        $this->assertStringNotContainsString("/{$supplier->id}", $supplierUrl);
+
+        $cartBillUrl = route('purchaser.bill', ['cart' => $cart, 'date' => now()->format('Y-m-d')]);
+        $this->assertStringContainsString('VC-TEST-12345', $cartBillUrl);
+        $this->assertStringNotContainsString("/{$cart->id}/", $cartBillUrl);
+
+        // Assert they resolve correctly under the purchaser role
+        $response = $this->actingAs($purchaser)->get($supplierUrl);
+        $response->assertOk();
+
+        // Add item to cart to allow viewing the bill
+        $product = Product::factory()->create(['category_id' => $this->category->id]);
+        $cart->items()->create([
+            'product_id' => $product->id,
+            'quantity' => 10.0,
+            'unit_price' => 2.5,
+            'line_total' => 25.0,
+        ]);
+
+        $response2 = $this->actingAs($purchaser)->get($cartBillUrl);
+        $response2->assertOk();
     }
 }

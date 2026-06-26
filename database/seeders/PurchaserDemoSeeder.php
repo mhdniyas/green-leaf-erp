@@ -14,8 +14,10 @@ use App\Models\PurchaserCart;
 use App\Models\PurchaserCartItem;
 use App\Models\PurchaserCorrectionRequest;
 use App\Models\ShopOrderItem;
+use App\Models\StockBatch;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Models\Warehouse;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -30,9 +32,13 @@ class PurchaserDemoSeeder extends Seeder
             $purchaser = User::query()->where('email', 'purchaser@greenleaf.com')->firstOrFail();
             $purchaseManager = User::query()->where('email', 'purchase@greenleaf.com')->firstOrFail();
             $warehouseManager = User::query()->where('email', 'warehouse@greenleaf.com')->firstOrFail();
+            $warehouse = Warehouse::query()->orderBy('id')->firstOrFail();
 
             $marketA = Supplier::query()->where('name', 'Market A')->firstOrFail();
             $marketB = Supplier::query()->where('name', 'Market B')->firstOrFail();
+            $marketC = Supplier::query()->where('name', 'Market C')->firstOrFail();
+            $marketD = Supplier::query()->where('name', 'Market D')->firstOrFail();
+            $marketE = Supplier::query()->where('name', 'Market E')->firstOrFail();
 
             $products = Product::query()
                 ->whereIn('sku', [
@@ -60,6 +66,19 @@ class PurchaserDemoSeeder extends Seeder
                     ['sku' => '126', 'quantity' => 2, 'unit_price' => 120.00, 'notes' => 'Box pack.'],
                 ],
                 notes: 'Draft cart for mobile purchaser testing.',
+            );
+
+            $this->seedDraftCart(
+                purchaser: $purchaser,
+                supplier: $marketB,
+                businessDate: $today->copy()->subDay(),
+                cartNumber: 'VC-DEMO-OVERDUE-DRAFT-001',
+                products: $products,
+                items: [
+                    ['sku' => '101', 'quantity' => 4, 'unit_price' => 72.00, 'notes' => 'Vendor confirmed, bill still pending.'],
+                    ['sku' => '164', 'quantity' => 2, 'unit_price' => 49.00, 'notes' => 'Keep visible in overdue.'],
+                ],
+                notes: 'Overdue vendor-assigned draft cart for vendor hub testing.',
             );
 
             $this->seedStandalonePurchaseOrder(
@@ -107,6 +126,7 @@ class PurchaserDemoSeeder extends Seeder
                 purchaser: $purchaser,
                 purchaseManager: $purchaseManager,
                 warehouseManager: $warehouseManager,
+                warehouse: $warehouse,
                 supplier: $marketB,
                 businessDate: $today,
                 cartNumber: 'VC-DEMO-SUBMIT-001',
@@ -126,12 +146,14 @@ class PurchaserDemoSeeder extends Seeder
                     ['sku' => '54', 'quantity' => 6, 'unit_price' => 18.00, 'notes' => 'English cucumber mix.'],
                 ],
                 notes: 'Submitted cash cart with linked PO, GRN, and invoice.',
+                warehouseConfirmed: true,
             );
 
             $this->seedSubmittedCartWithDocuments(
                 purchaser: $purchaser,
                 purchaseManager: $purchaseManager,
                 warehouseManager: $warehouseManager,
+                warehouse: $warehouse,
                 supplier: $marketA,
                 businessDate: $today,
                 cartNumber: 'VC-DEMO-SUBMIT-002',
@@ -151,6 +173,155 @@ class PurchaserDemoSeeder extends Seeder
                     ['sku' => '164', 'quantity' => 3, 'unit_price' => 48.00, 'notes' => 'Urgent delivery.'],
                 ],
                 notes: 'Submitted credit cart for purchase manager approval.',
+                warehouseConfirmed: true,
+            );
+
+            $this->seedSubmittedCartWithDocuments(
+                purchaser: $purchaser,
+                purchaseManager: $purchaseManager,
+                warehouseManager: $warehouseManager,
+                warehouse: $warehouse,
+                supplier: $marketA,
+                businessDate: $today->copy()->subDay(),
+                cartNumber: 'VC-DEMO-OVERDUE-RECEIPT-001',
+                poNumber: 'PO-DEMO-OVERDUE-RECEIPT-001',
+                grnNumber: 'GRN-DEMO-OVERDUE-RECEIPT-001',
+                invoiceNumber: 'PINV-DEMO-OVERDUE-RECEIPT-001',
+                invoiceStatus: InvoiceStatus::Paid,
+                paymentMethod: 'Cash',
+                paymentStatus: 'paid',
+                paidAmount: 318.00,
+                discountAmount: 12.00,
+                paymentNote: 'Paid, but warehouse confirmation is still pending.',
+                paymentDetails: 'Use this to test overdue receipt follow-up.',
+                products: $products,
+                items: [
+                    ['sku' => '1', 'quantity' => 6, 'unit_price' => 30.00, 'notes' => 'Awaiting warehouse receive.'],
+                    ['sku' => '3', 'quantity' => 6, 'unit_price' => 25.00, 'notes' => 'Still in unloading queue.'],
+                ],
+                notes: 'Paid overdue cart that should remain pending until warehouse confirmation.',
+                warehouseConfirmed: false,
+            );
+
+            $this->seedSubmittedCartWithDocuments(
+                purchaser: $purchaser,
+                purchaseManager: $purchaseManager,
+                warehouseManager: $warehouseManager,
+                warehouse: $warehouse,
+                supplier: $marketB,
+                businessDate: $today,
+                cartNumber: 'VC-DEMO-PAYMENT-PENDING-001',
+                poNumber: 'PO-DEMO-PAYMENT-PENDING-001',
+                grnNumber: 'GRN-DEMO-PAYMENT-PENDING-001',
+                invoiceNumber: 'PINV-DEMO-PAYMENT-PENDING-001',
+                invoiceStatus: InvoiceStatus::Approved,
+                paymentMethod: 'Cash',
+                paymentStatus: 'partial',
+                paidAmount: 120.00,
+                discountAmount: 0.00,
+                paymentNote: 'Partial payment made. Balance still pending.',
+                paymentDetails: 'Show this in vendor hub payment pending.',
+                products: $products,
+                items: [
+                    ['sku' => '13', 'quantity' => 5, 'unit_price' => 31.00, 'notes' => 'Recent pending payment.'],
+                    ['sku' => '54', 'quantity' => 8, 'unit_price' => 19.50, 'notes' => 'Warehouse already confirmed.'],
+                ],
+                notes: 'Current payment-pending cart for vendor hub testing.',
+                warehouseConfirmed: true,
+            );
+
+            $this->seedSubmittedCartWithDocuments(
+                purchaser: $purchaser,
+                purchaseManager: $purchaseManager,
+                warehouseManager: $warehouseManager,
+                warehouse: $warehouse,
+                supplier: $marketB,
+                businessDate: $today,
+                cartNumber: 'VC-DEMO-COMPLETED-001',
+                poNumber: 'PO-DEMO-COMPLETED-001',
+                grnNumber: 'GRN-DEMO-COMPLETED-001',
+                invoiceNumber: 'PINV-DEMO-COMPLETED-001',
+                invoiceStatus: InvoiceStatus::Paid,
+                paymentMethod: 'Online',
+                paymentStatus: 'paid',
+                paidAmount: 244.00,
+                discountAmount: 6.00,
+                paymentNote: 'Online transfer settled.',
+                paymentDetails: 'Use this as the clean completed example.',
+                products: $products,
+                items: [
+                    ['sku' => '5', 'quantity' => 2, 'unit_price' => 64.00, 'notes' => 'Completed item.'],
+                    ['sku' => '126', 'quantity' => 1, 'unit_price' => 122.00, 'notes' => 'Completed box item.'],
+                ],
+                notes: 'Warehouse confirmed and fully paid completed cart.',
+                warehouseConfirmed: true,
+            );
+
+            $this->seedSubmittedCartWithDocuments(
+                purchaser: $purchaser,
+                purchaseManager: $purchaseManager,
+                warehouseManager: $warehouseManager,
+                warehouse: $warehouse,
+                supplier: $marketC,
+                businessDate: $today,
+                cartNumber: 'VC-DEMO-MARKET-C-001',
+                poNumber: 'PO-DEMO-MARKET-C-001',
+                grnNumber: 'GRN-DEMO-MARKET-C-001',
+                invoiceNumber: 'PINV-DEMO-MARKET-C-001',
+                invoiceStatus: InvoiceStatus::Approved,
+                paymentMethod: 'Cash',
+                paymentStatus: 'unpaid',
+                paidAmount: 0.00,
+                discountAmount: 0.00,
+                paymentNote: 'Vendor promised evening collection.',
+                paymentDetails: 'Keep this as unpaid vendor-hub sample.',
+                products: $products,
+                items: [
+                    ['sku' => '101', 'quantity' => 3, 'unit_price' => 74.00, 'notes' => 'Fresh leafy lot.'],
+                    ['sku' => '126', 'quantity' => 1, 'unit_price' => 118.00, 'notes' => 'Packed carton.'],
+                ],
+                notes: 'Market C unpaid purchase for vendor hub variety.',
+                warehouseConfirmed: true,
+            );
+
+            $this->seedSubmittedCartWithDocuments(
+                purchaser: $purchaser,
+                purchaseManager: $purchaseManager,
+                warehouseManager: $warehouseManager,
+                warehouse: $warehouse,
+                supplier: $marketD,
+                businessDate: $today,
+                cartNumber: 'VC-DEMO-MARKET-D-001',
+                poNumber: 'PO-DEMO-MARKET-D-001',
+                grnNumber: 'GRN-DEMO-MARKET-D-001',
+                invoiceNumber: 'PINV-DEMO-MARKET-D-001',
+                invoiceStatus: InvoiceStatus::Paid,
+                paymentMethod: 'Online',
+                paymentStatus: 'paid',
+                paidAmount: 268.00,
+                discountAmount: 8.00,
+                paymentNote: 'NEFT settled after morning delivery.',
+                paymentDetails: 'Use this as another completed vendor example.',
+                products: $products,
+                items: [
+                    ['sku' => '54', 'quantity' => 7, 'unit_price' => 20.00, 'notes' => 'Strong recent completed bill.'],
+                    ['sku' => '164', 'quantity' => 2, 'unit_price' => 68.00, 'notes' => 'Online paid vendor.'],
+                ],
+                notes: 'Market D completed vendor hub example.',
+                warehouseConfirmed: true,
+            );
+
+            $this->seedDraftCart(
+                purchaser: $purchaser,
+                supplier: $marketE,
+                businessDate: $today,
+                cartNumber: 'VC-DEMO-MARKET-E-DRAFT-001',
+                products: $products,
+                items: [
+                    ['sku' => '5', 'quantity' => 3, 'unit_price' => 63.00, 'notes' => 'Open draft for GPay vendor.'],
+                    ['sku' => '13', 'quantity' => 4, 'unit_price' => 30.00, 'notes' => 'Use in vendor hub recent cart.'],
+                ],
+                notes: 'Market E active draft cart for vendor hub breadth.',
             );
 
             $this->seedCorrectionRequest(
@@ -208,6 +379,7 @@ class PurchaserDemoSeeder extends Seeder
         User $purchaser,
         User $purchaseManager,
         User $warehouseManager,
+        Warehouse $warehouse,
         Supplier $supplier,
         Carbon $businessDate,
         string $cartNumber,
@@ -224,6 +396,7 @@ class PurchaserDemoSeeder extends Seeder
         Collection $products,
         array $items,
         string $notes,
+        bool $warehouseConfirmed = true,
     ): PurchaserCart {
         $cart = PurchaserCart::query()->updateOrCreate(
             ['cart_number' => $cartNumber],
@@ -307,6 +480,15 @@ class PurchaserDemoSeeder extends Seeder
             'goods_received_id' => $goodsReceived->id,
             'purchase_invoice_id' => $invoice->id,
         ]);
+
+        $this->syncStockBatches(
+            goodsReceived: $goodsReceived,
+            warehouse: $warehouse,
+            warehouseManager: $warehouseManager,
+            products: $products,
+            items: $items,
+            warehouseConfirmed: $warehouseConfirmed,
+        );
 
         return $cart->fresh(['supplier', 'items.product.category', 'purchaseOrder', 'goodsReceived', 'purchaseInvoice']);
     }
@@ -473,7 +655,11 @@ class PurchaserDemoSeeder extends Seeder
         $shopOrderItem = ShopOrderItem::query()
             ->whereHas('order', fn ($query) => $query->where('order_number', $shopOrderNumber))
             ->whereHas('product', fn ($query) => $query->where('sku', $productSku))
-            ->firstOrFail();
+            ->first();
+
+        if (! $shopOrderItem) {
+            return;
+        }
 
         PurchaserCorrectionRequest::query()->updateOrCreate(
             [
@@ -491,6 +677,49 @@ class PurchaserDemoSeeder extends Seeder
                 'reviewed_at' => null,
             ]
         );
+    }
+
+    /**
+     * @param  array<int, array{sku: string, quantity: float|int, unit_price: float|int, notes?: string}>  $items
+     */
+    private function syncStockBatches(
+        GoodsReceived $goodsReceived,
+        Warehouse $warehouse,
+        User $warehouseManager,
+        Collection $products,
+        array $items,
+        bool $warehouseConfirmed,
+    ): void {
+        foreach ($items as $item) {
+            $product = $products->get($item['sku']);
+
+            if (! $product) {
+                continue;
+            }
+
+            $batch = StockBatch::withTrashed()->firstOrNew(
+                ['reference' => 'BATCH-'.$goodsReceived->grn_number.'-'.$item['sku']],
+            );
+
+            $batch->fill([
+                'product_id' => $product->id,
+                'warehouse_id' => $warehouse->id,
+                'created_by' => $warehouseManager->id,
+                'received_at' => $goodsReceived->received_at,
+                'total_kg' => (float) $item['quantity'],
+                'cost_per_kg' => (float) $item['unit_price'],
+                'transport_cost' => 0,
+                'labour_cost' => 0,
+                'status' => 'pending',
+                'warehouse_receive_pending' => ! $warehouseConfirmed,
+                'warehouse_confirmed_at' => $warehouseConfirmed ? Carbon::parse($goodsReceived->received_at)->setTime(12, 20) : null,
+                'warehouse_confirmed_by' => $warehouseConfirmed ? $warehouseManager->id : null,
+                'notes' => 'Auto-created from GRN: '.$goodsReceived->grn_number,
+                'sorted_at' => null,
+                'deleted_at' => null,
+            ]);
+            $batch->save();
+        }
     }
 
     /**

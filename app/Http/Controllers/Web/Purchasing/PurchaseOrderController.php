@@ -10,9 +10,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\StorePurchaseOrderRequest;
 use App\Http\Requests\Web\Purchasing\UpdatePurchaseOrderRequest;
 use App\Models\PurchaseOrder;
+use App\Models\PurchaserCart;
 use App\Models\ShopOrder;
 use App\Repositories\Inventory\ProductRepository;
 use App\Services\Purchasing\PurchaseOrderService;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\SupplierService;
 use App\Services\Purchasing\VendorPriceService;
 use Illuminate\Http\RedirectResponse;
@@ -33,6 +35,9 @@ class PurchaseOrderController extends Controller
     public function index(Request $request): View
     {
         Gate::authorize('viewAny', PurchaseOrder::class);
+
+        $operationalDate = app(PurchaserBusinessDayService::class)->operationalDate();
+        PurchaserCart::cancelOverdueCartsAndOrders($operationalDate);
 
         $tomorrowDate = today()->addDay()->toDateString();
         $todayDate = today()->toDateString();
@@ -62,6 +67,18 @@ class PurchaseOrderController extends Controller
             ->take(3)
             ->get();
 
+        $cancelledCarts = PurchaserCart::query()
+            ->where('status', 'cancelled')
+            ->with(['supplier', 'user', 'items.product'])
+            ->latest('business_date')
+            ->get();
+
+        $cancelledPOs = PurchaseOrder::query()
+            ->where('status', POStatus::Cancelled)
+            ->with(['supplier', 'createdBy', 'items.product'])
+            ->latest('order_date')
+            ->get();
+
         return view('purchase-manager.orders.index', compact(
             'todayDate',
             'todayDeliveredOrdersCount',
@@ -69,6 +86,8 @@ class PurchaseOrderController extends Controller
             'tomorrowOrdersAwaitingApprovalCount',
             'tomorrowShopOrdersCount',
             'recentDeliveredShops',
+            'cancelledCarts',
+            'cancelledPOs',
         ));
     }
 

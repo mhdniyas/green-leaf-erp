@@ -1,6 +1,7 @@
 <x-layouts.app title="Purchaser Daily Carts">
     <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-3 lg:max-w-6xl lg:gap-4 lg:px-6 lg:py-4">
         @include('purchasing.purchaser.partials.feedback')
+        @include('purchasing.purchaser.partials.deadline_alert')
 
         {{-- Page header --}}
         <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
@@ -10,9 +11,19 @@
                     <h1 class="mt-1 text-xl font-black text-slate-950">Daily Carts</h1>
                     <p class="mt-1 text-xs font-semibold text-slate-600">Track active carts, open bills, and complete payment updates from the daily cart flow.</p>
                 </div>
-                <form action="{{ route('purchaser.vendors') }}" method="GET">
-                    <input type="date" name="date" value="{{ $date }}" onchange="this.form.submit()" class="h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 focus:border-teal-500 focus:outline-none lg:rounded-2xl lg:px-4">
-                </form>
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <a href="{{ route('purchaser.suppliers', ['date' => $date]) }}" class="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 text-xs font-black text-slate-700 hover:bg-white">
+                        <span>Vendor Hub</span>
+                        @if (($deadlineAlert['pending_total_count'] ?? 0) > 0)
+                            <span class="inline-flex min-w-5 items-center justify-center rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-black text-rose-700">
+                                {{ $deadlineAlert['pending_total_count'] }}
+                            </span>
+                        @endif
+                    </a>
+                    <form action="{{ route('purchaser.vendors') }}" method="GET">
+                        <input type="date" name="date" value="{{ $date }}" onchange="this.form.submit()" class="h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 focus:border-teal-500 focus:outline-none lg:rounded-2xl lg:px-4">
+                    </form>
+                </div>
             </div>
         </section>
 
@@ -39,10 +50,10 @@
 
         {{-- Tab Switcher --}}
         <div class="flex rounded-xl bg-slate-100 p-1 shadow-sm">
-            <button type="button" id="tab-orders-btn" onclick="switchVendorTab('orders')" class="flex-1 rounded-lg bg-white py-2 text-center text-[10px] sm:text-xs font-black text-slate-950 shadow-sm transition-all duration-150">
+            <button type="button" id="tab-orders-btn" onclick="switchVendorTab('orders')" class="flex-1 rounded-lg {{ $activeTab === 'orders' ? 'bg-white font-black text-slate-950 shadow-sm' : 'font-bold text-slate-500 hover:text-slate-700' }} py-2 text-center text-[10px] sm:text-xs transition-all duration-150">
                 Active ({{ $orders->count() }}) • ₹{{ number_format($orders->sum(fn($c) => $c->items->sum('line_total') - $c->discount_amount), 2) }}
             </button>
-            <button type="button" id="tab-delivered-btn" onclick="switchVendorTab('delivered')" class="flex-1 rounded-lg py-2 text-center text-[10px] sm:text-xs font-bold text-slate-500 hover:text-slate-700 transition-all duration-150">
+            <button type="button" id="tab-delivered-btn" onclick="switchVendorTab('delivered')" class="flex-1 rounded-lg {{ $activeTab === 'delivered' ? 'bg-white font-black text-slate-950 shadow-sm' : 'font-bold text-slate-500 hover:text-slate-700' }} py-2 text-center text-[10px] sm:text-xs transition-all duration-150">
                 Received ({{ $delivered->count() }}) • ₹{{ number_format($delivered->sum(fn($c) => $c->items->sum('line_total') - $c->discount_amount), 2) }}
             </button>
         </div>
@@ -51,9 +62,9 @@
         <div class="space-y-3">
             
             {{-- 1. Active Carts --}}
-            <div id="section-orders" class="space-y-3">
+            <div id="section-orders" class="{{ $activeTab === 'orders' ? '' : 'hidden' }} space-y-3">
                 @forelse ($orders as $cart)
-                    <article class="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <article id="cart-card-{{ $cart->id }}" class="min-w-0 overflow-hidden rounded-xl border {{ $focusCartId === $cart->id ? 'border-teal-300 ring-2 ring-teal-100' : 'border-slate-200' }} bg-white p-3 shadow-sm">
                         
                         {{-- Cart Header --}}
                         <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
@@ -61,7 +72,7 @@
                                 <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">{{ $cart->cart_number }}</p>
                                 <h3 class="mt-0.5 flex items-center gap-1.5 text-xs font-black text-slate-950">
                                     <span class="truncate max-w-[120px]">{{ $cart->supplier?->name ?: 'Draft Cart' }}</span>
-                                    <button type="button" onclick="openChangeVendorModal({{ $cart->id }}, {{ $cart->supplier_id ?: 'null' }})" class="text-slate-400 hover:text-slate-600 focus:outline-none transition-colors" title="Assign Supplier">
+                                    <button type="button" onclick="openChangeVendorModal(@js($cart->cart_number), {{ $cart->supplier_id ?: 'null' }})" class="text-slate-400 hover:text-slate-600 focus:outline-none transition-colors" title="Assign Supplier">
                                         <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                         </svg>
@@ -90,7 +101,7 @@
                                             </button>
                                         </form>
                                     @endif
-                                    <button type="button" onclick="openCreateVendorModal({{ $cart->id }})" class="rounded-md bg-teal-50 hover:bg-teal-100 border border-teal-100 px-2 py-0.5 text-[9px] font-black text-teal-700 transition-colors shadow-xs cursor-pointer mr-1">
+                                    <button type="button" onclick="openCreateVendorModal(@js($cart->cart_number))" class="rounded-md bg-teal-50 hover:bg-teal-100 border border-teal-100 px-2 py-0.5 text-[9px] font-black text-teal-700 transition-colors shadow-xs cursor-pointer mr-1">
                                         + New Supplier
                                     </button>
                                 @endif
@@ -213,6 +224,7 @@
                                                 'number' => $cart->purchaseInvoice->invoice_number,
                                                 'supplier' => $cart->supplier?->name,
                                                 'amount' => round((float) $cart->purchaseInvoice->amount, 2),
+                                                'discountAmount' => round((float) $cart->purchaseInvoice->discount_amount, 2),
                                                 'paidAmount' => round((float) $cart->purchaseInvoice->paid_amount, 2),
                                                 'paymentMethod' => $cart->purchaseInvoice->payment_method ?: 'Cash',
                                                 'paymentNote' => $cart->purchaseInvoice->payment_note,
@@ -237,9 +249,9 @@
             </div>
 
             {{-- 2. Delivered --}}
-            <div id="section-delivered" class="hidden space-y-3">
+            <div id="section-delivered" class="{{ $activeTab === 'delivered' ? '' : 'hidden' }} space-y-3">
                 @forelse ($delivered as $cart)
-                    <article class="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <article id="cart-card-{{ $cart->id }}" class="min-w-0 overflow-hidden rounded-xl border {{ $focusCartId === $cart->id ? 'border-teal-300 ring-2 ring-teal-100' : 'border-slate-200' }} bg-white p-3 shadow-sm">
                         
                         {{-- Cart Header --}}
                         <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
@@ -247,7 +259,7 @@
                                 <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">{{ $cart->cart_number }}</p>
                                 <h3 class="mt-0.5 flex items-center gap-1.5 text-xs font-black text-slate-950">
                                     <span class="truncate max-w-[120px]">{{ $cart->supplier?->name ?: 'Draft Cart' }}</span>
-                                    <button type="button" onclick="openChangeVendorModal({{ $cart->id }}, {{ $cart->supplier_id ?: 'null' }})" class="text-slate-400 hover:text-slate-600 focus:outline-none transition-colors" title="Assign Supplier">
+                                    <button type="button" onclick="openChangeVendorModal(@js($cart->cart_number), {{ $cart->supplier_id ?: 'null' }})" class="text-slate-400 hover:text-slate-600 focus:outline-none transition-colors" title="Assign Supplier">
                                         <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                         </svg>
@@ -297,13 +309,15 @@
                                 @if ($cart->purchaseInvoice)
                                     @php
                                         $paymentModalData = [
-                                            'number' => $cart->purchaseInvoice->invoice_number,
-                                            'supplier' => $cart->supplier?->name,
-                                            'amount' => round((float) $cart->purchaseInvoice->amount, 2),
-                                            'paidAmount' => round((float) $cart->purchaseInvoice->paid_amount, 2),
-                                            'paymentMethod' => $cart->purchaseInvoice->payment_method ?: 'Cash',
-                                            'paymentNote' => $cart->purchaseInvoice->payment_note,
-                                            'paymentDetails' => $cart->purchaseInvoice->payment_details,
+                                                'number' => $cart->purchaseInvoice->invoice_number,
+                                                'billNumber' => $cart->bill_number,
+                                                'supplier' => $cart->supplier?->name,
+                                                'amount' => round((float) $cart->purchaseInvoice->amount, 2),
+                                                'discountAmount' => round((float) $cart->purchaseInvoice->discount_amount, 2),
+                                                'paidAmount' => round((float) $cart->purchaseInvoice->paid_amount, 2),
+                                                'paymentMethod' => $cart->purchaseInvoice->payment_method ?: 'Cash',
+                                                'paymentNote' => $cart->purchaseInvoice->payment_note,
+                                                'paymentDetails' => $cart->purchaseInvoice->payment_details,
                                             'creditApproved' => (bool) $cart->supplier?->credit_approved,
                                         ];
                                     @endphp
@@ -502,16 +516,36 @@
             <form id="cart-payment-form" method="POST" class="mt-4 space-y-3">
                 @csrf
                 @method('PATCH')
+                <input type="hidden" name="return_to" value="vendors">
+                <input type="hidden" name="date" value="{{ $date }}">
                 <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
                     <div class="flex items-center justify-between text-[11px] font-bold text-slate-600">
                         <span>Total Bill</span>
                         <span id="cart-payment-total" class="text-slate-900"></span>
                     </div>
                     <div class="mt-2 flex items-center justify-between text-[11px] font-bold text-slate-600">
+                        <span>Discount</span>
+                        <span id="cart-payment-discount" class="text-slate-900"></span>
+                    </div>
+                    <div class="mt-2 flex items-center justify-between text-[11px] font-bold text-slate-600">
+                        <span>Net Payable</span>
+                        <span id="cart-payment-net" class="text-slate-900"></span>
+                    </div>
+                    <div class="mt-2 flex items-center justify-between text-[11px] font-bold text-slate-600">
                         <span>Remaining</span>
                         <span id="cart-payment-balance" class="text-amber-700"></span>
                     </div>
                     <p id="cart-payment-warning" class="mt-2 text-[10px] font-semibold text-amber-700"></p>
+                </div>
+
+                <div>
+                    <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Discount</label>
+                    <input id="cart_discount_amount" type="number" step="0.01" min="0" name="discount_amount" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
+                </div>
+
+                <div>
+                    <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Bill Number</label>
+                    <input id="cart_bill_number" type="text" name="bill_number" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
                 </div>
 
                 <div>
@@ -546,6 +580,9 @@
 
     {{-- Script for tab switching and vendor updating --}}
     <script>
+        const initialVendorTab = @json($activeTab);
+        const focusCartId = @json($focusCartId);
+
         function switchVendorTab(tab) {
             const ordersBtn = document.getElementById('tab-orders-btn');
             const deliveredBtn = document.getElementById('tab-delivered-btn');
@@ -565,12 +602,12 @@
             }
         }
 
-        let currentCartId = null;
+        let currentCartNumber = null;
 
-        function openChangeVendorModal(cartId, currentSupplierId) {
-            currentCartId = cartId;
+        function openChangeVendorModal(cartNumber, currentSupplierId) {
+            currentCartNumber = cartNumber;
             const form = document.getElementById('change-vendor-form');
-            form.action = `/purchaser/carts/${cartId}/supplier`;
+            form.action = `/purchaser/carts/${cartNumber}/supplier`;
             
             document.getElementById('change-vendor-modal').classList.remove('hidden');
             const searchInput = document.getElementById('vendor-search-input');
@@ -611,6 +648,18 @@
 
         let cartPaymentAmount = 0;
         let cartPaymentCreditApproved = false;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            switchVendorTab(initialVendorTab === 'delivered' ? 'delivered' : 'orders');
+
+            if (focusCartId) {
+                const focusedCard = document.getElementById(`cart-card-${focusCartId}`);
+
+                if (focusedCard) {
+                    focusedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
+        });
 
         function setPriceToggle(isOn) {
             const btn = document.getElementById('toggle-show-price');
@@ -725,6 +774,8 @@
             document.getElementById('cart-payment-form').action = actionUrl;
             document.getElementById('cart-payment-title').textContent = `${invoice.number} • ${invoice.supplier ?? 'Supplier pending'}`;
             document.getElementById('cart-payment-total').textContent = `₹${Number(invoice.amount || 0).toFixed(2)}`;
+            document.getElementById('cart_discount_amount').value = Number(invoice.discountAmount || 0).toFixed(2);
+            document.getElementById('cart_bill_number').value = invoice.billNumber || '';
             document.getElementById('cart_payment_method').value = invoice.paymentMethod || 'Cash';
             document.getElementById('cart_paid_amount').value = Number(invoice.paidAmount || 0).toFixed(2);
             document.getElementById('cart_payment_note').value = invoice.paymentNote || '';
@@ -742,11 +793,17 @@
 
         function updateCartPaymentStatus() {
             const method = document.getElementById('cart_payment_method').value;
+            const discountAmount = Math.max(0, Number(document.getElementById('cart_discount_amount').value || 0));
             const paidAmount = Number(document.getElementById('cart_paid_amount').value || 0);
-            const balance = Math.max(0, cartPaymentAmount - paidAmount);
+            const netAmount = Math.max(0, cartPaymentAmount - discountAmount);
+            const balance = Math.max(0, netAmount - paidAmount);
             const balanceNode = document.getElementById('cart-payment-balance');
+            const discountNode = document.getElementById('cart-payment-discount');
+            const netNode = document.getElementById('cart-payment-net');
             const warningNode = document.getElementById('cart-payment-warning');
 
+            discountNode.textContent = `₹${discountAmount.toFixed(2)}`;
+            netNode.textContent = `₹${netAmount.toFixed(2)}`;
             balanceNode.textContent = `₹${balance.toFixed(2)}`;
             balanceNode.className = balance > 0 ? 'text-amber-700' : 'text-emerald-700';
 
@@ -762,6 +819,7 @@
                 : 'Full payment entered. This bill will be marked as completed.';
         }
 
+        document.getElementById('cart_discount_amount')?.addEventListener('input', updateCartPaymentStatus);
         document.getElementById('cart_payment_method')?.addEventListener('change', updateCartPaymentStatus);
         document.getElementById('cart_paid_amount')?.addEventListener('input', updateCartPaymentStatus);
 
@@ -778,9 +836,9 @@
             }, 10);
         }
 
-        function openCreateVendorModal(cartId) {
+        function openCreateVendorModal(cartNumber) {
             const form = document.getElementById('create-vendor-form');
-            form.action = `/purchaser/carts/${cartId}/supplier`;
+            form.action = `/purchaser/carts/${cartNumber}/supplier`;
             document.getElementById('create-vendor-modal').classList.remove('hidden');
         }
 

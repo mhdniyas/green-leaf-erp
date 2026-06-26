@@ -159,6 +159,7 @@ class AdminOverviewController extends Controller
         ];
 
         $quickLinks = [
+            ['label' => 'Accounting Dashboard', 'href' => route('admin.accounting.index', ['date' => $date->format('Y-m-d')])],
             ['label' => 'Users & Permissions', 'href' => route('admin.users.index')],
             ['label' => 'Daily Progress', 'href' => route('admin.daily-progress', ['date' => $date->format('Y-m-d')])],
             ['label' => 'Activity Log', 'href' => route('admin.activity-logs.index')],

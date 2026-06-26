@@ -8,6 +8,7 @@ use App\Enums\Purchasing\POStatus;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
+use App\Models\PurchaserCart;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\Supplier;
@@ -411,5 +412,80 @@ class PurchaseOrderTest extends TestCase
         $response->assertSee('Prev. Price: INR 4.5000');
         $response->assertSee('min-w-[1100px]', false);
         $response->assertSee('[-webkit-overflow-scrolling:touch]', false);
+    }
+
+    public function test_purchaser_carts_and_unfulfilled_orders_are_automatically_cancelled_on_dashboard_load(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-25 12:00:00'));
+
+        $purchaser = User::factory()->create();
+        $purchaser->assignRole('purchaser');
+
+        // Past draft cart
+        $pastCart = PurchaserCart::create([
+            'user_id' => $purchaser->id,
+            'business_date' => '2026-06-24',
+            'cart_number' => 'VC-20260624-XXXX',
+            'status' => 'draft',
+        ]);
+        $pastCart->items()->create([
+            'product_id' => $this->product->id,
+            'quantity' => 5.0,
+            'unit_price' => 10.0,
+            'line_total' => 50.0,
+        ]);
+
+        // Past draft PO
+        $pastPO = PurchaseOrder::create([
+            'supplier_id' => $this->supplier->id,
+            'po_number' => 'PO-2026-PAST',
+            'status' => POStatus::Draft,
+            'order_date' => '2026-06-24',
+            'created_by' => $this->authorizedUser->id,
+        ]);
+        $pastPO->items()->create([
+            'product_id' => $this->product->id,
+            'quantity' => 10.0,
+            'unit_price' => 12.0,
+            'purchase_unit' => 'kg',
+        ]);
+
+        // Verify they are draft initially
+        $this->assertEquals('draft', $pastCart->fresh()->status);
+        $this->assertEquals(POStatus::Draft, $pastPO->fresh()->status);
+
+        // Access manager dashboard to trigger cancellation
+        $response = $this->actingAs($this->authorizedUser)
+            ->get(route('purchasing.orders.index'));
+
+        $response->assertOk();
+
+        // Check if status is cancelled now
+        $this->assertEquals('cancelled', $pastCart->fresh()->status);
+        $this->assertEquals(POStatus::Cancelled, $pastPO->fresh()->status);
+
+        // Check if dashboard displays them in the Cancelled section
+        $response->assertSee('Cancelled purchases');
+        $response->assertSee('VC-20260624-XXXX');
+        $response->assertSee('PO-2026-PAST');
+
+        Carbon::setTestNow(); // Reset time
+    }
+
+    public function test_purchaser_dashboard_redirects_past_date_access(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-25 12:00:00'));
+
+        $purchaser = User::factory()->create();
+        $purchaser->assignRole('purchaser');
+
+        // Accessing past date daily dashboard should redirect to today (2026-06-25)
+        $response = $this->actingAs($purchaser)
+            ->get(route('purchaser.daily', ['date' => '2026-06-24']));
+
+        $response->assertRedirect(route('purchaser.daily', ['date' => '2026-06-25']));
+        $response->assertSessionHas('error', 'Only the active business day order can be viewed/processed.');
+
+        Carbon::setTestNow(); // Reset time
     }
 }

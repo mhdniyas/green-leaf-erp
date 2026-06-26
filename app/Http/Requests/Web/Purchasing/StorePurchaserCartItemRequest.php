@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Web\Purchasing;
 
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class StorePurchaserCartItemRequest extends FormRequest
 {
@@ -14,10 +14,18 @@ class StorePurchaserCartItemRequest extends FormRequest
         return (bool) $this->user()?->hasRole('purchaser');
     }
 
-    public function rules(): array
+    public function rules(PurchaserBusinessDayService $businessDayService): array
     {
         return [
-            'business_date' => ['required', 'date', Rule::date()->todayOrBefore()],
+            'business_date' => [
+                'required',
+                'date',
+                function (string $attribute, mixed $value, \Closure $fail) use ($businessDayService): void {
+                    if (! $businessDayService->isSelectableDate((string) $value)) {
+                        $fail('The selected business date is not available for purchaser flow.');
+                    }
+                },
+            ],
             'product_id' => ['required', 'exists:products,id'],
             'cart_id' => ['nullable', 'exists:purchaser_carts,id'],
             'quantity' => ['required', 'numeric', 'min:0.01'],

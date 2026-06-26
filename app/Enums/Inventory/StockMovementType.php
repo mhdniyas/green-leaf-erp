@@ -28,7 +28,7 @@ enum StockMovementType: string
     public function isDeduction(): bool
     {
         return match ($this) {
-            self::Out, self::Wastage, self::Sale => true,
+            self::Out, self::Wastage, self::Sale, self::Adjustment => true,
             default => false,
         };
     }

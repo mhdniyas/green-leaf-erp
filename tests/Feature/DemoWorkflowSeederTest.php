@@ -21,7 +21,7 @@ class DemoWorkflowSeederTest extends TestCase
         $this->seed(DatabaseSeeder::class);
 
         $this->assertSame(
-            ['Market A', 'Market B'],
+            ['Market A', 'Market B', 'Market C', 'Market D', 'Market E'],
             Supplier::query()->orderBy('name')->pluck('name')->all()
         );
 

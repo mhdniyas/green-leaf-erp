@@ -61,7 +61,7 @@ class AdminFeaturesTest extends TestCase
         $response = $this->actingAs($legacyAdmin)->get(route('admin.overview'));
         $response->assertOk();
         $response->assertSee('Admin Control Center');
-        $response->assertSee('How cash moved today');
+        $response->assertSee('Suspicious Activity');
 
         $response = $this->actingAs($legacyAdmin)->get(route('admin.daily-progress'));
         $response->assertOk();

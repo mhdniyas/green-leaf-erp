@@ -157,6 +157,25 @@
                                             </td>
                                         @endif
                                     </tr>
+                                    @if($order->delivery_status === 'pending_approval' && (float) $item->shortage_qty > 0.01)
+                                        <tr class="bg-slate-50/60">
+                                            <td colspan="6" class="py-3 px-6">
+                                                <div class="flex flex-wrap items-center gap-4 text-xs">
+                                                    <div class="flex items-center gap-1.5">
+                                                        <span class="font-bold text-slate-500">Discrepancy Action:</span>
+                                                        <select name="delivery_discrepancy_types[{{ $item->id }}]" form="discrepancy-form" class="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-slate-900 font-bold focus:border-emerald-500 focus:outline-none transition-all">
+                                                            <option value="wastage" @selected(old("delivery_discrepancy_types.{$item->id}", $item->delivery_discrepancy_type) === 'wastage')>Wastage</option>
+                                                            <option value="other" @selected(old("delivery_discrepancy_types.{$item->id}", $item->delivery_discrepancy_type) === 'other')>Other (Adjustment)</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="flex-1 min-w-0 flex items-center gap-1.5">
+                                                        <span class="font-bold text-slate-500">Note:</span>
+                                                        <input type="text" name="delivery_discrepancy_notes[{{ $item->id }}]" value="{{ old("delivery_discrepancy_notes.{$item->id}", $item->delivery_discrepancy_note) }}" form="discrepancy-form" placeholder="Reason for shortage..." class="flex-1 rounded-lg border border-slate-200 px-2.5 py-1 text-slate-900 focus:border-emerald-500 focus:outline-none transition-all">
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    @endif
                                 @empty
                                     <tr>
                                         <td colspan="{{ $order->is_delivered ? 6 : 5 }}" class="py-8 text-center text-slate-400 font-medium italic bg-slate-50/10">No items found in this requisition.</td>
@@ -242,7 +261,7 @@
                             </div>
                         </div>
 
-                        <form method="POST" action="{{ route('requisitions.delivery.approve', $order->order_number) }}">
+                        <form id="discrepancy-form" method="POST" action="{{ route('requisitions.delivery.approve', $order->order_number) }}">
                             @csrf
                             <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-3 rounded-xl shadow-sm hover:shadow transition-all cursor-pointer focus:outline-none flex items-center justify-center gap-1.5 border-0">
                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>

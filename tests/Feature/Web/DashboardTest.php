@@ -144,7 +144,7 @@ class DashboardTest extends TestCase
             ->get(route('shop-owner.orders.create'));
 
         $response->assertOk();
-        $response->assertSee('Create Tomorrow Order');
+        $response->assertSee('Marketplace');
         $response->assertSee(number_format(15.50, 2));
         $response->assertSee($product1->unit);
         $response->assertSee($product2->sku);
@@ -206,8 +206,8 @@ class DashboardTest extends TestCase
         $response = $this->actingAs($shopOwner)->get(route('shop-owner.orders.create'));
 
         $response->assertOk();
-        $response->assertSee('Order Locked After Cutoff');
-        $response->assertSee('Submit Update Request');
+        $response->assertSee('Cart Locked After Cutoff');
+        $response->assertSee('Submit Item Request');
     }
 
     public function test_shop_owner_dashboard_shows_today_delivery_check_action(): void
@@ -317,9 +317,8 @@ class DashboardTest extends TestCase
         $dashboardResponse->assertSee('Delivery done');
         $dashboardResponse->assertSee('Open Approve Shop Orders');
         $dashboardResponse->assertDontSee('Purchaser Desk');
-        $dashboardResponse->assertSee('bottom-5 z-50 px-5 lg:hidden', false);
-        $dashboardResponse->assertSee('h-[60px] max-w-md items-center gap-1 rounded-[2rem]', false);
-        $dashboardResponse->assertSee('h-11 flex-1 items-center justify-center gap-1.5 rounded-[1.25rem]', false);
+        $dashboardResponse->assertSee('bottom-0 z-[70] px-2', false);
+        $dashboardResponse->assertSee('min-h-[64px] w-full max-w-lg items-center gap-1 rounded-2xl', false);
     }
 
     public function test_dashboard_renders_requisition_and_approved_board_modules_for_purchase_approver(): void

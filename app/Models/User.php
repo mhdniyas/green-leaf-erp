@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -57,5 +58,10 @@ class User extends Authenticatable implements AuditableContract
     public function isPendingRegistration(): bool
     {
         return $this->registration_status === 'pending';
+    }
+
+    public function purchaserCredits(): HasMany
+    {
+        return $this->hasMany(PurchaserCredit::class, 'purchaser_id');
     }
 }

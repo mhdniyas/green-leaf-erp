@@ -1,6 +1,7 @@
 <x-layouts.app title="Bulk Purchase" :show-mobile-nav="false">
     <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-3 lg:max-w-6xl lg:gap-4 lg:px-6 lg:py-4">
         @include('purchasing.purchaser.partials.feedback')
+        @include('purchasing.purchaser.partials.deadline_alert')
 
         <section class="overflow-hidden rounded-2xl bg-slate-950 text-white shadow-[0_16px_36px_rgba(15,23,42,0.18)] lg:rounded-[2rem]">
             <div class="bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.28),_transparent_36%),linear-gradient(135deg,_#0f172a_0%,_#111827_55%,_#134e4a_100%)] px-4 py-4 sm:px-5 lg:px-4 lg:py-5">
@@ -28,7 +29,7 @@
                 <div class="relative w-full md:w-64 shrink-0">
                     <select id="filter-select" class="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-4 pr-10 py-3.5 text-xs font-black text-slate-700 focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:pl-5">
                         @foreach ($quickFilters as $filter)
-                            <option value="{{ $filter }}">
+                            <option value="{{ $filter }}" {{ $filter === 'All' ? 'selected' : '' }}>
                                 {{ $filter }}
                             </option>
                         @endforeach

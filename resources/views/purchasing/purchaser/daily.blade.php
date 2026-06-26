@@ -1,6 +1,7 @@
 <x-layouts.app title="Purchaser Daily">
     <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-3 lg:max-w-6xl lg:gap-4 lg:px-6 lg:py-4">
         @include('purchasing.purchaser.partials.feedback')
+        @include('purchasing.purchaser.partials.deadline_alert')
 
         <section class="overflow-hidden rounded-2xl bg-slate-950 text-white shadow-[0_16px_36px_rgba(15,23,42,0.18)] lg:rounded-[2rem] lg:shadow-[0_24px_60px_rgba(15,23,42,0.24)]">
             <div class="bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.28),_transparent_36%),linear-gradient(135deg,_#0f172a_0%,_#111827_55%,_#134e4a_100%)] px-4 py-4 sm:px-5 lg:px-4 lg:py-5">
@@ -71,6 +72,14 @@
                         <p class="mt-1 text-sm font-semibold text-slate-600">{{ $dailySummary->count() }} products for {{ \Illuminate\Support\Carbon::parse($date)->format('d M Y') }}</p>
                     </div>
                     <div class="flex flex-row gap-2 w-full sm:w-auto shrink-0">
+                        <a href="{{ route('purchaser.suppliers', ['date' => $date]) }}" class="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-black text-slate-700 sm:w-auto lg:min-h-12 lg:rounded-2xl">
+                            <span>Vendor Hub</span>
+                            @if (($deadlineAlert['pending_total_count'] ?? 0) > 0)
+                                <span class="inline-flex min-w-5 items-center justify-center rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-black text-rose-700">
+                                    {{ $deadlineAlert['pending_total_count'] }}
+                                </span>
+                            @endif
+                        </a>
                         <a href="{{ route('purchaser.bulk-buy', ['date' => $date]) }}" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-teal-600 px-4 text-sm font-black text-white sm:w-auto lg:min-h-12 lg:rounded-2xl">
                             Bulk Purchase
                         </a>

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\Purchasing\POStatus;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -46,6 +47,11 @@ class PurchaserCart extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
+
+    public function getRouteKeyName(): string
+    {
+        return 'cart_number';
+    }
 
     public function user(): BelongsTo
     {
@@ -124,5 +130,23 @@ class PurchaserCart extends Model
         } while (self::query()->where('cart_number', $cartNumber)->exists());
 
         return $cartNumber;
+    }
+
+    public static function cancelOverdueCartsAndOrders(Carbon $operationalDate): void
+    {
+        self::query()
+            ->whereDate('business_date', '<', $operationalDate)
+            ->where('status', 'draft')
+            ->update(['status' => 'cancelled']);
+
+        PurchaseOrder::query()
+            ->whereDate('order_date', '<', $operationalDate)
+            ->whereIn('status', [
+                POStatus::Draft,
+                POStatus::Approved,
+                POStatus::SentToSupplier,
+                POStatus::PartiallyReceived,
+            ])
+            ->update(['status' => POStatus::Cancelled]);
     }
 }

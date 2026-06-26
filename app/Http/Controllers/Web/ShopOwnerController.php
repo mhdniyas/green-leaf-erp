@@ -6,20 +6,27 @@ namespace App\Http\Controllers\Web;
 
 use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Web\ShopOwner\StoreShopOwnerAccountingEntryRequest;
 use App\Models\Category;
+use App\Models\Shop;
+use App\Models\ShopAccountingEntry;
 use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
 use App\Models\ShopPreset;
 use App\Models\User;
+use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Pricing\PriceBoardService;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class ShopOwnerController extends Controller
 {
     public function __construct(
         private readonly PriceBoardService $priceBoardService,
+        private readonly OwnedShopAccountingService $ownedShopAccountingService,
     ) {}
 
     public function dashboard(Request $request): View
@@ -123,6 +130,81 @@ class ShopOwnerController extends Controller
         return view('shop-owner.finance.pdf', [
             'invoice' => $invoice->load(['shop', 'items.product', 'order']),
         ]);
+    }
+
+    public function accountingIndex(Request $request): View
+    {
+        $user = $this->shopUser($request);
+        $shop = $this->ownedAccountingShop($user);
+        $selectedDate = Carbon::parse($request->input('date', today()->toDateString()));
+        $entry = $this->ownedShopAccountingService->entryForDate($shop, $selectedDate);
+        $availableCategories = $this->ownedShopAccountingService->availableCategoriesForShop($shop);
+        $recentEntries = ShopAccountingEntry::query()
+            ->where('shop_id', $shop->id)
+            ->with(['lines.category', 'submittedBy', 'reviewedBy'])
+            ->latest('business_date')
+            ->limit(8)
+            ->get();
+
+        $incomeTotal = $entry instanceof ShopAccountingEntry
+            ? round((float) $entry->lines->where('type', 'income')->sum('amount'), 2)
+            : 0.0;
+        $expenseTotal = $entry instanceof ShopAccountingEntry
+            ? round((float) $entry->lines->where('type', 'expense')->sum('amount'), 2)
+            : 0.0;
+
+        return view('shop-owner.accounting.index', [
+            'shop' => $shop,
+            'selectedDate' => $selectedDate,
+            'entry' => $entry,
+            'availableCategories' => $availableCategories,
+            'recentEntries' => $recentEntries,
+            'incomeTotal' => $incomeTotal,
+            'expenseTotal' => $expenseTotal,
+            'netAmount' => round($incomeTotal - $expenseTotal, 2),
+        ]);
+    }
+
+    public function accountingHistory(Request $request): View
+    {
+        $user = $this->shopUser($request);
+        $shop = $this->ownedAccountingShop($user);
+
+        $entries = ShopAccountingEntry::query()
+            ->where('shop_id', $shop->id)
+            ->with(['lines.category', 'submittedBy', 'reviewedBy'])
+            ->latest('business_date')
+            ->paginate(12);
+
+        return view('shop-owner.accounting.history', [
+            'shop' => $shop,
+            'entries' => $entries,
+        ]);
+    }
+
+    public function storeAccountingEntry(StoreShopOwnerAccountingEntryRequest $request): RedirectResponse
+    {
+        $user = $this->shopUser($request);
+        $shop = $this->ownedAccountingShop($user);
+        $validated = $request->validated();
+        $businessDate = Carbon::parse($validated['business_date']);
+        $entry = ShopAccountingEntry::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', $businessDate)
+            ->first();
+
+        try {
+            $entry = $this->ownedShopAccountingService->saveShopOwnerEntry($shop, $validated, (int) $user->id, $entry);
+        } catch (ValidationException $exception) {
+            return back()->withErrors($exception->errors())->withInput();
+        }
+
+        $message = $validated['submission_action'] === 'submit'
+            ? 'Daily accounting sent to admin for approval.'
+            : 'Daily accounting draft saved.';
+
+        return redirect()->route('shop-owner.accounting.index', ['date' => $entry->business_date?->toDateString()])
+            ->with('success', $message);
     }
 
     /**
@@ -304,5 +386,14 @@ class ShopOwnerController extends Controller
             ->sortByDesc(fn (array $product): array => [$product['order_count'], $product['total_quantity']])
             ->take(12)
             ->values();
+    }
+
+    private function ownedAccountingShop(User $user): Shop
+    {
+        $shop = Shop::query()->findOrFail($user->shop_id);
+
+        abort_unless($shop->isOwnedAccountingEnabled(), 404);
+
+        return $shop;
     }
 }

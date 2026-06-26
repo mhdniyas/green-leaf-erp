@@ -257,4 +257,9 @@ class ShopOrder extends Model
             default => 'neutral',
         };
     }
+
+    public function getRouteKeyName(): string
+    {
+        return 'order_number';
+    }
 }

@@ -23,6 +23,7 @@ class StockBatch extends Model
     protected $fillable = [
         'product_id',
         'warehouse_id',
+        'goods_received_id',
         'created_by',
         'reference',
         'received_at',
@@ -40,6 +41,7 @@ class StockBatch extends Model
 
     protected $casts = [
         'warehouse_id' => 'integer',
+        'goods_received_id' => 'integer',
         'received_at' => 'date',
         'total_kg' => 'decimal:3',
         'cost_per_kg' => 'decimal:4',
@@ -66,6 +68,11 @@ class StockBatch extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function goodsReceived(): BelongsTo
+    {
+        return $this->belongsTo(GoodsReceived::class, 'goods_received_id');
     }
 
     public function warehouse(): BelongsTo

@@ -13,7 +13,7 @@
         <div class="grid gap-3">
             @foreach ($invoices as $invoice)
                 @php
-                    $balance = max(0, round((float) $invoice->amount - (float) $invoice->paid_amount, 2));
+                    $balance = max(0, round(((float) $invoice->amount - (float) $invoice->discount_amount) - (float) $invoice->paid_amount, 2));
                     $supplier = $invoice->supplier;
                     $supplierData = $supplier ? [
                         'id' => $supplier->id,
@@ -34,8 +34,10 @@
                     $invoiceData = [
                         'id' => $invoice->id,
                         'number' => $invoice->invoice_number,
+                        'billNumber' => $invoice->purchaserCart?->bill_number,
                         'supplier' => $supplier?->name,
                         'amount' => round((float) $invoice->amount, 2),
+                        'discountAmount' => round((float) $invoice->discount_amount, 2),
                         'paidAmount' => round((float) $invoice->paid_amount, 2),
                         'balance' => $balance,
                         'paymentMethod' => $invoice->payment_method ?: 'Cash',
@@ -68,10 +70,14 @@
                         </button>
                     </div>
 
-                    <div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
                         <div class="rounded-xl bg-slate-50 px-3 py-2.5">
                             <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Amount</p>
                             <p class="mt-1 text-sm font-black text-slate-950">₹{{ number_format((float) $invoice->amount, 2) }}</p>
+                        </div>
+                        <div class="rounded-xl bg-slate-50 px-3 py-2.5">
+                            <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Discount</p>
+                            <p class="mt-1 text-sm font-black text-slate-950">₹{{ number_format((float) $invoice->discount_amount, 2) }}</p>
                         </div>
                         <div class="rounded-xl bg-slate-50 px-3 py-2.5">
                             <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Paid</p>
@@ -147,10 +153,28 @@
                     <span id="payment-modal-total" class="text-slate-900"></span>
                 </div>
                 <div class="mt-2 flex items-center justify-between text-[11px] font-bold text-slate-600">
+                    <span>Discount</span>
+                    <span id="payment-modal-discount" class="text-slate-900"></span>
+                </div>
+                <div class="mt-2 flex items-center justify-between text-[11px] font-bold text-slate-600">
+                    <span>Net Payable</span>
+                    <span id="payment-modal-net" class="text-slate-900"></span>
+                </div>
+                <div class="mt-2 flex items-center justify-between text-[11px] font-bold text-slate-600">
                     <span>Remaining</span>
                     <span id="payment-modal-balance" class="text-amber-700"></span>
                 </div>
                 <p id="payment-modal-warning" class="mt-2 text-[10px] font-semibold text-amber-700"></p>
+            </div>
+
+            <div>
+                <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Discount</label>
+                <input id="discount_amount" type="number" step="0.01" min="0" name="discount_amount" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
+            </div>
+
+            <div>
+                <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Bill Number</label>
+                <input id="bill_number" type="text" name="bill_number" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
             </div>
 
             <div>
@@ -215,6 +239,8 @@
         document.getElementById('payment-update-form').action = actionUrl;
         document.getElementById('payment-modal-invoice').textContent = `${invoice.number} • ${invoice.supplier ?? 'Supplier pending'}`;
         document.getElementById('payment-modal-total').textContent = `₹${Number(invoice.amount || 0).toFixed(2)}`;
+        document.getElementById('discount_amount').value = Number(invoice.discountAmount || 0).toFixed(2);
+        document.getElementById('bill_number').value = invoice.billNumber || '';
         document.getElementById('payment_method').value = invoice.paymentMethod || 'Cash';
         document.getElementById('paid_amount').value = Number(invoice.paidAmount || 0).toFixed(2);
         document.getElementById('payment_note').value = invoice.paymentNote || '';
@@ -232,11 +258,17 @@
 
     function updatePaymentModalStatus() {
         const method = document.getElementById('payment_method').value;
+        const discountAmount = Math.max(0, Number(document.getElementById('discount_amount').value || 0));
         const paidAmount = Number(document.getElementById('paid_amount').value || 0);
-        const balance = Math.max(0, currentInvoiceAmount - paidAmount);
+        const netAmount = Math.max(0, currentInvoiceAmount - discountAmount);
+        const balance = Math.max(0, netAmount - paidAmount);
         const balanceNode = document.getElementById('payment-modal-balance');
+        const discountNode = document.getElementById('payment-modal-discount');
+        const netNode = document.getElementById('payment-modal-net');
         const warningNode = document.getElementById('payment-modal-warning');
 
+        discountNode.textContent = `₹${discountAmount.toFixed(2)}`;
+        netNode.textContent = `₹${netAmount.toFixed(2)}`;
         balanceNode.textContent = `₹${balance.toFixed(2)}`;
         balanceNode.className = balance > 0 ? 'text-amber-700' : 'text-emerald-700';
 
@@ -253,6 +285,7 @@
     }
 
     document.getElementById('payment_method')?.addEventListener('change', updatePaymentModalStatus);
+    document.getElementById('discount_amount')?.addEventListener('input', updatePaymentModalStatus);
     document.getElementById('paid_amount')?.addEventListener('input', updatePaymentModalStatus);
 
     function openCreditModal(supplier) {

@@ -9,6 +9,7 @@ use App\Enums\Purchasing\InvoiceStatus;
 use App\Enums\Purchasing\POStatus;
 use App\Models\GoodsReceived;
 use App\Models\PurchaseInvoice;
+use App\Models\PurchaserCredit;
 use App\Repositories\Purchasing\PurchaseInvoiceRepository;
 use App\Services\Finance\JournalService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -73,7 +74,7 @@ class PurchaseInvoiceService
     }
 
     /**
-     * @param  array{payment_method:string, paid_amount:float, payment_note:?string, payment_details:?string}  $payload
+     * @param  array{payment_method:string, discount_amount:float, paid_amount:float, payment_note:?string, payment_details:?string}  $payload
      */
     public function updatePayment(PurchaseInvoice $invoice, array $payload): PurchaseInvoice
     {
@@ -81,12 +82,14 @@ class PurchaseInvoiceService
             $invoice->loadMissing(['supplier', 'purchaserCart']);
 
             $invoiceAmount = round((float) $invoice->amount, 2);
-            $paidAmount = min($invoiceAmount, round((float) $payload['paid_amount'], 2));
+            $discountAmount = min($invoiceAmount, max(0, round((float) ($payload['discount_amount'] ?? 0), 2)));
+            $netInvoiceAmount = max(0, round($invoiceAmount - $discountAmount, 2));
+            $paidAmount = min($netInvoiceAmount, max(0, round((float) $payload['paid_amount'], 2)));
             $paymentMethod = $payload['payment_method'];
             $paymentStatus = $this->resolvePaymentStatus(
                 paymentMethod: $paymentMethod,
                 supplierCreditApproved: (bool) $invoice->supplier?->credit_approved,
-                invoiceAmount: $invoiceAmount,
+                invoiceAmount: $netInvoiceAmount,
                 paidAmount: $paidAmount,
             );
             $invoiceStatus = $paymentStatus === 'paid'
@@ -94,25 +97,52 @@ class PurchaseInvoiceService
                 : InvoiceStatus::Pending->value;
             $oldStatus = $invoice->status;
 
-            $invoice->update([
+            $invoiceUpdateData = [
                 'payment_method' => $paymentMethod,
+                'discount_amount' => $discountAmount,
                 'payment_status' => $paymentStatus,
                 'paid_amount' => $paidAmount,
                 'payment_note' => $payload['payment_note'],
                 'payment_details' => $payload['payment_details'],
                 'status' => $invoiceStatus,
-            ]);
+            ];
+
+            if (! empty($payload['bill_number'])) {
+                $invoiceUpdateData['invoice_number'] = $payload['bill_number'];
+            }
+
+            $invoice->update($invoiceUpdateData);
 
             if ($invoice->purchaserCart) {
-                $invoice->purchaserCart->update([
+                $cartUpdateData = [
                     'payment_method' => $paymentMethod,
+                    'discount_amount' => $discountAmount,
                     'payment_status' => $paymentStatus,
                     'paid_amount' => $paidAmount,
                     'payment_note' => $payload['payment_note'],
                     'payment_details' => $payload['payment_details'],
-                    'goods_received_at' => $paymentStatus === 'paid' ? ($invoice->purchaserCart->goods_received_at ?? now()) : null,
                     'payment_made_at' => $paymentStatus === 'paid' ? now() : null,
-                ]);
+                    'goods_received_at' => $paymentStatus === 'paid' ? ($invoice->purchaserCart->goods_received_at ?: now()) : $invoice->purchaserCart->goods_received_at,
+                ];
+
+                if (! empty($payload['bill_number'])) {
+                    $cartUpdateData['bill_number'] = $payload['bill_number'];
+                }
+
+                $invoice->purchaserCart->update($cartUpdateData);
+            }
+
+            if ($invoice->purchaser_submitted_by) {
+                PurchaserCredit::updateOrCreate(
+                    ['purchase_invoice_id' => $invoice->id, 'type' => 'out'],
+                    [
+                        'purchaser_id' => $invoice->purchaser_submitted_by,
+                        'amount' => $netInvoiceAmount,
+                        'description' => 'Debit for invoice: '.($payload['bill_number'] ?? $invoice->invoice_number),
+                        'created_by' => auth()->id() ?: $invoice->purchaser_submitted_by,
+                        'business_date' => $invoice->purchaserCart?->business_date ?: today(),
+                    ]
+                );
             }
 
             if ($invoiceStatus === InvoiceStatus::Paid->value && $oldStatus !== InvoiceStatus::Paid) {

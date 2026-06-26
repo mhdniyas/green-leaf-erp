@@ -1,0 +1,80 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Web\Admin;
+
+use App\Models\ShopAccountingEntry;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Carbon;
+use Illuminate\Validation\Rule;
+
+class UpdateShopAccountingEntryRequest extends FormRequest
+{
+    protected function prepareForValidation(): void
+    {
+        $lines = collect($this->input('lines', []))
+            ->filter(function ($line): bool {
+                if (! is_array($line)) {
+                    return false;
+                }
+
+                return filled($line['shop_accounting_category_id'] ?? null)
+                    || filled($line['amount'] ?? null)
+                    || filled($line['description'] ?? null);
+            })
+            ->values()
+            ->all();
+
+        $this->merge(['lines' => $lines]);
+    }
+
+    public function authorize(): bool
+    {
+        return $this->user() !== null
+            && (
+                $this->user()->hasRole('admin')
+                || $this->user()->can('admin.user.view')
+                || $this->user()->can('admin.daily-progress.view')
+                || $this->user()->can('admin.activity-log.view')
+            );
+    }
+
+    public function rules(): array
+    {
+        $shop = $this->route('shop');
+
+        return [
+            'business_date' => [
+                'required',
+                'date',
+                function (string $attribute, mixed $value, \Closure $fail) use ($shop): void {
+                    if ($shop === null) {
+                        return;
+                    }
+
+                    $entry = $this->route('entry');
+                    $businessDate = Carbon::parse((string) $value)->toDateString();
+
+                    $exists = ShopAccountingEntry::query()
+                        ->where('shop_id', $shop->id)
+                        ->whereDate('business_date', $businessDate)
+                        ->when($entry !== null, fn ($query) => $query->whereKeyNot($entry->id))
+                        ->exists();
+
+                    if ($exists) {
+                        $fail('A daily accounting entry already exists for this business date.');
+                    }
+                },
+            ],
+            'status' => ['required', 'string', Rule::in(['draft', 'submitted', 'recheck_required', 'approved', 'finalized'])],
+            'opening_cash' => ['nullable', 'numeric', 'min:0'],
+            'closing_cash' => ['nullable', 'numeric', 'min:0'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+            'lines' => ['required', 'array', 'min:1'],
+            'lines.*.shop_accounting_category_id' => ['required', 'integer', 'exists:shop_accounting_categories,id'],
+            'lines.*.amount' => ['required', 'numeric', 'gt:0'],
+            'lines.*.description' => ['nullable', 'string', 'max:255'],
+        ];
+    }
+}

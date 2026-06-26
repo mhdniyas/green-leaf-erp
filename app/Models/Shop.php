@@ -19,6 +19,8 @@ class Shop extends Model
         'warehouse_tag',
         'shop_price_group_id',
         'status',
+        'accounting_mode',
+        'accounting_enabled',
         'approved_at',
         'address',
         'contact_name',
@@ -29,6 +31,7 @@ class Shop extends Model
     {
         return [
             'approved_at' => 'datetime',
+            'accounting_enabled' => 'boolean',
         ];
     }
 
@@ -70,5 +73,31 @@ class Shop extends Model
     public function invoices(): HasMany
     {
         return $this->hasMany(ShopInvoice::class);
+    }
+
+    public function ownerships(): HasMany
+    {
+        return $this->hasMany(ShopOwnership::class);
+    }
+
+    public function accountingCategories(): HasMany
+    {
+        return $this->hasMany(ShopAccountingCategory::class);
+    }
+
+    public function accountingEntries(): HasMany
+    {
+        return $this->hasMany(ShopAccountingEntry::class);
+    }
+
+    public function accountingInvoices(): HasMany
+    {
+        return $this->hasMany(ShopAccountingInvoice::class);
+    }
+
+    public function isOwnedAccountingEnabled(): bool
+    {
+        return (bool) $this->accounting_enabled
+            && in_array((string) $this->accounting_mode, ['owned', 'partnership'], true);
     }
 }

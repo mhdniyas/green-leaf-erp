@@ -8,6 +8,8 @@ use App\Enums\Purchasing\POStatus;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\Shop;
+use App\Models\ShopAccountingCategory;
+use App\Models\ShopAccountingEntry;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderRevision;
 use App\Models\Supplier;
@@ -344,5 +346,127 @@ class ShopOwnerModulesTest extends TestCase
         $response->assertOk();
         $response->assertSee('Requisition cannot be empty.');
         $response->assertSee('data-items-error-banner', false);
+    }
+
+    public function test_only_owned_or_partnership_shop_owner_sees_accounting_navigation(): void
+    {
+        $ownedShop = Shop::create([
+            'code' => 'OWNED_SHOP_NAV',
+            'name' => 'Owned Shop Nav',
+            'accounting_mode' => 'owned',
+            'accounting_enabled' => true,
+        ]);
+        $standardShop = Shop::create([
+            'code' => 'STANDARD_SHOP_NAV',
+            'name' => 'Standard Shop Nav',
+            'accounting_mode' => 'standard',
+            'accounting_enabled' => false,
+        ]);
+
+        $ownedUser = User::factory()->create(['shop_id' => $ownedShop->id]);
+        $ownedUser->assignRole('shop');
+
+        $standardUser = User::factory()->create(['shop_id' => $standardShop->id]);
+        $standardUser->assignRole('shop');
+
+        $this->actingAs($ownedUser)
+            ->get(route('shop-owner.dashboard'))
+            ->assertOk()
+            ->assertSee('Accounting');
+
+        $this->actingAs($standardUser)
+            ->get(route('shop-owner.dashboard'))
+            ->assertOk()
+            ->assertDontSee('Accounting');
+
+        $this->actingAs($standardUser)
+            ->get(route('shop-owner.accounting.index'))
+            ->assertNotFound();
+    }
+
+    public function test_owned_shop_owner_can_submit_entry_receive_recheck_and_resubmit(): void
+    {
+        $shop = Shop::create([
+            'code' => 'OWNED_ACC_FLOW',
+            'name' => 'Owned Accounting Shop',
+            'accounting_mode' => 'owned',
+            'accounting_enabled' => true,
+        ]);
+
+        $shopOwner = User::factory()->create(['shop_id' => $shop->id]);
+        $shopOwner->assignRole('shop');
+
+        $admin = User::factory()->create();
+        $admin->givePermissionTo('admin.user.view');
+
+        $incomeCategory = ShopAccountingCategory::create([
+            'shop_id' => null,
+            'type' => 'income',
+            'name' => 'Sales Income',
+            'is_active' => true,
+        ]);
+        $expenseCategory = ShopAccountingCategory::create([
+            'shop_id' => null,
+            'type' => 'expense',
+            'name' => 'Daily Expense',
+            'is_active' => true,
+        ]);
+
+        $payload = [
+            'business_date' => '2026-06-24',
+            'submission_action' => 'submit',
+            'opening_cash' => 500,
+            'closing_cash' => 700,
+            'notes' => 'Daily close prepared.',
+            'lines' => [
+                [
+                    'shop_accounting_category_id' => $incomeCategory->id,
+                    'amount' => 1500,
+                    'description' => 'Cash sales',
+                ],
+                [
+                    'shop_accounting_category_id' => $expenseCategory->id,
+                    'amount' => 800,
+                    'description' => 'Store spend',
+                ],
+            ],
+        ];
+
+        $this->actingAs($shopOwner)
+            ->post(route('shop-owner.accounting.entries.store'), $payload)
+            ->assertRedirect(route('shop-owner.accounting.index', ['date' => '2026-06-24']));
+
+        $entry = ShopAccountingEntry::query()->where('shop_id', $shop->id)->firstOrFail();
+        $this->assertSame('submitted', $entry->status);
+        $this->assertSame($shopOwner->id, $entry->submitted_by);
+
+        $this->actingAs($admin)
+            ->patch(route('admin.accounting.owned-shops.entries.review', ['shop' => $shop, 'entry' => $entry]), [
+                'decision' => 'recheck',
+                'admin_note' => 'Please verify the closing cash.',
+            ])
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $shop, 'date' => '2026-06-24']));
+
+        $entry->refresh();
+        $this->assertSame('recheck_required', $entry->status);
+
+        $this->actingAs($shopOwner)
+            ->get(route('shop-owner.accounting.index', ['date' => '2026-06-24']))
+            ->assertOk()
+            ->assertSee('Recheck Required')
+            ->assertSee('Please verify the closing cash.');
+
+        $this->actingAs($shopOwner)
+            ->post(route('shop-owner.accounting.entries.store'), [
+                ...$payload,
+                'closing_cash' => 750,
+                'shop_reply_note' => 'Updated after recount.',
+            ])
+            ->assertRedirect(route('shop-owner.accounting.index', ['date' => '2026-06-24']));
+
+        $entry->refresh();
+        $this->assertSame('submitted', $entry->status);
+        $this->assertSame('Updated after recount.', $entry->shop_reply_note);
+        $this->assertNull($entry->reviewed_by);
     }
 }

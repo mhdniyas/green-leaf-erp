@@ -4,10 +4,12 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;
 
 class PurchaserCorrectionRequest extends Model
 {
     protected $fillable = [
+        'public_uuid',
         'business_date',
         'shop_order_item_id',
         'current_approved_qty',
@@ -19,6 +21,20 @@ class PurchaserCorrectionRequest extends Model
         'review_note',
         'reviewed_at',
     ];
+
+    public function getRouteKeyName(): string
+    {
+        return 'public_uuid';
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $request): void {
+            if (! $request->public_uuid) {
+                $request->public_uuid = (string) Str::uuid();
+            }
+        });
+    }
 
     protected $casts = [
         'business_date' => 'date',

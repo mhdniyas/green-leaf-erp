@@ -3,9 +3,11 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Web\Admin\ActivityLogController;
+use App\Http\Controllers\Web\Admin\AdminAccountingController;
 use App\Http\Controllers\Web\Admin\AdminOverviewController;
 use App\Http\Controllers\Web\Admin\DailyPriceApprovalController;
 use App\Http\Controllers\Web\Admin\DailyProgressController;
+use App\Http\Controllers\Web\Admin\DiscrepancyReportController;
 use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\Admin\WarehouseController;
 use App\Http\Controllers\Web\Auth\LoginController;
@@ -76,6 +78,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/orders/{order_number}', [ShopOwnerController::class, 'ordersShow'])->name('orders.show');
         Route::get('/deliveries', [ShopOwnerController::class, 'deliveriesIndex'])->name('deliveries.index');
         Route::get('/deliveries/{order_number}', [ShopOwnerController::class, 'deliveriesShow'])->name('deliveries.show');
+        Route::get('/accounting', [ShopOwnerController::class, 'accountingIndex'])->name('accounting.index');
+        Route::get('/accounting/history', [ShopOwnerController::class, 'accountingHistory'])->name('accounting.history');
+        Route::post('/accounting/entries', [ShopOwnerController::class, 'storeAccountingEntry'])->name('accounting.entries.store');
         Route::get('/finance', [ShopOwnerController::class, 'financeIndex'])->name('finance.index');
         Route::get('/finance/{invoice}', [ShopOwnerController::class, 'financeShow'])->name('finance.show');
         Route::get('/finance/{invoice}/pdf', [ShopOwnerController::class, 'financePdf'])->name('finance.pdf');
@@ -233,9 +238,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/bulk-buy/details', [PurchaserDashboardController::class, 'bulkBuyDetails'])->name('purchaser.bulk-buy.details');
     Route::get('/purchaser/cart', [PurchaserDashboardController::class, 'cart'])->name('purchaser.cart');
     Route::get('/purchaser/vendors', [PurchaserDashboardController::class, 'vendors'])->name('purchaser.vendors');
+    Route::get('/purchaser/suppliers', [PurchaserDashboardController::class, 'supplierHub'])->name('purchaser.suppliers');
+    Route::get('/purchaser/suppliers/{supplier}', [PurchaserDashboardController::class, 'supplierShow'])->name('purchaser.suppliers.show');
     Route::get('/purchaser/finance', [PurchaserDashboardController::class, 'finance'])->name('purchaser.finance');
     Route::get('/purchaser/cart/{cart}/bill', [PurchaserDashboardController::class, 'bill'])->name('purchaser.bill');
     Route::get('/purchaser/history', [PurchaserDashboardController::class, 'history'])->name('purchaser.history');
+    Route::get('/purchaser/credits', [PurchaserDashboardController::class, 'credits'])->name('purchaser.credits');
     Route::post('/purchaser/carts', [PurchaserDashboardController::class, 'storeCart'])->name('purchaser.carts.store');
     Route::post('/purchaser/carts/bulk-store', [PurchaserDashboardController::class, 'bulkStoreCart'])->name('purchaser.carts.bulk-store');
     Route::post('/purchaser/carts/{cart}/merge-drafts', [PurchaserDashboardController::class, 'mergeDraftCarts'])->name('purchaser.carts.merge-drafts');
@@ -258,14 +266,34 @@ Route::middleware('auth')->group(function () {
         Route::get('/checklist', [WarehouseReceiverController::class, 'index'])->name('checklist');
         Route::post('/confirm/{batch}', [WarehouseReceiverController::class, 'confirm'])->name('confirm');
         Route::post('/confirm-all', [WarehouseReceiverController::class, 'confirmAll'])->name('confirm-all');
+        Route::get('/receive-grn/{grn}', [WarehouseReceiverController::class, 'receiveGrnForm'])->name('receive-grn');
+        Route::post('/receive-grn/{grn}', [WarehouseReceiverController::class, 'processReceiveGrn'])->name('process-receive-grn');
         Route::get('/loadout/{order}', [WarehouseReceiverController::class, 'loadoutDetails'])->name('loadout.show');
         Route::post('/loadout/item/{item}', [WarehouseReceiverController::class, 'loadoutItem'])->name('loadout.item');
         Route::post('/loadout/order/{order}/all', [WarehouseReceiverController::class, 'loadoutOrderAll'])->name('loadout.order-all');
+        Route::post('/loadout/order/{order}/dispatch', [WarehouseReceiverController::class, 'dispatchOrder'])->name('loadout.order.dispatch');
+        Route::post('/loadout/order/{order}/dispatch-partial', [WarehouseReceiverController::class, 'dispatchPartialOrder'])->name('loadout.order.dispatch-partial');
     });
 
     // ── Admin ──────────────────────────────────────────────────────────────
     Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('/', AdminOverviewController::class)->name('overview');
+        Route::prefix('accounting')->name('accounting.')->group(function () {
+            Route::get('/', [AdminAccountingController::class, 'index'])->name('index');
+            Route::post('daily-workflow/invoices', [AdminAccountingController::class, 'generateDailyWorkflowInvoices'])->name('daily-workflow.invoices');
+            Route::get('owned-shops', [AdminAccountingController::class, 'ownedShopsIndex'])->name('owned-shops.index');
+            Route::get('owned-shops/{shop}', [AdminAccountingController::class, 'ownedShopShow'])->name('owned-shops.show');
+            Route::post('owned-shops/{shop}/ownerships', [AdminAccountingController::class, 'storeOwnerships'])->name('owned-shops.ownerships.store');
+            Route::post('owned-shops/{shop}/categories', [AdminAccountingController::class, 'storeCategory'])->name('owned-shops.categories.store');
+            Route::post('owned-shops/{shop}/entries', [AdminAccountingController::class, 'storeEntry'])->name('owned-shops.entries.store');
+            Route::patch('owned-shops/{shop}/entries/{entry}', [AdminAccountingController::class, 'updateEntry'])->name('owned-shops.entries.update');
+            Route::patch('owned-shops/{shop}/entries/{entry}/review', [AdminAccountingController::class, 'reviewEntry'])->name('owned-shops.entries.review');
+            Route::post('owned-shops/{shop}/invoices', [AdminAccountingController::class, 'storeInvoice'])->name('owned-shops.invoices.store');
+            Route::get('owned-shops/{shop}/invoices/{invoice}', [AdminAccountingController::class, 'showInvoice'])->name('owned-shops.invoices.show');
+            Route::get('purchasers', [AdminAccountingController::class, 'purchasersIndex'])->name('purchasers.index');
+            Route::get('purchasers/{user}', [AdminAccountingController::class, 'purchaserShow'])->name('purchasers.show');
+            Route::post('purchasers/{user}/credits', [AdminAccountingController::class, 'storePurchaserCredit'])->name('purchasers.credits.store');
+        });
         Route::post('users/{user}/approve', [UserController::class, 'approve'])->name('users.approve');
         Route::resource('users', UserController::class);
         Route::resource('warehouses', WarehouseController::class);
@@ -273,6 +301,7 @@ Route::middleware('auth')->group(function () {
         Route::get('activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
         Route::get('price-approvals', [DailyPriceApprovalController::class, 'index'])->name('price-approvals.index');
         Route::post('price-approvals/approve', [DailyPriceApprovalController::class, 'approve'])->name('price-approvals.approve');
+        Route::get('discrepancies', DiscrepancyReportController::class)->name('discrepancies.index');
     });
 
     // ── Sort Sheet ──────────────────────────────────────────────────────────────

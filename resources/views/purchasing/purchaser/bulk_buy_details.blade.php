@@ -1,6 +1,7 @@
 <x-layouts.app title="Bulk Purchase Details" :show-mobile-nav="false">
     <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-3 lg:max-w-6xl lg:gap-4 lg:px-6 lg:py-4">
         @include('purchasing.purchaser.partials.feedback')
+        @include('purchasing.purchaser.partials.deadline_alert')
 
         <section class="overflow-hidden rounded-2xl bg-slate-950 text-white shadow-[0_16px_36px_rgba(15,23,42,0.18)] lg:rounded-[2rem]">
             <div class="bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.28),_transparent_36%),linear-gradient(135deg,_#0f172a_0%,_#111827_55%,_#134e4a_100%)] px-4 py-4 sm:px-5 lg:px-4 lg:py-5">
@@ -40,7 +41,7 @@
                             <span class="checkmark text-teal-600">✓</span>
                         </button>
                         @foreach ($draftCarts as $cart)
-                            <button type="button" data-value="{{ $cart->id }}" class="custom-select-option flex w-full items-center justify-between px-4 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100">
+                            <button type="button" data-value="{{ $cart->id }}" data-supplier="{{ $cart->supplier?->name ?: '' }}" class="custom-select-option flex w-full items-center justify-between px-4 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100">
                                 <span>{{ $cart->cart_number }}</span>
                                 <span class="checkmark hidden text-teal-600">✓</span>
                             </button>
@@ -77,6 +78,12 @@
                                     <span>Bought: {{ number_format($summary['bought_qty'], 1) }}</span>
                                     <span>In Cart: {{ number_format($summary['draft_qty'], 1) }}</span>
                                 </div>
+                                <p id="prev-price-hint-{{ $summary['product_id'] }}" class="mt-2 text-[11px] font-black text-amber-700">
+                                    @php
+                                        $fallbackHint = (float) ($bulkFallbackPriceHints[$summary['product_id']] ?? 0);
+                                    @endphp
+                                    {{ $fallbackHint > 0 ? 'Last purchase ₹'.number_format($fallbackHint, 2) : 'No recent purchase price yet' }}
+                                </p>
 
                                 @if ($summary['unit'] === 'kg')
                                     <div class="mt-3">
@@ -189,6 +196,27 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            const bulkPriceHintsByCart = @json($bulkPriceHintsByCart);
+            const bulkFallbackPriceHints = @json($bulkFallbackPriceHints);
+
+            function updateBulkPriceHints(cartId) {
+                document.querySelectorAll('.product-row').forEach((row) => {
+                    const productId = row.getAttribute('data-product-id');
+                    const hintNode = document.getElementById(`prev-price-hint-${productId}`);
+                    if (!hintNode) {
+                        return;
+                    }
+
+                    const cartHint = cartId && bulkPriceHintsByCart[cartId] ? Number(bulkPriceHintsByCart[cartId][productId] || 0) : 0;
+                    const fallbackHint = Number(bulkFallbackPriceHints[productId] || 0);
+                    const hintValue = cartHint > 0 ? cartHint : fallbackHint;
+
+                    hintNode.textContent = hintValue > 0
+                        ? `${cartHint > 0 ? 'Vendor last' : 'Last purchase'} ₹${hintValue.toFixed(2)}`
+                        : 'No recent purchase price yet';
+                });
+            }
+
             // Dropdown Toggle
             document.addEventListener('click', (e) => {
                 const trigger = e.target.closest('.custom-select-trigger');
@@ -221,6 +249,7 @@
                     
                     input.value = val;
                     label.textContent = text;
+                    updateBulkPriceHints(val);
                     
                     container.querySelectorAll('.custom-select-option').forEach(opt => {
                         const check = opt.querySelector('.checkmark');
@@ -355,6 +384,7 @@
             });
 
             calculateGrandTotal();
+            updateBulkPriceHints(document.querySelector('.custom-select-input')?.value || '');
         });
     </script>
 </x-layouts.app>

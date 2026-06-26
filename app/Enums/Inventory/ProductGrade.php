@@ -10,6 +10,7 @@ enum ProductGrade: string
     case GradeB = 'B';
     case GradeC = 'C';
     case Damage = 'D';
+    case Unsorted = 'U';
 
     public function label(): string
     {
@@ -18,6 +19,7 @@ enum ProductGrade: string
             self::GradeB => 'Grade B — Standard',
             self::GradeC => 'Grade C — Economy',
             self::Damage => 'Damage — Write-off',
+            self::Unsorted => 'Unsorted',
         };
     }
 
@@ -28,11 +30,12 @@ enum ProductGrade: string
             self::GradeB => 'blue',
             self::GradeC => 'amber',
             self::Damage => 'red',
+            self::Unsorted => 'slate',
         };
     }
 
     public function isSellable(): bool
     {
-        return $this !== self::Damage;
+        return $this !== self::Damage && $this !== self::Unsorted;
     }
 }

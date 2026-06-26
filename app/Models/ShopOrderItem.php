@@ -19,6 +19,9 @@ class ShopOrderItem extends Model
         'product_grade',
         'requested_qty',
         'approved_qty',
+        'loaded_qty',
+        'loadout_discrepancy_type',
+        'loadout_discrepancy_note',
         'unit',
         'locked_price_group_id',
         'locked_selling_price',
@@ -34,11 +37,14 @@ class ShopOrderItem extends Model
         'shortage_qty',
         'unit_cost',
         'shortage_value',
+        'delivery_discrepancy_type',
+        'delivery_discrepancy_note',
     ];
 
     protected $casts = [
         'requested_qty' => 'decimal:2',
         'approved_qty' => 'decimal:2',
+        'loaded_qty' => 'decimal:2',
         'locked_selling_price' => 'decimal:2',
         'line_total' => 'decimal:2',
         'is_sorted' => 'boolean',
