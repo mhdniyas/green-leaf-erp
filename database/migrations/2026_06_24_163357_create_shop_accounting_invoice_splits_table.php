@@ -16,8 +16,12 @@ return new class extends Migration
 
         Schema::create('shop_accounting_invoice_splits', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('shop_accounting_invoice_id')->constrained('shop_accounting_invoices')->cascadeOnDelete();
-            $table->foreignId('shop_ownership_id')->constrained('shop_ownerships')->cascadeOnDelete();
+            $table->foreignId('shop_accounting_invoice_id')
+                ->constrained(table: 'shop_accounting_invoices', indexName: 'sais_invoice_fk')
+                ->cascadeOnDelete();
+            $table->foreignId('shop_ownership_id')
+                ->constrained(table: 'shop_ownerships', indexName: 'sais_owner_fk')
+                ->cascadeOnDelete();
             $table->string('owner_name_snapshot', 255);
             $table->decimal('ownership_percent_snapshot', 5, 2);
             $table->decimal('share_amount', 12, 2);

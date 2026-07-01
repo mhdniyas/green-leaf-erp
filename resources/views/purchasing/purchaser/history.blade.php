@@ -148,7 +148,7 @@
 
                         <div class="mt-3 flex flex-wrap gap-2">
                             @if ($cart->status === 'draft')
-                                <a href="{{ route('purchaser.vendors', ['date' => $cart->business_date->format('Y-m-d'), 'tab' => $cart->goods_received_at ? 'delivered' : 'orders', 'focus_cart' => $cart->id]) }}" class="flex h-9 items-center justify-center rounded-xl border border-slate-200 px-3 text-[11px] font-black text-slate-700 hover:bg-slate-50">
+                                <a href="{{ route('purchaser.vendors', ['date' => $cart->business_date->format('Y-m-d'), 'tab' => 'draft', 'focus_cart' => $cart->id]) }}" class="flex h-9 items-center justify-center rounded-xl border border-slate-200 px-3 text-[11px] font-black text-slate-700 hover:bg-slate-50">
                                     Continue Cart
                                 </a>
                             @elseif ($cart->purchaseInvoice)

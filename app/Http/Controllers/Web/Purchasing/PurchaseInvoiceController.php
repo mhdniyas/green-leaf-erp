@@ -244,7 +244,10 @@ class PurchaseInvoiceController extends Controller
             'payment_details' => $validated['payment_details'] ?? null,
         ]);
 
-        $remainingBalance = max(0, round((float) $updatedInvoice->amount - (float) $updatedInvoice->paid_amount, 2));
+        $remainingBalance = max(
+            0,
+            round(((float) $updatedInvoice->amount - (float) $updatedInvoice->discount_amount) - (float) $updatedInvoice->paid_amount, 2)
+        );
         $message = $remainingBalance > 0 || $updatedInvoice->payment_method === 'Credit'
             ? 'Payment updated. Invoice is not complete yet.'
             : 'Payment completed successfully.';

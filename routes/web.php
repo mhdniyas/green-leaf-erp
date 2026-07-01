@@ -241,9 +241,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/suppliers', [PurchaserDashboardController::class, 'supplierHub'])->name('purchaser.suppliers');
     Route::get('/purchaser/suppliers/{supplier}', [PurchaserDashboardController::class, 'supplierShow'])->name('purchaser.suppliers.show');
     Route::get('/purchaser/finance', [PurchaserDashboardController::class, 'finance'])->name('purchaser.finance');
+    Route::get('/purchaser/cash', [PurchaserDashboardController::class, 'cash'])->name('purchaser.cash');
     Route::get('/purchaser/cart/{cart}/bill', [PurchaserDashboardController::class, 'bill'])->name('purchaser.bill');
     Route::get('/purchaser/history', [PurchaserDashboardController::class, 'history'])->name('purchaser.history');
-    Route::get('/purchaser/credits', [PurchaserDashboardController::class, 'credits'])->name('purchaser.credits');
     Route::post('/purchaser/carts', [PurchaserDashboardController::class, 'storeCart'])->name('purchaser.carts.store');
     Route::post('/purchaser/carts/bulk-store', [PurchaserDashboardController::class, 'bulkStoreCart'])->name('purchaser.carts.bulk-store');
     Route::post('/purchaser/carts/{cart}/merge-drafts', [PurchaserDashboardController::class, 'mergeDraftCarts'])->name('purchaser.carts.merge-drafts');

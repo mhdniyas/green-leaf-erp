@@ -4,10 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class PurchaserCorrectionRequest extends Model
 {
+    private static ?bool $hasPublicUuidColumn = null;
+
     protected $fillable = [
         'public_uuid',
         'business_date',
@@ -24,16 +27,30 @@ class PurchaserCorrectionRequest extends Model
 
     public function getRouteKeyName(): string
     {
-        return 'public_uuid';
+        return static::hasPublicUuidColumn() ? 'public_uuid' : $this->getKeyName();
+    }
+
+    public function getRouteKey(): mixed
+    {
+        if (static::hasPublicUuidColumn() && $this->public_uuid) {
+            return $this->public_uuid;
+        }
+
+        return $this->getKey();
     }
 
     protected static function booted(): void
     {
         static::creating(function (self $request): void {
-            if (! $request->public_uuid) {
+            if (static::hasPublicUuidColumn() && ! $request->public_uuid) {
                 $request->public_uuid = (string) Str::uuid();
             }
         });
+    }
+
+    public static function hasPublicUuidColumn(): bool
+    {
+        return self::$hasPublicUuidColumn ??= Schema::hasColumn('purchaser_correction_requests', 'public_uuid');
     }
 
     protected $casts = [

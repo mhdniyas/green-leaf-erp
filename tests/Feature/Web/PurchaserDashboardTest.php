@@ -11,13 +11,13 @@ use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaserCart;
 use App\Models\PurchaserCartItem;
+use App\Models\PurchaserCredit;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Models\Supplier;
 use App\Models\User;
-use App\Services\Purchasing\VendorPriceService;
 use Database\Seeders\ChartOfAccountsSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -39,6 +39,8 @@ class PurchaserDashboardTest extends TestCase
     private Shop $shopB;
 
     private Supplier $supplier;
+
+    private int $submittedCartSequence = 0;
 
     protected function setUp(): void
     {
@@ -421,7 +423,7 @@ class PurchaserDashboardTest extends TestCase
                 $firstCart->items()->firstOrFail()->id => ['unit_price' => 20],
                 $firstCart->items()->latest('id')->firstOrFail()->id => ['unit_price' => 10],
             ],
-        ])->assertRedirect(route('purchaser.history', ['date' => $date]));
+        ])->assertRedirect(route('purchaser.vendors', ['date' => $date, 'tab' => 'pending']));
 
         $firstCart->refresh();
 
@@ -521,7 +523,7 @@ class PurchaserDashboardTest extends TestCase
             'items' => [
                 $cart->items()->firstOrFail()->id => ['unit_price' => 15],
             ],
-        ])->assertRedirect(route('purchaser.history', ['date' => $date]));
+        ])->assertRedirect(route('purchaser.vendors', ['date' => $date, 'tab' => 'pending']));
 
         $cart->refresh();
 
@@ -560,7 +562,7 @@ class PurchaserDashboardTest extends TestCase
             'items' => [
                 $cart->items()->firstOrFail()->id => ['unit_price' => 18],
             ],
-        ])->assertRedirect(route('purchaser.history', ['date' => $date]));
+        ])->assertRedirect(route('purchaser.vendors', ['date' => $date, 'tab' => 'pending']));
 
         $cart->refresh();
 
@@ -615,7 +617,7 @@ class PurchaserDashboardTest extends TestCase
             'items' => [
                 $cart->items()->firstOrFail()->id => ['unit_price' => 12],
             ],
-        ])->assertRedirect(route('purchaser.history', ['date' => $date]));
+        ])->assertRedirect(route('purchaser.vendors', ['date' => $date, 'tab' => 'pending']));
 
         $this->assertDatabaseCount((new GoodsReceived)->getTable(), 2);
 
@@ -924,7 +926,7 @@ class PurchaserDashboardTest extends TestCase
         $this->assertSame('5.00', (string) ShopOrderItem::query()->firstOrFail()->approved_qty);
     }
 
-    public function test_vendors_screen_displays_active_and_delivered_orders(): void
+    public function test_vendors_screen_displays_draft_pending_and_completed_sections(): void
     {
         $date = Carbon::today()->format('Y-m-d');
         $vegCategory = Category::create(['name' => 'VEG', 'is_active' => true]);
@@ -936,32 +938,29 @@ class PurchaserDashboardTest extends TestCase
             'unit' => 'kg',
         ]);
 
-        // Create an active cart (goods_received_at is null)
-        $activeCart = PurchaserCart::create([
+        $draftCart = PurchaserCart::create([
             'user_id' => $this->purchaser->id,
             'supplier_id' => $this->supplier->id,
             'business_date' => $date,
-            'cart_number' => 'VC-'.str_replace('-', '', $date).'-ACT1',
+            'cart_number' => 'VC-'.str_replace('-', '', $date).'-DRAFT1',
             'status' => 'draft',
         ]);
 
-        // Create a delivered cart (goods_received_at is set)
-        $deliveredCart = PurchaserCart::create([
-            'user_id' => $this->purchaser->id,
-            'supplier_id' => $this->supplier->id,
-            'business_date' => $date,
-            'cart_number' => 'VC-'.str_replace('-', '', $date).'-DEL1',
-            'status' => 'submitted',
-            'goods_received_at' => now(),
-        ]);
+        $pendingCart = $this->createSubmittedCartWithInvoice($date, 110.0, 0.0);
+        $this->attachReceiptState($pendingCart, warehouseConfirmed: true, receiptNotes: 'Payment still open.');
+
+        $completedCart = $this->createSubmittedCartWithInvoice($date, 125.0, 125.0);
+        $this->attachReceiptState($completedCart, warehouseConfirmed: true, receiptNotes: 'Fully received and settled.');
 
         $response = $this->actingAs($this->purchaser)->get(route('purchaser.vendors', ['date' => $date]));
         $response->assertOk();
         $response->assertSee('Daily Carts');
-        $response->assertSee($activeCart->cart_number);
-        $response->assertSee($deliveredCart->cart_number);
-        $response->assertSee('Active');
-        $response->assertSee('Received');
+        $response->assertSee($draftCart->cart_number);
+        $response->assertSee($pendingCart->cart_number);
+        $response->assertSee($completedCart->cart_number);
+        $response->assertSee('Draft');
+        $response->assertSee('Pending');
+        $response->assertSee('Completed');
     }
 
     public function test_vendors_screen_shows_previous_vendor_price_hint(): void
@@ -1045,7 +1044,7 @@ class PurchaserDashboardTest extends TestCase
             ],
         ]);
 
-        $response->assertRedirect(route('purchaser.history', ['date' => $date]));
+        $response->assertRedirect(route('purchaser.vendors', ['date' => $date, 'tab' => 'pending']));
 
         $this->assertDatabaseHas('products', [
             'id' => $product->id,
@@ -1070,6 +1069,81 @@ class PurchaserDashboardTest extends TestCase
         $response->assertSee('Bills generated');
         $response->assertSee($cart->purchaseInvoice->invoice_number);
         $response->assertSee($this->supplier->mobile_number);
+        $response->assertSee('Business day '.Carbon::parse($date)->format('d M Y'));
+    }
+
+    public function test_purchaser_finance_tabs_split_today_and_old_invoices(): void
+    {
+        $today = Carbon::today()->format('Y-m-d');
+        $oldDate = Carbon::today()->subDay()->format('Y-m-d');
+
+        $todayCart = $this->createSubmittedCartWithInvoice($today, 120.0, 0.0);
+        $oldCart = $this->createSubmittedCartWithInvoice($oldDate, 95.0, 0.0);
+        $oldCart->purchaseInvoice->update([
+            'payment_status' => 'partial',
+            'paid_amount' => 40,
+            'updated_at' => Carbon::parse($today)->setTime(14, 30),
+        ]);
+        $oldCart->update([
+            'payment_status' => 'partial',
+            'paid_amount' => 40,
+        ]);
+
+        $todayResponse = $this->actingAs($this->purchaser)->get(route('purchaser.finance', [
+            'date' => $today,
+            'tab' => 'today',
+        ]));
+
+        $todayResponse->assertOk();
+        $todayResponse->assertSee($todayCart->purchaseInvoice->invoice_number);
+        $todayResponse->assertDontSee($oldCart->purchaseInvoice->invoice_number);
+        $todayResponse->assertSee('Today');
+        $todayResponse->assertSee('Old');
+
+        $oldResponse = $this->actingAs($this->purchaser)->get(route('purchaser.finance', [
+            'date' => $today,
+            'tab' => 'old',
+        ]));
+
+        $oldResponse->assertOk();
+        $oldResponse->assertSee($oldCart->purchaseInvoice->invoice_number);
+        $oldResponse->assertDontSee($todayCart->purchaseInvoice->invoice_number);
+        $oldResponse->assertSee('older invoices before');
+        $oldResponse->assertSee('Partially Paid');
+        $oldResponse->assertSee('Partially paid on');
+        $oldResponse->assertSee(Carbon::parse($today)->format('d M Y'));
+    }
+
+    public function test_purchaser_finance_search_filters_today_and_old_tabs(): void
+    {
+        $today = Carbon::today()->format('Y-m-d');
+        $oldDate = Carbon::today()->subDay()->format('Y-m-d');
+
+        $todaySupplier = Supplier::factory()->create(['name' => 'Search Today Vendor', 'mobile_number' => '9000000001']);
+        $oldSupplier = Supplier::factory()->create(['name' => 'Search Old Vendor', 'mobile_number' => '9000000002']);
+
+        $todayCart = $this->createSubmittedCartWithInvoice($today, 120.0, 0.0, $todaySupplier);
+        $oldCart = $this->createSubmittedCartWithInvoice($oldDate, 95.0, 0.0, $oldSupplier);
+
+        $todayResponse = $this->actingAs($this->purchaser)->get(route('purchaser.finance', [
+            'date' => $today,
+            'tab' => 'today',
+            'search' => 'Search Today Vendor',
+        ]));
+
+        $todayResponse->assertOk();
+        $todayResponse->assertSee($todayCart->purchaseInvoice->invoice_number);
+        $todayResponse->assertDontSee($oldCart->purchaseInvoice->invoice_number);
+
+        $oldResponse = $this->actingAs($this->purchaser)->get(route('purchaser.finance', [
+            'date' => $today,
+            'tab' => 'old',
+            'search' => 'Search Old Vendor',
+        ]));
+
+        $oldResponse->assertOk();
+        $oldResponse->assertSee($oldCart->purchaseInvoice->invoice_number);
+        $oldResponse->assertDontSee($todayCart->purchaseInvoice->invoice_number);
     }
 
     public function test_purchaser_can_open_own_invoice_pdf(): void
@@ -1149,6 +1223,26 @@ class PurchaserDashboardTest extends TestCase
         $this->assertNull($cart->goods_received_at);
     }
 
+    public function test_additional_payment_amount_is_added_to_existing_paid_total(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $cart = $this->createSubmittedCartWithInvoice($date, 150.0, 50.0);
+
+        $this->actingAs($this->purchaser)->patch(route('purchaser.invoices.payment', $cart->purchaseInvoice), [
+            'payment_method' => 'Cash',
+            'additional_paid_amount' => 40,
+            'payment_note' => 'Additional payment collected',
+            'payment_details' => 'Second settlement',
+        ])->assertRedirect(route('purchaser.finance', ['date' => $date]));
+
+        $cart->refresh();
+        $invoice = $cart->purchaseInvoice()->firstOrFail();
+
+        $this->assertSame('90.00', (string) $invoice->paid_amount);
+        $this->assertSame('partial', $invoice->payment_status);
+        $this->assertSame('partial', $cart->payment_status);
+    }
+
     public function test_full_payment_marks_cart_and_invoice_as_paid(): void
     {
         $date = Carbon::today()->format('Y-m-d');
@@ -1225,13 +1319,15 @@ class PurchaserDashboardTest extends TestCase
             'unit' => 'kg',
         ]);
 
+        $this->submittedCartSequence++;
+
         $cart = PurchaserCart::create([
             'user_id' => $this->purchaser->id,
             'supplier_id' => $supplier->id,
             'business_date' => $date,
-            'cart_number' => 'VC-'.str_replace('-', '', $date).'-FIN'.random_int(100, 999),
+            'cart_number' => 'VC-'.str_replace('-', '', $date).'-FIN'.str_pad((string) $this->submittedCartSequence, 4, '0', STR_PAD_LEFT),
             'status' => 'submitted',
-            'bill_number' => 'BILL-'.random_int(100, 999),
+            'bill_number' => 'BILL-'.str_pad((string) $this->submittedCartSequence, 4, '0', STR_PAD_LEFT),
             'bill_received_at' => now(),
             'submitted_at' => now(),
         ]);
@@ -1685,7 +1781,7 @@ class PurchaserDashboardTest extends TestCase
             $response = $this->actingAs($this->purchaser)->get(route('purchaser.history'));
 
             $response->assertOk();
-            $response->assertSee('Overdue');
+            $response->assertSee('Processing');
             $response->assertSee('Payment Pending');
             $response->assertSee($overdueCart->cart_number);
             $response->assertSee($processingCart->cart_number);
@@ -1731,7 +1827,7 @@ class PurchaserDashboardTest extends TestCase
             $response = $this->actingAs($this->purchaser)->get(route('purchaser.history', ['date' => '2026-06-25']));
 
             $response->assertOk();
-            $response->assertSee('date=2026-06-25&amp;tab=delivered&amp;focus_cart='.$cart->id, false);
+            $response->assertSee('date=2026-06-25&amp;tab=draft&amp;focus_cart='.$cart->id, false);
         } finally {
             Carbon::setTestNow();
         }
@@ -1740,8 +1836,9 @@ class PurchaserDashboardTest extends TestCase
     public function test_supplier_hub_can_search_pending_vendor_and_show_recent_history(): void
     {
         $date = Carbon::today()->format('Y-m-d');
+        $overdueDate = Carbon::today()->subDay()->format('Y-m-d');
 
-        $pendingCart = $this->createSubmittedCartWithInvoice($date, 125.0, 0.0);
+        $pendingCart = $this->createSubmittedCartWithInvoice($overdueDate, 125.0, 0.0);
         $this->attachReceiptState($pendingCart, warehouseConfirmed: true, receiptNotes: 'Pending payment with GRN note.');
 
         $paidSupplier = Supplier::factory()->create([
@@ -1760,6 +1857,16 @@ class PurchaserDashboardTest extends TestCase
         $hubResponse->assertSee('Purchaser vendors');
         $hubResponse->assertSee($this->supplier->name);
         $hubResponse->assertDontSee($paidSupplier->name);
+        $hubResponse->assertSee('Vendor Summary');
+        $hubResponse->assertSee('Open Vendor History');
+        $hubResponse->assertSee('₹125.00', false);
+
+        $allVendorsResponse = $this->actingAs($this->purchaser)->get(route('purchaser.suppliers', [
+            'date' => $date,
+        ]));
+        $allVendorsResponse->assertOk();
+        $allVendorsResponse->assertSee($this->supplier->name);
+        $allVendorsResponse->assertSee($paidSupplier->name);
 
         $detailResponse = $this->actingAs($this->purchaser)->get(route('purchaser.suppliers.show', [
             'supplier' => $this->supplier,
@@ -1811,14 +1918,87 @@ class PurchaserDashboardTest extends TestCase
             $response->assertSee('Vendor history');
             $response->assertSee('25 Jun 2026');
             $response->assertSee('24 Jun 2026');
+            $response->assertSee('History Total');
+            $response->assertSee('Items Bought');
+            $response->assertSee('Discount Total');
+            $response->assertSee('Pending Total');
             $response->assertSee('Update Payment');
             $response->assertSee('Delivery Discrepancy');
             $response->assertSee('Short 0.50 kg');
             $response->assertSee('Short bag checked at receiving.');
+            $response->assertSee('₹215.00', false);
             $response->assertDontSee('Completed Bills');
         } finally {
             Carbon::setTestNow();
         }
+    }
+
+    public function test_supplier_hub_summary_uses_only_the_carts_active_linked_invoice(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $supplier = Supplier::factory()->create([
+            'name' => 'Linked Invoice Vendor',
+            'mobile_number' => '9000000001',
+        ]);
+
+        $cart = $this->createSubmittedCartWithInvoice($date, 150.0, 150.0, $supplier);
+        $this->attachReceiptState($cart, warehouseConfirmed: true, receiptNotes: 'Settled invoice should drive summary.');
+
+        PurchaseInvoice::factory()->create([
+            'supplier_id' => $supplier->id,
+            'purchaser_cart_id' => $cart->id,
+            'goods_received_id' => $cart->goods_received_id,
+            'invoice_number' => 'PINV-STALE-'.random_int(1000, 9999),
+            'amount' => 400.0,
+            'discount_amount' => 0.0,
+            'paid_amount' => 0.0,
+            'status' => 'pending',
+            'payment_method' => 'Cash',
+            'payment_status' => 'unpaid',
+        ]);
+
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.suppliers', [
+            'date' => $date,
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Linked Invoice Vendor');
+        $response->assertSee('₹150.00', false);
+        $response->assertSee('0 pending');
+        $response->assertDontSee('₹400.00', false);
+    }
+
+    public function test_purchaser_cash_page_shows_in_and_out_ledger(): void
+    {
+        $invoiceCart = $this->createSubmittedCartWithInvoice(Carbon::today()->format('Y-m-d'), 125.0, 125.0);
+        PurchaserCredit::create([
+            'purchaser_id' => $this->purchaser->id,
+            'type' => 'in',
+            'amount' => 500.0,
+            'description' => 'Cash advance for today buying',
+            'created_by' => $this->purchaseManager->id,
+            'business_date' => Carbon::today()->toDateString(),
+        ]);
+        $creditOut = PurchaserCredit::create([
+            'purchaser_id' => $this->purchaser->id,
+            'type' => 'out',
+            'amount' => 125.0,
+            'description' => 'Invoice paid out',
+            'purchase_invoice_id' => $invoiceCart->purchase_invoice_id,
+            'created_by' => $this->purchaseManager->id,
+            'business_date' => Carbon::today()->toDateString(),
+        ]);
+
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.cash'));
+
+        $response->assertOk();
+        $response->assertSee('Cash in & out', false);
+        $response->assertSee('Cash advance for today buying');
+        $response->assertSee('Invoice paid out');
+        $response->assertSee('₹500.00', false);
+        $response->assertSee('₹125.00', false);
+        $response->assertSee('₹375.00', false);
+        $response->assertSee('Invoice: '.$creditOut->purchaseInvoice->invoice_number);
     }
 
     public function test_payment_update_from_supplier_detail_redirects_back_to_vendor_history(): void
@@ -1871,6 +2051,25 @@ class PurchaserDashboardTest extends TestCase
                 'is_extra_purchase' => false,
             ]);
 
+            $overdueDraftSupplier = Supplier::factory()->create(['name' => 'Overdue Draft Vendor']);
+            $overdueDraftCart = PurchaserCart::create([
+                'user_id' => $this->purchaser->id,
+                'supplier_id' => $overdueDraftSupplier->id,
+                'business_date' => $overdueDate,
+                'cart_number' => 'VC-OVERDUE-DRAFT-001',
+                'status' => 'draft',
+            ]);
+            $overdueDraftCart->items()->create([
+                'product_id' => Product::factory()->create([
+                    'category_id' => Category::factory()->create()->id,
+                    'unit' => 'kg',
+                ])->id,
+                'quantity' => 2,
+                'unit_price' => 31,
+                'line_total' => 62,
+                'is_extra_purchase' => false,
+            ]);
+
             $receiptPendingSupplier = Supplier::factory()->create(['name' => 'Warehouse Receipt Vendor']);
             $receiptPendingCart = $this->createSubmittedCartWithInvoice($overdueDate, 140.0, 0.0, $receiptPendingSupplier);
             $this->attachReceiptState($receiptPendingCart, warehouseConfirmed: false, receiptNotes: 'Receipt waiting in warehouse.');
@@ -1884,17 +2083,18 @@ class PurchaserDashboardTest extends TestCase
             ]));
 
             $response->assertOk();
-            $response->assertSee('Resolve issues vendor by vendor');
+            $response->assertSee('Pending vendor follow-up');
             $response->assertSee('Bill Pending');
-            $response->assertDontSee('Receipt Pending');
-            $response->assertSee('Overdue');
+            $response->assertSee('Overdue Bill Pending');
+            $response->assertSee('Receipt Pending');
+            $response->assertSee('Payment Pending');
             $response->assertSee('Bill Pending Vendor');
-            $response->assertSee('Warehouse Receipt Vendor');
+            $response->assertSee('Overdue Draft Vendor');
             $response->assertSee('Overdue Vendor');
-            $response->assertSee('Process Bill');
-            $response->assertDontSee('Confirm Receipt');
+            $response->assertSee('Open Bill Page');
+            $response->assertSee('View Bill');
             $response->assertSee('Update Payment');
-            $response->assertDontSee('Finish receipt confirmation');
+            $response->assertSee('Warehouse Receipt Vendor');
         } finally {
             Carbon::setTestNow();
         }
@@ -1983,7 +2183,94 @@ class PurchaserDashboardTest extends TestCase
         }
     }
 
-    public function test_supplier_hub_issues_include_price_hints_and_invoice_details(): void
+    public function test_fully_paid_invoice_does_not_remain_overdue_when_cart_payment_flag_is_stale(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-25 10:00:00'));
+
+        try {
+            $cart = $this->createSubmittedCartWithInvoice('2026-06-24', 150.0, 0.0);
+            $this->attachReceiptState($cart, warehouseConfirmed: true, receiptNotes: 'Fully received and settled.');
+
+            $cart->purchaseInvoice()->firstOrFail()->update([
+                'payment_status' => 'paid',
+                'paid_amount' => 150.0,
+                'discount_amount' => 0.0,
+            ]);
+
+            $cart->update([
+                'payment_status' => 'unpaid',
+                'paid_amount' => 0.0,
+            ]);
+
+            $historyResponse = $this->actingAs($this->purchaser)->get(route('purchaser.history', ['date' => '2026-06-25']));
+            $historyResponse->assertOk();
+            $historyResponse->assertSee($cart->cart_number);
+            $historyResponse->assertSee('Completed');
+
+            $hubResponse = $this->actingAs($this->purchaser)->get(route('purchaser.suppliers', ['date' => '2026-06-25']));
+            $hubResponse->assertOk();
+            $hubResponse->assertSee('Pending (0)');
+            $hubResponse->assertSee('0 pending');
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_vendor_detail_shows_receipt_pending_for_paid_cart_when_warehouse_confirmation_is_missing(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-25 10:00:00'));
+
+        try {
+            $cart = $this->createSubmittedCartWithInvoice('2026-06-24', 140.0, 140.0);
+            $this->attachReceiptState($cart, warehouseConfirmed: false, receiptNotes: 'Payment settled. Waiting for warehouse confirmation.');
+
+            $response = $this->actingAs($this->purchaser)->get(route('purchaser.suppliers.show', [
+                'supplier' => $this->supplier,
+                'date' => '2026-06-25',
+            ]));
+
+            $response->assertOk();
+            $response->assertSee('Open Issues');
+            $response->assertSee('Receipt Pending');
+            $response->assertSee('Payment settled. Waiting for warehouse confirmation.');
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_cancelled_old_cart_is_not_shown_as_vendor_hub_issue(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-25 10:00:00'));
+
+        try {
+            $cart = PurchaserCart::create([
+                'user_id' => $this->purchaser->id,
+                'supplier_id' => $this->supplier->id,
+                'business_date' => '2026-06-24',
+                'cart_number' => 'VC-CANCELLED-OLD-001',
+                'status' => 'cancelled',
+            ]);
+
+            $cart->items()->create([
+                'product_id' => Product::factory()->create()->id,
+                'quantity' => 2,
+                'unit_price' => 20,
+                'line_total' => 40,
+                'is_extra_purchase' => false,
+            ]);
+
+            $response = $this->actingAs($this->purchaser)->get(route('purchaser.suppliers', ['date' => '2026-06-25']));
+
+            $response->assertOk();
+            $response->assertDontSee('Pending (1)');
+            $response->assertSee('Pending (0)');
+            $response->assertSee('0 issues');
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_supplier_hub_issues_include_payment_modal_details_and_bill_page_link(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-06-25 10:00:00'));
 
@@ -1998,14 +2285,6 @@ class PurchaserDashboardTest extends TestCase
                 'category_id' => Category::factory()->create()->id,
                 'unit' => 'kg',
             ]);
-            app(VendorPriceService::class)->syncMany($supplier->id, [
-                [
-                    'product_id' => $product->id,
-                    'unit_price' => 35.5,
-                ],
-            ]);
-
-            // Create draft cart
             $draftCart = PurchaserCart::create([
                 'user_id' => $this->purchaser->id,
                 'supplier_id' => $supplier->id,
@@ -2030,11 +2309,7 @@ class PurchaserDashboardTest extends TestCase
             ]));
 
             $response->assertOk();
-
-            // Assert that the page contains the json encoded previous price hint
-            $response->assertSee(e(json_encode(35.5)));
-
-            // Assert that the page contains the invoice ID and amount for payment update
+            $response->assertSee('Open Bill Page');
             $response->assertSee('data-invoice-id="'.$overdueCart->purchaseInvoice->id.'"', false);
             $response->assertSee('data-amount="200"', false);
             $response->assertSee('data-discount-amount="0"', false);
@@ -2044,17 +2319,15 @@ class PurchaserDashboardTest extends TestCase
         }
     }
 
-    public function test_paid_carts_are_visible_in_vendors_delivered_tab_and_payment_redirects_to_vendors(): void
+    public function test_paid_carts_are_visible_in_vendors_completed_tab_and_payment_redirects_to_vendors(): void
     {
         $date = Carbon::today()->format('Y-m-d');
         $cart = $this->createSubmittedCartWithInvoice($date, 150.0, 0.0);
         $this->attachReceiptState($cart, warehouseConfirmed: true, receiptNotes: 'Delivered');
 
-        // Let's assert initially it is visible under the delivered tab
         $response = $this->actingAs($this->purchaser)->get(route('purchaser.vendors', ['date' => $date]));
         $response->assertSee($cart->cart_number);
 
-        // Update payment with return_to => vendors
         $this->actingAs($this->purchaser)->patch(route('purchaser.invoices.payment', $cart->purchaseInvoice), [
             'payment_method' => 'Cash',
             'paid_amount' => 150.0,
@@ -2064,12 +2337,33 @@ class PurchaserDashboardTest extends TestCase
             'date' => $date,
         ])->assertRedirect(route('purchaser.vendors', ['date' => $date]));
 
-        // Refresh and check that it is indeed paid
         $cart->refresh();
         $this->assertSame('paid', $cart->payment_status);
 
-        // Access the vendors tab again, and check that it is STILL visible under the delivered tab
         $response = $this->actingAs($this->purchaser)->get(route('purchaser.vendors', ['date' => $date]));
         $response->assertSee($cart->cart_number);
+        $response->assertSee('Completed');
+    }
+
+    public function test_completed_vendors_card_shows_receipt_discrepancy_summary(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $cart = $this->createSubmittedCartWithInvoice($date, 150.0, 150.0);
+        $this->attachReceiptState($cart, warehouseConfirmed: true, receiptNotes: 'Warehouse logged a short bag.');
+
+        $cart = $cart->fresh(['goodsReceived.items', 'items.product']);
+        $product = $cart->items->firstOrFail()->product;
+        $cart->goodsReceived->items()->create([
+            'product_id' => $product->id,
+            'received_qty' => 1.5,
+            'variance' => -0.5,
+        ]);
+
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.vendors', ['date' => $date]));
+
+        $response->assertOk();
+        $response->assertSee('Delivery Discrepancy');
+        $response->assertSee($product->name.': Short 0.50 '.$product->unit);
+        $response->assertSee('Warehouse logged a short bag.');
     }
 }

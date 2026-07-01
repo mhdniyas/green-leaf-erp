@@ -82,7 +82,7 @@ class GoodsReceived extends Model
     protected static function booted(): void
     {
         static::creating(function (self $goodsReceived): void {
-            if (! $goodsReceived->public_uuid) {
+            if (static::hasPublicUuidColumn() && ! $goodsReceived->public_uuid) {
                 $goodsReceived->public_uuid = (string) Str::uuid();
             }
         });

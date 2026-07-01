@@ -21,8 +21,18 @@
                         @endif
                     </span>
                 @endif
+                @if ($summary['bought_qty'] > 0 && $summary['remaining_qty'] > 0)
+                    <span class="rounded-full bg-cyan-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-cyan-800">
+                        {{ number_format($summary['bought_qty'], 2) }} {{ $summary['unit'] }} submitted today
+                    </span>
+                @endif
                 @if ($summary['remaining_qty'] <= 0 && $summary['bought_qty'] > 0)
                     <span class="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-emerald-700">Purchased ✓</span>
+                @endif
+                @if ($summary['draft_qty'] <= 0 && $summary['bought_qty'] <= 0)
+                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-700">
+                        Not in cart
+                    </span>
                 @endif
             </div>
             {{-- Stats: single grid row --}}

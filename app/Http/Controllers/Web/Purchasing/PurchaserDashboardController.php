@@ -378,20 +378,41 @@ class PurchaserDashboardController extends Controller
         $carts = PurchaserCart::query()
             ->where('user_id', $user->id)
             ->whereDate('business_date', $date)
-            ->with(['supplier', 'items.product.category', 'goodsReceived', 'purchaseOrder', 'purchaseInvoice'])
+            ->with([
+                'supplier',
+                'items.product.category',
+                'goodsReceived.items.product',
+                'goodsReceived.items.purchaseOrderItem.product',
+                'purchaseOrder',
+                'purchaseInvoice',
+            ])
             ->orderByDesc('updated_at')
             ->get();
 
-        $orders = $carts->whereNull('goods_received_at')->values();
-        $delivered = $carts->whereNotNull('goods_received_at')->values();
+        $relatedBatchState = $this->relatedBatchStateForCarts($carts);
+        $relatedReceiptNotes = $this->relatedReceiptNotesForCarts($carts);
+        $relatedReceiptDiscrepancies = $carts->mapWithKeys(fn (PurchaserCart $cart): array => [
+            (int) $cart->id => $this->buildReceiptDiscrepancySummary($cart->goodsReceived),
+        ])->all();
+        $draftCarts = $carts->where('status', 'draft')->values();
+        $submittedCarts = $carts->where('status', 'submitted')->values();
+        $pendingCarts = $submittedCarts
+            ->filter(fn (PurchaserCart $cart): bool => ! $this->isWarehouseConfirmed($relatedBatchState[(int) $cart->id] ?? []) || $this->cartHasPaymentPending($cart))
+            ->values();
+        $completedCarts = $submittedCarts
+            ->filter(fn (PurchaserCart $cart): bool => $this->isWarehouseConfirmed($relatedBatchState[(int) $cart->id] ?? []) && ! $this->cartHasPaymentPending($cart))
+            ->values();
         $activeTab = $request->string('tab')->toString();
 
-        if (! in_array($activeTab, ['orders', 'delivered'], true)) {
-            $activeTab = $delivered->contains('id', $focusCartId) ? 'delivered' : 'orders';
+        if (! in_array($activeTab, ['draft', 'pending', 'completed'], true)) {
+            $activeTab = match (true) {
+                $completedCarts->contains('id', $focusCartId) => 'completed',
+                $pendingCarts->contains('id', $focusCartId) => 'pending',
+                default => 'draft',
+            };
         }
 
-        $draftOrders = $orders->where('status', 'draft')->values();
-        $mergeSuggestions = $this->buildDraftMergeSuggestions($draftOrders);
+        $mergeSuggestions = $this->buildDraftMergeSuggestions($draftCarts);
         $mergeableDraftCounts = $mergeSuggestions
             ->mapWithKeys(fn (array $suggestion): array => [
                 (int) $suggestion['target_cart']->id => (int) $suggestion['count'] - 1,
@@ -408,8 +429,9 @@ class PurchaserDashboardController extends Controller
 
         return view('purchasing.purchaser.vendors', [
             'date' => $date->format('Y-m-d'),
-            'orders' => $orders,
-            'delivered' => $delivered,
+            'draftCarts' => $draftCarts,
+            'pendingCarts' => $pendingCarts,
+            'completedCarts' => $completedCarts,
             'mergeSuggestions' => $mergeSuggestions,
             'mergeableDraftCounts' => $mergeableDraftCounts,
             'productCatalog' => $productCatalog,
@@ -422,6 +444,9 @@ class PurchaserDashboardController extends Controller
             ])->all(),
             'activeTab' => $activeTab,
             'focusCartId' => $focusCartId,
+            'relatedBatchState' => $relatedBatchState,
+            'relatedReceiptNotes' => $relatedReceiptNotes,
+            'relatedReceiptDiscrepancies' => $relatedReceiptDiscrepancies,
             'deadlineAlert' => $this->buildDeadlineAlert((int) $user->id, $date),
         ]);
     }
@@ -436,12 +461,46 @@ class PurchaserDashboardController extends Controller
             return $date;
         }
 
-        $invoices = PurchaseInvoice::query()
+        $selectedTab = $request->string('tab')->toString();
+        if (! in_array($selectedTab, ['today', 'old'], true)) {
+            $selectedTab = 'today';
+        }
+        $search = trim($request->string('search')->toString());
+
+        $baseInvoiceQuery = PurchaseInvoice::query()
             ->with(['supplier', 'goodsReceived', 'purchaserCart'])
             ->whereHas('purchaserCart', function ($query) use ($request, $date): void {
                 $query
                     ->where('user_id', $request->user()->id)
-                    ->whereDate('business_date', $date);
+                    ->whereDate('business_date', '<=', $date);
+            })
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($innerQuery) use ($search): void {
+                    $innerQuery
+                        ->where('invoice_number', 'like', '%'.$search.'%')
+                        ->orWhere('payment_status', 'like', '%'.$search.'%')
+                        ->orWhere('payment_method', 'like', '%'.$search.'%')
+                        ->orWhereHas('supplier', function ($supplierQuery) use ($search): void {
+                            $supplierQuery
+                                ->where('name', 'like', '%'.$search.'%')
+                                ->orWhere('mobile_number', 'like', '%'.$search.'%')
+                                ->orWhere('location', 'like', '%'.$search.'%');
+                        })
+                        ->orWhereHas('purchaserCart', function ($cartQuery) use ($search): void {
+                            $cartQuery
+                                ->where('cart_number', 'like', '%'.$search.'%')
+                                ->orWhere('bill_number', 'like', '%'.$search.'%');
+                        });
+                });
+            });
+
+        $invoices = (clone $baseInvoiceQuery)
+            ->whereHas('purchaserCart', function ($query) use ($selectedTab, $date): void {
+                $query->when(
+                    $selectedTab === 'old',
+                    fn ($cartQuery) => $cartQuery->whereDate('business_date', '<', $date),
+                    fn ($cartQuery) => $cartQuery->whereDate('business_date', $date),
+                );
             })
             ->orderByDesc('id')
             ->paginate(20);
@@ -449,9 +508,43 @@ class PurchaserDashboardController extends Controller
         return view('purchasing.purchaser.finance', [
             'date' => $date->format('Y-m-d'),
             'invoices' => $invoices,
+            'search' => $search,
+            'selectedTab' => $selectedTab,
+            'financeTabs' => [
+                'today' => (clone $baseInvoiceQuery)
+                    ->whereHas('purchaserCart', fn ($query) => $query->whereDate('business_date', $date))
+                    ->count(),
+                'old' => (clone $baseInvoiceQuery)
+                    ->whereHas('purchaserCart', fn ($query) => $query->whereDate('business_date', '<', $date))
+                    ->count(),
+            ],
             'financeAudience' => 'purchaser',
             'canManageSuppliers' => true,
             'deadlineAlert' => $this->buildDeadlineAlert((int) $request->user()->id, $date),
+        ]);
+    }
+
+    public function cash(Request $request): View
+    {
+        $this->ensurePurchaser($request);
+
+        $user = $request->user();
+        $credits = PurchaserCredit::query()
+            ->where('purchaser_id', $user->id)
+            ->with(['purchaseInvoice', 'creator'])
+            ->orderByDesc('business_date')
+            ->orderByDesc('id')
+            ->get();
+
+        $totalIn = round((float) $credits->where('type', 'in')->sum('amount'), 2);
+        $totalOut = round((float) $credits->where('type', 'out')->sum('amount'), 2);
+        $balance = round($totalIn - $totalOut, 2);
+
+        return view('purchasing.purchaser.cash', [
+            'credits' => $credits,
+            'totalIn' => $totalIn,
+            'totalOut' => $totalOut,
+            'balance' => $balance,
         ]);
     }
 
@@ -467,6 +560,10 @@ class PurchaserDashboardController extends Controller
 
         $search = trim($request->string('search')->toString());
         $normalizedSearch = mb_strtolower($search);
+        $selectedTab = $request->string('tab')->toString();
+        if (! in_array($selectedTab, ['pending', 'credit'], true)) {
+            $selectedTab = 'pending';
+        }
         $userId = (int) $request->user()->id;
         $suppliers = Supplier::query()
             ->where(function ($query) use ($userId): void {
@@ -517,22 +614,73 @@ class PurchaserDashboardController extends Controller
                     ->latest('updated_at'),
                 'purchaserCarts' => fn ($query) => $query
                     ->where('user_id', $userId)
+                    ->with('purchaseInvoice')
                     ->latest('business_date'),
             ])
             ->orderBy('name')
             ->get();
 
+        $sameDayAssignedDrafts = PurchaserCart::query()
+            ->where('user_id', $userId)
+            ->whereDate('business_date', $date)
+            ->where('status', 'draft')
+            ->whereNotNull('supplier_id')
+            ->with('supplier')
+            ->get()
+            ->filter(fn (PurchaserCart $cart): bool => $cart->items()->exists());
+
+        $overdueCarts = $this->overdueCartsForUser($userId)->loadMissing(['supplier', 'items.product', 'purchaseInvoice', 'goodsReceived']);
+        $overdueBatchState = $this->relatedBatchStateForCarts($overdueCarts);
+
+        $tabCounts = [
+            'pending' => $suppliers->filter(fn (Supplier $supplier): bool => $this->supplierPendingHubIssueCount($supplier, $sameDayAssignedDrafts, $overdueCarts, $overdueBatchState, 'pending') > 0)->count(),
+            'credit' => $suppliers->filter(fn (Supplier $supplier): bool => $this->supplierPendingHubIssueCount($supplier, $sameDayAssignedDrafts, $overdueCarts, $overdueBatchState, 'credit') > 0)->count(),
+        ];
+
         $issueSections = $this->buildSupplierIssueSections(
             userId: $userId,
             selectedDate: $date,
             suppliers: $suppliers,
+            selectedTab: $selectedTab,
         );
+
+        $filteredSuppliers = $suppliers->filter(fn (Supplier $supplier): bool => $this->supplierPendingHubIssueCount($supplier, $sameDayAssignedDrafts, $overdueCarts, $overdueBatchState, $selectedTab) > 0)->values();
+
+        $supplierRows = $suppliers->map(function (Supplier $supplier) use ($date, $selectedTab, $sameDayAssignedDrafts, $overdueCarts, $overdueBatchState): array {
+            $relevantInvoices = $this->linkedInvoicesForSupplier($supplier);
+            $recentInvoice = $relevantInvoices
+                ->sortByDesc(fn (PurchaseInvoice $invoice): int => $invoice->updated_at?->getTimestamp() ?? 0)
+                ->first();
+            $recentCart = $supplier->purchaserCarts->first();
+            $totalAmount = round((float) $relevantInvoices->sum('amount'), 2);
+            $discountAmount = round((float) $relevantInvoices->sum('discount_amount'), 2);
+            $paidAmount = round((float) $relevantInvoices->sum('paid_amount'), 2);
+            $balanceAmount = round((float) $relevantInvoices->sum(fn (PurchaseInvoice $invoice): float => $this->invoiceRemainingBalance($invoice)), 2);
+            $recentBusinessDate = $recentInvoice?->purchaserCart?->business_date ?? $recentCart?->business_date;
+
+            return [
+                'supplier' => $supplier,
+                'pending_count' => $this->supplierPendingHubIssueCount($supplier, $sameDayAssignedDrafts, $overdueCarts, $overdueBatchState, $selectedTab),
+                'recent_invoice_number' => $recentInvoice?->invoice_number ?: 'None yet',
+                'recent_cart_number' => $recentCart?->cart_number ?: 'No cart yet',
+                'recent_business_date' => $recentBusinessDate?->format('d M Y') ?: '—',
+                'recent_updated_label' => $recentInvoice?->updated_at?->format('d M Y') ?: '—',
+                'total_amount' => $totalAmount,
+                'discount_amount' => $discountAmount,
+                'paid_amount' => $paidAmount,
+                'balance_amount' => $balanceAmount,
+                'history_route' => route('purchaser.suppliers.show', ['supplier' => $supplier, 'date' => $date->format('Y-m-d')]),
+            ];
+        });
 
         return view('purchasing.purchaser.suppliers.index', [
             'date' => $date->format('Y-m-d'),
             'search' => $search,
-            'suppliers' => $suppliers,
+            'suppliers' => $filteredSuppliers,
+            'supplierRows' => $supplierRows,
             'issueSections' => $issueSections,
+            'selectedTab' => $selectedTab,
+            'tabCounts' => $tabCounts,
             'deadlineAlert' => $this->buildDeadlineAlert($userId, $date),
         ]);
     }
@@ -568,12 +716,26 @@ class PurchaserDashboardController extends Controller
             ])
             ->firstOrFail();
 
-        $vendorHistory = $supplier->purchaserCarts
-            ->map(function (PurchaserCart $cart): array {
+        $relatedBatchState = $this->relatedBatchStateForCarts($supplier->purchaserCarts);
+        $vendorHistoryEntries = $supplier->purchaserCarts
+            ->map(function (PurchaserCart $cart) use ($relatedBatchState): array {
                 $invoice = $cart->purchaseInvoice;
-                $paymentPending = $invoice !== null && $invoice->payment_status !== 'paid';
+                $batchState = $relatedBatchState[(int) $cart->id] ?? [];
+                $operationalState = $this->cartOperationalState($cart, $batchState);
                 $receiptNotes = $cart->goodsReceived?->notes;
                 $discrepancySummary = $this->buildReceiptDiscrepancySummary($cart->goodsReceived);
+                $itemCount = (int) $cart->items->count();
+                $totalQuantity = round((float) $cart->items->sum('quantity'), 2);
+                $itemSummary = $cart->items
+                    ->map(function ($item): string {
+                        $productName = $item->product?->name ?? 'Product';
+                        $quantity = $this->trimTrailingZeros((float) $item->quantity);
+                        $unit = $item->product?->unit ?? '';
+
+                        return trim("{$productName} {$quantity} {$unit}");
+                    })
+                    ->values()
+                    ->all();
 
                 return [
                     'date_key' => $cart->business_date->format('Y-m-d'),
@@ -585,11 +747,19 @@ class PurchaserDashboardController extends Controller
                     'updated_label' => ($invoice?->updated_at ?? $cart->updated_at)?->format('d M Y h:i A'),
                     'payment_status' => str($invoice?->payment_status ?: $cart->payment_status ?: 'unpaid')->replace('_', ' ')->title()->toString(),
                     'payment_method' => $invoice?->payment_method ?: $cart->payment_method ?: 'Cash',
+                    'paid_amount' => (float) ($invoice?->paid_amount ?? $cart->paid_amount ?? 0),
+                    'balance_amount' => $invoice ? $this->invoiceRemainingBalance($invoice) : 0.0,
+                    'item_count' => $itemCount,
+                    'total_quantity' => $totalQuantity,
+                    'item_summary' => $itemSummary,
                     'receipt_notes' => $receiptNotes,
                     'discrepancy_summary' => $discrepancySummary,
-                    'is_payment_pending' => $paymentPending,
-                    'payment_route' => $paymentPending && $invoice ? route('purchaser.invoices.payment', $invoice) : null,
-                    'payment_modal' => $paymentPending && $invoice ? [
+                    'status_label' => $operationalState['label'],
+                    'status_tone' => $operationalState['tone'],
+                    'is_operationally_unresolved' => $operationalState['unresolved'],
+                    'is_payment_pending' => $operationalState['payment_pending'],
+                    'payment_route' => $operationalState['payment_pending'] && $invoice ? route('purchaser.invoices.payment', $invoice) : null,
+                    'payment_modal' => $operationalState['payment_pending'] && $invoice ? [
                         'number' => $invoice->invoice_number,
                         'supplier' => $cart->supplier?->name,
                         'amount' => round((float) $invoice->amount, 2),
@@ -601,19 +771,50 @@ class PurchaserDashboardController extends Controller
                         'creditApproved' => (bool) $cart->supplier?->credit_approved,
                     ] : null,
                 ];
+            });
+
+        $vendorHistory = $vendorHistoryEntries
+            ->groupBy('date_key')
+            ->map(function ($entries, $historyDate): array {
+                $entries = collect($entries)->values();
+                $firstEntry = $entries->first();
+
+                return [
+                    'date_key' => (string) $historyDate,
+                    'date_label' => $firstEntry['date_label'],
+                    'record_count' => $entries->count(),
+                    'item_count' => (int) $entries->sum('item_count'),
+                    'total_quantity' => round((float) $entries->sum('total_quantity'), 2),
+                    'total_amount' => round((float) $entries->sum('amount'), 2),
+                    'paid_amount' => round((float) $entries->sum('paid_amount'), 2),
+                    'balance_amount' => round((float) $entries->sum('balance_amount'), 2),
+                    'pending_count' => $entries->where('is_operationally_unresolved', true)->count(),
+                    'completed_count' => $entries->where('is_operationally_unresolved', false)->count(),
+                    'entries' => $entries,
+                ];
             })
-            ->groupBy('date_key');
+            ->sortByDesc('date_key')
+            ->values();
+
+        $historyTotals = [
+            'pending_amount' => round((float) $vendorHistoryEntries->sum('balance_amount'), 2),
+            'paid_amount' => round((float) $vendorHistoryEntries->sum('paid_amount'), 2),
+            'total_amount' => round((float) $vendorHistoryEntries->sum('amount'), 2),
+            'discount_amount' => round((float) $vendorHistoryEntries->sum(fn (array $entry): float => max(0, $entry['amount'] - $entry['paid_amount'] - $entry['balance_amount'])), 2),
+            'item_count' => (int) $vendorHistoryEntries->sum('item_count'),
+            'record_count' => (int) $vendorHistoryEntries->count(),
+        ];
+
+        $pendingEntries = $vendorHistoryEntries->where('is_operationally_unresolved', true)->values();
+        $completedEntries = $vendorHistoryEntries->where('is_operationally_unresolved', false)->values();
 
         return view('purchasing.purchaser.suppliers.show', [
             'date' => $date->format('Y-m-d'),
             'supplier' => $supplier,
-            'pendingInvoices' => $supplier->purchaseInvoices
-                ->filter(fn (PurchaseInvoice $invoice): bool => $invoice->payment_status !== 'paid')
-                ->values(),
-            'completedInvoices' => $supplier->purchaseInvoices
-                ->filter(fn (PurchaseInvoice $invoice): bool => $invoice->payment_status === 'paid')
-                ->values(),
+            'pendingInvoices' => $pendingEntries,
+            'completedInvoices' => $completedEntries,
             'vendorHistory' => $vendorHistory,
+            'historyTotals' => $historyTotals,
             'deadlineAlert' => $this->buildDeadlineAlert($userId, $date),
         ]);
     }
@@ -1250,7 +1451,7 @@ class PurchaserDashboardController extends Controller
         }
 
         return redirect()
-            ->route('purchaser.history', ['date' => $date->format('Y-m-d')])
+            ->route('purchaser.vendors', ['date' => $date->format('Y-m-d'), 'tab' => 'pending'])
             ->with('success', 'Cart submitted successfully.');
     }
 
@@ -1298,16 +1499,23 @@ class PurchaserDashboardController extends Controller
         $validated = $request->validate([
             'payment_method' => ['required', 'string', 'in:Cash,Online,GPay,Credit'],
             'discount_amount' => ['nullable', 'numeric', 'min:0'],
-            'paid_amount' => ['required', 'numeric', 'min:0'],
+            'paid_amount' => ['nullable', 'numeric', 'min:0'],
+            'additional_paid_amount' => ['nullable', 'numeric', 'min:0'],
             'payment_note' => ['nullable', 'string', 'max:1000'],
             'payment_details' => ['nullable', 'string', 'max:1000'],
             'bill_number' => ['nullable', 'string', 'max:255'],
         ]);
 
+        $existingPaidAmount = (float) ($invoice->paid_amount ?? 0);
+        $hasAdditionalPaidAmount = $request->filled('additional_paid_amount');
+        $resolvedPaidAmount = $hasAdditionalPaidAmount
+            ? round($existingPaidAmount + (float) ($validated['additional_paid_amount'] ?? 0), 2)
+            : (float) ($validated['paid_amount'] ?? $existingPaidAmount);
+
         $updatedInvoice = app(PurchaseInvoiceService::class)->updatePayment($invoice, [
             'payment_method' => $validated['payment_method'],
             'discount_amount' => (float) ($validated['discount_amount'] ?? $invoice->discount_amount ?? 0),
-            'paid_amount' => (float) $validated['paid_amount'],
+            'paid_amount' => $resolvedPaidAmount,
             'payment_note' => $validated['payment_note'] ?? null,
             'payment_details' => $validated['payment_details'] ?? null,
             'bill_number' => $validated['bill_number'] ?? null,
@@ -1349,7 +1557,10 @@ class PurchaserDashboardController extends Controller
         }
 
         return redirect()
-            ->route('purchaser.finance', ['date' => $updatedInvoice->purchaserCart?->business_date?->format('Y-m-d') ?? now()->format('Y-m-d')])
+            ->route('purchaser.finance', array_filter([
+                'date' => $updatedInvoice->purchaserCart?->business_date?->format('Y-m-d') ?? now()->format('Y-m-d'),
+                'tab' => $request->string('tab')->toString(),
+            ]))
             ->with('success', $message);
     }
 
@@ -1426,29 +1637,6 @@ class PurchaserDashboardController extends Controller
         ]);
 
         return redirect()->back()->with('success', 'Correction request rejected.');
-    }
-
-    public function credits(Request $request): View
-    {
-        $this->ensurePurchaser($request);
-        $user = $request->user();
-        $dateObj = $this->businessDayService->operationalDate();
-        $date = $dateObj->format('Y-m-d');
-
-        $credits = PurchaserCredit::query()
-            ->where('purchaser_id', $user->id)
-            ->with(['purchaseInvoice.supplier', 'creator'])
-            ->orderByDesc('business_date')
-            ->orderByDesc('id')
-            ->get();
-
-        $totalIn = (float) $credits->where('type', 'in')->sum('amount');
-        $totalOut = (float) $credits->where('type', 'out')->sum('amount');
-        $balance = $totalIn - $totalOut;
-
-        $deadlineAlert = $this->buildDeadlineAlert((int) $user->id, $dateObj);
-
-        return view('purchasing.purchaser.credits', compact('user', 'credits', 'totalIn', 'totalOut', 'balance', 'date', 'deadlineAlert'));
     }
 
     private function draftCartsForDate(int $userId, Carbon $date): Collection
@@ -2109,6 +2297,10 @@ class PurchaserDashboardController extends Controller
      */
     private function isCartOperationallyUnresolved(PurchaserCart $cart, array $batchState): bool
     {
+        if ($cart->status === 'cancelled') {
+            return false;
+        }
+
         if ($cart->status === 'draft') {
             return $cart->items->isNotEmpty();
         }
@@ -2122,9 +2314,107 @@ class PurchaserDashboardController extends Controller
 
     private function cartHasPaymentPending(PurchaserCart $cart): bool
     {
+        if ($cart->purchaseInvoice) {
+            $paymentStatus = (string) ($cart->purchaseInvoice->payment_status ?: $cart->payment_status ?: 'unpaid');
+            $paymentMethod = (string) ($cart->purchaseInvoice->payment_method ?: $cart->payment_method ?: 'Cash');
+            $remainingBalance = $this->invoiceRemainingBalance($cart->purchaseInvoice);
+
+            if (strcasecmp($paymentMethod, 'Credit') === 0) {
+                return $paymentStatus !== 'paid' || $remainingBalance > 0;
+            }
+
+            return $remainingBalance > 0;
+        }
+
         $paymentStatus = (string) ($cart->payment_status ?: 'unpaid');
 
         return in_array($paymentStatus, ['unpaid', 'partial', 'credit_pending_approval'], true);
+    }
+
+    /**
+     * @param  array{warehouse_confirmed?: bool}  $batchState
+     * @return array{label:string,tone:string,unresolved:bool,payment_pending:bool}
+     */
+    private function cartOperationalState(PurchaserCart $cart, array $batchState): array
+    {
+        if ($cart->status === 'draft') {
+            return [
+                'label' => $cart->supplier_id === null ? 'Vendor Pending' : 'Bill Pending',
+                'tone' => 'bg-amber-100 text-amber-700',
+                'unresolved' => $cart->items->isNotEmpty(),
+                'payment_pending' => false,
+            ];
+        }
+
+        if (! $this->isWarehouseConfirmed($batchState)) {
+            return [
+                'label' => 'Receipt Pending',
+                'tone' => 'bg-teal-100 text-teal-700',
+                'unresolved' => true,
+                'payment_pending' => false,
+            ];
+        }
+
+        if ($this->cartHasPaymentPending($cart)) {
+            return [
+                'label' => 'Payment Pending',
+                'tone' => 'bg-amber-100 text-amber-700',
+                'unresolved' => true,
+                'payment_pending' => true,
+            ];
+        }
+
+        return [
+            'label' => 'Completed',
+            'tone' => 'bg-emerald-100 text-emerald-700',
+            'unresolved' => false,
+            'payment_pending' => false,
+        ];
+    }
+
+    /**
+     * @param  Collection<int, PurchaserCart>  $sameDayAssignedDrafts
+     * @param  Collection<int, PurchaserCart>  $overdueCarts
+     * @param  array<int, array{warehouse_confirmed: bool, total_batches: int, confirmed_batches: int}>  $overdueBatchState
+     */
+    private function supplierPendingHubIssueCount(
+        Supplier $supplier,
+        Collection $sameDayAssignedDrafts,
+        Collection $overdueCarts,
+        array $overdueBatchState,
+        string $selectedTab,
+    ): int {
+        if ($selectedTab === 'credit') {
+            return $overdueCarts
+                ->filter(fn (PurchaserCart $cart): bool => (int) $cart->supplier_id === (int) $supplier->id)
+                ->filter(fn (PurchaserCart $cart): bool => $this->isWarehouseConfirmed($overdueBatchState[(int) $cart->id] ?? []))
+                ->filter(fn (PurchaserCart $cart): bool => $this->cartHasPaymentPending($cart))
+                ->filter(fn (PurchaserCart $cart): bool => ($cart->purchaseInvoice?->payment_method ?: $cart->payment_method) === 'Credit')
+                ->count();
+        }
+
+        $sameDayCount = $sameDayAssignedDrafts
+            ->filter(fn (PurchaserCart $cart): bool => (int) $cart->supplier_id === (int) $supplier->id)
+            ->count();
+
+        $overdueCount = $overdueCarts
+            ->filter(fn (PurchaserCart $cart): bool => (int) $cart->supplier_id === (int) $supplier->id)
+            ->filter(function (PurchaserCart $cart) use ($overdueBatchState): bool {
+                if ($cart->status === 'draft') {
+                    return true;
+                }
+
+                if (! $this->isWarehouseConfirmed($overdueBatchState[(int) $cart->id] ?? [])) {
+                    return true;
+                }
+
+                $paymentMethod = $cart->purchaseInvoice?->payment_method ?: $cart->payment_method;
+
+                return $paymentMethod !== 'Credit' && $this->cartHasPaymentPending($cart);
+            })
+            ->count();
+
+        return $sameDayCount + $overdueCount;
     }
 
     /**
@@ -2200,7 +2490,7 @@ class PurchaserDashboardController extends Controller
      * @param  Collection<int, Supplier>  $suppliers
      * @return Collection<int, array{key:string,label:string,description:string,count:int,empty:string,rows:Collection<int, array{supplier:Supplier,cart:PurchaserCart,route:string,button:string,popup_title:string,popup_message:string}>}>
      */
-    private function buildSupplierIssueSections(int $userId, Carbon $selectedDate, Collection $suppliers): Collection
+    private function buildSupplierIssueSections(int $userId, Carbon $selectedDate, Collection $suppliers, string $selectedTab): Collection
     {
         $sameDayAssignedDrafts = PurchaserCart::query()
             ->where('user_id', $userId)
@@ -2214,138 +2504,142 @@ class PurchaserDashboardController extends Controller
 
         $overdueCarts = $this->overdueCartsForUser($userId)->loadMissing(['supplier', 'items.product', 'purchaseInvoice', 'goodsReceived']);
         $overdueBatchState = $this->relatedBatchStateForCarts($overdueCarts);
-        $overdueCarts = $this->filterOverdueCartsForPurchaser($overdueCarts, $overdueBatchState);
 
-        $billPendingRows = $sameDayAssignedDrafts
+        $overdueDraftRows = $overdueCarts
+            ->filter(fn (PurchaserCart $cart): bool => $cart->status === 'draft')
             ->filter(fn (PurchaserCart $cart): bool => $cart->supplier !== null)
             ->map(function (PurchaserCart $cart): array {
-                $priceHints = $this->vendorPriceService->previousPricesForSupplier(
-                    $cart->supplier_id,
-                    $cart->items->pluck('product_id')->all(),
-                );
-
                 return [
                     'supplier' => $cart->supplier,
                     'cart' => $cart,
-                    'route' => route('purchaser.carts.submit'),
-                    'button' => 'Process Bill',
-                    'action_type' => 'process_bill',
-                    'cart_items' => $cart->items->map(fn ($item): array => [
-                        'id' => $item->id,
-                        'product_name' => $item->product->name,
-                        'quantity' => (float) $item->quantity,
-                        'unit' => $item->product->unit,
-                        'unit_price' => (float) $item->unit_price,
-                        'line_total' => (float) $item->line_total,
-                        'prev_price' => (float) ($priceHints[$item->product_id] ?? 0),
-                    ])->all(),
-                    'popup_title' => 'Finish bill processing',
-                    'popup_message' => "Open {$cart->supplier->name} cart {$cart->cart_number} and complete bill processing to clear this issue.",
+                    'route' => route('purchaser.bill', ['cart' => $cart, 'date' => $cart->business_date->format('Y-m-d')]),
+                    'button' => 'Open Bill Page',
+                    'action_type' => 'link',
+                    'popup_title' => 'Finish overdue cart',
+                    'popup_message' => "This older business-day cart still needs bill processing for {$cart->cart_number}.",
                 ];
             })
             ->values();
 
         $receiptPendingRows = $overdueCarts
+            ->filter(fn (PurchaserCart $cart): bool => $cart->status !== 'draft')
+            ->filter(fn (PurchaserCart $cart): bool => $cart->supplier !== null)
             ->filter(fn (PurchaserCart $cart): bool => ! $this->isWarehouseConfirmed($overdueBatchState[(int) $cart->id] ?? []))
-            ->filter(fn (PurchaserCart $cart): bool => $cart->supplier !== null)
-            ->map(fn (PurchaserCart $cart): array => [
-                'supplier' => $cart->supplier,
-                'cart' => $cart,
-                'route' => route('purchaser.carts.status', $cart),
-                'button' => 'Confirm Receipt',
-                'action_type' => 'confirm_receipt',
-                'popup_title' => 'Finish receipt confirmation',
-                'popup_message' => "This bill is waiting for warehouse receipt confirmation. Open history page, check {$cart->cart_number}, and complete warehouse receiving to clear it.",
-            ])
-            ->values();
-
-        $overdueRows = $overdueCarts
-            ->filter(fn (PurchaserCart $cart): bool => $cart->supplier !== null)
-            ->map(function (PurchaserCart $cart) use ($overdueBatchState, $selectedDate): array {
-                $route = route('purchaser.suppliers.show', ['supplier' => $cart->supplier, 'date' => $selectedDate->format('Y-m-d')]);
-                $button = 'Resolve';
-                $actionType = 'link';
-                $message = "Open {$cart->supplier->name} and resolve {$cart->cart_number}.";
-                $cartItems = [];
-                $invoice = null;
-                $paymentRoute = null;
-
-                if ($cart->status === 'draft') {
-                    $route = route('purchaser.carts.submit');
-                    $button = 'Process Bill';
-                    $actionType = 'process_bill';
-                    $message = "This overdue draft still needs bill processing. Open {$cart->cart_number} and process the bill.";
-                    $priceHints = $this->vendorPriceService->previousPricesForSupplier(
-                        $cart->supplier_id,
-                        $cart->items->pluck('product_id')->all(),
-                    );
-                    $cartItems = $cart->items->map(fn ($item): array => [
-                        'id' => $item->id,
-                        'product_name' => $item->product->name,
-                        'quantity' => (float) $item->quantity,
-                        'unit' => $item->product->unit,
-                        'unit_price' => (float) $item->unit_price,
-                        'line_total' => (float) $item->line_total,
-                        'prev_price' => (float) ($priceHints[$item->product_id] ?? 0),
-                    ])->all();
-                } elseif (! $this->isWarehouseConfirmed($overdueBatchState[(int) $cart->id] ?? [])) {
-                    $route = route('purchaser.carts.status', $cart);
-                    $button = 'Confirm Receipt';
-                    $actionType = 'confirm_receipt';
-                    $message = 'This overdue bill still needs warehouse receipt confirmation before it can leave overdue.';
-                } elseif ($this->cartHasPaymentPending($cart)) {
-                    $route = '';
-                    $button = 'Update Payment';
-                    $actionType = 'update_payment';
-                    $message = 'This overdue bill still needs payment settlement or credit follow-up.';
-                    if ($cart->purchaseInvoice) {
-                        $paymentRoute = route('purchaser.invoices.payment', $cart->purchaseInvoice);
-                        $invoice = [
-                            'id' => $cart->purchaseInvoice->id,
-                            'number' => $cart->purchaseInvoice->invoice_number,
-                            'supplier' => $cart->supplier?->name,
-                            'amount' => (float) $cart->purchaseInvoice->amount,
-                            'discountAmount' => (float) $cart->purchaseInvoice->discount_amount,
-                            'paidAmount' => (float) $cart->purchaseInvoice->paid_amount,
-                            'paymentMethod' => $cart->purchaseInvoice->payment_method ?: 'Cash',
-                            'paymentNote' => $cart->purchaseInvoice->payment_note,
-                            'paymentDetails' => $cart->purchaseInvoice->payment_details,
-                            'creditApproved' => (bool) $cart->supplier?->credit_approved,
-                        ];
-                    }
-                }
-
+            ->map(function (PurchaserCart $cart): array {
                 return [
                     'supplier' => $cart->supplier,
                     'cart' => $cart,
-                    'route' => $route,
-                    'button' => $button,
-                    'action_type' => $actionType,
-                    'cart_items' => $cartItems,
-                    'invoice' => $invoice,
-                    'payment_route' => $paymentRoute,
-                    'popup_title' => 'Resolve overdue issue',
-                    'popup_message' => $message,
+                    'route' => $cart->purchaseInvoice ? route('purchaser.invoices.show', $cart->purchaseInvoice) : route('purchaser.history', ['date' => $cart->business_date->format('Y-m-d')]),
+                    'button' => 'View Bill',
+                    'action_type' => 'link',
+                    'popup_title' => 'Receipt still pending',
+                    'popup_message' => "Warehouse receipt confirmation is still pending for {$cart->cart_number}.",
                 ];
             })
             ->values();
+
+        $billPendingRows = $sameDayAssignedDrafts
+            ->filter(fn (PurchaserCart $cart): bool => $cart->supplier !== null)
+            ->map(function (PurchaserCart $cart): array {
+                return [
+                    'supplier' => $cart->supplier,
+                    'cart' => $cart,
+                    'route' => route('purchaser.bill', ['cart' => $cart, 'date' => $cart->business_date->format('Y-m-d')]),
+                    'button' => 'Open Bill Page',
+                    'action_type' => 'link',
+                    'popup_title' => 'Finish bill processing',
+                    'popup_message' => "Finish bill processing from the bill page for {$cart->cart_number}.",
+                ];
+            })
+            ->values();
+
+        $paymentFollowUpRows = $overdueCarts
+            ->filter(fn (PurchaserCart $cart): bool => $cart->supplier !== null)
+            ->filter(fn (PurchaserCart $cart): bool => $this->isWarehouseConfirmed($overdueBatchState[(int) $cart->id] ?? []))
+            ->filter(fn (PurchaserCart $cart): bool => $this->cartHasPaymentPending($cart))
+            ->filter(function (PurchaserCart $cart) use ($selectedTab): bool {
+                $paymentMethod = $cart->purchaseInvoice?->payment_method ?: $cart->payment_method;
+
+                if ($selectedTab === 'credit') {
+                    return $paymentMethod === 'Credit';
+                }
+
+                return $paymentMethod !== 'Credit';
+            })
+            ->map(function (PurchaserCart $cart) use ($selectedDate, $selectedTab): array {
+                return [
+                    'supplier' => $cart->supplier,
+                    'cart' => $cart,
+                    'route' => '',
+                    'button' => 'Update Payment',
+                    'action_type' => 'update_payment',
+                    'invoice' => [
+                        'id' => $cart->purchaseInvoice?->id,
+                        'number' => $cart->purchaseInvoice?->invoice_number,
+                        'supplier' => $cart->supplier?->name,
+                        'amount' => (float) ($cart->purchaseInvoice?->amount ?? 0),
+                        'discountAmount' => (float) ($cart->purchaseInvoice?->discount_amount ?? 0),
+                        'paidAmount' => (float) ($cart->purchaseInvoice?->paid_amount ?? 0),
+                        'paymentMethod' => $cart->purchaseInvoice?->payment_method ?: 'Cash',
+                        'paymentNote' => $cart->purchaseInvoice?->payment_note,
+                        'paymentDetails' => $cart->purchaseInvoice?->payment_details,
+                        'creditApproved' => (bool) $cart->supplier?->credit_approved,
+                    ],
+                    'payment_route' => $cart->purchaseInvoice ? route('purchaser.invoices.payment', $cart->purchaseInvoice) : null,
+                    'popup_title' => 'Resolve payment follow-up',
+                    'popup_message' => $selectedTab === 'credit'
+                        ? "Credit follow-up is still open for {$cart->cart_number}."
+                        : "Payment settlement is still open for {$cart->cart_number}.",
+                    'vendor_route' => route('purchaser.suppliers.show', ['supplier' => $cart->supplier, 'date' => $selectedDate->format('Y-m-d')]),
+                ];
+            })
+            ->values();
+
+        if ($selectedTab === 'credit') {
+            return collect([
+                [
+                    'key' => 'credit',
+                    'label' => 'Credit Follow-up',
+                    'description' => 'Approved credit purchases still waiting for settlement or confirmation.',
+                    'count' => $paymentFollowUpRows->count(),
+                    'empty' => 'No open credit follow-up right now.',
+                    'rows' => $paymentFollowUpRows,
+                ],
+            ]);
+        }
 
         return collect([
             [
                 'key' => 'bill_pending',
                 'label' => 'Bill Pending',
-                'description' => 'Draft carts with vendor selected but bill not processed yet.',
+                'description' => 'Current business-day draft carts with supplier selected but bill not processed yet.',
                 'count' => $billPendingRows->count(),
                 'empty' => 'No bill-pending vendor issue right now.',
                 'rows' => $billPendingRows,
             ],
             [
-                'key' => 'overdue',
-                'label' => 'Overdue',
-                'description' => 'Older business-date carts still unresolved operationally.',
-                'count' => $overdueRows->count(),
-                'empty' => 'No overdue vendor issue right now.',
-                'rows' => $overdueRows,
+                'key' => 'overdue_bill_pending',
+                'label' => 'Overdue Bill Pending',
+                'description' => 'Older business-day carts still waiting for bill processing or completion.',
+                'count' => $overdueDraftRows->count(),
+                'empty' => 'No overdue bill-processing issue right now.',
+                'rows' => $overdueDraftRows,
+            ],
+            [
+                'key' => 'receipt_pending',
+                'label' => 'Receipt Pending',
+                'description' => 'Older business-date submitted carts still waiting for warehouse receipt confirmation.',
+                'count' => $receiptPendingRows->count(),
+                'empty' => 'No old receipt-pending issue right now.',
+                'rows' => $receiptPendingRows,
+            ],
+            [
+                'key' => 'payment_pending',
+                'label' => 'Payment Pending',
+                'description' => 'Older business-date bills still waiting for payment follow-up.',
+                'count' => $paymentFollowUpRows->count(),
+                'empty' => 'No old payment follow-up issue right now.',
+                'rows' => $paymentFollowUpRows,
             ],
         ]);
     }
@@ -2358,6 +2652,23 @@ class PurchaserDashboardController extends Controller
     private function resolveDailyShareMode(string $shareMode): string
     {
         return in_array($shareMode, ['all', 'tag', 'product'], true) ? $shareMode : 'all';
+    }
+
+    /**
+     * @return Collection<int, PurchaseInvoice>
+     */
+    private function linkedInvoicesForSupplier(Supplier $supplier): Collection
+    {
+        return $supplier->purchaserCarts
+            ->pluck('purchaseInvoice')
+            ->filter(fn ($invoice): bool => $invoice instanceof PurchaseInvoice)
+            ->unique(fn (PurchaseInvoice $invoice): int|string => $invoice->getKey())
+            ->values();
+    }
+
+    private function invoiceRemainingBalance(PurchaseInvoice $invoice): float
+    {
+        return max(0, round(((float) $invoice->amount - (float) $invoice->discount_amount) - (float) $invoice->paid_amount, 2));
     }
 
     /**

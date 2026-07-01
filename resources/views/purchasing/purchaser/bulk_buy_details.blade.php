@@ -20,7 +20,7 @@
             </div>
         </section>
 
-        <form action="{{ route('purchaser.carts.bulk-store') }}" method="POST" class="pb-28 space-y-4">
+        <form action="{{ route('purchaser.carts.bulk-store') }}" method="POST" class="space-y-4 pb-24 sm:pb-28">
             @csrf
             <input type="hidden" name="business_date" value="{{ $date }}">
 
@@ -175,17 +175,17 @@
             </div>
 
             {{-- Sticky bottom bar --}}
-            <div class="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 p-4 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] lg:absolute lg:bottom-4 lg:left-4 lg:right-4 lg:rounded-2xl lg:border">
-                <div class="mx-auto flex max-w-full items-center justify-between gap-3 lg:max-w-6xl">
-                    <div>
+            <div class="sticky bottom-3 z-40 mt-4 px-1 sm:px-0">
+                <div class="mx-auto flex max-w-4xl flex-col gap-3 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:rounded-[1.75rem] sm:px-4 sm:py-3">
+                    <div class="min-w-0">
                         <p class="text-xs font-black text-slate-500 uppercase">Estimated Grand Total</p>
                         <p class="text-lg font-black text-teal-600" id="grand-total-display">₹ 0.00</p>
                     </div>
-                    <div class="flex items-center gap-2">
-                        <button type="button" onclick="history.back()" class="inline-flex h-11 items-center justify-center rounded-xl bg-slate-100 px-4 text-sm font-black text-slate-700 transition hover:bg-slate-200">
+                    <div class="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-end">
+                        <button type="button" onclick="history.back()" class="inline-flex h-11 w-full items-center justify-center rounded-xl bg-slate-100 px-4 text-sm font-black text-slate-700 transition hover:bg-slate-200 sm:w-auto">
                             Back
                         </button>
-                        <button type="submit" class="inline-flex h-11 items-center justify-center rounded-xl bg-teal-600 px-5 text-sm font-black text-white transition hover:bg-teal-500">
+                        <button type="submit" class="inline-flex h-11 w-full items-center justify-center rounded-xl bg-teal-600 px-5 text-sm font-black text-white transition hover:bg-teal-500 sm:w-auto">
                             Add to Cart
                         </button>
                     </div>

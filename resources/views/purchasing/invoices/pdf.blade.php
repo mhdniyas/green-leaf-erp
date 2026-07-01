@@ -10,6 +10,7 @@
     @php
         $lineItems = $invoice->purchaserCart?->items ?? $invoice->goodsReceived?->items ?? collect();
         $businessDate = $invoice->purchaserCart?->business_date ?? $invoice->created_at;
+        $balance = max(0, round(((float) $invoice->amount - (float) $invoice->discount_amount) - (float) $invoice->paid_amount, 2));
     @endphp
 
     <div class="mx-auto max-w-5xl p-4 sm:p-8">
@@ -56,7 +57,7 @@
                 </div>
                 <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
                     <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Balance</p>
-                    <p class="mt-2 text-xl font-black text-amber-600">Rs. {{ number_format(max(0, (float) $invoice->amount - (float) $invoice->paid_amount), 2) }}</p>
+                    <p class="mt-2 text-xl font-black text-amber-600">Rs. {{ number_format($balance, 2) }}</p>
                 </div>
             </div>
 

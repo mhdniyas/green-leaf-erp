@@ -3,36 +3,36 @@
         @include('purchasing.purchaser.partials.feedback')
         @include('purchasing.purchaser.partials.deadline_alert')
 
-        <section class="overflow-hidden rounded-2xl bg-slate-950 text-white shadow-[0_16px_36px_rgba(15,23,42,0.18)] lg:rounded-[2rem] lg:shadow-[0_24px_60px_rgba(15,23,42,0.24)]">
-            <div class="bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.28),_transparent_36%),linear-gradient(135deg,_#0f172a_0%,_#111827_55%,_#134e4a_100%)] px-4 py-4 sm:px-5 lg:px-4 lg:py-5">
-                <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <section class="overflow-hidden rounded-2xl bg-slate-950 text-white shadow-[0_12px_28px_rgba(15,23,42,0.16)] lg:rounded-[2rem] lg:shadow-[0_20px_48px_rgba(15,23,42,0.22)]">
+            <div class="bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.28),_transparent_36%),linear-gradient(135deg,_#0f172a_0%,_#111827_55%,_#134e4a_100%)] px-4 py-3 sm:px-5 lg:px-4 lg:py-4">
+                <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div class="min-w-0">
                         <p class="text-[10px] font-black uppercase tracking-[0.16em] text-teal-200 sm:text-[11px] sm:tracking-[0.22em]">Purchaser Flow</p>
-                        <h1 class="mt-1 text-xl font-black tracking-tight sm:mt-2 sm:text-2xl">Daily demand</h1>
-                        <p class="mt-2 max-w-2xl text-sm font-medium text-slate-200">Select today&apos;s products, add them into carts, and move fast from market demand to purchase.</p>
+                        <h1 class="mt-1 text-lg font-black tracking-tight sm:text-[1.75rem]">Daily demand</h1>
+                        <p class="mt-1.5 max-w-xl text-xs font-medium leading-5 text-slate-200 sm:text-sm">Select today&apos;s products, add them into carts, and move fast from market demand to purchase.</p>
                     </div>
                     <form action="{{ route('purchaser.daily') }}" method="GET" class="w-full md:w-auto">
                         <label for="business-date" class="text-[11px] font-black uppercase tracking-[0.16em] text-teal-100">Business Date</label>
-                        <input id="business-date" type="date" name="date" value="{{ $date }}" onchange="this.form.submit()" class="mt-2 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-3 text-sm font-bold text-white outline-none ring-0 md:w-52 lg:rounded-2xl lg:px-4">
+                        <input id="business-date" type="date" name="date" value="{{ $date }}" onchange="this.form.submit()" class="mt-1.5 h-12 w-full rounded-xl border border-white/10 bg-white/10 px-3 text-sm font-bold text-white outline-none ring-0 md:w-48 lg:rounded-2xl lg:px-4">
                     </form>
                 </div>
 
-                <div class="mt-4 grid grid-cols-2 gap-2 sm:gap-3 lg:mt-5 lg:grid-cols-4">
-                    <div class="rounded-xl bg-white/10 px-3 py-3 lg:rounded-2xl lg:px-4">
+                <div class="mt-3 grid grid-cols-4 gap-2 lg:mt-4">
+                    <div class="rounded-xl bg-white/10 px-2.5 py-2 lg:rounded-2xl lg:px-4">
                         <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">Need</p>
-                        <p class="mt-2 text-2xl font-black">{{ number_format($dailyFulfillment['approved_qty'], 0) }}</p>
+                        <p class="mt-1 text-lg font-black lg:text-xl">{{ number_format($dailyFulfillment['approved_qty'], 0) }}</p>
                     </div>
-                    <div class="rounded-xl bg-amber-400/15 px-3 py-3 lg:rounded-2xl lg:px-4">
+                    <div class="rounded-xl bg-amber-400/15 px-2.5 py-2 lg:rounded-2xl lg:px-4">
                         <p class="text-[10px] font-black uppercase tracking-[0.16em] text-amber-100">Bought</p>
-                        <p class="mt-2 text-2xl font-black text-amber-200">{{ number_format($dailyFulfillment['bought_qty'], 0) }}</p>
+                        <p class="mt-1 text-lg font-black text-amber-200 lg:text-xl">{{ number_format($dailyFulfillment['bought_qty'], 0) }}</p>
                     </div>
-                    <div class="rounded-xl bg-emerald-400/15 px-3 py-3 lg:rounded-2xl lg:px-4">
+                    <div class="rounded-xl bg-emerald-400/15 px-2.5 py-2 lg:rounded-2xl lg:px-4">
                         <p class="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-100">Left</p>
-                        <p class="mt-2 text-2xl font-black text-emerald-200">{{ number_format($dailyFulfillment['remaining_qty'], 0) }}</p>
+                        <p class="mt-1 text-lg font-black text-emerald-200 lg:text-xl">{{ number_format($dailyFulfillment['remaining_qty'], 0) }}</p>
                     </div>
-                    <div class="rounded-xl bg-cyan-400/15 px-3 py-3 lg:rounded-2xl lg:px-4">
+                    <div class="rounded-xl bg-cyan-400/15 px-2.5 py-2 lg:rounded-2xl lg:px-4">
                         <p class="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-100">Carts</p>
-                        <p class="mt-2 text-2xl font-black text-cyan-200">{{ $dailyFulfillment['draft_carts'] }}</p>
+                        <p class="mt-1 text-lg font-black text-cyan-200 lg:text-xl">{{ $dailyFulfillment['draft_carts'] }}</p>
                     </div>
                 </div>
             </div>

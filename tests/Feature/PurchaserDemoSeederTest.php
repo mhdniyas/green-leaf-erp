@@ -8,10 +8,13 @@ use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaserCart;
 use App\Models\PurchaserCorrectionRequest;
+use App\Models\Shop;
+use App\Models\ShopOrder;
+use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Models\Supplier;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class PurchaserDemoSeederTest extends TestCase
@@ -22,7 +25,10 @@ class PurchaserDemoSeederTest extends TestCase
     {
         $this->seed();
 
-        $today = Carbon::today()->toDateString();
+        $businessDayService = app(PurchaserBusinessDayService::class);
+        $activeBusinessDate = $businessDayService->operationalDate();
+        $previousBusinessDate = $activeBusinessDate->copy()->subDay();
+        $approvalCenterDate = $businessDayService->currentCalendarDate()->addDay();
 
         $this->assertDatabaseHas('suppliers', [
             'name' => 'Market A',
@@ -60,7 +66,7 @@ class PurchaserDemoSeederTest extends TestCase
             ->firstOrFail();
 
         $this->assertSame('draft', $draftCart->status);
-        $this->assertSame($today, $draftCart->business_date?->toDateString());
+        $this->assertSame($activeBusinessDate->toDateString(), $draftCart->business_date?->toDateString());
         $this->assertSame(3, $draftCart->items->count());
 
         $submittedCart = PurchaserCart::query()
@@ -113,6 +119,42 @@ class PurchaserDemoSeederTest extends TestCase
             'status' => 'draft',
         ]);
 
+        $this->assertSame(
+            Shop::query()->where('status', 'active')->count(),
+            ShopOrder::query()
+                ->whereDate('business_date', $previousBusinessDate)
+                ->where('order_number', 'like', 'RQ-DEMO-YDAY-%')
+                ->count()
+        );
+
+        $this->assertTrue(
+            ShopOrderItem::query()
+                ->whereHas('order', function ($query) use ($previousBusinessDate): void {
+                    $query
+                        ->whereDate('business_date', $previousBusinessDate)
+                        ->where('order_number', 'like', 'RQ-DEMO-YDAY-%');
+                })
+                ->exists()
+        );
+
+        $this->assertSame(
+            Shop::query()->where('status', 'active')->count(),
+            ShopOrder::query()
+                ->whereDate('business_date', $activeBusinessDate)
+                ->where('order_number', 'like', 'RQ-DEMO-ACTIVE-%')
+                ->count()
+        );
+
+        if (! $approvalCenterDate->isSameDay($activeBusinessDate)) {
+            $this->assertSame(
+                Shop::query()->where('status', 'active')->count(),
+                ShopOrder::query()
+                    ->whereDate('business_date', $approvalCenterDate)
+                    ->where('order_number', 'like', 'RQ-DEMO-NEXT-%')
+                    ->count()
+            );
+        }
+
         $this->assertDatabaseHas((new StockBatch)->getTable(), [
             'reference' => 'BATCH-GRN-DEMO-OVERDUE-RECEIPT-001-1',
             'warehouse_receive_pending' => true,
@@ -138,9 +180,13 @@ class PurchaserDemoSeederTest extends TestCase
             'status' => 'sent_to_supplier',
         ]);
 
+        $this->assertDatabaseHas('goods_received_items', [
+            'variance' => '-0.25',
+        ]);
+
         $this->assertTrue(
             PurchaserCorrectionRequest::query()
-                ->whereDate('business_date', $today)
+                ->whereDate('business_date', $activeBusinessDate)
                 ->where('status', 'pending')
                 ->exists()
         );

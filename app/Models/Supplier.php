@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Activitylog\Support\LogOptions;
@@ -20,6 +21,8 @@ class Supplier extends Model
 {
     /** @use HasFactory<SupplierFactory> */
     use HasFactory, LogsActivity, SoftDeletes;
+
+    private static ?bool $hasPublicUuidColumn = null;
 
     protected $fillable = [
         'public_uuid',
@@ -44,16 +47,43 @@ class Supplier extends Model
 
     public function getRouteKeyName(): string
     {
-        return 'public_uuid';
+        return static::hasPublicUuidColumn() ? 'public_uuid' : $this->getKeyName();
+    }
+
+    public function getRouteKey(): mixed
+    {
+        if (static::hasPublicUuidColumn() && $this->public_uuid) {
+            return $this->public_uuid;
+        }
+
+        return $this->getKey();
+    }
+
+    public function resolveRouteBinding($value, $field = null): ?Model
+    {
+        $field ??= $this->getRouteKeyName();
+
+        $query = $this->newQuery()->where($field, $value);
+
+        if ($field !== 'name') {
+            $query->orWhere('name', $value);
+        }
+
+        return $query->first();
     }
 
     protected static function booted(): void
     {
         static::creating(function (self $supplier): void {
-            if (! $supplier->public_uuid) {
+            if (static::hasPublicUuidColumn() && ! $supplier->public_uuid) {
                 $supplier->public_uuid = (string) Str::uuid();
             }
         });
+    }
+
+    public static function hasPublicUuidColumn(): bool
+    {
+        return self::$hasPublicUuidColumn ??= Schema::hasColumn('suppliers', 'public_uuid');
     }
 
     protected $casts = [

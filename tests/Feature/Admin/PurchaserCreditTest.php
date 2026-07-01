@@ -19,6 +19,7 @@ use App\Services\Purchasing\PurchaseInvoiceService;
 use Database\Seeders\ChartOfAccountsSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 class PurchaserCreditTest extends TestCase
@@ -114,33 +115,9 @@ class PurchaserCreditTest extends TestCase
         $this->assertSame('2026-06-26', $credit->business_date->format('Y-m-d'));
     }
 
-    public function test_purchaser_can_view_own_credits_ledger(): void
+    public function test_purchaser_credit_ledger_screen_is_removed_from_purchaser_flow(): void
     {
-        PurchaserCredit::create([
-            'purchaser_id' => $this->purchaser->id,
-            'type' => 'in',
-            'amount' => 500.00,
-            'description' => 'Company cash',
-            'created_by' => $this->admin->id,
-            'business_date' => today(),
-        ]);
-
-        $anotherPurchaser = User::factory()->create();
-        $anotherPurchaser->assignRole('purchaser');
-
-        // Access own credits page
-        $this->actingAs($this->purchaser)
-            ->get(route('purchaser.credits'))
-            ->assertOk()
-            ->assertSee('Company cash')
-            ->assertSee('₹500.00');
-
-        // Non-purchaser forbidden
-        $shopUser = User::factory()->create();
-        $shopUser->assignRole('shop');
-        $this->actingAs($shopUser)
-            ->get(route('purchaser.credits'))
-            ->assertForbidden();
+        $this->assertFalse(Route::has('purchaser.credits'));
     }
 
     public function test_cart_submission_automatically_creates_purchaser_credit_outflow(): void

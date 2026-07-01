@@ -1,13 +1,19 @@
 <div class="space-y-3">
     <div class="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm lg:rounded-[2rem]">
         <h2 class="text-sm font-black text-slate-950">Bills generated</h2>
-        <p class="mt-1 text-[11px] font-semibold text-slate-500">{{ $invoices->total() }} invoices for {{ \Illuminate\Support\Carbon::parse($date)->format('d M Y') }}</p>
+        <p class="mt-1 text-[11px] font-semibold text-slate-500">
+            {{ $invoices->total() }}
+            {{ $selectedTab === 'old' ? 'older invoices before' : 'invoices for' }}
+            {{ \Illuminate\Support\Carbon::parse($date)->format('d M Y') }}
+        </p>
     </div>
 
     @if ($invoices->isEmpty())
         <div class="rounded-2xl border border-slate-200 bg-white px-4 py-12 text-center shadow-sm lg:rounded-[2rem]">
-            <p class="text-sm font-bold text-slate-900">No bills generated for this date.</p>
-            <p class="mt-1 text-xs font-semibold text-slate-500">Bills appear here after a cart is processed.</p>
+            <p class="text-sm font-bold text-slate-900">{{ $selectedTab === 'old' ? 'No older bills found.' : 'No bills generated for this date.' }}</p>
+            <p class="mt-1 text-xs font-semibold text-slate-500">
+                {{ $selectedTab === 'old' ? 'Older purchaser invoices will show here for payment follow-up.' : 'Bills appear here after a cart is processed.' }}
+            </p>
         </div>
     @else
         <div class="grid gap-3">
@@ -15,6 +21,21 @@
                 @php
                     $balance = max(0, round(((float) $invoice->amount - (float) $invoice->discount_amount) - (float) $invoice->paid_amount, 2));
                     $supplier = $invoice->supplier;
+                    $paymentStatusKey = (string) ($invoice->payment_status ?: 'unpaid');
+                    $statusLabel = match ($paymentStatusKey) {
+                        'partial' => 'Partially Paid',
+                        'credit_pending_approval' => 'Credit Pending Approval',
+                        default => str($paymentStatusKey)->replace('_', ' ')->title()->toString(),
+                    };
+                    $paymentHistoryAt = $paymentStatusKey === 'paid'
+                        ? ($invoice->purchaserCart?->payment_made_at ?? $invoice->updated_at)
+                        : $invoice->updated_at;
+                    $paymentHistoryLabel = match ($paymentStatusKey) {
+                        'partial' => 'Partially paid on',
+                        'paid' => 'Paid on',
+                        'credit_pending_approval' => 'Credit updated on',
+                        default => 'Payment updated on',
+                    };
                     $supplierData = $supplier ? [
                         'id' => $supplier->id,
                         'name' => $supplier->name,
@@ -57,13 +78,18 @@
                             <div class="flex flex-wrap items-center gap-2">
                                 <p class="font-mono text-sm font-black text-teal-700">{{ $invoice->invoice_number }}</p>
                                 <span class="rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] {{ $statusTone }}">
-                                    {{ str($invoice->payment_status ?: 'unpaid')->replace('_', ' ')->title() }}
+                                    {{ $statusLabel }}
                                 </span>
                             </div>
                             <p class="mt-1 text-sm font-black text-slate-950">{{ $supplier?->name ?: 'Supplier pending' }}</p>
                             <p class="mt-1 text-[11px] font-semibold text-slate-500">
-                                {{ $invoice->purchaserCart?->cart_number ?: 'Cart pending' }} • {{ $invoice->created_at->format('d M Y') }}
+                                {{ $invoice->purchaserCart?->cart_number ?: 'Cart pending' }} • Business day {{ optional($invoice->purchaserCart?->business_date)->format('d M Y') ?? $invoice->created_at?->format('d M Y') }}
                             </p>
+                            @if ($selectedTab === 'old' && $paymentHistoryAt)
+                                <p class="mt-1 text-[11px] font-semibold text-slate-500">
+                                    {{ $paymentHistoryLabel }} {{ $paymentHistoryAt->format('d M Y h:i A') }}
+                                </p>
+                            @endif
                         </div>
                         <button type="button" onclick='openCreditModal(@json($supplierData))' class="text-[11px] font-black text-teal-700 hover:text-teal-600">
                             Credit
@@ -147,6 +173,7 @@
         <form id="payment-update-form" method="POST" class="mt-4 space-y-3">
             @csrf
             @method('PATCH')
+            <input type="hidden" name="tab" value="{{ $selectedTab }}">
             <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
                 <div class="flex items-center justify-between text-[11px] font-bold text-slate-600">
                     <span>Total Bill</span>
@@ -159,6 +186,10 @@
                 <div class="mt-2 flex items-center justify-between text-[11px] font-bold text-slate-600">
                     <span>Net Payable</span>
                     <span id="payment-modal-net" class="text-slate-900"></span>
+                </div>
+                <div class="mt-2 flex items-center justify-between text-[11px] font-bold text-slate-600">
+                    <span>Already Paid</span>
+                    <span id="payment-modal-current-paid" class="text-slate-900"></span>
                 </div>
                 <div class="mt-2 flex items-center justify-between text-[11px] font-bold text-slate-600">
                     <span>Remaining</span>
@@ -188,8 +219,9 @@
             </div>
 
             <div>
-                <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Paid Amount</label>
-                <input id="paid_amount" type="number" step="0.01" min="0" name="paid_amount" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
+                <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Add Payment Now</label>
+                <input id="additional_paid_amount" type="number" step="0.01" min="0" name="additional_paid_amount" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
+                <p class="mt-1 text-[10px] font-semibold text-slate-500">Add only the new amount collected now. Total paid updates automatically.</p>
             </div>
 
             <div>
@@ -231,10 +263,12 @@
 <script>
     let currentInvoiceAmount = 0;
     let currentCreditApproved = false;
+    let currentInvoicePaidAmount = 0;
 
     function openPaymentModal(invoice, actionUrl) {
         currentInvoiceAmount = Number(invoice.amount || 0);
         currentCreditApproved = Boolean(invoice.creditApproved);
+        currentInvoicePaidAmount = Number(invoice.paidAmount || 0);
 
         document.getElementById('payment-update-form').action = actionUrl;
         document.getElementById('payment-modal-invoice').textContent = `${invoice.number} • ${invoice.supplier ?? 'Supplier pending'}`;
@@ -242,7 +276,8 @@
         document.getElementById('discount_amount').value = Number(invoice.discountAmount || 0).toFixed(2);
         document.getElementById('bill_number').value = invoice.billNumber || '';
         document.getElementById('payment_method').value = invoice.paymentMethod || 'Cash';
-        document.getElementById('paid_amount').value = Number(invoice.paidAmount || 0).toFixed(2);
+        document.getElementById('payment-modal-current-paid').textContent = `₹${currentInvoicePaidAmount.toFixed(2)}`;
+        document.getElementById('additional_paid_amount').value = '';
         document.getElementById('payment_note').value = invoice.paymentNote || '';
         document.getElementById('payment_details').value = invoice.paymentDetails || '';
 
@@ -259,7 +294,8 @@
     function updatePaymentModalStatus() {
         const method = document.getElementById('payment_method').value;
         const discountAmount = Math.max(0, Number(document.getElementById('discount_amount').value || 0));
-        const paidAmount = Number(document.getElementById('paid_amount').value || 0);
+        const additionalPaidAmount = Math.max(0, Number(document.getElementById('additional_paid_amount').value || 0));
+        const paidAmount = currentInvoicePaidAmount + additionalPaidAmount;
         const netAmount = Math.max(0, currentInvoiceAmount - discountAmount);
         const balance = Math.max(0, netAmount - paidAmount);
         const balanceNode = document.getElementById('payment-modal-balance');
@@ -286,7 +322,7 @@
 
     document.getElementById('payment_method')?.addEventListener('change', updatePaymentModalStatus);
     document.getElementById('discount_amount')?.addEventListener('input', updatePaymentModalStatus);
-    document.getElementById('paid_amount')?.addEventListener('input', updatePaymentModalStatus);
+    document.getElementById('additional_paid_amount')?.addEventListener('input', updatePaymentModalStatus);
 
     function openCreditModal(supplier) {
         if (!supplier) {

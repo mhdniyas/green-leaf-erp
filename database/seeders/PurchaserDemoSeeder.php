@@ -13,11 +13,15 @@ use App\Models\PurchaseOrder;
 use App\Models\PurchaserCart;
 use App\Models\PurchaserCartItem;
 use App\Models\PurchaserCorrectionRequest;
+use App\Models\PurchaserCredit;
+use App\Models\Shop;
+use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -25,10 +29,26 @@ use Illuminate\Support\Facades\DB;
 
 class PurchaserDemoSeeder extends Seeder
 {
+    private const DEMO_ORDER_ITEM_COUNT = 6;
+
     public function run(): void
     {
+        $this->call([
+            RolePermissionSeeder::class,
+            CategorySeeder::class,
+            ProductSeeder::class,
+            WarehouseSeeder::class,
+            SupplierSeeder::class,
+            DemoUserSeeder::class,
+            ChartOfAccountsSeeder::class,
+        ]);
+
         DB::transaction(function (): void {
-            $today = Carbon::today();
+            $businessDayService = app(PurchaserBusinessDayService::class);
+            $activeBusinessDate = $businessDayService->operationalDate();
+            $calendarDate = $businessDayService->currentCalendarDate();
+            $previousBusinessDate = $activeBusinessDate->copy()->subDay();
+            $approvalCenterDate = $calendarDate->copy()->addDay();
             $purchaser = User::query()->where('email', 'purchaser@greenleaf.com')->firstOrFail();
             $purchaseManager = User::query()->where('email', 'purchase@greenleaf.com')->firstOrFail();
             $warehouseManager = User::query()->where('email', 'warehouse@greenleaf.com')->firstOrFail();
@@ -54,10 +74,17 @@ class PurchaserDemoSeeder extends Seeder
                 ->get()
                 ->keyBy('sku');
 
+            $this->seedShopOrdersForAllShops($previousBusinessDate, $purchaseManager, 'YDAY');
+            $this->seedShopOrdersForAllShops($activeBusinessDate, $purchaseManager, 'ACTIVE');
+
+            if (! $approvalCenterDate->isSameDay($activeBusinessDate)) {
+                $this->seedShopOrdersForAllShops($approvalCenterDate, $purchaseManager, 'NEXT');
+            }
+
             $this->seedDraftCart(
                 purchaser: $purchaser,
                 supplier: $marketA,
-                businessDate: $today,
+                businessDate: $activeBusinessDate,
                 cartNumber: 'VC-DEMO-DRAFT-001',
                 products: $products,
                 items: [
@@ -71,7 +98,7 @@ class PurchaserDemoSeeder extends Seeder
             $this->seedDraftCart(
                 purchaser: $purchaser,
                 supplier: $marketB,
-                businessDate: $today->copy()->subDay(),
+                businessDate: $previousBusinessDate,
                 cartNumber: 'VC-DEMO-OVERDUE-DRAFT-001',
                 products: $products,
                 items: [
@@ -84,7 +111,7 @@ class PurchaserDemoSeeder extends Seeder
             $this->seedStandalonePurchaseOrder(
                 supplier: $marketA,
                 owner: $purchaseManager,
-                businessDate: $today->copy()->subDay(),
+                businessDate: $previousBusinessDate,
                 poNumber: 'PO-DEMO-STANDALONE-001',
                 status: POStatus::Draft,
                 products: $products,
@@ -98,7 +125,7 @@ class PurchaserDemoSeeder extends Seeder
             $this->seedStandalonePurchaseOrder(
                 supplier: $marketB,
                 owner: $purchaseManager,
-                businessDate: $today,
+                businessDate: $activeBusinessDate,
                 poNumber: 'PO-DEMO-STANDALONE-002',
                 status: POStatus::Approved,
                 products: $products,
@@ -112,7 +139,7 @@ class PurchaserDemoSeeder extends Seeder
             $this->seedStandalonePurchaseOrder(
                 supplier: $marketB,
                 owner: $purchaseManager,
-                businessDate: $today,
+                businessDate: $activeBusinessDate,
                 poNumber: 'PO-DEMO-STANDALONE-003',
                 status: POStatus::SentToSupplier,
                 products: $products,
@@ -128,7 +155,7 @@ class PurchaserDemoSeeder extends Seeder
                 warehouseManager: $warehouseManager,
                 warehouse: $warehouse,
                 supplier: $marketB,
-                businessDate: $today,
+                businessDate: $activeBusinessDate,
                 cartNumber: 'VC-DEMO-SUBMIT-001',
                 poNumber: 'PO-DEMO-PUR-001',
                 grnNumber: 'GRN-DEMO-PUR-001',
@@ -155,7 +182,7 @@ class PurchaserDemoSeeder extends Seeder
                 warehouseManager: $warehouseManager,
                 warehouse: $warehouse,
                 supplier: $marketA,
-                businessDate: $today,
+                businessDate: $activeBusinessDate,
                 cartNumber: 'VC-DEMO-SUBMIT-002',
                 poNumber: 'PO-DEMO-PUR-002',
                 grnNumber: 'GRN-DEMO-PUR-002',
@@ -182,7 +209,7 @@ class PurchaserDemoSeeder extends Seeder
                 warehouseManager: $warehouseManager,
                 warehouse: $warehouse,
                 supplier: $marketA,
-                businessDate: $today->copy()->subDay(),
+                businessDate: $previousBusinessDate,
                 cartNumber: 'VC-DEMO-OVERDUE-RECEIPT-001',
                 poNumber: 'PO-DEMO-OVERDUE-RECEIPT-001',
                 grnNumber: 'GRN-DEMO-OVERDUE-RECEIPT-001',
@@ -209,7 +236,7 @@ class PurchaserDemoSeeder extends Seeder
                 warehouseManager: $warehouseManager,
                 warehouse: $warehouse,
                 supplier: $marketB,
-                businessDate: $today,
+                businessDate: $activeBusinessDate,
                 cartNumber: 'VC-DEMO-PAYMENT-PENDING-001',
                 poNumber: 'PO-DEMO-PAYMENT-PENDING-001',
                 grnNumber: 'GRN-DEMO-PAYMENT-PENDING-001',
@@ -236,7 +263,7 @@ class PurchaserDemoSeeder extends Seeder
                 warehouseManager: $warehouseManager,
                 warehouse: $warehouse,
                 supplier: $marketB,
-                businessDate: $today,
+                businessDate: $activeBusinessDate,
                 cartNumber: 'VC-DEMO-COMPLETED-001',
                 poNumber: 'PO-DEMO-COMPLETED-001',
                 grnNumber: 'GRN-DEMO-COMPLETED-001',
@@ -251,10 +278,18 @@ class PurchaserDemoSeeder extends Seeder
                 products: $products,
                 items: [
                     ['sku' => '5', 'quantity' => 2, 'unit_price' => 64.00, 'notes' => 'Completed item.'],
-                    ['sku' => '126', 'quantity' => 1, 'unit_price' => 122.00, 'notes' => 'Completed box item.'],
+                    [
+                        'sku' => '126',
+                        'quantity' => 1,
+                        'unit_price' => 122.00,
+                        'notes' => 'Completed box item with short receipt.',
+                        'received_qty' => 0.75,
+                        'variance' => -0.25,
+                    ],
                 ],
                 notes: 'Warehouse confirmed and fully paid completed cart.',
                 warehouseConfirmed: true,
+                receiptNotes: 'One carton arrived short and was recorded by warehouse receiver.',
             );
 
             $this->seedSubmittedCartWithDocuments(
@@ -263,7 +298,7 @@ class PurchaserDemoSeeder extends Seeder
                 warehouseManager: $warehouseManager,
                 warehouse: $warehouse,
                 supplier: $marketC,
-                businessDate: $today,
+                businessDate: $activeBusinessDate,
                 cartNumber: 'VC-DEMO-MARKET-C-001',
                 poNumber: 'PO-DEMO-MARKET-C-001',
                 grnNumber: 'GRN-DEMO-MARKET-C-001',
@@ -290,7 +325,7 @@ class PurchaserDemoSeeder extends Seeder
                 warehouseManager: $warehouseManager,
                 warehouse: $warehouse,
                 supplier: $marketD,
-                businessDate: $today,
+                businessDate: $activeBusinessDate,
                 cartNumber: 'VC-DEMO-MARKET-D-001',
                 poNumber: 'PO-DEMO-MARKET-D-001',
                 grnNumber: 'GRN-DEMO-MARKET-D-001',
@@ -314,7 +349,7 @@ class PurchaserDemoSeeder extends Seeder
             $this->seedDraftCart(
                 purchaser: $purchaser,
                 supplier: $marketE,
-                businessDate: $today,
+                businessDate: $activeBusinessDate,
                 cartNumber: 'VC-DEMO-MARKET-E-DRAFT-001',
                 products: $products,
                 items: [
@@ -326,8 +361,8 @@ class PurchaserDemoSeeder extends Seeder
 
             $this->seedCorrectionRequest(
                 purchaser: $purchaser,
-                businessDate: $today,
-                shopOrderNumber: 'RQ-DEMO-TODAY-GRAND',
+                businessDate: $activeBusinessDate,
+                shopOrderNumber: sprintf('RQ-DEMO-ACTIVE-%s-%02d', $activeBusinessDate->format('Ymd'), 1),
                 productSku: '1',
                 proposedQty: 15,
                 note: 'Shop typed extra 3 kg. Please approve 15 kg only.',
@@ -351,12 +386,30 @@ class PurchaserDemoSeeder extends Seeder
         array $items,
         string $notes,
     ): PurchaserCart {
+        $existingCart = PurchaserCart::query()
+            ->where('cart_number', $cartNumber)
+            ->first();
+
+        if ($existingCart instanceof PurchaserCart) {
+            $this->clearDraftCartWorkflowState($existingCart);
+        }
+
         $cart = PurchaserCart::query()->updateOrCreate(
             ['cart_number' => $cartNumber],
             [
                 'user_id' => $purchaser->id,
                 'supplier_id' => $supplier->id,
                 'business_date' => $businessDate->toDateString(),
+                'purchase_order_id' => null,
+                'goods_received_id' => null,
+                'purchase_invoice_id' => null,
+                'bill_number' => null,
+                'discount_amount' => 0,
+                'payment_method' => null,
+                'payment_status' => 'unpaid',
+                'paid_amount' => 0,
+                'payment_note' => null,
+                'payment_details' => null,
                 'status' => 'draft',
                 'notes' => $notes,
                 'submitted_at' => null,
@@ -370,6 +423,39 @@ class PurchaserDemoSeeder extends Seeder
         $this->syncCartItems($cart, $products, $items);
 
         return $cart->load(['supplier', 'items.product.category']);
+    }
+
+    private function clearDraftCartWorkflowState(PurchaserCart $cart): void
+    {
+        $invoiceIds = PurchaseInvoice::query()
+            ->where('purchaser_cart_id', $cart->id)
+            ->pluck('id');
+
+        if ($invoiceIds->isNotEmpty()) {
+            PurchaserCredit::query()
+                ->whereIn('purchase_invoice_id', $invoiceIds->all())
+                ->delete();
+
+            PurchaseInvoice::query()
+                ->whereIn('id', $invoiceIds->all())
+                ->forceDelete();
+        }
+
+        if ($cart->goods_received_id !== null) {
+            StockBatch::query()
+                ->where('goods_received_id', $cart->goods_received_id)
+                ->delete();
+
+            GoodsReceived::query()
+                ->whereKey($cart->goods_received_id)
+                ->delete();
+        }
+
+        if ($cart->purchase_order_id !== null) {
+            PurchaseOrder::query()
+                ->whereKey($cart->purchase_order_id)
+                ->delete();
+        }
     }
 
     /**
@@ -397,6 +483,7 @@ class PurchaserDemoSeeder extends Seeder
         array $items,
         string $notes,
         bool $warehouseConfirmed = true,
+        ?string $receiptNotes = null,
     ): PurchaserCart {
         $cart = PurchaserCart::query()->updateOrCreate(
             ['cart_number' => $cartNumber],
@@ -448,7 +535,7 @@ class PurchaserDemoSeeder extends Seeder
                 'approved_at' => $businessDate->copy()->setTime(12, 0),
                 'transport_cost' => 120.00,
                 'labour_cost' => 45.00,
-                'notes' => 'Seeded purchaser demo goods receipt.',
+                'notes' => $receiptNotes ?: 'Seeded purchaser demo goods receipt.',
                 'is_extra' => false,
             ]
         );
@@ -602,7 +689,7 @@ class PurchaserDemoSeeder extends Seeder
     }
 
     /**
-     * @param  array<int, array{sku: string, quantity: float|int, unit_price: float|int, notes?: string}>  $items
+     * @param  array<int, array{sku: string, quantity: float|int, unit_price: float|int, notes?: string, received_qty?: float|int, variance?: float|int}>  $items
      */
     private function syncGoodsReceivedItems(
         GoodsReceived $goodsReceived,
@@ -627,6 +714,10 @@ class PurchaserDemoSeeder extends Seeder
             }
 
             $quantity = (float) $item['quantity'];
+            $receivedQuantity = (float) ($item['received_qty'] ?? $quantity);
+            $variance = array_key_exists('variance', $item)
+                ? (float) $item['variance']
+                : round($receivedQuantity - $quantity, 2);
 
             $goodsReceived->items()->updateOrCreate(
                 [
@@ -635,10 +726,110 @@ class PurchaserDemoSeeder extends Seeder
                 [
                     'purchase_order_item_id' => $purchaseOrderItems[$product->id]->id,
                     'received_unit' => $purchaseOrderItems[$product->id]->purchase_unit,
-                    'received_packet_qty' => $purchaseOrderItems[$product->id]->purchase_unit === 'box' ? $quantity : null,
+                    'received_packet_qty' => $purchaseOrderItems[$product->id]->purchase_unit === 'box' ? $receivedQuantity : null,
                     'received_weight_per_packet' => $purchaseOrderItems[$product->id]->purchase_unit === 'box' ? 1.0 : null,
-                    'received_qty' => $quantity,
-                    'variance' => 0,
+                    'received_qty' => $receivedQuantity,
+                    'variance' => $variance,
+                ]
+            );
+        }
+    }
+
+    private function seedShopOrdersForAllShops(Carbon $businessDate, User $orderCreator, string $prefix): void
+    {
+        $shops = Shop::query()
+            ->where('status', 'active')
+            ->orderBy('id')
+            ->get();
+
+        $products = Product::query()
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->limit(max(self::DEMO_ORDER_ITEM_COUNT * 2, 12))
+            ->get()
+            ->values();
+
+        if ($shops->isEmpty() || $products->count() < self::DEMO_ORDER_ITEM_COUNT) {
+            return;
+        }
+
+        foreach ($shops->values() as $shopIndex => $shop) {
+            $orderNumber = sprintf(
+                'RQ-DEMO-%s-%s-%02d',
+                $prefix,
+                $businessDate->format('Ymd'),
+                $shopIndex + 1,
+            );
+
+            $order = ShopOrder::query()->updateOrCreate(
+                ['order_number' => $orderNumber],
+                [
+                    'shop_id' => $shop->id,
+                    'state' => 'approved',
+                    'delivery_status' => 'pending_delivery',
+                    'payment_status' => 'pending',
+                    'business_date' => $businessDate->toDateString(),
+                    'submitted_at' => $businessDate->copy()->subDay()->setTime(18, 15),
+                    'deadline_at' => $businessDate->copy()->subDay()->setTime(21, 30),
+                    'created_by' => $orderCreator->id,
+                    'latest_revision_no' => 1,
+                    'has_pending_revision' => false,
+                    'is_allocation_completed' => false,
+                    'is_delivered' => false,
+                    'is_late' => false,
+                    'cash_collected' => 0,
+                    'cash_discrepancy' => 0,
+                    'balance_amount' => 0,
+                    'total_shortage_value' => 0,
+                ]
+            );
+
+            $this->syncDemoOrderItems($order, $products, $shopIndex, $prefix);
+        }
+    }
+
+    /**
+     * @param  Collection<int, Product>  $products
+     */
+    private function syncDemoOrderItems(ShopOrder $order, Collection $products, int $shopIndex, string $prefix): void
+    {
+        $selectedProducts = collect(range(0, self::DEMO_ORDER_ITEM_COUNT - 1))
+            ->map(function (int $offset) use ($products, $shopIndex): Product {
+                return $products[($shopIndex + $offset) % $products->count()];
+            });
+
+        $productIds = $selectedProducts->pluck('id')->all();
+
+        ShopOrderItem::query()
+            ->where('shop_order_id', $order->id)
+            ->whereNotIn('product_id', $productIds)
+            ->delete();
+
+        foreach ($selectedProducts->values() as $itemIndex => $product) {
+            $quantity = (float) (3 + (($shopIndex + $itemIndex) % 5));
+            $price = max(1.0, round((float) ($product->base_price ?? $product->vendor_price ?? 1.0), 2));
+
+            ShopOrderItem::query()->updateOrCreate(
+                [
+                    'shop_order_id' => $order->id,
+                    'product_id' => $product->id,
+                ],
+                [
+                    'product_grade' => 'A',
+                    'requested_qty' => $quantity,
+                    'approved_qty' => $quantity,
+                    'unit' => $product->unit,
+                    'locked_selling_price' => $price,
+                    'locked_price_source' => 'seeded_load',
+                    'line_total' => round($quantity * $price, 2),
+                    'notes' => sprintf('Dynamic %s purchaser demo order.', strtolower($prefix)),
+                    'fulfillment_type' => 'warehouse',
+                    'sorting_status' => 'pending',
+                    'is_sorted' => false,
+                    'delivered_qty' => 0,
+                    'shortage_qty' => 0,
+                    'unit_cost' => round($price * 0.82, 4),
+                    'shortage_value' => 0,
                 ]
             );
         }

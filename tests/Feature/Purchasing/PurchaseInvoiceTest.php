@@ -261,12 +261,45 @@ class PurchaseInvoiceTest extends TestCase
             'goods_received_id' => $this->grn->id,
             'supplier_id' => $this->supplier->id,
             'invoice_number' => 'PINV-PDF-1001',
+            'amount' => 330.00,
+            'discount_amount' => 12.00,
+            'paid_amount' => 318.00,
+            'payment_method' => 'Cash',
+            'payment_status' => 'paid',
         ]);
 
         $this->actingAs($this->accountant)
             ->get(route('purchasing.invoices.pdf', $invoice))
             ->assertOk()
-            ->assertSee('PINV-PDF-1001');
+            ->assertSee('PINV-PDF-1001')
+            ->assertSee('Rs. 330.00')
+            ->assertSee('Rs. 318.00')
+            ->assertSee('Rs. 12.00')
+            ->assertSee('Rs. 0.00');
+    }
+
+    public function test_purchase_invoice_report_uses_discounted_balance(): void
+    {
+        $invoice = PurchaseInvoice::factory()->create([
+            'goods_received_id' => $this->grn->id,
+            'supplier_id' => $this->supplier->id,
+            'invoice_number' => 'PINV-DISCOUNT-BALANCE-1001',
+            'amount' => 330.00,
+            'discount_amount' => 12.00,
+            'paid_amount' => 300.00,
+            'payment_method' => 'Cash',
+            'payment_status' => 'partial',
+            'created_at' => now(),
+        ]);
+
+        $this->actingAs($this->accountant)
+            ->get(route('purchasing.invoices.index', [
+                'date' => now()->format('Y-m-d'),
+                'search' => $this->supplier->name,
+            ]))
+            ->assertOk()
+            ->assertSee($invoice->invoice_number)
+            ->assertSee('₹18.00');
     }
 
     public function test_accountant_can_view_vendor_finance_report_page(): void

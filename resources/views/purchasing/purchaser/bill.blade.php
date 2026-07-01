@@ -22,6 +22,7 @@
             <input type="hidden" name="business_date" value="{{ $date }}">
             <input type="hidden" name="cart_id" value="{{ $cart->id }}">
             <input type="hidden" name="supplier_id" value="{{ $cart->supplier_id }}">
+            <input type="hidden" name="return_to" value="vendors">
 
             <div class="space-y-2">
                 <section class="space-y-1.5">

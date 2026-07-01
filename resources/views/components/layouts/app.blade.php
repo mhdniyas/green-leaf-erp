@@ -186,10 +186,10 @@
             'type' => 'center',
         ],
         [
-            'label' => 'Finance',
-            'route' => 'purchaser.finance',
-            'active' => request()->routeIs('purchaser.finance'),
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m3.75-9.75h-6a2.25 2.25 0 100 4.5h4.5a2.25 2.25 0 100 4.5h-6" /></svg>',
+            'label' => 'Vendors',
+            'route' => 'purchaser.suppliers',
+            'active' => request()->routeIs('purchaser.suppliers.*') || request()->routeIs('purchaser.suppliers'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M5.25 21V8.25A2.25 2.25 0 017.5 6h9a2.25 2.25 0 012.25 2.25V21M9 9.75h6M9 13.5h6M9 17.25h3" /></svg>',
             'type' => 'link',
         ],
         [
@@ -274,19 +274,19 @@
                         Daily
                     </x-nav-item>
                     <x-nav-item href="{{ route('purchaser.vendors') }}" :active="request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill')" :sub="true">
-                        Cart
+                        Daily Carts
                     </x-nav-item>
                     <x-nav-item href="{{ route('purchaser.suppliers') }}" :active="request()->routeIs('purchaser.suppliers.*') || request()->routeIs('purchaser.suppliers')" :sub="true">
-                        Vendors
+                        Vendor Hub
                     </x-nav-item>
                     <x-nav-item href="{{ route('purchaser.finance') }}" :active="request()->routeIs('purchaser.finance')" :sub="true">
                         Finance
                     </x-nav-item>
+                    <x-nav-item href="{{ route('purchaser.cash') }}" :active="request()->routeIs('purchaser.cash')" :sub="true">
+                        Cash
+                    </x-nav-item>
                     <x-nav-item href="{{ route('purchaser.history') }}" :active="request()->routeIs('purchaser.history')" :sub="true">
                         Report
-                    </x-nav-item>
-                    <x-nav-item href="{{ route('purchaser.credits') }}" :active="request()->routeIs('purchaser.credits')" :sub="true">
-                        Credits
                     </x-nav-item>
                 </div>
             @else
@@ -403,19 +403,16 @@
                                 Daily
                             </x-nav-item>
                             <x-nav-item href="{{ route('purchaser.vendors') }}" :active="request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill')" :sub="true">
-                                Cart
+                                Daily Carts
                             </x-nav-item>
                             <x-nav-item href="{{ route('purchaser.suppliers') }}" :active="request()->routeIs('purchaser.suppliers.*') || request()->routeIs('purchaser.suppliers')" :sub="true">
-                                Vendors
+                                Vendor Hub
                             </x-nav-item>
                             <x-nav-item href="{{ route('purchaser.finance') }}" :active="request()->routeIs('purchaser.finance')" :sub="true">
                                 Finance
                             </x-nav-item>
                             <x-nav-item href="{{ route('purchaser.history') }}" :active="request()->routeIs('purchaser.history')" :sub="true">
                                 Report
-                            </x-nav-item>
-                            <x-nav-item href="{{ route('purchaser.credits') }}" :active="request()->routeIs('purchaser.credits')" :sub="true">
-                                Credits
                             </x-nav-item>
                         </div>
                         @endif
@@ -876,6 +873,8 @@
                 document.documentElement.classList.add('dark');
                 localStorage.setItem('theme', 'dark');
                 moonIcon.classList.add('hidden');
+                sunIcon.classList.remove('hidden');
+            }
         });
     }
 

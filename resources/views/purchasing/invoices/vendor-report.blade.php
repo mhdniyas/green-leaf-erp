@@ -131,7 +131,7 @@
                         <tbody class="divide-y divide-slate-100 bg-white text-sm">
                             @foreach ($historyInvoices as $invoice)
                                 @php
-                                    $balance = max(0, round((float) $invoice->amount - (float) $invoice->paid_amount, 2));
+                                    $balance = max(0, round(((float) $invoice->amount - (float) $invoice->discount_amount) - (float) $invoice->paid_amount, 2));
                                     $paymentTone = match ($invoice->payment_method) {
                                         'Cash' => 'bg-emerald-50 text-emerald-700 border-emerald-200',
                                         'Credit' => 'bg-amber-50 text-amber-700 border-amber-200',
