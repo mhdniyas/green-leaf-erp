@@ -51,7 +51,7 @@ class PurchaserDemoSeeder extends Seeder
             $approvalCenterDate = $calendarDate->copy()->addDay();
             $purchaser = User::query()->where('email', 'purchaser@greenleaf.com')->firstOrFail();
             $purchaseManager = User::query()->where('email', 'purchase@greenleaf.com')->firstOrFail();
-            $warehouseManager = User::query()->where('email', 'warehouse@greenleaf.com')->firstOrFail();
+            $warehouseManager = User::query()->where('email', 'receiver@greenleaf.com')->firstOrFail();
             $warehouse = Warehouse::query()->orderBy('id')->firstOrFail();
 
             $marketA = Supplier::query()->where('name', 'Market A')->firstOrFail();

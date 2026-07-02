@@ -123,12 +123,6 @@
             </div>
         </section>
 
-        @include('finance.partials.admin-pillars', [
-            'finance' => $finance,
-            'startDate' => $date,
-            'endDate' => $date,
-        ])
-
         <section class="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
             <div class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
                 <div class="flex items-center justify-between gap-3">

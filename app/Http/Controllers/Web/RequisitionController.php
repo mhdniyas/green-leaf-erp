@@ -1454,7 +1454,7 @@ class RequisitionController extends Controller
     public function showDelivery(Request $request, string $orderNumber): View|RedirectResponse
     {
         $order = ShopOrder::where('order_number', $orderNumber)
-            ->with(['items.product', 'shop'])
+            ->with(['items' => fn ($query) => $query->where('sorting_status', 'loaded'), 'items.product', 'shop'])
             ->firstOrFail();
 
         // Access control: Shop Owner can only see their own shop orders
@@ -1499,7 +1499,7 @@ class RequisitionController extends Controller
     public function recordDelivery(Request $request, string $orderNumber): RedirectResponse
     {
         $order = ShopOrder::where('order_number', $orderNumber)
-            ->with(['items'])
+            ->with(['items' => fn ($query) => $query->where('sorting_status', 'loaded'), 'items.product'])
             ->firstOrFail();
 
         // Access control: Shop Owner can only see their own shop orders
@@ -1567,24 +1567,8 @@ class RequisitionController extends Controller
                     'shortage_value' => $shortageQty * $unitCost,
                 ]);
 
-                // ONLY consume stock and wastage immediately if there is NO discrepancy
-                if (! $hasDiscrepancy) {
-                    $this->stockLedgerService->consumeSortedStockForProduct(
-                        $item->product_id,
-                        $deliveredQty,
-                        (int) $request->user()->id,
-                        StockMovementType::Out,
-                        "Warehouse delivery out: {$order->order_number}"
-                    );
-
-                    $this->stockLedgerService->consumeSortedStockForProduct(
-                        $item->product_id,
-                        $shortageQty,
-                        (int) $request->user()->id,
-                        StockMovementType::Wastage,
-                        "Delivery shortage discrepancy: {$order->order_number}"
-                    );
-                }
+                // Stock was already consumed at "Move to Delivery" (dispatchOrder).
+                // Driver check-in only records what was received vs loaded for discrepancy tracking.
             }
 
             $invoice = $this->shopInvoiceService->applyDeliveryCheckin(
@@ -1674,15 +1658,8 @@ class RequisitionController extends Controller
                 }
                 $discrepancyNote = $item->delivery_discrepancy_note;
 
-                // Consume stock
-                $this->stockLedgerService->consumeSortedStockForProduct(
-                    $item->product_id,
-                    $deliveredQty,
-                    $userId,
-                    StockMovementType::Out,
-                    "Warehouse delivery out (approved): {$order->order_number}"
-                );
-
+                // Stock OUT was already consumed at "Move to Delivery" dispatch.
+                // Here we only write off the shortage amount from stock (wastage or adjustment).
                 if ($shortageQty > 0.0) {
                     if ($discrepancyType === 'wastage') {
                         // Consume wastage in stock ledger

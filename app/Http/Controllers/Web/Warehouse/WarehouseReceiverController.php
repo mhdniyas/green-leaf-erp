@@ -18,6 +18,7 @@ use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Models\Warehouse;
 use App\Repositories\Inventory\StockMovementRepository;
+use App\Services\Inventory\StockLedgerService;
 use App\Services\Inventory\WastageService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -27,14 +28,20 @@ use Illuminate\View\View;
 
 class WarehouseReceiverController extends Controller
 {
+    public function __construct(private readonly StockLedgerService $stockLedgerService) {}
+
     /**
      * Show the warehouse receive checklist — pending vendor sheets (GRNs) and approved shop orders.
      */
     public function index(Request $request): View
     {
         $this->authorizeReceiverAccess($request);
+        $request->validate([
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+        ]);
 
         $date = $request->input('date', Carbon::today()->format('Y-m-d'));
+        $selectedWarehouseId = $request->integer('warehouse_id') ?: null;
 
         // All pending vendor sheets (GRNs) awaiting warehouse receipt confirmation
         $pendingGrns = GoodsReceived::where('status', 'pending_approval')
@@ -53,7 +60,8 @@ class WarehouseReceiverController extends Controller
         // Also fetch recently confirmed batches (today) for context
         $confirmedBatches = StockBatch::where('warehouse_receive_pending', false)
             ->whereDate('received_at', $date)
-            ->with(['product', 'warehouseConfirmedBy', 'warehouse'])
+            ->when($selectedWarehouseId, fn ($query) => $query->where('warehouse_id', $selectedWarehouseId))
+            ->with(['product.category', 'warehouseConfirmedBy', 'warehouse'])
             ->orderBy('warehouse_confirmed_at', 'desc')
             ->get();
 
@@ -62,7 +70,8 @@ class WarehouseReceiverController extends Controller
             StockMovementType::In,
             StockMovementType::SaleReversal,
         ])
-            ->with(['product', 'batch'])
+            ->when($selectedWarehouseId, fn ($query) => $query->where('warehouse_id', $selectedWarehouseId))
+            ->with(['product.category', 'batch'])
             ->orderBy('created_at', 'desc')
             ->take(15)
             ->get();
@@ -73,6 +82,7 @@ class WarehouseReceiverController extends Controller
         foreach ($inMovements as $mov) {
             $inflows->push((object) [
                 'product_name' => $mov->product->name,
+                'category_name' => $mov->product->category->name ?? 'Other',
                 'grade_label' => $mov->grade instanceof ProductGrade ? $mov->grade->label() : ($mov->grade ? (ProductGrade::tryFrom($mov->grade)?->label() ?? $mov->grade) : 'Unsorted'),
                 'reference' => $mov->batch?->reference,
                 'quantity' => (float) $mov->quantity,
@@ -86,6 +96,7 @@ class WarehouseReceiverController extends Controller
         foreach ($confirmedBatches as $batch) {
             $inflows->push((object) [
                 'product_name' => $batch->product->name,
+                'category_name' => $batch->product->category->name ?? 'Other',
                 'grade_label' => 'Unsorted',
                 'reference' => $batch->reference,
                 'quantity' => (float) $batch->total_kg,
@@ -104,36 +115,49 @@ class WarehouseReceiverController extends Controller
             StockMovementType::Wastage,
             StockMovementType::Sale,
         ])
-            ->with(['product'])
+            ->when($selectedWarehouseId, fn ($query) => $query->where('warehouse_id', $selectedWarehouseId))
+            ->with(['product.category'])
             ->orderBy('created_at', 'desc')
             ->take(15)
             ->get();
 
         // Fetch active stock levels
-        $stockLevels = app(StockMovementRepository::class)->currentStockByProductAndGrade();
+        $stockLevels = app(StockMovementRepository::class)->currentStockByProductAndGrade(null, $selectedWarehouseId);
 
         // Calculate latest activity timestamp for each stock level
         foreach ($stockLevels as $item) {
             if ($item->grade === 'Unsorted') {
                 $latestBatch = StockBatch::where('product_id', $item->product_id)
                     ->where('status', BatchStatus::Pending)
+                    ->when($selectedWarehouseId, fn ($query) => $query->where('warehouse_id', $selectedWarehouseId))
                     ->orderBy('created_at', 'desc')
                     ->first();
                 $item->latest_activity = $latestBatch ? $latestBatch->created_at : null;
             } else {
                 $latestMovement = StockMovement::where('product_id', $item->product_id)
                     ->where('grade', $item->grade)
+                    ->when($selectedWarehouseId, fn ($query) => $query->where('warehouse_id', $selectedWarehouseId))
                     ->orderBy('created_at', 'desc')
                     ->first();
                 $item->latest_activity = $latestMovement ? $latestMovement->created_at : null;
             }
         }
 
-        // Build stock map for fulfillment calculations
+        // Sort stock levels by latest_activity descending (latest updates on top)
+        $stockLevels = $stockLevels->sortByDesc(function ($item) {
+            if (! $item->latest_activity) {
+                return 0;
+            }
+
+            return $item->latest_activity instanceof \Carbon\Carbon
+                ? $item->latest_activity->timestamp
+                : Carbon::parse($item->latest_activity)->timestamp;
+        });
+
+        // Build stock map for fulfillment calculations (summed by product_id across all grades)
         $stockMap = [];
         foreach ($stockLevels as $level) {
-            $gradeVal = is_string($level->grade) ? $level->grade : ($level->grade->value ?? 'U');
-            $stockMap[$level->product_id][$gradeVal] = (float) $level->current_stock;
+            $stockMap[$level->product_id] = ($stockMap[$level->product_id] ?? 0.0) + (float) $level->current_stock;
         }
 
         // Fetch approved daily shop orders for Loadout
@@ -188,8 +212,7 @@ class WarehouseReceiverController extends Controller
 
             foreach ($order->items as $item) {
                 $qty = $item->approved_qty > 0 ? (float) $item->approved_qty : (float) $item->requested_qty;
-                $grade = $item->product_grade ?? 'A';
-                $stock = $stockMap[$item->product_id][$grade] ?? 0.0;
+                $stock = $stockMap[$item->product_id] ?? 0.0;
 
                 $totalRequested += $qty;
                 $totalAvailableStock += min($qty, max(0.0, $stock));
@@ -213,6 +236,7 @@ class WarehouseReceiverController extends Controller
             'stockLevels',
             'approvedOrders',
             'shopOrders',
+            'selectedWarehouseId',
             'warehouses',
         ));
     }
@@ -425,18 +449,8 @@ class WarehouseReceiverController extends Controller
 
         $order->load(['shop', 'items.product']);
 
-        $stockLevels = app(StockMovementRepository::class)->currentStockByProductAndGrade();
-
-        // Group by product_id and grade
-        $stockMap = [];
-        foreach ($stockLevels as $level) {
-            $gradeVal = is_string($level->grade) ? $level->grade : ($level->grade->value ?? 'U');
-            $stockMap[$level->product_id][$gradeVal] = (float) $level->current_stock;
-        }
-
         foreach ($order->items as $item) {
-            $gradeVal = $item->product_grade ?? 'A';
-            $item->inventory_stock = $stockMap[$item->product_id][$gradeVal] ?? 0.0;
+            $item->inventory_stock = $this->stockLedgerService->availableStockForProduct($item->product_id) + (float) $item->loaded_qty;
         }
 
         return view('warehouse-receiver.loadout_details', compact('order'));
@@ -468,96 +482,34 @@ class WarehouseReceiverController extends Controller
             return redirect()->back()->withErrors(['Loaded quantity cannot exceed approved quantity.']);
         }
 
+        $availableStock = $this->stockLedgerService->availableStockForProduct($item->product_id);
+        if ($loadedQty > $availableStock + 0.001) {
+            return redirect()->back()->withErrors(['Loaded quantity cannot exceed available stock.']);
+        }
+
         try {
-            DB::transaction(function () use ($item, $discrepancyType, $discrepancyNote, $approvedQty, $loadedQty, $request) {
+            DB::transaction(function () use ($item, $loadedQty, $request) {
                 $userId = $request->user()->id;
 
-                // Find batch to deduct from
-                $latestIn = StockMovement::where('product_id', $item->product_id)
-                    ->where('grade', $item->product_grade ?? 'A')
-                    ->where('type', StockMovementType::In)
-                    ->latest()
-                    ->first();
-
-                $batchId = $latestIn?->batch_id;
-
-                if (! $batchId) {
-                    $anyBatch = StockBatch::where('product_id', $item->product_id)->latest()->first();
-                    $batchId = $anyBatch?->id;
+                if ($loadedQty > 0) {
+                    $this->stockLedgerService->consumeSortedStockForProduct(
+                        $item->product_id,
+                        $loadedQty,
+                        $userId,
+                        StockMovementType::Out,
+                        "Loadout: Shop Order {$item->order->order_number} to {$item->order->shop->name}"
+                    );
                 }
-
-                if (! $batchId) {
-                    throw new \RuntimeException("No stock batches found for product {$item->product->name} to loadout from.");
-                }
-
-                $batch = StockBatch::find($batchId);
 
                 $item->update([
                     'loaded_qty' => $loadedQty,
-                    'loadout_discrepancy_type' => $discrepancyType,
-                    'loadout_discrepancy_note' => $discrepancyNote,
+                    'loadout_discrepancy_type' => 'none',
+                    'loadout_discrepancy_note' => null,
                     'sorting_status' => 'loaded',
                     'is_sorted' => true,
                     'sorted_at' => now(),
                     'sorted_by' => $userId,
                 ]);
-
-                StockMovement::create([
-                    'batch_id' => $batchId,
-                    'product_id' => $item->product_id,
-                    'created_by' => $userId,
-                    'grade' => $item->product_grade ?? 'A',
-                    'type' => StockMovementType::Out->value,
-                    'quantity' => $loadedQty,
-                    'cost_per_unit' => $latestIn?->cost_per_unit ?? 0,
-                    'warehouse_id' => $batch?->warehouse_id,
-                    'notes' => "Loadout: Shop Order {$item->order->order_number} to {$item->order->shop->name}",
-                ]);
-
-                // Create wastage entry if type is wastage
-                if ($discrepancyType === 'wastage') {
-                    $diff = $approvedQty - $loadedQty;
-                    if ($diff > 0) {
-                        $wastageService = app(WastageService::class);
-                        $wastageService->record(new WastageEntryData(
-                            productId: $item->product_id,
-                            batchId: $batchId,
-                            grade: $item->product_grade ?? 'A',
-                            quantity: $diff,
-                            costPerKg: (float) ($latestIn?->cost_per_unit ?? 0.0),
-                            reason: WastageReason::SortingDamage,
-                            wastageDate: now()->toDateString(),
-                            notes: 'Loadout discrepancy wastage: '.($discrepancyNote ?? 'Order loadout discrepancy'),
-                        ), $userId);
-
-                        StockMovement::create([
-                            'batch_id' => $batchId,
-                            'product_id' => $item->product_id,
-                            'created_by' => $userId,
-                            'grade' => $item->product_grade ?? 'A',
-                            'type' => StockMovementType::Wastage->value,
-                            'quantity' => $diff,
-                            'cost_per_unit' => $latestIn?->cost_per_unit ?? 0,
-                            'warehouse_id' => $batch?->warehouse_id,
-                            'notes' => "Loadout discrepancy wastage: Shop Order {$item->order->order_number} to {$item->order->shop->name}",
-                        ]);
-                    }
-                } elseif ($discrepancyType === 'other') {
-                    $diff = $approvedQty - $loadedQty;
-                    if ($diff > 0) {
-                        StockMovement::create([
-                            'batch_id' => $batchId,
-                            'product_id' => $item->product_id,
-                            'created_by' => $userId,
-                            'grade' => $item->product_grade ?? 'A',
-                            'type' => StockMovementType::Adjustment->value,
-                            'quantity' => $diff,
-                            'cost_per_unit' => $latestIn?->cost_per_unit ?? 0,
-                            'warehouse_id' => $batch?->warehouse_id,
-                            'notes' => "Loadout discrepancy adjustment: Shop Order {$item->order->order_number} to {$item->order->shop->name}",
-                        ]);
-                    }
-                }
             });
 
             return redirect()->back()->with('success', "{$item->product->name} marked as loaded and reduced from inventory.");
@@ -566,9 +518,6 @@ class WarehouseReceiverController extends Controller
         }
     }
 
-    /**
-     * Mark all pending items in a shop order as loaded (with default quantities).
-     */
     public function loadoutOrderAll(ShopOrder $order, Request $request): RedirectResponse
     {
         $this->authorizeReceiverAccess($request);
@@ -579,96 +528,65 @@ class WarehouseReceiverController extends Controller
             return redirect()->back()->withErrors(['All items in this order are already loaded.']);
         }
 
-        try {
-            DB::transaction(function () use ($pendingItems, $order, $request) {
-                $userId = $request->user()->id;
+        $skipUnavailable = $request->boolean('skip_unavailable');
+        $skippedNames = [];
+        $loadedCount = 0;
 
-                // Load current stock map
-                $stockLevels = app(StockMovementRepository::class)->currentStockByProductAndGrade();
-                $stockMap = [];
-                foreach ($stockLevels as $level) {
-                    $gradeVal = is_string($level->grade) ? $level->grade : ($level->grade->value ?? 'U');
-                    $stockMap[$level->product_id][$gradeVal] = (float) $level->current_stock;
-                }
+        try {
+            DB::transaction(function () use ($pendingItems, $order, $request, $skipUnavailable, &$skippedNames, &$loadedCount) {
+                $userId = $request->user()->id;
 
                 foreach ($pendingItems as $item) {
                     $approvedQty = $item->approved_qty > 0 ? (float) $item->approved_qty : (float) $item->requested_qty;
-                    $gradeVal = $item->product_grade ?? 'A';
-                    $availableStock = $stockMap[$item->product_id][$gradeVal] ?? 0.0;
+                    $availableStock = $this->stockLedgerService->availableStockForProduct($item->product_id);
 
-                    // Load what is available, bounded by 0 and approvedQty
+                    // Skip if skip_unavailable is checked and available stock is less than approved quantity
+                    if ($skipUnavailable && $availableStock < $approvedQty) {
+                        $skippedNames[] = $item->product->name;
+
+                        continue;
+                    }
+
                     $qtyToLoad = min($approvedQty, max(0.0, $availableStock));
 
-                    // Find batch to deduct from
-                    $latestIn = StockMovement::where('product_id', $item->product_id)
-                        ->where('grade', $item->product_grade ?? 'A')
-                        ->where('type', StockMovementType::In)
-                        ->latest()
-                        ->first();
+                    if ($qtyToLoad <= 0.0) {
+                        $skippedNames[] = $item->product->name;
 
-                    $batchId = $latestIn?->batch_id;
-
-                    if (! $batchId) {
-                        $anyBatch = StockBatch::where('product_id', $item->product_id)->latest()->first();
-                        $batchId = $anyBatch?->id;
+                        continue;
                     }
 
-                    if (! $batchId) {
-                        throw new \RuntimeException("No stock batches found for product {$item->product->name} to loadout from.");
-                    }
-
-                    $batch = StockBatch::find($batchId);
-
-                    $discrepancyType = 'none';
-                    $discrepancyNote = null;
-                    $diff = $approvedQty - $qtyToLoad;
-
-                    if ($diff > 0) {
-                        $discrepancyType = 'other';
-                        $discrepancyNote = 'Auto-loaded available stock (inventory shortage)';
-                    }
+                    // Deduct stock immediately
+                    $this->stockLedgerService->consumeSortedStockForProduct(
+                        $item->product_id,
+                        $qtyToLoad,
+                        $userId,
+                        StockMovementType::Out,
+                        "Loadout: Shop Order {$order->order_number} to {$order->shop->name}"
+                    );
 
                     $item->update([
                         'loaded_qty' => $qtyToLoad,
-                        'loadout_discrepancy_type' => $discrepancyType,
-                        'loadout_discrepancy_note' => $discrepancyNote,
+                        'loadout_discrepancy_type' => 'none',
+                        'loadout_discrepancy_note' => null,
                         'sorting_status' => 'loaded',
                         'is_sorted' => true,
                         'sorted_at' => now(),
                         'sorted_by' => $userId,
                     ]);
 
-                    if ($qtyToLoad > 0) {
-                        StockMovement::create([
-                            'batch_id' => $batchId,
-                            'product_id' => $item->product_id,
-                            'created_by' => $userId,
-                            'grade' => $item->product_grade ?? 'A',
-                            'type' => StockMovementType::Out->value,
-                            'quantity' => $qtyToLoad,
-                            'cost_per_unit' => $latestIn?->cost_per_unit ?? 0,
-                            'warehouse_id' => $batch?->warehouse_id,
-                            'notes' => "Loadout: Shop Order {$order->order_number} to {$order->shop->name}",
-                        ]);
-                    }
-
-                    if ($discrepancyType === 'other' && $diff > 0) {
-                        StockMovement::create([
-                            'batch_id' => $batchId,
-                            'product_id' => $item->product_id,
-                            'created_by' => $userId,
-                            'grade' => $item->product_grade ?? 'A',
-                            'type' => StockMovementType::Adjustment->value,
-                            'quantity' => $diff,
-                            'cost_per_unit' => $latestIn?->cost_per_unit ?? 0,
-                            'warehouse_id' => $batch?->warehouse_id,
-                            'notes' => "Loadout discrepancy adjustment: Shop Order {$order->order_number} to {$order->shop->name} ({$discrepancyNote})",
-                        ]);
-                    }
+                    $loadedCount++;
                 }
             });
 
-            return redirect()->back()->with('success', "All {$pendingItems->count()} pending item(s) processed for loadout based on available stock.");
+            if (! empty($skippedNames)) {
+                $skippedList = implode(', ', array_unique($skippedNames));
+
+                return redirect()->route('warehouse.receiver.loadout.show', $order)
+                    ->with('success', "Loaded {$loadedCount} item(s). (Skipped/Partial: {$skippedList} due to insufficient stock)");
+            }
+
+            return redirect()->route('warehouse.receiver.loadout.show', $order)
+                ->with('success', "All {$loadedCount} pending item(s) processed for loadout successfully.");
         } catch (\Exception $e) {
             return redirect()->back()->withErrors([$e->getMessage()]);
         }
@@ -681,102 +599,141 @@ class WarehouseReceiverController extends Controller
     {
         $this->authorizeReceiverAccess($request);
 
-        $pendingCount = $order->items()->where('sorting_status', '!=', 'loaded')->count();
-        if ($pendingCount > 0) {
-            return redirect()->back()->withErrors(["Cannot dispatch: {$pendingCount} items are not loaded yet."]);
+        if ($order->delivery_status !== 'pending_delivery' && $order->delivery_status !== 'in_transit' && $order->delivery_status !== 'ready_for_dispatch') {
+            return redirect()->back()->withErrors(['This order is already completed.']);
+        }
+
+        $loadedCount = $order->items()->where('sorting_status', 'loaded')->count();
+        if ($loadedCount === 0) {
+            return redirect()->back()->withErrors(['Cannot dispatch: No items have been loaded yet.']);
         }
 
         DB::transaction(function () use ($order, $request): void {
+            $userId = $request->user()->id;
+
+            // Split items where loaded_qty < approved_qty (but > 0)
+            $items = $order->items()->get();
+            foreach ($items as $item) {
+                $approvedQty = $item->approved_qty > 0 ? (float) $item->approved_qty : (float) $item->requested_qty;
+                $loadedQty = $item->loaded_qty !== null ? (float) $item->loaded_qty : 0.0;
+
+                if ($loadedQty > 0.0 && $loadedQty < $approvedQty) {
+                    $remainingQty = $approvedQty - $loadedQty;
+
+                    // Update existing item to represent only the loaded part
+                    $item->update([
+                        'requested_qty' => $loadedQty,
+                        'approved_qty' => $loadedQty,
+                    ]);
+
+                    // Create a new pending item for the remaining balance
+                    ShopOrderItem::create([
+                        'shop_order_id' => $order->id,
+                        'product_id' => $item->product_id,
+                        'product_grade' => $item->product_grade ?? 'A',
+                        'unit' => $item->unit,
+                        'requested_qty' => $remainingQty,
+                        'approved_qty' => $remainingQty,
+                        'loaded_qty' => null,
+                        'sorting_status' => 'allocated',
+                        'is_sorted' => false,
+                    ]);
+                }
+            }
+
             $order->update([
-                'delivery_status' => 'in_transit',
-                'is_allocation_completed' => true,
+                'delivery_status' => 'ready_for_dispatch',
+                'is_allocation_completed' => false,
             ]);
 
             activity()
                 ->performedOn($order)
-                ->causedBy($request->user()->id)
-                ->log('shop_order.dispatched');
+                ->causedBy($userId)
+                ->log('shop_order.moved_to_delivery');
         });
 
         return redirect()
             ->route('warehouse.receiver.checklist', ['date' => $order->business_date->format('Y-m-d')])
-            ->with('success', "Order {$order->order_number} marked out for delivery.");
+            ->with('success', "Order {$order->order_number} moved to delivery successfully.");
     }
 
-    /**
-     * Dispatch order as partial, marking all remaining items as not loaded (0 quantity discrepancy).
-     */
     public function dispatchPartialOrder(ShopOrder $order, Request $request): RedirectResponse
     {
         $this->authorizeReceiverAccess($request);
 
-        if ($order->delivery_status !== 'pending') {
-            return redirect()->back()->withErrors(['This order is already dispatched or completed.']);
+        if ($order->delivery_status !== 'pending_delivery' && $order->delivery_status !== 'in_transit' && $order->delivery_status !== 'ready_for_dispatch') {
+            return redirect()->back()->withErrors(['This order is already completed.']);
         }
 
-        $pendingItems = $order->items()->where('sorting_status', '!=', 'loaded')->get();
-
         try {
-            DB::transaction(function () use ($pendingItems, $order, $request) {
+            DB::transaction(function () use ($order, $request) {
                 $userId = $request->user()->id;
 
-                foreach ($pendingItems as $item) {
+                // Split items where loaded_qty < approved_qty (but > 0)
+                $items = $order->items()->get();
+                foreach ($items as $item) {
                     $approvedQty = $item->approved_qty > 0 ? (float) $item->approved_qty : (float) $item->requested_qty;
+                    $loadedQty = $item->loaded_qty !== null ? (float) $item->loaded_qty : 0.0;
 
-                    // Since we are dispatching without loading these items, loaded_qty is 0
-                    $qtyToLoad = 0.0;
+                    if ($loadedQty > 0.0 && $loadedQty < $approvedQty) {
+                        $remainingQty = $approvedQty - $loadedQty;
 
-                    // Find batch to deduct from/log discrepancy
-                    $latestIn = StockMovement::where('product_id', $item->product_id)
-                        ->where('grade', $item->product_grade ?? 'A')
-                        ->where('type', StockMovementType::In)
-                        ->latest()
-                        ->first();
+                        // Update existing item to represent only the loaded part
+                        $item->update([
+                            'requested_qty' => $loadedQty,
+                            'approved_qty' => $loadedQty,
+                        ]);
 
-                    $batchId = $latestIn?->batch_id;
-
-                    if (! $batchId) {
-                        $anyBatch = StockBatch::where('product_id', $item->product_id)->latest()->first();
-                        $batchId = $anyBatch?->id;
-                    }
-
-                    if (! $batchId) {
-                        throw new \RuntimeException("No stock batches found for product {$item->product->name} to log discrepancy.");
-                    }
-
-                    $batch = StockBatch::find($batchId);
-
-                    $discrepancyType = 'other';
-                    $discrepancyNote = 'Not loaded (partial order dispatch)';
-                    $diff = $approvedQty; // entire quantity is discrepancy
-
-                    $item->update([
-                        'loaded_qty' => $qtyToLoad,
-                        'loadout_discrepancy_type' => $discrepancyType,
-                        'loadout_discrepancy_note' => $discrepancyNote,
-                        'sorting_status' => 'loaded',
-                        'is_sorted' => true,
-                        'sorted_at' => now(),
-                        'sorted_by' => $userId,
-                    ]);
-
-                    // Record adjustment stock movement for the difference
-                    if ($diff > 0) {
-                        StockMovement::create([
-                            'batch_id' => $batchId,
+                        // Create a new pending item for the remaining balance
+                        ShopOrderItem::create([
+                            'shop_order_id' => $order->id,
                             'product_id' => $item->product_id,
-                            'created_by' => $userId,
-                            'grade' => $item->product_grade ?? 'A',
-                            'type' => StockMovementType::Adjustment->value,
-                            'quantity' => $diff,
-                            'cost_per_unit' => $latestIn?->cost_per_unit ?? 0,
-                            'warehouse_id' => $batch?->warehouse_id,
-                            'notes' => "Loadout discrepancy adjustment: Shop Order {$order->order_number} to {$order->shop->name} ({$discrepancyNote})",
+                            'product_grade' => $item->product_grade ?? 'A',
+                            'unit' => $item->unit,
+                            'requested_qty' => $remainingQty,
+                            'approved_qty' => $remainingQty,
+                            'loaded_qty' => null,
+                            'sorting_status' => 'allocated',
+                            'is_sorted' => false,
                         ]);
                     }
                 }
 
-                // Transition order to dispatched state
+                // Transition order to ready_for_dispatch state
+                $order->update([
+                    'delivery_status' => 'ready_for_dispatch',
+                    'is_allocation_completed' => false,
+                ]);
+
+                activity()
+                    ->performedOn($order)
+                    ->causedBy($userId)
+                    ->log('shop_order.moved_to_delivery_partial');
+            });
+
+            return redirect()
+                ->route('warehouse.receiver.checklist', ['date' => $order->business_date->format('Y-m-d')])
+                ->with('success', "Order {$order->order_number} moved to delivery as a partial delivery.");
+        } catch (\Exception $e) {
+            return redirect()->back()->withErrors([$e->getMessage()]);
+        }
+    }
+
+    /**
+     * Mark order out for delivery (dispatch from ready_for_dispatch to in_transit).
+     */
+    public function shipOrder(ShopOrder $order, Request $request): RedirectResponse
+    {
+        $this->authorizeReceiverAccess($request);
+
+        if ($order->delivery_status !== 'ready_for_dispatch') {
+            return redirect()->back()->withErrors(['This order is not ready for dispatch or already dispatched.']);
+        }
+
+        try {
+            DB::transaction(function () use ($order, $request) {
+                $userId = $request->user()->id;
+
                 $order->update([
                     'delivery_status' => 'in_transit',
                     'is_allocation_completed' => true,
@@ -785,12 +742,11 @@ class WarehouseReceiverController extends Controller
                 activity()
                     ->performedOn($order)
                     ->causedBy($userId)
-                    ->log('shop_order.dispatched_partial');
+                    ->log('shop_order.marked_out_for_delivery');
             });
 
-            return redirect()
-                ->route('warehouse.receiver.checklist', ['date' => $order->business_date->format('Y-m-d')])
-                ->with('success', "Order {$order->order_number} partially dispatched and marked as out for delivery.");
+            return redirect()->route('warehouse.receiver.checklist', ['date' => $order->business_date->format('Y-m-d'), 'tab' => 'confirmed'])
+                ->with('success', "Order {$order->order_number} marked out for delivery successfully.");
         } catch (\Exception $e) {
             return redirect()->back()->withErrors([$e->getMessage()]);
         }

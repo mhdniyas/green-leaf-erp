@@ -19,5 +19,7 @@ class LoginPageTest extends TestCase
         $response = $this->get(route('login'));
 
         $response->assertOk();
+        $response->assertSee('Go to top');
+        $response->assertSee('Go to bottom');
     }
 }

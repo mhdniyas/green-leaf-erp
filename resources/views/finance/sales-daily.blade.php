@@ -6,12 +6,20 @@
                     <div class="max-w-3xl">
                         <p class="text-[11px] font-black uppercase tracking-[0.28em] text-sky-100/80">Sales Daily View</p>
                         <h1 class="mt-2 text-2xl font-black tracking-tight sm:text-3xl">Sales report for {{ $date->format('d M Y') }}</h1>
-                        <p class="mt-3 text-sm font-semibold leading-6 text-slate-200">Daily sales credit, debit collections, shop due balances, and invoice-level recovery detail.</p>
+                        <p class="mt-3 text-sm font-semibold leading-6 text-slate-200">Single-table daily sales reporting with a clean filter for pending or settled invoices.</p>
                     </div>
                     <form method="GET" action="{{ route('finance.sales-daily') }}" class="flex flex-wrap items-end gap-2 rounded-[1.5rem] border border-white/10 bg-white/10 p-3 backdrop-blur">
                         <label class="min-w-[12rem]">
                             <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-200">Business Date</span>
                             <input type="date" name="date" value="{{ $date->format('Y-m-d') }}" class="mt-2 h-10 w-full rounded-2xl border border-white/20 bg-white px-4 text-sm font-black text-slate-950 focus:outline-none">
+                        </label>
+                        <label class="min-w-[11rem]">
+                            <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-200">Filter</span>
+                            <select name="status" class="mt-2 h-10 w-full rounded-2xl border border-white/20 bg-white px-4 text-sm font-black text-slate-950 focus:outline-none">
+                                <option value="all" @selected(($statusFilter ?? 'all') === 'all')>All</option>
+                                <option value="pending" @selected(($statusFilter ?? 'all') === 'pending')>Pending</option>
+                                <option value="settled" @selected(($statusFilter ?? 'all') === 'settled')>Settled</option>
+                            </select>
                         </label>
                         <button type="submit" class="inline-flex h-10 items-center rounded-2xl bg-white px-5 text-xs font-black uppercase tracking-[0.18em] text-slate-950 transition hover:bg-sky-50">
                             Apply
@@ -96,11 +104,11 @@
                         </thead>
                         <tbody class="divide-y divide-slate-100 text-sm">
                             @forelse ($report['invoices'] as $invoice)
-                                <tr>
-                                    <td class="px-4 py-3">
-                                        <p class="font-black text-slate-950">{{ $invoice->invoice_number }}</p>
-                                        <p class="mt-1 text-xs font-semibold text-slate-500">{{ \Illuminate\Support\Carbon::parse((string) $invoice->business_date)->format('d M Y') }}</p>
-                                    </td>
+                            <tr>
+                                <td class="px-4 py-3">
+                                    <p class="font-black text-slate-950">{{ $invoice->invoice_number }}</p>
+                                    <p class="mt-1 text-xs font-semibold text-slate-500">{{ \Illuminate\Support\Carbon::parse((string) $invoice->business_date)->format('d M Y') }}</p>
+                                </td>
                                     <td class="px-4 py-3 font-semibold text-slate-700">{{ $invoice->shop?->name ?? 'Shop pending' }}</td>
                                     <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $invoice->final_total, 2) }}</td>
                                     <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $invoice->paid_amount, 2) }}</td>
@@ -112,7 +120,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="5" class="px-4 py-8 text-center font-bold text-slate-500">No sales invoice detail rows.</td>
+                                    <td colspan="5" class="px-4 py-8 text-center font-bold text-slate-500">No sales invoice detail rows for the selected filter.</td>
                                 </tr>
                             @endforelse
                         </tbody>

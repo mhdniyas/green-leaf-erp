@@ -450,7 +450,7 @@ class DashboardTest extends TestCase
             ->assertForbidden();
     }
 
-    public function test_admin_overview_shows_vendor_and_shop_owner_finance_pillars(): void
+    public function test_admin_overview_does_not_show_finance_pillars(): void
     {
         $admin = User::factory()->create();
         $admin->assignRole('admin');
@@ -480,33 +480,21 @@ class DashboardTest extends TestCase
         $this->actingAs($admin)
             ->get(route('admin.overview'))
             ->assertOk()
-            ->assertSee('Vendor Reports')
-            ->assertSee('Sales Reports')
-            ->assertSee('Daily credit and debit table')
-            ->assertSee('North Market Vendor')
-            ->assertSee('Approve Credit')
-            ->assertDontSee('Cash Collected')
-            ->assertDontSee('Expense Outflow');
+            ->assertDontSee('Vendor Reports')
+            ->assertDontSee('Sales Reports')
+            ->assertDontSee('Daily credit and debit table')
+            ->assertDontSee('North Market Vendor')
+            ->assertDontSee('Approve Credit');
     }
 
-    public function test_warehouse_manager_dashboard_shows_receive_goods_gateway(): void
+    public function test_warehouse_receiver_is_redirected_to_receiver_checklist_from_dashboard(): void
     {
         $manager = User::factory()->create();
-        $manager->assignRole('warehouse');
-
-        $supplier = Supplier::factory()->create();
-        $po = PurchaseOrder::factory()->create([
-            'supplier_id' => $supplier->id,
-            'order_date' => today()->toDateString(),
-            'status' => POStatus::Approved,
-            'created_by' => $manager->id,
-        ]);
+        $manager->assignRole('warehouse_receiver');
 
         $response = $this->actingAs($manager)
             ->get(route('dashboard'));
 
-        $response->assertOk();
-        $response->assertSee('Daily Operational Gateway: Receive Goods to Start Process');
-        $response->assertSee($po->po_number);
+        $response->assertRedirect(route('warehouse.receiver.checklist'));
     }
 }

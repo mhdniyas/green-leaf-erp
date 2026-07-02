@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use Database\Seeders\DatabaseSeeder;
+use Database\Seeders\PriceBoardSeeder;
 use Database\Seeders\PurchaserRoleTestSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -20,6 +21,7 @@ class PurchaserRoleTestSeederTest extends TestCase
     public function test_purchaser_role_test_seeder_creates_today_orders_only(): void
     {
         $this->seed(DatabaseSeeder::class);
+        $this->seed(PriceBoardSeeder::class);
         $this->seed(PurchaserRoleTestSeeder::class);
 
         $today = Carbon::today()->toDateString();

@@ -86,6 +86,7 @@ class RequisitionDeliveryTest extends TestCase
             'state' => 'approved',
             'business_date' => today()->toDateString(),
             'is_allocation_completed' => true,
+            'delivery_status' => 'in_transit',
             'created_by' => $owner->id,
         ]);
 
@@ -190,6 +191,8 @@ class RequisitionDeliveryTest extends TestCase
             'product_id' => $product->id,
             'requested_qty' => 15,
             'approved_qty' => 15,
+            'loaded_qty' => 15,
+            'sorting_status' => 'loaded',
             'locked_selling_price' => 10.00,
             'unit' => 'kg',
         ]);
@@ -292,6 +295,8 @@ class RequisitionDeliveryTest extends TestCase
             'product_id' => $product->id,
             'requested_qty' => 15,
             'approved_qty' => 15,
+            'loaded_qty' => 15,
+            'sorting_status' => 'loaded',
             'delivered_qty' => 12,
             'shortage_qty' => 3,
             'unit_cost' => 10.00,
@@ -325,10 +330,9 @@ class RequisitionDeliveryTest extends TestCase
         $this->assertEquals(10.00, (float) $item->shortage_value);
         $this->assertStringContainsString('manager approved only 1 kg', (string) $item->notes);
 
-        $this->assertDatabaseHas('stock_movements', [
+        $this->assertDatabaseMissing('stock_movements', [
             'product_id' => $product->id,
             'type' => StockMovementType::Out->value,
-            'quantity' => 14.000,
             'notes' => "Warehouse delivery out (approved): {$order->order_number}",
         ]);
 
@@ -351,6 +355,7 @@ class RequisitionDeliveryTest extends TestCase
             'state' => 'approved',
             'business_date' => today()->toDateString(),
             'is_allocation_completed' => true,
+            'delivery_status' => 'in_transit',
             'created_by' => $owner->id,
         ]);
 
@@ -381,7 +386,20 @@ class RequisitionDeliveryTest extends TestCase
             'product_id' => $product->id,
             'requested_qty' => 10,
             'approved_qty' => 10,
+            'loaded_qty' => 10,
+            'sorting_status' => 'loaded',
             'unit' => 'kg',
+        ]);
+
+        StockMovement::create([
+            'product_id' => $product->id,
+            'batch_id' => $batch->id,
+            'created_by' => $owner->id,
+            'grade' => ProductGrade::GradeA->value,
+            'type' => StockMovementType::Out->value,
+            'quantity' => 10,
+            'cost_per_unit' => 10.00,
+            'notes' => "Loadout dispatch to delivery — Order: {$order->order_number}",
         ]);
 
         $response = $this->actingAs($owner)
@@ -399,6 +417,11 @@ class RequisitionDeliveryTest extends TestCase
         $productStock = $stock->firstWhere('product_id', $product->id);
 
         $this->assertNull($productStock);
+
+        $order->refresh();
+        $this->assertTrue($order->is_delivered);
+        $this->assertSame('delivered', $order->delivery_status);
+        $this->assertNotNull($order->delivered_at);
     }
 
     public function test_delivery_checkin_rejects_received_quantity_above_approved_quantity(): void
@@ -412,6 +435,7 @@ class RequisitionDeliveryTest extends TestCase
             'state' => 'approved',
             'business_date' => today()->toDateString(),
             'is_allocation_completed' => true,
+            'delivery_status' => 'in_transit',
             'created_by' => $owner->id,
         ]);
 
@@ -431,10 +455,12 @@ class RequisitionDeliveryTest extends TestCase
             'product_id' => $product->id,
             'requested_qty' => 15,
             'approved_qty' => 15,
+            'loaded_qty' => 15,
+            'sorting_status' => 'loaded',
             'unit' => 'kg',
         ]);
 
-        $response = $this->from(route('requisitions.delivery.show', $order->order_number))
+        $response = $this->from(route('shop-owner.deliveries.show', $order->order_number))
             ->actingAs($owner)
             ->post(route('requisitions.delivery.record', $order->order_number), [
                 'delivered_qty' => [
@@ -443,8 +469,8 @@ class RequisitionDeliveryTest extends TestCase
                 'cash_collected' => 180.00,
             ]);
 
-        $response->assertRedirect(route('requisitions.delivery.show', $order->order_number));
-        $response->assertSessionHasErrors("delivered_qty.{$item->id}");
+        $response->assertRedirect(route('shop-owner.deliveries.show', $order->order_number));
+        $response->assertSessionHasErrors(["delivered_qty.{$item->id}"]);
 
         $order->refresh();
 

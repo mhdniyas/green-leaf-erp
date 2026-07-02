@@ -97,8 +97,8 @@ class AdminOverviewController extends Controller
             ],
             [
                 'name' => 'Warehouse Team',
-                'count' => User::role('warehouse')->count(),
-                'online' => $onlineUsers->filter(fn (User $user): bool => $user->hasRole('warehouse'))->count(),
+                'count' => User::role('warehouse_receiver')->count(),
+                'online' => $onlineUsers->filter(fn (User $user): bool => $user->hasRole('warehouse_receiver'))->count(),
                 'pending' => ShopOrder::whereDate('business_date', $date)->where('state', 'approved')->where('is_allocation_completed', false)->count(),
                 'label' => 'approved orders still in warehouse flow',
                 'tone' => 'cyan',

@@ -147,9 +147,11 @@ class FinanceController extends Controller
         Gate::authorize('accounting.ledger.view');
 
         $date = Carbon::parse($request->input('date', today()->toDateString()));
-        $report = $this->financePillars->salesDailyDetail($date);
+        $statusFilter = $request->string('status')->toString();
+        $statusFilter = in_array($statusFilter, ['all', 'pending', 'settled'], true) ? $statusFilter : 'all';
+        $report = $this->financePillars->salesDailyDetail($date, $statusFilter);
 
-        return view('finance.sales-daily', compact('date', 'report'));
+        return view('finance.sales-daily', compact('date', 'report', 'statusFilter'));
     }
 
     public function legacyRedirect(): RedirectResponse

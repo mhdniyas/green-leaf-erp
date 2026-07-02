@@ -75,6 +75,11 @@ class ShopInvoice extends Model
         return $this->hasMany(ShopInvoiceItem::class);
     }
 
+    public function paymentRequests(): HasMany
+    {
+        return $this->hasMany(ShopInvoicePaymentRequest::class)->latest('id');
+    }
+
     public function generatedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'generated_by');

@@ -14,5 +14,7 @@
 </head>
 <body class="h-full bg-surface-50 font-sans antialiased">
     {{ $slot }}
+    <x-page-jump-controls bottom-class="bottom-6" />
+    <x-global-footer />
 </body>
 </html>

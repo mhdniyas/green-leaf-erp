@@ -6,9 +6,12 @@ namespace App\Http\Controllers\Web\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Auth\LoginRequest;
+use App\Models\Shop;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\View\View;
 
 class LoginController extends Controller
@@ -37,6 +40,7 @@ class LoginController extends Controller
         return view('auth.demo-login', [
             'hasDemoAccess' => $request->session()->get('demo_access_granted', false),
             'staffAccounts' => $this->staffAccounts(),
+            'shopAccounts' => $this->shopAccounts(),
         ]);
     }
 
@@ -63,8 +67,7 @@ class LoginController extends Controller
             'account' => ['required', 'string'],
         ]);
 
-        $account = collect($this->staffAccounts())
-            ->firstWhere('key', $validated['account']);
+        $account = $this->resolveDemoAccount($validated['account']);
 
         abort_unless($account !== null, 404);
 
@@ -134,10 +137,71 @@ class LoginController extends Controller
         return [
             ['key' => 'admin', 'name' => 'Administrator', 'role' => 'Admin', 'email' => 'admin@greenleaf.com', 'password' => 'Admin11'],
             ['key' => 'purchase-manager', 'name' => 'Purchase Manager', 'role' => 'Purchase', 'email' => 'purchase@greenleaf.com', 'password' => 'Purchase12'],
-            ['key' => 'warehouse-manager', 'name' => 'Warehouse Manager', 'role' => 'Warehouse', 'email' => 'warehouse@greenleaf.com', 'password' => 'Warehouse13'],
             ['key' => 'purchaser-niyas', 'name' => 'Purchaser Niyas', 'role' => 'Purchaser', 'email' => 'purchaser@greenleaf.com', 'password' => 'Purchaser14'],
             ['key' => 'purchaser-fallback', 'name' => 'Purchaser Fallback', 'role' => 'Purchaser', 'email' => 'purchaser2@greenleaf.com', 'password' => 'Purchaser15'],
             ['key' => 'warehouse-receiver', 'name' => 'Warehouse Receiver', 'role' => 'Receiver', 'email' => 'receiver@greenleaf.com', 'password' => 'Receiver16'],
         ];
+    }
+
+    /**
+     * @return array<int, array{key: string, name: string, role: string, email: string, password: string, shop_code: string|null}>
+     */
+    private function shopAccounts(): array
+    {
+        return Shop::query()
+            ->where('status', 'active')
+            ->orderBy('name')
+            ->get()
+            ->map(function (Shop $shop): array {
+                $emailSlug = str($shop->code)->lower()->replace('_', '-');
+
+                return [
+                    'key' => 'shop-'.$shop->id,
+                    'name' => $shop->name,
+                    'role' => 'Shop Owner',
+                    'email' => 'shop-'.$emailSlug.'@greenleaf.com',
+                    'password' => 'ShopOwner17',
+                    'shop_code' => $shop->code,
+                ];
+            })
+            ->all();
+    }
+
+    /**
+     * @return array{key: string, name: string, role: string, email: string, password: string, shop_code?: string|null}|null
+     */
+    private function resolveDemoAccount(string $accountKey): ?array
+    {
+        $staffAccount = collect($this->staffAccounts())->firstWhere('key', $accountKey);
+        if ($staffAccount !== null) {
+            return $staffAccount;
+        }
+
+        $shopAccount = collect($this->shopAccounts())->firstWhere('key', $accountKey);
+        if ($shopAccount === null) {
+            return null;
+        }
+
+        $shop = Shop::query()->find((int) str($accountKey)->after('shop-')->toString());
+        if (! $shop) {
+            return null;
+        }
+
+        $user = User::updateOrCreate(
+            ['email' => $shopAccount['email']],
+            [
+                'name' => $shop->name.' Demo',
+                'password' => Hash::make($shopAccount['password']),
+                'email_verified_at' => now(),
+                'shop_id' => $shop->id,
+                'registration_status' => 'approved',
+                'approved_at' => now(),
+                'approved_by' => null,
+            ]
+        );
+
+        $user->syncRoles(['shop']);
+
+        return $shopAccount;
     }
 }

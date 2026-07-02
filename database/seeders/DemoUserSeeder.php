@@ -16,6 +16,10 @@ class DemoUserSeeder extends Seeder
      */
     public function run(): void
     {
+        $this->call([
+            RolePermissionSeeder::class,
+        ]);
+
         $shops = collect([
             ['code' => 'SHOP_CASIO', 'name' => 'Casio Hypermarket', 'warehouse_tag' => 'A'],
             ['code' => 'SHOP_BUDEGERE', 'name' => 'Budegere', 'warehouse_tag' => 'B'],
@@ -47,7 +51,6 @@ class DemoUserSeeder extends Seeder
         $accounts = [
             ['name' => 'Administrator', 'email' => 'admin@greenleaf.com', 'role' => 'admin', 'shop_code' => null, 'password' => 'Admin11'],
             ['name' => 'Purchase Manager', 'email' => 'purchase@greenleaf.com', 'role' => 'purchase', 'shop_code' => null, 'password' => 'Purchase12'],
-            ['name' => 'Warehouse Manager', 'email' => 'warehouse@greenleaf.com', 'role' => 'warehouse', 'shop_code' => null, 'password' => 'Warehouse13'],
             ['name' => 'Purchaser Niyas', 'email' => 'purchaser@greenleaf.com', 'role' => 'purchaser', 'shop_code' => null, 'password' => 'Purchaser14'],
             ['name' => 'Purchaser Rahul', 'email' => 'purchaser2@greenleaf.com', 'role' => 'purchaser', 'shop_code' => null, 'password' => 'Purchaser15'],
             ['name' => 'Warehouse Receiver', 'email' => 'receiver@greenleaf.com', 'role' => 'warehouse_receiver', 'shop_code' => null, 'password' => 'Receiver16'],
@@ -69,6 +72,8 @@ class DemoUserSeeder extends Seeder
 
             $user->syncRoles([$account['role']]);
         }
+
+        User::query()->where('email', 'warehouse@greenleaf.com')->delete();
 
         $this->command?->info('Core staff accounts seeded. Shop records are available for self-registration.');
     }

@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Web\Admin;
 
+use App\Models\ShopAccountingCategory;
 use App\Models\ShopAccountingEntry;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 class UpdateShopAccountingEntryRequest extends FormRequest
 {
@@ -76,5 +78,44 @@ class UpdateShopAccountingEntryRequest extends FormRequest
             'lines.*.amount' => ['required', 'numeric', 'gt:0'],
             'lines.*.description' => ['nullable', 'string', 'max:255'],
         ];
+    }
+
+    public function after(): array
+    {
+        return [
+            function (Validator $validator): void {
+                $lines = $this->validatedLines();
+                if ($lines === []) {
+                    return;
+                }
+
+                $categories = ShopAccountingCategory::query()
+                    ->whereIn('id', collect($lines)->pluck('shop_accounting_category_id')->filter()->all())
+                    ->get()
+                    ->keyBy('id');
+
+                foreach ($lines as $index => $line) {
+                    $category = $categories->get((int) ($line['shop_accounting_category_id'] ?? 0));
+
+                    if (! $category instanceof ShopAccountingCategory) {
+                        continue;
+                    }
+
+                    if ($category->name === 'Other' && blank($line['description'] ?? null)) {
+                        $validator->errors()->add("lines.$index.description", 'Notes are required when using Other.');
+                    }
+                }
+            },
+        ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function validatedLines(): array
+    {
+        $lines = $this->input('lines', []);
+
+        return is_array($lines) ? $lines : [];
     }
 }

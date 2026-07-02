@@ -55,10 +55,20 @@
                                 <span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] {{ $supplier->credit_approved ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700' }}">
                                     {{ $supplier->credit_approved ? 'Credit Approved' : 'Cash / Review' }}
                                 </span>
+                                @if ($row['pending_count'] > 0)
+                                    <span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] {{ $row['pending_issue_tone'] }}">
+                                        {{ $row['pending_issue_label'] }}
+                                    </span>
+                                    @if ($row['pending_issue_paid'])
+                                        <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-emerald-700">
+                                            Paid
+                                        </span>
+                                    @endif
+                                @endif
                             </div>
                             <p class="mt-1 text-xs font-semibold text-slate-600">{{ $supplier->mobile_number ?: 'Mobile pending' }}{{ $supplier->location ? ' • '.$supplier->location : '' }}</p>
                         </div>
-                        <span class="rounded-full bg-white px-3 py-1 text-[10px] font-black text-slate-700">{{ $row['pending_count'] }} pending</span>
+                        <span class="rounded-full bg-white px-3 py-1 text-[10px] font-black text-slate-700">{{ $row['pending_count'] }} {{ \Illuminate\Support\Str::plural('issue', (int) $row['pending_count']) }}</span>
                     </div>
 
                     <div class="mt-3 grid grid-cols-2 gap-2">
@@ -124,9 +134,19 @@
                                     <span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] {{ $supplier->credit_approved ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700' }}">
                                         {{ $supplier->credit_approved ? 'Credit' : 'Cash' }}
                                     </span>
+                                    @if ($row['pending_count'] > 0)
+                                        <span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] {{ $row['pending_issue_tone'] }}">
+                                            {{ $row['pending_issue_label'] }}
+                                        </span>
+                                        @if ($row['pending_issue_paid'])
+                                            <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-emerald-700">
+                                                Paid
+                                            </span>
+                                        @endif
+                                    @endif
                                 </div>
                                 <p class="mt-1 truncate text-[11px] font-semibold text-slate-500">
-                                    {{ $supplier->mobile_number ?: 'Mobile pending' }}{{ $supplier->location ? ' • '.$supplier->location : '' }} • {{ $row['pending_count'] }} pending
+                                    {{ $supplier->mobile_number ?: 'Mobile pending' }}{{ $supplier->location ? ' • '.$supplier->location : '' }} • {{ $row['pending_count'] }} {{ \Illuminate\Support\Str::plural('issue', (int) $row['pending_count']) }}
                                 </p>
                             </div>
                             <div class="text-[12px] font-black text-slate-700">{{ $row['recent_business_date'] }}</div>
@@ -187,6 +207,17 @@
                                                     <span class="rounded-full bg-white px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-600">
                                                         {{ $row['cart']->cart_number }}
                                                     </span>
+                                                    @if ($section['key'] === 'receipt_pending')
+                                                        <span class="rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-teal-700">
+                                                            Warehouse Issue
+                                                        </span>
+                                                        @php($paymentStatus = (string) ($row['cart']->purchaseInvoice?->payment_status ?: $row['cart']->payment_status ?: 'unpaid'))
+                                                        @if ($paymentStatus === 'paid')
+                                                            <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700">
+                                                                Paid
+                                                            </span>
+                                                        @endif
+                                                    @endif
                                                 </div>
                                                 <p class="mt-1 text-xs font-semibold text-slate-600">
                                                     Business date {{ $row['cart']->business_date->format('d M Y') }}

@@ -1,4 +1,4 @@
-<x-layouts.app title="Warehouse Operations Dashboard">
+<x-layouts.app title="Delivery Operations Dashboard">
     <x-slot:actions>
         <div class="flex items-center gap-2">
             <a href="{{ route('inventory.deliveries.dashboard', ['date' => \Carbon\Carbon::parse($date)->subDay()->format('Y-m-d')]) }}" class="p-2 bg-white rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-sm" title="Previous Day">
@@ -25,7 +25,7 @@
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 class="text-xl font-black text-slate-900 tracking-tight">Warehouse Operations Dashboard</h1>
+                    <h1 class="text-xl font-black text-slate-900 tracking-tight">Delivery Operations Dashboard</h1>
                     <p class="text-xs text-slate-500 mt-1">Run the warehouse flow in order: receive supplier goods, submit GRN updates, pack approved shop products, move orders to transit, then complete delivery check-in.</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-3">

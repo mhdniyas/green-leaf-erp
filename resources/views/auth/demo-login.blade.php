@@ -56,7 +56,7 @@
                                 One-click staff access for testing.
                             </h1>
                             <p class="max-w-2xl text-sm leading-7 text-slate-600 sm:text-base">
-                                Staff accounts are available here for fast testing. Shop-owner accounts are no longer seeded and now come through the registration approval flow.
+                                Staff accounts and shop-owner demo sign-ins are available here for fast testing. Shop demo users are created only when you use them.
                             </p>
                         </div>
 
@@ -102,6 +102,48 @@
                                 </article>
                             @endforeach
                         </div>
+                    </div>
+
+                    <div class="mt-8 space-y-4">
+                        <div class="flex items-center justify-between gap-3">
+                            <div>
+                                <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Shop Accounts</p>
+                                <h2 class="mt-1 text-xl font-black tracking-tight text-slate-950">Shop-owner delivery check logins</h2>
+                            </div>
+                            <div class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-500">
+                                {{ count($shopAccounts) }} shops
+                            </div>
+                        </div>
+
+                        @if (empty($shopAccounts))
+                            <div class="rounded-[1.5rem] border border-dashed border-slate-200 bg-slate-50 px-5 py-6 text-sm font-semibold text-slate-500">
+                                No active shops are available for demo sign-in yet.
+                            </div>
+                        @else
+                            <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                                @foreach ($shopAccounts as $account)
+                                    <article class="rounded-[1.5rem] border border-emerald-200 bg-emerald-50/40 p-4 shadow-[0_12px_30px_rgba(15,23,42,0.05)]">
+                                        <div>
+                                            <h3 class="text-base font-black text-slate-950">{{ $account['name'] }}</h3>
+                                            <p class="mt-1 text-[11px] font-black uppercase tracking-[0.18em] text-emerald-700">{{ $account['role'] }} · {{ $account['shop_code'] }}</p>
+                                        </div>
+
+                                        <p class="mt-4 break-all text-sm font-semibold text-slate-700">{{ $account['email'] }}</p>
+
+                                        <form method="POST" action="{{ route('login.demo.account') }}" class="mt-4">
+                                            @csrf
+                                            <input type="hidden" name="account" value="{{ $account['key'] }}">
+                                            <button
+                                                type="submit"
+                                                class="flex w-full items-center justify-center rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white transition hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-600/20 focus:ring-offset-2"
+                                            >
+                                                Login as {{ $account['name'] }}
+                                            </button>
+                                        </form>
+                                    </article>
+                                @endforeach
+                            </div>
+                        @endif
                     </div>
                 @endif
             </section>

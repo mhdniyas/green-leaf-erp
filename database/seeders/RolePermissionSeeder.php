@@ -131,22 +131,6 @@ class RolePermissionSeeder extends Seeder
                 'sort.sheet.export',
             ],
 
-            'warehouse' => [
-                'inventory.product.view',
-                'inventory.stock.view',
-                'inventory.sorting.view',
-                'inventory.sorting.process',
-                'inventory.wastage.view',
-                'inventory.wastage.record',
-                'purchasing.grn.view',
-                'purchasing.grn.create',
-                'sales.order.view',
-                'warehouse.checklist.view',
-                'warehouse.checklist.toggle',
-                'sort.sheet.view',
-                'sort.sheet.export',
-            ],
-
             'purchaser' => [
                 'inventory.product.view',
                 'purchasing.supplier.view',
@@ -159,10 +143,19 @@ class RolePermissionSeeder extends Seeder
             'warehouse_receiver' => [
                 'inventory.product.view',
                 'inventory.stock.view',
+                'inventory.sorting.view',
+                'inventory.sorting.process',
+                'inventory.wastage.view',
+                'inventory.wastage.record',
                 'purchasing.grn.view',
                 'purchasing.grn.create',
+                'sales.order.view',
                 'warehouse.receive.view',
                 'warehouse.receive.confirm',
+                'warehouse.checklist.view',
+                'warehouse.checklist.toggle',
+                'sort.sheet.view',
+                'sort.sheet.export',
             ],
         ];
 

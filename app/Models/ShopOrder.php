@@ -216,6 +216,10 @@ class ShopOrder extends Model
             return 'pending_approval';
         }
 
+        if ($this->delivery_status === 'ready_for_dispatch') {
+            return 'ready_for_dispatch';
+        }
+
         if ($this->is_delivered) {
             return $this->delivery_status ?: 'delivered';
         }
@@ -236,6 +240,7 @@ class ShopOrder extends Model
     {
         return match ($this->warehouseWorkflowStage()) {
             'packing' => 'Packing In Progress',
+            'ready_for_dispatch' => 'Ready for Dispatch',
             'in_transit' => 'In Transit',
             'partially_delivered' => 'Partially Delivered',
             'delivery_issue' => 'Delivery Issue',
@@ -249,6 +254,7 @@ class ShopOrder extends Model
     {
         return match ($this->warehouseWorkflowStage()) {
             'packing' => 'warning',
+            'ready_for_dispatch' => 'warning',
             'in_transit' => 'info',
             'delivered' => 'success',
             'partially_delivered' => 'warning',

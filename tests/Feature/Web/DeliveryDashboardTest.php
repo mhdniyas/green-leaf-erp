@@ -48,7 +48,7 @@ class DeliveryDashboardTest extends TestCase
             ->get(route('inventory.deliveries.dashboard'));
 
         $response->assertOk();
-        $response->assertSee('Warehouse Operations Dashboard');
+        $response->assertSee('Delivery Operations Dashboard');
         $this->assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
         $response->assertSee('Live data refreshes every 30s');
     }

@@ -38,6 +38,7 @@ use App\Http\Controllers\Web\Sales\SalesOrderController;
 use App\Http\Controllers\Web\ShopOwnerController;
 use App\Http\Controllers\Web\ShopPresetController;
 use App\Http\Controllers\Web\SortSheetController;
+use App\Http\Controllers\Web\Warehouse\WarehouseLoadoutController;
 use App\Http\Controllers\Web\Warehouse\WarehouseReceiverController;
 use Illuminate\Support\Facades\Route;
 
@@ -81,6 +82,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/accounting', [ShopOwnerController::class, 'accountingIndex'])->name('accounting.index');
         Route::get('/accounting/history', [ShopOwnerController::class, 'accountingHistory'])->name('accounting.history');
         Route::post('/accounting/entries', [ShopOwnerController::class, 'storeAccountingEntry'])->name('accounting.entries.store');
+        Route::post('/accounting/payment-requests', [ShopOwnerController::class, 'storePaymentRequest'])->name('accounting.payment-requests.store');
         Route::get('/finance', [ShopOwnerController::class, 'financeIndex'])->name('finance.index');
         Route::get('/finance/{invoice}', [ShopOwnerController::class, 'financeShow'])->name('finance.show');
         Route::get('/finance/{invoice}/pdf', [ShopOwnerController::class, 'financePdf'])->name('finance.pdf');
@@ -138,6 +140,7 @@ Route::middleware('auth')->group(function () {
         Route::get('shop-invoices/{invoice}', [ShopInvoiceController::class, 'show'])->name('shop-invoices.show');
         Route::get('shop-invoices/{invoice}/pdf', [ShopInvoiceController::class, 'pdf'])->name('shop-invoices.pdf');
         Route::patch('shop-invoices/{invoice}/payment-approval', [ShopInvoiceController::class, 'approvePayment'])->name('shop-invoices.payment-approval');
+        Route::patch('shop-invoices/payment-requests/{paymentRequest}', [ShopInvoiceController::class, 'reviewPaymentRequest'])->name('shop-invoices.payment-requests.review');
         Route::patch('shop-invoices/{invoice}/reprice', [ShopInvoiceController::class, 'reprice'])->name('shop-invoices.reprice');
 
         // Purchase Orders
@@ -251,6 +254,7 @@ Route::middleware('auth')->group(function () {
     Route::patch('/purchaser/carts/{cart}/supplier', [PurchaserDashboardController::class, 'updateCartSupplier'])->name('purchaser.carts.update-supplier');
     Route::post('/purchaser/cart-items', [PurchaserDashboardController::class, 'storeCartItem'])->name('purchaser.cart-items.store');
     Route::patch('/purchaser/cart-items/{item}', [PurchaserDashboardController::class, 'updateCartItem'])->name('purchaser.cart-items.update');
+    Route::patch('/purchaser/carts/{cart}/items', [PurchaserDashboardController::class, 'updateCartItems'])->name('purchaser.carts.items.update-all');
     Route::delete('/purchaser/cart-items/{item}', [PurchaserDashboardController::class, 'destroyCartItem'])->name('purchaser.cart-items.destroy');
     Route::post('/purchaser/carts/submit', [PurchaserDashboardController::class, 'submitCart'])->name('purchaser.carts.submit');
     Route::patch('/purchaser/carts/{cart}/status', [PurchaserDashboardController::class, 'updateOperationalStatus'])->name('purchaser.carts.status');
@@ -273,6 +277,17 @@ Route::middleware('auth')->group(function () {
         Route::post('/loadout/order/{order}/all', [WarehouseReceiverController::class, 'loadoutOrderAll'])->name('loadout.order-all');
         Route::post('/loadout/order/{order}/dispatch', [WarehouseReceiverController::class, 'dispatchOrder'])->name('loadout.order.dispatch');
         Route::post('/loadout/order/{order}/dispatch-partial', [WarehouseReceiverController::class, 'dispatchPartialOrder'])->name('loadout.order.dispatch-partial');
+        Route::post('/loadout/order/{order}/ship', [WarehouseReceiverController::class, 'shipOrder'])->name('loadout.order.ship');
+    });
+
+    // ── Warehouse Loadout (PRD v2) ─────────────────────────────────────────
+    Route::prefix('warehouse/loadout')->name('warehouse.loadout.')->group(function () {
+        Route::get('/', [WarehouseLoadoutController::class, 'index'])->name('index');
+        Route::get('/{shopOrder}', [WarehouseLoadoutController::class, 'show'])->name('show');
+        Route::post('/{shopOrder}/save', [WarehouseLoadoutController::class, 'save'])->name('save');
+        Route::post('/{shopOrder}/move-to-delivery', [WarehouseLoadoutController::class, 'moveToDelivery'])->name('move-to-delivery');
+        Route::post('/{shopOrder}/move-to-partial-delivery', [WarehouseLoadoutController::class, 'moveToPartialDelivery'])->name('move-to-partial-delivery');
+        Route::post('/{shopOrder}/move-to-loadout', [WarehouseLoadoutController::class, 'moveToLoadout'])->name('move-to-loadout');
     });
 
     // ── Admin ──────────────────────────────────────────────────────────────
@@ -280,16 +295,20 @@ Route::middleware('auth')->group(function () {
         Route::get('/', AdminOverviewController::class)->name('overview');
         Route::prefix('accounting')->name('accounting.')->group(function () {
             Route::get('/', [AdminAccountingController::class, 'index'])->name('index');
+            Route::get('daily-sales', [AdminAccountingController::class, 'dailySalesReport'])->name('daily-sales');
+            Route::get('vendor-reports', [AdminAccountingController::class, 'vendorReports'])->name('vendor-reports');
             Route::post('daily-workflow/invoices', [AdminAccountingController::class, 'generateDailyWorkflowInvoices'])->name('daily-workflow.invoices');
             Route::get('owned-shops', [AdminAccountingController::class, 'ownedShopsIndex'])->name('owned-shops.index');
-            Route::get('owned-shops/{shop}', [AdminAccountingController::class, 'ownedShopShow'])->name('owned-shops.show');
-            Route::post('owned-shops/{shop}/ownerships', [AdminAccountingController::class, 'storeOwnerships'])->name('owned-shops.ownerships.store');
-            Route::post('owned-shops/{shop}/categories', [AdminAccountingController::class, 'storeCategory'])->name('owned-shops.categories.store');
-            Route::post('owned-shops/{shop}/entries', [AdminAccountingController::class, 'storeEntry'])->name('owned-shops.entries.store');
-            Route::patch('owned-shops/{shop}/entries/{entry}', [AdminAccountingController::class, 'updateEntry'])->name('owned-shops.entries.update');
-            Route::patch('owned-shops/{shop}/entries/{entry}/review', [AdminAccountingController::class, 'reviewEntry'])->name('owned-shops.entries.review');
-            Route::post('owned-shops/{shop}/invoices', [AdminAccountingController::class, 'storeInvoice'])->name('owned-shops.invoices.store');
-            Route::get('owned-shops/{shop}/invoices/{invoice}', [AdminAccountingController::class, 'showInvoice'])->name('owned-shops.invoices.show');
+            Route::post('owned-shops', [AdminAccountingController::class, 'storeOwnedShop'])->name('owned-shops.store');
+            Route::get('owned-shops/{shop:code}', [AdminAccountingController::class, 'ownedShopShow'])->name('owned-shops.show');
+            Route::patch('owned-shops/{shop:code}/reserve-amount', [AdminAccountingController::class, 'updateReserveAmount'])->name('owned-shops.reserve-amount.update');
+            Route::post('owned-shops/{shop:code}/ownerships', [AdminAccountingController::class, 'storeOwnerships'])->name('owned-shops.ownerships.store');
+            Route::post('owned-shops/{shop:code}/categories', [AdminAccountingController::class, 'storeCategory'])->name('owned-shops.categories.store');
+            Route::post('owned-shops/{shop:code}/entries', [AdminAccountingController::class, 'storeEntry'])->name('owned-shops.entries.store');
+            Route::patch('owned-shops/{shop:code}/entries/{entry}', [AdminAccountingController::class, 'updateEntry'])->name('owned-shops.entries.update');
+            Route::patch('owned-shops/{shop:code}/entries/{entry}/review', [AdminAccountingController::class, 'reviewEntry'])->name('owned-shops.entries.review');
+            Route::post('owned-shops/{shop:code}/invoices', [AdminAccountingController::class, 'storeInvoice'])->name('owned-shops.invoices.store');
+            Route::get('owned-shops/{shop:code}/invoices/{invoice}', [AdminAccountingController::class, 'showInvoice'])->name('owned-shops.invoices.show');
             Route::get('purchasers', [AdminAccountingController::class, 'purchasersIndex'])->name('purchasers.index');
             Route::get('purchasers/{user}', [AdminAccountingController::class, 'purchaserShow'])->name('purchasers.show');
             Route::post('purchasers/{user}/credits', [AdminAccountingController::class, 'storePurchaserCredit'])->name('purchasers.credits.store');

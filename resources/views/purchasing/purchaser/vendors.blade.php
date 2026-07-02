@@ -105,70 +105,75 @@
                         </div>
                     @endif
 
-                    <div class="mt-3 space-y-2">
-                        @forelse ($cart->items as $item)
-                            @php
-                                $vendorPriceHint = $vendorPriceHintsByCart[$cart->id][$item->product_id] ?? 0;
-                            @endphp
-                            <div class="rounded-2xl bg-slate-50 p-3">
-                                <div class="flex items-start justify-between gap-2">
-                                    <div class="min-w-0">
-                                        <div class="flex flex-wrap items-center gap-1.5">
-                                            <h4 class="truncate text-[11px] font-black text-slate-900">{{ $item->product->name }}</h4>
-                                            @if ($item->is_extra_purchase)
-                                                <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.12em] text-amber-700">Extra</span>
-                                            @endif
-                                        </div>
-                                    </div>
-                                    <span class="text-xs font-black text-slate-900">₹<span id="total-{{ $item->id }}">{{ number_format((float) $item->quantity * (float) $item->unit_price, 2) }}</span></span>
-                                </div>
-
-                                <div class="mt-2 flex items-end justify-between gap-2">
-                                    <form action="{{ route('purchaser.cart-items.update', $item) }}" method="POST" class="flex flex-1 items-end gap-2">
-                                        @csrf
-                                        @method('PATCH')
-                                        <input type="hidden" name="return_to" value="vendors">
-                                        <div class="flex flex-col gap-0.5">
-                                            <span class="text-[8px] font-black uppercase tracking-wider text-slate-400">Qty</span>
-                                            <div class="flex h-8 items-center overflow-hidden rounded-lg border border-slate-200 bg-white">
-                                                <button type="button" onclick="this.nextElementSibling.stepDown(); updateCartItemTotal({{ $item->id }})" class="flex h-full w-7 items-center justify-center bg-slate-50 text-xs font-bold text-slate-500">-</button>
-                                                <input type="number" step="{{ $item->product->unit === 'kg' ? 'any' : '1' }}" min="{{ $item->product->unit === 'kg' ? '0.01' : '1' }}" name="quantity" id="quantity-{{ $item->id }}" value="{{ number_format((float) $item->quantity, 2, '.', '') }}" oninput="updateCartItemTotal({{ $item->id }})" class="h-full w-12 bg-transparent text-center text-[10px] font-black text-slate-900 focus:outline-none">
-                                                <button type="button" onclick="this.previousElementSibling.stepUp(); updateCartItemTotal({{ $item->id }})" class="flex h-full w-7 items-center justify-center bg-slate-50 text-xs font-bold text-slate-500">+</button>
+                    <form action="{{ route('purchaser.carts.items.update-all', $cart) }}" method="POST">
+                        @csrf
+                        @method('PATCH')
+                        <div class="mt-3 space-y-2">
+                            @forelse ($cart->items as $item)
+                                @php
+                                    $vendorPriceHint = $vendorPriceHintsByCart[$cart->id][$item->product_id] ?? 0;
+                                @endphp
+                                <div class="rounded-2xl bg-slate-50 p-3">
+                                    <div class="flex items-start justify-between gap-2">
+                                        <div class="min-w-0">
+                                            <div class="flex flex-wrap items-center gap-1.5">
+                                                <h4 class="truncate text-[11px] font-black text-slate-900">{{ $item->product->name }}</h4>
+                                                @if ($item->is_extra_purchase)
+                                                    <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.12em] text-amber-700">Extra</span>
+                                                @endif
                                             </div>
                                         </div>
-                                        <div class="flex flex-col gap-0.5">
-                                            <span class="text-[8px] font-black uppercase tracking-wider text-slate-400">Per {{ $item->product->unit }}</span>
-                                            <input type="number" step="0.01" min="0" name="unit_price" id="price-{{ $item->id }}" value="{{ number_format((float) $item->unit_price, 2, '.', '') }}" oninput="updateCartItemTotal({{ $item->id }})" class="h-8 w-16 rounded-lg border border-slate-200 bg-white text-center text-[10px] font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
-                                            @if ($vendorPriceHint > 0)
-                                                <span class="text-[8px] font-bold text-amber-700">Prev ₹{{ number_format((float) $vendorPriceHint, 2) }}</span>
-                                            @endif
-                                        </div>
-                                        <button type="submit" class="h-8 rounded-lg bg-slate-950 px-3.5 text-[10px] font-black text-white">Save</button>
-                                    </form>
+                                        <span class="text-xs font-black text-slate-900">₹<span id="total-{{ $item->id }}">{{ number_format((float) $item->quantity * (float) $item->unit_price, 2) }}</span></span>
+                                    </div>
 
-                                    <form action="{{ route('purchaser.cart-items.destroy', $item) }}" method="POST">
-                                        @csrf
-                                        @method('DELETE')
-                                        <input type="hidden" name="return_to" value="vendors">
-                                        <button type="submit" class="flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-600" title="Delete">
+                                    <div class="mt-2 flex items-end justify-between gap-2">
+                                        <div class="flex flex-1 items-end gap-2">
+                                            <div class="flex flex-col gap-0.5">
+                                                <span class="text-[8px] font-black uppercase tracking-wider text-slate-400">Qty</span>
+                                                <div class="flex h-8 items-center overflow-hidden rounded-lg border border-slate-200 bg-white">
+                                                    <button type="button" onclick="this.nextElementSibling.stepDown(); updateCartItemTotal({{ $item->id }})" class="flex h-full w-7 items-center justify-center bg-slate-50 text-xs font-bold text-slate-500">-</button>
+                                                    <input type="number" step="{{ $item->product->unit === 'kg' ? 'any' : '1' }}" min="{{ $item->product->unit === 'kg' ? '0.01' : '1' }}" name="items[{{ $item->id }}][quantity]" id="quantity-{{ $item->id }}" value="{{ number_format((float) $item->quantity, 2, '.', '') }}" oninput="updateCartItemTotal({{ $item->id }})" class="h-full w-12 bg-transparent text-center text-[10px] font-black text-slate-900 focus:outline-none">
+                                                    <button type="button" onclick="this.previousElementSibling.stepUp(); updateCartItemTotal({{ $item->id }})" class="flex h-full w-7 items-center justify-center bg-slate-50 text-xs font-bold text-slate-500">+</button>
+                                                </div>
+                                            </div>
+                                            <div class="flex flex-col gap-0.5">
+                                                <span class="text-[8px] font-black uppercase tracking-wider text-slate-400">Per {{ $item->product->unit }}</span>
+                                                <input type="number" step="0.01" min="0" name="items[{{ $item->id }}][unit_price]" id="price-{{ $item->id }}" value="{{ number_format((float) $item->unit_price, 2, '.', '') }}" oninput="updateCartItemTotal({{ $item->id }})" class="h-8 w-16 rounded-lg border border-slate-200 bg-white text-center text-[10px] font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
+                                                @if ($vendorPriceHint > 0)
+                                                    <span class="text-[8px] font-bold text-amber-700">Prev ₹{{ number_format((float) $vendorPriceHint, 2) }}</span>
+                                                @endif
+                                            </div>
+                                        </div>
+
+                                        <button type="button" onclick="confirmDeleteItem({{ $item->id }}, '{{ route('purchaser.cart-items.destroy', $item) }}')" class="flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-600" title="Delete">
                                             <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                                                 <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                             </svg>
                                         </button>
-                                    </form>
+                                    </div>
                                 </div>
-                            </div>
-                        @empty
-                            <p class="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-xs font-bold text-slate-500">No products in this draft cart.</p>
-                        @endforelse
-                    </div>
+                            @empty
+                                <p class="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-xs font-bold text-slate-500">No products in this draft cart.</p>
+                            @endforelse
+                        </div>
 
-                    <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
-                        <span class="text-[10px] font-bold text-slate-500">Total: ₹{{ number_format((float) $cart->items->sum('line_total') - (float) $cart->discount_amount, 2) }}</span>
-                        <a href="{{ route('purchaser.bill', ['cart' => $cart, 'date' => $date]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-teal-600 px-4 text-xs font-black text-white hover:bg-teal-500">
-                            Process Bill
-                        </a>
-                    </div>
+                        <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
+                            <span class="text-[10px] font-bold text-slate-500">Total: ₹{{ number_format((float) $cart->items->sum('line_total') - (float) $cart->discount_amount, 2) }}</span>
+                            <div class="flex items-center gap-1.5">
+                                @if ($cart->items->isNotEmpty())
+                                    @if ($cart->supplier)
+                                        <button type="submit" name="action" value="process" class="inline-flex h-9 items-center justify-center rounded-xl bg-teal-600 px-4 text-xs font-black text-white hover:bg-teal-500">
+                                            Save & Process
+                                        </button>
+                                    @else
+                                        <button type="button" disabled class="inline-flex h-9 items-center justify-center rounded-xl bg-teal-600/50 px-4 text-xs font-black text-white cursor-not-allowed" title="Assign a supplier first">
+                                            Save & Process
+                                        </button>
+                                    @endif
+                                @endif
+                            </div>
+                        </div>
+                    </form>
                 </article>
             @empty
                 <p class="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm font-bold text-slate-500">No draft carts for this business day.</p>
@@ -309,6 +314,12 @@
         <input type="hidden" id="cart-share-mobile-hidden" name="vendor_mobile_number" value="">
         <input type="hidden" id="cart-share-show-price" name="show_price" value="0">
         <input type="hidden" id="cart-share-discount-hidden" name="discount_amount" value="0">
+    </form>
+
+    <form id="delete-item-form" method="POST" action="" class="hidden">
+        @csrf
+        @method('DELETE')
+        <input type="hidden" name="return_to" value="vendors">
     </form>
 
     <div id="change-vendor-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs" onclick="if (event.target === this) closeChangeVendorModal()">
@@ -487,6 +498,14 @@
             const quantity = Number(quantityInput.value || 0);
             const price = Number(priceInput.value || 0);
             totalNode.textContent = (quantity * price).toFixed(2);
+        }
+
+        function confirmDeleteItem(itemId, actionUrl) {
+            if (confirm('Are you sure you want to remove this item?')) {
+                const form = document.getElementById('delete-item-form');
+                form.action = actionUrl;
+                form.submit();
+            }
         }
 
         let currentCartNumber = null;

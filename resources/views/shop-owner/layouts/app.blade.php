@@ -29,7 +29,11 @@
         </div>
     </div>
 
+    <x-page-jump-controls bottom-class="bottom-24 lg:bottom-6" />
+
     @include('shop-owner.partials.mobile-nav')
     @include('components.app-dialogs')
+    <x-global-footer />
+    @stack('scripts')
 </body>
 </html>

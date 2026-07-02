@@ -6,19 +6,23 @@ namespace App\Http\Controllers\Web;
 
 use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Web\ShopOwner\StoreShopInvoicePaymentRequest;
 use App\Http\Requests\Web\ShopOwner\StoreShopOwnerAccountingEntryRequest;
 use App\Models\Category;
 use App\Models\Shop;
 use App\Models\ShopAccountingEntry;
 use App\Models\ShopInvoice;
+use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
 use App\Models\ShopPreset;
 use App\Models\User;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Pricing\PriceBoardService;
+use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -27,6 +31,7 @@ class ShopOwnerController extends Controller
     public function __construct(
         private readonly PriceBoardService $priceBoardService,
         private readonly OwnedShopAccountingService $ownedShopAccountingService,
+        private readonly ShopInvoiceService $shopInvoiceService,
     ) {}
 
     public function dashboard(Request $request): View
@@ -90,8 +95,18 @@ class ShopOwnerController extends Controller
 
     public function deliveriesShow(Request $request, string $orderNumber): View
     {
+        $order = ShopOrder::where('order_number', $orderNumber)
+            ->where('shop_id', $request->user()->shop_id)
+            ->with([
+                'shop',
+                'items' => fn ($q) => $q->where('sorting_status', 'loaded'),
+                'items.product',
+                'deliveredBy',
+            ])
+            ->firstOrFail();
+
         return view('shop-owner.deliveries.show', [
-            'order' => $this->shopOrderByNumber($request, $orderNumber),
+            'order' => $order,
         ]);
     }
 
@@ -135,50 +150,99 @@ class ShopOwnerController extends Controller
     public function accountingIndex(Request $request): View
     {
         $user = $this->shopUser($request);
-        $shop = $this->ownedAccountingShop($user);
+        $shop = $this->currentShop($user);
+        $tab = $this->normalizeAccountingTab($shop, (string) $request->input('tab', 'bills'));
         $selectedDate = Carbon::parse($request->input('date', today()->toDateString()));
-        $entry = $this->ownedShopAccountingService->entryForDate($shop, $selectedDate);
-        $availableCategories = $this->ownedShopAccountingService->availableCategoriesForShop($shop);
-        $recentEntries = ShopAccountingEntry::query()
+        $invoices = ShopInvoice::query()
             ->where('shop_id', $shop->id)
-            ->with(['lines.category', 'submittedBy', 'reviewedBy'])
+            ->with(['order', 'paymentRequests' => fn ($query) => $query->latest('id')])
             ->latest('business_date')
-            ->limit(8)
-            ->get();
+            ->latest('id')
+            ->paginate(10, ['*'], 'bills_page');
+        $paymentRequests = ShopInvoicePaymentRequest::query()
+            ->where('shop_id', $shop->id)
+            ->with(['invoice', 'requestedBy', 'reviewedBy'])
+            ->latest('id')
+            ->paginate(8, ['*'], 'requests_page');
+        $billingSummary = $this->billingSummary(
+            ShopInvoice::query()->where('shop_id', $shop->id)->get()
+        );
 
-        $incomeTotal = $entry instanceof ShopAccountingEntry
-            ? round((float) $entry->lines->where('type', 'income')->sum('amount'), 2)
-            : 0.0;
-        $expenseTotal = $entry instanceof ShopAccountingEntry
-            ? round((float) $entry->lines->where('type', 'expense')->sum('amount'), 2)
-            : 0.0;
+        $entry = null;
+        $availableCategories = collect();
+        $recentEntries = collect();
+        $incomeTotal = 0.0;
+        $expenseTotal = 0.0;
+        $netAmount = 0.0;
+
+        if ($shop->isOwnedAccountingEnabled()) {
+            $entry = $this->ownedShopAccountingService->entryForDate($shop, $selectedDate);
+            $availableCategories = $this->ownedShopAccountingService->availableCategoriesForShop($shop);
+            $recentEntries = ShopAccountingEntry::query()
+                ->where('shop_id', $shop->id)
+                ->with(['lines.category', 'submittedBy', 'reviewedBy'])
+                ->latest('business_date')
+                ->limit(8)
+                ->get();
+
+            $incomeTotal = $entry instanceof ShopAccountingEntry
+                ? round((float) $entry->lines->where('type', 'income')->sum('amount'), 2)
+                : 0.0;
+            $expenseTotal = $entry instanceof ShopAccountingEntry
+                ? round((float) $entry->lines->where('type', 'expense')->sum('amount'), 2)
+                : 0.0;
+            $netAmount = round($incomeTotal - $expenseTotal, 2);
+        }
 
         return view('shop-owner.accounting.index', [
             'shop' => $shop,
+            'tab' => $tab,
             'selectedDate' => $selectedDate,
+            'billingSummary' => $billingSummary,
+            'invoices' => $invoices,
+            'paymentRequests' => $paymentRequests,
             'entry' => $entry,
             'availableCategories' => $availableCategories,
             'recentEntries' => $recentEntries,
             'incomeTotal' => $incomeTotal,
             'expenseTotal' => $expenseTotal,
-            'netAmount' => round($incomeTotal - $expenseTotal, 2),
+            'netAmount' => $netAmount,
+            'reserveAmount' => round((float) ($shop->reserve_amount ?? 0), 2),
         ]);
     }
 
     public function accountingHistory(Request $request): View
     {
         $user = $this->shopUser($request);
-        $shop = $this->ownedAccountingShop($user);
-
-        $entries = ShopAccountingEntry::query()
+        $shop = $this->currentShop($user);
+        $tab = $this->normalizeAccountingTab($shop, (string) $request->input('tab', 'bills'));
+        $entries = collect();
+        $invoiceHistory = ShopInvoice::query()
             ->where('shop_id', $shop->id)
-            ->with(['lines.category', 'submittedBy', 'reviewedBy'])
+            ->with(['order', 'paymentRequests' => fn ($query) => $query->latest('id')])
             ->latest('business_date')
-            ->paginate(12);
+            ->latest('id')
+            ->paginate(12, ['*'], 'bill_history_page');
+        $paymentRequestHistory = ShopInvoicePaymentRequest::query()
+            ->where('shop_id', $shop->id)
+            ->with(['invoice', 'requestedBy', 'reviewedBy'])
+            ->latest('id')
+            ->paginate(12, ['*'], 'payment_history_page');
+
+        if ($shop->isOwnedAccountingEnabled()) {
+            $entries = ShopAccountingEntry::query()
+                ->where('shop_id', $shop->id)
+                ->with(['lines.category', 'submittedBy', 'reviewedBy'])
+                ->latest('business_date')
+                ->paginate(12);
+        }
 
         return view('shop-owner.accounting.history', [
             'shop' => $shop,
+            'tab' => $tab,
             'entries' => $entries,
+            'invoiceHistory' => $invoiceHistory,
+            'paymentRequestHistory' => $paymentRequestHistory,
         ]);
     }
 
@@ -203,8 +267,30 @@ class ShopOwnerController extends Controller
             ? 'Daily accounting sent to admin for approval.'
             : 'Daily accounting draft saved.';
 
-        return redirect()->route('shop-owner.accounting.index', ['date' => $entry->business_date?->toDateString()])
+        return redirect()->route('shop-owner.accounting.index', ['tab' => 'cashbook', 'date' => $entry->business_date?->toDateString()])
             ->with('success', $message);
+    }
+
+    public function storePaymentRequest(StoreShopInvoicePaymentRequest $request): RedirectResponse
+    {
+        $user = $this->shopUser($request);
+        $shop = $this->currentShop($user);
+        $invoice = ShopInvoice::query()
+            ->where('shop_id', $shop->id)
+            ->findOrFail((int) $request->validated('invoice_id'));
+
+        try {
+            $this->shopInvoiceService->requestPayment(
+                $invoice,
+                $request->validated(),
+                (int) $user->id,
+            );
+        } catch (ValidationException $exception) {
+            return back()->withErrors($exception->errors())->withInput();
+        }
+
+        return redirect()->route('shop-owner.accounting.index', ['tab' => 'bills'])
+            ->with('success', 'Payment request sent for admin approval.');
     }
 
     /**
@@ -388,12 +474,40 @@ class ShopOwnerController extends Controller
             ->values();
     }
 
+    private function currentShop(User $user): Shop
+    {
+        return Shop::query()->findOrFail($user->shop_id);
+    }
+
     private function ownedAccountingShop(User $user): Shop
     {
-        $shop = Shop::query()->findOrFail($user->shop_id);
+        $shop = $this->currentShop($user);
 
         abort_unless($shop->isOwnedAccountingEnabled(), 404);
 
         return $shop;
+    }
+
+    private function normalizeAccountingTab(Shop $shop, string $tab): string
+    {
+        if ($tab === 'cashbook' && $shop->isOwnedAccountingEnabled()) {
+            return 'cashbook';
+        }
+
+        return 'bills';
+    }
+
+    /**
+     * @param  Collection<int, ShopInvoice>  $invoices
+     * @return array{total_billed:float,total_paid:float,total_balance:float,open_bills:int}
+     */
+    private function billingSummary(Collection $invoices): array
+    {
+        return [
+            'total_billed' => round((float) $invoices->sum('final_total'), 2),
+            'total_paid' => round((float) $invoices->sum('paid_amount'), 2),
+            'total_balance' => round((float) $invoices->sum('balance_amount'), 2),
+            'open_bills' => $invoices->filter(fn (ShopInvoice $invoice): bool => (float) $invoice->balance_amount > 0)->count(),
+        ];
     }
 }

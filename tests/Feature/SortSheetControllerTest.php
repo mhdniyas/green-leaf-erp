@@ -42,10 +42,10 @@ class SortSheetControllerTest extends TestCase
         return $user;
     }
 
-    private function makeWarehouse(): User
+    private function makeWarehouseReceiver(): User
     {
         $user = User::factory()->create();
-        $user->assignRole('warehouse');
+        $user->assignRole('warehouse_receiver');
 
         return $user;
     }
@@ -117,9 +117,9 @@ class SortSheetControllerTest extends TestCase
             ->assertSee('Sort Sheet');
     }
 
-    public function test_warehouse_user_can_access_sort_sheet_index(): void
+    public function test_warehouse_receiver_can_access_sort_sheet_index(): void
     {
-        $this->actingAs($this->makeWarehouse())
+        $this->actingAs($this->makeWarehouseReceiver())
             ->get(route('sort-sheet.index'))
             ->assertOk()
             ->assertSee('Sort Sheet');
@@ -133,8 +133,8 @@ class SortSheetControllerTest extends TestCase
         $category = Category::factory()->create(['name' => 'Vegetables', 'is_active' => true]);
         $product = Product::factory()->create(['name' => 'Tomato H', 'unit' => 'kg', 'category_id' => $category->id, 'is_active' => true]);
         $shop = Shop::create([
-            'code'   => 'SHOP_TEST_A_' . uniqid(),
-            'name'   => 'Test Shop Alpha',
+            'code' => 'SHOP_TEST_A_'.uniqid(),
+            'name' => 'Test Shop Alpha',
             'status' => 'active',
         ]);
 
@@ -159,8 +159,8 @@ class SortSheetControllerTest extends TestCase
         $category = Category::factory()->create(['name' => 'Veg', 'is_active' => true]);
         $product = Product::factory()->create(['name' => 'Secret Carrot', 'unit' => 'kg', 'category_id' => $category->id, 'is_active' => true]);
         $shop = Shop::create([
-            'code'   => 'SHOP_REJ_' . uniqid(),
-            'name'   => 'Rejected Shop',
+            'code' => 'SHOP_REJ_'.uniqid(),
+            'name' => 'Rejected Shop',
             'status' => 'active',
         ]);
 
@@ -201,8 +201,8 @@ class SortSheetControllerTest extends TestCase
         $category = Category::factory()->create(['name' => 'Fruit', 'is_active' => true]);
         $product = Product::factory()->create(['name' => 'Apple Red', 'unit' => 'kg', 'category_id' => $category->id, 'is_active' => true]);
 
-        $shopA = Shop::create(['code' => 'SHOP_A_' . uniqid(), 'name' => 'Shop A Total', 'status' => 'active']);
-        $shopB = Shop::create(['code' => 'SHOP_B_' . uniqid(), 'name' => 'Shop B Total', 'status' => 'active']);
+        $shopA = Shop::create(['code' => 'SHOP_A_'.uniqid(), 'name' => 'Shop A Total', 'status' => 'active']);
+        $shopB = Shop::create(['code' => 'SHOP_B_'.uniqid(), 'name' => 'Shop B Total', 'status' => 'active']);
 
         $date = now()->toDateString();
         $this->createApprovedOrder($shopA, $date, [['product' => $product, 'qty' => 10]], $admin);
@@ -222,8 +222,8 @@ class SortSheetControllerTest extends TestCase
         $category = Category::factory()->create(['name' => 'Grains', 'is_active' => true]);
         $product = Product::factory()->create(['name' => 'Rice Basmati', 'unit' => 'kg', 'category_id' => $category->id, 'is_active' => true]);
         $shop = Shop::create([
-            'code'   => 'SHOP_QTY_' . uniqid(),
-            'name'   => 'Qty Test Shop',
+            'code' => 'SHOP_QTY_'.uniqid(),
+            'name' => 'Qty Test Shop',
             'status' => 'active',
         ]);
 
@@ -262,7 +262,7 @@ class SortSheetControllerTest extends TestCase
         // The generate route redirects through the controller which checks sort.sheet.view
         // so warehouse CAN hit /generate (it has view), but cannot click Generate button in UI
         // This test ensures export.excel requires sort.sheet.export
-        $warehouse = $this->makeWarehouse();
+        $warehouse = $this->makeWarehouseReceiver();
         $date = now()->toDateString();
 
         $this->actingAs($warehouse)
@@ -302,8 +302,8 @@ class SortSheetControllerTest extends TestCase
         $productB = Product::factory()->create(['name' => 'Carrot Orange', 'unit' => 'kg', 'category_id' => $catB->id, 'is_active' => true]);
 
         $shop = Shop::create([
-            'code'   => 'SHOP_FILT_' . uniqid(),
-            'name'   => 'Filter Shop',
+            'code' => 'SHOP_FILT_'.uniqid(),
+            'name' => 'Filter Shop',
             'status' => 'active',
         ]);
         $date = now()->toDateString();

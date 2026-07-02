@@ -1,4 +1,4 @@
-@props(['title' => 'Green Leaf Traders', 'showMobileNav' => true])
+@props(['title' => 'Green Leaf Traders', 'showMobileNav' => true, 'showPageJump' => true])
 
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="h-full">
@@ -24,69 +24,43 @@
     $currentUserInitial = $currentUser ? strtoupper(substr($currentUser->name, 0, 1)) : 'U';
     $showAdminMobileNav = $showMobileNav && $currentUser &&
         ($currentUser->hasRole('admin') || $currentUser->can('admin.user.view') || $currentUser->can('admin.daily-progress.view') || $currentUser->can('admin.activity-log.view'));
-    $showWarehouseMobileNav = $showMobileNav && $currentUser &&
-        ! $showAdminMobileNav &&
-        ($currentUser->hasRole('warehouse') || $currentUser->can('warehouse.checklist.view'));
     $showPurchaserMobileNav = $showMobileNav && $currentUser &&
         ! $showAdminMobileNav &&
-        ! $showWarehouseMobileNav &&
         $currentUser->hasRole('purchaser');
     $showPurchaseMobileNav = $showMobileNav && $currentUser &&
         ! $showAdminMobileNav &&
-        ! $showWarehouseMobileNav &&
         ! $showPurchaserMobileNav &&
         ($currentUser->hasRole('purchase') || $currentUser->can('purchasing.order.approve'));
     $showWarehouseReceiverMobileNav = $showMobileNav && $currentUser &&
         ! $showAdminMobileNav &&
-        ! $showWarehouseMobileNav &&
         ! $showPurchaserMobileNav &&
         ! $showPurchaseMobileNav &&
         ($currentUser->hasRole('warehouse_receiver') || $currentUser->can('warehouse.receive.confirm'));
 
-    $warehouseMobileNavItems = [
-        [
-            'label' => 'Dashboard',
-            'route' => 'dashboard',
-            'active' => request()->routeIs('dashboard'),
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>',
-            'type' => 'link',
-        ],
-        [
-            'label' => 'Receive',
-            'route' => 'inventory.sorting.checklist',
-            'active' => request()->routeIs('inventory.sorting.checklist'),
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5l9 4.5 9-4.5M3 7.5l9-4.5 9 4.5M3 7.5V16.5L12 21m0-9 9-4.5V16.5L12 21m0 0V12" /></svg>',
-            'type' => 'link',
-        ],
-        [
-            'label' => 'Shop Cards',
-            'route' => 'inventory.sorting.shop-orders',
-            'active' => request()->routeIs('inventory.sorting.shop-orders'),
-            'icon' => '<svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16"/><path d="M7 4h10"/><path d="M6 11h12"/><path d="M8 15h8"/><path d="M10 19h4"/></svg>',
-            'type' => 'center',
-        ],
-        [
-            'label' => 'Worker Sort',
-            'route' => 'inventory.sorting.shop-sorting',
-            'active' => request()->routeIs('inventory.sorting.shop-sorting*'),
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12m-12 5.25h12m-12 5.25h12M3.75 6.75h.008v.008H3.75zm0 5.25h.008v.008H3.75zm0 5.25h.008v.008H3.75z"/></svg>',
-            'type' => 'link',
-        ],
-        [
-            'label' => 'Transit',
-            'route' => 'inventory.deliveries.dashboard',
-            'active' => request()->routeIs('inventory.deliveries.dashboard'),
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 17h8M7 7h8l3 4v6h-2m-9 0H5V9a2 2 0 012-2Z"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/></svg>',
-            'type' => 'link',
-        ],
-        [
-            'label' => 'Report',
-            'route' => 'inventory.reports.fulfillment',
-            'active' => request()->routeIs('inventory.reports.fulfillment'),
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-6m4 6V7m4 10v-3M5 21h14M5 3h14"/></svg>',
-            'type' => 'link',
-        ],
-    ];
+    $wrPendingCount = 0;
+    $wrStockCount = 0;
+    $wrLoadoutCount = 0;
+    $wrDeliveryCount = 0;
+
+    if ($showWarehouseReceiverMobileNav) {
+        $wrDate = request()->input('date', \Illuminate\Support\Carbon::today()->format('Y-m-d'));
+
+        $wrPendingCount = \App\Models\GoodsReceived::where('status', 'pending_approval')
+            ->whereDate('received_at', $wrDate)
+            ->count()
+            + \App\Models\StockBatch::where('warehouse_receive_pending', true)
+            ->whereDate('received_at', $wrDate)
+            ->count();
+
+        $wrStockCount = app(\App\Repositories\Inventory\StockMovementRepository::class)
+            ->currentStockByProductAndGrade($wrDate)
+            ->count();
+
+        $wrLoadoutCount = \App\Models\ShopOrder::whereDate('business_date', $wrDate)
+            ->whereIn('delivery_status', ['pending_delivery', 'ready_for_dispatch', 'in_transit'])
+            ->count();
+    }
+
     $adminMobileNavItems = [
         [
             'label' => 'Overview',
@@ -204,12 +178,31 @@
         [
             'label' => 'Receive',
             'route' => 'warehouse.receiver.checklist',
-            'active' => request()->routeIs('warehouse.receiver.*'),
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
+            'params' => ['tab' => 'pending'],
+            'active' => request()->routeIs('warehouse.receiver.receive-grn') || (request()->routeIs('warehouse.receiver.checklist') && request()->query('tab', 'pending') === 'pending'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>',
+            'badge' => $wrPendingCount,
+            'type' => 'link',
+        ],
+        [
+            'label' => 'Inventory',
+            'route' => 'warehouse.receiver.checklist',
+            'params' => ['tab' => 'inventory'],
+            'active' => request()->routeIs('warehouse.receiver.checklist') && request()->query('tab') === 'inventory',
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>',
+            'badge' => $wrStockCount,
+            'type' => 'link',
+        ],
+        [
+            'label' => 'Loadout',
+            'route' => 'warehouse.loadout.index',
+            'active' => request()->routeIs('warehouse.loadout.*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.75A1.125 1.125 0 012.625 17.625V4.625L13.5 4.625v14.125m.125-14.125H16.5a1.5 1.5 0 011.06.44l2.625 2.625a1.5 1.5 0 01.44 1.06V17.625a1.125 1.125 0 01-1.125 1.125H18m0 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" /></svg>',
+            'badge' => $wrLoadoutCount,
             'type' => 'link',
         ],
     ];
-    $showMobileBottomNav = $showAdminMobileNav || $showWarehouseMobileNav || $showPurchaseMobileNav || $showPurchaserMobileNav || $showWarehouseReceiverMobileNav;
+    $showMobileBottomNav = $showAdminMobileNav || $showPurchaseMobileNav || $showPurchaserMobileNav || $showWarehouseReceiverMobileNav;
 @endphp
 
 <div id="app-container" class="flex h-full">
@@ -289,14 +282,45 @@
                         Report
                     </x-nav-item>
                 </div>
+            @elseif(auth()->user()->hasRole('warehouse_receiver'))
+                @php
+                    $isWarehouseReceiverActive = request()->routeIs('warehouse.receiver.*') || request()->routeIs('warehouse.loadout.*');
+                @endphp
+                <div class="sidebar-group space-y-1">
+                    <button
+                        type="button"
+                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isWarehouseReceiverActive ? 'bg-white/5 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}"
+                        aria-expanded="{{ $isWarehouseReceiverActive ? 'true' : 'false' }}"
+                    >
+                        <span class="flex items-center gap-3">
+                            <svg class="h-4 w-4 shrink-0 opacity-80 transition-opacity group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5 12 3l9 4.5M4.5 8.25v8.25A2.25 2.25 0 006.75 18.75h10.5A2.25 2.25 0 0019.5 16.5V8.25M9 12h6" />
+                            </svg>
+                            <span>Warehouse Desk</span>
+                        </span>
+                        <svg class="chevron-icon h-3.5 w-3.5 transition-transform duration-200 {{ $isWarehouseReceiverActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
+                    </button>
+                    <div class="sidebar-group-items space-y-1 pl-3 pr-1 transition-all duration-200 {{ $isWarehouseReceiverActive ? '' : 'hidden' }}">
+                        <x-nav-item href="{{ route('warehouse.receiver.checklist', ['tab' => 'pending']) }}" :active="request()->routeIs('warehouse.receiver.receive-grn') || (request()->routeIs('warehouse.receiver.checklist') && request()->query('tab', 'pending') === 'pending')" :sub="true">
+                            Receive
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('warehouse.receiver.checklist', ['tab' => 'inventory']) }}" :active="request()->routeIs('warehouse.receiver.checklist') && request()->query('tab') === 'inventory'" :sub="true">
+                            Inventory
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('warehouse.loadout.index') }}" :active="request()->routeIs('warehouse.loadout.*')" :sub="true">
+                            Loadout
+                        </x-nav-item>
+                    </div>
+                </div>
             @else
                 {{-- Inventory Group --}}
                 @if(
                     auth()->user()->can('inventory.product.view') ||
                     auth()->user()->can('inventory.stock.view') ||
                     auth()->user()->can('inventory.sorting.view') ||
-                    auth()->user()->can('inventory.wastage.view') ||
-                    auth()->user()->can('warehouse.checklist.view')
+                    auth()->user()->can('inventory.wastage.view')
                 )
                 @php
                     $isInventoryActive = request()->routeIs('inventory.*');
@@ -336,17 +360,6 @@
                         @can('inventory.wastage.view')
                         <x-nav-item href="{{ route('inventory.wastage.index') }}" :active="request()->routeIs('inventory.wastage.*')" :sub="true">
                             Wastage Log
-                        </x-nav-item>
-                        @endcan
-                        @can('warehouse.checklist.view')
-                        <x-nav-item href="{{ route('inventory.sorting.checklist') }}" :active="request()->routeIs('inventory.sorting.checklist')" :sub="true">
-                            Sorting Checklist
-                        </x-nav-item>
-                        <x-nav-item href="{{ route('inventory.sorting.shop-orders') }}" :active="request()->routeIs('inventory.sorting.shop-orders')" :sub="true">
-                            Shop Orders
-                        </x-nav-item>
-                        <x-nav-item href="{{ route('inventory.sorting.shop-sorting') }}" :active="request()->routeIs('inventory.sorting.shop-sorting*')" :sub="true">
-                            Worker Sorting
                         </x-nav-item>
                         @endcan
                         <x-nav-item href="{{ route('inventory.deliveries.dashboard') }}" :active="request()->routeIs('inventory.deliveries.dashboard')" :sub="true">
@@ -497,52 +510,6 @@
                             Sales Invoices
                         </x-nav-item>
                         @endcan
-                    </div>
-                </div>
-                @endif
-
-                {{-- Finance Group --}}
-                @if(
-                    auth()->user()->can('accounting.ledger.view') ||
-                    auth()->user()->can('accounting.report.view') ||
-                    auth()->user()->can('accounting.entry.create')
-                )
-                @php
-                    $isFinanceActive = request()->routeIs('finance.*') || request()->routeIs('admin.accounting.*');
-                @endphp
-                <div class="sidebar-group space-y-1">
-                    <button
-                        type="button"
-                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isFinanceActive ? 'bg-white/5 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}"
-                        aria-expanded="{{ $isFinanceActive ? 'true' : 'false' }}"
-                    >
-                        <span class="flex items-center gap-3">
-                            <svg class="h-4 w-4 shrink-0 opacity-80 transition-opacity group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.03 0 1.9.693 2.166 1.638m-7.377 0A48.536 48.536 0 0112 3.75c0 .08-.004.16-.01.238m-2.886 0c.385.023.77.05 1.154.08m-3.456 0A48.108 48.108 0 002.25 6.11v10.39a2.25 2.25 0 002.25 2.25h3" />
-                            </svg>
-                            <span>Finance</span>
-                        </span>
-                        <svg class="chevron-icon h-3.5 w-3.5 transition-transform duration-200 {{ $isFinanceActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                        </svg>
-                    </button>
-                    <div class="sidebar-group-items space-y-1 pl-3 pr-1 transition-all duration-200 {{ $isFinanceActive ? '' : 'hidden' }}">
-                        <x-nav-item href="{{ route('finance.vendors.index') }}" :active="request()->routeIs('finance.vendors.*') || request()->routeIs('finance.vendor-daily')" :sub="true">
-                            Vendor Reports
-                        </x-nav-item>
-                        <x-nav-item href="{{ route('finance.sales.index') }}" :active="request()->routeIs('finance.sales.*') || request()->routeIs('finance.sales-daily')" :sub="true">
-                            Sales Reports
-                        </x-nav-item>
-                        @if(auth()->user()->hasRole('admin') || auth()->user()->can('admin.user.view'))
-                        <x-nav-item href="{{ route('admin.accounting.index') }}" :active="request()->routeIs('admin.accounting.*') && !request()->routeIs('admin.accounting.purchasers.*')" :sub="true">
-                            Accounting Dashboard
-                        </x-nav-item>
-                        @endif
-                        @if(auth()->user()->hasRole('admin'))
-                        <x-nav-item href="{{ route('admin.accounting.purchasers.index') }}" :active="request()->routeIs('admin.accounting.purchasers.*')" :sub="true">
-                            Purchaser Credits
-                        </x-nav-item>
-                        @endif
                     </div>
                 </div>
                 @endif
@@ -741,19 +708,24 @@
         @endif
 
         {{-- Page content --}}
-        <main class="w-full min-w-0 flex-1 px-3 pb-28 {{ isset($actions) ? 'pt-28' : 'pt-20' }} sm:px-6 lg:p-6 lg:pt-6 {{ $showMobileBottomNav ? 'lg:pb-6' : '' }}">
+        <main id="layout-page-main" class="w-full min-w-0 flex-1 px-3 {{ $showMobileBottomNav ? 'pb-40 lg:pb-6' : 'pb-16 lg:pb-6' }} {{ isset($actions) ? 'pt-28' : 'pt-20' }} sm:px-6 lg:p-6 lg:pt-6">
             {{ $slot }}
         </main>
     </div>
 </div>
 
-@if($showAdminMobileNav || $showWarehouseMobileNav || $showPurchaseMobileNav || $showPurchaserMobileNav || $showWarehouseReceiverMobileNav)
+<x-global-footer />
+
+@if($showPageJump)
+<x-page-jump-controls bottom-class="bottom-24 lg:bottom-6" />
+@endif
+
+@if($showAdminMobileNav || $showPurchaseMobileNav || $showPurchaserMobileNav || $showWarehouseReceiverMobileNav)
 <div id="layout-mobile-nav" class="fixed inset-x-0 bottom-0 z-[70] px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] lg:hidden">
     <nav class="mx-auto flex min-h-[64px] w-full max-w-lg items-center gap-1 rounded-2xl border border-slate-100 bg-white/98 px-1.5 py-1.5 shadow-[0_-2px_10px_rgba(15,23,42,0.05),0_10px_40px_rgba(15,23,42,0.16)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/96">
         @php
             $mobileNavItems = match(true) {
                 $showAdminMobileNav => $adminMobileNavItems,
-                $showWarehouseMobileNav => $warehouseMobileNavItems,
                 $showPurchaseMobileNav => $purchaseMobileNavItems,
                 $showPurchaserMobileNav => $purchaserMobileNavItems,
                 $showWarehouseReceiverMobileNav => $warehouseReceiverMobileNavItems,
@@ -774,8 +746,13 @@
                 ])
                 title="{{ $item['label'] }}"
             >
-                <span class="shrink-0 [&_svg]:h-[18px] [&_svg]:w-[18px]">
+                <span class="relative shrink-0 [&_svg]:h-[18px] [&_svg]:w-[18px]">
                     {!! $item['icon'] !!}
+                    @if (isset($item['badge']) && $item['badge'] > 0)
+                        <span class="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[8px] font-black text-white ring-1 ring-white">
+                            {{ $item['badge'] }}
+                        </span>
+                    @endif
                 </span>
                 <span @class([
                     'min-w-0 truncate whitespace-nowrap text-[10px] font-black',

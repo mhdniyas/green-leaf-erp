@@ -76,10 +76,19 @@ class PurchaserCreditTest extends TestCase
         $this->actingAs($this->admin)
             ->get(route('admin.accounting.purchasers.index'))
             ->assertOk()
+            ->assertSee('Purchaser accounts')
             ->assertSee($this->purchaser->name)
-            ->assertSee('₹1,000.00')
-            ->assertSee('₹300.00')
-            ->assertSee('₹700.00');
+            ->assertSee('Rs. 1,000.00')
+            ->assertSee('Rs. 300.00')
+            ->assertSee('Rs. 700.00')
+            ->assertSee('Add Credit')
+            ->assertSee('Export Excel')
+            ->assertSee('Export PDF');
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.accounting.purchasers.index', ['sort' => 'balance', 'direction' => 'desc']))
+            ->assertOk()
+            ->assertSee('Total');
 
         // Access show as admin
         $this->actingAs($this->admin)

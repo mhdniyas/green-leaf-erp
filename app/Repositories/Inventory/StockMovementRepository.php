@@ -36,7 +36,7 @@ class StockMovementRepository extends BaseRepository
      * Eloquent 'grade' enum cast from being applied, keeping grade as a
      * raw string value safe for array-key lookup.
      */
-    public function currentStockByProductAndGrade(?string $date = null): Collection
+    public function currentStockByProductAndGrade(?string $date = null, ?int $warehouseId = null): Collection
     {
         $driver = (new Product)->getConnection()->getDriverName();
         $positiveMovementTypes = [
@@ -51,8 +51,9 @@ class StockMovementRepository extends BaseRepository
 
         $movementsStock = $this->query()
             ->join('products', 'stock_movements.product_id', '=', 'products.id')
+            ->leftJoin('categories', 'products.category_id', '=', 'categories.id')
             ->selectRaw(
-                'stock_movements.product_id, products.name as product_name, products.sku as product_sku, products.image as product_image, stock_movements.grade, '.
+                'stock_movements.product_id, products.name as product_name, products.sku as product_sku, products.image as product_image, categories.name as category_name, stock_movements.grade, '.
                 'SUM(CASE '.
                 'WHEN stock_movements.type IN (?, ?) THEN stock_movements.quantity '.
                 'WHEN stock_movements.type IN (?, ?, ?) THEN -stock_movements.quantity '.
@@ -66,7 +67,8 @@ class StockMovementRepository extends BaseRepository
                 ]
             )
             ->when($date, fn ($q) => $q->whereDate('stock_movements.created_at', '<=', $date))
-            ->groupBy('stock_movements.product_id', 'products.name', 'products.sku', 'products.image', 'stock_movements.grade')
+            ->when($warehouseId, fn ($q) => $q->where('stock_movements.warehouse_id', $warehouseId))
+            ->groupBy('stock_movements.product_id', 'products.name', 'products.sku', 'products.image', 'categories.name', 'stock_movements.grade')
             ->having('current_stock', '>', 0)
             ->orderByRaw(Product::numericSkuPriorityExpression('products.sku', $driver))
             ->orderByRaw(Product::numericSkuValueExpression('products.sku', $driver))
@@ -78,7 +80,8 @@ class StockMovementRepository extends BaseRepository
         // 2. Fetch pending batches (unsorted stock)
         $pendingBatches = StockBatch::where('status', BatchStatus::Pending)
             ->when($date, fn ($q) => $q->whereDate('received_at', '<=', $date))
-            ->with(['product', 'wastageEntries'])
+            ->when($warehouseId, fn ($q) => $q->where('warehouse_id', $warehouseId))
+            ->with(['product.category', 'wastageEntries'])
             ->get();
 
         $unsortedStock = [];
@@ -101,6 +104,7 @@ class StockMovementRepository extends BaseRepository
                     'product_name' => $batch->product->name,
                     'product_sku' => $batch->product->sku,
                     'product_image' => $batch->product->image,
+                    'category_name' => $batch->product->category->name ?? 'Other',
                     'grade' => 'Unsorted',
                     'current_stock' => 0.0,
                 ];

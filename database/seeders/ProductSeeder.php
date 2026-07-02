@@ -270,6 +270,10 @@ DATA;
 
     public function run(): void
     {
+        $this->call([
+            CategorySeeder::class,
+        ]);
+
         $seededProductIds = [];
 
         foreach ($this->catalog() as $data) {

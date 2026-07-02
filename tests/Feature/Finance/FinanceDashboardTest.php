@@ -116,6 +116,14 @@ class FinanceDashboardTest extends TestCase
             'balance_amount' => 1000.00,
         ]);
 
+        ShopInvoice::factory()->create([
+            'invoice_number' => 'SINV-DAILY-02',
+            'business_date' => today()->toDateString(),
+            'final_total' => 1800.00,
+            'paid_amount' => 1800.00,
+            'balance_amount' => 0.00,
+        ]);
+
         $this->actingAs($user)
             ->get(route('finance.vendor-daily', ['date' => today()->toDateString()]))
             ->assertOk()
@@ -127,7 +135,18 @@ class FinanceDashboardTest extends TestCase
             ->get(route('finance.sales-daily', ['date' => today()->toDateString()]))
             ->assertOk()
             ->assertSee('Sales report for')
-            ->assertSee('SINV-DAILY-01');
+            ->assertSee('SINV-DAILY-01')
+            ->assertSee('SINV-DAILY-02')
+            ->assertSee('Filter');
+
+        $this->actingAs($user)
+            ->get(route('finance.sales-daily', [
+                'date' => today()->toDateString(),
+                'status' => 'pending',
+            ]))
+            ->assertOk()
+            ->assertSee('SINV-DAILY-01')
+            ->assertDontSee('SINV-DAILY-02');
     }
 
     public function test_vendor_and_sales_exports_are_available(): void

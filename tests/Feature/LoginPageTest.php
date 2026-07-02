@@ -58,6 +58,34 @@ class LoginPageTest extends TestCase
         $response->assertDontSee('Admin11');
     }
 
+    public function test_demo_login_page_lists_shop_demo_accounts_when_shops_exist(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        $response = $this->withSession(['demo_access_granted' => true])->get(route('login.demo'));
+
+        $response->assertOk();
+        $response->assertSee('Shop-owner delivery check logins');
+        $response->assertSee('Casio Hypermarket');
+        $response->assertSee('Login as Casio Hypermarket');
+        $response->assertDontSee('ShopOwner17');
+    }
+
+    public function test_demo_login_can_provision_and_sign_in_as_shop_owner(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        $shop = Shop::query()->where('code', 'SHOP_CASIO')->firstOrFail();
+
+        $response = $this->withSession(['demo_access_granted' => true])->post(route('login.demo.account'), [
+            'account' => 'shop-'.$shop->id,
+        ]);
+
+        $response->assertRedirect(route('dashboard'));
+        $this->assertAuthenticated();
+        $this->assertSame($shop->id, auth()->user()?->shop_id);
+    }
+
     public function test_database_seeder_creates_shops_without_seeded_shop_owner_accounts(): void
     {
         $this->seed(DatabaseSeeder::class);

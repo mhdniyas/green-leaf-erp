@@ -42,7 +42,7 @@ $roleConfig = [
     'admin'     => ['label' => 'Administrator',     'color' => 'bg-purple-100 text-purple-700 border-purple-200'],
     'shop'      => ['label' => 'Shop Owner',        'color' => 'bg-emerald-100 text-emerald-700 border-emerald-200'],
     'purchase'  => ['label' => 'Purchase Manager',  'color' => 'bg-amber-100 text-amber-700 border-amber-200'],
-    'warehouse' => ['label' => 'Warehouse Manager', 'color' => 'bg-pink-100 text-pink-700 border-pink-200'],
+    'warehouse_receiver' => ['label' => 'Warehouse Receiver', 'color' => 'bg-cyan-100 text-cyan-700 border-cyan-200'],
 ];
 $rc = $roleConfig[$role] ?? ['label' => ucfirst($role), 'color' => 'bg-gray-100 text-gray-600 border-gray-200'];
 
@@ -2165,18 +2165,18 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
     </div>
 
     {{-- Warehouse daily operational window: Receive Goods to Start Process --}}
-    @if($user->hasRole(['warehouse', 'admin']))
+    @if($user->hasRole(['warehouse_receiver', 'admin']))
     <div class="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 mb-6">
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-5 border-b border-gray-100">
             <div>
                 <h2 class="text-base font-black text-slate-800 tracking-tight flex items-center gap-2">
                     <span class="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
-                    Daily Operational Gateway: Receive Goods to Start Process
+                    Warehouse Receiver Desk: Start With Goods Receive
                 </h2>
                 <p class="text-xs text-slate-400 mt-1">Receive approved purchase orders into the warehouse to automatically populate daily stock batches and checklists.</p>
             </div>
-            <a href="{{ route('inventory.sorting.checklist') }}" class="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-xs font-black text-white hover:bg-brand-700 transition-colors shadow-sm cursor-pointer">
-                Open Sorting Checklist Board
+            <a href="{{ route('warehouse.receiver.checklist', ['tab' => 'pending']) }}" class="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-xs font-black text-white hover:bg-brand-700 transition-colors shadow-sm cursor-pointer">
+                Open Warehouse Desk
             </a>
         </div>
 
@@ -2206,7 +2206,7 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
                         </div>
                     </div>
                     <div class="mt-5 pt-3 border-t border-slate-100/50 flex justify-end">
-                        <a href="{{ route('inventory.sorting.checklist') }}" class="px-3.5 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-[10px] font-bold shadow-xs transition-colors cursor-pointer text-center">
+                        <a href="{{ route('warehouse.receiver.checklist', ['tab' => 'pending']) }}" class="px-3.5 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-[10px] font-bold shadow-xs transition-colors cursor-pointer text-center">
                             Receive & Verify Goods
                         </a>
                     </div>
@@ -2427,11 +2427,11 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
     <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 mb-6">
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-5 border-b border-slate-100">
             <div>
-                <h2 class="text-lg font-black text-slate-800 tracking-tight">Warehouse Dispatch Sorting Progress</h2>
-                <p class="text-xs text-slate-400 mt-0.5">Live shopwise sorting checklist progress in the warehouse</p>
+                <h2 class="text-lg font-black text-slate-800 tracking-tight">Warehouse Receiver Progress</h2>
+                <p class="text-xs text-slate-400 mt-0.5">Live shopwise allocation and dispatch progress from the active warehouse flow</p>
             </div>
-            <a href="{{ route('inventory.sorting.checklist') }}" class="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-xs font-black text-white hover:bg-brand-700 transition-colors shadow-sm">
-                Open Sorting Checklist
+            <a href="{{ route('warehouse.loadout.index') }}" class="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-xs font-black text-white hover:bg-brand-700 transition-colors shadow-sm">
+                Open Loadout
             </a>
         </div>
 
@@ -3034,7 +3034,7 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
                 ['email' => 'admin@greenleaf.com',     'role' => 'Administrator',       'color' => 'bg-purple-100 text-purple-700'],
                 ['email' => 'shop@greenleaf.com',      'role' => 'Shop Owner',          'color' => 'bg-emerald-100 text-emerald-700'],
                 ['email' => 'purchase@greenleaf.com',  'role' => 'Purchase Manager',    'color' => 'bg-amber-100 text-amber-700'],
-                ['email' => 'warehouse@greenleaf.com', 'role' => 'Warehouse Manager',   'color' => 'bg-pink-100 text-pink-700'],
+                ['email' => 'receiver@greenleaf.com',  'role' => 'Warehouse Receiver',  'color' => 'bg-cyan-100 text-cyan-700'],
             ] as $demo)
             <div class="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
                 <div class="w-7 h-7 rounded-lg {{ $demo['color'] }} flex items-center justify-center shrink-0">

@@ -10,12 +10,14 @@ use App\Models\PurchaseOrder;
 use App\Models\Shop;
 use App\Models\ShopAccountingCategory;
 use App\Models\ShopAccountingEntry;
+use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderRevision;
 use App\Models\Supplier;
 use App\Models\User;
 use Database\Seeders\ChartOfAccountsSeeder;
 use Database\Seeders\RolePermissionSeeder;
+use Database\Seeders\ShopAccountingCategorySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -56,6 +58,8 @@ class ShopOwnerModulesTest extends TestCase
         $response->assertSee('Deliveries');
         $response->assertSee('Finance');
         $response->assertSee('Approval History');
+        $response->assertSee('Go to top');
+        $response->assertSee('Go to bottom');
         $response->assertSee('app-dialog-root');
         $response->assertSee('window.showAppAlert');
 
@@ -303,6 +307,68 @@ class ShopOwnerModulesTest extends TestCase
         $response->assertDontSee('Review Requisition');
     }
 
+    public function test_standard_shop_owner_can_open_accounting_bills_and_request_payment(): void
+    {
+        $shop = Shop::create([
+            'code' => 'SHOP_ACC_BILL',
+            'name' => 'Bills Shop',
+            'accounting_mode' => 'standard',
+            'accounting_enabled' => false,
+        ]);
+
+        $shopOwner = User::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+        $shopOwner->assignRole('shop');
+
+        $order = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => today()->toDateString(),
+            'created_by' => $shopOwner->id,
+        ]);
+
+        $invoice = ShopInvoice::create([
+            'shop_id' => $shop->id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'SINV-BILLS-001',
+            'business_date' => today()->toDateString(),
+            'status' => 'payment_pending',
+            'delivery_status' => 'received_full',
+            'payment_status' => 'unpaid',
+            'subtotal' => 250.00,
+            'shortage_total' => 0.00,
+            'discount_total' => 0.00,
+            'final_total' => 250.00,
+            'paid_amount' => 0.00,
+            'balance_amount' => 250.00,
+        ]);
+
+        $this->actingAs($shopOwner)
+            ->get(route('shop-owner.accounting.index'))
+            ->assertOk()
+            ->assertSee('Bills and balance to be paid')
+            ->assertSee($invoice->invoice_number)
+            ->assertSee('Send Payment Request');
+
+        $this->actingAs($shopOwner)
+            ->post(route('shop-owner.accounting.payment-requests.store'), [
+                'invoice_id' => $invoice->id,
+                'amount_mode' => 'balance_due',
+                'shop_note' => 'Collect full bill today.',
+            ])
+            ->assertRedirect(route('shop-owner.accounting.index', ['tab' => 'bills']));
+
+        $this->assertDatabaseHas('shop_invoice_payment_requests', [
+            'shop_invoice_id' => $invoice->id,
+            'shop_id' => $shop->id,
+            'requested_by' => $shopOwner->id,
+            'request_type' => 'balance_due',
+            'requested_amount' => 250.00,
+            'status' => 'pending',
+        ]);
+    }
+
     public function test_shop_owner_cart_screen_shows_approval_history_copy(): void
     {
         $shop = Shop::create([
@@ -348,7 +414,7 @@ class ShopOwnerModulesTest extends TestCase
         $response->assertSee('data-items-error-banner', false);
     }
 
-    public function test_only_owned_or_partnership_shop_owner_sees_accounting_navigation(): void
+    public function test_all_shop_owners_can_open_accounting_and_owned_shops_also_get_cashbook(): void
     {
         $ownedShop = Shop::create([
             'code' => 'OWNED_SHOP_NAV',
@@ -377,11 +443,40 @@ class ShopOwnerModulesTest extends TestCase
         $this->actingAs($standardUser)
             ->get(route('shop-owner.dashboard'))
             ->assertOk()
-            ->assertDontSee('Accounting');
+            ->assertSee('Accounting');
 
         $this->actingAs($standardUser)
             ->get(route('shop-owner.accounting.index'))
-            ->assertNotFound();
+            ->assertOk()
+            ->assertSee('Bills and balance to be paid')
+            ->assertDontSee('Daily cashbook and expenses');
+    }
+
+    public function test_owned_shop_cashbook_uses_seeded_categories(): void
+    {
+        $this->seed(ShopAccountingCategorySeeder::class);
+
+        $shop = Shop::create([
+            'code' => 'SHOP-CASH-SEED',
+            'name' => 'Seeded Accounting Shop',
+            'accounting_mode' => 'owned',
+            'accounting_enabled' => true,
+            'reserve_amount' => 725.50,
+        ]);
+
+        $shopOwner = User::factory()->create(['shop_id' => $shop->id]);
+        $shopOwner->assignRole('shop');
+
+        $this->actingAs($shopOwner)
+            ->get(route('shop-owner.accounting.index', ['tab' => 'cashbook']))
+            ->assertOk()
+            ->assertSee('Add Income / Expense')
+            ->assertSee('Reserve Cash')
+            ->assertSee('725.50')
+            ->assertSee('Sales Income')
+            ->assertSee('Daily Expense')
+            ->assertSee('Other')
+            ->assertSee('name="opening_cash" value="725.50"', false);
     }
 
     public function test_owned_shop_owner_can_submit_entry_receive_recheck_and_resubmit(): void
@@ -434,7 +529,7 @@ class ShopOwnerModulesTest extends TestCase
 
         $this->actingAs($shopOwner)
             ->post(route('shop-owner.accounting.entries.store'), $payload)
-            ->assertRedirect(route('shop-owner.accounting.index', ['date' => '2026-06-24']));
+            ->assertRedirect(route('shop-owner.accounting.index', ['tab' => 'cashbook', 'date' => '2026-06-24']));
 
         $entry = ShopAccountingEntry::query()->where('shop_id', $shop->id)->firstOrFail();
         $this->assertSame('submitted', $entry->status);
@@ -445,13 +540,13 @@ class ShopOwnerModulesTest extends TestCase
                 'decision' => 'recheck',
                 'admin_note' => 'Please verify the closing cash.',
             ])
-            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $shop, 'date' => '2026-06-24']));
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $shop->code, 'date' => '2026-06-24']));
 
         $entry->refresh();
         $this->assertSame('recheck_required', $entry->status);
 
         $this->actingAs($shopOwner)
-            ->get(route('shop-owner.accounting.index', ['date' => '2026-06-24']))
+            ->get(route('shop-owner.accounting.index', ['tab' => 'cashbook', 'date' => '2026-06-24']))
             ->assertOk()
             ->assertSee('Recheck Required')
             ->assertSee('Please verify the closing cash.');
@@ -462,11 +557,47 @@ class ShopOwnerModulesTest extends TestCase
                 'closing_cash' => 750,
                 'shop_reply_note' => 'Updated after recount.',
             ])
-            ->assertRedirect(route('shop-owner.accounting.index', ['date' => '2026-06-24']));
+            ->assertRedirect(route('shop-owner.accounting.index', ['tab' => 'cashbook', 'date' => '2026-06-24']));
 
         $entry->refresh();
         $this->assertSame('submitted', $entry->status);
         $this->assertSame('Updated after recount.', $entry->shop_reply_note);
         $this->assertNull($entry->reviewed_by);
+    }
+
+    public function test_shop_owner_must_add_notes_when_using_other_cashbook_category(): void
+    {
+        $shop = Shop::create([
+            'code' => 'SHOP-CASH-OTHER',
+            'name' => 'Other Notes Shop',
+            'accounting_mode' => 'owned',
+            'accounting_enabled' => true,
+        ]);
+
+        $shopOwner = User::factory()->create(['shop_id' => $shop->id]);
+        $shopOwner->assignRole('shop');
+
+        $otherExpenseCategory = ShopAccountingCategory::create([
+            'shop_id' => null,
+            'type' => 'expense',
+            'name' => 'Other',
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($shopOwner)
+            ->from(route('shop-owner.accounting.index', ['tab' => 'cashbook']))
+            ->post(route('shop-owner.accounting.entries.store'), [
+                'business_date' => '2026-06-24',
+                'submission_action' => 'save_draft',
+                'lines' => [
+                    [
+                        'shop_accounting_category_id' => $otherExpenseCategory->id,
+                        'amount' => 250,
+                        'description' => '',
+                    ],
+                ],
+            ])
+            ->assertRedirect(route('shop-owner.accounting.index', ['tab' => 'cashbook']))
+            ->assertSessionHasErrors('lines.0.description');
     }
 }

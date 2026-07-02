@@ -55,7 +55,8 @@
                 @foreach ($dailySummary as $summary)
                     @php
                         $step = $summary['unit'] === 'kg' ? '0.5' : '1';
-                        $defaultQty = max(0.01, (float) $summary['remaining_qty'] - (float) $summary['draft_qty']);
+                        $remaining = (float) $summary['remaining_qty'] - (float) $summary['draft_qty'];
+                        $defaultQty = $remaining > 0 ? $remaining : 1.0;
                     @endphp
                     <input type="hidden" name="product_ids[]" value="{{ $summary['product_id'] }}">
 

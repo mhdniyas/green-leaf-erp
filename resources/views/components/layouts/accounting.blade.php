@@ -31,28 +31,22 @@
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75h7.5v7.5h-7.5v-7.5Zm9 0h7.5v10.5h-7.5V3.75Zm0 12h7.5v4.5h-7.5v-4.5Zm-9-3h7.5v7.5h-7.5v-7.5Z" /></svg>',
         ],
         [
+            'label' => 'Daily Sale Report',
+            'href' => route('admin.accounting.daily-sales', ['date' => request('date', today()->toDateString())]),
+            'active' => request()->routeIs('admin.accounting.daily-sales'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18M7 14l3-3 3 2 5-6" /></svg>',
+        ],
+        [
+            'label' => 'Vendor Reports',
+            'href' => route('admin.accounting.vendor-reports', ['date' => request('date', today()->toDateString())]),
+            'active' => request()->routeIs('admin.accounting.vendor-reports'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v8m4-4H8m-4 8h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z" /></svg>',
+        ],
+        [
             'label' => 'Owned Shops',
             'href' => route('admin.accounting.owned-shops.index'),
-            'active' => request()->routeIs('admin.accounting.owned-shops.index'),
+            'active' => request()->routeIs('admin.accounting.owned-shops.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M4.5 21V8.25m15 12.75V8.25M9 21V3.75h6V21M7.5 6h9" /></svg>',
-        ],
-        [
-            'label' => 'Daily Sales',
-            'href' => route('finance.sales-daily', ['date' => $navDate]),
-            'active' => request()->routeIs('finance.sales-daily'),
-            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18M7 13l3-3 3 2 4-6" /></svg>',
-        ],
-        [
-            'label' => 'Vendor Daily',
-            'href' => route('finance.vendor-daily', ['date' => $navDate]),
-            'active' => request()->routeIs('finance.vendor-daily'),
-            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 8.25V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v12a2.25 2.25 0 0 0 2.25 2.25h13.5A2.25 2.25 0 0 0 21 18v-2.25M3 9.75h18" /></svg>',
-        ],
-        [
-            'label' => 'Shop Invoices',
-            'href' => route('purchasing.shop-invoices.index'),
-            'active' => request()->routeIs('purchasing.shop-invoices.*'),
-            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75h9A2.25 2.25 0 0 1 18.75 6v12A2.25 2.25 0 0 1 16.5 20.25h-9A2.25 2.25 0 0 1 5.25 18V6A2.25 2.25 0 0 1 7.5 3.75Zm2.25 4.5h4.5m-6 4.5h7.5m-7.5 4.5h3.75" /></svg>',
         ],
         [
             'label' => 'Purchasers',
@@ -66,25 +60,17 @@
         $sidebarItems[] = [
             'label' => 'Current Shop',
             'href' => route('admin.accounting.owned-shops.show', ['shop' => $currentShop, 'date' => $navDate]),
-            'active' => request()->routeIs('admin.accounting.owned-shops.show') || request()->routeIs('admin.accounting.owned-shops.invoices.show'),
+            'active' => false,
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a8.966 8.966 0 0 1-5.657-2.004C4.233 17.228 3 14.76 3 12s1.233-5.228 3.343-6.996A8.966 8.966 0 0 1 12 3c2.212 0 4.236.8 5.657 2.004C19.767 6.772 21 9.24 21 12s-1.233 5.228-3.343 6.996A8.966 8.966 0 0 1 12 21Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75h4.5v4.5h-4.5z" /></svg>',
         ];
     }
 
     $mobileItems = [
         ['label' => 'Home', 'href' => route('admin.accounting.index', ['date' => $navDate]), 'active' => request()->routeIs('admin.accounting.index')],
-        ['label' => 'Shops', 'href' => route('admin.accounting.owned-shops.index'), 'active' => request()->routeIs('admin.accounting.owned-shops.index')],
-        ['label' => 'Sales', 'href' => route('finance.sales-daily', ['date' => $navDate]), 'active' => request()->routeIs('finance.sales-daily')],
-        ['label' => 'Vendors', 'href' => route('finance.vendor-daily', ['date' => $navDate]), 'active' => request()->routeIs('finance.vendor-daily')],
+        ['label' => 'Sales', 'href' => route('admin.accounting.daily-sales', ['date' => request('date', today()->toDateString())]), 'active' => request()->routeIs('admin.accounting.daily-sales')],
+        ['label' => 'Vendor', 'href' => route('admin.accounting.vendor-reports', ['date' => request('date', today()->toDateString())]), 'active' => request()->routeIs('admin.accounting.vendor-reports')],
+        ['label' => 'Shops', 'href' => route('admin.accounting.owned-shops.index'), 'active' => request()->routeIs('admin.accounting.owned-shops.*')],
     ];
-
-    if ($currentShop instanceof \App\Models\Shop) {
-        $mobileItems[] = [
-            'label' => 'Shop',
-            'href' => route('admin.accounting.owned-shops.show', ['shop' => $currentShop, 'date' => $navDate]),
-            'active' => request()->routeIs('admin.accounting.owned-shops.show') || request()->routeIs('admin.accounting.owned-shops.invoices.show'),
-        ];
-    }
 @endphp
 
 <div class="min-h-screen lg:flex">
@@ -186,6 +172,8 @@
         </main>
     </div>
 </div>
+
+<x-global-footer />
 
 <div class="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 backdrop-blur lg:hidden">
     <nav class="mx-auto grid max-w-xl grid-cols-4 gap-2">

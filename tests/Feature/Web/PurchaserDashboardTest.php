@@ -1964,7 +1964,7 @@ class PurchaserDashboardTest extends TestCase
         $response->assertOk();
         $response->assertSee('Linked Invoice Vendor');
         $response->assertSee('₹150.00', false);
-        $response->assertSee('0 pending');
+        $response->assertSee('0 issues');
         $response->assertDontSee('₹400.00', false);
     }
 
@@ -2210,7 +2210,7 @@ class PurchaserDashboardTest extends TestCase
             $hubResponse = $this->actingAs($this->purchaser)->get(route('purchaser.suppliers', ['date' => '2026-06-25']));
             $hubResponse->assertOk();
             $hubResponse->assertSee('Pending (0)');
-            $hubResponse->assertSee('0 pending');
+            $hubResponse->assertSee('0 issues');
         } finally {
             Carbon::setTestNow();
         }
@@ -2233,6 +2233,28 @@ class PurchaserDashboardTest extends TestCase
             $response->assertSee('Open Issues');
             $response->assertSee('Receipt Pending');
             $response->assertSee('Payment settled. Waiting for warehouse confirmation.');
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_vendor_hub_marks_paid_receipt_pending_rows_as_warehouse_issue(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-25 10:00:00'));
+
+        try {
+            $cart = $this->createSubmittedCartWithInvoice('2026-06-24', 140.0, 140.0);
+            $this->attachReceiptState($cart, warehouseConfirmed: false, receiptNotes: 'Payment settled. Waiting for warehouse confirmation.');
+
+            $response = $this->actingAs($this->purchaser)->get(route('purchaser.suppliers', [
+                'date' => '2026-06-25',
+            ]));
+
+            $response->assertOk();
+            $response->assertSee('Receipt Pending');
+            $response->assertSee('Warehouse Issue');
+            $response->assertSee('Paid');
+            $response->assertSee('1 issue');
         } finally {
             Carbon::setTestNow();
         }
@@ -2365,5 +2387,165 @@ class PurchaserDashboardTest extends TestCase
         $response->assertSee('Delivery Discrepancy');
         $response->assertSee($product->name.': Short 0.50 '.$product->unit);
         $response->assertSee('Warehouse logged a short bag.');
+    }
+
+    public function test_purchaser_can_bulk_update_cart_items(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $vegCategory = Category::create(['name' => 'VEG', 'is_active' => true]);
+        $product = Product::factory()->create([
+            'category_id' => $vegCategory->id,
+            'name' => 'Tomato',
+            'sku' => 'TOM-100',
+            'unit' => 'kg',
+        ]);
+
+        $cart = PurchaserCart::create([
+            'user_id' => $this->purchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'business_date' => $date,
+            'cart_number' => 'VC-'.str_replace('-', '', $date).'-BULK1',
+            'status' => 'draft',
+        ]);
+
+        $item = $cart->items()->create([
+            'product_id' => $product->id,
+            'quantity' => 5,
+            'unit_price' => 0,
+            'line_total' => 0,
+        ]);
+
+        $response = $this->actingAs($this->purchaser)->patch(route('purchaser.carts.items.update-all', $cart), [
+            'items' => [
+                $item->id => [
+                    'quantity' => 10,
+                    'unit_price' => 25.5,
+                    'notes' => 'Bulk updated note',
+                ],
+            ],
+            'action' => 'save',
+        ]);
+
+        $response->assertRedirect(route('purchaser.vendors', ['date' => $date]));
+        $this->assertDatabaseHas('purchaser_cart_items', [
+            'id' => $item->id,
+            'quantity' => 10,
+            'unit_price' => 25.5,
+            'line_total' => 255.0,
+            'notes' => 'Bulk updated note',
+        ]);
+    }
+
+    public function test_bulk_update_cart_items_action_process_redirects_to_bill(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $vegCategory = Category::create(['name' => 'VEG', 'is_active' => true]);
+        $product = Product::factory()->create([
+            'category_id' => $vegCategory->id,
+            'name' => 'Cucumber',
+            'sku' => 'CUC-100',
+            'unit' => 'kg',
+        ]);
+
+        $cart = PurchaserCart::create([
+            'user_id' => $this->purchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'business_date' => $date,
+            'cart_number' => 'VC-'.str_replace('-', '', $date).'-BULK2',
+            'status' => 'draft',
+        ]);
+
+        $item = $cart->items()->create([
+            'product_id' => $product->id,
+            'quantity' => 3,
+            'unit_price' => 0,
+            'line_total' => 0,
+        ]);
+
+        $response = $this->actingAs($this->purchaser)->patch(route('purchaser.carts.items.update-all', $cart), [
+            'items' => [
+                $item->id => [
+                    'quantity' => 4,
+                    'unit_price' => 15.0,
+                ],
+            ],
+            'action' => 'process',
+        ]);
+
+        $response->assertRedirect(route('purchaser.bill', ['cart' => $cart, 'date' => $date]));
+        $this->assertDatabaseHas('purchaser_cart_items', [
+            'id' => $item->id,
+            'quantity' => 4,
+            'unit_price' => 15.0,
+            'line_total' => 60.0,
+        ]);
+    }
+
+    public function test_deleting_last_item_removes_cart_itself(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $vegCategory = Category::create(['name' => 'VEG', 'is_active' => true]);
+        $product = Product::factory()->create([
+            'category_id' => $vegCategory->id,
+            'name' => 'Garlic',
+            'sku' => 'GAR-100',
+            'unit' => 'kg',
+        ]);
+
+        $cart = PurchaserCart::create([
+            'user_id' => $this->purchaser->id,
+            'supplier_id' => $this->supplier->id,
+            'business_date' => $date,
+            'cart_number' => 'VC-'.str_replace('-', '', $date).'-EMPTYTEST',
+            'status' => 'draft',
+        ]);
+
+        $item = $cart->items()->create([
+            'product_id' => $product->id,
+            'quantity' => 2,
+            'unit_price' => 10,
+            'line_total' => 20,
+        ]);
+
+        $response = $this->actingAs($this->purchaser)->delete(route('purchaser.cart-items.destroy', $item), [
+            'return_to' => 'vendors',
+        ]);
+
+        $response->assertRedirect(route('purchaser.vendors', ['date' => $date]));
+        $this->assertDatabaseMissing('purchaser_cart_items', ['id' => $item->id]);
+        $this->assertDatabaseMissing('purchaser_carts', ['id' => $cart->id]);
+    }
+
+    public function test_purchaser_can_view_bulk_buy_details_for_add_on_product(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $vegCategory = Category::create(['name' => 'VEG', 'is_active' => true]);
+
+        // This product has NO approved orders for the day, so it will be an Add-on
+        $addonProduct = Product::factory()->create([
+            'category_id' => $vegCategory->id,
+            'name' => 'Mint Leaves',
+            'sku' => 'MNT-100',
+            'unit' => 'kg',
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy', [
+            'date' => $date,
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Mint Leaves');
+        $response->assertSee('Add-on');
+
+        // Verify we can proceed to details page with this add-on product
+        $responseDetails = $this->actingAs($this->purchaser)->get(route('purchaser.bulk-buy.details', [
+            'date' => $date,
+            'product_ids' => [$addonProduct->id],
+        ]));
+
+        $responseDetails->assertOk();
+        $responseDetails->assertSee('Mint Leaves');
+        $responseDetails->assertSee('New cart');
     }
 }

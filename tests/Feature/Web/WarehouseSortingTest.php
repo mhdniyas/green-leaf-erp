@@ -209,10 +209,10 @@ class WarehouseSortingTest extends TestCase
         $response->assertDontSee('PO Excluded Onion');
     }
 
-    public function test_warehouse_user_can_update_shop_tag(): void
+    public function test_warehouse_receiver_can_update_shop_tag(): void
     {
         $user = User::factory()->create();
-        $user->assignRole('warehouse');
+        $user->assignRole('warehouse_receiver');
 
         $shop = Shop::create([
             'code' => 'TAG_UPDATE_SHOP',
@@ -325,21 +325,21 @@ class WarehouseSortingTest extends TestCase
         ]);
     }
 
-    public function test_warehouse_manager_can_access_dashboard(): void
+    public function test_warehouse_receiver_can_access_dashboard(): void
     {
         $user = User::factory()->create();
-        $user->assignRole('warehouse');
+        $user->assignRole('warehouse_receiver');
 
         $response = $this->actingAs($user)
             ->get(route('dashboard'));
 
-        $response->assertOk();
+        $response->assertRedirect(route('warehouse.receiver.checklist'));
     }
 
-    public function test_warehouse_manager_can_receive_goods_and_create_grn(): void
+    public function test_warehouse_receiver_can_receive_goods_and_create_grn(): void
     {
         $user = User::factory()->create();
-        $user->assignRole('warehouse');
+        $user->assignRole('warehouse_receiver');
 
         $supplier = Supplier::factory()->create();
         $po = PurchaseOrder::create([
@@ -404,7 +404,7 @@ class WarehouseSortingTest extends TestCase
     public function test_warehouse_checklist_shows_submitted_grn_workflow_states(): void
     {
         $user = User::factory()->create();
-        $user->assignRole('warehouse');
+        $user->assignRole('warehouse_receiver');
 
         $supplier = Supplier::factory()->create(['name' => 'Workflow Supplier']);
 
@@ -451,10 +451,10 @@ class WarehouseSortingTest extends TestCase
         $response->assertSeeText('Correct & Resubmit');
     }
 
-    public function test_warehouse_manager_can_carry_over_stock_batch(): void
+    public function test_warehouse_receiver_can_carry_over_stock_batch(): void
     {
         $user = User::factory()->create();
-        $user->assignRole('warehouse');
+        $user->assignRole('warehouse_receiver');
 
         $product = Product::factory()->create();
         $batch = StockBatch::create([
@@ -482,10 +482,10 @@ class WarehouseSortingTest extends TestCase
         $this->assertEquals($tomorrow, $batch->received_at->format('Y-m-d'));
     }
 
-    public function test_warehouse_manager_can_record_wastage_for_stock_batch(): void
+    public function test_warehouse_receiver_can_record_wastage_for_stock_batch(): void
     {
         $user = User::factory()->create();
-        $user->assignRole('warehouse');
+        $user->assignRole('warehouse_receiver');
         // Give the role explicit permission to write wastage if not assigned via RolePermissionSeeder
         $user->givePermissionTo('inventory.wastage.record');
 
@@ -521,10 +521,10 @@ class WarehouseSortingTest extends TestCase
         ]);
     }
 
-    public function test_warehouse_manager_can_complete_shop_order_allocation(): void
+    public function test_warehouse_receiver_can_complete_shop_order_allocation(): void
     {
         $user = User::factory()->create();
-        $user->assignRole('warehouse');
+        $user->assignRole('warehouse_receiver');
 
         $shop = Shop::create([
             'code' => 'TEST_SHOP_FINAL',

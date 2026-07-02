@@ -141,7 +141,6 @@
                                     <th class="px-4 py-3 text-right">Credit</th>
                                     <th class="px-4 py-3 text-right">Debit</th>
                                     <th class="px-4 py-3 text-right">Balance</th>
-                                    <th class="px-4 py-3 text-right">View</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100 text-sm">
@@ -289,13 +288,10 @@
                                         <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($row['credit_amount'], 2) }}</td>
                                         <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($row['debit_amount'], 2) }}</td>
                                         <td class="px-4 py-3 text-right font-black {{ $row['balance_amount'] > 0 ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format($row['balance_amount'], 2) }}</td>
-                                        <td class="px-4 py-3 text-right">
-                                            <a href="{{ route('finance.sales-daily', ['date' => $row['date']]) }}" class="inline-flex h-8 items-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">Daily View</a>
-                                        </td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="6" class="px-4 py-8 text-center font-bold text-slate-500">No sales daily rows in this period.</td>
+                                        <td colspan="5" class="px-4 py-8 text-center font-bold text-slate-500">No sales daily rows in this period.</td>
                                     </tr>
                                 @endforelse
                             </tbody>

@@ -7,10 +7,12 @@ namespace App\Services\ShopInvoices;
 use App\Enums\Inventory\ProductGrade;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoiceItem;
+use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Services\Pricing\PriceBoardService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class ShopInvoiceService
 {
@@ -49,17 +51,18 @@ class ShopInvoiceService
             ]);
             $invoice->save();
 
-            $existingItems = $invoice->items()->get()->keyBy('product_id');
-            $activeProductIds = [];
+            $existingItems = $invoice->items()->get()->keyBy('shop_order_item_id');
+            $activeOrderItemIds = [];
 
             foreach ($order->items as $orderItem) {
                 if ((float) ($orderItem->approved_qty ?? 0) <= 0) {
                     continue;
                 }
 
-                $activeProductIds[] = (int) $orderItem->product_id;
-                $invoiceItem = $existingItems->get($orderItem->product_id) ?? new ShopInvoiceItem([
+                $activeOrderItemIds[] = (int) $orderItem->id;
+                $invoiceItem = $existingItems->get($orderItem->id) ?? new ShopInvoiceItem([
                     'shop_invoice_id' => $invoice->id,
+                    'shop_order_item_id' => $orderItem->id,
                     'product_id' => $orderItem->product_id,
                 ]);
 
@@ -87,8 +90,8 @@ class ShopInvoiceService
 
             $invoice->items()
                 ->when(
-                    $activeProductIds !== [],
-                    fn ($query) => $query->whereNotIn('product_id', $activeProductIds),
+                    $activeOrderItemIds !== [],
+                    fn ($query) => $query->whereNotIn('shop_order_item_id', $activeOrderItemIds),
                     fn ($query) => $query,
                 )
                 ->delete();
@@ -103,7 +106,7 @@ class ShopInvoiceService
 
         return DB::transaction(function () use ($order, $invoice, $deliveredQtys, $userId, $deliveryNote): ShopInvoice {
             $hasDiscrepancy = false;
-            $invoiceItems = $invoice->items()->get()->keyBy('product_id');
+            $invoiceItems = $invoice->items()->get()->keyBy('shop_order_item_id');
 
             foreach ($order->items as $orderItem) {
                 $approvedQty = (float) ($orderItem->approved_qty ?? 0);
@@ -111,7 +114,7 @@ class ShopInvoiceService
                 $shortageQty = max(0.00, $approvedQty - $deliveredQty);
                 $hasDiscrepancy = $hasDiscrepancy || $shortageQty > 0.0001;
 
-                $invoiceItem = $invoiceItems->get($orderItem->product_id);
+                $invoiceItem = $invoiceItems->get($orderItem->id);
                 if (! $invoiceItem) {
                     continue;
                 }
@@ -211,6 +214,114 @@ class ShopInvoiceService
             }
 
             return $invoice;
+        });
+    }
+
+    /**
+     * @param  array{amount_mode:string, amount?: float|int|string|null, shop_note?: string|null}  $payload
+     */
+    public function requestPayment(ShopInvoice $invoice, array $payload, int $userId): ShopInvoicePaymentRequest
+    {
+        return DB::transaction(function () use ($invoice, $payload, $userId): ShopInvoicePaymentRequest {
+            $invoice->refresh();
+
+            if ((float) $invoice->balance_amount <= 0.0) {
+                throw ValidationException::withMessages([
+                    'invoice_id' => 'This bill is already settled.',
+                ]);
+            }
+
+            $existingPendingRequest = $invoice->paymentRequests()
+                ->where('status', 'pending')
+                ->first();
+
+            if ($existingPendingRequest instanceof ShopInvoicePaymentRequest) {
+                throw ValidationException::withMessages([
+                    'invoice_id' => 'A payment request for this bill is already waiting for approval.',
+                ]);
+            }
+
+            $requestedAmount = $payload['amount_mode'] === 'balance_due'
+                ? round((float) $invoice->balance_amount, 2)
+                : round((float) ($payload['amount'] ?? 0), 2);
+
+            if ($requestedAmount <= 0.0 || $requestedAmount > (float) $invoice->balance_amount) {
+                throw ValidationException::withMessages([
+                    'amount' => 'Requested amount must be greater than zero and not more than the current bill due.',
+                ]);
+            }
+
+            return ShopInvoicePaymentRequest::query()->create([
+                'shop_invoice_id' => $invoice->id,
+                'shop_id' => $invoice->shop_id,
+                'requested_by' => $userId,
+                'request_type' => $payload['amount_mode'],
+                'requested_amount' => $requestedAmount,
+                'status' => 'pending',
+                'shop_note' => filled($payload['shop_note'] ?? null) ? trim((string) $payload['shop_note']) : null,
+            ]);
+        });
+    }
+
+    public function reviewPaymentRequest(ShopInvoicePaymentRequest $paymentRequest, string $decision, int $userId, ?string $adminNote = null): ShopInvoicePaymentRequest
+    {
+        return DB::transaction(function () use ($paymentRequest, $decision, $userId, $adminNote): ShopInvoicePaymentRequest {
+            $paymentRequest->loadMissing('invoice');
+
+            if ($paymentRequest->status !== 'pending') {
+                throw ValidationException::withMessages([
+                    'decision' => 'This payment request has already been reviewed.',
+                ]);
+            }
+
+            if ($decision === 'approve') {
+                $invoice = $paymentRequest->invoice;
+
+                if (! $invoice instanceof ShopInvoice) {
+                    throw ValidationException::withMessages([
+                        'decision' => 'The related invoice could not be found.',
+                    ]);
+                }
+
+                $invoice->refresh();
+                $approvedAmount = round((float) $paymentRequest->requested_amount, 2);
+
+                if ($approvedAmount > (float) $invoice->balance_amount) {
+                    throw ValidationException::withMessages([
+                        'decision' => 'The requested amount is higher than the current unpaid balance.',
+                    ]);
+                }
+
+                $noteParts = array_filter([
+                    (string) $invoice->payment_note,
+                    'Shop payment approved: Rs. '.number_format($approvedAmount, 2),
+                    filled($adminNote) ? trim((string) $adminNote) : null,
+                ]);
+
+                $this->approvePayment($invoice, [
+                    'discount_total' => (float) $invoice->discount_total,
+                    'paid_amount' => round((float) $invoice->paid_amount + $approvedAmount, 2),
+                    'payment_note' => implode("\n", $noteParts),
+                ], $userId);
+
+                $paymentRequest->update([
+                    'status' => 'approved',
+                    'approved_amount' => $approvedAmount,
+                    'admin_note' => filled($adminNote) ? trim((string) $adminNote) : null,
+                    'reviewed_by' => $userId,
+                    'reviewed_at' => now(),
+                ]);
+            } else {
+                $paymentRequest->update([
+                    'status' => 'rejected',
+                    'approved_amount' => null,
+                    'admin_note' => filled($adminNote) ? trim((string) $adminNote) : null,
+                    'reviewed_by' => $userId,
+                    'reviewed_at' => now(),
+                ]);
+            }
+
+            return $paymentRequest->fresh(['invoice', 'requestedBy', 'reviewedBy']);
         });
     }
 

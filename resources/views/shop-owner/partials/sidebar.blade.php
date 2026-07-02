@@ -3,7 +3,7 @@
         ['label' => 'Dashboard', 'route' => 'shop-owner.dashboard'],
         ['label' => 'Cart', 'route' => 'shop-owner.orders.index'],
         ['label' => 'Deliveries', 'route' => 'shop-owner.deliveries.index'],
-        ...((auth()->user()->shop?->isOwnedAccountingEnabled() ?? false) ? [['label' => 'Accounting', 'route' => 'shop-owner.accounting.index']] : []),
+        ['label' => 'Accounting', 'route' => 'shop-owner.accounting.index'],
         ['label' => 'Finance', 'route' => 'shop-owner.finance.index'],
         ['label' => 'Approval History', 'route' => 'shop-owner.orders.history'],
     ];

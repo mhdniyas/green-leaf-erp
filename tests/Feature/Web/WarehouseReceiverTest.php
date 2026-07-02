@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Web;
 
+use App\Enums\Inventory\BatchStatus;
 use App\Enums\Inventory\StockMovementType;
 use App\Models\GoodsReceived;
 use App\Models\Product;
@@ -178,6 +179,69 @@ class WarehouseReceiverTest extends TestCase
             ->assertOk();
     }
 
+    public function test_inventory_tab_can_be_filtered_by_warehouse(): void
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $otherWarehouse = Warehouse::create([
+            'name' => 'Fruit Warehouse',
+            'code' => 'FRT-WH',
+            'is_active' => true,
+        ]);
+
+        $productInSelectedWarehouse = Product::factory()->create(['name' => 'Tomato']);
+        $productInOtherWarehouse = Product::factory()->create(['name' => 'Potato']);
+
+        $selectedBatch = StockBatch::factory()->create([
+            'product_id' => $productInSelectedWarehouse->id,
+            'warehouse_id' => $this->warehouse->id,
+            'warehouse_receive_pending' => false,
+            'status' => BatchStatus::Sorted,
+            'received_at' => $date,
+        ]);
+
+        $otherBatch = StockBatch::factory()->create([
+            'product_id' => $productInOtherWarehouse->id,
+            'warehouse_id' => $otherWarehouse->id,
+            'warehouse_receive_pending' => false,
+            'status' => BatchStatus::Sorted,
+            'received_at' => $date,
+        ]);
+
+        StockMovement::create([
+            'batch_id' => $selectedBatch->id,
+            'product_id' => $productInSelectedWarehouse->id,
+            'created_by' => $this->receiver->id,
+            'grade' => 'A',
+            'type' => StockMovementType::In->value,
+            'quantity' => 20.0,
+            'cost_per_unit' => 5.0,
+            'warehouse_id' => $this->warehouse->id,
+        ]);
+
+        StockMovement::create([
+            'batch_id' => $otherBatch->id,
+            'product_id' => $productInOtherWarehouse->id,
+            'created_by' => $this->receiver->id,
+            'grade' => 'A',
+            'type' => StockMovementType::In->value,
+            'quantity' => 15.0,
+            'cost_per_unit' => 4.0,
+            'warehouse_id' => $otherWarehouse->id,
+        ]);
+
+        $response = $this->actingAs($this->receiver)
+            ->get(route('warehouse.receiver.checklist', [
+                'date' => $date,
+                'tab' => 'inventory',
+                'warehouse_id' => $this->warehouse->id,
+            ]));
+
+        $response->assertOk();
+        $response->assertSee('Warehouse');
+        $response->assertSee('Tomato');
+        $response->assertDontSee('Potato');
+    }
+
     public function test_warehouse_receiver_can_view_loadout_details_page(): void
     {
         $shop = Shop::create([
@@ -230,6 +294,9 @@ class WarehouseReceiverTest extends TestCase
         $batch = StockBatch::factory()->create([
             'product_id' => $product->id,
             'received_at' => Carbon::today(),
+            'warehouse_id' => $this->warehouse->id,
+            'warehouse_receive_pending' => false,
+            'status' => BatchStatus::Sorted,
         ]);
 
         // Seed an In movement for the product so we can trace it
@@ -241,6 +308,7 @@ class WarehouseReceiverTest extends TestCase
             'type' => StockMovementType::In->value,
             'quantity' => 100.0,
             'cost_per_unit' => 5.0,
+            'warehouse_id' => $this->warehouse->id,
         ]);
 
         $response = $this->actingAs($this->receiver)
@@ -300,10 +368,16 @@ class WarehouseReceiverTest extends TestCase
         $batch1 = StockBatch::factory()->create([
             'product_id' => $product1->id,
             'received_at' => Carbon::today(),
+            'warehouse_id' => $this->warehouse->id,
+            'warehouse_receive_pending' => false,
+            'status' => BatchStatus::Sorted,
         ]);
         $batch2 = StockBatch::factory()->create([
             'product_id' => $product2->id,
             'received_at' => Carbon::today(),
+            'warehouse_id' => $this->warehouse->id,
+            'warehouse_receive_pending' => false,
+            'status' => BatchStatus::Sorted,
         ]);
 
         StockMovement::create([
@@ -314,6 +388,7 @@ class WarehouseReceiverTest extends TestCase
             'type' => StockMovementType::In->value,
             'quantity' => 100.0,
             'cost_per_unit' => 5.0,
+            'warehouse_id' => $this->warehouse->id,
         ]);
         StockMovement::create([
             'batch_id' => $batch2->id,
@@ -323,6 +398,7 @@ class WarehouseReceiverTest extends TestCase
             'type' => StockMovementType::In->value,
             'quantity' => 100.0,
             'cost_per_unit' => 5.0,
+            'warehouse_id' => $this->warehouse->id,
         ]);
 
         $response = $this->actingAs($this->receiver)
@@ -348,6 +424,93 @@ class WarehouseReceiverTest extends TestCase
             'grade' => 'B',
             'type' => StockMovementType::Out->value,
             'quantity' => 20.000,
+        ]);
+    }
+
+    public function test_load_all_with_skip_unavailable_skips_out_of_stock_items(): void
+    {
+        $shop = Shop::create([
+            'code' => 'TEST_SHOP_SKIP',
+            'name' => 'Test Shop Skip',
+            'status' => 'active',
+        ]);
+        $order = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'business_date' => Carbon::today()->format('Y-m-d'),
+            'state' => 'approved',
+            'created_by' => $this->receiver->id,
+        ]);
+
+        $product1 = Product::factory()->create(['unit' => 'kg']);
+        $product2 = Product::factory()->create(['unit' => 'kg']);
+
+        // Item 1: approved qty = 10, stock = 100 (available)
+        $item1 = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product1->id,
+            'requested_qty' => 10.0,
+            'approved_qty' => 10.0,
+            'unit' => 'kg',
+            'sorting_status' => 'allocated',
+            'product_grade' => 'A',
+        ]);
+
+        // Item 2: approved qty = 20, stock = 0 (unavailable)
+        $item2 = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product2->id,
+            'requested_qty' => 20.0,
+            'approved_qty' => 20.0,
+            'unit' => 'kg',
+            'sorting_status' => 'allocated',
+            'product_grade' => 'B',
+        ]);
+
+        // Add batch and stock for product 1
+        $batch = StockBatch::factory()->create([
+            'product_id' => $product1->id,
+            'received_at' => Carbon::today()->format('Y-m-d'),
+            'warehouse_id' => $this->warehouse->id,
+            'warehouse_receive_pending' => false,
+            'status' => BatchStatus::Sorted,
+            'total_kg' => 100.0,
+        ]);
+        StockMovement::create([
+            'batch_id' => $batch->id,
+            'product_id' => $product1->id,
+            'created_by' => $this->receiver->id,
+            'grade' => 'A',
+            'type' => StockMovementType::In->value,
+            'quantity' => 100.0,
+            'cost_per_unit' => 5.0,
+            'warehouse_id' => $this->warehouse->id,
+        ]);
+
+        // Post with skip_unavailable = 1
+        $response = $this->actingAs($this->receiver)
+            ->post(route('warehouse.receiver.loadout.order-all', $order), [
+                'skip_unavailable' => '1',
+            ]);
+
+        $response->assertRedirect();
+        $response->assertSessionHas('success');
+
+        $item1->refresh();
+        $item2->refresh();
+
+        // Item 1 should be loaded, Item 2 should remain pending
+        $this->assertEquals('loaded', $item1->sorting_status);
+        $this->assertEquals('allocated', $item2->sorting_status);
+
+        // Check only product 1 has Out movement
+        $this->assertDatabaseHas('stock_movements', [
+            'product_id' => $product1->id,
+            'type' => StockMovementType::Out->value,
+            'quantity' => 10.0,
+        ]);
+        $this->assertDatabaseMissing('stock_movements', [
+            'product_id' => $product2->id,
+            'type' => StockMovementType::Out->value,
         ]);
     }
 
@@ -410,6 +573,8 @@ class WarehouseReceiverTest extends TestCase
             'product_id' => $product->id,
             'received_at' => Carbon::today(),
             'warehouse_id' => $this->warehouse->id,
+            'warehouse_receive_pending' => false,
+            'status' => BatchStatus::Sorted,
         ]);
 
         StockMovement::create([
@@ -434,8 +599,8 @@ class WarehouseReceiverTest extends TestCase
         $item->refresh();
 
         $this->assertEquals(10.0, (float) $item->loaded_qty);
-        $this->assertEquals('wastage', $item->loadout_discrepancy_type);
-        $this->assertEquals('damaged during loading', $item->loadout_discrepancy_note);
+        $this->assertEquals('none', $item->loadout_discrepancy_type);
+        $this->assertNull($item->loadout_discrepancy_note);
 
         $this->assertDatabaseHas('stock_movements', [
             'product_id' => $product->id,
@@ -444,18 +609,15 @@ class WarehouseReceiverTest extends TestCase
             'quantity' => 10.0,
         ]);
 
-        $this->assertDatabaseHas('stock_movements', [
+        $this->assertDatabaseMissing('stock_movements', [
             'product_id' => $product->id,
             'grade' => 'A',
             'type' => StockMovementType::Wastage->value,
-            'quantity' => 5.0,
         ]);
 
-        $this->assertDatabaseHas('wastage_entries', [
+        $this->assertDatabaseMissing('wastage_entries', [
             'product_id' => $product->id,
             'grade' => 'A',
-            'quantity' => 5.0,
-            'notes' => 'Loadout discrepancy wastage: damaged during loading',
         ]);
     }
 
@@ -683,6 +845,9 @@ class WarehouseReceiverTest extends TestCase
         $batch = StockBatch::factory()->create([
             'product_id' => $product->id,
             'received_at' => Carbon::today(),
+            'warehouse_id' => $this->warehouse->id,
+            'warehouse_receive_pending' => false,
+            'status' => BatchStatus::Sorted,
         ]);
 
         // Seed only 4.0 kg available in stock (less than approved 10.0)
@@ -694,6 +859,7 @@ class WarehouseReceiverTest extends TestCase
             'type' => StockMovementType::In->value,
             'quantity' => 4.0,
             'cost_per_unit' => 5.0,
+            'warehouse_id' => $this->warehouse->id,
         ]);
 
         $response = $this->actingAs($this->receiver)
@@ -706,8 +872,8 @@ class WarehouseReceiverTest extends TestCase
 
         $this->assertEquals('loaded', $item->sorting_status);
         $this->assertEquals(4.0, (float) $item->loaded_qty);
-        $this->assertEquals('other', $item->loadout_discrepancy_type);
-        $this->assertEquals('Auto-loaded available stock (inventory shortage)', $item->loadout_discrepancy_note);
+        $this->assertEquals('none', $item->loadout_discrepancy_type);
+        $this->assertNull($item->loadout_discrepancy_note);
 
         // Deducted Out quantity
         $this->assertDatabaseHas('stock_movements', [
@@ -717,12 +883,11 @@ class WarehouseReceiverTest extends TestCase
             'quantity' => 4.000,
         ]);
 
-        // Recorded Adjustment quantity for the remaining 6.0 kg
-        $this->assertDatabaseHas('stock_movements', [
+        // No adjustment quantity
+        $this->assertDatabaseMissing('stock_movements', [
             'product_id' => $product->id,
             'grade' => 'A',
             'type' => StockMovementType::Adjustment->value,
-            'quantity' => 6.000,
         ]);
     }
 
@@ -738,7 +903,7 @@ class WarehouseReceiverTest extends TestCase
             'business_date' => Carbon::today()->format('Y-m-d'),
             'state' => 'approved',
             'created_by' => $this->receiver->id,
-            'delivery_status' => 'pending',
+            'delivery_status' => 'pending_delivery',
         ]);
         $product1 = Product::factory()->create();
         $product2 = Product::factory()->create();
@@ -790,18 +955,93 @@ class WarehouseReceiverTest extends TestCase
         $order->refresh();
         $item2->refresh();
 
-        $this->assertEquals('in_transit', $order->delivery_status);
-        $this->assertEquals('loaded', $item2->sorting_status);
-        $this->assertEquals(0.0, (float) $item2->loaded_qty);
-        $this->assertEquals('other', $item2->loadout_discrepancy_type);
-        $this->assertEquals('Not loaded (partial order dispatch)', $item2->loadout_discrepancy_note);
+        $this->assertEquals('ready_for_dispatch', $order->delivery_status);
+        $this->assertEquals('allocated', $item2->sorting_status);
+        $this->assertNull($item2->loaded_qty);
 
-        // Assert database has adjustment stock movement for item2
-        $this->assertDatabaseHas('stock_movements', [
+        // Assert database does NOT have adjustment stock movement for item2
+        $this->assertDatabaseMissing('stock_movements', [
             'product_id' => $product2->id,
             'grade' => 'A',
             'type' => StockMovementType::Adjustment->value,
-            'quantity' => 8.000,
         ]);
+    }
+
+    public function test_warehouse_receiver_can_dispatch_split_delivery(): void
+    {
+        $shop = Shop::create([
+            'code' => 'TEST_SHOP_SPLIT',
+            'name' => 'Test Shop Split',
+            'status' => 'active',
+        ]);
+        $order = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'business_date' => Carbon::today()->format('Y-m-d'),
+            'state' => 'approved',
+            'created_by' => $this->receiver->id,
+            'delivery_status' => 'pending_delivery',
+        ]);
+        $product1 = Product::factory()->create();
+        $product2 = Product::factory()->create();
+
+        // item1 is loaded
+        $item1 = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product1->id,
+            'product_grade' => 'A',
+            'requested_qty' => 5.0,
+            'approved_qty' => 5.0,
+            'loaded_qty' => 5.0,
+            'unit' => 'kg',
+            'sorting_status' => 'loaded',
+        ]);
+
+        // item2 is pending
+        $item2 = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product2->id,
+            'product_grade' => 'A',
+            'requested_qty' => 8.0,
+            'approved_qty' => 8.0,
+            'unit' => 'kg',
+            'sorting_status' => 'allocated',
+        ]);
+
+        $response = $this->actingAs($this->receiver)
+            ->post(route('warehouse.receiver.loadout.order.dispatch', $order));
+
+        $response->assertRedirect();
+
+        $order->refresh();
+        $item2->refresh();
+
+        // The order is moved to delivery (ready_for_dispatch), but item2 is STILL allocated/pending (not loaded!)
+        $this->assertEquals('ready_for_dispatch', $order->delivery_status);
+        $this->assertEquals('allocated', $item2->sorting_status);
+    }
+
+    public function test_warehouse_receiver_can_ship_order(): void
+    {
+        $shop = Shop::create([
+            'code' => 'TEST_SHOP_SHIP',
+            'name' => 'Test Shop Ship',
+            'status' => 'active',
+        ]);
+        $order = ShopOrder::create([
+            'shop_id' => $shop->id,
+            'business_date' => Carbon::today()->format('Y-m-d'),
+            'state' => 'approved',
+            'created_by' => $this->receiver->id,
+            'delivery_status' => 'ready_for_dispatch',
+        ]);
+
+        $response = $this->actingAs($this->receiver)
+            ->post(route('warehouse.receiver.loadout.order.ship', $order));
+
+        $response->assertRedirect();
+
+        $order->refresh();
+        $this->assertEquals('in_transit', $order->delivery_status);
+        $this->assertTrue($order->is_allocation_completed);
     }
 }

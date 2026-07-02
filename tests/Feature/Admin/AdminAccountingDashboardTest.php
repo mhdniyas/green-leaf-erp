@@ -4,11 +4,20 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin;
 
+use App\Models\Product;
+use App\Models\PurchaseInvoice;
+use App\Models\PurchaserCredit;
 use App\Models\Shop;
 use App\Models\ShopAccountingCategory;
 use App\Models\ShopAccountingEntry;
+use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopAccountingInvoice;
 use App\Models\ShopInvoice;
+use App\Models\ShopInvoiceItem;
+use App\Models\ShopInvoicePaymentRequest;
+use App\Models\ShopOrder;
+use App\Models\ShopOrderItem;
+use App\Models\Supplier;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -29,6 +38,7 @@ class AdminAccountingDashboardTest extends TestCase
         $this->seed(RolePermissionSeeder::class);
 
         $this->admin = User::factory()->create();
+        $this->admin->assignRole('admin');
         $this->admin->givePermissionTo('admin.user.view');
 
         $this->ownedShop = Shop::create([
@@ -48,11 +58,55 @@ class AdminAccountingDashboardTest extends TestCase
         $purchaseUser = User::factory()->create();
         $purchaseUser->assignRole('purchase');
 
+        $purchaser = User::factory()->create(['name' => 'Achu']);
+        $purchaser->assignRole('purchaser');
+
+        PurchaserCredit::create([
+            'purchaser_id' => $purchaser->id,
+            'type' => 'out',
+            'amount' => 125000,
+            'description' => 'Advance issued',
+            'business_date' => '2026-06-12',
+            'created_by' => $this->admin->id,
+        ]);
+
+        $category = ShopAccountingCategory::create([
+            'shop_id' => $this->ownedShop->id,
+            'type' => 'expense',
+            'name' => 'Local Sale',
+            'is_active' => true,
+        ]);
+
+        $entry = ShopAccountingEntry::create([
+            'shop_id' => $this->ownedShop->id,
+            'business_date' => '2026-06-12',
+            'status' => 'approved',
+            'opening_cash' => 0,
+            'closing_cash' => 0,
+            'created_by' => $this->admin->id,
+            'updated_by' => $this->admin->id,
+        ]);
+
+        ShopAccountingEntryLine::create([
+            'shop_accounting_entry_id' => $entry->id,
+            'shop_accounting_category_id' => $category->id,
+            'type' => 'expense',
+            'amount' => 800,
+            'description' => 'Petty cash',
+        ]);
+
         $this->actingAs($this->admin)
-            ->get(route('admin.accounting.index'))
+            ->get(route('admin.accounting.index', ['date' => '2026-06-12']))
             ->assertOk()
             ->assertSee('Accounting Dashboard')
-            ->assertSee('Owned Shop Accounting');
+            ->assertSee('Vendor Reports')
+            ->assertSee('Owned Shop Accounting')
+            ->assertSee('Cash Flow Report')
+            ->assertSee('Combined purchaser and owned shop cash journal')
+            ->assertSee('Achu')
+            ->assertSee('Local Sale')
+            ->assertDontSee('Shop Sales Table')
+            ->assertDontSee('Vendor Cash Flow');
 
         $this->actingAs($shopUser)
             ->get(route('admin.accounting.index'))
@@ -61,6 +115,168 @@ class AdminAccountingDashboardTest extends TestCase
         $this->actingAs($purchaseUser)
             ->get(route('admin.accounting.index'))
             ->assertForbidden();
+    }
+
+    public function test_accounting_dashboard_cash_flow_hides_future_dates_and_combines_purchaser_day_entries(): void
+    {
+        $purchaser = User::factory()->create(['name' => 'Purchaser Niyas']);
+        $purchaser->assignRole('purchaser');
+
+        PurchaserCredit::create([
+            'purchaser_id' => $purchaser->id,
+            'type' => 'out',
+            'amount' => 6000,
+            'description' => 'Debit for invoice: PENDING-BILL-VC-DEMO-DRAFT-001',
+            'business_date' => '2026-07-01',
+            'created_by' => $this->admin->id,
+        ]);
+
+        PurchaserCredit::create([
+            'purchaser_id' => $purchaser->id,
+            'type' => 'out',
+            'amount' => 9000,
+            'description' => 'Debit for invoice: PENDING-BILL-VC-20260701-739C',
+            'business_date' => '2026-07-01',
+            'created_by' => $this->admin->id,
+        ]);
+
+        $response = $this->actingAs($this->admin)
+            ->get(route('admin.accounting.index', ['date' => '2026-07-01']));
+
+        $response->assertOk()
+            ->assertSee('Purchaser Paid')
+            ->assertSee('Purchaser Receive')
+            ->assertSee('data-cash-flow-tabs', false)
+            ->assertSee('data-cash-flow-tab-button="journal"', false)
+            ->assertSee('01-Jul')
+            ->assertDontSee('02-Jul')
+            ->assertSee('Rs. 15,000.00')
+            ->assertSee('Purchaser Niyas')
+            ->assertSee('combined 2 entries');
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.accounting.index', ['date' => '2026-07-01', 'cash_tab' => 'daily-balance']))
+            ->assertOk()
+            ->assertSee('Running cash position for the month')
+            ->assertSee('data-cash-flow-active-tab="daily-balance"', false);
+    }
+
+    public function test_daily_sales_report_uses_accounting_route_and_renders_accounting_tables(): void
+    {
+        ShopInvoice::factory()->create([
+            'shop_id' => $this->ownedShop->id,
+            'business_date' => '2026-06-24',
+            'invoice_number' => 'SINV-DAILY-ACCOUNTING',
+            'final_total' => 1400,
+            'paid_amount' => 500,
+            'balance_amount' => 900,
+        ]);
+
+        $otherShop = Shop::create([
+            'code' => 'STD-002',
+            'name' => 'Standard Outlet',
+            'status' => 'active',
+            'accounting_mode' => 'standard',
+            'accounting_enabled' => false,
+        ]);
+
+        ShopInvoice::factory()->create([
+            'shop_id' => $otherShop->id,
+            'business_date' => '2026-06-24',
+            'invoice_number' => 'SINV-OTHER-SHOP',
+            'final_total' => 2100,
+            'paid_amount' => 2100,
+            'balance_amount' => 0,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.accounting.daily-sales', [
+                'date' => '2026-06-24',
+                'status' => 'pending',
+                'tab' => 'invoices',
+                'owned_shop_id' => $this->ownedShop->id,
+            ]))
+            ->assertOk()
+            ->assertSee('Daily Sale Report')
+            ->assertSee('Owned Shop')
+            ->assertSee('Sales by Shop')
+            ->assertSee('Invoice list')
+            ->assertSee('Export Excel')
+            ->assertSee('Export PDF')
+            ->assertSee('SINV-DAILY-ACCOUNTING')
+            ->assertSee('Owned Outlet')
+            ->assertSee('Pending')
+            ->assertDontSee('SINV-OTHER-SHOP')
+            ->assertDontSee('Sales Daily View');
+    }
+
+    public function test_vendor_reports_use_accounting_route_and_dashboard_links_stay_inside_accounting(): void
+    {
+        $supplier = Supplier::factory()->create(['name' => 'Fresh Supplier']);
+
+        PurchaseInvoice::factory()->create([
+            'supplier_id' => $supplier->id,
+            'invoice_number' => 'PINV-ACCOUNTING-001',
+            'amount' => 3200,
+            'paid_amount' => 1200,
+            'created_at' => '2026-06-24 09:30:00',
+            'updated_at' => '2026-06-24 09:30:00',
+        ]);
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.accounting.index', ['date' => '2026-06-24']))
+            ->assertOk()
+            ->assertSee(route('admin.accounting.daily-sales', ['date' => '2026-06-24']), false)
+            ->assertSee(route('admin.accounting.vendor-reports', ['date' => '2026-06-24']), false)
+            ->assertDontSee(route('purchasing.shop-invoices.index'), false);
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.accounting.vendor-reports', ['date' => '2026-06-24']))
+            ->assertOk()
+            ->assertSee('Vendor Reports')
+            ->assertSee('Vendor ledger by supplier')
+            ->assertSee('PINV-ACCOUNTING-001')
+            ->assertSee('Fresh Supplier');
+    }
+
+    public function test_daily_sales_report_can_filter_to_all_owned_shops_only(): void
+    {
+        ShopInvoice::factory()->create([
+            'shop_id' => $this->ownedShop->id,
+            'business_date' => '2026-06-24',
+            'invoice_number' => 'SINV-OWNED-ONLY',
+            'final_total' => 1600,
+            'paid_amount' => 600,
+            'balance_amount' => 1000,
+        ]);
+
+        $standardShop = Shop::create([
+            'code' => 'STD-003',
+            'name' => 'Standard Retail',
+            'status' => 'active',
+            'accounting_mode' => 'standard',
+            'accounting_enabled' => false,
+        ]);
+
+        ShopInvoice::factory()->create([
+            'shop_id' => $standardShop->id,
+            'business_date' => '2026-06-24',
+            'invoice_number' => 'SINV-STANDARD-ONLY',
+            'final_total' => 2500,
+            'paid_amount' => 2500,
+            'balance_amount' => 0,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.accounting.daily-sales', [
+                'date' => '2026-06-24',
+                'tab' => 'shops',
+                'only_owned_shops' => 1,
+            ]))
+            ->assertOk()
+            ->assertSee('Only owned shops')
+            ->assertSee('Owned Outlet')
+            ->assertDontSee('Standard Retail');
     }
 
     public function test_admin_can_store_valid_ownership_shares_and_invalid_totals_are_rejected(): void
@@ -74,7 +290,7 @@ class AdminAccountingDashboardTest extends TestCase
 
         $this->actingAs($this->admin)
             ->post(route('admin.accounting.owned-shops.ownerships.store', $this->ownedShop), $payload)
-            ->assertRedirect(route('admin.accounting.owned-shops.show', $this->ownedShop));
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code]));
 
         $this->assertDatabaseHas('shop_ownerships', [
             'shop_id' => $this->ownedShop->id,
@@ -95,10 +311,63 @@ class AdminAccountingDashboardTest extends TestCase
         ];
 
         $this->actingAs($this->admin)
-            ->from(route('admin.accounting.owned-shops.show', $this->ownedShop))
+            ->from(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code]))
             ->post(route('admin.accounting.owned-shops.ownerships.store', $this->ownedShop), $invalidPayload)
-            ->assertRedirect(route('admin.accounting.owned-shops.show', $this->ownedShop))
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code]))
             ->assertSessionHasErrors('ownerships');
+    }
+
+    public function test_admin_can_enable_existing_shop_for_owned_shop_accounting_from_index(): void
+    {
+        $shop = Shop::create([
+            'code' => 'STD-NEW-001',
+            'name' => 'Future Owned Shop',
+            'status' => 'active',
+            'accounting_mode' => 'standard',
+            'accounting_enabled' => false,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->post(route('admin.accounting.owned-shops.store'), [
+                'shop_id' => $shop->id,
+                'accounting_mode' => 'partnership',
+                'reserve_amount' => 1500,
+            ])
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $shop->code]));
+
+        $this->assertDatabaseHas('shops', [
+            'id' => $shop->id,
+            'accounting_mode' => 'partnership',
+            'accounting_enabled' => true,
+            'reserve_amount' => 1500.00,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.accounting.owned-shops.index'))
+            ->assertOk()
+            ->assertSee('Future Owned Shop');
+    }
+
+    public function test_admin_can_update_owned_shop_reserve_amount(): void
+    {
+        $this->ownedShop->update(['reserve_amount' => 500]);
+
+        $this->actingAs($this->admin)
+            ->patch(route('admin.accounting.owned-shops.reserve-amount.update', $this->ownedShop), [
+                'reserve_amount' => 1850.75,
+            ])
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code, 'tab' => 'cashbook']));
+
+        $this->assertDatabaseHas('shops', [
+            'id' => $this->ownedShop->id,
+            'reserve_amount' => 1850.75,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code, 'tab' => 'cashbook']))
+            ->assertOk()
+            ->assertSee('Reserve Amount')
+            ->assertSee('1,850.75');
     }
 
     public function test_admin_can_create_global_and_shop_specific_categories_and_shop_detail_lists_both(): void
@@ -109,7 +378,7 @@ class AdminAccountingDashboardTest extends TestCase
                 'type' => 'income',
                 'name' => 'Sales Cash',
             ])
-            ->assertRedirect(route('admin.accounting.owned-shops.show', $this->ownedShop));
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code]));
 
         $this->actingAs($this->admin)
             ->post(route('admin.accounting.owned-shops.categories.store', $this->ownedShop), [
@@ -117,7 +386,7 @@ class AdminAccountingDashboardTest extends TestCase
                 'type' => 'expense',
                 'name' => 'Local Rent',
             ])
-            ->assertRedirect(route('admin.accounting.owned-shops.show', $this->ownedShop));
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code]));
 
         $this->assertDatabaseHas('shop_accounting_categories', [
             'shop_id' => null,
@@ -131,7 +400,7 @@ class AdminAccountingDashboardTest extends TestCase
         ]);
 
         $this->actingAs($this->admin)
-            ->get(route('admin.accounting.owned-shops.show', $this->ownedShop))
+            ->get(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code, 'tab' => 'cashbook']))
             ->assertOk()
             ->assertSee('Sales Cash')
             ->assertSee('Local Rent');
@@ -174,7 +443,7 @@ class AdminAccountingDashboardTest extends TestCase
 
         $this->actingAs($this->admin)
             ->post(route('admin.accounting.owned-shops.entries.store', $this->ownedShop), $payload)
-            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop, 'date' => '2026-06-24']));
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code, 'date' => '2026-06-24']));
 
         $this->assertDatabaseHas('shop_accounting_entries', [
             'shop_id' => $this->ownedShop->id,
@@ -186,9 +455,9 @@ class AdminAccountingDashboardTest extends TestCase
         $this->assertSame(2, $entry->lines()->count());
 
         $this->actingAs($this->admin)
-            ->from(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop, 'date' => '2026-06-24']))
+            ->from(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code, 'date' => '2026-06-24']))
             ->post(route('admin.accounting.owned-shops.entries.store', $this->ownedShop), $payload)
-            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop, 'date' => '2026-06-24']))
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code, 'date' => '2026-06-24']))
             ->assertSessionHasErrors('business_date');
 
         $standardShop = Shop::create([
@@ -255,7 +524,7 @@ class AdminAccountingDashboardTest extends TestCase
         $invoice = ShopAccountingInvoice::query()->where('shop_id', $this->ownedShop->id)->firstOrFail();
 
         $response->assertRedirect(route('admin.accounting.owned-shops.invoices.show', [
-            'shop' => $this->ownedShop,
+            'shop' => $this->ownedShop->code,
             'invoice' => $invoice,
         ]));
 
@@ -279,12 +548,12 @@ class AdminAccountingDashboardTest extends TestCase
         ]);
 
         $this->actingAs($this->admin)
-            ->from(route('admin.accounting.owned-shops.show', $this->ownedShop))
+            ->from(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code]))
             ->post(route('admin.accounting.owned-shops.invoices.store', $this->ownedShop), [
                 'period_start' => '2026-06-01',
                 'period_end' => '2026-06-30',
             ])
-            ->assertRedirect(route('admin.accounting.owned-shops.show', $this->ownedShop))
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code]))
             ->assertSessionHasErrors('invoice');
     }
 
@@ -327,19 +596,38 @@ class AdminAccountingDashboardTest extends TestCase
         ShopInvoice::factory()->create([
             'shop_id' => $this->ownedShop->id,
             'business_date' => '2026-06-24',
+            'invoice_number' => 'SINV-OWN-001',
             'final_total' => 900,
             'paid_amount' => 300,
             'balance_amount' => 600,
         ]);
 
+        $purchaser = User::factory()->create();
+        $purchaser->assignRole('purchaser');
+
+        PurchaserCredit::create([
+            'purchaser_id' => $purchaser->id,
+            'type' => 'in',
+            'amount' => 800,
+            'description' => 'Advance',
+            'created_by' => $this->admin->id,
+            'business_date' => '2026-06-24',
+        ]);
+
         $this->actingAs($this->admin)
             ->get(route('admin.accounting.index', ['date' => '2026-06-24']))
             ->assertOk()
-            ->assertSee('Daily Workflow Finance')
+            ->assertSee('Vendor Reports')
+            ->assertSee('Cash Flow Report')
+            ->assertSee('Daily Shop Invoices')
+            ->assertSee('Purchaser Cash Flow')
             ->assertSee('Owned Shop Accounting')
-            ->assertSee('Net Position')
+            ->assertDontSee('Shop Sales Table')
+            ->assertDontSee('Vendor Cash Flow')
             ->assertSee('Rs. 1,000.00')
-            ->assertSee('Owned Outlet');
+            ->assertSee('Owned Outlet')
+            ->assertSee('SINV-OWN-001')
+            ->assertSee($purchaser->name);
     }
 
     public function test_admin_can_review_entry_and_send_recheck_or_approval(): void
@@ -358,7 +646,7 @@ class AdminAccountingDashboardTest extends TestCase
                 'decision' => 'recheck',
                 'admin_note' => 'Cash closing does not match.',
             ])
-            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop, 'date' => '2026-06-24']));
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code, 'date' => '2026-06-24']));
 
         $entry->refresh();
         $this->assertSame('recheck_required', $entry->status);
@@ -370,10 +658,90 @@ class AdminAccountingDashboardTest extends TestCase
                 'decision' => 'approve',
                 'admin_note' => 'Approved after correction.',
             ])
-            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop, 'date' => '2026-06-24']));
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code, 'date' => '2026-06-24']));
 
         $entry->refresh();
         $this->assertSame('approved', $entry->status);
         $this->assertSame('Approved after correction.', $entry->admin_note);
+    }
+
+    public function test_admin_can_approve_shop_payment_request_and_invoice_sales_totals_update(): void
+    {
+        $shopOwner = User::factory()->create([
+            'shop_id' => $this->ownedShop->id,
+        ]);
+        $shopOwner->assignRole('shop');
+
+        $order = ShopOrder::create([
+            'shop_id' => $this->ownedShop->id,
+            'state' => 'approved',
+            'business_date' => today()->toDateString(),
+            'created_by' => $shopOwner->id,
+        ]);
+
+        $invoice = ShopInvoice::create([
+            'shop_id' => $this->ownedShop->id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'SINV-OWNED-APR-001',
+            'business_date' => today()->toDateString(),
+            'status' => 'payment_pending',
+            'delivery_status' => 'received_full',
+            'payment_status' => 'partially_paid',
+            'final_total' => 900.00,
+            'paid_amount' => 200.00,
+            'balance_amount' => 700.00,
+            'subtotal' => 900.00,
+            'shortage_total' => 0.00,
+            'discount_total' => 0.00,
+        ]);
+
+        $product = Product::factory()->create();
+        $orderItem = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'requested_qty' => 10.00,
+            'approved_qty' => 10.00,
+            'unit' => 'kg',
+        ]);
+        ShopInvoiceItem::create([
+            'shop_invoice_id' => $invoice->id,
+            'shop_order_item_id' => $orderItem->id,
+            'product_id' => $product->id,
+            'product_name' => $product->name,
+            'unit' => 'kg',
+            'approved_qty' => 10.00,
+            'delivered_qty' => 10.00,
+            'shortage_qty' => 0.00,
+            'unit_price' => 90.00,
+            'line_subtotal' => 900.00,
+            'shortage_amount' => 0.00,
+            'final_line_total' => 900.00,
+        ]);
+
+        $paymentRequest = ShopInvoicePaymentRequest::factory()->create([
+            'shop_invoice_id' => $invoice->id,
+            'shop_id' => $this->ownedShop->id,
+            'requested_by' => $shopOwner->id,
+            'request_type' => 'custom',
+            'requested_amount' => 300.00,
+            'status' => 'pending',
+        ]);
+
+        $this->actingAs($this->admin)
+            ->patch(route('purchasing.shop-invoices.payment-requests.review', $paymentRequest), [
+                'decision' => 'approve',
+                'admin_note' => 'Cash received and verified.',
+            ])
+            ->assertRedirect(route('purchasing.shop-invoices.show', $invoice));
+
+        $paymentRequest->refresh();
+        $invoice->refresh();
+
+        $this->assertSame('approved', $paymentRequest->status);
+        $this->assertSame(300.00, (float) $paymentRequest->approved_amount);
+        $this->assertSame('Cash received and verified.', $paymentRequest->admin_note);
+        $this->assertSame(500.00, (float) $invoice->paid_amount);
+        $this->assertSame(400.00, (float) $invoice->balance_amount);
+        $this->assertSame('partially_paid', $invoice->payment_status);
     }
 }

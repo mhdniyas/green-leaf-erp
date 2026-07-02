@@ -31,7 +31,7 @@ class WarehouseWorkflowSeeder extends Seeder
             $today = Carbon::today();
 
             $purchaseManager = User::query()->where('email', 'purchase@greenleaf.com')->firstOrFail();
-            $warehouseManager = User::query()->where('email', 'warehouse@greenleaf.com')->firstOrFail();
+            $warehouseReceiver = User::query()->where('email', 'receiver@greenleaf.com')->firstOrFail();
 
             $marketA = Supplier::query()->where('name', 'Market A')->firstOrFail();
             $marketB = Supplier::query()->where('name', 'Market B')->firstOrFail();
@@ -56,7 +56,7 @@ class WarehouseWorkflowSeeder extends Seeder
             $this->seedClosedDay(
                 businessDate: $today->copy()->subDays(2),
                 purchaseManager: $purchaseManager,
-                warehouseManager: $warehouseManager,
+                warehouseManager: $warehouseReceiver,
                 supplier: $marketA,
                 shop: $shops['SHOP_CASIO'],
                 shopOwner: $purchaseManager,
@@ -76,7 +76,7 @@ class WarehouseWorkflowSeeder extends Seeder
             $this->seedClosedDay(
                 businessDate: $today->copy()->subDay(),
                 purchaseManager: $purchaseManager,
-                warehouseManager: $warehouseManager,
+                warehouseManager: $warehouseReceiver,
                 supplier: $marketB,
                 shop: $shops['SHOP_BUDEGERE'],
                 shopOwner: $purchaseManager,
@@ -96,7 +96,7 @@ class WarehouseWorkflowSeeder extends Seeder
             $this->seedApprovedOnlyDay(
                 businessDate: $today,
                 purchaseManager: $purchaseManager,
-                warehouseManager: $warehouseManager,
+                warehouseManager: $warehouseReceiver,
                 supplier: $marketA,
                 shop: $shops['SHOP_GRANCITY'],
                 shopOwner: $purchaseManager,
@@ -113,7 +113,7 @@ class WarehouseWorkflowSeeder extends Seeder
             $this->seedPendingReceiptDay(
                 businessDate: $today,
                 purchaseManager: $purchaseManager,
-                warehouseManager: $warehouseManager,
+                warehouseManager: $warehouseReceiver,
                 supplier: $marketB,
                 shop: $shops['SHOP_ASHIRWAD'],
                 shopOwner: $purchaseManager,
@@ -131,7 +131,7 @@ class WarehouseWorkflowSeeder extends Seeder
             $this->seedTodayOperationalQueue(
                 businessDate: $today,
                 purchaseManager: $purchaseManager,
-                warehouseManager: $warehouseManager,
+                warehouseManager: $warehouseReceiver,
                 supplier: $marketB,
                 shops: $shops,
                 products: $products,

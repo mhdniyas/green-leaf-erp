@@ -21,6 +21,7 @@ class Shop extends Model
         'status',
         'accounting_mode',
         'accounting_enabled',
+        'reserve_amount',
         'approved_at',
         'address',
         'contact_name',
@@ -32,6 +33,7 @@ class Shop extends Model
         return [
             'approved_at' => 'datetime',
             'accounting_enabled' => 'boolean',
+            'reserve_amount' => 'decimal:2',
         ];
     }
 
