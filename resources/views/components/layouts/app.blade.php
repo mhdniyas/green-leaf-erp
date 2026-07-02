@@ -24,15 +24,21 @@
     $currentUserInitial = $currentUser ? strtoupper(substr($currentUser->name, 0, 1)) : 'U';
     $showAdminMobileNav = $showMobileNav && $currentUser &&
         ($currentUser->hasRole('admin') || $currentUser->can('admin.user.view') || $currentUser->can('admin.daily-progress.view') || $currentUser->can('admin.activity-log.view'));
+    $showStaffMobileNav = $showMobileNav && $currentUser &&
+        ! $showAdminMobileNav &&
+        ($currentUser->hasRole('hr_manager') || $currentUser->can('hr.employee.view'));
     $showPurchaserMobileNav = $showMobileNav && $currentUser &&
         ! $showAdminMobileNav &&
+        ! $showStaffMobileNav &&
         $currentUser->hasRole('purchaser');
     $showPurchaseMobileNav = $showMobileNav && $currentUser &&
         ! $showAdminMobileNav &&
+        ! $showStaffMobileNav &&
         ! $showPurchaserMobileNav &&
         ($currentUser->hasRole('purchase') || $currentUser->can('purchasing.order.approve'));
     $showWarehouseReceiverMobileNav = $showMobileNav && $currentUser &&
         ! $showAdminMobileNav &&
+        ! $showStaffMobileNav &&
         ! $showPurchaserMobileNav &&
         ! $showPurchaseMobileNav &&
         ($currentUser->hasRole('warehouse_receiver') || $currentUser->can('warehouse.receive.confirm'));
@@ -92,6 +98,12 @@
             'active' => request()->routeIs('admin.accounting.*') || request()->routeIs('finance.*'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m0 0c-2.21 0-4-1.343-4-3s1.79-3 4-3 4-1.343 4-3-1.79-3-4-3m0 12c2.21 0 4-1.343 4-3"/></svg>',
         ],
+        [
+            'label' => 'Staff',
+            'route' => 'admin.staff.index',
+            'active' => request()->routeIs('admin.staff.*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a8.97 8.97 0 0 0 3.74-1.04 4.5 4.5 0 0 0-7.48-2.23m3.74 3.27v.28A10.94 10.94 0 0 1 12 21c-2.33 0-4.5-.73-6.28-1.98v-.29m12.56 0a5.97 5.97 0 0 0-12.56 0M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 2.25a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z"/></svg>',
+        ],
     ];
     $purchaseMobileNavItems = [
         [
@@ -142,6 +154,32 @@
             'active' => request()->routeIs('purchasing.invoices.*'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75h7.5m-9 3h10.5A2.25 2.25 0 0118.75 9v10.5A2.25 2.25 0 0116.5 21h-9A2.25 2.25 0 015.25 18.75V9A2.25 2.25 0 017.5 6.75Zm0 4.5h9m-9 3h6" /></svg>',
             'type' => 'link',
+        ],
+    ];
+    $staffMobileNavItems = [
+        [
+            'label' => 'Staff',
+            'route' => 'admin.staff.index',
+            'active' => request()->routeIs('admin.staff.index'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75h7.5v7.5h-7.5v-7.5Zm9 0h7.5v7.5h-7.5v-7.5Zm-9 9h7.5v7.5h-7.5v-7.5Zm9 3h7.5v4.5h-7.5v-4.5Z"/></svg>',
+        ],
+        [
+            'label' => 'Attend',
+            'route' => 'admin.staff.attendance',
+            'active' => request()->routeIs('admin.staff.attendance'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5.25h6M9 9.75h6M9 14.25h3m-6.75 6h13.5A2.25 2.25 0 0 0 21 18V6A2.25 2.25 0 0 0 18.75 3.75H5.25A2.25 2.25 0 0 0 3 6v12A2.25 2.25 0 0 0 5.25 20.25Z"/></svg>',
+        ],
+        [
+            'label' => 'Leave',
+            'route' => 'admin.staff.leaves.index',
+            'active' => request()->routeIs('admin.staff.leaves.*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-8.25A2.25 2.25 0 0 0 17.25 3.75H6.75A2.25 2.25 0 0 0 4.5 6v12A2.25 2.25 0 0 0 6.75 20.25h5.379a3 3 0 0 1 2.121-.879h3a3 3 0 0 1 2.25 1.014V14.25ZM8.25 7.5h7.5m-7.5 4.5h4.5"/></svg>',
+        ],
+        [
+            'label' => 'Payroll',
+            'route' => 'admin.staff.payroll.index',
+            'active' => request()->routeIs('admin.staff.payroll.*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m0 0c-2.21 0-4-1.343-4-3s1.79-3 4-3 4-1.343 4-3-1.79-3-4-3m0 12c2.21 0 4-1.343 4-3"/></svg>',
         ],
     ];
     $purchaserMobileNavItems = [
@@ -257,6 +295,22 @@
 
                 <x-nav-item href="{{ route('finance.index') }}" icon="document-currency-dollar" :active="request()->routeIs('finance.*')">
                     Finance
+                </x-nav-item>
+            @endif
+
+            @if(auth()->user()->hasRole('shop'))
+                <x-nav-item href="{{ route('shop-owner.staff.index') }}" icon="document-text" :active="request()->routeIs('shop-owner.staff.*')">
+                    Staff Attendance
+                </x-nav-item>
+            @elseif(
+                auth()->user()->can('hr.employee.view') &&
+                ! auth()->user()->hasRole('admin') &&
+                ! auth()->user()->can('admin.user.view') &&
+                ! auth()->user()->can('admin.daily-progress.view') &&
+                ! auth()->user()->can('admin.activity-log.view')
+            )
+                <x-nav-item href="{{ route('admin.staff.index') }}" icon="users" :active="request()->routeIs('admin.staff.*')">
+                    Staff Management
                 </x-nav-item>
             @elseif(auth()->user()->hasRole('purchaser'))
                 <x-nav-item href="{{ route('purchaser.daily') }}" icon="squares-2x2" :active="request()->routeIs('purchaser.daily')">
@@ -551,6 +605,11 @@
                             Accounting Dashboard
                         </x-nav-item>
                         @endcan
+                        @can('hr.employee.view')
+                        <x-nav-item href="{{ route('admin.staff.index') }}" :active="request()->routeIs('admin.staff.*')" :sub="true">
+                            Staff Dashboard
+                        </x-nav-item>
+                        @endcan
                         @can('admin.user.view')
                         <x-nav-item href="{{ route('admin.users.index') }}" :active="request()->routeIs('admin.users.*')" :sub="true">
                             Users & Roles
@@ -720,12 +779,13 @@
 <x-page-jump-controls bottom-class="bottom-24 lg:bottom-6" />
 @endif
 
-@if($showAdminMobileNav || $showPurchaseMobileNav || $showPurchaserMobileNav || $showWarehouseReceiverMobileNav)
+@if($showAdminMobileNav || $showStaffMobileNav || $showPurchaseMobileNav || $showPurchaserMobileNav || $showWarehouseReceiverMobileNav)
 <div id="layout-mobile-nav" class="fixed inset-x-0 bottom-0 z-[70] px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] lg:hidden">
     <nav class="mx-auto flex min-h-[64px] w-full max-w-lg items-center gap-1 rounded-2xl border border-slate-100 bg-white/98 px-1.5 py-1.5 shadow-[0_-2px_10px_rgba(15,23,42,0.05),0_10px_40px_rgba(15,23,42,0.16)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/96">
         @php
             $mobileNavItems = match(true) {
                 $showAdminMobileNav => $adminMobileNavItems,
+                $showStaffMobileNav => $staffMobileNavItems,
                 $showPurchaseMobileNav => $purchaseMobileNavItems,
                 $showPurchaserMobileNav => $purchaserMobileNavItems,
                 $showWarehouseReceiverMobileNav => $warehouseReceiverMobileNavItems,

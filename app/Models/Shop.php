@@ -97,6 +97,21 @@ class Shop extends Model
         return $this->hasMany(ShopAccountingInvoice::class);
     }
 
+    public function employees(): HasMany
+    {
+        return $this->hasMany(Employee::class, 'default_shop_id');
+    }
+
+    public function employeeAttendances(): HasMany
+    {
+        return $this->hasMany(EmployeeAttendance::class);
+    }
+
+    public function ownerAssignments(): HasMany
+    {
+        return $this->hasMany(ShopOwnerAssignment::class);
+    }
+
     public function isOwnedAccountingEnabled(): bool
     {
         return (bool) $this->accounting_enabled

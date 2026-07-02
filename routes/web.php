@@ -8,6 +8,7 @@ use App\Http\Controllers\Web\Admin\AdminOverviewController;
 use App\Http\Controllers\Web\Admin\DailyPriceApprovalController;
 use App\Http\Controllers\Web\Admin\DailyProgressController;
 use App\Http\Controllers\Web\Admin\DiscrepancyReportController;
+use App\Http\Controllers\Web\Admin\StaffManagementController;
 use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\Admin\WarehouseController;
 use App\Http\Controllers\Web\Auth\LoginController;
@@ -36,6 +37,7 @@ use App\Http\Controllers\Web\Sales\PaymentController;
 use App\Http\Controllers\Web\Sales\SalesInvoiceController;
 use App\Http\Controllers\Web\Sales\SalesOrderController;
 use App\Http\Controllers\Web\ShopOwnerController;
+use App\Http\Controllers\Web\ShopOwnerStaffController;
 use App\Http\Controllers\Web\ShopPresetController;
 use App\Http\Controllers\Web\SortSheetController;
 use App\Http\Controllers\Web\Warehouse\WarehouseLoadoutController;
@@ -86,6 +88,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/finance', [ShopOwnerController::class, 'financeIndex'])->name('finance.index');
         Route::get('/finance/{invoice}', [ShopOwnerController::class, 'financeShow'])->name('finance.show');
         Route::get('/finance/{invoice}/pdf', [ShopOwnerController::class, 'financePdf'])->name('finance.pdf');
+        Route::get('/staff', [ShopOwnerStaffController::class, 'index'])->name('staff.index');
+        Route::post('/staff/attendance', [ShopOwnerStaffController::class, 'storeAttendance'])->name('staff.attendance.store');
+        Route::post('/staff/leave-requests', [ShopOwnerStaffController::class, 'storeLeave'])->name('staff.leave-requests.store');
     });
 
     // ── Inventory ──────────────────────────────────────────────────────────
@@ -316,6 +321,20 @@ Route::middleware('auth')->group(function () {
         Route::post('users/{user}/approve', [UserController::class, 'approve'])->name('users.approve');
         Route::resource('users', UserController::class);
         Route::resource('warehouses', WarehouseController::class);
+        Route::get('staff', [StaffManagementController::class, 'index'])->name('staff.index');
+        Route::get('staff/employees', [StaffManagementController::class, 'employeesIndex'])->name('staff.employees.index');
+        Route::post('staff', [StaffManagementController::class, 'store'])->name('staff.store');
+        Route::put('staff/{employee}', [StaffManagementController::class, 'update'])->name('staff.update');
+        Route::get('staff/categories', [StaffManagementController::class, 'categoriesIndex'])->name('staff.categories.index');
+        Route::post('staff/categories', [StaffManagementController::class, 'storeCategory'])->name('staff.categories.store');
+        Route::put('staff/categories/{employeeCategory}', [StaffManagementController::class, 'updateCategory'])->name('staff.categories.update');
+        Route::get('staff/attendance', [StaffManagementController::class, 'attendanceIndex'])->name('staff.attendance');
+        Route::post('staff/attendance', [StaffManagementController::class, 'storeAttendance'])->name('staff.attendance.store');
+        Route::get('staff/leaves', [StaffManagementController::class, 'leavesIndex'])->name('staff.leaves.index');
+        Route::patch('staff/leaves/{leaveRequest}', [StaffManagementController::class, 'reviewLeave'])->name('staff.leaves.review');
+        Route::get('staff/payroll', [StaffManagementController::class, 'payrollIndex'])->name('staff.payroll.index');
+        Route::post('staff/payroll', [StaffManagementController::class, 'storePayroll'])->name('staff.payroll.store');
+        Route::get('staff/{employee}', [StaffManagementController::class, 'show'])->name('staff.show');
         Route::get('daily-progress', DailyProgressController::class)->name('daily-progress');
         Route::get('activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
         Route::get('price-approvals', [DailyPriceApprovalController::class, 'index'])->name('price-approvals.index');

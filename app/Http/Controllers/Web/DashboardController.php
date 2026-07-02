@@ -44,6 +44,10 @@ class DashboardController extends Controller
             return redirect()->route('admin.overview');
         }
 
+        if ($user->hasRole('hr_manager') || $user->can('hr.employee.view')) {
+            return redirect()->route('admin.staff.index');
+        }
+
         if ($user->hasRole('purchaser')) {
             return redirect()->route('purchaser.dashboard');
         }

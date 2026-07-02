@@ -5,6 +5,7 @@
         ['label' => 'Deliveries', 'route' => 'shop-owner.deliveries.index'],
         ['label' => 'Accounting', 'route' => 'shop-owner.accounting.index'],
         ['label' => 'Finance', 'route' => 'shop-owner.finance.index'],
+        ['label' => 'Staff', 'route' => 'shop-owner.staff.index'],
         ['label' => 'Approval History', 'route' => 'shop-owner.orders.history'],
     ];
 @endphp

@@ -6,6 +6,7 @@ namespace Database\Seeders;
 
 use App\Models\Shop;
 use App\Models\User;
+use App\Services\HR\EmployeeSyncService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 
@@ -50,6 +51,7 @@ class DemoUserSeeder extends Seeder
 
         $accounts = [
             ['name' => 'Administrator', 'email' => 'admin@greenleaf.com', 'role' => 'admin', 'shop_code' => null, 'password' => 'Admin11'],
+            ['name' => 'HR Manager', 'email' => 'hr@greenleaf.com', 'role' => 'hr_manager', 'shop_code' => null, 'password' => 'HrManager13'],
             ['name' => 'Purchase Manager', 'email' => 'purchase@greenleaf.com', 'role' => 'purchase', 'shop_code' => null, 'password' => 'Purchase12'],
             ['name' => 'Purchaser Niyas', 'email' => 'purchaser@greenleaf.com', 'role' => 'purchaser', 'shop_code' => null, 'password' => 'Purchaser14'],
             ['name' => 'Purchaser Rahul', 'email' => 'purchaser2@greenleaf.com', 'role' => 'purchaser', 'shop_code' => null, 'password' => 'Purchaser15'],
@@ -71,6 +73,7 @@ class DemoUserSeeder extends Seeder
             );
 
             $user->syncRoles([$account['role']]);
+            app(EmployeeSyncService::class)->ensureForUser($user->fresh());
         }
 
         User::query()->where('email', 'warehouse@greenleaf.com')->delete();

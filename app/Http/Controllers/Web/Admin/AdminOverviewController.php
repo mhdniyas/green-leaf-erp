@@ -8,6 +8,9 @@ use App\Enums\Inventory\BatchStatus;
 use App\Enums\Purchasing\InvoiceStatus;
 use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
+use App\Models\Employee;
+use App\Models\EmployeeAttendance;
+use App\Models\EmployeeLeaveRequest;
 use App\Models\GoodsReceived;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
@@ -16,6 +19,7 @@ use App\Models\StockBatch;
 use App\Models\User;
 use App\Models\WastageEntry;
 use App\Services\Finance\AdminFinancePillarService;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\View\View;
@@ -27,8 +31,12 @@ class AdminOverviewController extends Controller
         private readonly AdminFinancePillarService $financePillars,
     ) {}
 
-    public function __invoke(Request $request): View
+    public function __invoke(Request $request): View|RedirectResponse
     {
+        if (! $request->user()->hasRole('admin') && ($request->user()->hasRole('hr_manager') || $request->user()->can('hr.employee.view'))) {
+            return redirect()->route('admin.staff.index');
+        }
+
         abort_unless(
             $request->user()->hasRole('admin') ||
             $request->user()->can('admin.user.view') ||
@@ -156,6 +164,10 @@ class AdminOverviewController extends Controller
             'pending_grn_approval' => GoodsReceived::where('status', 'recheck_required')->count(),
             'pending_invoices' => PurchaseInvoice::where('status', InvoiceStatus::Pending)->count(),
             'online_users' => $onlineUsers->count(),
+            'total_employees' => Employee::query()->count(),
+            'present_staff' => EmployeeAttendance::query()->whereDate('attendance_date', $date)->where('status', 'present')->count(),
+            'staff_on_leave' => EmployeeAttendance::query()->whereDate('attendance_date', $date)->where('status', 'leave')->count(),
+            'pending_leave_requests' => EmployeeLeaveRequest::query()->where('status', 'pending')->count(),
         ];
 
         $quickLinks = [
@@ -163,6 +175,7 @@ class AdminOverviewController extends Controller
             ['label' => 'Users & Permissions', 'href' => route('admin.users.index')],
             ['label' => 'Daily Progress', 'href' => route('admin.daily-progress', ['date' => $date->format('Y-m-d')])],
             ['label' => 'Activity Log', 'href' => route('admin.activity-logs.index')],
+            ['label' => 'Staff Management', 'href' => route('admin.staff.index')],
             ['label' => 'Inventory Stock', 'href' => route('inventory.stock.index', ['date' => $date->format('Y-m-d')])],
             ['label' => 'Delivery Dashboard', 'href' => route('inventory.deliveries.dashboard', ['date' => $date->format('Y-m-d')])],
             ['label' => 'Finance Overview', 'href' => route('finance.index')],

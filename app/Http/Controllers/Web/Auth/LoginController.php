@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Auth\LoginRequest;
 use App\Models\Shop;
 use App\Models\User;
+use App\Services\HR\EmployeeSyncService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -16,6 +17,10 @@ use Illuminate\View\View;
 
 class LoginController extends Controller
 {
+    public function __construct(
+        private readonly EmployeeSyncService $employeeSyncService,
+    ) {}
+
     /**
      * Show the login form.
      */
@@ -136,6 +141,7 @@ class LoginController extends Controller
     {
         return [
             ['key' => 'admin', 'name' => 'Administrator', 'role' => 'Admin', 'email' => 'admin@greenleaf.com', 'password' => 'Admin11'],
+            ['key' => 'hr-manager', 'name' => 'HR Manager', 'role' => 'HR', 'email' => 'hr@greenleaf.com', 'password' => 'HrManager13'],
             ['key' => 'purchase-manager', 'name' => 'Purchase Manager', 'role' => 'Purchase', 'email' => 'purchase@greenleaf.com', 'password' => 'Purchase12'],
             ['key' => 'purchaser-niyas', 'name' => 'Purchaser Niyas', 'role' => 'Purchaser', 'email' => 'purchaser@greenleaf.com', 'password' => 'Purchaser14'],
             ['key' => 'purchaser-fallback', 'name' => 'Purchaser Fallback', 'role' => 'Purchaser', 'email' => 'purchaser2@greenleaf.com', 'password' => 'Purchaser15'],
@@ -201,6 +207,7 @@ class LoginController extends Controller
         );
 
         $user->syncRoles(['shop']);
+        $this->employeeSyncService->ensureForUser($user->fresh());
 
         return $shopAccount;
     }

@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -63,5 +64,15 @@ class User extends Authenticatable implements AuditableContract
     public function purchaserCredits(): HasMany
     {
         return $this->hasMany(PurchaserCredit::class, 'purchaser_id');
+    }
+
+    public function employee(): HasOne
+    {
+        return $this->hasOne(Employee::class);
+    }
+
+    public function ownedShopAssignments(): HasMany
+    {
+        return $this->hasMany(ShopOwnerAssignment::class);
     }
 }

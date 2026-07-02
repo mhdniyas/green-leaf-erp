@@ -10,6 +10,8 @@
             ['label' => 'Purchase Flow', 'value' => number_format($overview['open_purchase_orders']), 'hint' => $overview['pending_grn_approval'].' GRNs + '.$overview['pending_invoices'].' invoices pending', 'tone' => 'violet'],
             ['label' => 'Wastage Today', 'value' => number_format($overview['wastage_kg_today'], 2).' kg', 'hint' => 'stock loss recorded today', 'tone' => 'amber'],
             ['label' => 'Users Online', 'value' => number_format($overview['online_users']), 'hint' => 'live activity in last 5 minutes', 'tone' => 'rose'],
+            ['label' => 'Staff Present', 'value' => number_format($overview['present_staff']), 'hint' => $overview['staff_on_leave'].' on leave • '.$overview['pending_leave_requests'].' pending request(s)', 'tone' => 'emerald'],
+            ['label' => 'Employees', 'value' => number_format($overview['total_employees']), 'hint' => 'staff covered under payroll', 'tone' => 'slate'],
         ];
 
         $toneClasses = [

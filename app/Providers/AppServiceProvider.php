@@ -10,6 +10,7 @@ use App\Models\SalesInvoice;
 use App\Models\SalesOrder;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Observers\UserObserver;
 use App\Policies\CustomerPolicy;
 use App\Policies\GoodsReceivedPolicy;
 use App\Policies\PurchaseInvoicePolicy;
@@ -44,5 +45,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(SalesOrder::class, SalesOrderPolicy::class);
         Gate::policy(SalesInvoice::class, SalesInvoicePolicy::class);
         Gate::policy(User::class, UserPolicy::class);
+
+        User::observe(UserObserver::class);
     }
 }

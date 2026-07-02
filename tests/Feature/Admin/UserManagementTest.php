@@ -107,6 +107,10 @@ class UserManagementTest extends TestCase
         $createdUser = User::where('email', 'alice@example.com')->firstOrFail();
         $this->assertTrue($createdUser->hasRole($role->name));
         $this->assertTrue($createdUser->hasDirectPermission($permission->name));
+        $this->assertNotNull($createdUser->employee);
+        $this->assertSame($createdUser->id, $createdUser->employee?->user_id);
+        $this->assertSame('shop', $createdUser->employee?->staff_area);
+        $this->assertSame($shop->id, $createdUser->employee?->default_shop_id);
     }
 
     public function test_create_user_fails_with_invalid_data(): void
@@ -157,6 +161,9 @@ class UserManagementTest extends TestCase
         $this->assertSame($shop->id, $targetUser->shop_id);
         $this->assertTrue($targetUser->hasRole($role->name));
         $this->assertTrue($targetUser->hasDirectPermission($permission->name));
+        $this->assertNotNull($targetUser->employee);
+        $this->assertSame($shop->id, $targetUser->employee?->default_shop_id);
+        $this->assertSame('shop', $targetUser->employee?->staff_area);
     }
 
     public function test_authorized_user_can_delete_user(): void
@@ -199,5 +206,8 @@ class UserManagementTest extends TestCase
         $this->assertNotNull($targetUser->approved_at);
         $this->assertSame('active', $shop->status);
         $this->assertNotNull($shop->approved_at);
+        $this->assertNotNull($targetUser->employee);
+        $this->assertSame($targetUser->id, $targetUser->employee?->user_id);
+        $this->assertSame($shop->id, $targetUser->employee?->default_shop_id);
     }
 }

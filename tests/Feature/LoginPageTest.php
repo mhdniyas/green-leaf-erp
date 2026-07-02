@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Models\Employee;
 use App\Models\Shop;
 use App\Models\User;
 use Database\Seeders\DatabaseSeeder;
@@ -52,9 +53,12 @@ class LoginPageTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('admin@greenleaf.com');
+        $response->assertSee('hr@greenleaf.com');
         $response->assertSee('purchase@greenleaf.com');
+        $response->assertSee('Login as HR Manager');
         $response->assertSee('Login as Purchase Manager');
         $response->assertDontSee('Purchase12');
+        $response->assertDontSee('HrManager13');
         $response->assertDontSee('Admin11');
     }
 
@@ -84,6 +88,8 @@ class LoginPageTest extends TestCase
         $response->assertRedirect(route('dashboard'));
         $this->assertAuthenticated();
         $this->assertSame($shop->id, auth()->user()?->shop_id);
+        $this->assertNotNull(auth()->user()?->employee);
+        $this->assertSame($shop->id, auth()->user()?->employee?->default_shop_id);
     }
 
     public function test_database_seeder_creates_shops_without_seeded_shop_owner_accounts(): void
@@ -92,6 +98,7 @@ class LoginPageTest extends TestCase
 
         $this->assertSame(14, Shop::query()->count());
         $this->assertSame(0, User::query()->whereNotNull('shop_id')->count());
+        $this->assertSame(User::query()->count(), Employee::query()->whereNotNull('user_id')->count());
         $this->assertDatabaseMissing('users', ['email' => 'shop@greenleaf.com']);
         $this->assertDatabaseMissing('users', ['email' => 'shop-easyday@greenleaf.com']);
     }
@@ -120,6 +127,20 @@ class LoginPageTest extends TestCase
 
         $response->assertRedirect(route('dashboard'));
         $this->assertAuthenticated();
+    }
+
+    public function test_seeded_hr_manager_can_sign_in_with_demo_password(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        $response = $this->post(route('login.submit'), [
+            'email' => 'hr@greenleaf.com',
+            'password' => 'HrManager13',
+        ]);
+
+        $response->assertRedirect(route('dashboard'));
+        $this->assertAuthenticated();
+        $this->assertTrue(auth()->user()?->hasRole('hr_manager'));
     }
 
     public function test_guest_can_view_shop_owner_registration_page(): void
@@ -151,6 +172,9 @@ class LoginPageTest extends TestCase
         $this->assertSame('pending', $user->registration_status);
         $this->assertTrue($user->hasRole('shop'));
         $this->assertNotNull($user->shop);
+        $this->assertNotNull($user->employee);
+        $this->assertSame($user->id, $user->employee?->user_id);
+        $this->assertSame($user->shop_id, $user->employee?->default_shop_id);
         $this->assertSame('pending_approval', $user->shop->status);
         $this->assertSame('+919876543210', $user->shop->contact_phone);
     }

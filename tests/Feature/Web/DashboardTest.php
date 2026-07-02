@@ -87,6 +87,17 @@ class DashboardTest extends TestCase
         $response->assertDontSee('Pending Sales Orders');
     }
 
+    public function test_hr_manager_is_redirected_to_staff_dashboard(): void
+    {
+        $user = User::factory()->create();
+        $user->assignRole('hr_manager');
+
+        $response = $this->actingAs($user)
+            ->get(route('dashboard'));
+
+        $response->assertRedirect(route('admin.staff.index'));
+    }
+
     public function test_dashboard_renders_modules_based_on_permissions(): void
     {
         $user = User::factory()->create();

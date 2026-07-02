@@ -72,6 +72,21 @@ class AdminFeaturesTest extends TestCase
         $response->assertSee('System Activity Logs');
     }
 
+    public function test_admin_overview_sidebar_shows_full_admin_navigation(): void
+    {
+        $legacyAdmin = User::factory()->create();
+        $legacyAdmin->assignRole('admin');
+
+        $response = $this->actingAs($legacyAdmin)->get(route('admin.overview'));
+
+        $response->assertOk();
+        $response->assertSee('Accounting Dashboard');
+        $response->assertSee('Staff Dashboard');
+        $response->assertSeeText('Users & Roles');
+        $response->assertSee('Daily Progress');
+        $response->assertSee('Activity Log');
+    }
+
     public function test_activity_log_displays_logs_correctly(): void
     {
         $legacyAdmin = User::factory()->create();

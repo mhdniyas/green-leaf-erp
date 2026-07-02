@@ -7,6 +7,7 @@ namespace App\Services\Admin;
 use App\DTOs\Admin\UserData;
 use App\Models\User;
 use App\Repositories\Admin\UserRepository;
+use App\Services\HR\EmployeeSyncService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
@@ -14,6 +15,7 @@ class UserService
 {
     public function __construct(
         private readonly UserRepository $repository,
+        private readonly EmployeeSyncService $employeeSyncService,
     ) {}
 
     public function paginate(int $perPage = 15, ?string $search = null, string $scope = 'all', ?string $role = null): LengthAwarePaginator
@@ -37,6 +39,7 @@ class UserService
 
             $user->syncRoles($data->roles);
             $user->syncPermissions($data->permissions);
+            $this->employeeSyncService->ensureForUser($user->fresh());
 
             return $user;
         });
@@ -49,6 +52,7 @@ class UserService
 
             $user->syncRoles($data->roles);
             $user->syncPermissions($data->permissions);
+            $this->employeeSyncService->ensureForUser($user->fresh());
 
             return $user;
         });
@@ -75,6 +79,8 @@ class UserService
                     'approved_at' => now(),
                 ]);
             }
+
+            $this->employeeSyncService->ensureForUser($user);
 
             return $user->fresh(['shop']);
         });

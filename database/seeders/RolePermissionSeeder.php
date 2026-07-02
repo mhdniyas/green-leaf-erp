@@ -73,6 +73,12 @@ class RolePermissionSeeder extends Seeder
             'hr.employee.view',
             'hr.employee.create',
             'hr.employee.update',
+            'hr.attendance.view',
+            'hr.attendance.manage',
+            'hr.attendance.mark-owned-shop',
+            'hr.leave.view',
+            'hr.leave.manage',
+            'hr.leave.submit-owned-shop',
             'hr.payroll.view',
             'hr.payroll.process',
 
@@ -115,6 +121,8 @@ class RolePermissionSeeder extends Seeder
                 'sales.order.view',
                 'sales.order.create',
                 'sales.order.cancel',
+                'hr.attendance.mark-owned-shop',
+                'hr.leave.submit-owned-shop',
             ],
 
             'purchase' => [
@@ -156,6 +164,18 @@ class RolePermissionSeeder extends Seeder
                 'warehouse.checklist.toggle',
                 'sort.sheet.view',
                 'sort.sheet.export',
+            ],
+
+            'hr_manager' => [
+                'hr.employee.view',
+                'hr.employee.create',
+                'hr.employee.update',
+                'hr.attendance.view',
+                'hr.attendance.manage',
+                'hr.leave.view',
+                'hr.leave.manage',
+                'hr.payroll.view',
+                'hr.payroll.process',
             ],
         ];
 
