@@ -14,7 +14,6 @@ use App\Services\Finance\JournalService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use RuntimeException;
 
 class PayrollService
 {
@@ -132,12 +131,24 @@ class PayrollService
 
     private function recordPayrollExpense(PayrollRun $payrollRun, int $userId): JournalEntry
     {
-        $salaryExpenseAccount = Account::query()->where('code', '5700')->first();
-        $bankAccount = Account::query()->where('code', '1020')->first();
-
-        if (! $salaryExpenseAccount || ! $bankAccount) {
-            throw new RuntimeException('Payroll expense accounts are missing. Seed the chart of accounts first.');
-        }
+        $salaryExpenseAccount = Account::query()->firstOrCreate(
+            ['code' => '5700'],
+            [
+                'name' => 'Salaries Expense',
+                'type' => 'expense',
+                'is_active' => true,
+                'parent_id' => null,
+            ],
+        );
+        $bankAccount = Account::query()->firstOrCreate(
+            ['code' => '1020'],
+            [
+                'name' => 'Bank Account',
+                'type' => 'asset',
+                'is_active' => true,
+                'parent_id' => null,
+            ],
+        );
 
         return $this->journalService->createEntry(
             new JournalEntryData(

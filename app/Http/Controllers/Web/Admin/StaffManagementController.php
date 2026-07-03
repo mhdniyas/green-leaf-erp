@@ -42,16 +42,38 @@ class StaffManagementController extends Controller
         Gate::authorize('viewAny', Employee::class);
 
         $selectedDate = Carbon::parse($request->input('date', today()->toDateString()));
+        $attendanceRecords = EmployeeAttendance::query()
+            ->with(['employee.category', 'shop', 'markedBy'])
+            ->whereDate('attendance_date', $selectedDate)
+            ->orderBy('attendance_date')
+            ->orderBy('id')
+            ->get();
+        $ownedShops = Shop::query()->ownedForStaff()->orderBy('name')->get();
+        $shopCards = $ownedShops->map(function (Shop $shop) use ($attendanceRecords): array {
+            $records = $attendanceRecords
+                ->where('shop_id', $shop->id)
+                ->sortBy(fn (EmployeeAttendance $attendance): string => $attendance->employee->name)
+                ->values();
+
+            return [
+                'shop' => $shop,
+                'records' => $records,
+                'present_count' => $records->where('status', 'present')->count(),
+                'half_day_count' => $records->where('status', 'half_day')->count(),
+                'leave_count' => $records->where('status', 'leave')->count(),
+            ];
+        });
+        $officeRecords = $attendanceRecords
+            ->filter(fn (EmployeeAttendance $attendance): bool => $attendance->shop_id === null && $attendance->employee->staff_area === 'office')
+            ->sortBy(fn (EmployeeAttendance $attendance): string => $attendance->employee->name)
+            ->values();
 
         return view('admin.staff.index', [
             'selectedDate' => $selectedDate,
             'stats' => $this->staffDirectoryService->statsForDate($selectedDate),
-            'attendanceRecords' => EmployeeAttendance::query()
-                ->with(['employee.category', 'shop', 'markedBy'])
-                ->whereDate('attendance_date', $selectedDate)
-                ->orderBy('attendance_date')
-                ->orderBy('id')
-                ->get(),
+            'attendanceRecords' => $attendanceRecords,
+            'shopCards' => $shopCards,
+            'officeRecords' => $officeRecords,
         ]);
     }
 
@@ -61,26 +83,31 @@ class StaffManagementController extends Controller
 
         $selectedDate = Carbon::parse($request->input('date', today()->toDateString()));
         $staffArea = $request->string('staff_area')->toString();
-        $categoryId = $request->filled('employee_category_id') ? $request->integer('employee_category_id') : null;
+        $categoryCode = trim($request->string('category')->toString());
         $search = trim($request->string('search')->toString());
         $categories = EmployeeCategory::query()->where('is_active', true)->orderBy('name')->get();
+        $selectedCategory = $categoryCode !== ''
+            ? $categories->firstWhere('code', $categoryCode)
+            : null;
+        $ownedShops = Shop::query()->ownedForStaff()->orderBy('name')->get();
 
         return view('admin.staff.employees', [
             'selectedDate' => $selectedDate,
             'search' => $search,
             'employees' => $this->staffDirectoryService->paginateEmployees(
                 $staffArea !== '' ? $staffArea : null,
-                $categoryId,
+                $selectedCategory?->code,
                 $search !== '' ? $search : null,
             ),
             'categories' => $categories,
             'categoryTabs' => $categories->map(fn (EmployeeCategory $category): array => [
-                'id' => $category->id,
+                'code' => $category->code,
                 'name' => $category->name,
                 'count' => $category->employees()->count(),
             ]),
-            'shops' => Shop::query()->orderBy('name')->get(),
-            'users' => User::query()->orderBy('name')->get(),
+            'selectedCategory' => $selectedCategory,
+            'shops' => $ownedShops,
+            'users' => User::query()->with('roles')->orderBy('name')->get(),
         ]);
     }
 
@@ -97,7 +124,7 @@ class StaffManagementController extends Controller
     {
         Gate::authorize('view', $employee);
 
-        $employee->load(['category', 'defaultShop', 'user']);
+        $employee->load(['category', 'defaultShop', 'user.roles', 'user.ownedShopAssignments.shop', 'assignedShops']);
 
         $selectedMonth = $request->filled('month')
             ? Carbon::createFromFormat('Y-m', $request->string('month')->toString())->startOfMonth()
@@ -110,6 +137,7 @@ class StaffManagementController extends Controller
             ->whereBetween('attendance_date', [$selectedMonth->toDateString(), $monthEnd->toDateString()])
             ->get()
             ->keyBy(fn (EmployeeAttendance $attendance): string => $attendance->attendance_date->toDateString());
+        $ownedShops = Shop::query()->ownedForStaff()->orderBy('name')->get();
 
         return view('admin.staff.show', [
             'employee' => $employee,
@@ -122,9 +150,15 @@ class StaffManagementController extends Controller
                 'absent' => $attendanceRecords->where('status', 'absent')->count(),
             ],
             'attendanceRecords' => $attendanceRecords->sortByDesc(fn (EmployeeAttendance $attendance): string => $attendance->attendance_date->toDateString()),
-            'shops' => Shop::query()->orderBy('name')->get(),
+            'workedShops' => Shop::query()
+                ->whereIn('id', EmployeeAttendance::query()->where('employee_id', $employee->id)->whereNotNull('shop_id')->distinct()->pluck('shop_id'))
+                ->ownedForStaff()
+                ->orderBy('name')
+                ->get(),
+            'shops' => $ownedShops,
             'categories' => EmployeeCategory::query()->where('is_active', true)->orderBy('name')->get(),
             'payrollHistory' => $employee->payrollItems()->with('payrollRun')->latest('id')->limit(6)->get(),
+            'leaveRequests' => $employee->leaveRequests()->with(['submittedBy.roles', 'submittedForShop', 'reviewedBy'])->latest('id')->limit(8)->get(),
         ]);
     }
 
@@ -160,9 +194,15 @@ class StaffManagementController extends Controller
 
     public function updateCategory(UpdateEmployeeCategoryRequest $request, EmployeeCategory $employeeCategory): RedirectResponse
     {
+        $validated = $request->validated();
+
+        if ($employeeCategory->isCoreCategory()) {
+            unset($validated['name'], $validated['code'], $validated['staff_area']);
+        }
+
         $employeeCategory->update([
-            ...$request->validated(),
-            'is_active' => $request->boolean('is_active'),
+            ...$validated,
+            'is_active' => $employeeCategory->isCoreCategory() ? true : $request->boolean('is_active'),
         ]);
 
         return redirect()->route('admin.staff.categories.index')->with('success', 'Payroll category updated successfully.');
@@ -173,16 +213,95 @@ class StaffManagementController extends Controller
         Gate::authorize('viewAny', EmployeeAttendance::class);
 
         $selectedDate = Carbon::parse($request->input('date', today()->toDateString()));
+        $staffArea = trim($request->string('staff_area')->toString());
+        $categoryCode = trim($request->string('category')->toString());
+        $search = trim($request->string('search')->toString());
+        $selectedStatus = trim($request->string('status')->toString());
+        $shopId = $request->integer('shop_id');
+        $categories = EmployeeCategory::query()->where('is_active', true)->orderBy('name')->get();
+        $selectedCategory = $categoryCode !== ''
+            ? $categories->firstWhere('code', $categoryCode)
+            : null;
+        $ownedShops = Shop::query()->ownedForStaff()->orderBy('name')->get();
+
+        $employees = Employee::query()
+            ->with(['category', 'defaultShop'])
+            ->when($staffArea !== '', fn ($query) => $query->where('staff_area', $staffArea))
+            ->when($selectedCategory !== null, fn ($query) => $query->where('employee_category_id', $selectedCategory->id))
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($employeeQuery) use ($search): void {
+                    $employeeQuery
+                        ->where('name', 'like', '%'.$search.'%')
+                        ->orWhere('employee_code', 'like', '%'.$search.'%')
+                        ->orWhere('phone', 'like', '%'.$search.'%')
+                        ->orWhere('email', 'like', '%'.$search.'%');
+                });
+            })
+            ->when($shopId > 0, function ($query) use ($shopId): void {
+                $query->where(function ($employeeQuery) use ($shopId): void {
+                    $employeeQuery
+                        ->where('default_shop_id', $shopId)
+                        ->orWhereHas('attendances', function ($attendanceQuery) use ($shopId): void {
+                            $attendanceQuery->where('shop_id', $shopId);
+                        });
+                });
+            })
+            ->orderBy('name')
+            ->get();
+
+        $attendanceRecords = EmployeeAttendance::query()
+            ->with(['employee.category', 'shop', 'markedBy'])
+            ->whereDate('attendance_date', $selectedDate)
+            ->when($shopId > 0, fn ($query) => $query->where('shop_id', $shopId))
+            ->when($selectedCategory !== null, function ($query) use ($selectedCategory): void {
+                $query->whereHas('employee', fn ($employeeQuery) => $employeeQuery->where('employee_category_id', $selectedCategory->id));
+            })
+            ->when($staffArea !== '', function ($query) use ($staffArea): void {
+                $query->whereHas('employee', fn ($employeeQuery) => $employeeQuery->where('staff_area', $staffArea));
+            })
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->whereHas('employee', function ($employeeQuery) use ($search): void {
+                    $employeeQuery->where(function ($searchQuery) use ($search): void {
+                        $searchQuery
+                            ->where('name', 'like', '%'.$search.'%')
+                            ->orWhere('employee_code', 'like', '%'.$search.'%')
+                            ->orWhere('phone', 'like', '%'.$search.'%')
+                            ->orWhere('email', 'like', '%'.$search.'%');
+                    });
+                });
+            })
+            ->get()
+            ->keyBy('employee_id');
+
+        $statusCounts = [
+            'present' => $attendanceRecords->where('status', 'present')->count(),
+            'half_day' => $attendanceRecords->where('status', 'half_day')->count(),
+            'leave' => $attendanceRecords->where('status', 'leave')->count(),
+            'absent' => max(0, $employees->count() - $attendanceRecords->whereIn('status', ['present', 'half_day', 'leave'])->count()),
+        ];
+
+        if (in_array($selectedStatus, ['present', 'half_day', 'leave', 'absent'], true)) {
+            $employees = $employees
+                ->filter(function (Employee $employee) use ($attendanceRecords, $selectedStatus): bool {
+                    $status = $attendanceRecords->get($employee->id)?->status ?? 'absent';
+
+                    return $status === $selectedStatus;
+                })
+                ->values();
+        }
 
         return view('admin.staff.attendance', [
             'selectedDate' => $selectedDate,
-            'employees' => Employee::query()->with(['category', 'defaultShop'])->orderBy('name')->get(),
-            'attendanceRecords' => EmployeeAttendance::query()
-                ->with(['employee.category', 'shop', 'markedBy'])
-                ->whereDate('attendance_date', $selectedDate)
-                ->get()
-                ->keyBy('employee_id'),
-            'shops' => Shop::query()->orderBy('name')->get(),
+            'search' => $search,
+            'selectedStatus' => $selectedStatus,
+            'statusCounts' => $statusCounts,
+            'selectedShopId' => $shopId > 0 ? $shopId : null,
+            'selectedStaffArea' => $staffArea,
+            'selectedCategory' => $selectedCategory,
+            'categories' => $categories,
+            'employees' => $employees,
+            'attendanceRecords' => $attendanceRecords,
+            'shops' => $ownedShops,
         ]);
     }
 
@@ -261,15 +380,15 @@ class StaffManagementController extends Controller
         Gate::authorize('viewAny', PayrollRun::class);
 
         return view('admin.staff.payroll', [
-            'payrollRuns' => PayrollRun::query()->with(['items.employee', 'generatedBy', 'journalEntry'])->latest('period_start')->paginate(12),
+            'payrollRuns' => PayrollRun::query()->with(['items.employee', 'items.category', 'generatedBy', 'journalEntry'])->latest('period_start')->paginate(12),
         ]);
     }
 
     public function storePayroll(StorePayrollRunRequest $request): RedirectResponse
     {
         $payrollRun = $this->payrollService->generate(
-            Carbon::parse($request->string('period_start')->toString()),
-            Carbon::parse($request->string('period_end')->toString()),
+            Carbon::parse((string) $request->validated('period_start')),
+            Carbon::parse((string) $request->validated('period_end')),
             $request->user()->id,
         );
 

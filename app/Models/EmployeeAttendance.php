@@ -20,6 +20,7 @@ class EmployeeAttendance extends Model
         'status',
         'shop_id',
         'marked_by',
+        'marked_at',
         'source',
         'notes',
     ];
@@ -28,6 +29,7 @@ class EmployeeAttendance extends Model
     {
         return [
             'attendance_date' => 'date',
+            'marked_at' => 'datetime',
         ];
     }
 

@@ -67,6 +67,7 @@
                                 <div class="mt-3 space-y-1 text-xs font-semibold text-slate-600">
                                     <p>{{ $attendance->shop?->name ?? 'Admin desk' }}</p>
                                     <p>{{ $attendance->markedBy?->name ?? 'System' }}</p>
+                                    <p>{{ $attendance->marked_at?->format('h:i A') ?? 'Time pending' }}</p>
                                 </div>
                             @else
                                 <p class="mt-4 text-xs font-semibold text-slate-400">No entry</p>
@@ -79,6 +80,51 @@
 
         <section class="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
             <div class="space-y-6">
+                <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <h2 class="text-xl font-black text-slate-950">Linked User Access</h2>
+                    @if($employee->user)
+                        <div class="mt-4 space-y-4">
+                            <div>
+                                <p class="text-sm font-black text-slate-950">{{ $employee->user->name }}</p>
+                                <p class="text-sm font-semibold text-slate-500">{{ $employee->user->email }}</p>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                @forelse($employee->user->roles as $role)
+                                    <span class="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-700">{{ $role->name }}</span>
+                                @empty
+                                    <span class="text-sm font-semibold text-slate-400">No explicit roles</span>
+                                @endforelse
+                            </div>
+                            @if($employee->user->ownedShopAssignments->isNotEmpty())
+                                <div>
+                                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Owned Shops</p>
+                                    <p class="mt-1 text-sm font-semibold text-slate-600">{{ $employee->user->ownedShopAssignments->pluck('shop.name')->implode(', ') }}</p>
+                                </div>
+                            @endif
+                        </div>
+                    @else
+                        <p class="mt-4 text-sm font-semibold text-slate-500">This staff record is not linked to a login user.</p>
+                    @endif
+                </section>
+
+                <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <h2 class="text-xl font-black text-slate-950">Shop Coverage</h2>
+                    <div class="mt-4 grid gap-4 md:grid-cols-2">
+                        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                            <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Quick List Shops</p>
+                            <p class="mt-2 text-sm font-semibold text-slate-600">
+                                {{ $employee->assignedShops->isNotEmpty() ? $employee->assignedShops->pluck('name')->implode(', ') : 'Not added to any owned shop quick list yet.' }}
+                            </p>
+                        </article>
+                        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                            <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Worked Shops</p>
+                            <p class="mt-2 text-sm font-semibold text-slate-600">
+                                {{ $workedShops->isNotEmpty() ? $workedShops->pluck('name')->implode(', ') : 'No shop attendance history yet.' }}
+                            </p>
+                        </article>
+                    </div>
+                </section>
+
                 <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                     <h2 class="text-xl font-black text-slate-950">Update Staff Profile</h2>
                     <p class="mt-1 text-sm font-semibold text-slate-500">Salary changes here flow into future payroll runs.</p>
@@ -147,6 +193,7 @@
                                 <th class="pb-3">Date</th>
                                 <th class="pb-3">Status</th>
                                 <th class="pb-3">Shop</th>
+                                <th class="pb-3">Check-In</th>
                                 <th class="pb-3">Marked By</th>
                             </tr>
                         </thead>
@@ -156,11 +203,12 @@
                                     <td class="py-3 font-bold text-slate-900">{{ $attendance->attendance_date->format('d M Y') }}</td>
                                     <td class="py-3 capitalize">{{ str_replace('_', ' ', $attendance->status) }}</td>
                                     <td class="py-3">{{ $attendance->shop?->name ?? 'Admin desk' }}</td>
+                                    <td class="py-3">{{ $attendance->marked_at?->format('d M, h:i A') ?? 'Pending time' }}</td>
                                     <td class="py-3">{{ $attendance->markedBy?->name ?? 'System' }}</td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="4" class="py-4 text-sm font-semibold text-slate-500">No attendance entries for this month.</td>
+                                    <td colspan="5" class="py-4 text-sm font-semibold text-slate-500">No attendance entries for this month.</td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -193,6 +241,49 @@
                         @endforelse
                     </div>
                 </div>
+            </div>
+        </section>
+
+        <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div class="flex items-center justify-between gap-3">
+                <div>
+                    <h2 class="text-xl font-black text-slate-950">Leave Request History</h2>
+                    <p class="text-sm font-semibold text-slate-500">Review who submitted leave and whether shop-owner initiated requests are affecting this staff record.</p>
+                </div>
+            </div>
+
+            <div class="mt-5 overflow-x-auto">
+                <table class="min-w-full text-left text-sm">
+                    <thead class="text-slate-500">
+                        <tr>
+                            <th class="pb-3">Dates</th>
+                            <th class="pb-3">Status</th>
+                            <th class="pb-3">Submitted By</th>
+                            <th class="pb-3">Shop</th>
+                            <th class="pb-3">Type</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @forelse($leaveRequests as $leaveRequest)
+                            <tr>
+                                <td class="py-3 font-bold text-slate-900">{{ $leaveRequest->start_date->format('d M Y') }} to {{ $leaveRequest->end_date->format('d M Y') }}</td>
+                                <td class="py-3 capitalize">{{ $leaveRequest->status }}</td>
+                                <td class="py-3">
+                                    {{ $leaveRequest->submittedBy?->name ?? 'Unknown' }}
+                                    @if($leaveRequest->submittedBy?->roles?->isNotEmpty())
+                                        <p class="text-xs font-semibold text-slate-500">{{ $leaveRequest->submittedBy->roles->pluck('name')->implode(', ') }}</p>
+                                    @endif
+                                </td>
+                                <td class="py-3">{{ $leaveRequest->submittedForShop?->name ?? 'N/A' }}</td>
+                                <td class="py-3 uppercase">{{ $leaveRequest->submission_type }}</td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="5" class="py-4 text-sm font-semibold text-slate-500">No leave requests recorded for this staff member.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
             </div>
         </section>
     </div>

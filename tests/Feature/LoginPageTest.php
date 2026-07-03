@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\Models\Employee;
 use App\Models\Shop;
+use App\Models\ShopOwnerAssignment;
 use App\Models\User;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\RolePermissionSeeder;
@@ -92,15 +93,17 @@ class LoginPageTest extends TestCase
         $this->assertSame($shop->id, auth()->user()?->employee?->default_shop_id);
     }
 
-    public function test_database_seeder_creates_shops_without_seeded_shop_owner_accounts(): void
+    public function test_database_seeder_creates_seeded_shop_owner_accounts_with_owned_shop_assignments(): void
     {
         $this->seed(DatabaseSeeder::class);
 
         $this->assertSame(14, Shop::query()->count());
-        $this->assertSame(0, User::query()->whereNotNull('shop_id')->count());
+        $this->assertSame(14, User::query()->whereHas('roles', fn ($query) => $query->where('name', 'shop'))->count());
+        $this->assertSame(14, User::query()->whereNotNull('shop_id')->count());
+        $this->assertSame(14, ShopOwnerAssignment::query()->count());
         $this->assertSame(User::query()->count(), Employee::query()->whereNotNull('user_id')->count());
         $this->assertDatabaseMissing('users', ['email' => 'shop@greenleaf.com']);
-        $this->assertDatabaseMissing('users', ['email' => 'shop-easyday@greenleaf.com']);
+        $this->assertDatabaseHas('users', ['email' => 'shop-shop-easyday@greenleaf.com']);
     }
 
     public function test_seeded_demo_admin_can_sign_in_with_shared_password(): void

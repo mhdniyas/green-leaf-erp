@@ -23,6 +23,7 @@ class UpsertOwnedShopAttendanceRequest extends FormRequest
             'shop_id' => ['required', 'integer', 'exists:shops,id'],
             'status' => ['required', Rule::in(['present', 'half_day', 'absent', 'leave'])],
             'notes' => ['nullable', 'string'],
+            'leave_reason' => ['nullable', 'required_if:status,leave', 'string', 'min:3'],
         ];
     }
 }

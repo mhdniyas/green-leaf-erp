@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Shop extends Model
@@ -110,6 +113,27 @@ class Shop extends Model
     public function ownerAssignments(): HasMany
     {
         return $this->hasMany(ShopOwnerAssignment::class);
+    }
+
+    public function assignedEmployees(): BelongsToMany
+    {
+        return $this->belongsToMany(Employee::class, 'shop_employee_assignments')
+            ->withTimestamps();
+    }
+
+    #[Scope]
+    protected function active(Builder $query): void
+    {
+        $query->where('status', 'active');
+    }
+
+    #[Scope]
+    protected function ownedForStaff(Builder $query): void
+    {
+        $query
+            ->active()
+            ->where('accounting_enabled', true)
+            ->whereIn('accounting_mode', ['owned', 'partnership']);
     }
 
     public function isOwnedAccountingEnabled(): bool

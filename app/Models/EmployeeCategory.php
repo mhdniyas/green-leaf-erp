@@ -14,6 +14,8 @@ class EmployeeCategory extends Model
     /** @use HasFactory<EmployeeCategoryFactory> */
     use HasFactory;
 
+    public const CORE_CODES = ['office', 'direct-board', 'other-shop'];
+
     protected $fillable = [
         'name',
         'code',
@@ -46,5 +48,10 @@ class EmployeeCategory extends Model
     public function employees(): HasMany
     {
         return $this->hasMany(Employee::class);
+    }
+
+    public function isCoreCategory(): bool
+    {
+        return in_array($this->code, self::CORE_CODES, true);
     }
 }

@@ -1,13 +1,17 @@
 @php
+    $hasOwnedShopStaffAccess = auth()->user()?->ownedShopAssignments()->exists() ?? false;
     $shopOwnerNavItems = [
         ['label' => 'Dashboard', 'route' => 'shop-owner.dashboard'],
         ['label' => 'Cart', 'route' => 'shop-owner.orders.index'],
         ['label' => 'Deliveries', 'route' => 'shop-owner.deliveries.index'],
         ['label' => 'Accounting', 'route' => 'shop-owner.accounting.index'],
         ['label' => 'Finance', 'route' => 'shop-owner.finance.index'],
-        ['label' => 'Staff', 'route' => 'shop-owner.staff.index'],
         ['label' => 'Approval History', 'route' => 'shop-owner.orders.history'],
     ];
+
+    if ($hasOwnedShopStaffAccess) {
+        $shopOwnerNavItems[] = ['label' => 'Staff', 'route' => 'shop-owner.staff.index'];
+    }
 @endphp
 
 <aside class="hidden border-r border-slate-200 bg-slate-950 text-white lg:fixed lg:inset-y-0 lg:flex lg:w-72 lg:flex-col">

@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Web\Auth;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Auth\LoginRequest;
 use App\Models\Shop;
+use App\Models\ShopOwnerAssignment;
 use App\Models\User;
 use App\Services\HR\EmployeeSyncService;
 use Illuminate\Http\RedirectResponse;
@@ -207,6 +208,13 @@ class LoginController extends Controller
         );
 
         $user->syncRoles(['shop']);
+        ShopOwnerAssignment::query()->updateOrCreate(
+            [
+                'user_id' => $user->id,
+                'shop_id' => $shop->id,
+            ],
+            []
+        );
         $this->employeeSyncService->ensureForUser($user->fresh());
 
         return $shopAccount;

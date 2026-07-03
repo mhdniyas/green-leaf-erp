@@ -298,7 +298,7 @@
                 </x-nav-item>
             @endif
 
-            @if(auth()->user()->hasRole('shop'))
+            @if(auth()->user()->hasRole('shop') && auth()->user()->ownedShopAssignments()->exists())
                 <x-nav-item href="{{ route('shop-owner.staff.index') }}" icon="document-text" :active="request()->routeIs('shop-owner.staff.*')">
                     Staff Attendance
                 </x-nav-item>

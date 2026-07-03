@@ -8,6 +8,7 @@ use Database\Factories\EmployeeFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Employee extends Model
@@ -40,6 +41,11 @@ class Employee extends Model
         ];
     }
 
+    public function getRouteKeyName(): string
+    {
+        return 'employee_code';
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
@@ -68,5 +74,16 @@ class Employee extends Model
     public function payrollItems(): HasMany
     {
         return $this->hasMany(PayrollRunItem::class);
+    }
+
+    public function assignedShops(): BelongsToMany
+    {
+        return $this->belongsToMany(Shop::class, 'shop_employee_assignments')
+            ->withTimestamps();
+    }
+
+    public function shopAssignments(): HasMany
+    {
+        return $this->hasMany(ShopEmployeeAssignment::class);
     }
 }

@@ -25,12 +25,12 @@ class EmployeeCategorySeeder extends Seeder
             [
                 'name' => 'Direct Board',
                 'code' => 'direct-board',
-                'staff_area' => 'shop',
-                'default_monthly_salary' => 22000,
+                'staff_area' => 'office',
+                'default_monthly_salary' => 60000,
                 'monthly_paid_leave_limit' => 6,
             ],
             [
-                'name' => 'Other Shop Staff',
+                'name' => 'Shop Employees',
                 'code' => 'other-shop',
                 'staff_area' => 'shop',
                 'default_monthly_salary' => 18000,

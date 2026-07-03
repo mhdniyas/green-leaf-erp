@@ -7,7 +7,9 @@ namespace Tests\Feature;
 use App\Models\Employee;
 use App\Models\EmployeeAttendance;
 use App\Models\EmployeeCategory;
+use App\Models\EmployeeLeaveRequest;
 use App\Models\Shop;
+use App\Models\ShopEmployeeAssignment;
 use App\Models\ShopOwnerAssignment;
 use App\Models\User;
 use Database\Seeders\EmployeeCategorySeeder;
@@ -44,6 +46,16 @@ class ShopOwnerStaffAccessTest extends TestCase
             'user_id' => $this->owner->id,
             'shop_id' => $this->ownedShop->id,
         ]);
+
+        $this->owner->employee()->firstOrFail()->update([
+            'employee_category_id' => EmployeeCategory::query()->where('code', 'other-shop')->firstOrFail()->id,
+            'staff_area' => 'shop',
+            'employment_status' => 'active',
+            'default_shop_id' => $this->ownedShop->id,
+            'name' => $this->owner->name,
+            'email' => $this->owner->email,
+            'is_user_linked' => true,
+        ]);
     }
 
     public function test_shop_owner_can_mark_today_attendance_for_owned_shop_staff(): void
@@ -61,7 +73,7 @@ class ShopOwnerStaffAccessTest extends TestCase
             'status' => 'present',
         ]);
 
-        $response->assertRedirect(route('shop-owner.staff.index'));
+        $response->assertRedirect(route('shop-owner.staff.index', ['shop' => $this->ownedShop->code]));
         $attendance = EmployeeAttendance::query()
             ->where('employee_id', $employee->id)
             ->where('shop_id', $this->ownedShop->id)
@@ -70,6 +82,7 @@ class ShopOwnerStaffAccessTest extends TestCase
         $this->assertNotNull($attendance);
         $this->assertSame(today()->toDateString(), $attendance->attendance_date?->toDateString());
         $this->assertSame('owner', $attendance->source);
+        $this->assertNotNull($attendance->marked_at);
     }
 
     public function test_shop_owner_cannot_mark_past_or_future_attendance(): void
@@ -141,7 +154,7 @@ class ShopOwnerStaffAccessTest extends TestCase
             'reason' => 'Medical leave',
         ]);
 
-        $response->assertRedirect(route('shop-owner.staff.index'));
+        $response->assertRedirect(route('shop-owner.staff.index', ['shop' => $this->ownedShop->code]));
         $this->assertDatabaseHas('employee_leave_requests', [
             'employee_id' => $employee->id,
             'submitted_by' => $this->owner->id,
@@ -150,11 +163,106 @@ class ShopOwnerStaffAccessTest extends TestCase
         ]);
     }
 
+    public function test_shop_owner_can_add_shop_employee_to_quick_attendance_list(): void
+    {
+        $category = EmployeeCategory::query()->where('code', 'other-shop')->firstOrFail();
+        $employee = Employee::factory()->create([
+            'employee_category_id' => $category->id,
+            'staff_area' => 'shop',
+            'name' => 'Quick List Staff',
+        ]);
+
+        $response = $this->actingAs($this->owner)->post(route('shop-owner.staff.employees.store'), [
+            'shop_id' => $this->ownedShop->id,
+            'employee_id' => $employee->id,
+        ]);
+
+        $response->assertRedirect(route('shop-owner.staff.index', ['shop' => $this->ownedShop->code]));
+        $this->assertDatabaseHas('shop_employee_assignments', [
+            'shop_id' => $this->ownedShop->id,
+            'employee_id' => $employee->id,
+        ]);
+
+        $page = $this->actingAs($this->owner)->get(route('shop-owner.staff.index', ['shop' => $this->ownedShop->code]));
+        $page->assertOk();
+        $page->assertSee('Quick List Staff');
+    }
+
+    public function test_leave_attendance_creates_pending_leave_request_with_reason(): void
+    {
+        $category = EmployeeCategory::query()->where('code', 'other-shop')->firstOrFail();
+        $employee = Employee::factory()->create([
+            'employee_category_id' => $category->id,
+            'staff_area' => 'shop',
+        ]);
+
+        ShopEmployeeAssignment::query()->create([
+            'shop_id' => $this->ownedShop->id,
+            'employee_id' => $employee->id,
+            'assigned_by' => $this->owner->id,
+        ]);
+
+        $response = $this->actingAs($this->owner)->post(route('shop-owner.staff.attendance.store'), [
+            'employee_id' => $employee->id,
+            'attendance_date' => today()->toDateString(),
+            'shop_id' => $this->ownedShop->id,
+            'status' => 'leave',
+            'leave_reason' => 'Family emergency',
+        ]);
+
+        $response->assertRedirect(route('shop-owner.staff.index', ['shop' => $this->ownedShop->code]));
+
+        $attendance = EmployeeAttendance::query()
+            ->where('employee_id', $employee->id)
+            ->whereDate('attendance_date', today())
+            ->first();
+
+        $this->assertNotNull($attendance);
+        $this->assertSame('leave', $attendance->status);
+        $this->assertSame('Family emergency', $attendance->notes);
+
+        $leaveRequest = EmployeeLeaveRequest::query()->where('employee_id', $employee->id)->first();
+        $this->assertNotNull($leaveRequest);
+        $this->assertSame('pending', $leaveRequest->status);
+        $this->assertSame('Family emergency', $leaveRequest->reason);
+    }
+
     public function test_shop_owner_dashboard_lists_staff_module(): void
     {
         $response = $this->actingAs($this->owner)->get(route('shop-owner.staff.index'));
 
         $response->assertOk();
         $response->assertSee('Owned Shop Staff');
+        $response->assertSee('Owner Check-In');
+    }
+
+    public function test_shop_user_without_owned_shop_assignment_cannot_access_staff_module(): void
+    {
+        $shopUser = User::factory()->create();
+        $shopUser->assignRole('shop');
+
+        $response = $this->actingAs($shopUser)->get(route('shop-owner.staff.index'));
+
+        $response->assertForbidden();
+    }
+
+    public function test_shop_owner_can_mark_self_check_in_for_today(): void
+    {
+        $ownerEmployee = $this->owner->employee()->firstOrFail();
+
+        $response = $this->actingAs($this->owner)->post(route('shop-owner.staff.attendance.store'), [
+            'employee_id' => $ownerEmployee->id,
+            'attendance_date' => today()->toDateString(),
+            'shop_id' => $this->ownedShop->id,
+            'status' => 'present',
+        ]);
+
+        $response->assertRedirect(route('shop-owner.staff.index', ['shop' => $this->ownedShop->code]));
+        $this->assertDatabaseHas('employee_attendances', [
+            'employee_id' => $ownerEmployee->id,
+            'shop_id' => $this->ownedShop->id,
+            'status' => 'present',
+            'source' => 'owner',
+        ]);
     }
 }

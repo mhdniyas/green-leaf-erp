@@ -51,6 +51,7 @@ class AttendanceService
                 'status' => $status,
                 'shop_id' => $shop?->id,
                 'marked_by' => $actor->id,
+                'marked_at' => now(),
                 'source' => $source,
                 'notes' => $notes,
             ],

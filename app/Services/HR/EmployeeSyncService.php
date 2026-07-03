@@ -45,7 +45,7 @@ class EmployeeSyncService
                 'default_monthly_salary' => 24000,
             ]
             : [
-                'name' => 'Other Shop Staff',
+                'name' => 'Shop Employees',
                 'staff_area' => 'shop',
                 'default_monthly_salary' => 18000,
             ];

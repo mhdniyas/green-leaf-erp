@@ -14,6 +14,8 @@ class DatabaseSeeder extends Seeder
             ProductSeeder::class,
             DemoUserSeeder::class,
             EmployeeCategorySeeder::class,
+            ShopEmployeeSeeder::class,
+            JuneStaffAttendanceSeeder::class,
             ShopAccountingCategorySeeder::class,
         ]);
     }

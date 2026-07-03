@@ -12,12 +12,12 @@ use Illuminate\Support\Carbon;
 
 class StaffDirectoryService
 {
-    public function paginateEmployees(?string $area = null, ?int $categoryId = null, ?string $search = null): LengthAwarePaginator
+    public function paginateEmployees(?string $area = null, ?string $categoryCode = null, ?string $search = null): LengthAwarePaginator
     {
         return Employee::query()
-            ->with(['category', 'defaultShop', 'user'])
+            ->with(['category', 'defaultShop', 'user.roles', 'user.ownedShopAssignments.shop'])
             ->when($area !== null && $area !== '', fn ($query) => $query->where('staff_area', $area))
-            ->when($categoryId !== null, fn ($query) => $query->where('employee_category_id', $categoryId))
+            ->when($categoryCode !== null && $categoryCode !== '', fn ($query) => $query->whereHas('category', fn ($categoryQuery) => $categoryQuery->where('code', $categoryCode)))
             ->when($search !== null && $search !== '', function ($query) use ($search): void {
                 $query->where(function ($employeeQuery) use ($search): void {
                     $employeeQuery

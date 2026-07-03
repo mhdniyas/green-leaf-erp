@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Database\Seeders;
 
 use App\Models\Shop;
+use App\Models\ShopOwnerAssignment;
 use App\Models\User;
 use App\Services\HR\EmployeeSyncService;
 use Illuminate\Database\Seeder;
@@ -76,8 +77,37 @@ class DemoUserSeeder extends Seeder
             app(EmployeeSyncService::class)->ensureForUser($user->fresh());
         }
 
+        foreach ($shops as $shop) {
+            $emailSlug = str($shop->code)->lower()->replace('_', '-');
+
+            $user = User::updateOrCreate(
+                ['email' => 'shop-'.$emailSlug.'@greenleaf.com'],
+                [
+                    'name' => $shop->name.' Demo',
+                    'password' => Hash::make('ShopOwner17'),
+                    'email_verified_at' => now(),
+                    'shop_id' => $shop->id,
+                    'registration_status' => 'approved',
+                    'approved_at' => now(),
+                    'approved_by' => null,
+                ]
+            );
+
+            $user->syncRoles(['shop']);
+
+            ShopOwnerAssignment::query()->updateOrCreate(
+                [
+                    'user_id' => $user->id,
+                    'shop_id' => $shop->id,
+                ],
+                []
+            );
+
+            app(EmployeeSyncService::class)->ensureForUser($user->fresh());
+        }
+
         User::query()->where('email', 'warehouse@greenleaf.com')->delete();
 
-        $this->command?->info('Core staff accounts seeded. Shop records are available for self-registration.');
+        $this->command?->info('Core staff accounts and shop-owner demo accounts seeded with owned-shop assignments.');
     }
 }

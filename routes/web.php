@@ -89,6 +89,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/finance/{invoice}', [ShopOwnerController::class, 'financeShow'])->name('finance.show');
         Route::get('/finance/{invoice}/pdf', [ShopOwnerController::class, 'financePdf'])->name('finance.pdf');
         Route::get('/staff', [ShopOwnerStaffController::class, 'index'])->name('staff.index');
+        Route::post('/staff/employees', [ShopOwnerStaffController::class, 'storeEmployeeAssignment'])->name('staff.employees.store');
         Route::post('/staff/attendance', [ShopOwnerStaffController::class, 'storeAttendance'])->name('staff.attendance.store');
         Route::post('/staff/leave-requests', [ShopOwnerStaffController::class, 'storeLeave'])->name('staff.leave-requests.store');
     });
@@ -324,7 +325,7 @@ Route::middleware('auth')->group(function () {
         Route::get('staff', [StaffManagementController::class, 'index'])->name('staff.index');
         Route::get('staff/employees', [StaffManagementController::class, 'employeesIndex'])->name('staff.employees.index');
         Route::post('staff', [StaffManagementController::class, 'store'])->name('staff.store');
-        Route::put('staff/{employee}', [StaffManagementController::class, 'update'])->name('staff.update');
+        Route::put('staff/{employee:employee_code}', [StaffManagementController::class, 'update'])->name('staff.update');
         Route::get('staff/categories', [StaffManagementController::class, 'categoriesIndex'])->name('staff.categories.index');
         Route::post('staff/categories', [StaffManagementController::class, 'storeCategory'])->name('staff.categories.store');
         Route::put('staff/categories/{employeeCategory}', [StaffManagementController::class, 'updateCategory'])->name('staff.categories.update');
@@ -334,7 +335,7 @@ Route::middleware('auth')->group(function () {
         Route::patch('staff/leaves/{leaveRequest}', [StaffManagementController::class, 'reviewLeave'])->name('staff.leaves.review');
         Route::get('staff/payroll', [StaffManagementController::class, 'payrollIndex'])->name('staff.payroll.index');
         Route::post('staff/payroll', [StaffManagementController::class, 'storePayroll'])->name('staff.payroll.store');
-        Route::get('staff/{employee}', [StaffManagementController::class, 'show'])->name('staff.show');
+        Route::get('staff/{employee:employee_code}', [StaffManagementController::class, 'show'])->name('staff.show');
         Route::get('daily-progress', DailyProgressController::class)->name('daily-progress');
         Route::get('activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
         Route::get('price-approvals', [DailyPriceApprovalController::class, 'index'])->name('price-approvals.index');
