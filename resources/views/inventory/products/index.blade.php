@@ -1,4 +1,4 @@
-<x-layouts.app title="Products">
+<x-layouts.inventory title="Products">
 
     <x-slot:actions>
         <a href="{{ route('inventory.products.create') }}"
@@ -140,4 +140,4 @@
         @endif
     </div>
 
-</x-layouts.app>
+</x-layouts.inventory>

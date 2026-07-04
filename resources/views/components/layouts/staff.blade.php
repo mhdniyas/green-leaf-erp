@@ -70,7 +70,7 @@
 @endphp
 
 <div class="min-h-screen lg:flex">
-    <aside id="staff-sidebar" class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-slate-200 bg-white transition-transform duration-300 lg:translate-x-0">
+    <aside id="staff-sidebar" class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-slate-200 bg-white transition-[width,transform] duration-300 lg:translate-x-0 lg:w-72">
         <div class="border-b border-slate-200 px-5 py-5">
             <div class="flex items-center gap-3">
                 <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-500 text-white shadow-sm">
@@ -78,7 +78,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a8.97 8.97 0 0 0 3.74-1.04 4.5 4.5 0 0 0-7.48-2.23m3.74 3.27v.28A10.94 10.94 0 0 1 12 21c-2.33 0-4.5-.73-6.28-1.98v-.29m12.56 0a5.97 5.97 0 0 0-12.56 0M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 2.25a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
                     </svg>
                 </div>
-                <div class="min-w-0">
+                <div class="min-w-0" data-sidebar-label>
                     <p class="truncate text-base font-black text-slate-950">Staff Management</p>
                     <p class="mt-1 text-[11px] font-black uppercase tracking-[0.2em] text-cyan-700">Admin Desk</p>
                 </div>
@@ -89,14 +89,14 @@
                 </button>
             </div>
 
-            <a href="{{ route('admin.overview') }}" class="mt-5 flex items-center justify-between rounded-[1.35rem] bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800">
-                <span>Admin Panel</span>
+            <a href="{{ route('admin.overview') }}" class="mt-5 flex items-center justify-between rounded-[1.35rem] bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800" data-sidebar-link>
+                <span data-sidebar-label>Admin Panel</span>
                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5H19.5V10.5M10.5 13.5 19.5 4.5M18 13.5V19.5H4.5V6H10.5" />
                 </svg>
             </a>
 
-            <div class="mt-4 rounded-[1.35rem] border border-slate-200 bg-slate-50 px-4 py-3">
+            <div class="mt-4 rounded-[1.35rem] border border-slate-200 bg-slate-50 px-4 py-3" data-sidebar-full-only>
                 <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Signed In</p>
                 <p class="mt-2 truncate text-sm font-black text-slate-950">{{ $currentUser?->name }}</p>
                 <p class="mt-1 truncate text-xs font-semibold text-slate-500">{{ $currentUser?->email }}</p>
@@ -105,9 +105,9 @@
 
         <nav class="flex-1 space-y-2 overflow-y-auto px-4 py-5">
             @foreach($sidebarItems as $item)
-                <a href="{{ $item['href'] }}" class="flex items-center gap-3 rounded-[1.2rem] px-4 py-3 text-sm font-black transition {{ $item['active'] ? 'bg-cyan-50 text-cyan-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}">
+                <a href="{{ $item['href'] }}" class="flex items-center gap-3 rounded-[1.2rem] px-4 py-3 text-sm font-black transition {{ $item['active'] ? 'bg-cyan-50 text-cyan-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}" data-sidebar-link>
                     <span class="{{ $item['active'] ? 'text-cyan-700' : 'text-slate-400' }}">{!! $item['icon'] !!}</span>
-                    <span>{{ $item['label'] }}</span>
+                    <span data-sidebar-label>{{ $item['label'] }}</span>
                 </a>
             @endforeach
         </nav>
@@ -115,8 +115,11 @@
         <div class="border-t border-slate-200 px-4 py-4">
             <form method="POST" action="{{ route('logout') }}">
                 @csrf
-                <button type="submit" class="flex w-full items-center justify-center rounded-[1.2rem] border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-100">
-                    Sign Out
+                <button type="submit" class="flex w-full items-center justify-center gap-3 rounded-[1.2rem] border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-100" data-sidebar-link>
+                    <svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6A2.25 2.25 0 0 0 5.25 5.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
+                    </svg>
+                    <span data-sidebar-label>Sign Out</span>
                 </button>
             </form>
         </div>
@@ -124,24 +127,35 @@
 
     <div id="staff-sidebar-overlay" class="fixed inset-0 z-40 hidden bg-slate-950/45 lg:hidden"></div>
 
-    <div class="flex min-h-screen flex-1 flex-col lg:pl-72">
-        <header class="sticky top-0 z-30 border-b border-slate-200 bg-white/92 backdrop-blur-md">
-            <div class="flex items-center gap-3 px-4 py-4 sm:px-6 lg:px-8">
+    <div id="staff-content-shell" class="flex min-h-screen flex-1 flex-col transition-[padding] duration-300 lg:pl-72">
+        <header class="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur-md">
+            <div class="flex items-center gap-3 px-4 py-5 sm:px-6 lg:px-8">
                 <button id="staff-sidebar-open" class="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-700 lg:hidden">
                     <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
                     </svg>
                 </button>
 
+                <button id="staff-sidebar-desktop-toggle" type="button" class="hidden h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-700 transition hover:bg-slate-100 lg:inline-flex" title="Toggle Sidebar">
+                    <svg id="staff-sidebar-desktop-toggle-icon" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+                    </svg>
+                    <span class="sr-only">Toggle Sidebar</span>
+                </button>
+
                 <div class="min-w-0 flex-1">
-                    <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Green Leaf Traders</p>
-                    <h1 class="truncate text-lg font-black text-slate-950 sm:text-xl">{{ $title }}</h1>
+                    <p class="text-[11px] font-black uppercase tracking-[0.32em] text-slate-400">Green Leaf Traders</p>
+                    <h1 class="mt-1 truncate text-2xl font-black tracking-[-0.04em] text-slate-950 sm:text-[2rem]">{{ $title }}</h1>
                 </div>
 
-                <div class="hidden rounded-[1.2rem] border border-slate-200 bg-slate-50 px-4 py-2 text-right sm:block">
+                <div class="hidden rounded-[1.35rem] border border-slate-200 bg-slate-50/90 px-5 py-3 text-right shadow-sm sm:block">
                     <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Today</p>
                     <p class="mt-1 text-sm font-black text-slate-950">{{ today()->format('d M Y') }}</p>
                 </div>
+            </div>
+
+            <div class="border-t border-slate-100 px-4 py-4 sm:px-6 lg:px-8">
+                @include('components.admin-dashboard-switcher')
             </div>
         </header>
 
@@ -189,10 +203,19 @@
         const overlay = document.getElementById('staff-sidebar-overlay');
         const openButton = document.getElementById('staff-sidebar-open');
         const closeButton = document.getElementById('staff-sidebar-close');
+        const desktopToggleButton = document.getElementById('staff-sidebar-desktop-toggle');
+        const desktopToggleIcon = document.getElementById('staff-sidebar-desktop-toggle-icon');
+        const contentShell = document.getElementById('staff-content-shell');
+        const labelTargets = document.querySelectorAll('[data-sidebar-label]');
+        const fullOnlyTargets = document.querySelectorAll('[data-sidebar-full-only]');
+        const linkTargets = document.querySelectorAll('[data-sidebar-link]');
+        const desktopQuery = window.matchMedia('(min-width: 1024px)');
 
-        if (!sidebar || !overlay || !openButton || !closeButton) {
+        if (!sidebar || !overlay || !openButton || !closeButton || !desktopToggleButton || !desktopToggleIcon || !contentShell) {
             return;
         }
+
+        const collapsedStorageKey = 'staff_sidebar_collapsed';
 
         const openSidebar = () => {
             sidebar.classList.remove('-translate-x-full');
@@ -204,10 +227,51 @@
             overlay.classList.add('hidden');
         };
 
+        const setDesktopSidebarState = (collapsed) => {
+            const isDesktop = desktopQuery.matches;
+            const shouldCollapse = isDesktop && collapsed;
+
+            sidebar.classList.toggle('lg:w-24', shouldCollapse);
+            sidebar.classList.toggle('lg:w-72', !shouldCollapse);
+            contentShell.classList.toggle('lg:pl-24', shouldCollapse);
+            contentShell.classList.toggle('lg:pl-72', !shouldCollapse);
+
+            labelTargets.forEach((element) => {
+                element.classList.toggle('hidden', shouldCollapse);
+            });
+
+            fullOnlyTargets.forEach((element) => {
+                element.classList.toggle('hidden', shouldCollapse);
+            });
+
+            linkTargets.forEach((element) => {
+                element.classList.toggle('justify-center', shouldCollapse);
+            });
+
+            desktopToggleButton.setAttribute('title', shouldCollapse ? 'Expand Sidebar' : 'Collapse Sidebar');
+            desktopToggleIcon.innerHTML = shouldCollapse
+                ? '<path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5 15.75 12l-7.5 7.5" />'
+                : '<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />';
+        };
+
+        const applyDesktopPreference = () => {
+            setDesktopSidebarState(localStorage.getItem(collapsedStorageKey) === '1');
+        };
+
         openButton.addEventListener('click', openSidebar);
         closeButton.addEventListener('click', closeSidebar);
         overlay.addEventListener('click', closeSidebar);
+        desktopToggleButton.addEventListener('click', () => {
+            const nextState = localStorage.getItem(collapsedStorageKey) !== '1';
+
+            localStorage.setItem(collapsedStorageKey, nextState ? '1' : '0');
+            setDesktopSidebarState(nextState);
+        });
+        desktopQuery.addEventListener('change', applyDesktopPreference);
+
+        applyDesktopPreference();
     })();
 </script>
+@stack('scripts')
 </body>
 </html>

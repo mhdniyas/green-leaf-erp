@@ -1,4 +1,4 @@
-<x-layouts.app title="Delivery Operations Dashboard">
+<x-layouts.inventory title="Delivery Operations Dashboard">
     <x-slot:actions>
         <div class="flex items-center gap-2">
             <a href="{{ route('inventory.deliveries.dashboard', ['date' => \Carbon\Carbon::parse($date)->subDay()->format('Y-m-d')]) }}" class="p-2 bg-white rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-sm" title="Previous Day">
@@ -516,4 +516,4 @@
             }, 30000);
         </script>
     @endpush
-</x-layouts.app>
+</x-layouts.inventory>

@@ -73,8 +73,8 @@
     ];
 @endphp
 
-<div class="min-h-screen lg:flex">
-    <aside id="accounting-sidebar" class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-slate-200 bg-white transition-transform duration-300 lg:translate-x-0">
+<div id="accounting-layout-shell" class="min-h-screen lg:flex" data-sidebar-state="expanded">
+    <aside id="accounting-sidebar" class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-slate-200 bg-white transition-[width,transform] duration-300 lg:translate-x-0">
         <div class="border-b border-slate-200 px-5 py-5">
             <div class="flex items-center gap-3">
                 <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500 text-white shadow-sm">
@@ -83,9 +83,14 @@
                     </svg>
                 </div>
                 <div class="min-w-0">
-                    <p class="truncate text-base font-black text-slate-950">Accounting</p>
-                    <p class="mt-1 text-[11px] font-black uppercase tracking-[0.2em] text-emerald-700">Admin Desk</p>
+                    <p data-accounting-sidebar-label class="truncate text-base font-black text-slate-950">Accounting</p>
+                    <p data-accounting-sidebar-label class="mt-1 text-[11px] font-black uppercase tracking-[0.2em] text-emerald-700">Admin Desk</p>
                 </div>
+                <button id="accounting-sidebar-collapse" type="button" class="hidden rounded-2xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 lg:inline-flex" aria-label="Collapse accounting sidebar" title="Collapse sidebar">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+                    </svg>
+                </button>
                 <button id="accounting-sidebar-close" class="ml-auto rounded-2xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 lg:hidden">
                     <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -94,7 +99,7 @@
             </div>
 
             <a href="{{ route('admin.overview') }}" class="mt-5 flex items-center justify-between rounded-[1.35rem] bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800">
-                <span>Admin Panel</span>
+                <span data-accounting-sidebar-label>Admin Panel</span>
                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5H19.5V10.5M10.5 13.5 19.5 4.5M18 13.5V19.5H4.5V6H10.5" />
                 </svg>
@@ -102,16 +107,16 @@
 
             <div class="mt-4 rounded-[1.35rem] border border-slate-200 bg-slate-50 px-4 py-3">
                 <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Signed In</p>
-                <p class="mt-2 truncate text-sm font-black text-slate-950">{{ $currentUser?->name }}</p>
-                <p class="mt-1 truncate text-xs font-semibold text-slate-500">{{ $currentUser?->email }}</p>
+                <p data-accounting-sidebar-label class="mt-2 truncate text-sm font-black text-slate-950">{{ $currentUser?->name }}</p>
+                <p data-accounting-sidebar-label class="mt-1 truncate text-xs font-semibold text-slate-500">{{ $currentUser?->email }}</p>
             </div>
         </div>
 
         <nav class="flex-1 space-y-2 overflow-y-auto px-4 py-5">
             @foreach($sidebarItems as $item)
-                <a href="{{ $item['href'] }}" class="flex items-center gap-3 rounded-[1.2rem] px-4 py-3 text-sm font-black transition {{ $item['active'] ? 'bg-emerald-50 text-emerald-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}">
+                <a href="{{ $item['href'] }}" title="{{ $item['label'] }}" class="flex items-center gap-3 rounded-[1.2rem] px-4 py-3 text-sm font-black transition {{ $item['active'] ? 'bg-emerald-50 text-emerald-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}">
                     <span class="{{ $item['active'] ? 'text-emerald-700' : 'text-slate-400' }}">{!! $item['icon'] !!}</span>
-                    <span>{{ $item['label'] }}</span>
+                    <span data-accounting-sidebar-label>{{ $item['label'] }}</span>
                 </a>
             @endforeach
         </nav>
@@ -128,24 +133,33 @@
 
     <div id="accounting-sidebar-overlay" class="fixed inset-0 z-40 hidden bg-slate-950/45 lg:hidden"></div>
 
-    <div class="flex min-h-screen flex-1 flex-col lg:pl-72">
-        <header class="sticky top-0 z-30 border-b border-slate-200 bg-white/92 backdrop-blur-md">
-            <div class="flex items-center gap-3 px-4 py-4 sm:px-6 lg:px-8">
+    <div id="accounting-main" class="flex min-h-screen flex-1 flex-col lg:pl-72">
+        <header class="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur-md">
+            <div class="flex items-center gap-3 px-4 py-5 sm:px-6 lg:px-8">
                 <button id="accounting-sidebar-open" class="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-700 lg:hidden">
                     <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
                     </svg>
                 </button>
+                <button id="accounting-sidebar-toggle" type="button" class="hidden h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-700 transition hover:bg-slate-100 lg:inline-flex" aria-label="Toggle accounting sidebar" title="Toggle sidebar">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+                    </svg>
+                </button>
 
                 <div class="min-w-0 flex-1">
-                    <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Green Leaf Traders</p>
-                    <h1 class="truncate text-lg font-black text-slate-950 sm:text-xl">{{ $title }}</h1>
+                    <p class="text-[11px] font-black uppercase tracking-[0.32em] text-slate-400">Green Leaf Traders</p>
+                    <h1 class="mt-1 truncate text-2xl font-black tracking-[-0.04em] text-slate-950 sm:text-[2rem]">{{ $title }}</h1>
                 </div>
 
-                <div class="hidden rounded-[1.2rem] border border-slate-200 bg-slate-50 px-4 py-2 text-right sm:block">
+                <div class="hidden rounded-[1.35rem] border border-slate-200 bg-slate-50/90 px-5 py-3 text-right shadow-sm sm:block">
                     <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Today</p>
                     <p class="mt-1 text-sm font-black text-slate-950">{{ today()->format('d M Y') }}</p>
                 </div>
+            </div>
+
+            <div class="border-t border-slate-100 px-4 py-4 sm:px-6 lg:px-8">
+                @include('components.admin-dashboard-switcher')
             </div>
         </header>
 
@@ -189,14 +203,48 @@
 
 <script>
     (() => {
+        const storageKey = 'accounting-sidebar-state';
+        const shell = document.getElementById('accounting-layout-shell');
         const sidebar = document.getElementById('accounting-sidebar');
+        const main = document.getElementById('accounting-main');
         const overlay = document.getElementById('accounting-sidebar-overlay');
         const openButton = document.getElementById('accounting-sidebar-open');
         const closeButton = document.getElementById('accounting-sidebar-close');
+        const collapseButton = document.getElementById('accounting-sidebar-collapse');
+        const toggleButton = document.getElementById('accounting-sidebar-toggle');
+        const labels = document.querySelectorAll('[data-accounting-sidebar-label]');
 
-        if (!sidebar || !overlay || !openButton || !closeButton) {
+        if (!shell || !sidebar || !main || !overlay || !openButton || !closeButton) {
             return;
         }
+
+        const syncDesktopState = (state) => {
+            const isCollapsed = state === 'collapsed';
+            shell.dataset.sidebarState = state;
+
+            if (window.innerWidth >= 1024) {
+                sidebar.classList.toggle('lg:w-72', !isCollapsed);
+                sidebar.classList.toggle('lg:w-24', isCollapsed);
+                main.classList.toggle('lg:pl-72', !isCollapsed);
+                main.classList.toggle('lg:pl-24', isCollapsed);
+                labels.forEach((label) => {
+                    label.classList.toggle('hidden', isCollapsed);
+                });
+            } else {
+                sidebar.classList.remove('lg:w-24');
+                sidebar.classList.add('lg:w-72');
+                main.classList.remove('lg:pl-24');
+                main.classList.add('lg:pl-72');
+                labels.forEach((label) => {
+                    label.classList.remove('hidden');
+                });
+            }
+        };
+
+        const setDesktopState = (state) => {
+            localStorage.setItem(storageKey, state);
+            syncDesktopState(state);
+        };
 
         const openSidebar = () => {
             sidebar.classList.remove('-translate-x-full');
@@ -211,6 +259,22 @@
         openButton.addEventListener('click', openSidebar);
         closeButton.addEventListener('click', closeSidebar);
         overlay.addEventListener('click', closeSidebar);
+
+        const toggleDesktopSidebar = () => {
+            if (window.innerWidth < 1024) {
+                return;
+            }
+
+            setDesktopState(shell.dataset.sidebarState === 'collapsed' ? 'expanded' : 'collapsed');
+        };
+
+        collapseButton?.addEventListener('click', toggleDesktopSidebar);
+        toggleButton?.addEventListener('click', toggleDesktopSidebar);
+
+        syncDesktopState(localStorage.getItem(storageKey) === 'collapsed' ? 'collapsed' : 'expanded');
+        window.addEventListener('resize', () => {
+            syncDesktopState(localStorage.getItem(storageKey) === 'collapsed' ? 'collapsed' : 'expanded');
+        });
     })();
 </script>
 </body>

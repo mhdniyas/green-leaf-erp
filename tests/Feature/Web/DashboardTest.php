@@ -317,19 +317,20 @@ class DashboardTest extends TestCase
         $response = $this->actingAs($manager)
             ->get(route('dashboard'));
 
-        $response->assertRedirect(route('purchasing.orders.index'));
+        $response->assertRedirect(route('purchasing.dashboard'));
 
         $dashboardResponse = $this->actingAs($manager)
-            ->get(route('purchasing.orders.index'));
+            ->followingRedirects()
+            ->get(route('purchasing.dashboard'));
 
         $dashboardResponse->assertOk();
-        $dashboardResponse->assertSee('Purchase Manager Dashboard');
+        $dashboardResponse->assertSee('Purchasing Dashboard');
         $dashboardResponse->assertSee('Total shop orders');
         $dashboardResponse->assertSee('Delivery done');
         $dashboardResponse->assertSee('Open Approve Shop Orders');
+        $dashboardResponse->assertSee('Goods Receipts');
+        $dashboardResponse->assertSee('Shop Daily Invoices');
         $dashboardResponse->assertDontSee('Purchaser Desk');
-        $dashboardResponse->assertSee('bottom-0 z-[70] px-2', false);
-        $dashboardResponse->assertSee('min-h-[64px] w-full max-w-lg items-center gap-1 rounded-2xl', false);
     }
 
     public function test_dashboard_renders_requisition_and_approved_board_modules_for_purchase_approver(): void
@@ -355,7 +356,7 @@ class DashboardTest extends TestCase
             ->get(route('purchasing.orders.index'));
 
         $response->assertOk();
-        $response->assertSee('Purchase Manager Dashboard');
+        $response->assertSee('Purchasing Dashboard');
         $response->assertSee('Total shop orders');
         $response->assertSee('Delivery done');
         $response->assertSee('Open Approve Shop Orders');

@@ -4,7 +4,7 @@ $statusColors = ['pending' => 'bg-amber-100 text-amber-700', 'sorted' => 'bg-gre
 $statusColor = $statusColors[$batch->status->value] ?? 'bg-gray-100 text-gray-600';
 @endphp
 
-<x-layouts.app title="Batch: {{ $batch->reference }}">
+<x-layouts.inventory title="Batch: {{ $batch->reference }}">
 
     <x-slot:actions>
         @if($batch->canBeSorted())
@@ -142,4 +142,4 @@ $statusColor = $statusColors[$batch->status->value] ?? 'bg-gray-100 text-gray-60
 
     </div>
 
-</x-layouts.app>
+</x-layouts.inventory>

@@ -1,4 +1,4 @@
-<x-layouts.app title="System Activity Logs">
+<x-layouts.admin title="System Activity Logs">
     <div class="max-w-7xl mx-auto space-y-6">
         <!-- Header -->
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">

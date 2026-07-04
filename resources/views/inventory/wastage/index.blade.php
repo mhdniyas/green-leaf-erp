@@ -1,4 +1,4 @@
-<x-layouts.app title="Wastage Log">
+<x-layouts.inventory title="Wastage Log">
 
     <x-slot:actions>
         <a href="{{ route('inventory.wastage.create') }}"
@@ -78,4 +78,4 @@
         @endif
     </div>
 
-</x-layouts.app>
+</x-layouts.inventory>

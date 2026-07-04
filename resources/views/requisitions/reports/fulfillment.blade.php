@@ -1,4 +1,4 @@
-<x-layouts.app title="Fulfillment & Delivery Analytics Report">
+<x-layouts.inventory title="Fulfillment & Delivery Analytics Report">
     <div class="max-w-7xl mx-auto space-y-6">
         <!-- Dashboard Intro -->
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
@@ -329,4 +329,4 @@
             </div>
         </div>
     </div>
-</x-layouts.app>
+</x-layouts.inventory>

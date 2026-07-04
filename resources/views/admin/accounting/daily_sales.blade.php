@@ -167,11 +167,8 @@
                         <div>
                             <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Daily Invoices</p>
                             <h4 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Invoice list</h4>
-                            <p class="mt-2 text-sm font-semibold leading-6 text-slate-600">Exact invoice rows for the day with status and open action.</p>
+                            <p class="mt-2 text-sm font-semibold leading-6 text-slate-600">Exact invoice rows for the day in read-only accounting view.</p>
                         </div>
-                        <a href="{{ route('purchasing.shop-invoices.index') }}" class="inline-flex h-10 items-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-emerald-700 transition hover:bg-emerald-100">
-                            Shop Invoices
-                        </a>
                     </div>
 
                     <div class="overflow-x-auto rounded-[1.5rem] border border-slate-200">
@@ -184,7 +181,6 @@
                                     <th class="px-4 py-3 text-right">Paid</th>
                                     <th class="px-4 py-3 text-right">Balance</th>
                                     <th class="px-4 py-3">Status</th>
-                                    <th class="px-4 py-3 text-right">Open</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100 text-sm">
@@ -206,15 +202,10 @@
                                                 {{ (float) $invoice->balance_amount > 0 ? 'Pending' : 'Settled' }}
                                             </span>
                                         </td>
-                                        <td class="px-4 py-3 text-right">
-                                            <a href="{{ route('purchasing.shop-invoices.show', $invoice) }}" class="inline-flex h-8 items-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">
-                                                Open
-                                            </a>
-                                        </td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="7" class="px-4 py-10 text-center text-sm font-bold text-slate-500">No invoice rows for the selected filter.</td>
+                                        <td colspan="6" class="px-4 py-10 text-center text-sm font-bold text-slate-500">No invoice rows for the selected filter.</td>
                                     </tr>
                                 @endforelse
                             </tbody>

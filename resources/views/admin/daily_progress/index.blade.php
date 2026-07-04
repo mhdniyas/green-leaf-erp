@@ -1,4 +1,4 @@
-<x-layouts.app title="Daily Operational Progress">
+<x-layouts.admin title="Daily Operational Progress">
     <div class="max-w-7xl mx-auto space-y-6">
         <!-- Header & Date Navigation -->
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">

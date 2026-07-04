@@ -72,7 +72,7 @@ class PurchaseInvoiceController extends Controller
             'outstanding_amount' => round(max(0, (float) $invoices->sum('amount') - (float) $invoices->sum('paid_amount')), 2),
         ];
 
-        return view('purchasing.invoices.index', [
+        return view('purchase-manager.invoices.index', [
             'date' => $date->format('Y-m-d'),
             'invoices' => $invoices,
             'vendorSections' => $vendorSections,
@@ -103,7 +103,7 @@ class PurchaseInvoiceController extends Controller
         $paidAmount = round((float) $historySummaryInvoices->sum('paid_amount'), 2);
         $outstandingAmount = round(max(0, $totalAmount - $paidAmount), 2);
 
-        return view('purchasing.invoices.vendor-report', [
+        return view('purchase-manager.invoices.vendor-report', [
             'date' => $date->format('Y-m-d'),
             'vendor' => $supplier,
             'historyInvoices' => $historyInvoices,
@@ -188,14 +188,7 @@ class PurchaseInvoiceController extends Controller
             'purchaserCart',
         ]);
 
-        return view('purchasing.invoices.show', [
-            'invoice' => $invoice,
-            'paymentUpdateRouteName' => 'purchasing.invoices.update-payment',
-            'billPdfRouteName' => 'purchasing.invoices.pdf',
-            'backRouteName' => 'purchasing.invoices.index',
-            'backRouteParameters' => ['date' => $invoice->purchaserCart?->business_date?->format('Y-m-d')],
-            'financeAudience' => 'manager',
-        ]);
+        return view('purchase-manager.invoices.show', compact('invoice'));
     }
 
     public function pdf(PurchaseInvoice $invoice): View

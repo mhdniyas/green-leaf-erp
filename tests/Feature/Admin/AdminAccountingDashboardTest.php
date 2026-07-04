@@ -99,7 +99,12 @@ class AdminAccountingDashboardTest extends TestCase
             ->get(route('admin.accounting.index', ['date' => '2026-06-12']))
             ->assertOk()
             ->assertSee('Accounting Dashboard')
-            ->assertSee('Vendor Reports')
+            ->assertSee('accounting-sidebar-toggle', false)
+            ->assertSee('data-admin-dashboard-switcher', false)
+            ->assertSee('Admin')
+            ->assertSee('Purchasing Dashboard')
+            ->assertSee('Inventory')
+            ->assertSee('Staff')
             ->assertSee('Owned Shop Accounting')
             ->assertSee('Cash Flow Report')
             ->assertSee('Combined purchaser and owned shop cash journal')
@@ -207,6 +212,7 @@ class AdminAccountingDashboardTest extends TestCase
             ->assertSee('Owned Outlet')
             ->assertSee('Pending')
             ->assertDontSee('SINV-OTHER-SHOP')
+            ->assertDontSee(route('purchasing.shop-invoices.index'), false)
             ->assertDontSee('Sales Daily View');
     }
 
@@ -617,16 +623,16 @@ class AdminAccountingDashboardTest extends TestCase
         $this->actingAs($this->admin)
             ->get(route('admin.accounting.index', ['date' => '2026-06-24']))
             ->assertOk()
-            ->assertSee('Vendor Reports')
+            ->assertSee('Purchasing Dashboard')
             ->assertSee('Cash Flow Report')
-            ->assertSee('Daily Shop Invoices')
+            ->assertSee('Purchasing workflow moved out of admin')
             ->assertSee('Purchaser Cash Flow')
             ->assertSee('Owned Shop Accounting')
             ->assertDontSee('Shop Sales Table')
             ->assertDontSee('Vendor Cash Flow')
             ->assertSee('Rs. 1,000.00')
             ->assertSee('Owned Outlet')
-            ->assertSee('SINV-OWN-001')
+            ->assertDontSee('SINV-OWN-001')
             ->assertSee($purchaser->name);
     }
 

@@ -172,19 +172,13 @@
                                     </div>
 
                                     @if ($paymentRequest->status === 'pending')
-                                        <form method="POST" action="{{ route('purchasing.shop-invoices.payment-requests.review', $paymentRequest) }}" class="space-y-3">
-                                            @csrf
-                                            @method('PATCH')
-                                            <textarea name="admin_note" rows="3" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none" placeholder="Optional approval note"></textarea>
-                                            <div class="flex flex-col gap-3 sm:flex-row">
-                                                <button type="submit" name="decision" value="approve" class="inline-flex h-11 items-center justify-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
-                                                    Approve Payment
-                                                </button>
-                                                <button type="submit" name="decision" value="reject" class="inline-flex h-11 items-center justify-center rounded-2xl bg-red-600 px-5 text-sm font-black text-white transition hover:bg-red-500">
-                                                    Reject
-                                                </button>
-                                            </div>
-                                        </form>
+                                        <div class="rounded-[1.1rem] border border-sky-200 bg-sky-50 px-4 py-3">
+                                            <p class="text-sm font-black text-sky-900">Review moved to Purchasing Dashboard.</p>
+                                            <p class="mt-1 text-sm font-semibold text-sky-800">Payment approvals are no longer handled from admin accounting.</p>
+                                            <a href="{{ route('purchasing.dashboard') }}" class="mt-3 inline-flex h-10 items-center rounded-2xl bg-slate-950 px-4 text-xs font-black uppercase tracking-[0.16em] text-white transition hover:bg-slate-800">
+                                                Open Purchasing Dashboard
+                                            </a>
+                                        </div>
                                     @elseif ($paymentRequest->admin_note)
                                         <p class="text-sm font-semibold text-slate-700">Admin note: {{ $paymentRequest->admin_note }}</p>
                                     @endif

@@ -1,4 +1,4 @@
-<x-layouts.app title="Users & Roles">
+<x-layouts.admin title="Users & Roles">
 
     <x-slot:actions>
         @can('create', \App\Models\User::class)

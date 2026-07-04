@@ -1,6 +1,6 @@
 @extends('purchase-manager.layouts.app')
 
-@section('title', 'Purchase Invoice Details')
+@section('title', 'Supplier Bill Details')
 @section('page_title', $invoice->invoice_number)
 @section('page_description', 'Review invoice matching, supplier billing amount, GRN linkage, and payment workflow actions.')
 

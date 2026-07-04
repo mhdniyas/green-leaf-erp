@@ -3,7 +3,7 @@
 $units = ['kg' => 'Kilogram (kg)', 'box' => 'Box', 'bunch' => 'Bunch', 'piece' => 'Piece', 'bag' => 'Bag'];
 @endphp
 
-<x-layouts.app title="{{ isset($product) ? 'Edit Product' : 'Add Product' }}">
+<x-layouts.inventory title="{{ isset($product) ? 'Edit Product' : 'Add Product' }}">
 
     <div class="max-w-2xl">
         <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -328,4 +328,4 @@ $units = ['kg' => 'Kilogram (kg)', 'box' => 'Box', 'bunch' => 'Bunch', 'piece' =
         </script>
     @endpush
 
-</x-layouts.app>
+</x-layouts.inventory>

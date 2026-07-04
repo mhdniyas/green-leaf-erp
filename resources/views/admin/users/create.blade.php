@@ -1,4 +1,4 @@
-<x-layouts.app title="Add User">
+<x-layouts.admin title="Add User">
 
     <x-slot:actions>
         <a href="{{ route('admin.users.index') }}" class="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors">

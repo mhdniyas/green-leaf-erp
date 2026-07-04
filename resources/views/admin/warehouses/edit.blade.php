@@ -1,4 +1,4 @@
-<x-layouts.app title="Edit Warehouse">
+<x-layouts.admin title="Edit Warehouse">
 
     <div class="max-w-xl">
         <div class="bg-white rounded-2xl border border-gray-200 p-6 shadow-xs">

@@ -48,12 +48,6 @@ class AdminAccountingController extends Controller
         $ownedMetrics = $this->ownedShopAccountingService->dashboardMetrics($date);
         $eligibleShops = $this->ownedShopAccountingService->eligibleShops()->take(6);
         $purchaserCashRows = $this->purchaserCashRows($date);
-        $dailyShopInvoices = ShopInvoice::query()
-            ->whereDate('business_date', $date)
-            ->with(['shop', 'order'])
-            ->latest('id')
-            ->limit(18)
-            ->get();
 
         return view('admin.accounting.index', compact(
             'date',
@@ -62,7 +56,6 @@ class AdminAccountingController extends Controller
             'ownedMetrics',
             'eligibleShops',
             'purchaserCashRows',
-            'dailyShopInvoices',
         ));
     }
 

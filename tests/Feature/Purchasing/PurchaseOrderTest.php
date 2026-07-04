@@ -63,7 +63,9 @@ class PurchaseOrderTest extends TestCase
             ->get(route('purchasing.orders.index'));
 
         $response->assertOk();
-        $response->assertSee('Purchase Manager Dashboard');
+        $response->assertSee('Purchasing Dashboard');
+        $response->assertDontSee('data-admin-dashboard-switcher', false);
+        $response->assertDontSee('Accounting');
         $response->assertSee('Total shop orders');
     }
 
@@ -97,7 +99,7 @@ class PurchaseOrderTest extends TestCase
             ->get(route('purchasing.orders.index'));
 
         $response->assertOk();
-        $response->assertSee('Purchase Manager Dashboard');
+        $response->assertSee('Purchasing Dashboard');
         $response->assertSee('Total shop orders');
         $response->assertSee('Delivery done');
         $response->assertSee('Purchase Dashboard Shop');

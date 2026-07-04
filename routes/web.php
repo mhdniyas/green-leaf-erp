@@ -42,6 +42,7 @@ use App\Http\Controllers\Web\ShopPresetController;
 use App\Http\Controllers\Web\SortSheetController;
 use App\Http\Controllers\Web\Warehouse\WarehouseLoadoutController;
 use App\Http\Controllers\Web\Warehouse\WarehouseReceiverController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 // Root redirect
@@ -96,6 +97,12 @@ Route::middleware('auth')->group(function () {
 
     // ── Inventory ──────────────────────────────────────────────────────────
     Route::prefix('inventory')->name('inventory.')->group(function () {
+        Route::get('dashboard', function (Request $request) {
+            return redirect()->route(
+                'inventory.deliveries.dashboard',
+                $request->filled('date') ? ['date' => $request->string('date')->toString()] : []
+            );
+        })->name('dashboard');
 
         // Products
         Route::resource('products', ProductController::class);
@@ -134,6 +141,8 @@ Route::middleware('auth')->group(function () {
 
     // ── Purchasing ─────────────────────────────────────────────────────────
     Route::prefix('purchasing')->name('purchasing.')->group(function () {
+        Route::get('dashboard', fn () => redirect()->route('purchasing.orders.index'))->name('dashboard');
+
         // Suppliers
         Route::resource('suppliers', SupplierController::class);
         Route::post('suppliers/{supplier}/credit-request', [SupplierController::class, 'requestCreditApproval'])->name('suppliers.credit-request');
@@ -325,16 +334,23 @@ Route::middleware('auth')->group(function () {
         Route::get('staff', [StaffManagementController::class, 'index'])->name('staff.index');
         Route::get('staff/employees', [StaffManagementController::class, 'employeesIndex'])->name('staff.employees.index');
         Route::post('staff', [StaffManagementController::class, 'store'])->name('staff.store');
+        Route::post('staff/sync-users', [StaffManagementController::class, 'syncLinkedUsers'])->name('staff.sync-users');
         Route::put('staff/{employee:employee_code}', [StaffManagementController::class, 'update'])->name('staff.update');
+        Route::patch('staff/{employee:employee_code}/employment-status', [StaffManagementController::class, 'updateEmploymentStatus'])->name('staff.employment-status.update');
         Route::get('staff/categories', [StaffManagementController::class, 'categoriesIndex'])->name('staff.categories.index');
         Route::post('staff/categories', [StaffManagementController::class, 'storeCategory'])->name('staff.categories.store');
         Route::put('staff/categories/{employeeCategory}', [StaffManagementController::class, 'updateCategory'])->name('staff.categories.update');
         Route::get('staff/attendance', [StaffManagementController::class, 'attendanceIndex'])->name('staff.attendance');
         Route::post('staff/attendance', [StaffManagementController::class, 'storeAttendance'])->name('staff.attendance.store');
         Route::get('staff/leaves', [StaffManagementController::class, 'leavesIndex'])->name('staff.leaves.index');
+        Route::post('staff/leaves', [StaffManagementController::class, 'storeLeave'])->name('staff.leaves.store');
         Route::patch('staff/leaves/{leaveRequest}', [StaffManagementController::class, 'reviewLeave'])->name('staff.leaves.review');
         Route::get('staff/payroll', [StaffManagementController::class, 'payrollIndex'])->name('staff.payroll.index');
+        Route::get('staff/payroll/export/excel', [StaffManagementController::class, 'exportPayrollExcel'])->name('staff.payroll.export.excel');
+        Route::get('staff/payroll/export/pdf', [StaffManagementController::class, 'exportPayrollPdf'])->name('staff.payroll.export.pdf');
         Route::post('staff/payroll', [StaffManagementController::class, 'storePayroll'])->name('staff.payroll.store');
+        Route::patch('staff/payroll/{payrollRun}/items/{payrollRunItem}', [StaffManagementController::class, 'updatePayrollItem'])->name('staff.payroll.items.update');
+        Route::post('staff/payroll/{payrollRun}/finalize', [StaffManagementController::class, 'finalizePayroll'])->name('staff.payroll.finalize');
         Route::get('staff/{employee:employee_code}', [StaffManagementController::class, 'show'])->name('staff.show');
         Route::get('daily-progress', DailyProgressController::class)->name('daily-progress');
         Route::get('activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');

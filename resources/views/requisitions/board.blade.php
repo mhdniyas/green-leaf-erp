@@ -1,3 +1,5 @@
+@extends('purchase-manager.layouts.app')
+
 @php
     $pendingDailyOrders = $orders->filter(fn($o) => !$o->is_late && ($o->state === 'submitted' || ($o->state === 'update_requested' && !$o->has_pending_revision)));
     $updateRequests = $orders->filter(fn($o) => $o->has_pending_revision);
@@ -9,68 +11,41 @@
         ->values();
 @endphp
 
-<x-layouts.app title="Approval Center (Consolidated Requisitions Board)">
-    <div class="mx-auto px-4 py-8 max-w-5xl">
-        {{-- Header Section --}}
-        <div class="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-                <p class="text-xs font-black uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-400">Purchasing Workflow</p>
-                <h1 class="mt-1 text-3xl font-black tracking-tight text-slate-950 dark:text-white">
-                    Approval Center
-                    <span class="sr-only">Consolidated Requisitions Board</span>
-                </h1>
-                <p class="mt-1 text-sm text-slate-600 dark:text-slate-400">Review, adjust, and approve daily shop requisitions, updates, and late submissions.</p>
-            </div>
-            
-            <div class="flex flex-wrap items-center gap-3">
-                @if($pendingDailyOrders->isNotEmpty())
-                    <form method="POST" action="{{ route('requisitions.board.approve-all') }}">
-                        @csrf
-                        <input type="hidden" name="date" value="{{ $date }}">
-                        <button type="submit" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black px-4 py-2.5 rounded-2xl transition shadow-md">
-                            Approve All Shops
-                        </button>
-                    </form>
-                @endif
+@section('title', 'Approve Shop Orders')
+@section('page_title', 'Approve Shop Orders')
+@section('page_description', 'Review, adjust, and approve daily shop requisitions, updates, and late submissions.')
 
-                {{-- Date Selector --}}
-                <form action="{{ route('requisitions.board') }}" method="GET" class="flex items-center gap-2 bg-white dark:bg-slate-900 px-4 py-2.5 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm">
-                    <label for="date-select" class="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">Delivery Date:</label>
-                    <input type="date" id="date-select" name="date" value="{{ $date }}" onchange="this.form.submit()" class="text-xs font-bold text-slate-700 dark:text-slate-300 bg-transparent border-0 focus:outline-none focus:ring-0 p-0 cursor-pointer">
-                </form>
+@section('page_actions')
+    @if($pendingDailyOrders->isNotEmpty())
+        <form method="POST" action="{{ route('requisitions.board.approve-all') }}">
+            @csrf
+            <input type="hidden" name="date" value="{{ $date }}">
+            <button type="submit" class="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white transition shadow-md hover:bg-emerald-700">
+                Approve All Shops
+            </button>
+        </form>
+    @endif
 
-                {{-- Exports --}}
-                <a href="{{ route('requisitions.board.export.csv', ['date' => $date]) }}" class="inline-flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold px-4 py-2.5 rounded-2xl transition shadow-sm border border-slate-200 dark:border-slate-700">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-                    CSV
-                </a>
+    <form action="{{ route('requisitions.board') }}" method="GET" class="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
+        <label for="date-select" class="text-[10px] font-black uppercase tracking-wider text-slate-400">Delivery Date</label>
+        <input type="date" id="date-select" name="date" value="{{ $date }}" onchange="this.form.submit()" class="cursor-pointer border-0 bg-transparent p-0 text-xs font-bold text-slate-700 focus:outline-none focus:ring-0">
+    </form>
 
-                <a href="{{ route('requisitions.board.export.pdf', ['date' => $date]) }}" target="_blank" class="inline-flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 text-xs font-bold px-4 py-2.5 rounded-2xl transition shadow-sm border border-emerald-100 dark:border-emerald-900/50">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-8.25A3.375 3.375 0 004.5 11.625v2.625m15 0v3.375A2.625 2.625 0 0116.875 20.25H7.125A2.625 2.625 0 014.5 17.625V14.25m15 0h-15M15 6V3.75A1.125 1.125 0 0013.875 2.625h-3.75A1.125 1.125 0 009 3.75V6" /></svg>
-                    PDF
-                </a>
+    <a href="{{ route('requisitions.board.export.csv', ['date' => $date]) }}" class="inline-flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-100 px-4 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-200">
+        CSV
+    </a>
 
-                <a href="{{ route('requisitions.approved_board', ['date' => $date]) }}" class="inline-flex items-center gap-1.5 bg-cyan-500 hover:bg-cyan-600 text-white text-xs font-black px-5 py-2.5 rounded-2xl transition shadow-md hover:shadow-lg">
-                    Consolidation
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" /></svg>
-                </a>
-            </div>
-        </div>
+    <a href="{{ route('requisitions.board.export.pdf', ['date' => $date]) }}" target="_blank" class="inline-flex items-center gap-1.5 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-2.5 text-xs font-bold text-emerald-700 shadow-sm transition hover:bg-emerald-100">
+        PDF
+    </a>
 
-        {{-- Alerts --}}
-        @if(session('success'))
-            <div class="mb-6 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/55 text-emerald-850 dark:text-emerald-450 text-xs font-semibold px-4 py-3.5 rounded-2xl flex items-center gap-2.5 shadow-sm">
-                <svg class="w-4 h-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                {{ session('success') }}
-            </div>
-        @endif
+    <a href="{{ route('requisitions.approved_board', ['date' => $date]) }}" class="inline-flex items-center gap-1.5 rounded-2xl bg-sky-500 px-5 py-2.5 text-xs font-black text-white transition shadow-md hover:bg-sky-600">
+        Approved Board
+    </a>
+@endsection
 
-        @if(session('error'))
-            <div class="mb-6 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/55 text-red-850 dark:text-red-450 text-xs font-semibold px-4 py-3.5 rounded-2xl flex items-center gap-2.5 shadow-sm">
-                <svg class="w-4 h-4 text-red-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                {{ session('error') }}
-            </div>
-        @endif
+@section('content')
+    <div class="mx-auto max-w-5xl">
 
         @if($boardFullyApproved)
             <div class="mb-6 rounded-3xl border border-emerald-200 dark:border-emerald-900/55 bg-emerald-50 dark:bg-emerald-950/20 px-5 py-4 text-emerald-900 dark:text-emerald-450 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -535,4 +510,4 @@
         });
     </script>
     @endpush
-</x-layouts.app>
+@endsection

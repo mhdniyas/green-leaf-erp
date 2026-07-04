@@ -48,6 +48,7 @@ class FulfillmentReportTest extends TestCase
             ->get(route('inventory.reports.fulfillment'));
 
         $response->assertOk();
+        $response->assertSee('inventory-sidebar-toggle', false);
         $response->assertSee('Fulfillment & Delivery Report');
     }
 

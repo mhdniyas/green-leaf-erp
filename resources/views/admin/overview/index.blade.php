@@ -1,4 +1,4 @@
-<x-layouts.app title="Admin Control Center">
+<x-layouts.admin title="Admin Control Center">
     @php
         $prevDate = $date->copy()->subDay()->format('Y-m-d');
         $nextDate = $date->copy()->addDay()->format('Y-m-d');

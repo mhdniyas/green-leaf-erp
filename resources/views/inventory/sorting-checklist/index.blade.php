@@ -1,4 +1,4 @@
-<x-layouts.app title="Warehouse Sorting Checklist">
+<x-layouts.inventory title="Warehouse Sorting Checklist">
 
     <x-slot:actions>
         <div class="flex items-center gap-2">
@@ -890,4 +890,4 @@
         </script>
     @endpush
 
-</x-layouts.app>
+</x-layouts.inventory>

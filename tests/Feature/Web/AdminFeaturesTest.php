@@ -81,7 +81,9 @@ class AdminFeaturesTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Accounting Dashboard');
-        $response->assertSee('Staff Dashboard');
+        $response->assertSee('Purchasing Dashboard');
+        $response->assertSee('Inventory Dashboard');
+        $response->assertSee('Staff Management');
         $response->assertSeeText('Users & Roles');
         $response->assertSee('Daily Progress');
         $response->assertSee('Activity Log');
@@ -156,5 +158,15 @@ class AdminFeaturesTest extends TestCase
         $response->assertSee('Purchase Lead');
         $response->assertSee('Online Shop');
         $response->assertSee('Users with direct control changes');
+    }
+
+    public function test_inventory_user_is_redirected_to_inventory_dashboard_from_dashboard(): void
+    {
+        $inventoryUser = User::factory()->create();
+        $inventoryUser->givePermissionTo('inventory.stock.view');
+
+        $response = $this->actingAs($inventoryUser)->get(route('dashboard'));
+
+        $response->assertRedirect(route('inventory.dashboard'));
     }
 }

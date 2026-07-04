@@ -4,37 +4,50 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Admin;
 
+use App\Exports\PayrollMonthExport;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Web\Admin\FinalizePayrollRunRequest;
 use App\Http\Requests\Web\Admin\ReviewEmployeeLeaveRequest;
+use App\Http\Requests\Web\Admin\StoreAdminEmployeeLeaveRequest;
 use App\Http\Requests\Web\Admin\StoreEmployeeCategoryRequest;
 use App\Http\Requests\Web\Admin\StoreEmployeeRequest;
 use App\Http\Requests\Web\Admin\StorePayrollRunRequest;
 use App\Http\Requests\Web\Admin\UpdateEmployeeCategoryRequest;
 use App\Http\Requests\Web\Admin\UpdateEmployeeRequest;
+use App\Http\Requests\Web\Admin\UpdateEmployeeStatusRequest;
+use App\Http\Requests\Web\Admin\UpdatePayrollRunItemRequest;
 use App\Http\Requests\Web\Admin\UpsertEmployeeAttendanceRequest;
 use App\Models\Employee;
 use App\Models\EmployeeAttendance;
 use App\Models\EmployeeCategory;
 use App\Models\EmployeeLeaveRequest as LeaveRequestModel;
 use App\Models\PayrollRun;
+use App\Models\PayrollRunItem;
 use App\Models\Shop;
 use App\Models\User;
 use App\Services\HR\AttendanceService;
+use App\Services\HR\EmployeeSyncService;
 use App\Services\HR\PayrollService;
 use App\Services\HR\StaffDirectoryService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\View\View;
+use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class StaffManagementController extends Controller
 {
+    private const PAGE_SIZE = 20;
+
     public function __construct(
         private readonly StaffDirectoryService $staffDirectoryService,
         private readonly AttendanceService $attendanceService,
         private readonly PayrollService $payrollService,
+        private readonly EmployeeSyncService $employeeSyncService,
     ) {}
 
     public function index(Request $request): View
@@ -182,6 +195,26 @@ class StaffManagementController extends Controller
         return redirect()->route('admin.staff.show', $employee)->with('success', 'Employee updated successfully.');
     }
 
+    public function updateEmploymentStatus(UpdateEmployeeStatusRequest $request, Employee $employee): RedirectResponse
+    {
+        $employee->update([
+            'employment_status' => $request->string('employment_status')->toString(),
+        ]);
+
+        return redirect()->route('admin.staff.show', $employee)
+            ->with('success', 'Employee status updated successfully.');
+    }
+
+    public function syncLinkedUsers(Request $request): RedirectResponse
+    {
+        Gate::authorize('create', Employee::class);
+
+        $syncedEmployees = $this->employeeSyncService->syncExistingUsers();
+
+        return redirect()->route('admin.staff.employees.index')
+            ->with('success', sprintf('%d linked user staff records were re-synced.', $syncedEmployees->count()));
+    }
+
     public function storeCategory(StoreEmployeeCategoryRequest $request): RedirectResponse
     {
         EmployeeCategory::query()->create([
@@ -224,7 +257,7 @@ class StaffManagementController extends Controller
             : null;
         $ownedShops = Shop::query()->ownedForStaff()->orderBy('name')->get();
 
-        $employees = Employee::query()
+        $employeeBaseQuery = Employee::query()
             ->with(['category', 'defaultShop'])
             ->when($staffArea !== '', fn ($query) => $query->where('staff_area', $staffArea))
             ->when($selectedCategory !== null, fn ($query) => $query->where('employee_category_id', $selectedCategory->id))
@@ -246,10 +279,9 @@ class StaffManagementController extends Controller
                         });
                 });
             })
-            ->orderBy('name')
-            ->get();
+            ->orderBy('name');
 
-        $attendanceRecords = EmployeeAttendance::query()
+        $statusAttendanceRecords = EmployeeAttendance::query()
             ->with(['employee.category', 'shop', 'markedBy'])
             ->whereDate('attendance_date', $selectedDate)
             ->when($shopId > 0, fn ($query) => $query->where('shop_id', $shopId))
@@ -270,25 +302,48 @@ class StaffManagementController extends Controller
                     });
                 });
             })
-            ->get()
-            ->keyBy('employee_id');
+            ->get();
 
         $statusCounts = [
-            'present' => $attendanceRecords->where('status', 'present')->count(),
-            'half_day' => $attendanceRecords->where('status', 'half_day')->count(),
-            'leave' => $attendanceRecords->where('status', 'leave')->count(),
-            'absent' => max(0, $employees->count() - $attendanceRecords->whereIn('status', ['present', 'half_day', 'leave'])->count()),
+            'present' => $statusAttendanceRecords->where('status', 'present')->count(),
+            'half_day' => $statusAttendanceRecords->where('status', 'half_day')->count(),
+            'leave' => $statusAttendanceRecords->where('status', 'leave')->count(),
+            'absent' => max(0, (clone $employeeBaseQuery)->count() - $statusAttendanceRecords->whereIn('status', ['present', 'half_day', 'leave'])->count()),
         ];
 
-        if (in_array($selectedStatus, ['present', 'half_day', 'leave', 'absent'], true)) {
-            $employees = $employees
-                ->filter(function (Employee $employee) use ($attendanceRecords, $selectedStatus): bool {
-                    $status = $attendanceRecords->get($employee->id)?->status ?? 'absent';
+        $employeesQuery = clone $employeeBaseQuery;
 
-                    return $status === $selectedStatus;
-                })
-                ->values();
+        if (in_array($selectedStatus, ['present', 'half_day', 'leave'], true)) {
+            $employeesQuery->whereHas('attendances', function (Builder $query) use ($selectedDate, $shopId, $selectedStatus): void {
+                $this->applyAttendanceDateScope($query, $selectedDate, $shopId);
+                $query->where('status', $selectedStatus);
+            });
         }
+
+        if ($selectedStatus === 'absent') {
+            $employeesQuery->where(function (Builder $query) use ($selectedDate, $shopId): void {
+                $query
+                    ->whereHas('attendances', function (Builder $attendanceQuery) use ($selectedDate, $shopId): void {
+                        $this->applyAttendanceDateScope($attendanceQuery, $selectedDate, $shopId);
+                        $attendanceQuery->where('status', 'absent');
+                    })
+                    ->orWhereDoesntHave('attendances', function (Builder $attendanceQuery) use ($selectedDate, $shopId): void {
+                        $this->applyAttendanceDateScope($attendanceQuery, $selectedDate, $shopId);
+                    });
+            });
+        }
+
+        $employees = $employeesQuery
+            ->paginate(self::PAGE_SIZE)
+            ->withQueryString();
+
+        $attendanceRecords = EmployeeAttendance::query()
+            ->with(['employee.category', 'shop', 'markedBy'])
+            ->whereDate('attendance_date', $selectedDate)
+            ->whereIn('employee_id', $employees->getCollection()->pluck('id'))
+            ->when($shopId > 0, fn ($query) => $query->where('shop_id', $shopId))
+            ->get()
+            ->keyBy('employee_id');
 
         return view('admin.staff.attendance', [
             'selectedDate' => $selectedDate,
@@ -338,11 +393,38 @@ class StaffManagementController extends Controller
         Gate::authorize('viewAny', LeaveRequestModel::class);
 
         return view('admin.staff.leaves', [
+            'employees' => Employee::query()
+                ->with(['category', 'defaultShop'])
+                ->orderBy('name')
+                ->get(),
+            'shops' => Shop::query()->ownedForStaff()->orderBy('name')->get(),
             'leaveRequests' => LeaveRequestModel::query()
                 ->with(['employee.category', 'submittedBy', 'submittedForShop', 'reviewedBy'])
                 ->latest('id')
-                ->paginate(12),
+                ->paginate(self::PAGE_SIZE)
+                ->withQueryString(),
         ]);
+    }
+
+    public function storeLeave(StoreAdminEmployeeLeaveRequest $request): RedirectResponse
+    {
+        $employee = Employee::query()->with('defaultShop')->findOrFail($request->integer('employee_id'));
+        $shopId = $employee->staff_area === 'shop'
+            ? ($request->filled('shop_id') ? $request->integer('shop_id') : $employee->default_shop_id)
+            : null;
+
+        LeaveRequestModel::query()->create([
+            'employee_id' => $employee->id,
+            'submitted_by' => $request->user()->id,
+            'submitted_for_shop_id' => $shopId,
+            'start_date' => $request->date('start_date'),
+            'end_date' => $request->date('end_date'),
+            'status' => 'pending',
+            'submission_type' => 'admin',
+            'reason' => $request->string('reason')->toString(),
+        ]);
+
+        return redirect()->route('admin.staff.leaves.index')->with('success', 'Leave request submitted for HR review.');
     }
 
     public function reviewLeave(ReviewEmployeeLeaveRequest $request, LeaveRequestModel $leaveRequest): RedirectResponse
@@ -375,12 +457,22 @@ class StaffManagementController extends Controller
         return redirect()->route('admin.staff.leaves.index')->with('success', 'Leave request reviewed successfully.');
     }
 
-    public function payrollIndex(): View
+    public function payrollIndex(Request $request): View
     {
         Gate::authorize('viewAny', PayrollRun::class);
 
+        $selectedPayrollMonth = $this->resolvePayrollMonth($request->string('payroll_month')->toString());
+        $monthStart = $selectedPayrollMonth->copy()->startOfMonth();
+        $monthEnd = $selectedPayrollMonth->copy()->endOfMonth();
+
         return view('admin.staff.payroll', [
-            'payrollRuns' => PayrollRun::query()->with(['items.employee', 'items.category', 'generatedBy', 'journalEntry'])->latest('period_start')->paginate(12),
+            'selectedPayrollMonth' => $selectedPayrollMonth,
+            'payrollRuns' => PayrollRun::query()
+                ->with(['items.employee', 'items.category', 'generatedBy', 'finalizedBy', 'journalEntry'])
+                ->whereBetween('period_start', [$monthStart->toDateString(), $monthEnd->toDateString()])
+                ->latest('period_start')
+                ->paginate(self::PAGE_SIZE)
+                ->withQueryString(),
         ]);
     }
 
@@ -392,8 +484,71 @@ class StaffManagementController extends Controller
             $request->user()->id,
         );
 
-        return redirect()->route('admin.staff.payroll.index')
-            ->with('success', 'Payroll finalized for '.$payrollRun->period_start->format('F Y').'.');
+        return redirect()->route('admin.staff.payroll.index', [
+            'payroll_month' => $payrollRun->period_start->format('Y-m'),
+        ])
+            ->with('success', 'Payroll draft generated for '.$payrollRun->period_start->format('F Y').'. Review and finalize when ready.');
+    }
+
+    public function updatePayrollItem(UpdatePayrollRunItemRequest $request, PayrollRun $payrollRun, PayrollRunItem $payrollRunItem): RedirectResponse
+    {
+        abort_unless($payrollRunItem->payroll_run_id === $payrollRun->id, 404);
+
+        $this->payrollService->updateOverride(
+            $payrollRunItem,
+            $request->filled('override_amount') ? (float) $request->input('override_amount') : null,
+        );
+
+        return redirect()->route('admin.staff.payroll.index', [
+            'payroll_month' => $payrollRun->period_start->format('Y-m'),
+        ])
+            ->with('success', 'Payroll override updated.');
+    }
+
+    public function finalizePayroll(FinalizePayrollRunRequest $request, PayrollRun $payrollRun): RedirectResponse
+    {
+        $finalizedRun = $this->payrollService->finalize($payrollRun, $request->user()->id);
+
+        return redirect()->route('admin.staff.payroll.index', [
+            'payroll_month' => $finalizedRun->period_start->format('Y-m'),
+        ])
+            ->with('success', 'Payroll finalized for '.$finalizedRun->period_start->format('F Y').'.');
+    }
+
+    public function exportPayrollExcel(Request $request): BinaryFileResponse|RedirectResponse
+    {
+        Gate::authorize('viewAny', PayrollRun::class);
+
+        $payrollRun = $this->findPayrollRunForMonth($request);
+
+        if ($payrollRun === null) {
+            return redirect()->route('admin.staff.payroll.index', [
+                'payroll_month' => $this->resolvePayrollMonth($request->string('payroll_month')->toString())->format('Y-m'),
+            ])->with('error', 'No payroll run exists for the selected month yet.');
+        }
+
+        return Excel::download(
+            new PayrollMonthExport($payrollRun),
+            'staff-payroll-'.$payrollRun->period_start->format('Y-m').'.xlsx',
+        );
+    }
+
+    public function exportPayrollPdf(Request $request): View|RedirectResponse
+    {
+        Gate::authorize('viewAny', PayrollRun::class);
+
+        $payrollRun = $this->findPayrollRunForMonth($request);
+
+        if ($payrollRun === null) {
+            return redirect()->route('admin.staff.payroll.index', [
+                'payroll_month' => $this->resolvePayrollMonth($request->string('payroll_month')->toString())->format('Y-m'),
+            ])->with('error', 'No payroll run exists for the selected month yet.');
+        }
+
+        return view('admin.staff.payroll-pdf', [
+            'payrollRun' => $payrollRun,
+            'selectedPayrollMonth' => $payrollRun->period_start->copy()->startOfMonth(),
+        ]);
     }
 
     /**
@@ -418,5 +573,34 @@ class StaffManagementController extends Controller
         }
 
         return $days;
+    }
+
+    private function applyAttendanceDateScope(Builder $query, Carbon $selectedDate, int $shopId): void
+    {
+        $query->whereDate('attendance_date', $selectedDate->toDateString());
+
+        if ($shopId > 0) {
+            $query->where('shop_id', $shopId);
+        }
+    }
+
+    private function resolvePayrollMonth(string $payrollMonth): Carbon
+    {
+        if ($payrollMonth !== '') {
+            return Carbon::createFromFormat('Y-m', $payrollMonth)->startOfMonth();
+        }
+
+        return today()->startOfMonth();
+    }
+
+    private function findPayrollRunForMonth(Request $request): ?PayrollRun
+    {
+        $selectedPayrollMonth = $this->resolvePayrollMonth($request->string('payroll_month')->toString());
+
+        return PayrollRun::query()
+            ->with(['items.employee', 'items.category', 'generatedBy', 'finalizedBy', 'journalEntry'])
+            ->whereDate('period_start', $selectedPayrollMonth->toDateString())
+            ->latest('id')
+            ->first();
     }
 }

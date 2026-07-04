@@ -1,4 +1,4 @@
-<x-layouts.app title="Receive Batch">
+<x-layouts.inventory title="Receive Batch">
 
     <div class="max-w-2xl">
         <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -100,4 +100,4 @@
         </div>
     </div>
 
-</x-layouts.app>
+</x-layouts.inventory>

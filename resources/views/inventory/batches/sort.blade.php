@@ -8,7 +8,7 @@ $grades = [
 ];
 @endphp
 
-<x-layouts.app title="Sort Batch: {{ $batch->reference }}">
+<x-layouts.inventory title="Sort Batch: {{ $batch->reference }}">
 
     <div class="max-w-2xl">
 
@@ -143,4 +143,4 @@ $grades = [
         }
     </script>
 
-</x-layouts.app>
+</x-layouts.inventory>

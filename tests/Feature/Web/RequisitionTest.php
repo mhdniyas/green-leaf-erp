@@ -715,7 +715,7 @@ class RequisitionTest extends TestCase
             ->get(route('requisitions.board'));
 
         $response->assertOk();
-        $response->assertSee('Consolidated Requisitions Board');
+        $response->assertSee('Approve Shop Orders');
         $response->assertSee('Purchasing');
         $response->assertSee('Approved Board');
     }

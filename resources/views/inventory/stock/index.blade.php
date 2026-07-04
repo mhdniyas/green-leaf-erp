@@ -1,4 +1,4 @@
-<x-layouts.app title="Stock Levels">
+<x-layouts.inventory title="Stock Levels">
 
     <x-slot:actions>
         <div class="flex items-center gap-2">
@@ -157,4 +157,4 @@
     </div>
     @endif
 
-</x-layouts.app>
+</x-layouts.inventory>

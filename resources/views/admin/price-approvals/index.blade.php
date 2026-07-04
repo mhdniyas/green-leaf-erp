@@ -1,4 +1,4 @@
-<x-layouts.app title="Daily Price Approvals">
+<x-layouts.admin title="Daily Price Approvals">
 
     <div class="space-y-6">
         {{-- Header & Date Filter --}}

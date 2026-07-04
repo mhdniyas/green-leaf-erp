@@ -1,4 +1,4 @@
-<x-layouts.app title="Shop Dispatch Cards">
+<x-layouts.inventory title="Shop Dispatch Cards">
     @php
         $existingWarehouseTags = $orders
             ->map(fn ($order) => $order->shop?->warehouse_tag)
@@ -636,4 +636,4 @@
         </script>
     @endpush
 
-</x-layouts.app>
+</x-layouts.inventory>

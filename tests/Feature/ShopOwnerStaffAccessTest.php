@@ -163,6 +163,23 @@ class ShopOwnerStaffAccessTest extends TestCase
         ]);
     }
 
+    public function test_shop_owner_cannot_submit_leave_for_office_staff(): void
+    {
+        $employee = Employee::factory()->create([
+            'staff_area' => 'office',
+        ]);
+
+        $response = $this->actingAs($this->owner)->post(route('shop-owner.staff.leave-requests.store'), [
+            'employee_id' => $employee->id,
+            'shop_id' => $this->ownedShop->id,
+            'start_date' => today()->toDateString(),
+            'end_date' => today()->toDateString(),
+            'reason' => 'Office leave should fail',
+        ]);
+
+        $response->assertForbidden();
+    }
+
     public function test_shop_owner_can_add_shop_employee_to_quick_attendance_list(): void
     {
         $category = EmployeeCategory::query()->where('code', 'other-shop')->firstOrFail();

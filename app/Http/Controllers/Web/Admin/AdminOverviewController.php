@@ -33,15 +33,18 @@ class AdminOverviewController extends Controller
 
     public function __invoke(Request $request): View|RedirectResponse
     {
-        if (! $request->user()->hasRole('admin') && ($request->user()->hasRole('hr_manager') || $request->user()->can('hr.employee.view'))) {
+        $canAccessAdminOverview =
+            $request->user()->hasRole('admin') ||
+            $request->user()->can('admin.user.view') ||
+            $request->user()->can('admin.daily-progress.view') ||
+            $request->user()->can('admin.activity-log.view');
+
+        if (! $canAccessAdminOverview && ($request->user()->hasRole('hr_manager') || $request->user()->can('hr.employee.view'))) {
             return redirect()->route('admin.staff.index');
         }
 
         abort_unless(
-            $request->user()->hasRole('admin') ||
-            $request->user()->can('admin.user.view') ||
-            $request->user()->can('admin.daily-progress.view') ||
-            $request->user()->can('admin.activity-log.view'),
+            $canAccessAdminOverview,
             403,
             'Unauthorized access to admin overview.'
         );
@@ -172,12 +175,12 @@ class AdminOverviewController extends Controller
 
         $quickLinks = [
             ['label' => 'Accounting Dashboard', 'href' => route('admin.accounting.index', ['date' => $date->format('Y-m-d')])],
+            ['label' => 'Purchasing Dashboard', 'href' => route('purchasing.dashboard')],
+            ['label' => 'Inventory Dashboard', 'href' => route('inventory.dashboard', ['date' => $date->format('Y-m-d')])],
             ['label' => 'Users & Permissions', 'href' => route('admin.users.index')],
             ['label' => 'Daily Progress', 'href' => route('admin.daily-progress', ['date' => $date->format('Y-m-d')])],
             ['label' => 'Activity Log', 'href' => route('admin.activity-logs.index')],
             ['label' => 'Staff Management', 'href' => route('admin.staff.index')],
-            ['label' => 'Inventory Stock', 'href' => route('inventory.stock.index', ['date' => $date->format('Y-m-d')])],
-            ['label' => 'Delivery Dashboard', 'href' => route('inventory.deliveries.dashboard', ['date' => $date->format('Y-m-d')])],
             ['label' => 'Finance Overview', 'href' => route('finance.index')],
         ];
 

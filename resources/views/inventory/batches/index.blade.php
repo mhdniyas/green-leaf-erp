@@ -1,4 +1,4 @@
-<x-layouts.app title="Batches">
+<x-layouts.inventory title="Batches">
 
     <x-slot:actions>
         <div class="flex items-center gap-2">
@@ -135,4 +135,4 @@
         @endif
     </div>
 
-</x-layouts.app>
+</x-layouts.inventory>

@@ -5,6 +5,21 @@
                 <h1 class="text-2xl font-black text-slate-950">Employees</h1>
                 <p class="text-sm font-semibold text-slate-500">CRUD all staff records and switch quickly between category tabs.</p>
             </div>
+            <div class="flex flex-wrap items-start gap-3">
+                <details class="max-w-md rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                    <summary class="cursor-pointer list-none text-sm font-black text-slate-700">What Re-Sync Linked Users does</summary>
+                    <div class="mt-3 space-y-2 text-sm font-semibold text-slate-500">
+                        <p>Checks all login users and makes sure each one has a linked staff record.</p>
+                        <p>Refreshes linked staff details like category, staff area, name, email, and user connection using the current role mapping.</p>
+                        <p>Keeps attendance, leave, and payroll history. Custom salary is preserved if HR already changed it manually.</p>
+                        <p>Use this after role changes, seed updates, or when linked staff records need to be realigned.</p>
+                    </div>
+                </details>
+                <form method="POST" action="{{ route('admin.staff.sync-users') }}">
+                    @csrf
+                    <button type="submit" class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700">Re-Sync Linked Users</button>
+                </form>
+            </div>
         </div>
 
         <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -43,13 +58,16 @@
             </div>
 
             <div class="mt-5 overflow-x-auto">
+                @php($employeeSerial = ($employees->currentPage() - 1) * $employees->perPage())
                 <table class="min-w-full text-left text-sm">
                     <thead class="text-slate-500">
                             <tr>
+                                <th class="pb-3">SL No</th>
                                 <th class="pb-3">Name</th>
                                 <th class="pb-3">Code</th>
                                 <th class="pb-3">Area</th>
                                 <th class="pb-3">Category</th>
+                                <th class="pb-3">Status</th>
                                 <th class="pb-3">Access</th>
                                 <th class="pb-3">Salary</th>
                             </tr>
@@ -57,6 +75,7 @@
                         <tbody class="divide-y divide-slate-100">
                         @foreach($employees as $employee)
                             <tr>
+                                <td class="py-3 font-black text-slate-500">{{ $employeeSerial + $loop->iteration }}</td>
                                 <td class="py-3">
                                     <a href="{{ route('admin.staff.show', $employee) }}" class="font-bold text-slate-900 underline-offset-4 hover:text-cyan-700 hover:underline">{{ $employee->name }}</a>
                                     <p class="text-xs font-semibold text-slate-500">{{ $employee->phone ?: ($employee->user?->email ?? 'No contact') }}</p>
@@ -64,6 +83,11 @@
                                     <td class="py-3">{{ $employee->employee_code }}</td>
                                     <td class="py-3 capitalize">{{ $employee->staff_area }}</td>
                                     <td class="py-3">{{ $employee->category->name }}</td>
+                                    <td class="py-3">
+                                        <span class="rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] {{ $employee->employment_status === 'active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-600 border border-slate-200' }}">
+                                            {{ $employee->employment_status }}
+                                        </span>
+                                    </td>
                                     <td class="py-3">
                                         @if($employee->user)
                                             <div class="flex flex-wrap gap-1">

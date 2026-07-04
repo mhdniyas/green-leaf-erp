@@ -91,6 +91,7 @@
                                 {{ $category->monthly_paid_leave_limit }} paid leave day(s) per month. Half day pays {{ (int) round((float) $category->half_day_weight * 100) }}%. Unpaid leave pays {{ (int) round((float) $category->excess_leave_weight * 100) }}%. Absent day pays {{ (int) round((float) $category->absent_day_weight * 100) }}%.
                                 {{ $isCoreCategory ? 'This is a permanent staff category.' : '' }}
                             </p>
+                            <p class="mt-2 text-xs font-semibold text-cyan-700">After {{ $category->monthly_paid_leave_limit }} paid leave day(s), every extra leave is paid at {{ (int) round((float) $category->excess_leave_weight * 100) }}%.</p>
                         </div>
                         <span class="rounded-full {{ $isCoreCategory ? 'bg-cyan-50 text-cyan-700' : 'bg-slate-100 text-slate-700' }} px-3 py-1 text-xs font-black uppercase tracking-[0.16em]">
                             {{ $isCoreCategory ? 'Core Category' : 'Custom Rule' }}

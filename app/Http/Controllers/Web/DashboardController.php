@@ -53,11 +53,15 @@ class DashboardController extends Controller
         }
 
         if ($user->hasRole('purchase')) {
-            return redirect()->route('purchasing.orders.index');
+            return redirect()->route('purchasing.dashboard');
         }
 
         if ($user->hasRole('warehouse_receiver')) {
             return redirect()->route('warehouse.receiver.checklist');
+        }
+
+        if ($user->hasAnyPermission(['inventory.product.view', 'inventory.stock.view', 'inventory.sorting.view', 'inventory.wastage.view'])) {
+            return redirect()->route('inventory.dashboard');
         }
 
         // Stats visible to inventory roles

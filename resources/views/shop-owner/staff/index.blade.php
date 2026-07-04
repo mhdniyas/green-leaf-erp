@@ -210,7 +210,7 @@
 
                 <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                     <h2 class="text-xl font-black text-slate-950">Request Leave</h2>
-                    <p class="mt-1 text-sm font-semibold text-slate-500">Submit leave separately when it spans multiple days or needs additional explanation.</p>
+                    <p class="mt-1 text-sm font-semibold text-slate-500">Submit leave for shop staff only. Office and other HR-managed staff leave must be handled from HR.</p>
 
                     <form method="POST" action="{{ route('shop-owner.staff.leave-requests.store') }}" class="mt-5 space-y-3">
                         @csrf

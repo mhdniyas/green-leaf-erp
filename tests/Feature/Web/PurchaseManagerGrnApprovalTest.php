@@ -52,9 +52,11 @@ class PurchaseManagerGrnApprovalTest extends TestCase
 
         $response = $this->actingAs($manager)->get(route('dashboard'));
 
-        $response->assertRedirect(route('purchasing.orders.index'));
+        $response->assertRedirect(route('purchasing.dashboard'));
 
-        $landingResponse = $this->actingAs($manager)->get(route('purchasing.orders.index'));
+        $landingResponse = $this->actingAs($manager)
+            ->followingRedirects()
+            ->get(route('purchasing.dashboard'));
 
         $landingResponse->assertOk();
         $landingResponse->assertDontSee('Daily GRN Approval');

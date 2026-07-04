@@ -1,4 +1,4 @@
-<x-layouts.app title="Record Wastage">
+<x-layouts.inventory title="Record Wastage">
 
     <div class="max-w-2xl">
         <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -91,4 +91,4 @@
         </div>
     </div>
 
-</x-layouts.app>
+</x-layouts.inventory>

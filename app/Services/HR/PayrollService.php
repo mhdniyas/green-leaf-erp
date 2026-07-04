@@ -10,6 +10,7 @@ use App\Models\Employee;
 use App\Models\EmployeeAttendance;
 use App\Models\JournalEntry;
 use App\Models\PayrollRun;
+use App\Models\PayrollRunItem;
 use App\Services\Finance\JournalService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -30,10 +31,11 @@ class PayrollService
                     'period_end' => $periodEnd->toDateString(),
                 ],
                 [
-                    'status' => 'finalized',
+                    'status' => 'draft',
                     'generated_by' => $userId,
-                    'finalized_by' => $userId,
-                    'finalized_at' => now(),
+                    'finalized_by' => null,
+                    'finalized_at' => null,
+                    'journal_entry_id' => null,
                 ],
             );
 
@@ -76,6 +78,7 @@ class PayrollService
                     'absent_days' => $summary['absent_days'],
                     'payable_units' => $payableUnits,
                     'computed_amount' => $computedAmount,
+                    'override_amount' => null,
                     'final_amount' => $computedAmount,
                     'rule_snapshot' => [
                         'monthly_paid_leave_limit' => (int) $employee->category->monthly_paid_leave_limit,
@@ -93,9 +96,43 @@ class PayrollService
                 'net_amount' => round($grossAmount, 2),
             ])->save();
 
-            $journalEntry = $grossAmount > 0 ? $this->recordPayrollExpense($payrollRun, $userId) : null;
+            return $payrollRun->fresh(['items.employee', 'items.category', 'journalEntry']);
+        });
+    }
+
+    public function updateOverride(PayrollRunItem $payrollRunItem, ?float $overrideAmount): PayrollRunItem
+    {
+        $overrideAmount = $overrideAmount !== null ? round($overrideAmount, 2) : null;
+
+        $payrollRunItem->forceFill([
+            'override_amount' => $overrideAmount,
+            'final_amount' => $overrideAmount ?? (float) $payrollRunItem->computed_amount,
+        ])->save();
+
+        $this->refreshRunTotals($payrollRunItem->payrollRun);
+
+        return $payrollRunItem->fresh(['employee', 'category', 'payrollRun']);
+    }
+
+    public function finalize(PayrollRun $payrollRun, int $userId): PayrollRun
+    {
+        return DB::transaction(function () use ($payrollRun, $userId): PayrollRun {
+            $payrollRun->loadMissing('items');
+
+            if ($payrollRun->journalEntry()->exists()) {
+                $payrollRun->journalEntry()->delete();
+            }
+
+            $this->refreshRunTotals($payrollRun);
+
+            $journalEntry = (float) $payrollRun->gross_amount > 0
+                ? $this->recordPayrollExpense($payrollRun, $userId)
+                : null;
 
             $payrollRun->forceFill([
+                'status' => 'finalized',
+                'finalized_by' => $userId,
+                'finalized_at' => now(),
                 'journal_entry_id' => $journalEntry?->id,
             ])->save();
 
@@ -115,18 +152,56 @@ class PayrollService
             ->whereDate('attendance_date', '<=', $periodEnd->toDateString())
             ->get();
 
-        $leaveCount = (int) $attendances->where('status', 'leave')->count();
+        $attendanceByDate = $attendances->keyBy(fn (EmployeeAttendance $attendance): string => $attendance->attendance_date->toDateString());
+        $presentDays = 0.0;
+        $halfDays = 0.0;
+        $absentDays = 0.0;
+        $leaveCount = 0;
+        $cursor = $periodStart->copy();
+
+        while ($cursor->lte($periodEnd)) {
+            $attendance = $attendanceByDate->get($cursor->toDateString());
+
+            if ($attendance === null) {
+                $absentDays++;
+                $cursor->addDay();
+
+                continue;
+            }
+
+            match ($attendance->status) {
+                'present' => $presentDays++,
+                'half_day' => $halfDays++,
+                'leave' => $leaveCount++,
+                default => $absentDays++,
+            };
+
+            $cursor->addDay();
+        }
+
         $paidLeaveLimit = max(0, (int) $employee->category->monthly_paid_leave_limit);
         $paidLeaveDays = min($leaveCount, $paidLeaveLimit);
         $unpaidLeaveDays = max(0, $leaveCount - $paidLeaveDays);
 
         return [
-            'present_days' => (float) $attendances->where('status', 'present')->count(),
-            'half_days' => (float) $attendances->where('status', 'half_day')->count(),
+            'present_days' => $presentDays,
+            'half_days' => $halfDays,
             'paid_leave_days' => (float) $paidLeaveDays,
             'unpaid_leave_days' => (float) $unpaidLeaveDays,
-            'absent_days' => (float) $attendances->where('status', 'absent')->count(),
+            'absent_days' => $absentDays,
         ];
+    }
+
+    private function refreshRunTotals(PayrollRun $payrollRun): void
+    {
+        $payrollRun->loadMissing('items');
+
+        $totalAmount = round((float) $payrollRun->items->sum('final_amount'), 2);
+
+        $payrollRun->forceFill([
+            'gross_amount' => $totalAmount,
+            'net_amount' => $totalAmount,
+        ])->save();
     }
 
     private function recordPayrollExpense(PayrollRun $payrollRun, int $userId): JournalEntry

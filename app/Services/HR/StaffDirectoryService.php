@@ -12,6 +12,8 @@ use Illuminate\Support\Carbon;
 
 class StaffDirectoryService
 {
+    private const PAGE_SIZE = 20;
+
     public function paginateEmployees(?string $area = null, ?string $categoryCode = null, ?string $search = null): LengthAwarePaginator
     {
         return Employee::query()
@@ -28,7 +30,8 @@ class StaffDirectoryService
                 });
             })
             ->orderBy('name')
-            ->paginate(12);
+            ->paginate(self::PAGE_SIZE)
+            ->withQueryString();
     }
 
     /**

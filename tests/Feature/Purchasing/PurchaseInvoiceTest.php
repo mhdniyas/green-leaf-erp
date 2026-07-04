@@ -92,6 +92,7 @@ class PurchaseInvoiceTest extends TestCase
             ->get(route('purchasing.invoices.index'));
 
         $response->assertOk();
+        $response->assertSee('purchasing-sidebar-toggle', false);
         $response->assertSee($invoice->invoice_number);
     }
 
@@ -132,7 +133,7 @@ class PurchaseInvoiceTest extends TestCase
         ]));
 
         $response->assertOk();
-        $response->assertSee('Vendor Finance Report');
+        $response->assertSee('Supplier Bills');
         $response->assertSee('City Vendor');
         $response->assertSee($matchingInvoice->invoice_number);
         $response->assertDontSee('Credit Vendor');
@@ -347,8 +348,8 @@ class PurchaseInvoiceTest extends TestCase
             ->get(route('purchasing.invoices.show', $invoice))
             ->assertOk()
             ->assertSee('PINV-SHOW-1001')
-            ->assertSee('Line Items')
-            ->assertSee('Open Bill');
+            ->assertSee('Matched GRN Items')
+            ->assertSee('Back to Invoices');
     }
 
     public function test_accountant_can_update_invoice_payment_with_gpay(): void

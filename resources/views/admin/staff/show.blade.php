@@ -14,11 +14,26 @@
                 <a href="{{ route('admin.staff.index') }}" class="text-sm font-black text-cyan-700">← Back to Staff Dashboard</a>
                 <h1 class="mt-2 text-3xl font-black text-slate-950">{{ $employee->name }}</h1>
                 <p class="mt-1 text-sm font-semibold text-slate-500">{{ $employee->employee_code }} · {{ $employee->category->name }} · {{ ucfirst($employee->staff_area) }} staff</p>
+                <span class="mt-3 inline-flex rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] {{ $employee->employment_status === 'active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-600 border border-slate-200' }}">
+                    {{ $employee->employment_status }}
+                </span>
             </div>
-            <form method="GET" class="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-                <input type="month" name="month" value="{{ $selectedMonth->format('Y-m') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
-                <button type="submit" class="rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white">Load Month</button>
-            </form>
+            <div class="flex flex-wrap items-center gap-3">
+                <form method="GET" class="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <input type="month" name="month" value="{{ $selectedMonth->format('Y-m') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                    <button type="submit" class="rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white">Load Month</button>
+                </form>
+                @if(auth()->user()?->hasRole('admin'))
+                    <form method="POST" action="{{ route('admin.staff.employment-status.update', $employee) }}">
+                        @csrf
+                        @method('PATCH')
+                        <input type="hidden" name="employment_status" value="{{ $employee->employment_status === 'active' ? 'inactive' : 'active' }}">
+                        <button type="submit" class="rounded-xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700">
+                            {{ $employee->employment_status === 'active' ? 'Deactivate Staff' : 'Reactivate Staff' }}
+                        </button>
+                    </form>
+                @endif
+            </div>
         </div>
 
         <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
@@ -190,6 +205,7 @@
                     <table class="min-w-full text-left text-sm">
                         <thead class="text-slate-500">
                             <tr>
+                                <th class="pb-3">SL No</th>
                                 <th class="pb-3">Date</th>
                                 <th class="pb-3">Status</th>
                                 <th class="pb-3">Shop</th>
@@ -200,6 +216,7 @@
                         <tbody class="divide-y divide-slate-100">
                             @forelse($attendanceRecords as $attendance)
                                 <tr>
+                                    <td class="py-3 font-black text-slate-500">{{ $loop->iteration }}</td>
                                     <td class="py-3 font-bold text-slate-900">{{ $attendance->attendance_date->format('d M Y') }}</td>
                                     <td class="py-3 capitalize">{{ str_replace('_', ' ', $attendance->status) }}</td>
                                     <td class="py-3">{{ $attendance->shop?->name ?? 'Admin desk' }}</td>
@@ -208,7 +225,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="5" class="py-4 text-sm font-semibold text-slate-500">No attendance entries for this month.</td>
+                                    <td colspan="6" class="py-4 text-sm font-semibold text-slate-500">No attendance entries for this month.</td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -256,6 +273,7 @@
                 <table class="min-w-full text-left text-sm">
                     <thead class="text-slate-500">
                         <tr>
+                            <th class="pb-3">SL No</th>
                             <th class="pb-3">Dates</th>
                             <th class="pb-3">Status</th>
                             <th class="pb-3">Submitted By</th>
@@ -266,6 +284,7 @@
                     <tbody class="divide-y divide-slate-100">
                         @forelse($leaveRequests as $leaveRequest)
                             <tr>
+                                <td class="py-3 font-black text-slate-500">{{ $loop->iteration }}</td>
                                 <td class="py-3 font-bold text-slate-900">{{ $leaveRequest->start_date->format('d M Y') }} to {{ $leaveRequest->end_date->format('d M Y') }}</td>
                                 <td class="py-3 capitalize">{{ $leaveRequest->status }}</td>
                                 <td class="py-3">
@@ -279,7 +298,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="5" class="py-4 text-sm font-semibold text-slate-500">No leave requests recorded for this staff member.</td>
+                                <td colspan="6" class="py-4 text-sm font-semibold text-slate-500">No leave requests recorded for this staff member.</td>
                             </tr>
                         @endforelse
                     </tbody>

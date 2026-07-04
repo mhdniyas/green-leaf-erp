@@ -1,7 +1,7 @@
 @extends('purchase-manager.layouts.app')
 
-@section('title', 'Purchase Manager Dashboard')
-@section('page_title', 'Purchase Manager Dashboard')
+@section('title', 'Purchasing Dashboard')
+@section('page_title', 'Purchasing Dashboard')
 @section('page_description', 'Only the key numbers for today and tomorrow, with one direct path to approve shop orders.')
 
 @section('content')

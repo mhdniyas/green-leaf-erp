@@ -1,4 +1,4 @@
-<x-layouts.app title="Warehouses">
+<x-layouts.admin title="Warehouses">
 
     <x-slot:actions>
         <a href="{{ route('admin.warehouses.create') }}"

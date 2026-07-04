@@ -21,8 +21,8 @@
                     <p class="text-sm font-semibold text-slate-500">Filter by date, shop, office or shop staff, and payroll category.</p>
                 </div>
                 <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-right">
-                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Visible Time</p>
-                    <p class="mt-1 text-sm font-black text-slate-950">Check-in and updater shown on each card</p>
+                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Quick Board</p>
+                    <p class="mt-1 text-sm font-black text-slate-950">Only the key attendance fields are shown here</p>
                 </div>
             </div>
 
@@ -78,72 +78,78 @@
                 </div>
             </div>
 
-            <div class="mt-5 space-y-4">
+            <div class="mt-5">
                 @if($employees->isEmpty())
                     <div class="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm font-semibold text-slate-500">
                         No employees matched the current attendance filters.
                     </div>
+                @else
+                    <div class="overflow-x-auto rounded-3xl border border-slate-200">
+                        <table class="min-w-[1500px] w-full text-left text-sm">
+                            <thead class="bg-slate-50 text-slate-500">
+                                <tr>
+                                    <th class="px-4 py-3">SL No</th>
+                                    <th class="px-4 py-3">Employee</th>
+                                    <th class="px-4 py-3">Status</th>
+                                    <th class="px-4 py-3">Updated By</th>
+                                    <th class="px-4 py-3">Work Location</th>
+                                    <th class="px-4 py-3 text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-200 bg-white">
+                                @foreach($employees as $employee)
+                                    @php($attendance = $attendanceRecords->get($employee->id))
+                                    @php($status = $attendance?->status ?? 'absent')
+                                    @php($formId = 'attendance-form-'.$employee->id)
+                                    <tr class="align-top">
+                                        <td class="px-4 py-4 font-black text-slate-500">{{ ($employees->currentPage() - 1) * $employees->perPage() + $loop->iteration }}</td>
+                                        <td class="px-4 py-4">
+                                            <a href="{{ route('admin.staff.show', $employee) }}" class="font-black text-slate-950 underline-offset-4 hover:text-cyan-700 hover:underline">{{ $employee->name }}</a>
+                                            <p class="mt-1 text-xs font-semibold text-slate-500">{{ $employee->employee_code }} · {{ $employee->category->name }} · {{ ucfirst($employee->staff_area) }}</p>
+                                        </td>
+                                        <td class="px-4 py-4">
+                                            <span class="rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] {{ $statusStyles[$status] ?? 'border-slate-200 bg-slate-100 text-slate-700' }}">
+                                                {{ str_replace('_', ' ', $status) }}
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-4">
+                                            <p class="font-semibold text-slate-900">{{ $attendance?->markedBy?->name ?? 'Pending admin mark' }}</p>
+                                            <p class="mt-1 text-xs font-semibold text-slate-500">Source: {{ ucfirst($attendance?->source ?? 'admin') }}</p>
+                                        </td>
+                                        <td class="px-4 py-4 text-slate-600">{{ $attendance?->shop?->name ?? ($employee->defaultShop?->name ?? 'Office / unassigned') }}</td>
+                                        <td class="px-4 py-4 text-right">
+                                            <form id="{{ $formId }}" method="POST" action="{{ route('admin.staff.attendance.store') }}" class="inline">
+                                                @csrf
+                                                <input type="hidden" name="employee_id" value="{{ $employee->id }}">
+                                                <input type="hidden" name="attendance_date" value="{{ $selectedDate->format('Y-m-d') }}">
+                                                <input type="hidden" name="notes" value="{{ $attendance?->notes }}">
+                                                <select name="status" class="w-36 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold">
+                                                    @foreach(['present' => 'Present', 'half_day' => 'Half Day', 'absent' => 'Absent', 'leave' => 'Leave'] as $value => $label)
+                                                        <option value="{{ $value }}" @selected($status === $value)>{{ $label }}</option>
+                                                    @endforeach
+                                                </select>
+                                                <select name="shop_id" class="ml-2 w-44 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold">
+                                                    <option value="">Worked at shop</option>
+                                                    @foreach($shops as $shop)
+                                                        <option value="{{ $shop->id }}" @selected((int) $attendance?->shop_id === $shop->id)>{{ $shop->name }}</option>
+                                                    @endforeach
+                                                </select>
+                                            </form>
+                                            <div class="mt-3 flex items-center justify-end gap-2">
+                                                <a href="{{ route('admin.staff.show', $employee) }}" class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700">Show</a>
+                                                <button form="{{ $formId }}" type="submit" class="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-black text-slate-950">Save</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
                 @endif
-                @foreach($employees as $employee)
-                    @php($attendance = $attendanceRecords->get($employee->id))
-                    @php($status = $attendance?->status ?? 'absent')
-                    <form method="POST" action="{{ route('admin.staff.attendance.store') }}" class="rounded-[1.75rem] border border-slate-200 bg-slate-50/80 p-5">
-                        @csrf
-                        <input type="hidden" name="employee_id" value="{{ $employee->id }}">
-                        <input type="hidden" name="attendance_date" value="{{ $selectedDate->format('Y-m-d') }}">
+            </div>
 
-                        <div class="flex flex-wrap items-start justify-between gap-4">
-                            <div class="min-w-0">
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <a href="{{ route('admin.staff.show', $employee) }}" class="text-lg font-black text-slate-950 underline-offset-4 hover:text-cyan-700 hover:underline">{{ $employee->name }}</a>
-                                    <span class="rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] {{ $statusStyles[$status] ?? 'border-slate-200 bg-slate-100 text-slate-700' }}">
-                                        {{ str_replace('_', ' ', $status) }}
-                                    </span>
-                                </div>
-                                <p class="mt-1 text-sm font-semibold text-slate-500">{{ $employee->employee_code }} · {{ $employee->category->name }} · {{ ucfirst($employee->staff_area) }}</p>
-                            </div>
-
-                            <div class="grid gap-3 sm:grid-cols-3">
-                                <article class="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Check-In Time</p>
-                                    <p class="mt-1 text-sm font-black text-slate-950">{{ $attendance?->marked_at?->format('h:i A') ?? 'Not marked' }}</p>
-                                </article>
-                                <article class="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Updated At</p>
-                                    <p class="mt-1 text-sm font-black text-slate-950">{{ $attendance?->updated_at?->format('h:i A') ?? 'No update' }}</p>
-                                </article>
-                                <article class="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Updated By</p>
-                                    <p class="mt-1 text-sm font-black text-slate-950">{{ $attendance?->markedBy?->name ?? 'Pending admin mark' }}</p>
-                                </article>
-                            </div>
-                        </div>
-
-                        <div class="mt-5 grid gap-3 xl:grid-cols-[1fr_1fr_1.2fr_auto]">
-                            <select name="status" class="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold">
-                                @foreach(['present' => 'Present', 'half_day' => 'Half Day', 'absent' => 'Absent', 'leave' => 'Leave'] as $value => $label)
-                                    <option value="{{ $value }}" @selected($status === $value)>{{ $label }}</option>
-                                @endforeach
-                            </select>
-
-                            <select name="shop_id" class="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold">
-                                <option value="">Worked at shop (optional)</option>
-                                @foreach($shops as $shop)
-                                    <option value="{{ $shop->id }}" @selected((int) $attendance?->shop_id === $shop->id)>{{ $shop->name }}</option>
-                                @endforeach
-                            </select>
-
-                            <input type="text" name="notes" value="{{ $attendance?->notes }}" placeholder="Supervisor notes, travel remarks, or exceptions" class="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold">
-
-                            <button type="submit" class="rounded-xl bg-cyan-500 px-5 py-3 text-sm font-black text-slate-950">Save</button>
-                        </div>
-
-                        <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs font-semibold text-slate-500">
-                            <p>Work location: {{ $attendance?->shop?->name ?? ($employee->defaultShop?->name ?? 'Office / unassigned') }}</p>
-                            <p>Updated by {{ $attendance?->markedBy?->name ?? 'Pending admin mark' }} · Source: {{ ucfirst($attendance?->source ?? 'admin') }}</p>
-                        </div>
-                    </form>
-                @endforeach
+            <div class="mt-5">
+                {{ $employees->links() }}
             </div>
         </div>
     </div>

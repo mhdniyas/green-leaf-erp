@@ -54,6 +54,10 @@ class StaffManagementTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Staff Management');
+        $response->assertSee('data-admin-dashboard-switcher', false);
+        $response->assertSee('Accounting');
+        $response->assertSee('Purchasing');
+        $response->assertSee('Inventory');
         $response->assertSee('Total Employees');
     }
 
@@ -124,6 +128,28 @@ class StaffManagementTest extends TestCase
         $response->assertDontSee('Another Person');
     }
 
+    public function test_employee_directory_paginates_with_twenty_records_per_page(): void
+    {
+        foreach (range(1, 21) as $index) {
+            Employee::factory()->create([
+                'name' => sprintf('Paged Employee %02d', $index),
+            ]);
+        }
+
+        $firstPage = $this->actingAs($this->admin)->get(route('admin.staff.employees.index'));
+        $secondPage = $this->actingAs($this->admin)->get(route('admin.staff.employees.index', ['page' => 2]));
+
+        $firstPage->assertOk();
+        $firstPage->assertSee('Paged Employee 01');
+        $firstPage->assertSee('Paged Employee 19');
+        $firstPage->assertDontSee('Paged Employee 20');
+
+        $secondPage->assertOk();
+        $secondPage->assertSee('Paged Employee 20');
+        $secondPage->assertSee('Paged Employee 21');
+        $secondPage->assertDontSee('Paged Employee 01');
+    }
+
     public function test_admin_can_view_employee_crud_page_with_category_tabs(): void
     {
         $officeCategory = EmployeeCategory::query()->where('code', 'office')->firstOrFail();
@@ -135,7 +161,11 @@ class StaffManagementTest extends TestCase
         $response->assertOk();
         $response->assertSee('Staff CRUD');
         $response->assertSee('All Categories');
+        $response->assertSee('SL No');
+        $response->assertSee('Toggle Sidebar');
         $response->assertSee($officeCategory->name);
+        $response->assertSee('What Re-Sync Linked Users does');
+        $response->assertSee('Checks all login users and makes sure each one has a linked staff record.');
     }
 
     public function test_employees_page_uses_category_code_in_filters_and_shows_linked_roles(): void
@@ -177,9 +207,10 @@ class StaffManagementTest extends TestCase
         ]));
 
         $response->assertOk();
-        $response->assertSee('Check-In Time');
+        $response->assertSee('Quick Board');
         $response->assertSee('Updated By');
-        $response->assertSee('Visible Time');
+        $response->assertSee('SL No');
+        $response->assertSee('Only the key attendance fields are shown here');
         $response->assertSee('Attendance Filters');
         $response->assertSee(route('admin.staff.show', $employee));
         $response->assertSee('Search employee name, code, phone');
@@ -418,6 +449,39 @@ class StaffManagementTest extends TestCase
         $adminOverviewResponse->assertRedirect(route('admin.staff.index'));
     }
 
+    public function test_admin_root_stays_on_admin_overview_for_admin_user(): void
+    {
+        $response = $this->actingAs($this->admin)->get(route('admin.overview'));
+
+        $response->assertOk();
+        $response->assertSee('Admin Control Center');
+        $response->assertSee('Control operations, cash flow, and user access from one place.');
+    }
+
+    public function test_deactivate_action_is_hidden_on_employee_list_and_only_visible_to_admin_on_profile(): void
+    {
+        $employee = Employee::factory()->create([
+            'name' => 'Status Controlled Staff',
+        ]);
+
+        $listResponse = $this->actingAs($this->admin)->get(route('admin.staff.employees.index'));
+        $listResponse->assertOk();
+        $listResponse->assertDontSee('Deactivate');
+        $listResponse->assertDontSee('Reactivate');
+
+        $adminProfileResponse = $this->actingAs($this->admin)->get(route('admin.staff.show', $employee));
+        $adminProfileResponse->assertOk();
+        $adminProfileResponse->assertSee('Deactivate Staff');
+
+        $hrManager = User::factory()->create();
+        $hrManager->assignRole('hr_manager');
+
+        $hrProfileResponse = $this->actingAs($hrManager)->get(route('admin.staff.show', $employee));
+        $hrProfileResponse->assertOk();
+        $hrProfileResponse->assertDontSee('Deactivate Staff');
+        $hrProfileResponse->assertDontSee('Reactivate Staff');
+    }
+
     public function test_admin_can_create_employee_record(): void
     {
         $category = EmployeeCategory::query()->where('code', 'office')->firstOrFail();
@@ -553,22 +617,87 @@ class StaffManagementTest extends TestCase
             'payroll_month' => '2026-07',
         ]);
 
-        $response->assertRedirect(route('admin.staff.payroll.index'));
+        $response->assertRedirect(route('admin.staff.payroll.index', ['payroll_month' => '2026-07']));
 
         $payrollRun = PayrollRun::query()->firstOrFail();
         $item = $payrollRun->items()->where('employee_id', $employee->id)->firstOrFail();
-        $journalEntry = JournalEntry::query()->find($payrollRun->journal_entry_id);
 
-        $this->assertSame('finalized', $payrollRun->status);
+        $this->assertSame('draft', $payrollRun->status);
         $this->assertEquals(1.0, (float) $item->present_days);
         $this->assertEquals(1.0, (float) $item->half_days);
         $this->assertEquals(1.0, (float) $item->paid_leave_days);
         $this->assertEquals(1.0, (float) $item->unpaid_leave_days);
-        $this->assertEquals(1.0, (float) $item->absent_days);
-        $this->assertNotNull($journalEntry);
-        $this->assertSame('PAYROLL-20260701-20260731', $journalEntry->reference);
+        $this->assertEquals(27.0, (float) $item->absent_days);
+        $this->assertNull($payrollRun->journal_entry_id);
         $this->assertSame(1, $item->rule_snapshot['monthly_paid_leave_limit']);
         $this->assertSame(1.0, (float) $item->rule_snapshot['present_day_weight']);
+    }
+
+    public function test_payroll_finalization_posts_salary_expense_after_draft_review(): void
+    {
+        $employee = Employee::factory()->create([
+            'staff_area' => 'office',
+            'monthly_salary' => 31000,
+        ]);
+
+        EmployeeAttendance::factory()->create([
+            'employee_id' => $employee->id,
+            'attendance_date' => '2026-07-01',
+            'status' => 'present',
+        ]);
+
+        $this->actingAs($this->admin)->post(route('admin.staff.payroll.store'), [
+            'payroll_month' => '2026-07',
+        ]);
+
+        $payrollRun = PayrollRun::query()->firstOrFail();
+
+        $response = $this->actingAs($this->admin)->post(route('admin.staff.payroll.finalize', $payrollRun));
+
+        $response->assertRedirect(route('admin.staff.payroll.index', ['payroll_month' => '2026-07']));
+
+        $payrollRun->refresh();
+        $journalEntry = JournalEntry::query()->find($payrollRun->journal_entry_id);
+
+        $this->assertSame('finalized', $payrollRun->status);
+        $this->assertNotNull($journalEntry);
+        $this->assertSame('PAYROLL-20260701-20260731', $journalEntry->reference);
+    }
+
+    public function test_payroll_override_changes_final_amount_without_touching_computed_amount(): void
+    {
+        $employee = Employee::factory()->create([
+            'staff_area' => 'office',
+            'monthly_salary' => 30000,
+        ]);
+
+        EmployeeAttendance::factory()->create([
+            'employee_id' => $employee->id,
+            'attendance_date' => '2026-07-01',
+            'status' => 'present',
+        ]);
+
+        $this->actingAs($this->admin)->post(route('admin.staff.payroll.store'), [
+            'payroll_month' => '2026-07',
+        ]);
+
+        $payrollRun = PayrollRun::query()->firstOrFail();
+        $item = $payrollRun->items()->where('employee_id', $employee->id)->firstOrFail();
+        $originalComputedAmount = (float) $item->computed_amount;
+
+        $response = $this->actingAs($this->admin)->patch(route('admin.staff.payroll.items.update', [$payrollRun, $item]), [
+            'override_amount' => 9999.99,
+        ]);
+
+        $response->assertRedirect(route('admin.staff.payroll.index', ['payroll_month' => '2026-07']));
+
+        $item->refresh();
+        $payrollRun->refresh();
+
+        $this->assertSame($originalComputedAmount, (float) $item->computed_amount);
+        $this->assertEquals(9999.99, (float) $item->override_amount);
+        $this->assertEquals(9999.99, (float) $item->final_amount);
+        $this->assertEquals(9999.99, (float) $payrollRun->net_amount);
     }
 
     public function test_payroll_generation_recreates_required_accounts_when_chart_rows_are_missing(): void
@@ -592,10 +721,14 @@ class StaffManagementTest extends TestCase
             'payroll_month' => '2026-07',
         ]);
 
-        $response->assertRedirect(route('admin.staff.payroll.index'));
+        $response->assertRedirect(route('admin.staff.payroll.index', ['payroll_month' => '2026-07']));
+
+        $payrollRun = PayrollRun::query()->firstOrFail();
+        $this->actingAs($this->admin)->post(route('admin.staff.payroll.finalize', $payrollRun));
+
         $this->assertDatabaseHas('accounts', ['code' => '1020', 'name' => 'Bank Account']);
         $this->assertDatabaseHas('accounts', ['code' => '5700', 'name' => 'Salaries Expense']);
-        $this->assertNotNull(PayrollRun::query()->first()?->journal_entry_id);
+        $this->assertNotNull(PayrollRun::query()->first()?->fresh()?->journal_entry_id);
     }
 
     public function test_june_demo_seeder_creates_direct_board_leave_case_for_payroll_review(): void
@@ -609,7 +742,7 @@ class StaffManagementTest extends TestCase
             'payroll_month' => '2026-06',
         ]);
 
-        $response->assertRedirect(route('admin.staff.payroll.index'));
+        $response->assertRedirect(route('admin.staff.payroll.index', ['payroll_month' => '2026-06']));
 
         $payrollRun = PayrollRun::query()
             ->whereDate('period_start', '2026-06-01')
@@ -624,5 +757,85 @@ class StaffManagementTest extends TestCase
         $this->assertEquals(6.0, (float) $directBoardItem->paid_leave_days);
         $this->assertEquals(4.0, (float) $directBoardItem->unpaid_leave_days);
         $this->assertEquals(26.0, (float) $directBoardItem->payable_units);
+    }
+
+    public function test_hr_can_submit_leave_request_for_office_staff(): void
+    {
+        $employee = Employee::factory()->create([
+            'staff_area' => 'office',
+        ]);
+
+        $response = $this->actingAs($this->admin)->post(route('admin.staff.leaves.store'), [
+            'employee_id' => $employee->id,
+            'start_date' => '2026-07-10',
+            'end_date' => '2026-07-11',
+            'reason' => 'Office leave request',
+        ]);
+
+        $response->assertRedirect(route('admin.staff.leaves.index'));
+        $this->assertDatabaseHas('employee_leave_requests', [
+            'employee_id' => $employee->id,
+            'submission_type' => 'admin',
+            'status' => 'pending',
+        ]);
+    }
+
+    public function test_leave_page_uses_tabs_and_employee_driven_context(): void
+    {
+        $response = $this->actingAs($this->admin)->get(route('admin.staff.leaves.index', [
+            'tab' => 'submit',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Submit Leave');
+        $response->assertSee('Leave Queue');
+        $response->assertSee('Select employee to load leave context.');
+        $response->assertSee('Leave context updates automatically from the selected staff profile.');
+        $response->assertSee('data-enhanced-select', false);
+        $response->assertDontSee('Office / no shop');
+    }
+
+    public function test_sync_linked_users_maps_hr_manager_to_office_category_and_preserves_custom_salary(): void
+    {
+        $user = User::factory()->create();
+        $user->assignRole('hr_manager');
+
+        $employee = $user->employee()->firstOrFail();
+        $employee->update([
+            'monthly_salary' => 54321,
+            'employee_category_id' => EmployeeCategory::query()->where('code', 'other-shop')->firstOrFail()->id,
+            'staff_area' => 'shop',
+        ]);
+
+        $response = $this->actingAs($this->admin)->post(route('admin.staff.sync-users'));
+
+        $response->assertRedirect(route('admin.staff.employees.index'));
+
+        $employee->refresh();
+
+        $this->assertSame('office', $employee->staff_area);
+        $this->assertSame('office', $employee->category->code);
+        $this->assertEquals(54321.0, (float) $employee->monthly_salary);
+    }
+
+    public function test_inactive_staff_are_excluded_from_payroll_generation(): void
+    {
+        $inactiveEmployee = Employee::factory()->create([
+            'employment_status' => 'inactive',
+        ]);
+
+        $response = $this->actingAs($this->admin)->patch(route('admin.staff.employment-status.update', $inactiveEmployee), [
+            'employment_status' => 'inactive',
+        ]);
+
+        $response->assertRedirect(route('admin.staff.show', $inactiveEmployee));
+
+        $this->actingAs($this->admin)->post(route('admin.staff.payroll.store'), [
+            'payroll_month' => '2026-07',
+        ]);
+
+        $payrollRun = PayrollRun::query()->firstOrFail();
+
+        $this->assertFalse($payrollRun->items()->where('employee_id', $inactiveEmployee->id)->exists());
     }
 }
