@@ -48,7 +48,7 @@ class FinanceController extends Controller
 
     public function vendorsExcel(Request $request): StreamedResponse
     {
-        Gate::authorize('accounting.ledger.view');
+        $this->authorizeReportExport();
 
         [$startDate, $endDate] = $this->resolvePeriod($request);
         $vendor = $this->financePillars->forPeriod($startDate, $endDate)['vendor'];
@@ -81,7 +81,7 @@ class FinanceController extends Controller
 
     public function salesExcel(Request $request): StreamedResponse
     {
-        Gate::authorize('accounting.ledger.view');
+        $this->authorizeReportExport();
 
         [$startDate, $endDate] = $this->resolvePeriod($request);
         $sales = $this->financePillars->forPeriod($startDate, $endDate)['sales'];
@@ -114,7 +114,7 @@ class FinanceController extends Controller
 
     public function vendorsPdf(Request $request): View
     {
-        Gate::authorize('accounting.ledger.view');
+        $this->authorizeReportExport();
 
         [$startDate, $endDate] = $this->resolvePeriod($request);
         $finance = $this->financePillars->forPeriod($startDate, $endDate);
@@ -124,7 +124,7 @@ class FinanceController extends Controller
 
     public function salesPdf(Request $request): View
     {
-        Gate::authorize('accounting.ledger.view');
+        $this->authorizeReportExport();
 
         [$startDate, $endDate] = $this->resolvePeriod($request);
         $finance = $this->financePillars->forPeriod($startDate, $endDate);
@@ -161,6 +161,13 @@ class FinanceController extends Controller
         return redirect()->route('finance.vendors.index');
     }
 
+    public function legacyExportRedirect(): RedirectResponse
+    {
+        $this->authorizeReportExport();
+
+        return redirect()->route('finance.vendors.index');
+    }
+
     /**
      * @return array{0: Carbon, 1: Carbon}
      */
@@ -174,5 +181,11 @@ class FinanceController extends Controller
         }
 
         return [$startDate, $endDate];
+    }
+
+    private function authorizeReportExport(): void
+    {
+        Gate::authorize('accounting.ledger.view');
+        Gate::authorize('accounting.report.export');
     }
 }

@@ -444,9 +444,30 @@ class StaffManagementTest extends TestCase
         $staffResponse = $this->actingAs($hrManager)->get(route('admin.staff.index'));
         $staffResponse->assertOk();
         $staffResponse->assertSee('Staff Management');
+        $staffResponse->assertDontSee('Admin Panel');
 
         $adminOverviewResponse = $this->actingAs($hrManager)->get(route('admin.overview'));
-        $adminOverviewResponse->assertRedirect(route('admin.staff.index'));
+        $adminOverviewResponse->assertRedirect(route('admin.staff.index', ['date' => today()->toDateString()]));
+    }
+
+    public function test_attendance_only_staff_user_is_redirected_to_attendance_and_sees_only_allowed_links(): void
+    {
+        $attendanceUser = User::factory()->create();
+        $attendanceUser->givePermissionTo('hr.attendance.view');
+
+        $dashboardResponse = $this->actingAs($attendanceUser)->get(route('dashboard'));
+        $dashboardResponse->assertRedirect(route('admin.staff.attendance', ['date' => today()->toDateString()]));
+
+        $staffIndexResponse = $this->actingAs($attendanceUser)->get(route('admin.staff.index'));
+        $staffIndexResponse->assertRedirect(route('admin.staff.attendance', ['date' => today()->toDateString()]));
+
+        $attendanceResponse = $this->actingAs($attendanceUser)->get(route('admin.staff.attendance', ['date' => today()->toDateString()]));
+        $attendanceResponse->assertOk();
+        $attendanceResponse->assertSee(route('admin.staff.attendance', ['date' => today()->toDateString()]), false);
+        $attendanceResponse->assertDontSee(route('admin.staff.employees.index', ['date' => today()->toDateString()]), false);
+        $attendanceResponse->assertDontSee(route('admin.staff.leaves.index'), false);
+        $attendanceResponse->assertDontSee(route('admin.staff.payroll.index'), false);
+        $attendanceResponse->assertDontSee('Admin Panel');
     }
 
     public function test_admin_root_stays_on_admin_overview_for_admin_user(): void

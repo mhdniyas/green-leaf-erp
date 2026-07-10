@@ -376,6 +376,50 @@ class AdminAccountingDashboardTest extends TestCase
             ->assertSee('1,850.75');
     }
 
+    public function test_owned_shop_register_shows_update_notifications_for_submitted_and_recheck_entries(): void
+    {
+        $shopOwner = User::factory()->create(['shop_id' => $this->ownedShop->id, 'name' => 'Register Shop Owner']);
+        $shopOwner->assignRole('shop');
+
+        ShopAccountingEntry::create([
+            'shop_id' => $this->ownedShop->id,
+            'business_date' => '2026-06-24',
+            'status' => 'submitted',
+            'created_by' => $shopOwner->id,
+            'submitted_by' => $shopOwner->id,
+            'submitted_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $recheckShop = Shop::create([
+            'code' => 'PART-001',
+            'name' => 'Partnership Outlet',
+            'status' => 'active',
+            'accounting_mode' => 'partnership',
+            'accounting_enabled' => true,
+        ]);
+
+        ShopAccountingEntry::create([
+            'shop_id' => $recheckShop->id,
+            'business_date' => '2026-06-24',
+            'status' => 'recheck_required',
+            'created_by' => $this->admin->id,
+            'submitted_by' => $this->admin->id,
+            'submitted_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.accounting.owned-shops.index'))
+            ->assertOk()
+            ->assertSee('Owned and partnership shops table')
+            ->assertSee('Update Alert')
+            ->assertSee('New Update')
+            ->assertSee('Register Shop Owner')
+            ->assertSee('Recheck Update')
+            ->assertSee('Partnership Outlet');
+    }
+
     public function test_admin_can_create_global_and_shop_specific_categories_and_shop_detail_lists_both(): void
     {
         $this->actingAs($this->admin)
@@ -384,7 +428,7 @@ class AdminAccountingDashboardTest extends TestCase
                 'type' => 'income',
                 'name' => 'Sales Cash',
             ])
-            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code]));
+            ->assertRedirect(route('admin.accounting.owned-shops.categories.index', ['shop' => $this->ownedShop->code]));
 
         $this->actingAs($this->admin)
             ->post(route('admin.accounting.owned-shops.categories.store', $this->ownedShop), [
@@ -392,7 +436,7 @@ class AdminAccountingDashboardTest extends TestCase
                 'type' => 'expense',
                 'name' => 'Local Rent',
             ])
-            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code]));
+            ->assertRedirect(route('admin.accounting.owned-shops.categories.index', ['shop' => $this->ownedShop->code]));
 
         $this->assertDatabaseHas('shop_accounting_categories', [
             'shop_id' => null,
@@ -408,6 +452,15 @@ class AdminAccountingDashboardTest extends TestCase
         $this->actingAs($this->admin)
             ->get(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code, 'tab' => 'cashbook']))
             ->assertOk()
+            ->assertDontSee('Ownership shares')
+            ->assertDontSee('Category management moved to its own page')
+            ->assertSee('Manage Ownership Shares')
+            ->assertSee('Open Categories Page');
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.accounting.owned-shops.categories.index', ['shop' => $this->ownedShop->code]))
+            ->assertOk()
+            ->assertSee('Add new ledger category')
             ->assertSee('Sales Cash')
             ->assertSee('Local Rent');
     }
@@ -636,6 +689,71 @@ class AdminAccountingDashboardTest extends TestCase
             ->assertSee($purchaser->name);
     }
 
+    public function test_owned_shop_monthly_analytics_include_submitted_entries_not_only_approved_ones(): void
+    {
+        $incomeCategory = ShopAccountingCategory::create([
+            'shop_id' => null,
+            'type' => 'income',
+            'name' => 'Sales Income',
+            'is_active' => true,
+        ]);
+        $expenseCategory = ShopAccountingCategory::create([
+            'shop_id' => null,
+            'type' => 'expense',
+            'name' => 'Cleaning Expense',
+            'is_active' => true,
+        ]);
+
+        ShopInvoice::factory()->create([
+            'shop_id' => $this->ownedShop->id,
+            'business_date' => '2026-07-08',
+            'invoice_number' => 'SINV-OWN-ANALYTICS-001',
+            'final_total' => 8500,
+            'paid_amount' => 5000,
+            'balance_amount' => 3500,
+        ]);
+
+        $entry = ShopAccountingEntry::create([
+            'shop_id' => $this->ownedShop->id,
+            'business_date' => '2026-07-08',
+            'status' => 'submitted',
+            'created_by' => $this->admin->id,
+            'submitted_by' => $this->admin->id,
+            'submitted_at' => now(),
+        ]);
+
+        $entry->lines()->createMany([
+            [
+                'shop_accounting_category_id' => $incomeCategory->id,
+                'type' => 'income',
+                'amount' => 7000,
+                'description' => 'Counter sales',
+            ],
+            [
+                'shop_accounting_category_id' => $expenseCategory->id,
+                'type' => 'expense',
+                'amount' => 1200,
+                'description' => 'Cleaning and supplies',
+            ],
+        ]);
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.accounting.owned-shops.show', [
+                'shop' => $this->ownedShop->code,
+                'tab' => 'bills',
+                'date' => '2026-07-08',
+                'start_date' => '2026-07-01',
+                'end_date' => '2026-07-31',
+            ]))
+            ->assertOk()
+            ->assertSee('Rs. 8,500.00')
+            ->assertSee('Rs. 5,000.00')
+            ->assertSee('Rs. 3,500.00')
+            ->assertSee('Rs. 7,000.00')
+            ->assertSee('Rs. 1,200.00')
+            ->assertSee('Rs. 10,800.00');
+    }
+
     public function test_admin_can_review_entry_and_send_recheck_or_approval(): void
     {
         $entry = ShopAccountingEntry::create([
@@ -647,28 +765,154 @@ class AdminAccountingDashboardTest extends TestCase
             'submitted_at' => now(),
         ]);
 
+        $incomeCategory = ShopAccountingCategory::create([
+            'shop_id' => null,
+            'type' => 'income',
+            'name' => 'Sales Income - Cash',
+            'is_active' => true,
+        ]);
+
+        $expenseCategory = ShopAccountingCategory::create([
+            'shop_id' => null,
+            'type' => 'expense',
+            'name' => 'Cash Purchase',
+            'is_active' => true,
+        ]);
+
+        $entry->lines()->createMany([
+            [
+                'shop_accounting_category_id' => $incomeCategory->id,
+                'type' => 'income',
+                'amount' => 1000,
+                'description' => 'Morning counter sales',
+            ],
+            [
+                'shop_accounting_category_id' => $expenseCategory->id,
+                'type' => 'expense',
+                'amount' => 350,
+                'description' => 'Urgent stock purchase',
+            ],
+        ]);
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code, 'tab' => 'cashbook', 'date' => '2026-06-24']))
+            ->assertOk()
+            ->assertSee('Request details')
+            ->assertSee('Morning counter sales')
+            ->assertSee('Urgent stock purchase')
+            ->assertSee('Approve All Items')
+            ->assertSee('Approve This Item')
+            ->assertSee('Send Item For Recheck')
+            ->assertSee('approve-entry-modal', false)
+            ->assertSee('Confirm Approve All')
+            ->assertSee('line-review-modal', false);
+
         $this->actingAs($this->admin)
             ->patch(route('admin.accounting.owned-shops.entries.review', ['shop' => $this->ownedShop, 'entry' => $entry]), [
-                'decision' => 'recheck',
-                'admin_note' => 'Cash closing does not match.',
+                'decision' => 'review_lines',
+                'line_reviews' => [
+                    $entry->lines[0]->id => [
+                        'decision' => 'approve',
+                        'review_note' => null,
+                    ],
+                ],
             ])
-            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code, 'date' => '2026-06-24']));
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code, 'tab' => 'cashbook', 'date' => '2026-06-24']));
+
+        $entry->refresh();
+        $this->assertSame('submitted', $entry->status);
+        $this->assertNull($entry->admin_note);
+        $this->assertNotNull($entry->reviewed_at);
+        $this->assertSame('approved', $entry->lines()->findOrFail($entry->lines[0]->id)->review_status);
+        $this->assertNull($entry->lines()->findOrFail($entry->lines[1]->id)->review_status);
+
+        $this->actingAs($this->admin)
+            ->patch(route('admin.accounting.owned-shops.entries.review', ['shop' => $this->ownedShop, 'entry' => $entry]), [
+                'decision' => 'review_lines',
+                'admin_note' => 'Expense line needs bill confirmation.',
+                'line_reviews' => [
+                    $entry->lines[1]->id => [
+                        'decision' => 'recheck',
+                        'review_note' => 'Upload supplier slip.',
+                    ],
+                ],
+            ])
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code, 'tab' => 'cashbook', 'date' => '2026-06-24']));
 
         $entry->refresh();
         $this->assertSame('recheck_required', $entry->status);
-        $this->assertSame('Cash closing does not match.', $entry->admin_note);
-        $this->assertNotNull($entry->reviewed_at);
+        $this->assertSame('Expense line needs bill confirmation.', $entry->admin_note);
+        $this->assertSame('recheck_required', $entry->lines()->findOrFail($entry->lines[1]->id)->review_status);
+        $this->assertSame('Upload supplier slip.', $entry->lines()->findOrFail($entry->lines[1]->id)->review_note);
 
         $this->actingAs($this->admin)
             ->patch(route('admin.accounting.owned-shops.entries.review', ['shop' => $this->ownedShop, 'entry' => $entry]), [
                 'decision' => 'approve',
                 'admin_note' => 'Approved after correction.',
             ])
-            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code, 'date' => '2026-06-24']));
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $this->ownedShop->code, 'tab' => 'cashbook', 'date' => '2026-06-24']));
 
         $entry->refresh();
         $this->assertSame('approved', $entry->status);
         $this->assertSame('Approved after correction.', $entry->admin_note);
+        $entry->load('lines');
+        $this->assertTrue($entry->lines->every(fn (ShopAccountingEntryLine $line): bool => $line->review_status === 'approved'));
+    }
+
+    public function test_admin_dashboard_lists_pending_owned_shop_updates_with_line_items(): void
+    {
+        $incomeCategory = ShopAccountingCategory::create([
+            'shop_id' => null,
+            'type' => 'income',
+            'name' => 'Sales Income - Cash',
+            'is_active' => true,
+        ]);
+
+        $expenseCategory = ShopAccountingCategory::create([
+            'shop_id' => null,
+            'type' => 'expense',
+            'name' => 'Cash Purchase',
+            'is_active' => true,
+        ]);
+
+        $shopOwner = User::factory()->create(['shop_id' => $this->ownedShop->id]);
+        $shopOwner->assignRole('shop');
+
+        $entry = ShopAccountingEntry::create([
+            'shop_id' => $this->ownedShop->id,
+            'business_date' => '2026-06-24',
+            'status' => 'submitted',
+            'created_by' => $shopOwner->id,
+            'submitted_by' => $shopOwner->id,
+            'submitted_at' => now(),
+            'shop_reply_note' => 'Added the latest shop update.',
+        ]);
+
+        $entry->lines()->createMany([
+            [
+                'shop_accounting_category_id' => $incomeCategory->id,
+                'type' => 'income',
+                'amount' => 1500,
+                'description' => 'Cash counter sales',
+            ],
+            [
+                'shop_accounting_category_id' => $expenseCategory->id,
+                'type' => 'expense',
+                'amount' => 250,
+                'description' => 'Urgent local purchase',
+            ],
+        ]);
+
+        $this->actingAs($this->admin)
+            ->get(route('admin.accounting.index', ['date' => '2026-06-24']))
+            ->assertOk()
+            ->assertSee('Submitted ledger updates waiting for accounting')
+            ->assertSee($this->ownedShop->name)
+            ->assertSee('Sales Income - Cash')
+            ->assertSee('Cash counter sales')
+            ->assertSee('Cash Purchase')
+            ->assertSee('Urgent local purchase')
+            ->assertSee('Review This Update');
     }
 
     public function test_admin_can_approve_shop_payment_request_and_invoice_sales_totals_update(): void

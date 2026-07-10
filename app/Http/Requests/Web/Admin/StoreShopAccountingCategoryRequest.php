@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Web\Admin;
 
+use App\Support\AccountingAccess;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -11,13 +12,7 @@ class StoreShopAccountingCategoryRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user() !== null
-            && (
-                $this->user()->hasRole('admin')
-                || $this->user()->can('admin.user.view')
-                || $this->user()->can('admin.daily-progress.view')
-                || $this->user()->can('admin.activity-log.view')
-            );
+        return AccountingAccess::canManageOwnedShops($this->user());
     }
 
     public function rules(): array

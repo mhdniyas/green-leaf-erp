@@ -22,6 +22,7 @@ use App\Services\Finance\AdminFinancePillarService;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Finance\ShopAccountingInvoiceService;
 use App\Services\ShopInvoices\ShopInvoiceService;
+use App\Support\AccountingAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -40,13 +41,22 @@ class AdminAccountingController extends Controller
 
     public function index(Request $request): View
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::DashboardView);
 
         $date = Carbon::parse($request->input('date', today()->toDateString()));
         $finance = $this->financePillars->forPeriod($date, $date);
         $cashFlowReport = $this->financePillars->cashFlowReport($date);
         $ownedMetrics = $this->ownedShopAccountingService->dashboardMetrics($date);
-        $eligibleShops = $this->ownedShopAccountingService->eligibleShops()->take(6);
+        $allEligibleShops = $this->ownedShopAccountingService->eligibleShops();
+        $eligibleShops = $allEligibleShops->take(6);
+        $pendingOwnedShopEntries = ShopAccountingEntry::query()
+            ->whereIn('shop_id', $allEligibleShops->pluck('id'))
+            ->whereDate('business_date', $date)
+            ->whereIn('status', ['submitted', 'recheck_required'])
+            ->with(['shop', 'lines.category', 'submittedBy'])
+            ->orderByDesc('updated_at')
+            ->limit(8)
+            ->get();
         $purchaserCashRows = $this->purchaserCashRows($date);
 
         return view('admin.accounting.index', compact(
@@ -55,13 +65,14 @@ class AdminAccountingController extends Controller
             'cashFlowReport',
             'ownedMetrics',
             'eligibleShops',
+            'pendingOwnedShopEntries',
             'purchaserCashRows',
         ));
     }
 
     public function dailySalesReport(Request $request): View
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::DashboardView);
 
         $date = Carbon::parse($request->input('date', today()->toDateString()));
         $statusFilter = (string) $request->input('status', 'all');
@@ -83,7 +94,7 @@ class AdminAccountingController extends Controller
 
     public function vendorReports(Request $request): View
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::DashboardView);
 
         $date = Carbon::parse($request->input('date', today()->toDateString()));
         $report = $this->financePillars->vendorDailyDetail($date);
@@ -93,10 +104,15 @@ class AdminAccountingController extends Controller
 
     public function ownedShopsIndex(Request $request): View
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
 
         $shops = $this->ownedShopAccountingService->eligibleShops();
+        $shops->load(['users:id,shop_id', 'latestAccountingEntry.submittedBy:id,name']);
         $shops->loadSum('invoices as pending_balance_amount', 'balance_amount');
+        $shops->loadCount([
+            'accountingEntries as pending_updates_count' => fn ($query) => $query->where('status', 'submitted'),
+            'accountingEntries as recheck_updates_count' => fn ($query) => $query->where('status', 'recheck_required'),
+        ]);
         $availableShops = Shop::query()
             ->where(function ($query): void {
                 $query->where('accounting_enabled', false)
@@ -110,7 +126,7 @@ class AdminAccountingController extends Controller
 
     public function storeOwnedShop(Request $request): RedirectResponse
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
 
         $validated = $request->validate([
             'shop_id' => ['required', 'integer', 'exists:shops,id'],
@@ -138,7 +154,7 @@ class AdminAccountingController extends Controller
 
     public function updateReserveAmount(Request $request, Shop $shop): RedirectResponse
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
         $shop = $this->loadEligibleShop($shop);
 
         $validated = $request->validate([
@@ -155,7 +171,7 @@ class AdminAccountingController extends Controller
 
     public function ownedShopShow(Request $request, Shop $shop): View
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
         $shop = $this->loadEligibleShop($shop);
 
         $selectedDate = Carbon::parse($request->input('date', today()->toDateString()));
@@ -194,14 +210,14 @@ class AdminAccountingController extends Controller
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
             ->get();
-        $approvedEntries = ShopAccountingEntry::query()
+        $periodEntries = ShopAccountingEntry::query()
             ->where('shop_id', $shop->id)
-            ->whereIn('status', ['approved', 'finalized'])
+            ->whereIn('status', ['submitted', 'recheck_required', 'approved', 'finalized'])
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
             ->with(['lines.category'])
             ->get();
-        $analytics = $this->ownedShopAnalytics($periodInvoices, $approvedEntries);
+        $analytics = $this->ownedShopAnalytics($periodInvoices, $periodEntries);
 
         $incomeTotal = $entry instanceof ShopAccountingEntry
             ? round((float) $entry->lines->where('type', 'income')->sum('amount'), 2)
@@ -232,9 +248,22 @@ class AdminAccountingController extends Controller
         ]);
     }
 
+    public function ownedShopCategories(Request $request, Shop $shop): View
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
+        $shop = $this->loadEligibleShop($shop);
+        $availableCategories = $this->ownedShopAccountingService->availableCategoriesForShop($shop);
+
+        return view('admin.accounting.owned_shops.categories', [
+            'shop' => $shop,
+            'globalCategories' => $availableCategories->whereNull('shop_id')->values(),
+            'shopCategories' => $availableCategories->where('shop_id', $shop->id)->values(),
+        ]);
+    }
+
     public function storeOwnerships(Request $request, Shop $shop): RedirectResponse
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
         $shop = $this->loadEligibleShop($shop);
 
         $request->merge([
@@ -274,7 +303,7 @@ class AdminAccountingController extends Controller
 
     public function storeCategory(StoreShopAccountingCategoryRequest $request, Shop $shop): RedirectResponse
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
         $shop = $this->loadEligibleShop($shop);
 
         $validated = $request->validated();
@@ -301,13 +330,13 @@ class AdminAccountingController extends Controller
             'is_active' => (bool) ($validated['is_active'] ?? true),
         ]);
 
-        return redirect()->route('admin.accounting.owned-shops.show', ['shop' => $shop->code])
+        return redirect()->route('admin.accounting.owned-shops.categories.index', ['shop' => $shop->code])
             ->with('success', 'Accounting category created.');
     }
 
     public function storeEntry(StoreShopAccountingEntryRequest $request, Shop $shop): RedirectResponse
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
         $shop = $this->loadEligibleShop($shop);
 
         $entry = $this->ownedShopAccountingService->saveEntry($shop, $request->validated(), (int) $request->user()->id);
@@ -320,7 +349,7 @@ class AdminAccountingController extends Controller
 
     public function updateEntry(UpdateShopAccountingEntryRequest $request, Shop $shop, ShopAccountingEntry $entry): RedirectResponse
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
         $shop = $this->loadEligibleShop($shop);
         abort_unless($entry->shop_id === $shop->id, 404);
 
@@ -334,7 +363,7 @@ class AdminAccountingController extends Controller
 
     public function reviewEntry(ReviewShopAccountingEntryRequest $request, Shop $shop, ShopAccountingEntry $entry): RedirectResponse
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::EntryReview);
         $shop = $this->loadEligibleShop($shop);
         abort_unless($entry->shop_id === $shop->id, 404);
 
@@ -343,21 +372,25 @@ class AdminAccountingController extends Controller
             $request->validated('decision'),
             (int) $request->user()->id,
             $request->validated('admin_note'),
+            $request->validated('line_reviews', []),
         );
 
-        $message = $entry->status === 'approved'
-            ? 'Daily accounting approved.'
-            : 'Daily accounting sent back for recheck.';
+        $message = match ($entry->status) {
+            'approved' => 'Daily accounting approved.',
+            'recheck_required' => 'Daily accounting sent back for recheck.',
+            default => 'Line item reviewed. Remaining items are still pending.',
+        };
 
         return redirect()->route('admin.accounting.owned-shops.show', [
             'shop' => $shop->code,
+            'tab' => 'cashbook',
             'date' => $entry->business_date->toDateString(),
-        ])->with($entry->status === 'approved' ? 'success' : 'warning', $message);
+        ])->with($entry->status === 'recheck_required' ? 'warning' : 'success', $message);
     }
 
     public function storeInvoice(GenerateShopAccountingInvoiceRequest $request, Shop $shop): RedirectResponse
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::InvoiceGenerate);
         $shop = $this->loadEligibleShop($shop);
 
         try {
@@ -380,7 +413,7 @@ class AdminAccountingController extends Controller
 
     public function showInvoice(Request $request, Shop $shop, ShopAccountingInvoice $invoice): View
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
         $shop = $this->loadEligibleShop($shop);
         abort_unless($invoice->shop_id === $shop->id, 404);
 
@@ -392,7 +425,7 @@ class AdminAccountingController extends Controller
 
     public function generateDailyWorkflowInvoices(Request $request): RedirectResponse
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::InvoiceGenerate);
 
         $validated = $request->validate([
             'date' => ['required', 'date'],
@@ -406,7 +439,7 @@ class AdminAccountingController extends Controller
 
     public function purchasersIndex(Request $request): View
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::PurchaserCashManage);
 
         $sort = (string) $request->input('sort', 'name');
         $direction = strtolower((string) $request->input('direction', 'asc')) === 'desc' ? 'desc' : 'asc';
@@ -458,7 +491,7 @@ class AdminAccountingController extends Controller
 
     public function purchaserShow(Request $request, User $user): View
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::PurchaserCashManage);
         abort_unless($user->hasRole('purchaser'), 404);
 
         $credits = PurchaserCredit::query()
@@ -477,7 +510,7 @@ class AdminAccountingController extends Controller
 
     public function storePurchaserCredit(Request $request, User $user): RedirectResponse
     {
-        $this->ensureAdminAccess($request);
+        $this->ensureAccountingAccess($request, AccountingAccess::PurchaserCashManage);
         abort_unless($user->hasRole('purchaser'), 404);
 
         $validated = $request->validate([
@@ -499,13 +532,10 @@ class AdminAccountingController extends Controller
             ->with('success', 'Credit added successfully.');
     }
 
-    private function ensureAdminAccess(Request $request): void
+    private function ensureAccountingAccess(Request $request, string $permission): void
     {
         abort_unless(
-            $request->user()?->hasRole('admin')
-            || $request->user()?->can('admin.user.view')
-            || $request->user()?->can('admin.daily-progress.view')
-            || $request->user()?->can('admin.activity-log.view'),
+            AccountingAccess::allows($request->user(), $permission),
             403,
             'Unauthorized access to admin accounting.'
         );

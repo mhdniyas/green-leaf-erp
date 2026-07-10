@@ -62,6 +62,8 @@ class ShopOwnerModulesTest extends TestCase
         $response->assertSee('Go to bottom');
         $response->assertSee('app-dialog-root');
         $response->assertSee('window.showAppAlert');
+        $response->assertSee('shop-owner-mobile-sidebar-open');
+        $response->assertSee('shop-owner-mobile-sidebar');
 
         // Should not see inventory/purchasing group items which are reserved for other roles
         $response->assertDontSee('Sorting Checklist');
@@ -467,15 +469,28 @@ class ShopOwnerModulesTest extends TestCase
         $shopOwner = User::factory()->create(['shop_id' => $shop->id]);
         $shopOwner->assignRole('shop');
 
+        ShopInvoice::factory()->create([
+            'shop_id' => $shop->id,
+            'business_date' => today()->toDateString(),
+            'final_total' => 880,
+            'balance_amount' => 880,
+        ]);
+
         $this->actingAs($shopOwner)
             ->get(route('shop-owner.accounting.index', ['tab' => 'cashbook']))
             ->assertOk()
+            ->assertSee('Daily shop ledger')
             ->assertSee('Add Income / Expense')
             ->assertSee('Reserve Cash')
             ->assertSee('725.50')
-            ->assertSee('Sales Income')
-            ->assertSee('Daily Expense')
-            ->assertSee('Other')
+            ->assertSee('Sales Income - Cash')
+            ->assertSee('Warehouse Delivery Invoice')
+            ->assertSee('880.00')
+            ->assertSee('Cash Purchase')
+            ->assertSee('Staff Salary')
+            ->assertSee('Other Income')
+            ->assertSee('Other Expense')
+            ->assertSee('cashbook-line-category-trigger', false)
             ->assertSee('name="opening_cash" value="725.50"', false);
     }
 
@@ -492,7 +507,7 @@ class ShopOwnerModulesTest extends TestCase
         $shopOwner->assignRole('shop');
 
         $admin = User::factory()->create();
-        $admin->givePermissionTo('admin.user.view');
+        $admin->givePermissionTo('accounting.entry.review');
 
         $incomeCategory = ShopAccountingCategory::create([
             'shop_id' => null,
@@ -537,10 +552,16 @@ class ShopOwnerModulesTest extends TestCase
 
         $this->actingAs($admin)
             ->patch(route('admin.accounting.owned-shops.entries.review', ['shop' => $shop, 'entry' => $entry]), [
-                'decision' => 'recheck',
+                'decision' => 'review_lines',
                 'admin_note' => 'Please verify the closing cash.',
+                'line_reviews' => [
+                    $entry->lines()->where('description', 'Store spend')->firstOrFail()->id => [
+                        'decision' => 'recheck',
+                        'review_note' => 'Store spend bill is missing.',
+                    ],
+                ],
             ])
-            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $shop->code, 'date' => '2026-06-24']));
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $shop->code, 'tab' => 'cashbook', 'date' => '2026-06-24']));
 
         $entry->refresh();
         $this->assertSame('recheck_required', $entry->status);
@@ -549,7 +570,11 @@ class ShopOwnerModulesTest extends TestCase
             ->get(route('shop-owner.accounting.index', ['tab' => 'cashbook', 'date' => '2026-06-24']))
             ->assertOk()
             ->assertSee('Recheck Required')
-            ->assertSee('Please verify the closing cash.');
+            ->assertSee('Please verify the closing cash.')
+            ->assertSee('These ledger items need correction')
+            ->assertSee('Daily Expense')
+            ->assertSee('Store spend')
+            ->assertSee('Store spend bill is missing.');
 
         $this->actingAs($shopOwner)
             ->post(route('shop-owner.accounting.entries.store'), [
@@ -563,6 +588,45 @@ class ShopOwnerModulesTest extends TestCase
         $this->assertSame('submitted', $entry->status);
         $this->assertSame('Updated after recount.', $entry->shop_reply_note);
         $this->assertNull($entry->reviewed_by);
+
+        $this->actingAs($admin)
+            ->patch(route('admin.accounting.owned-shops.entries.review', ['shop' => $shop, 'entry' => $entry]), [
+                'decision' => 'approve',
+                'admin_note' => 'Approved after recount.',
+            ])
+            ->assertRedirect(route('admin.accounting.owned-shops.show', ['shop' => $shop->code, 'tab' => 'cashbook', 'date' => '2026-06-24']));
+
+        $entry->refresh();
+        $this->assertSame('approved', $entry->status);
+
+        $this->actingAs($shopOwner)
+            ->get(route('shop-owner.accounting.index', ['tab' => 'cashbook', 'date' => '2026-06-24']))
+            ->assertOk()
+            ->assertSee('This day is already approved.')
+            ->assertSee('Submit Updated Ledger Day');
+
+        $this->actingAs($shopOwner)
+            ->post(route('shop-owner.accounting.entries.store'), [
+                ...$payload,
+                'closing_cash' => 775,
+                'shop_reply_note' => 'Late expense added after approval.',
+                'lines' => [
+                    ...$payload['lines'],
+                    [
+                        'shop_accounting_category_id' => $expenseCategory->id,
+                        'amount' => 120,
+                        'description' => 'Late cleaning spend',
+                    ],
+                ],
+            ])
+            ->assertRedirect(route('shop-owner.accounting.index', ['tab' => 'cashbook', 'date' => '2026-06-24']));
+
+        $entry->refresh();
+        $this->assertSame('submitted', $entry->status);
+        $this->assertSame('Late expense added after approval.', $entry->shop_reply_note);
+        $this->assertNull($entry->reviewed_by);
+        $this->assertNull($entry->admin_note);
+        $this->assertSame(3, $entry->lines()->count());
     }
 
     public function test_shop_owner_must_add_notes_when_using_other_cashbook_category(): void

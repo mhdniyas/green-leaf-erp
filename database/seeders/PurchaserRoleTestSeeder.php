@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Enums\Inventory\BatchStatus;
 use App\Models\Product;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Models\ShopOwnerAssignment;
+use App\Models\StockBatch;
 use App\Models\User;
+use App\Models\Warehouse;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -16,127 +20,66 @@ use Illuminate\Support\Facades\DB;
 
 class PurchaserRoleTestSeeder extends Seeder
 {
-    private const ORDER_ITEM_COUNT = 40;
+    private const ORDER_ITEM_COUNT = 8;
 
-    /**
-     * @var array<string, float>
-     */
-    private const SHARED_PRODUCT_QUANTITIES = [
-        '1' => 5.0,
-        '3' => 8.0,
-        '5' => 10.0,
-        '101' => 3.0,
-        '164' => 6.0,
-    ];
+    private const BUSINESS_DATE = '2026-07-09';
 
-    /**
-     * Run the database seeds.
-     */
     public function run(): void
     {
         DB::transaction(function (): void {
+            $businessDate = Carbon::parse(self::BUSINESS_DATE)->startOfDay();
+            $cutoffDate = $businessDate->copy()->subDay()->setTime(21, 30, 0);
+
             $products = Product::query()
                 ->where('is_active', true)
                 ->orderBy('id')
-                ->get();
-
-            if ($products->count() < 200) {
-                throw new \RuntimeException('PurchaserRoleTestSeeder requires at least 200 active products.');
-            }
-
-            $this->command?->info("Found {$products->count()} active products.");
-
-            // Define 14 shops with unique warehouse tags (A to N)
-            $shopData = [
-                ['code' => 'SHOP_CASIO', 'name' => 'Casio Hypermarket', 'warehouse_tag' => 'A'],
-                ['code' => 'SHOP_BUDEGERE', 'name' => 'Budegere', 'warehouse_tag' => 'B'],
-                ['code' => 'SHOP_GRANCITY', 'name' => 'Grancity', 'warehouse_tag' => 'C'],
-                ['code' => 'SHOP_ASHIRWAD', 'name' => 'Ashirwad', 'warehouse_tag' => 'D'],
-                ['code' => 'SHOP_METRO', 'name' => 'Metro Retail', 'warehouse_tag' => 'E'],
-                ['code' => 'SHOP_RELIANCE', 'name' => 'Reliance Fresh', 'warehouse_tag' => 'F'],
-                ['code' => 'SHOP_SPAR', 'name' => 'Spar Hypermarket', 'warehouse_tag' => 'G'],
-                ['code' => 'SHOP_MORE', 'name' => 'More Supermarket', 'warehouse_tag' => 'H'],
-                ['code' => 'SHOP_LULU', 'name' => 'Lulu Express', 'warehouse_tag' => 'I'],
-                ['code' => 'SHOP_STAR', 'name' => 'Star Bazaar', 'warehouse_tag' => 'J'],
-                ['code' => 'SHOP_FOODWORLD', 'name' => 'Foodworld', 'warehouse_tag' => 'K'],
-                ['code' => 'SHOP_NILGIRIS', 'name' => 'Nilgiris', 'warehouse_tag' => 'L'],
-                ['code' => 'SHOP_DMART', 'name' => 'DMart', 'warehouse_tag' => 'M'],
-                ['code' => 'SHOP_EASYDAY', 'name' => 'Easyday', 'warehouse_tag' => 'N'],
-            ];
-
-            $priceGroupMap = [
-                'A' => 1, 'D' => 1, 'G' => 1, 'J' => 1, 'M' => 1,
-                'B' => 2, 'E' => 2, 'H' => 2, 'K' => 2, 'N' => 2,
-                'C' => 3, 'F' => 3, 'I' => 3, 'L' => 3,
-            ];
-
-            $shops = collect();
-            foreach ($shopData as $data) {
-                $shop = Shop::updateOrCreate(
-                    ['code' => $data['code']],
-                    [
-                        'name' => $data['name'],
-                        'warehouse_tag' => $data['warehouse_tag'],
-                        'shop_price_group_id' => $priceGroupMap[$data['warehouse_tag']] ?? 1,
-                        'status' => 'active',
-                    ]
-                );
-                $shops->push($shop);
-            }
-
-            $this->command?->info('Ensured 14 shops are seeded with unique warehouse tags.');
-
-            ShopOrder::query()
-                ->whereIn('shop_id', $shops->pluck('id'))
-                ->delete();
-
-            $orderCreator = User::query()->where('email', 'purchase@greenleaf.com')->firstOrFail();
-
-            $businessDate = Carbon::today()->startOfDay();
-            $sharedProducts = $products
-                ->whereIn('sku', array_keys(self::SHARED_PRODUCT_QUANTITIES))
-                ->keyBy('sku');
-
-            if ($sharedProducts->count() !== count(self::SHARED_PRODUCT_QUANTITIES)) {
-                throw new \RuntimeException('PurchaserRoleTestSeeder is missing required shared products.');
-            }
-
-            $rotatingProducts = $products
-                ->reject(fn (Product $product): bool => array_key_exists($product->sku, self::SHARED_PRODUCT_QUANTITIES))
+                ->get()
                 ->values();
 
-            $this->command?->info(sprintf(
-                'Seeding today orders for %s...',
-                $businessDate->toDateString()
-            ));
+            if ($products->count() < self::ORDER_ITEM_COUNT) {
+                throw new \RuntimeException('PurchaserRoleTestSeeder requires enough active products to seed shop orders.');
+            }
 
-            // Disable model events for performance
-            ShopOrder::unsetEventDispatcher();
-            ShopOrderItem::unsetEventDispatcher();
+            $shops = Shop::query()
+                ->where('status', 'active')
+                ->orderBy('id')
+                ->get();
 
-            $orderCount = 0;
+            if ($shops->isEmpty()) {
+                throw new \RuntimeException('PurchaserRoleTestSeeder requires active shops.');
+            }
+
             foreach ($shops->values() as $shopIndex => $shop) {
-                $orderDateString = $businessDate->toDateString();
-                $datePrefix = $businessDate->format('Ymd');
-                $suffix = strtoupper(substr(md5($shop->code.$orderDateString), 0, 4));
-                $orderNumber = "RQ-{$datePrefix}-{$suffix}";
+                $shopOwner = $this->shopOwnerFor($shop);
 
-                $order = ShopOrder::updateOrCreate(
+                if (! $shopOwner instanceof User) {
+                    continue;
+                }
+
+                $orderNumber = sprintf(
+                    'RQ-SHOP-%s-%02d',
+                    $businessDate->format('Ymd'),
+                    $shopIndex + 1,
+                );
+
+                $submittedAt = $cutoffDate->copy()->setTime(18 + ($shopIndex % 3), 10 + (($shopIndex * 7) % 40), 0);
+
+                $shopOrder = ShopOrder::query()->updateOrCreate(
                     ['order_number' => $orderNumber],
                     [
                         'shop_id' => $shop->id,
-                        'state' => 'approved',
+                        'business_date' => $businessDate->toDateString(),
+                        'state' => 'submitted',
                         'delivery_status' => 'pending_delivery',
-                        'payment_status' => 'pending',
-                        'business_date' => $orderDateString,
-                        'submitted_at' => $businessDate->copy()->subDay()->setTime(18, 0, 0),
-                        'deadline_at' => $businessDate->copy()->subDay()->setTime(21, 30, 0),
-                        'created_by' => $orderCreator->id,
+                        'payment_status' => 'unpaid',
+                        'is_late' => false,
+                        'submitted_at' => $submittedAt,
+                        'deadline_at' => $cutoffDate,
+                        'created_by' => $shopOwner->id,
                         'latest_revision_no' => 1,
                         'has_pending_revision' => false,
                         'is_allocation_completed' => false,
                         'is_delivered' => false,
-                        'is_late' => false,
                         'cash_collected' => 0,
                         'cash_discrepancy' => 0,
                         'balance_amount' => 0,
@@ -144,77 +87,129 @@ class PurchaserRoleTestSeeder extends Seeder
                     ]
                 );
 
-                ShopOrderItem::query()
-                    ->where('shop_order_id', $order->id)
-                    ->delete();
-
                 $this->seedOrderItems(
-                    order: $order,
-                    sharedProducts: $sharedProducts,
-                    rotatingProducts: $rotatingProducts,
-                    shopOffset: $shopIndex,
+                    order: $shopOrder,
+                    products: $products,
+                    shopIndex: $shopIndex,
                 );
-
-                $orderCount++;
             }
 
-            ShopOrder::setEventDispatcher(app('events'));
-            ShopOrderItem::setEventDispatcher(app('events'));
-
-            $this->command?->info("Seeded {$orderCount} today orders with items successfully.");
+            $this->seedInventoryCoverage($businessDate);
         });
+
+        $this->command?->info('Seeded July 9, 2026 shop-owner orders with July 8, 2026 submission times and enough confirmed stock for loadout.');
+    }
+
+    private function shopOwnerFor(Shop $shop): ?User
+    {
+        $assignment = ShopOwnerAssignment::query()
+            ->where('shop_id', $shop->id)
+            ->with('user')
+            ->first();
+
+        return $assignment?->user;
     }
 
     /**
-     * @param  Collection<int|string, Product>  $sharedProducts
-     * @param  Collection<int, Product>  $rotatingProducts
+     * @param  Collection<int, Product>  $products
      */
-    private function seedOrderItems(
-        ShopOrder $order,
-        Collection $sharedProducts,
-        Collection $rotatingProducts,
-        int $shopOffset,
-    ): void {
-        foreach (self::SHARED_PRODUCT_QUANTITIES as $sku => $quantity) {
-            /** @var Product $product */
-            $product = $sharedProducts->get($sku);
+    private function seedOrderItems(ShopOrder $order, Collection $products, int $shopIndex): void
+    {
+        $selectedProducts = collect(range(0, self::ORDER_ITEM_COUNT - 1))
+            ->map(function (int $offset) use ($products, $shopIndex): Product {
+                return $products[($shopIndex * 3 + $offset) % $products->count()];
+            });
 
-            $this->createOrderItem($order, $product, $quantity);
-        }
+        $productIds = $selectedProducts->pluck('id')->all();
 
-        $remainingCount = self::ORDER_ITEM_COUNT - count(self::SHARED_PRODUCT_QUANTITIES);
-        $productCount = $rotatingProducts->count();
+        ShopOrderItem::query()
+            ->where('shop_order_id', $order->id)
+            ->whereNotIn('product_id', $productIds)
+            ->delete();
 
-        foreach (range(0, $remainingCount - 1) as $itemIndex) {
-            /** @var Product $product */
-            $product = $rotatingProducts[($shopOffset * $remainingCount + $itemIndex) % $productCount];
-            $quantity = (float) (($itemIndex % 6) + 2 + ($shopOffset % 4));
+        foreach ($selectedProducts->values() as $itemIndex => $product) {
+            $requestedQuantity = (float) random_int(2, 12);
+            $unitPrice = round((float) ($product->base_price ?? $product->vendor_price ?? 1.0), 2);
 
-            $this->createOrderItem($order, $product, $quantity);
+            ShopOrderItem::query()->updateOrCreate(
+                [
+                    'shop_order_id' => $order->id,
+                    'product_id' => $product->id,
+                ],
+                [
+                    'product_grade' => 'A',
+                    'requested_qty' => $requestedQuantity,
+                    'approved_qty' => $requestedQuantity,
+                    'unit' => $product->unit,
+                    'locked_selling_price' => max(1.0, $unitPrice),
+                    'locked_price_source' => 'seeded_load',
+                    'line_total' => round($requestedQuantity * max(1.0, $unitPrice), 2),
+                    'notes' => sprintf('Seeded shop-owner order item %d for July 9, 2026.', $itemIndex + 1),
+                    'fulfillment_type' => 'warehouse',
+                    'sorting_status' => 'pending',
+                    'is_sorted' => false,
+                    'delivered_qty' => 0,
+                    'shortage_qty' => 0,
+                    'unit_cost' => round(max(1.0, $unitPrice) * 0.82, 4),
+                    'shortage_value' => 0,
+                ]
+            );
         }
     }
 
-    private function createOrderItem(ShopOrder $order, Product $product, float $quantity): void
+    private function seedInventoryCoverage(Carbon $businessDate): void
     {
-        $price = max(1.0, (float) ($product->base_price ?? 1));
+        $warehouseReceiver = User::query()->where('email', 'receiver@greenleaf.com')->first()
+            ?? User::query()->where('email', 'admin@greenleaf.com')->first()
+            ?? User::query()->orderBy('id')->first();
 
-        ShopOrderItem::query()->create([
-            'shop_order_id' => $order->id,
-            'product_id' => $product->id,
-            'product_grade' => 'A',
-            'requested_qty' => $quantity,
-            'approved_qty' => $quantity,
-            'unit' => $product->unit,
-            'locked_selling_price' => $price,
-            'locked_price_source' => 'seeded_load',
-            'line_total' => round($quantity * $price, 2),
-            'fulfillment_type' => 'warehouse',
-            'sorting_status' => 'pending',
-            'is_sorted' => false,
-            'delivered_qty' => 0,
-            'shortage_qty' => 0,
-            'unit_cost' => round($price * 0.82, 4),
-            'shortage_value' => 0,
-        ]);
+        $fallbackWarehouse = Warehouse::query()->where('is_active', true)->orderBy('id')->first();
+
+        if (! $warehouseReceiver instanceof User || ! $fallbackWarehouse instanceof Warehouse) {
+            return;
+        }
+
+        $requiredQuantities = ShopOrderItem::query()
+            ->selectRaw('product_id, SUM(approved_qty) as total_required_qty')
+            ->whereHas('order', function ($query) use ($businessDate): void {
+                $query->whereDate('business_date', $businessDate);
+            })
+            ->groupBy('product_id')
+            ->get();
+
+        foreach ($requiredQuantities as $requiredQuantity) {
+            $product = Product::query()->find($requiredQuantity->product_id);
+
+            if (! $product instanceof Product) {
+                continue;
+            }
+
+            $warehouseId = $product->default_warehouse_id ?: $fallbackWarehouse->id;
+            $targetQuantity = round(((float) $requiredQuantity->total_required_qty * 3) + 12, 3);
+            $costPerKg = round((float) ($product->vendor_price ?? $product->base_price ?? 1.0), 4);
+
+            StockBatch::query()->updateOrCreate(
+                [
+                    'reference' => sprintf('SEED-LOADOUT-%s-%s', $businessDate->format('Ymd'), $product->sku),
+                ],
+                [
+                    'product_id' => $product->id,
+                    'warehouse_id' => $warehouseId,
+                    'goods_received_id' => null,
+                    'created_by' => $warehouseReceiver->id,
+                    'received_at' => $businessDate->toDateString(),
+                    'total_kg' => max(1.0, $targetQuantity),
+                    'cost_per_kg' => max(1.0, $costPerKg),
+                    'transport_cost' => 0,
+                    'labour_cost' => 0,
+                    'status' => BatchStatus::Pending,
+                    'warehouse_receive_pending' => false,
+                    'warehouse_confirmed_at' => $businessDate->copy()->setTime(6, 30),
+                    'warehouse_confirmed_by' => $warehouseReceiver->id,
+                    'notes' => 'Seeded inventory coverage for July 9, 2026 shop-order loadout.',
+                    'sorted_at' => null,
+                ]
+            );
+        }
     }
 }

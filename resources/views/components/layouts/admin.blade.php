@@ -26,7 +26,7 @@
 
     $workspaceItems = [];
 
-    if ($currentUser?->can('admin.user.view') || $currentUser?->hasRole('admin')) {
+    if (\App\Support\AccountingAccess::canViewDashboard($currentUser)) {
         $workspaceItems[] = [
             'label' => 'Accounting Dashboard',
             'href' => route('admin.accounting.index', ['date' => $navDate]),

@@ -23,6 +23,8 @@
     $currentUser = auth()->user();
     $navDate = request('date', today()->toDateString());
     $currentShop = request()->route('shop');
+    $canManageOwnedShops = \App\Support\AccountingAccess::canManageOwnedShops($currentUser);
+    $canManagePurchaserCash = \App\Support\AccountingAccess::canManagePurchaserCash($currentUser);
     $sidebarItems = [
         [
             'label' => 'Dashboard',
@@ -42,21 +44,27 @@
             'active' => request()->routeIs('admin.accounting.vendor-reports'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v8m4-4H8m-4 8h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z" /></svg>',
         ],
-        [
+    ];
+
+    if ($canManageOwnedShops) {
+        $sidebarItems[] = [
             'label' => 'Owned Shops',
             'href' => route('admin.accounting.owned-shops.index'),
             'active' => request()->routeIs('admin.accounting.owned-shops.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M4.5 21V8.25m15 12.75V8.25M9 21V3.75h6V21M7.5 6h9" /></svg>',
-        ],
-        [
+        ];
+    }
+
+    if ($canManagePurchaserCash) {
+        $sidebarItems[] = [
             'label' => 'Purchasers',
             'href' => route('admin.accounting.purchasers.index'),
             'active' => request()->routeIs('admin.accounting.purchasers.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>',
-        ],
-    ];
+        ];
+    }
 
-    if ($currentShop instanceof \App\Models\Shop) {
+    if ($canManageOwnedShops && $currentShop instanceof \App\Models\Shop) {
         $sidebarItems[] = [
             'label' => 'Current Shop',
             'href' => route('admin.accounting.owned-shops.show', ['shop' => $currentShop, 'date' => $navDate]),
@@ -69,8 +77,11 @@
         ['label' => 'Home', 'href' => route('admin.accounting.index', ['date' => $navDate]), 'active' => request()->routeIs('admin.accounting.index')],
         ['label' => 'Sales', 'href' => route('admin.accounting.daily-sales', ['date' => request('date', today()->toDateString())]), 'active' => request()->routeIs('admin.accounting.daily-sales')],
         ['label' => 'Vendor', 'href' => route('admin.accounting.vendor-reports', ['date' => request('date', today()->toDateString())]), 'active' => request()->routeIs('admin.accounting.vendor-reports')],
-        ['label' => 'Shops', 'href' => route('admin.accounting.owned-shops.index'), 'active' => request()->routeIs('admin.accounting.owned-shops.*')],
     ];
+
+    if ($canManageOwnedShops) {
+        $mobileItems[] = ['label' => 'Shops', 'href' => route('admin.accounting.owned-shops.index'), 'active' => request()->routeIs('admin.accounting.owned-shops.*')];
+    }
 @endphp
 
 <div id="accounting-layout-shell" class="min-h-screen lg:flex" data-sidebar-state="expanded">

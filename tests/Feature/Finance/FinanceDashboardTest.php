@@ -152,7 +152,7 @@ class FinanceDashboardTest extends TestCase
     public function test_vendor_and_sales_exports_are_available(): void
     {
         $user = User::factory()->create();
-        $user->givePermissionTo('accounting.ledger.view');
+        $user->givePermissionTo(['accounting.ledger.view', 'accounting.report.export']);
 
         $this->actingAs($user)
             ->get(route('finance.vendors.excel', ['start_date' => today()->toDateString(), 'end_date' => today()->toDateString()]))

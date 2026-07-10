@@ -11,7 +11,6 @@ use App\Models\ShopAccountingInvoice;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
 
 class OwnedShopAccountingService
 {
@@ -131,6 +130,8 @@ class OwnedShopAccountingService
                     'type' => $category->type,
                     'amount' => round((float) $line['amount'], 2),
                     'description' => filled($line['description'] ?? null) ? trim((string) $line['description']) : null,
+                    'review_status' => null,
+                    'review_note' => null,
                 ]);
             }
 
@@ -155,12 +156,6 @@ class OwnedShopAccountingService
      */
     public function saveShopOwnerEntry(Shop $shop, array $payload, int $userId, ?ShopAccountingEntry $entry = null): ShopAccountingEntry
     {
-        if ($entry instanceof ShopAccountingEntry && ! $entry->canBeEditedByShopOwner()) {
-            throw ValidationException::withMessages([
-                'business_date' => 'This accounting day is locked until admin sends it back for recheck.',
-            ]);
-        }
-
         $status = $payload['submission_action'] === 'submit' ? 'submitted' : 'draft';
         $entry = $this->saveEntry($shop, [
             'business_date' => $payload['business_date'],
@@ -172,20 +167,65 @@ class OwnedShopAccountingService
         ], $userId, $entry);
 
         $entry->forceFill([
-            'submitted_by' => $status === 'submitted' ? $userId : $entry->submitted_by,
-            'submitted_at' => $status === 'submitted' ? now() : $entry->submitted_at,
-            'reviewed_by' => $status === 'submitted' ? null : $entry->reviewed_by,
-            'reviewed_at' => $status === 'submitted' ? null : $entry->reviewed_at,
+            'submitted_by' => $status === 'submitted' ? $userId : null,
+            'submitted_at' => $status === 'submitted' ? now() : null,
+            'reviewed_by' => null,
+            'reviewed_at' => null,
+            'admin_note' => null,
             'shop_reply_note' => filled($payload['shop_reply_note'] ?? null) ? trim((string) $payload['shop_reply_note']) : null,
         ])->save();
 
         return $entry->fresh(['lines.category', 'shop', 'createdBy', 'updatedBy', 'submittedBy', 'reviewedBy']);
     }
 
-    public function reviewEntry(ShopAccountingEntry $entry, string $decision, int $userId, ?string $adminNote = null): ShopAccountingEntry
+    /**
+     * @param  array<int, array{decision?: string|null, review_note?: string|null}>  $lineReviews
+     */
+    public function reviewEntry(ShopAccountingEntry $entry, string $decision, int $userId, ?string $adminNote = null, array $lineReviews = []): ShopAccountingEntry
     {
+        if ($decision === 'approve') {
+            $entry->lines()->update([
+                'review_status' => 'approved',
+                'review_note' => null,
+            ]);
+        } elseif ($decision === 'recheck') {
+            $entry->lines()->update([
+                'review_status' => 'recheck_required',
+                'review_note' => filled($adminNote) ? trim((string) $adminNote) : null,
+            ]);
+        } else {
+            $normalizedReviews = collect($lineReviews)
+                ->mapWithKeys(fn ($review, $lineId): array => [
+                    (int) $lineId => [
+                        'decision' => $review['decision'] ?? null,
+                        'review_note' => $review['review_note'] ?? null,
+                    ],
+                ]);
+
+            $entry->lines->each(function ($line) use ($normalizedReviews): void {
+                $review = $normalizedReviews->get($line->id, []);
+
+                if (! in_array($review['decision'] ?? null, ['approve', 'recheck'], true)) {
+                    return;
+                }
+
+                $line->forceFill([
+                    'review_status' => $review['decision'] === 'approve' ? 'approved' : 'recheck_required',
+                    'review_note' => filled($review['review_note'] ?? null) ? trim((string) $review['review_note']) : null,
+                ])->save();
+            });
+        }
+
+        $lineStatuses = $entry->lines()->pluck('review_status')->values();
+        $reviewedStatuses = $lineStatuses->filter()->values();
+        $entryStatus = match (true) {
+            $reviewedStatuses->contains('recheck_required') => 'recheck_required',
+            $lineStatuses->isNotEmpty() && $lineStatuses->every(fn ($status): bool => $status === 'approved') => 'approved',
+            default => 'submitted',
+        };
+
         $entry->forceFill([
-            'status' => $decision === 'approve' ? 'approved' : 'recheck_required',
+            'status' => $entryStatus,
             'reviewed_by' => $userId,
             'reviewed_at' => now(),
             'admin_note' => filled($adminNote) ? trim((string) $adminNote) : null,

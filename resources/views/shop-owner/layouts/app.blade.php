@@ -34,6 +34,38 @@
     @include('shop-owner.partials.mobile-nav')
     @include('components.app-dialogs')
     <x-global-footer />
+    <script>
+        (() => {
+            const sidebar = document.getElementById('shop-owner-mobile-sidebar');
+            const openButton = document.getElementById('shop-owner-mobile-sidebar-open');
+            const closeButton = document.getElementById('shop-owner-mobile-sidebar-close');
+            const overlay = document.getElementById('shop-owner-mobile-sidebar-overlay');
+
+            if (!sidebar || !openButton) {
+                return;
+            }
+
+            const openSidebar = () => {
+                sidebar.classList.remove('hidden');
+                document.body.classList.add('overflow-hidden');
+            };
+
+            const closeSidebar = () => {
+                sidebar.classList.add('hidden');
+                document.body.classList.remove('overflow-hidden');
+            };
+
+            openButton.addEventListener('click', openSidebar);
+            closeButton?.addEventListener('click', closeSidebar);
+            overlay?.addEventListener('click', closeSidebar);
+
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape' && !sidebar.classList.contains('hidden')) {
+                    closeSidebar();
+                }
+            });
+        })();
+    </script>
     @stack('scripts')
 </body>
 </html>

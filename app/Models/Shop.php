@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Shop extends Model
 {
@@ -93,6 +94,11 @@ class Shop extends Model
     public function accountingEntries(): HasMany
     {
         return $this->hasMany(ShopAccountingEntry::class);
+    }
+
+    public function latestAccountingEntry(): HasOne
+    {
+        return $this->hasOne(ShopAccountingEntry::class)->latestOfMany('updated_at');
     }
 
     public function accountingInvoices(): HasMany

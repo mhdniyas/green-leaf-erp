@@ -10,6 +10,8 @@
         $cashFlowSummary = $cashFlowReport['summary'];
         $cashFlowTab = request()->string('cash_tab')->toString();
         $cashFlowTab = in_array($cashFlowTab, ['journal', 'daily-balance', 'cash-paid', 'cash-received'], true) ? $cashFlowTab : 'journal';
+        $canManageOwnedShops = \App\Support\AccountingAccess::canManageOwnedShops(auth()->user());
+        $canManagePurchaserCash = \App\Support\AccountingAccess::canManagePurchaserCash(auth()->user());
         $summaryCards = [
             ['label' => 'Shop Sales', 'value' => 'Rs. '.number_format($salesSummary['total_amount'], 2), 'hint' => number_format($salesSummary['invoice_count']).' invoice(s) for '.$date->format('d M Y')],
             ['label' => 'Sales Collection', 'value' => 'Rs. '.number_format($salesSummary['paid_amount'], 2), 'hint' => 'Pending Rs. '.number_format($salesSummary['outstanding_amount'], 2)],
@@ -270,6 +272,86 @@
             </article>
         </section>
 
+        <section class="rounded-[1.9rem] border border-slate-200 bg-white p-5 shadow-sm">
+            <div class="flex flex-col gap-3 border-b border-slate-100 pb-4 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                    <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Owned Shop Updates</p>
+                    <h3 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Submitted ledger updates waiting for accounting</h3>
+                    <p class="mt-2 text-sm font-semibold text-slate-600">Each card shows the exact line items the shop owner submitted for {{ $date->format('d M Y') }}.</p>
+                </div>
+                @if($canManageOwnedShops)
+                    <a href="{{ route('admin.accounting.owned-shops.index') }}" class="inline-flex h-10 items-center rounded-2xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-50">
+                        Open Owned Shops
+                    </a>
+                @endif
+            </div>
+
+            <div class="mt-5 grid gap-4 xl:grid-cols-2">
+                @forelse($pendingOwnedShopEntries as $entry)
+                    @php
+                        $entryIncome = (float) $entry->lines->where('type', 'income')->sum('amount');
+                        $entryExpense = (float) $entry->lines->where('type', 'expense')->sum('amount');
+                    @endphp
+                    <article class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+                        <div class="flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                                <p class="text-sm font-black text-slate-950">{{ $entry->shop?->name ?? 'Owned Shop' }}</p>
+                                <p class="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{{ $entry->business_date->format('d M Y') }} • {{ $entry->shop?->code }}</p>
+                            </div>
+                            <div class="flex flex-col items-start gap-2 sm:items-end">
+                                <span class="inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] {{ $entry->statusTone() === 'danger' ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700' }}">
+                                    {{ $entry->statusLabel() }}
+                                </span>
+                                <p class="text-xs font-semibold text-slate-500">Submitted by {{ $entry->submittedBy?->name ?? 'Shop owner' }}</p>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 grid gap-3 sm:grid-cols-3">
+                            <div class="rounded-[1rem] border border-slate-200 bg-white px-3 py-3">
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Income</p>
+                                <p class="mt-1 text-sm font-black text-slate-950">Rs. {{ number_format($entryIncome, 2) }}</p>
+                            </div>
+                            <div class="rounded-[1rem] border border-slate-200 bg-white px-3 py-3">
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Expense</p>
+                                <p class="mt-1 text-sm font-black text-slate-950">Rs. {{ number_format($entryExpense, 2) }}</p>
+                            </div>
+                            <div class="rounded-[1rem] border border-slate-200 bg-white px-3 py-3">
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Items</p>
+                                <p class="mt-1 text-sm font-black text-slate-950">{{ $entry->lines->count() }}</p>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 space-y-2">
+                            @foreach($entry->lines as $line)
+                                <div class="flex items-start justify-between gap-3 rounded-[1rem] border border-slate-200 bg-white px-3 py-3">
+                                    <div class="min-w-0">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <span class="inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] {{ $line->type === 'income' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700' }}">
+                                                {{ $line->type }}
+                                            </span>
+                                            <span class="text-sm font-black text-slate-950">{{ $line->category?->name ?? 'Category removed' }}</span>
+                                        </div>
+                                        <p class="mt-2 text-sm font-semibold text-slate-600">{{ $line->description ?: 'No note added' }}</p>
+                                    </div>
+                                    <p class="shrink-0 text-sm font-black text-slate-950">Rs. {{ number_format((float) $line->amount, 2) }}</p>
+                                </div>
+                            @endforeach
+                        </div>
+
+                        @if($canManageOwnedShops)
+                            <a href="{{ route('admin.accounting.owned-shops.show', ['shop' => $entry->shop, 'tab' => 'cashbook', 'date' => $entry->business_date->format('Y-m-d')]) }}" class="mt-4 inline-flex h-10 items-center rounded-2xl bg-slate-950 px-4 text-[11px] font-black uppercase tracking-[0.16em] text-white transition hover:bg-slate-800">
+                                Review This Update
+                            </a>
+                        @endif
+                    </article>
+                @empty
+                    <div class="rounded-[1.5rem] border border-dashed border-slate-300 px-4 py-10 text-center text-sm font-bold text-slate-500 xl:col-span-2">
+                        No owned-shop ledger updates are waiting for review on this date.
+                    </div>
+                @endforelse
+            </div>
+        </section>
+
         <section class="grid gap-5 2xl:grid-cols-[1.55fr_0.95fr]">
             <article class="rounded-[1.9rem] border border-slate-200 bg-white p-5 shadow-sm">
                 <div class="flex flex-col gap-4 border-b border-slate-100 pb-4 lg:flex-row lg:items-start lg:justify-between">
@@ -314,9 +396,11 @@
                         <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Owned Shop Accounting</p>
                         <h3 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Settlement side panel</h3>
                     </div>
-                    <a href="{{ route('admin.accounting.owned-shops.index') }}" class="inline-flex h-10 items-center rounded-2xl border border-slate-200 px-4 text-xs font-black uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-50">
-                        Open Shops
-                    </a>
+                    @if($canManageOwnedShops)
+                        <a href="{{ route('admin.accounting.owned-shops.index') }}" class="inline-flex h-10 items-center rounded-2xl border border-slate-200 px-4 text-xs font-black uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-50">
+                            Open Shops
+                        </a>
+                    @endif
                 </div>
 
                 <div class="mt-5 grid gap-3 sm:grid-cols-2">
@@ -344,19 +428,30 @@
                             <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Tracked Shops</p>
                             <p class="mt-1 text-sm font-black text-slate-950">Recent accounting-enabled shops</p>
                         </div>
-                        <a href="{{ route('admin.accounting.purchasers.index') }}" class="inline-flex h-9 items-center rounded-xl border border-emerald-200 bg-white px-3 text-[11px] font-black uppercase tracking-[0.16em] text-emerald-700 transition hover:bg-emerald-50">
-                            Purchasers
-                        </a>
+                        @if($canManagePurchaserCash)
+                            <a href="{{ route('admin.accounting.purchasers.index') }}" class="inline-flex h-9 items-center rounded-xl border border-emerald-200 bg-white px-3 text-[11px] font-black uppercase tracking-[0.16em] text-emerald-700 transition hover:bg-emerald-50">
+                                Purchasers
+                            </a>
+                        @endif
                     </div>
                     <div class="divide-y divide-slate-100">
                         @forelse($eligibleShops as $shop)
-                            <a href="{{ route('admin.accounting.owned-shops.show', $shop) }}" class="flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-slate-50">
-                                <div>
-                                    <p class="font-black text-slate-950">{{ $shop->name }}</p>
-                                    <p class="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{{ $shop->code }} • {{ $shop->accounting_mode }}</p>
+                            @if($canManageOwnedShops)
+                                <a href="{{ route('admin.accounting.owned-shops.show', $shop) }}" class="flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-slate-50">
+                                    <div>
+                                        <p class="font-black text-slate-950">{{ $shop->name }}</p>
+                                        <p class="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{{ $shop->code }} • {{ $shop->accounting_mode }}</p>
+                                    </div>
+                                    <span class="text-xs font-black text-cyan-700">Open</span>
+                                </a>
+                            @else
+                                <div class="flex items-center justify-between gap-3 px-4 py-3">
+                                    <div>
+                                        <p class="font-black text-slate-950">{{ $shop->name }}</p>
+                                        <p class="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{{ $shop->code }} • {{ $shop->accounting_mode }}</p>
+                                    </div>
                                 </div>
-                                <span class="text-xs font-black text-cyan-700">Open</span>
-                            </a>
+                            @endif
                         @empty
                             <div class="px-4 py-8 text-center text-sm font-bold text-slate-500">
                                 No owned or partnership shops are enabled yet.
@@ -374,9 +469,11 @@
                     <h3 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Purchaser accounts and day movement</h3>
                     <p class="mt-2 text-sm font-semibold text-slate-600">This keeps cash given, invoice outflow, and current balance in one place for admin review.</p>
                 </div>
-                <a href="{{ route('admin.accounting.purchasers.index') }}" class="inline-flex h-10 items-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-emerald-700 transition hover:bg-emerald-100">
-                    Open Purchaser Ledgers
-                </a>
+                @if($canManagePurchaserCash)
+                    <a href="{{ route('admin.accounting.purchasers.index') }}" class="inline-flex h-10 items-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-emerald-700 transition hover:bg-emerald-100">
+                        Open Purchaser Ledgers
+                    </a>
+                @endif
             </div>
 
             <div class="mt-5 overflow-x-auto rounded-[1.5rem] border border-slate-200">
@@ -391,7 +488,9 @@
                             <th class="px-4 py-3 text-right">Today Out</th>
                             <th class="px-4 py-3 text-right">Today Net</th>
                             <th class="px-4 py-3 text-right">Txn</th>
-                            <th class="px-4 py-3 text-right">Ledger</th>
+                            @if($canManagePurchaserCash)
+                                <th class="px-4 py-3 text-right">Ledger</th>
+                            @endif
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 text-sm">
@@ -408,15 +507,17 @@
                                 <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($row['today_out'], 2) }}</td>
                                 <td class="px-4 py-3 text-right font-black {{ $row['today_balance'] >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format($row['today_balance'], 2) }}</td>
                                 <td class="px-4 py-3 text-right font-black text-slate-600">{{ number_format($row['transaction_count']) }}</td>
-                                <td class="px-4 py-3 text-right">
-                                    <a href="{{ route('admin.accounting.purchasers.show', $row['purchaser']) }}" class="inline-flex h-8 items-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">
-                                        Open
-                                    </a>
-                                </td>
+                                @if($canManagePurchaserCash)
+                                    <td class="px-4 py-3 text-right">
+                                        <a href="{{ route('admin.accounting.purchasers.show', $row['purchaser']) }}" class="inline-flex h-8 items-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">
+                                            Open
+                                        </a>
+                                    </td>
+                                @endif
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="9" class="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                                <td colspan="{{ $canManagePurchaserCash ? 9 : 8 }}" class="px-4 py-10 text-center text-sm font-bold text-slate-500">
                                     No purchaser accounts are available.
                                 </td>
                             </tr>

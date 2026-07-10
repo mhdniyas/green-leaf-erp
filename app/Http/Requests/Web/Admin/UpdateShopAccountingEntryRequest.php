@@ -6,6 +6,8 @@ namespace App\Http\Requests\Web\Admin;
 
 use App\Models\ShopAccountingCategory;
 use App\Models\ShopAccountingEntry;
+use App\Support\AccountingAccess;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
@@ -33,13 +35,7 @@ class UpdateShopAccountingEntryRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return $this->user() !== null
-            && (
-                $this->user()->hasRole('admin')
-                || $this->user()->can('admin.user.view')
-                || $this->user()->can('admin.daily-progress.view')
-                || $this->user()->can('admin.activity-log.view')
-            );
+        return AccountingAccess::canManageOwnedShops($this->user());
     }
 
     public function rules(): array
@@ -107,6 +103,33 @@ class UpdateShopAccountingEntryRequest extends FormRequest
                 }
             },
         ];
+    }
+
+    protected function passedValidation(): void
+    {
+        $shop = $this->route('shop');
+        $categoryIds = collect($this->input('lines', []))
+            ->pluck('shop_accounting_category_id')
+            ->filter()
+            ->map(fn ($categoryId): int => (int) $categoryId)
+            ->unique()
+            ->values();
+
+        if ($shop === null || $categoryIds->isEmpty()) {
+            return;
+        }
+
+        $authorizedCategoryCount = ShopAccountingCategory::query()
+            ->whereIn('id', $categoryIds->all())
+            ->where(function ($query) use ($shop): void {
+                $query->whereNull('shop_id')
+                    ->orWhere('shop_id', $shop->id);
+            })
+            ->count();
+
+        if ($authorizedCategoryCount !== $categoryIds->count()) {
+            throw new AuthorizationException('Unauthorized accounting category.');
+        }
     }
 
     /**

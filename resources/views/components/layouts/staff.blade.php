@@ -22,51 +22,96 @@
 @php
     $currentUser = auth()->user();
     $navDate = request('date', today()->toDateString());
-    $sidebarItems = [
-        [
+    $canViewStaffDashboard = \App\Support\StaffAccess::canViewDashboard($currentUser);
+    $canViewStaffEmployees = \App\Support\StaffAccess::canViewEmployees($currentUser);
+    $canViewStaffAttendance = \App\Support\StaffAccess::canViewAttendance($currentUser);
+    $canViewStaffLeaves = \App\Support\StaffAccess::canViewLeaves($currentUser);
+    $canViewStaffPayroll = \App\Support\StaffAccess::canViewPayroll($currentUser);
+    $canViewStaffCategories = \App\Support\StaffAccess::canViewCategories($currentUser);
+    $canAccessAdminOverview = $currentUser &&
+        ($currentUser->hasRole('admin') ||
+            $currentUser->can('admin.user.view') ||
+            $currentUser->can('admin.daily-progress.view') ||
+            $currentUser->can('admin.activity-log.view'));
+    $sidebarItems = [];
+
+    if ($canViewStaffDashboard) {
+        $sidebarItems[] = [
             'label' => 'Dashboard',
             'href' => route('admin.staff.index', ['date' => $navDate]),
             'active' => request()->routeIs('admin.staff.index'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75h7.5v7.5h-7.5v-7.5Zm9 0h7.5v7.5h-7.5v-7.5Zm-9 9h7.5v7.5h-7.5v-7.5Zm9 3h7.5v4.5h-7.5v-4.5Z" /></svg>',
-        ],
-        [
+        ];
+    }
+
+    if ($canViewStaffEmployees) {
+        $sidebarItems[] = [
             'label' => 'Employees',
             'href' => route('admin.staff.employees.index', ['date' => $navDate]),
             'active' => request()->routeIs('admin.staff.employees.index') || request()->routeIs('admin.staff.show'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a8.97 8.97 0 0 0 3.74-1.04 4.5 4.5 0 0 0-7.48-2.23m3.74 3.27v.28A10.94 10.94 0 0 1 12 21c-2.33 0-4.5-.73-6.28-1.98v-.29m12.56 0a5.97 5.97 0 0 0-12.56 0M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 2.25a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg>',
-        ],
-        [
+        ];
+    }
+
+    if ($canViewStaffAttendance) {
+        $sidebarItems[] = [
             'label' => 'Attendance',
             'href' => route('admin.staff.attendance', ['date' => $navDate]),
             'active' => request()->routeIs('admin.staff.attendance'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5.25h6M9 9.75h6M9 14.25h3m-6.75 6h13.5A2.25 2.25 0 0 0 21 18V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v12A2.25 2.25 0 0 0 5.25 20.25Z" /></svg>',
-        ],
-        [
+        ];
+    }
+
+    if ($canViewStaffLeaves) {
+        $sidebarItems[] = [
             'label' => 'Leave Queue',
             'href' => route('admin.staff.leaves.index'),
             'active' => request()->routeIs('admin.staff.leaves.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-8.25A2.25 2.25 0 0 0 17.25 3.75H6.75A2.25 2.25 0 0 0 4.5 6v12A2.25 2.25 0 0 0 6.75 20.25h5.379a3 3 0 0 1 2.121-.879h3a3 3 0 0 1 2.25 1.014V14.25ZM8.25 7.5h7.5m-7.5 4.5h4.5" /></svg>',
-        ],
-        [
+        ];
+    }
+
+    if ($canViewStaffPayroll) {
+        $sidebarItems[] = [
             'label' => 'Payroll',
             'href' => route('admin.staff.payroll.index'),
             'active' => request()->routeIs('admin.staff.payroll.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m0 0c-2.21 0-4-1.343-4-3s1.79-3 4-3 4-1.343 4-3-1.79-3-4-3m0 12c2.21 0 4-1.343 4-3" /></svg>',
-        ],
-        [
+        ];
+    }
+
+    if ($canViewStaffCategories) {
+        $sidebarItems[] = [
             'label' => 'Categories',
             'href' => route('admin.staff.categories.index'),
             'active' => request()->routeIs('admin.staff.categories.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 6.75h15m-15 5.25h15m-15 5.25h15" /></svg>',
-        ],
-    ];
+        ];
+    }
 
-    $mobileItems = [
-        ['label' => 'Home', 'href' => route('admin.staff.index', ['date' => $navDate]), 'active' => request()->routeIs('admin.staff.index')],
-        ['label' => 'Staff', 'href' => route('admin.staff.employees.index', ['date' => $navDate]), 'active' => request()->routeIs('admin.staff.employees.index') || request()->routeIs('admin.staff.show')],
-        ['label' => 'Attend', 'href' => route('admin.staff.attendance', ['date' => $navDate]), 'active' => request()->routeIs('admin.staff.attendance')],
-        ['label' => 'Leave', 'href' => route('admin.staff.leaves.index'), 'active' => request()->routeIs('admin.staff.leaves.*')],
-    ];
+    $mobileItems = [];
+
+    if ($canViewStaffDashboard) {
+        $mobileItems[] = ['label' => 'Home', 'href' => route('admin.staff.index', ['date' => $navDate]), 'active' => request()->routeIs('admin.staff.index')];
+    }
+
+    if ($canViewStaffEmployees) {
+        $mobileItems[] = ['label' => 'Staff', 'href' => route('admin.staff.employees.index', ['date' => $navDate]), 'active' => request()->routeIs('admin.staff.employees.index') || request()->routeIs('admin.staff.show')];
+    }
+
+    if ($canViewStaffAttendance) {
+        $mobileItems[] = ['label' => 'Attend', 'href' => route('admin.staff.attendance', ['date' => $navDate]), 'active' => request()->routeIs('admin.staff.attendance')];
+    }
+
+    if ($canViewStaffLeaves) {
+        $mobileItems[] = ['label' => 'Leave', 'href' => route('admin.staff.leaves.index'), 'active' => request()->routeIs('admin.staff.leaves.*')];
+    }
+
+    if ($canViewStaffPayroll) {
+        $mobileItems[] = ['label' => 'Payroll', 'href' => route('admin.staff.payroll.index'), 'active' => request()->routeIs('admin.staff.payroll.*')];
+    }
+
+    $mobileItems = array_slice($mobileItems, 0, 4);
 @endphp
 
 <div class="min-h-screen lg:flex">
@@ -89,12 +134,14 @@
                 </button>
             </div>
 
-            <a href="{{ route('admin.overview') }}" class="mt-5 flex items-center justify-between rounded-[1.35rem] bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800" data-sidebar-link>
-                <span data-sidebar-label>Admin Panel</span>
-                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5H19.5V10.5M10.5 13.5 19.5 4.5M18 13.5V19.5H4.5V6H10.5" />
-                </svg>
-            </a>
+            @if ($canAccessAdminOverview)
+                <a href="{{ route('admin.overview') }}" class="mt-5 flex items-center justify-between rounded-[1.35rem] bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800" data-sidebar-link>
+                    <span data-sidebar-label>Admin Panel</span>
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5H19.5V10.5M10.5 13.5 19.5 4.5M18 13.5V19.5H4.5V6H10.5" />
+                    </svg>
+                </a>
+            @endif
 
             <div class="mt-4 rounded-[1.35rem] border border-slate-200 bg-slate-50 px-4 py-3" data-sidebar-full-only>
                 <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Signed In</p>

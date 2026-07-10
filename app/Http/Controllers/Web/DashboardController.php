@@ -21,6 +21,7 @@ use App\Models\StockBatch;
 use App\Models\Supplier;
 use App\Models\WastageEntry;
 use App\Repositories\Inventory\StockMovementRepository;
+use App\Support\StaffAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -44,8 +45,8 @@ class DashboardController extends Controller
             return redirect()->route('admin.overview');
         }
 
-        if ($user->hasRole('hr_manager') || $user->can('hr.employee.view')) {
-            return redirect()->route('admin.staff.index');
+        if ($staffLandingUrl = StaffAccess::landingUrl($user, $request->input('date', today()->toDateString()))) {
+            return redirect()->to($staffLandingUrl);
         }
 
         if ($user->hasRole('purchaser')) {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\Employee;
+use App\Models\Product;
 use App\Models\Shop;
 use App\Models\ShopOwnerAssignment;
 use App\Models\User;
@@ -76,6 +77,19 @@ class LoginPageTest extends TestCase
         $response->assertDontSee('ShopOwner17');
     }
 
+    public function test_demo_login_page_seeds_shops_and_products_when_missing(): void
+    {
+        $this->assertSame(0, Shop::query()->count());
+        $this->assertSame(0, Product::query()->count());
+
+        $response = $this->withSession(['demo_access_granted' => true])->get(route('login.demo'));
+
+        $response->assertOk();
+        $response->assertSee('Casio Hypermarket');
+        $this->assertGreaterThan(0, Shop::query()->where('status', 'active')->count());
+        $this->assertGreaterThan(0, Product::query()->where('is_active', true)->count());
+    }
+
     public function test_demo_login_can_provision_and_sign_in_as_shop_owner(): void
     {
         $this->seed(DatabaseSeeder::class);
@@ -91,6 +105,37 @@ class LoginPageTest extends TestCase
         $this->assertSame($shop->id, auth()->user()?->shop_id);
         $this->assertNotNull(auth()->user()?->employee);
         $this->assertSame($shop->id, auth()->user()?->employee?->default_shop_id);
+    }
+
+    public function test_demo_login_can_provision_and_sign_in_as_staff_account_without_full_demo_seed(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $response = $this->withSession(['demo_access_granted' => true])->post(route('login.demo.account'), [
+            'account' => 'purchase-manager',
+        ]);
+
+        $response->assertRedirect(route('dashboard'));
+        $this->assertAuthenticated();
+        $this->assertSame('purchase@greenleaf.com', auth()->user()?->email);
+        $this->assertTrue(auth()->user()?->hasRole('purchase'));
+        $this->assertNotNull(auth()->user()?->employee);
+    }
+
+    public function test_demo_login_seeds_missing_roles_before_signing_in_staff_account(): void
+    {
+        $response = $this->withSession(['demo_access_granted' => true])->post(route('login.demo.account'), [
+            'account' => 'admin',
+        ]);
+
+        $response->assertRedirect(route('dashboard'));
+        $this->assertAuthenticated();
+        $this->assertSame('admin@greenleaf.com', auth()->user()?->email);
+        $this->assertTrue(auth()->user()?->hasRole('admin'));
+        $this->assertDatabaseHas('roles', [
+            'name' => 'admin',
+            'guard_name' => 'web',
+        ]);
     }
 
     public function test_database_seeder_creates_seeded_shop_owner_accounts_with_owned_shop_assignments(): void

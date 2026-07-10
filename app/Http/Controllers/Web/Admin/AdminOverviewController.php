@@ -19,6 +19,8 @@ use App\Models\StockBatch;
 use App\Models\User;
 use App\Models\WastageEntry;
 use App\Services\Finance\AdminFinancePillarService;
+use App\Support\AccountingAccess;
+use App\Support\StaffAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -39,8 +41,8 @@ class AdminOverviewController extends Controller
             $request->user()->can('admin.daily-progress.view') ||
             $request->user()->can('admin.activity-log.view');
 
-        if (! $canAccessAdminOverview && ($request->user()->hasRole('hr_manager') || $request->user()->can('hr.employee.view'))) {
-            return redirect()->route('admin.staff.index');
+        if (! $canAccessAdminOverview && ($staffLandingUrl = StaffAccess::landingUrl($request->user(), $request->input('date', today()->toDateString())))) {
+            return redirect()->to($staffLandingUrl);
         }
 
         abort_unless(
@@ -173,16 +175,24 @@ class AdminOverviewController extends Controller
             'pending_leave_requests' => EmployeeLeaveRequest::query()->where('status', 'pending')->count(),
         ];
 
-        $quickLinks = [
-            ['label' => 'Accounting Dashboard', 'href' => route('admin.accounting.index', ['date' => $date->format('Y-m-d')])],
+        $quickLinks = [];
+
+        if (AccountingAccess::canViewDashboard($request->user())) {
+            $quickLinks[] = ['label' => 'Accounting Dashboard', 'href' => route('admin.accounting.index', ['date' => $date->format('Y-m-d')])];
+        }
+
+        $quickLinks = array_merge($quickLinks, [
             ['label' => 'Purchasing Dashboard', 'href' => route('purchasing.dashboard')],
             ['label' => 'Inventory Dashboard', 'href' => route('inventory.dashboard', ['date' => $date->format('Y-m-d')])],
             ['label' => 'Users & Permissions', 'href' => route('admin.users.index')],
             ['label' => 'Daily Progress', 'href' => route('admin.daily-progress', ['date' => $date->format('Y-m-d')])],
             ['label' => 'Activity Log', 'href' => route('admin.activity-logs.index')],
             ['label' => 'Staff Management', 'href' => route('admin.staff.index')],
-            ['label' => 'Finance Overview', 'href' => route('finance.index')],
-        ];
+        ]);
+
+        if ($request->user()->can('accounting.ledger.view')) {
+            $quickLinks[] = ['label' => 'Finance Overview', 'href' => route('finance.index')];
+        }
 
         return view('admin.overview.index', compact(
             'date',

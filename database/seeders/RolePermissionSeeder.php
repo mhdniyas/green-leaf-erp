@@ -68,6 +68,11 @@ class RolePermissionSeeder extends Seeder
             'accounting.entry.create',
             'accounting.report.view',
             'accounting.report.export',
+            'accounting.dashboard.view',
+            'accounting.owned-shop.manage',
+            'accounting.entry.review',
+            'accounting.invoice.generate',
+            'accounting.purchaser-cash.manage',
 
             // HR
             'hr.employee.view',
@@ -187,6 +192,6 @@ class RolePermissionSeeder extends Seeder
             $role->syncPermissions($rolePermissions);
         }
 
-        $this->command->info('✅ Roles and permissions seeded successfully.');
+        $this->command?->info('✅ Roles and permissions seeded successfully.');
     }
 }

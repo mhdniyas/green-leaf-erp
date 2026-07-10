@@ -19,7 +19,7 @@
                 <p class="text-[10px] font-black uppercase tracking-[0.26em] text-slate-400">Finance Reports</p>
                 <h2 class="mt-2 text-xl font-black tracking-tight text-slate-950">Vendor Reports and Sales Reports</h2>
             </div>
-            @if (auth()->user()?->hasRole('admin') || auth()->user()?->can('admin.user.view'))
+            @if (\App\Support\AccountingAccess::canViewDashboard(auth()->user()))
                 <a href="{{ route('admin.accounting.index', ['date' => $accountingDashboardDate]) }}" class="inline-flex h-10 items-center rounded-2xl border border-cyan-200 bg-cyan-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-cyan-700 transition hover:bg-cyan-100">
                     Accounting Dashboard
                 </a>

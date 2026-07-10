@@ -22,13 +22,15 @@
 @php
     $currentUser = auth()->user();
     $currentUserInitial = $currentUser ? strtoupper(substr($currentUser->name, 0, 1)) : 'U';
+    $staffLandingUrl = \App\Support\StaffAccess::landingUrl($currentUser, request()->input('date', today()->toDateString()));
+    $canAccessStaffWorkspace = \App\Support\StaffAccess::canAccessAny($currentUser);
     $showAdminWorkspaceLinks = $currentUser &&
         ($currentUser->hasRole('admin') || $currentUser->can('admin.user.view') || $currentUser->can('admin.daily-progress.view') || $currentUser->can('admin.activity-log.view'));
     $showAdminMobileNav = $showMobileNav && $currentUser &&
         ($currentUser->hasRole('admin') || $currentUser->can('admin.user.view') || $currentUser->can('admin.daily-progress.view') || $currentUser->can('admin.activity-log.view'));
     $showStaffMobileNav = $showMobileNav && $currentUser &&
         ! $showAdminMobileNav &&
-        ($currentUser->hasRole('hr_manager') || $currentUser->can('hr.employee.view'));
+        $canAccessStaffWorkspace;
     $showPurchaserMobileNav = $showMobileNav && $currentUser &&
         ! $showAdminMobileNav &&
         ! $showStaffMobileNav &&
@@ -75,38 +77,50 @@
             'route' => 'admin.overview',
             'active' => request()->routeIs('admin.overview'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.5h8.25V3H3v10.5Zm0 7.5h8.25v-4.5H3V21Zm9.75 0H21V10.5h-8.25V21Zm0-12h8.25V3h-8.25v6Z"/></svg>',
+            'visible' => $currentUser->hasRole('admin') || $currentUser->can('admin.user.view') || $currentUser->can('admin.daily-progress.view') || $currentUser->can('admin.activity-log.view'),
         ],
         [
             'label' => 'Users',
             'route' => 'admin.users.index',
             'active' => request()->routeIs('admin.users.*'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0z"/></svg>',
+            'visible' => $currentUser->hasRole('admin') || $currentUser->can('admin.user.view'),
         ],
         [
             'label' => 'Progress',
             'route' => 'admin.daily-progress',
             'active' => request()->routeIs('admin.daily-progress'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18M7 14l3-3 3 2 4-6"/></svg>',
+            'visible' => $currentUser->hasRole('admin') || $currentUser->can('admin.daily-progress.view'),
         ],
         [
             'label' => 'Activity',
             'route' => 'admin.activity-logs.index',
             'active' => request()->routeIs('admin.activity-logs.index'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12h4l3 8 4-16 3 8h4"/></svg>',
+            'visible' => $currentUser->hasRole('admin') || $currentUser->can('admin.activity-log.view'),
         ],
         [
             'label' => 'Accounting',
             'route' => 'admin.accounting.index',
             'active' => request()->routeIs('admin.accounting.*') || request()->routeIs('finance.*'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m0 0c-2.21 0-4-1.343-4-3s1.79-3 4-3 4-1.343 4-3-1.79-3-4-3m0 12c2.21 0 4-1.343 4-3"/></svg>',
+            'visible' => \App\Support\AccountingAccess::canViewDashboard($currentUser),
         ],
         [
             'label' => 'Staff',
             'route' => 'admin.staff.index',
+            'params' => ['date' => request()->input('date', today()->toDateString())],
             'active' => request()->routeIs('admin.staff.*'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a8.97 8.97 0 0 0 3.74-1.04 4.5 4.5 0 0 0-7.48-2.23m3.74 3.27v.28A10.94 10.94 0 0 1 12 21c-2.33 0-4.5-.73-6.28-1.98v-.29m12.56 0a5.97 5.97 0 0 0-12.56 0M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 2.25a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z"/></svg>',
+            'visible' => $canAccessStaffWorkspace && $staffLandingUrl !== null,
+            'href' => $staffLandingUrl,
         ],
     ];
+    $adminMobileNavItems = array_values(array_filter(
+        $adminMobileNavItems,
+        fn (array $item): bool => (bool) ($item['visible'] ?? true)
+    ));
     $purchaseMobileNavItems = [
         [
             'label' => 'Dashboard',
@@ -158,32 +172,41 @@
             'type' => 'link',
         ],
     ];
-    $staffMobileNavItems = [
-        [
+    $staffMobileNavItems = [];
+    if (\App\Support\StaffAccess::canViewDashboard($currentUser)) {
+        $staffMobileNavItems[] = [
             'label' => 'Staff',
             'route' => 'admin.staff.index',
+            'params' => ['date' => request()->input('date', today()->toDateString())],
             'active' => request()->routeIs('admin.staff.index'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75h7.5v7.5h-7.5v-7.5Zm9 0h7.5v7.5h-7.5v-7.5Zm-9 9h7.5v7.5h-7.5v-7.5Zm9 3h7.5v4.5h-7.5v-4.5Z"/></svg>',
-        ],
-        [
+        ];
+    }
+    if (\App\Support\StaffAccess::canViewAttendance($currentUser)) {
+        $staffMobileNavItems[] = [
             'label' => 'Attend',
             'route' => 'admin.staff.attendance',
+            'params' => ['date' => request()->input('date', today()->toDateString())],
             'active' => request()->routeIs('admin.staff.attendance'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5.25h6M9 9.75h6M9 14.25h3m-6.75 6h13.5A2.25 2.25 0 0 0 21 18V6A2.25 2.25 0 0 0 18.75 3.75H5.25A2.25 2.25 0 0 0 3 6v12A2.25 2.25 0 0 0 5.25 20.25Z"/></svg>',
-        ],
-        [
+        ];
+    }
+    if (\App\Support\StaffAccess::canViewLeaves($currentUser)) {
+        $staffMobileNavItems[] = [
             'label' => 'Leave',
             'route' => 'admin.staff.leaves.index',
             'active' => request()->routeIs('admin.staff.leaves.*'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-8.25A2.25 2.25 0 0 0 17.25 3.75H6.75A2.25 2.25 0 0 0 4.5 6v12A2.25 2.25 0 0 0 6.75 20.25h5.379a3 3 0 0 1 2.121-.879h3a3 3 0 0 1 2.25 1.014V14.25ZM8.25 7.5h7.5m-7.5 4.5h4.5"/></svg>',
-        ],
-        [
+        ];
+    }
+    if (\App\Support\StaffAccess::canViewPayroll($currentUser)) {
+        $staffMobileNavItems[] = [
             'label' => 'Payroll',
             'route' => 'admin.staff.payroll.index',
             'active' => request()->routeIs('admin.staff.payroll.*'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m0 0c-2.21 0-4-1.343-4-3s1.79-3 4-3 4-1.343 4-3-1.79-3-4-3m0 12c2.21 0 4-1.343 4-3"/></svg>',
-        ],
-    ];
+        ];
+    }
     $purchaserMobileNavItems = [
         [
             'label' => 'Daily',
@@ -242,7 +265,7 @@
             'type' => 'link',
         ],
     ];
-    $showMobileBottomNav = $showAdminMobileNav || $showPurchaseMobileNav || $showPurchaserMobileNav || $showWarehouseReceiverMobileNav;
+    $showMobileBottomNav = $showAdminMobileNav || $showStaffMobileNav || $showPurchaseMobileNav || $showPurchaserMobileNav || $showWarehouseReceiverMobileNav;
 @endphp
 
 <div id="app-container" class="flex min-h-0 flex-1">
@@ -295,7 +318,7 @@
                     Deliveries
                 </x-nav-item>
 
-                <x-nav-item href="{{ route('finance.index') }}" icon="document-currency-dollar" :active="request()->routeIs('finance.*')">
+                <x-nav-item href="{{ route('shop-owner.finance.index') }}" icon="document-currency-dollar" :active="request()->routeIs('shop-owner.finance.*')">
                     Finance
                 </x-nav-item>
             @endif
@@ -304,14 +327,8 @@
                 <x-nav-item href="{{ route('shop-owner.staff.index') }}" icon="document-text" :active="request()->routeIs('shop-owner.staff.*')">
                     Staff Attendance
                 </x-nav-item>
-            @elseif(
-                auth()->user()->can('hr.employee.view') &&
-                ! auth()->user()->hasRole('admin') &&
-                ! auth()->user()->can('admin.user.view') &&
-                ! auth()->user()->can('admin.daily-progress.view') &&
-                ! auth()->user()->can('admin.activity-log.view')
-            )
-                <x-nav-item href="{{ route('admin.staff.index') }}" icon="users" :active="request()->routeIs('admin.staff.*')">
+            @elseif($canAccessStaffWorkspace && $staffLandingUrl !== null)
+                <x-nav-item href="{{ $staffLandingUrl }}" icon="users" :active="request()->routeIs('admin.staff.*')">
                     Staff Management
                 </x-nav-item>
             @elseif(auth()->user()->hasRole('purchaser'))
@@ -680,7 +697,7 @@
                 $showLabel = $isActive;
             @endphp
             <a
-                href="{{ route($item['route'], $item['params'] ?? []) }}"
+                href="{{ $item['href'] ?? route($item['route'], $item['params'] ?? []) }}"
                 @class([
                     'group relative flex min-h-[50px] min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl border-0 px-1.5 font-bold transition-all duration-200',
                     'bg-cyan-500 text-white shadow-sm' => $isActive,

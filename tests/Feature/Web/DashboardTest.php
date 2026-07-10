@@ -95,7 +95,7 @@ class DashboardTest extends TestCase
         $response = $this->actingAs($user)
             ->get(route('dashboard'));
 
-        $response->assertRedirect(route('admin.staff.index'));
+        $response->assertRedirect(route('admin.staff.index', ['date' => today()->toDateString()]));
     }
 
     public function test_dashboard_renders_modules_based_on_permissions(): void

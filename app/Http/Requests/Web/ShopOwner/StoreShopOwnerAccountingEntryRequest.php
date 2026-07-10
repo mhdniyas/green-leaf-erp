@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Web\ShopOwner;
 
 use App\Models\ShopAccountingCategory;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -52,6 +53,32 @@ class StoreShopOwnerAccountingEntryRequest extends FormRequest
         ];
     }
 
+    protected function passedValidation(): void
+    {
+        $categoryIds = collect($this->input('lines', []))
+            ->pluck('shop_accounting_category_id')
+            ->filter()
+            ->map(fn ($categoryId): int => (int) $categoryId)
+            ->unique()
+            ->values();
+
+        if ($categoryIds->isEmpty()) {
+            return;
+        }
+
+        $authorizedCategoryCount = ShopAccountingCategory::query()
+            ->whereIn('id', $categoryIds->all())
+            ->where(function ($query): void {
+                $query->whereNull('shop_id')
+                    ->orWhere('shop_id', $this->user()?->shop_id);
+            })
+            ->count();
+
+        if ($authorizedCategoryCount !== $categoryIds->count()) {
+            throw new AuthorizationException('Unauthorized accounting category.');
+        }
+    }
+
     public function after(): array
     {
         return [
@@ -73,7 +100,7 @@ class StoreShopOwnerAccountingEntryRequest extends FormRequest
                         continue;
                     }
 
-                    if ($category->name === 'Other' && blank($line['description'] ?? null)) {
+                    if (str($category->name)->lower()->startsWith('other') && blank($line['description'] ?? null)) {
                         $validator->errors()->add("lines.$index.description", 'Notes are required when using Other.');
                     }
                 }

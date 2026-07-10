@@ -2,7 +2,7 @@
 
 @section('title', 'Accounting')
 @section('page_title', 'Shop Accounting')
-@section('page_description', 'Track delivery bills, request payment approvals, and for owned shops keep daily income and expense records in one mobile-friendly workflow.')
+@section('page_description', 'Track delivery bills, request payment approvals, and for owned shops keep a daily ledger with sales modes, warehouse invoice expenses, and manual spend in one workflow.')
 @php
     $breadcrumbs = [['label' => 'Accounting']];
 @endphp
@@ -15,6 +15,9 @@
     @php
         $hasEntry = $entry instanceof \App\Models\ShopAccountingEntry;
         $canEdit = ! $hasEntry || $entry->canBeEditedByShopOwner();
+        $recheckLines = $hasEntry
+            ? $entry->lines->filter(fn ($line) => $line->review_status === 'recheck_required')->values()
+            : collect();
         $cashbookInitialLines = collect(old('lines', $hasEntry
             ? $entry->lines->map(fn ($line) => [
                 'shop_accounting_category_id' => (string) $line->shop_accounting_category_id,
@@ -193,27 +196,40 @@
                 <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                     <div>
                         <p class="text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">{{ strtoupper($shop->accounting_mode) }} Shop</p>
-                        <h2 class="mt-2 text-xl font-black text-slate-950">Daily cashbook and expenses</h2>
-                        <p class="mt-2 text-sm font-semibold text-slate-600">Record daily income and expense. Reserve cash is provided by admin and stays visible here for reference.</p>
+                        <h2 class="mt-2 text-xl font-black text-slate-950">Daily shop ledger</h2>
+                        <p class="mt-2 text-sm font-semibold text-slate-600">Use the selected day to record manual income and expense. Warehouse delivery invoices are shown as a system expense so the ledger stays complete.</p>
                     </div>
 
-                    <form method="GET" action="{{ route('shop-owner.accounting.index') }}" class="flex flex-wrap items-center gap-2 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-2">
+                    <form method="GET" action="{{ route('shop-owner.accounting.index') }}" class="grid gap-2 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-2 sm:grid-cols-4">
                         <input type="hidden" name="tab" value="cashbook">
                         <label class="rounded-2xl bg-white px-4 py-2 text-slate-900 shadow-sm">
                             <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Business Date</span>
-                            <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" onchange="this.form.submit()" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
+                            <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
                         </label>
+                        <label class="rounded-2xl bg-white px-4 py-2 text-slate-900 shadow-sm">
+                            <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">From</span>
+                            <input type="date" name="start_date" value="{{ $startDate->format('Y-m-d') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
+                        </label>
+                        <label class="rounded-2xl bg-white px-4 py-2 text-slate-900 shadow-sm">
+                            <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">To</span>
+                            <input type="date" name="end_date" value="{{ $endDate->format('Y-m-d') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
+                        </label>
+                        <button type="submit" class="inline-flex h-14 items-center justify-center rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">Update Ledger</button>
                     </form>
                 </div>
             </section>
 
-            <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
                 <div class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Income</p>
+                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Sales Income</p>
                     <p class="mt-2 text-3xl font-black text-slate-950">Rs. {{ number_format($incomeTotal, 2) }}</p>
                 </div>
                 <div class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Expense</p>
+                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Warehouse Invoice</p>
+                    <p class="mt-2 text-3xl font-black text-rose-700">Rs. {{ number_format($selectedDeliveryExpense, 2) }}</p>
+                </div>
+                <div class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
+                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Total Expense</p>
                     <p class="mt-2 text-3xl font-black text-slate-950">Rs. {{ number_format($expenseTotal, 2) }}</p>
                 </div>
                 <div class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
@@ -253,12 +269,54 @@
                 </section>
             @endif
 
+            @if ($hasEntry && $recheckLines->isNotEmpty())
+                <section class="rounded-[2rem] border border-red-200 bg-red-50 p-4 shadow-sm sm:p-6">
+                    <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-[0.18em] text-red-700">Recheck Needed</p>
+                            <h3 class="mt-2 text-lg font-black text-slate-950">These ledger items need correction</h3>
+                            <p class="mt-2 text-sm font-semibold text-red-900">Update the marked items below and resubmit the ledger day.</p>
+                        </div>
+                        <div class="shrink-0">
+                            @include('shop-owner.components.status-badge', ['label' => 'Action Needed', 'tone' => 'danger'])
+                        </div>
+                    </div>
+
+                    <div class="mt-5 space-y-3">
+                        @foreach ($recheckLines as $line)
+                            <article class="rounded-[1.5rem] border border-red-200 bg-white px-4 py-4">
+                                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                    <div>
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <span class="inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] {{ $line->type === 'income' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700' }}">
+                                                {{ $line->type }}
+                                            </span>
+                                            <p class="text-sm font-black text-slate-950">{{ $line->category?->name ?? 'Category removed' }}</p>
+                                        </div>
+                                        <p class="mt-2 text-sm font-semibold text-slate-600">{{ $line->description ?: 'No note added' }}</p>
+                                        @if ($line->review_note)
+                                            <p class="mt-3 text-sm font-black text-red-700">Accounting note: {{ $line->review_note }}</p>
+                                        @endif
+                                    </div>
+                                    <p class="text-sm font-black text-slate-950">Rs. {{ number_format((float) $line->amount, 2) }}</p>
+                                </div>
+                            </article>
+                        @endforeach
+                    </div>
+                </section>
+            @endif
+
             <section class="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
                 <article class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-                    @if (! $canEdit)
+                    @if ($hasEntry && $entry->status === 'approved')
+                        <div class="mb-5 rounded-[1.5rem] border border-cyan-200 bg-cyan-50 px-4 py-4">
+                            <p class="text-sm font-black text-cyan-950">This day is already approved.</p>
+                            <p class="mt-2 text-sm font-semibold text-cyan-900">You can still add or update items for {{ $selectedDate->format('d M Y') }}. Once submitted, accounting will review the updated ledger again.</p>
+                        </div>
+                    @elseif ($hasEntry && $entry->status === 'submitted')
                         <div class="mb-5 rounded-[1.5rem] border border-amber-200 bg-amber-50 px-4 py-4">
-                            <p class="text-sm font-black text-amber-900">This day is locked while admin review is pending or completed.</p>
-                            <p class="mt-2 text-sm font-semibold text-amber-800">If admin marks this day for recheck, it will return here with notes for correction.</p>
+                            <p class="text-sm font-black text-amber-900">This day is waiting for accounting review.</p>
+                            <p class="mt-2 text-sm font-semibold text-amber-800">You can still update the selected day and resubmit the latest ledger items if something changes.</p>
                         </div>
                     @endif
 
@@ -269,44 +327,52 @@
                         <div class="grid gap-4 md:grid-cols-3">
                             <label class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
                                 <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Opening Cash</span>
-                                <input type="number" step="0.01" min="0" name="opening_cash" value="{{ old('opening_cash', $entry?->opening_cash ?? number_format($reserveAmount, 2, '.', '')) }}" @disabled(! $canEdit) class="mt-2 w-full border-0 bg-transparent p-0 text-lg font-black text-slate-950 focus:outline-none focus:ring-0 disabled:text-slate-400">
+                                <input type="number" step="0.01" min="0" name="opening_cash" value="{{ old('opening_cash', $entry?->opening_cash ?? number_format($reserveAmount, 2, '.', '')) }}" class="mt-2 w-full border-0 bg-transparent p-0 text-lg font-black text-slate-950 focus:outline-none focus:ring-0">
                             </label>
                             <label class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
                                 <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Closing Cash</span>
-                                <input type="number" step="0.01" min="0" name="closing_cash" value="{{ old('closing_cash', $entry?->closing_cash) }}" @disabled(! $canEdit) class="mt-2 w-full border-0 bg-transparent p-0 text-lg font-black text-slate-950 focus:outline-none focus:ring-0 disabled:text-slate-400">
+                                <input type="number" step="0.01" min="0" name="closing_cash" value="{{ old('closing_cash', $entry?->closing_cash) }}" class="mt-2 w-full border-0 bg-transparent p-0 text-lg font-black text-slate-950 focus:outline-none focus:ring-0">
                             </label>
                             <label class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
                                 <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Daily Note</span>
-                                <input type="text" name="notes" value="{{ old('notes', $entry?->notes) }}" @disabled(! $canEdit) class="mt-2 w-full border-0 bg-transparent p-0 text-sm font-semibold text-slate-950 focus:outline-none focus:ring-0 disabled:text-slate-400">
+                                <input type="text" name="notes" value="{{ old('notes', $entry?->notes) }}" class="mt-2 w-full border-0 bg-transparent p-0 text-sm font-semibold text-slate-950 focus:outline-none focus:ring-0">
                             </label>
                         </div>
 
-                        @if ($hasEntry && $entry->status === 'recheck_required')
+                        @if ($hasEntry && in_array($entry->status, ['recheck_required', 'approved', 'submitted'], true))
                             <label class="block rounded-[1.5rem] border border-red-200 bg-red-50 p-4">
-                                <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-red-700">Reply To Admin Recheck</span>
-                                <textarea name="shop_reply_note" rows="4" @disabled(! $canEdit) class="mt-3 w-full rounded-2xl border border-red-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-red-400 focus:outline-none disabled:text-slate-400">{{ old('shop_reply_note', $entry?->shop_reply_note) }}</textarea>
+                                <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-red-700">{{ $entry->status === 'recheck_required' ? 'Reply To Admin Recheck' : 'Update Note For Accounting' }}</span>
+                                <textarea name="shop_reply_note" rows="4" class="mt-3 w-full rounded-2xl border border-red-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-red-400 focus:outline-none">{{ old('shop_reply_note', $entry?->shop_reply_note) }}</textarea>
                             </label>
                         @endif
 
                         <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 sm:p-5">
                             <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                 <div>
-                                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Income And Expense Items</p>
-                                    <h3 class="mt-2 text-lg font-black text-slate-950">Add one item at a time</h3>
-                                    <p class="mt-2 text-sm font-semibold text-slate-600">Choose income or expense, select a category, and use notes when you pick Other.</p>
-                                </div>
-                                @if ($canEdit)
-                                    <button
-                                        type="button"
-                                        id="cashbook-open-modal"
-                                        class="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800"
-                                    >
-                                        Add Income / Expense
-                                    </button>
-                                @endif
+                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Ledger Items</p>
+                            <h3 class="mt-2 text-lg font-black text-slate-950">Add one item at a time</h3>
+                            <p class="mt-2 text-sm font-semibold text-slate-600">Track payment-mode sales, cash purchases, and other manual ledger items here. Warehouse delivery invoices are added below as a system expense.</p>
+                        </div>
+                                <button
+                                    type="button"
+                                    id="cashbook-open-modal"
+                                    class="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800"
+                                >
+                                    Add Income / Expense
+                                </button>
                             </div>
 
                             <div id="cashbook-lines-list" class="mt-5 space-y-3"></div>
+                            <div class="mt-4 rounded-[1.35rem] border border-rose-200 bg-rose-50 px-4 py-4">
+                                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-rose-700">System Expense</p>
+                                        <p class="mt-1 text-sm font-black text-slate-950">Warehouse Delivery Invoice</p>
+                                        <p class="mt-1 text-sm font-semibold text-rose-900">Automatically included from daily warehouse bills for {{ $selectedDate->format('d M Y') }}.</p>
+                                    </div>
+                                    <p class="text-2xl font-black text-rose-700">Rs. {{ number_format($selectedDeliveryExpense, 2) }}</p>
+                                </div>
+                            </div>
                             <div id="cashbook-lines-inputs">
                                 @foreach ($cashbookInitialLines as $index => $line)
                                     <input type="hidden" name="lines[{{ $index }}][shop_accounting_category_id]" value="{{ $line['shop_accounting_category_id'] ?? '' }}">
@@ -316,16 +382,14 @@
                             </div>
                         </div>
 
-                        @if ($canEdit)
-                            <div class="flex flex-col gap-3 sm:flex-row">
-                                <button type="submit" name="submission_action" value="save_draft" class="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-800 transition hover:bg-slate-50">
-                                    Save Cashbook
-                                </button>
-                                <button type="submit" name="submission_action" value="submit" class="inline-flex h-11 items-center justify-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
-                                    {{ $hasEntry && $entry->status === 'recheck_required' ? 'Resubmit' : 'Submit' }}
-                                </button>
-                            </div>
-                        @endif
+                        <div class="flex flex-col gap-3 sm:flex-row">
+                            <button type="submit" name="submission_action" value="save_draft" class="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-800 transition hover:bg-slate-50">
+                                Save Draft
+                            </button>
+                            <button type="submit" name="submission_action" value="submit" class="inline-flex h-11 items-center justify-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
+                                {{ $hasEntry ? 'Submit Updated Ledger Day' : 'Submit Ledger Day' }}
+                            </button>
+                        </div>
                     </form>
                 </article>
 
@@ -365,6 +429,66 @@
                 </article>
             </section>
 
+            <section class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Ledger History</p>
+                        <h3 class="mt-2 text-lg font-black text-slate-950">Date-filtered ledger table</h3>
+                        <p class="mt-2 text-sm font-semibold text-slate-600">Browse saved ledger days for the selected range. Warehouse delivery bills are included as a separate expense column.</p>
+                    </div>
+                    <a href="{{ route('shop-owner.accounting.history', ['tab' => 'cashbook']) }}" class="text-sm font-black text-emerald-700">Open full history</a>
+                </div>
+
+                <div class="mt-5 overflow-x-auto rounded-[1.5rem] border border-slate-200">
+                    <table class="min-w-full text-left">
+                        <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                            <tr>
+                                <th class="px-4 py-3">Date</th>
+                                <th class="px-4 py-3">Status</th>
+                                <th class="px-4 py-3 text-right">Income</th>
+                                <th class="px-4 py-3 text-right">Manual Expense</th>
+                                <th class="px-4 py-3 text-right">Warehouse Invoice</th>
+                                <th class="px-4 py-3 text-right">Net</th>
+                                <th class="px-4 py-3 text-right">Items</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 text-sm">
+                            @forelse ($ledgerEntries as $ledgerEntry)
+                                @php
+                                    $ledgerIncome = (float) $ledgerEntry->lines->where('type', 'income')->sum('amount');
+                                    $ledgerManualExpense = (float) $ledgerEntry->lines->where('type', 'expense')->sum('amount');
+                                    $ledgerWarehouseExpense = (float) ($deliveryExpenseByDate->get($ledgerEntry->business_date->toDateString()) ?? 0);
+                                    $ledgerNet = $ledgerIncome - $ledgerManualExpense - $ledgerWarehouseExpense;
+                                @endphp
+                                <tr class="transition hover:bg-slate-50">
+                                    <td class="px-4 py-3">
+                                        <a href="{{ route('shop-owner.accounting.index', ['tab' => 'cashbook', 'date' => $ledgerEntry->business_date->format('Y-m-d'), 'start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}" class="font-black text-slate-950">
+                                            {{ $ledgerEntry->business_date->format('d M Y') }}
+                                        </a>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        @include('shop-owner.components.status-badge', ['label' => $ledgerEntry->statusLabel(), 'tone' => $ledgerEntry->statusTone()])
+                                    </td>
+                                    <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($ledgerIncome, 2) }}</td>
+                                    <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($ledgerManualExpense, 2) }}</td>
+                                    <td class="px-4 py-3 text-right font-black text-rose-700">Rs. {{ number_format($ledgerWarehouseExpense, 2) }}</td>
+                                    <td class="px-4 py-3 text-right font-black {{ $ledgerNet >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format($ledgerNet, 2) }}</td>
+                                    <td class="px-4 py-3 text-right font-black text-slate-950">{{ $ledgerEntry->lines->count() }}</td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="7" class="px-4 py-8 text-center font-bold text-slate-500">No ledger days found for the selected date range.</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+
+                @if ($ledgerEntries->hasPages())
+                    <div class="mt-5">{{ $ledgerEntries->withQueryString()->links() }}</div>
+                @endif
+            </section>
+
             @if ($canEdit)
                 <div id="cashbook-line-modal" class="fixed inset-0 z-[80] hidden overflow-y-auto bg-slate-950/50 px-4 py-8">
                     <div class="mx-auto w-full max-w-lg rounded-[2rem] border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
@@ -380,14 +504,36 @@
                         <div class="mt-5 space-y-4">
                             <label class="block">
                                 <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Type</span>
-                                <select id="cashbook-line-type" class="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none">
-                                    <option value="income">Income</option>
-                                    <option value="expense">Expense</option>
-                                </select>
+                                <input id="cashbook-line-type" type="hidden" value="income">
+                                <div class="relative mt-2">
+                                    <button id="cashbook-line-type-trigger" type="button" class="flex w-full items-center justify-between rounded-[1.6rem] border border-slate-200 bg-slate-50 px-5 py-3.5 text-left text-base font-black text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] transition focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-emerald-500/10" aria-haspopup="listbox" aria-expanded="false">
+                                        <span id="cashbook-line-type-label">Income</span>
+                                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+                                        </svg>
+                                    </button>
+                                    <div id="cashbook-line-type-panel" class="absolute inset-x-0 top-[calc(100%+0.6rem)] z-20 hidden rounded-[1.45rem] border border-slate-200 bg-white p-2 shadow-[0_20px_45px_rgba(15,23,42,0.16)]" role="listbox" aria-label="Cashbook type">
+                                        <button type="button" data-cashbook-type-option data-value="income" data-label="Income" class="flex w-full items-center rounded-[1rem] px-4 py-3 text-left text-sm font-black text-slate-900 transition hover:bg-emerald-50 hover:text-emerald-700">
+                                            Income
+                                        </button>
+                                        <button type="button" data-cashbook-type-option data-value="expense" data-label="Expense" class="flex w-full items-center rounded-[1rem] px-4 py-3 text-left text-sm font-black text-slate-900 transition hover:bg-amber-50 hover:text-amber-700">
+                                            Expense
+                                        </button>
+                                    </div>
+                                </div>
                             </label>
                             <label class="block">
                                 <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Category</span>
-                                <select id="cashbook-line-category" class="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none"></select>
+                                <input id="cashbook-line-category" type="hidden" value="">
+                                <div class="relative mt-2">
+                                    <button id="cashbook-line-category-trigger" type="button" class="flex w-full items-center justify-between rounded-[1.6rem] border border-slate-200 bg-slate-50 px-5 py-3.5 text-left text-base font-black text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] transition focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-emerald-500/10" aria-haspopup="listbox" aria-expanded="false">
+                                        <span id="cashbook-line-category-label" class="text-slate-400">Select category</span>
+                                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+                                        </svg>
+                                    </button>
+                                    <div id="cashbook-line-category-panel" class="absolute inset-x-0 top-[calc(100%+0.6rem)] z-20 hidden max-h-72 overflow-y-auto rounded-[1.45rem] border border-slate-200 bg-white p-2 shadow-[0_20px_45px_rgba(15,23,42,0.16)]" role="listbox" aria-label="Cashbook category"></div>
+                                </div>
                             </label>
                             <label class="block">
                                 <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Amount</span>
@@ -415,7 +561,7 @@
     </div>
 @endsection
 
-@if ($tab === 'cashbook' && $canEdit)
+@if ($tab === 'cashbook')
     @push('scripts')
     <script>
         (() => {
@@ -430,13 +576,19 @@
             const saveButton = document.getElementById('cashbook-save-line');
             const typeInput = document.getElementById('cashbook-line-type');
             const categoryInput = document.getElementById('cashbook-line-category');
+            const typeTrigger = document.getElementById('cashbook-line-type-trigger');
+            const typeLabel = document.getElementById('cashbook-line-type-label');
+            const typePanel = document.getElementById('cashbook-line-type-panel');
+            const categoryTrigger = document.getElementById('cashbook-line-category-trigger');
+            const categoryLabel = document.getElementById('cashbook-line-category-label');
+            const categoryPanel = document.getElementById('cashbook-line-category-panel');
             const amountInput = document.getElementById('cashbook-line-amount');
             const descriptionInput = document.getElementById('cashbook-line-description');
             const descriptionLabel = document.getElementById('cashbook-line-description-label');
             const helpText = document.getElementById('cashbook-line-help');
             const modalTitle = document.getElementById('cashbook-modal-title');
 
-            if (!listEl || !inputsEl || !modalEl || !openButton || !closeButton || !cancelButton || !saveButton || !typeInput || !categoryInput || !amountInput || !descriptionInput || !descriptionLabel || !helpText || !modalTitle) {
+            if (!listEl || !inputsEl || !modalEl || !openButton || !closeButton || !cancelButton || !saveButton || !typeInput || !categoryInput || !typeTrigger || !typeLabel || !typePanel || !categoryTrigger || !categoryLabel || !categoryPanel || !amountInput || !descriptionInput || !descriptionLabel || !helpText || !modalTitle) {
                 return;
             }
 
@@ -451,21 +603,55 @@
                 .replaceAll("'", '&#039;');
 
             const categoryMeta = (categoryId) => categories.find((category) => String(category.id) === String(categoryId)) ?? null;
+            const requiresDescription = (meta) => Boolean(meta && String(meta.name).toLowerCase().startsWith('other'));
+            const setDropdownOpen = (trigger, panel, isOpen) => {
+                panel.classList.toggle('hidden', !isOpen);
+                trigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+            };
+            const closeDropdowns = () => {
+                setDropdownOpen(typeTrigger, typePanel, false);
+                setDropdownOpen(categoryTrigger, categoryPanel, false);
+            };
+            const setTypeValue = (value, label) => {
+                typeInput.value = value;
+                typeLabel.textContent = label;
+                typeLabel.classList.remove('text-slate-400');
+            };
+            const setCategoryValue = (value, label) => {
+                categoryInput.value = value;
+                categoryLabel.textContent = label;
+                categoryLabel.classList.toggle('text-slate-400', value === '');
+            };
 
             const fillCategoryOptions = (type, selectedId = '') => {
                 const filtered = categories.filter((category) => category.type === type);
-                categoryInput.innerHTML = filtered.map((category) => `
-                    <option value="${category.id}" ${String(category.id) === String(selectedId) ? 'selected' : ''}>${escapeHtml(category.name)}</option>
+                categoryPanel.innerHTML = filtered.map((category) => `
+                    <button
+                        type="button"
+                        data-cashbook-category-option
+                        data-value="${category.id}"
+                        data-label="${escapeHtml(category.name)}"
+                        class="flex w-full items-center rounded-[1rem] px-4 py-3 text-left text-sm font-black transition ${
+                            String(category.id) === String(selectedId)
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : 'text-slate-900 hover:bg-slate-100'
+                        }"
+                    >
+                        ${escapeHtml(category.name)}
+                    </button>
                 `).join('');
+
+                const selectedCategory = filtered.find((category) => String(category.id) === String(selectedId)) ?? null;
+                setCategoryValue(selectedCategory ? String(selectedCategory.id) : '', selectedCategory ? selectedCategory.name : 'Select category');
                 refreshDescriptionState();
             };
 
             const refreshDescriptionState = () => {
                 const meta = categoryMeta(categoryInput.value);
-                const isOther = meta && meta.name === 'Other';
+                const isOther = requiresDescription(meta);
                 descriptionLabel.textContent = isOther ? 'Notes Required' : 'Notes';
                 helpText.textContent = isOther
-                    ? 'Other needs notes so admin can understand the entry.'
+                    ? 'Other income or expense needs notes so admin can understand the entry.'
                     : 'Add any short detail if this entry needs context.';
             };
 
@@ -482,7 +668,7 @@
                     listEl.innerHTML = `
                         <div class="rounded-[1.5rem] border border-dashed border-slate-300 bg-white px-4 py-8 text-center">
                             <p class="text-sm font-black text-slate-900">No items added yet.</p>
-                            <p class="mt-2 text-sm font-semibold text-slate-500">Use Add Income / Expense to build the daily cashbook.</p>
+                            <p class="mt-2 text-sm font-semibold text-slate-500">Use Add Income / Expense to build the daily ledger.</p>
                         </div>
                     `;
                     renderInputs();
@@ -522,10 +708,11 @@
 
             const closeModal = () => {
                 modalEl.classList.add('hidden');
+                closeDropdowns();
                 editIndex = null;
                 amountInput.value = '';
                 descriptionInput.value = '';
-                typeInput.value = 'income';
+                setTypeValue('income', 'Income');
                 fillCategoryOptions('income');
                 modalTitle.textContent = 'Add income or expense';
             };
@@ -534,7 +721,7 @@
                 editIndex = index;
 
                 if (index === null) {
-                    typeInput.value = 'income';
+                    setTypeValue('income', 'Income');
                     fillCategoryOptions('income');
                     amountInput.value = '';
                     descriptionInput.value = '';
@@ -542,11 +729,11 @@
                 } else {
                     const line = lines[index];
                     const meta = categoryMeta(line.shop_accounting_category_id);
-                    typeInput.value = meta?.type ?? 'income';
+                    setTypeValue(meta?.type ?? 'income', meta?.type === 'expense' ? 'Expense' : 'Income');
                     fillCategoryOptions(typeInput.value, line.shop_accounting_category_id);
                     amountInput.value = line.amount;
                     descriptionInput.value = line.description ?? '';
-                    modalTitle.textContent = 'Update cashbook item';
+                    modalTitle.textContent = 'Update ledger item';
                 }
 
                 modalEl.classList.remove('hidden');
@@ -562,8 +749,49 @@
                 }
             });
 
-            typeInput?.addEventListener('change', () => fillCategoryOptions(typeInput.value));
-            categoryInput?.addEventListener('change', refreshDescriptionState);
+            typeTrigger?.addEventListener('click', () => {
+                const isOpen = typePanel.classList.contains('hidden');
+                closeDropdowns();
+                setDropdownOpen(typeTrigger, typePanel, isOpen);
+            });
+
+            categoryTrigger?.addEventListener('click', () => {
+                const isOpen = categoryPanel.classList.contains('hidden');
+                closeDropdowns();
+                setDropdownOpen(categoryTrigger, categoryPanel, isOpen);
+            });
+
+            typePanel?.addEventListener('click', (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLElement)) {
+                    return;
+                }
+
+                const option = target.closest('[data-cashbook-type-option]');
+                if (!(option instanceof HTMLElement)) {
+                    return;
+                }
+
+                setTypeValue(option.dataset.value ?? 'income', option.dataset.label ?? 'Income');
+                fillCategoryOptions(typeInput.value);
+                closeDropdowns();
+            });
+
+            categoryPanel?.addEventListener('click', (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLElement)) {
+                    return;
+                }
+
+                const option = target.closest('[data-cashbook-category-option]');
+                if (!(option instanceof HTMLElement)) {
+                    return;
+                }
+
+                setCategoryValue(option.dataset.value ?? '', option.dataset.label ?? 'Select category');
+                refreshDescriptionState();
+                closeDropdowns();
+            });
 
             saveButton?.addEventListener('click', () => {
                 const categoryId = categoryInput.value;
@@ -576,8 +804,8 @@
                     return;
                 }
 
-                if (meta?.name === 'Other' && description === '') {
-                    window.showAppAlert?.('Add notes when you choose Other.', 'warning');
+                if (requiresDescription(meta) && description === '') {
+                    window.showAppAlert?.('Add notes when you choose Other income or expense.', 'warning');
                     return;
                 }
 
@@ -613,6 +841,24 @@
                 }
             });
 
+            document.addEventListener('click', (event) => {
+                const target = event.target;
+                if (!(target instanceof Node)) {
+                    return;
+                }
+
+                if (!typeTrigger.contains(target) && !typePanel.contains(target) && !categoryTrigger.contains(target) && !categoryPanel.contains(target)) {
+                    closeDropdowns();
+                }
+            });
+
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') {
+                    closeDropdowns();
+                }
+            });
+
+            setTypeValue('income', 'Income');
             fillCategoryOptions('income');
             renderList();
         })();

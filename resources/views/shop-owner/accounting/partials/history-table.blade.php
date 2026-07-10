@@ -16,8 +16,8 @@
                             <span class="text-sm font-semibold text-slate-600">Net Rs. {{ number_format($income - $expense, 2) }}</span>
                         </div>
                     </div>
-                    <a href="{{ route('shop-owner.accounting.index', ['date' => $entry->business_date->format('Y-m-d')]) }}" class="text-sm font-bold text-emerald-700 hover:text-emerald-900">
-                        {{ $entry->canBeEditedByShopOwner() ? 'Open & Update' : 'Open' }}
+                    <a href="{{ route('shop-owner.accounting.index', ['tab' => 'cashbook', 'date' => $entry->business_date->format('Y-m-d')]) }}" class="text-sm font-bold text-emerald-700 hover:text-emerald-900">
+                        Open & Update
                     </a>
                 </div>
 

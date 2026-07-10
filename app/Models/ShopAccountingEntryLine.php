@@ -15,6 +15,8 @@ class ShopAccountingEntryLine extends Model
         'type',
         'amount',
         'description',
+        'review_status',
+        'review_note',
     ];
 
     protected $casts = [
@@ -22,6 +24,24 @@ class ShopAccountingEntryLine extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
+
+    public function reviewStatusLabel(): string
+    {
+        return match ((string) $this->review_status) {
+            'approved' => 'Approved',
+            'recheck_required' => 'Needs Recheck',
+            default => 'Pending Review',
+        };
+    }
+
+    public function reviewStatusTone(): string
+    {
+        return match ((string) $this->review_status) {
+            'approved' => 'success',
+            'recheck_required' => 'danger',
+            default => 'warning',
+        };
+    }
 
     public function entry(): BelongsTo
     {

@@ -207,8 +207,8 @@ Route::middleware('auth')->group(function () {
         Route::get('/sales/pdf', [FinanceController::class, 'salesPdf'])->name('sales.pdf');
         Route::get('/vendor-daily', [FinanceController::class, 'vendorDaily'])->name('vendor-daily');
         Route::get('/sales-daily', [FinanceController::class, 'salesDaily'])->name('sales-daily');
-        Route::get('/statement/export/csv', [FinanceController::class, 'legacyRedirect'])->name('statement.export.csv');
-        Route::get('/statement/export/pdf', [FinanceController::class, 'legacyRedirect'])->name('statement.export.pdf');
+        Route::get('/statement/export/csv', [FinanceController::class, 'legacyExportRedirect'])->name('statement.export.csv');
+        Route::get('/statement/export/pdf', [FinanceController::class, 'legacyExportRedirect'])->name('statement.export.pdf');
         Route::get('accounts', [FinanceController::class, 'legacyRedirect'])->name('accounts.index');
         Route::get('ledger', [FinanceController::class, 'legacyRedirect'])->name('ledger.index');
         Route::get('expenses', [FinanceController::class, 'legacyRedirect'])->name('expenses.index');
@@ -316,6 +316,7 @@ Route::middleware('auth')->group(function () {
             Route::get('owned-shops', [AdminAccountingController::class, 'ownedShopsIndex'])->name('owned-shops.index');
             Route::post('owned-shops', [AdminAccountingController::class, 'storeOwnedShop'])->name('owned-shops.store');
             Route::get('owned-shops/{shop:code}', [AdminAccountingController::class, 'ownedShopShow'])->name('owned-shops.show');
+            Route::get('owned-shops/{shop:code}/categories', [AdminAccountingController::class, 'ownedShopCategories'])->name('owned-shops.categories.index');
             Route::patch('owned-shops/{shop:code}/reserve-amount', [AdminAccountingController::class, 'updateReserveAmount'])->name('owned-shops.reserve-amount.update');
             Route::post('owned-shops/{shop:code}/ownerships', [AdminAccountingController::class, 'storeOwnerships'])->name('owned-shops.ownerships.store');
             Route::post('owned-shops/{shop:code}/categories', [AdminAccountingController::class, 'storeCategory'])->name('owned-shops.categories.store');

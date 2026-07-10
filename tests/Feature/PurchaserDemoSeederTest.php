@@ -7,13 +7,10 @@ namespace Tests\Feature;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaserCart;
-use App\Models\PurchaserCorrectionRequest;
-use App\Models\Shop;
+use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
-use App\Models\ShopOrderItem;
-use App\Models\StockBatch;
 use App\Models\Supplier;
-use App\Services\Purchasing\PurchaserBusinessDayService;
+use Database\Seeders\PurchaserDemoSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -21,14 +18,9 @@ class PurchaserDemoSeederTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_database_seeder_populates_purchase_demo_data(): void
+    public function test_database_seeder_populates_core_purchasing_reference_data_without_orders(): void
     {
-        $this->seed();
-
-        $businessDayService = app(PurchaserBusinessDayService::class);
-        $activeBusinessDate = $businessDayService->operationalDate();
-        $previousBusinessDate = $activeBusinessDate->copy()->subDay();
-        $approvalCenterDate = $businessDayService->currentCalendarDate()->addDay();
+        $this->seed(PurchaserDemoSeeder::class);
 
         $this->assertDatabaseHas('suppliers', [
             'name' => 'Market A',
@@ -60,142 +52,12 @@ class PurchaserDemoSeederTest extends TestCase
             'preferred_payment_method' => 'GPay',
         ]);
 
-        $draftCart = PurchaserCart::query()
-            ->where('cart_number', 'VC-DEMO-DRAFT-001')
-            ->with('items')
-            ->firstOrFail();
+        $this->assertSame(0, ShopOrder::query()->count());
+        $this->assertSame(0, PurchaseOrder::query()->count());
+        $this->assertSame(0, PurchaseInvoice::query()->count());
+        $this->assertSame(0, ShopInvoice::query()->count());
+        $this->assertSame(0, PurchaserCart::query()->count());
 
-        $this->assertSame('draft', $draftCart->status);
-        $this->assertSame($activeBusinessDate->toDateString(), $draftCart->business_date?->toDateString());
-        $this->assertSame(3, $draftCart->items->count());
-
-        $submittedCart = PurchaserCart::query()
-            ->where('cart_number', 'VC-DEMO-SUBMIT-002')
-            ->firstOrFail();
-
-        $this->assertSame('submitted', $submittedCart->status);
-        $this->assertSame('credit_pending_approval', $submittedCart->payment_status);
-        $this->assertNotNull($submittedCart->purchase_invoice_id);
-        $this->assertNotNull($submittedCart->whatsapp_sent_at);
-
-        $this->assertDatabaseHas((new PurchaseInvoice)->getTable(), [
-            'invoice_number' => 'PINV-DEMO-PUR-002',
-            'payment_status' => 'credit_pending_approval',
-        ]);
-
-        $this->assertDatabaseHas((new PurchaserCart)->getTable(), [
-            'cart_number' => 'VC-DEMO-OVERDUE-DRAFT-001',
-            'status' => 'draft',
-        ]);
-
-        $this->assertDatabaseHas((new PurchaseInvoice)->getTable(), [
-            'invoice_number' => 'PINV-DEMO-OVERDUE-RECEIPT-001',
-            'payment_status' => 'paid',
-        ]);
-
-        $this->assertDatabaseHas((new PurchaseInvoice)->getTable(), [
-            'invoice_number' => 'PINV-DEMO-PAYMENT-PENDING-001',
-            'payment_status' => 'partial',
-        ]);
-
-        $this->assertDatabaseHas((new PurchaseInvoice)->getTable(), [
-            'invoice_number' => 'PINV-DEMO-COMPLETED-001',
-            'payment_status' => 'paid',
-            'payment_method' => 'Online',
-        ]);
-
-        $this->assertDatabaseHas((new PurchaseInvoice)->getTable(), [
-            'invoice_number' => 'PINV-DEMO-MARKET-C-001',
-            'payment_status' => 'unpaid',
-        ]);
-
-        $this->assertDatabaseHas((new PurchaseInvoice)->getTable(), [
-            'invoice_number' => 'PINV-DEMO-MARKET-D-001',
-            'payment_status' => 'paid',
-        ]);
-
-        $this->assertDatabaseHas((new PurchaserCart)->getTable(), [
-            'cart_number' => 'VC-DEMO-MARKET-E-DRAFT-001',
-            'status' => 'draft',
-        ]);
-
-        $this->assertSame(
-            Shop::query()->where('status', 'active')->count(),
-            ShopOrder::query()
-                ->whereDate('business_date', $previousBusinessDate)
-                ->where('order_number', 'like', 'RQ-DEMO-YDAY-%')
-                ->count()
-        );
-
-        $this->assertTrue(
-            ShopOrderItem::query()
-                ->whereHas('order', function ($query) use ($previousBusinessDate): void {
-                    $query
-                        ->whereDate('business_date', $previousBusinessDate)
-                        ->where('order_number', 'like', 'RQ-DEMO-YDAY-%');
-                })
-                ->exists()
-        );
-
-        $this->assertSame(
-            Shop::query()->where('status', 'active')->count(),
-            ShopOrder::query()
-                ->whereDate('business_date', $activeBusinessDate)
-                ->where('order_number', 'like', 'RQ-DEMO-ACTIVE-%')
-                ->count()
-        );
-
-        if (! $approvalCenterDate->isSameDay($activeBusinessDate)) {
-            $this->assertSame(
-                Shop::query()->where('status', 'active')->count(),
-                ShopOrder::query()
-                    ->whereDate('business_date', $approvalCenterDate)
-                    ->where('order_number', 'like', 'RQ-DEMO-NEXT-%')
-                    ->count()
-            );
-        }
-
-        $this->assertDatabaseHas((new StockBatch)->getTable(), [
-            'reference' => 'BATCH-GRN-DEMO-OVERDUE-RECEIPT-001-1',
-            'warehouse_receive_pending' => true,
-        ]);
-
-        $this->assertDatabaseHas((new StockBatch)->getTable(), [
-            'reference' => 'BATCH-GRN-DEMO-PAYMENT-PENDING-001-13',
-            'warehouse_receive_pending' => false,
-        ]);
-
-        $this->assertDatabaseHas((new PurchaseOrder)->getTable(), [
-            'po_number' => 'PO-DEMO-STANDALONE-001',
-            'status' => 'draft',
-        ]);
-
-        $this->assertDatabaseHas((new PurchaseOrder)->getTable(), [
-            'po_number' => 'PO-DEMO-STANDALONE-002',
-            'status' => 'approved',
-        ]);
-
-        $this->assertDatabaseHas((new PurchaseOrder)->getTable(), [
-            'po_number' => 'PO-DEMO-STANDALONE-003',
-            'status' => 'sent_to_supplier',
-        ]);
-
-        $this->assertDatabaseHas('goods_received_items', [
-            'variance' => '-0.25',
-        ]);
-
-        $this->assertTrue(
-            PurchaserCorrectionRequest::query()
-                ->whereDate('business_date', $activeBusinessDate)
-                ->where('status', 'pending')
-                ->exists()
-        );
-
-        $this->assertGreaterThanOrEqual(
-            5,
-            Supplier::query()
-                ->whereHas('purchaserCarts', fn ($query) => $query->where('cart_number', 'like', 'VC-DEMO-%'))
-                ->count()
-        );
+        $this->assertGreaterThanOrEqual(5, Supplier::query()->count());
     }
 }

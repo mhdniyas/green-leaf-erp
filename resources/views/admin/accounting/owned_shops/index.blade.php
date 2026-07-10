@@ -46,6 +46,7 @@
                             <th class="px-4 py-3">Shop</th>
                             <th class="px-4 py-3">Code</th>
                             <th class="px-4 py-3">Mode</th>
+                            <th class="px-4 py-3">Update Alert</th>
                             <th class="px-4 py-3 text-right">Pending Balance</th>
                             <th class="px-4 py-3 text-right">Reserve Amount</th>
                             <th class="px-4 py-3">Configured</th>
@@ -54,6 +55,11 @@
                     </thead>
                     <tbody class="divide-y divide-slate-100 text-sm">
                         @forelse($shops as $shop)
+                            @php
+                                $latestEntry = $shop->latestAccountingEntry;
+                                $hasRecheckUpdates = (int) ($shop->recheck_updates_count ?? 0) > 0;
+                                $hasPendingUpdates = (int) ($shop->pending_updates_count ?? 0) > 0;
+                            @endphp
                             <tr class="transition hover:bg-slate-50">
                                 <td class="px-4 py-4">
                                     <p class="font-black text-slate-950">{{ $shop->name }}</p>
@@ -64,6 +70,40 @@
                                     <span class="inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">
                                         {{ ucfirst($shop->accounting_mode) }}
                                     </span>
+                                </td>
+                                <td class="px-4 py-4">
+                                    @if ($hasRecheckUpdates)
+                                        <div class="space-y-2">
+                                            <span class="inline-flex rounded-full border border-red-200 bg-red-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-red-700">
+                                                Recheck Update
+                                            </span>
+                                            <p class="text-xs font-semibold text-slate-600">{{ number_format((int) $shop->recheck_updates_count) }} item(s) need attention</p>
+                                            @if ($latestEntry)
+                                                <p class="text-xs font-semibold text-slate-500">Updated {{ $latestEntry->updated_at?->format('d M h:i A') }}</p>
+                                            @endif
+                                        </div>
+                                    @elseif ($hasPendingUpdates)
+                                        <div class="space-y-2">
+                                            <span class="inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">
+                                                New Update
+                                            </span>
+                                            <p class="text-xs font-semibold text-slate-600">{{ number_format((int) $shop->pending_updates_count) }} submitted update(s)</p>
+                                            @if ($latestEntry)
+                                                <p class="text-xs font-semibold text-slate-500">{{ $latestEntry->submittedBy?->name ?? 'Shop owner' }} · {{ $latestEntry->updated_at?->format('d M h:i A') }}</p>
+                                            @endif
+                                        </div>
+                                    @elseif ($latestEntry)
+                                        <div class="space-y-2">
+                                            <span class="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">
+                                                No New Update
+                                            </span>
+                                            <p class="text-xs font-semibold text-slate-500">Last {{ str($latestEntry->status)->replace('_', ' ')->title() }} · {{ $latestEntry->updated_at?->format('d M h:i A') }}</p>
+                                        </div>
+                                    @else
+                                        <span class="inline-flex rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-600">
+                                            No Ledger Yet
+                                        </span>
+                                    @endif
                                 </td>
                                 <td class="px-4 py-4 text-right font-black {{ (float) ($shop->pending_balance_amount ?? 0) > 0 ? 'text-rose-700' : 'text-emerald-700' }}">
                                     Rs. {{ number_format((float) ($shop->pending_balance_amount ?? 0), 2) }}
@@ -86,7 +126,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="7" class="px-4 py-12 text-center text-sm font-bold text-slate-500">
+                                <td colspan="8" class="px-4 py-12 text-center text-sm font-bold text-slate-500">
                                     No accounting-enabled owned or partnership shops were found.
                                 </td>
                             </tr>
@@ -161,4 +201,43 @@
             </div>
         </div>
     </div>
+
+    <script>
+        (() => {
+            const modal = document.getElementById('owned-shop-modal');
+            const openButton = document.getElementById('owned-shop-open-modal');
+            const closeButton = document.getElementById('owned-shop-close-modal');
+            const cancelButton = document.getElementById('owned-shop-cancel-modal');
+            const overlay = document.getElementById('owned-shop-modal-overlay');
+
+            if (!modal || !openButton) {
+                return;
+            }
+
+            const showModal = () => {
+                modal.classList.remove('hidden');
+                document.body.classList.add('overflow-hidden');
+            };
+
+            const hideModal = () => {
+                modal.classList.add('hidden');
+                document.body.classList.remove('overflow-hidden');
+            };
+
+            openButton.addEventListener('click', showModal);
+            closeButton?.addEventListener('click', hideModal);
+            cancelButton?.addEventListener('click', hideModal);
+            overlay?.addEventListener('click', hideModal);
+
+            if (!modal.classList.contains('hidden')) {
+                document.body.classList.add('overflow-hidden');
+            }
+
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape' && !modal.classList.contains('hidden')) {
+                    hideModal();
+                }
+            });
+        })();
+    </script>
 </x-layouts.accounting>

@@ -6,15 +6,20 @@ namespace App\Http\Controllers\Web\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Auth\LoginRequest;
+use App\Models\Product;
 use App\Models\Shop;
 use App\Models\ShopOwnerAssignment;
 use App\Models\User;
 use App\Services\HR\EmployeeSyncService;
+use Database\Seeders\DemoUserSeeder;
+use Database\Seeders\ProductSeeder;
+use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\View\View;
+use Spatie\Permission\Models\Role;
 
 class LoginController extends Controller
 {
@@ -43,6 +48,8 @@ class LoginController extends Controller
             return redirect()->route('dashboard');
         }
 
+        $this->ensureDemoSeedData();
+
         return view('auth.demo-login', [
             'hasDemoAccess' => $request->session()->get('demo_access_granted', false),
             'staffAccounts' => $this->staffAccounts(),
@@ -68,6 +75,8 @@ class LoginController extends Controller
     public function demoLogin(Request $request): RedirectResponse
     {
         abort_unless($request->session()->get('demo_access_granted', false), 403);
+
+        $this->ensureDemoSeedData();
 
         $validated = $request->validate([
             'account' => ['required', 'string'],
@@ -181,6 +190,8 @@ class LoginController extends Controller
     {
         $staffAccount = collect($this->staffAccounts())->firstWhere('key', $accountKey);
         if ($staffAccount !== null) {
+            $this->ensureDemoUserAccount($staffAccount);
+
             return $staffAccount;
         }
 
@@ -194,29 +205,72 @@ class LoginController extends Controller
             return null;
         }
 
+        $this->ensureDemoUserAccount($shopAccount, $shop);
+
+        return $shopAccount;
+    }
+
+    /**
+     * @param  array{key: string, name: string, role: string, email: string, password: string, shop_code?: string|null}  $account
+     */
+    private function ensureDemoUserAccount(array $account, ?Shop $shop = null): void
+    {
+        $roleName = match ($account['key']) {
+            'admin' => 'admin',
+            'hr-manager' => 'hr_manager',
+            'purchase-manager' => 'purchase',
+            'purchaser-niyas', 'purchaser-fallback' => 'purchaser',
+            'warehouse-receiver' => 'warehouse_receiver',
+            default => 'shop',
+        };
+
+        $this->ensureRoleExists($roleName);
+
         $user = User::updateOrCreate(
-            ['email' => $shopAccount['email']],
+            ['email' => $account['email']],
             [
-                'name' => $shop->name.' Demo',
-                'password' => Hash::make($shopAccount['password']),
+                'name' => $shop ? $shop->name.' Demo' : $account['name'],
+                'password' => Hash::make($account['password']),
                 'email_verified_at' => now(),
-                'shop_id' => $shop->id,
+                'shop_id' => $shop?->id,
                 'registration_status' => 'approved',
                 'approved_at' => now(),
                 'approved_by' => null,
             ]
         );
 
-        $user->syncRoles(['shop']);
-        ShopOwnerAssignment::query()->updateOrCreate(
-            [
-                'user_id' => $user->id,
-                'shop_id' => $shop->id,
-            ],
-            []
-        );
-        $this->employeeSyncService->ensureForUser($user->fresh());
+        $user->syncRoles([$roleName]);
 
-        return $shopAccount;
+        if ($shop !== null) {
+            ShopOwnerAssignment::query()->updateOrCreate(
+                [
+                    'user_id' => $user->id,
+                    'shop_id' => $shop->id,
+                ],
+                []
+            );
+        }
+
+        $this->employeeSyncService->ensureForUser($user->fresh());
+    }
+
+    private function ensureRoleExists(string $roleName): void
+    {
+        if (Role::query()->where('name', $roleName)->where('guard_name', 'web')->exists()) {
+            return;
+        }
+
+        app(RolePermissionSeeder::class)->run();
+    }
+
+    private function ensureDemoSeedData(): void
+    {
+        if (! Shop::query()->where('status', 'active')->exists()) {
+            app(DemoUserSeeder::class)->run();
+        }
+
+        if (! Product::query()->where('is_active', true)->exists()) {
+            app(ProductSeeder::class)->run();
+        }
     }
 }

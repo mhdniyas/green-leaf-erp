@@ -32,6 +32,6 @@ class CategorySeeder extends Seeder
             );
         }
 
-        $this->command->info('✅ Categories seeded successfully.');
+        $this->command?->info('✅ Categories seeded successfully.');
     }
 }

@@ -21,6 +21,7 @@ use App\Services\Pricing\PriceBoardService;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
@@ -153,6 +154,7 @@ class ShopOwnerController extends Controller
         $shop = $this->currentShop($user);
         $tab = $this->normalizeAccountingTab($shop, (string) $request->input('tab', 'bills'));
         $selectedDate = Carbon::parse($request->input('date', today()->toDateString()));
+        [$startDate, $endDate] = $this->dateRangeFromRequest($request, $selectedDate);
         $invoices = ShopInvoice::query()
             ->where('shop_id', $shop->id)
             ->with(['order', 'paymentRequests' => fn ($query) => $query->latest('id')])
@@ -171,6 +173,9 @@ class ShopOwnerController extends Controller
         $entry = null;
         $availableCategories = collect();
         $recentEntries = collect();
+        $ledgerEntries = null;
+        $deliveryExpenseByDate = collect();
+        $selectedDeliveryExpense = 0.0;
         $incomeTotal = 0.0;
         $expenseTotal = 0.0;
         $netAmount = 0.0;
@@ -184,13 +189,29 @@ class ShopOwnerController extends Controller
                 ->latest('business_date')
                 ->limit(8)
                 ->get();
+            $ledgerEntries = ShopAccountingEntry::query()
+                ->where('shop_id', $shop->id)
+                ->with(['lines.category', 'submittedBy', 'reviewedBy'])
+                ->whereDate('business_date', '>=', $startDate)
+                ->whereDate('business_date', '<=', $endDate)
+                ->latest('business_date')
+                ->paginate(10, ['*'], 'ledger_page');
+            $deliveryExpenseByDate = ShopInvoice::query()
+                ->where('shop_id', $shop->id)
+                ->whereDate('business_date', '>=', $startDate)
+                ->whereDate('business_date', '<=', $endDate)
+                ->selectRaw('DATE(business_date) as ledger_date, SUM(final_total) as total')
+                ->groupByRaw('DATE(business_date)')
+                ->pluck('total', 'ledger_date')
+                ->map(fn ($total): float => round((float) $total, 2));
+            $selectedDeliveryExpense = (float) ($deliveryExpenseByDate->get($selectedDate->toDateString()) ?? 0);
 
             $incomeTotal = $entry instanceof ShopAccountingEntry
                 ? round((float) $entry->lines->where('type', 'income')->sum('amount'), 2)
                 : 0.0;
-            $expenseTotal = $entry instanceof ShopAccountingEntry
+            $expenseTotal = ($entry instanceof ShopAccountingEntry
                 ? round((float) $entry->lines->where('type', 'expense')->sum('amount'), 2)
-                : 0.0;
+                : 0.0) + $selectedDeliveryExpense;
             $netAmount = round($incomeTotal - $expenseTotal, 2);
         }
 
@@ -198,12 +219,17 @@ class ShopOwnerController extends Controller
             'shop' => $shop,
             'tab' => $tab,
             'selectedDate' => $selectedDate,
+            'startDate' => $startDate,
+            'endDate' => $endDate,
             'billingSummary' => $billingSummary,
             'invoices' => $invoices,
             'paymentRequests' => $paymentRequests,
             'entry' => $entry,
             'availableCategories' => $availableCategories,
             'recentEntries' => $recentEntries,
+            'ledgerEntries' => $ledgerEntries ?? new LengthAwarePaginator([], 0, 10),
+            'deliveryExpenseByDate' => $deliveryExpenseByDate,
+            'selectedDeliveryExpense' => $selectedDeliveryExpense,
             'incomeTotal' => $incomeTotal,
             'expenseTotal' => $expenseTotal,
             'netAmount' => $netAmount,
@@ -509,5 +535,20 @@ class ShopOwnerController extends Controller
             'total_balance' => round((float) $invoices->sum('balance_amount'), 2),
             'open_bills' => $invoices->filter(fn (ShopInvoice $invoice): bool => (float) $invoice->balance_amount > 0)->count(),
         ];
+    }
+
+    /**
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    private function dateRangeFromRequest(Request $request, Carbon $fallbackDate): array
+    {
+        $startDate = Carbon::parse($request->input('start_date', $fallbackDate->toDateString()));
+        $endDate = Carbon::parse($request->input('end_date', $fallbackDate->toDateString()));
+
+        if ($startDate->gt($endDate)) {
+            [$startDate, $endDate] = [$endDate, $startDate];
+        }
+
+        return [$startDate, $endDate];
     }
 }
