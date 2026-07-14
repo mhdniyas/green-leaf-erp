@@ -18,8 +18,9 @@ class PurchaserDemoSeeder extends Seeder
             SupplierSeeder::class,
             DemoUserSeeder::class,
             ChartOfAccountsSeeder::class,
+            PurchaseOrderSeeder::class,
         ]);
 
-        $this->command?->info('Purchaser demo seeder cleaned. No shop orders, purchase orders, carts, receipts, or invoices were seeded.');
+        $this->command?->info('Purchaser demo reference data and June 10 purchase orders seeded.');
     }
 }

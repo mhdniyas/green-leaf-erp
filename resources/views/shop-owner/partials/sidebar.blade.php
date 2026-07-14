@@ -1,4 +1,7 @@
 @php
+    $activeShopResolver = app(\App\Support\ShopOwner\ActiveShopResolver::class);
+    $authorizedShops = $activeShopResolver->authorizedShops(auth()->user());
+    $activeShop = $authorizedShops->isNotEmpty() ? $activeShopResolver->resolve(request()) : auth()->user()?->shop;
     $hasOwnedShopStaffAccess = auth()->user()?->ownedShopAssignments()->exists() ?? false;
     $shopOwnerNavItems = [
         ['label' => 'Dashboard', 'route' => 'shop-owner.dashboard'],
@@ -17,7 +20,7 @@
 <aside class="hidden border-r border-slate-200 bg-slate-950 text-white lg:fixed lg:inset-y-0 lg:flex lg:w-72 lg:flex-col">
     <div class="border-b border-white/10 px-6 py-6">
         <p class="text-xs font-black uppercase tracking-[0.2em] text-emerald-300">Shop Owner Portal</p>
-        <h1 class="mt-2 text-xl font-black">{{ auth()->user()->shop?->name ?? 'Green Leaf Traders' }}</h1>
+        <h1 class="mt-2 text-xl font-black">{{ $activeShop?->name ?? 'Green Leaf Traders' }}</h1>
         <p class="mt-1 text-sm text-slate-400">Marketplace ordering, delivery follow-up, and finance tracking.</p>
     </div>
 
@@ -64,7 +67,7 @@
         <div class="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-5">
             <div class="min-w-0">
                 <p class="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-300">Shop Owner Portal</p>
-                <h2 class="mt-2 truncate text-lg font-black">{{ auth()->user()->shop?->name ?? 'Green Leaf Traders' }}</h2>
+                <h2 class="mt-2 truncate text-lg font-black">{{ $activeShop?->name ?? 'Green Leaf Traders' }}</h2>
                 <p class="mt-1 text-xs font-semibold text-slate-400">Orders, deliveries, finance, and staff.</p>
             </div>
 

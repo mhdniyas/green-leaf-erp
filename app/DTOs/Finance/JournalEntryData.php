@@ -16,6 +16,9 @@ final readonly class JournalEntryData
         public ?string $reference,
         public ?string $description,
         public array $lines,
+        public ?string $sourceType = null,
+        public ?int $sourceId = null,
+        public ?string $sourceEvent = null,
     ) {}
 
     public static function fromRequest(Request $request): self
@@ -34,6 +37,9 @@ final readonly class JournalEntryData
             'entry_date' => $this->entryDate,
             'reference' => $this->reference,
             'description' => $this->description,
+            'source_type' => $this->sourceType,
+            'source_id' => $this->sourceId,
+            'source_event' => $this->sourceEvent,
         ];
     }
 }

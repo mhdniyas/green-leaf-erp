@@ -20,6 +20,7 @@ use App\Models\Warehouse;
 use App\Repositories\Inventory\StockMovementRepository;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Inventory\WastageService;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -40,7 +41,7 @@ class WarehouseReceiverController extends Controller
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
         ]);
 
-        $date = $request->input('date', Carbon::today()->format('Y-m-d'));
+        $date = $request->input('date', app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
         $selectedWarehouseId = $request->integer('warehouse_id') ?: null;
 
         // All pending vendor sheets (GRNs) awaiting warehouse receipt confirmation
@@ -390,7 +391,7 @@ class WarehouseReceiverController extends Controller
     {
         $this->authorizeReceiverAccess($request);
 
-        $date = $request->input('date', Carbon::today()->format('Y-m-d'));
+        $date = $request->input('date', app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
         $userId = (int) $request->user()->id;
 
         $pending = StockBatch::where('warehouse_receive_pending', true)

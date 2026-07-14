@@ -126,7 +126,7 @@
                             <div class="flex items-start gap-3">
                                 <span class="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-2 text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">#{{ $leaveSerial }}</span>
                                 <div>
-                                    <p class="text-lg font-black text-slate-950">{{ $leaveRequest->employee->name }}</p>
+                                    <a href="{{ route('admin.staff.show', $leaveRequest->employee) }}" class="text-lg font-black text-slate-950 underline-offset-4 hover:text-cyan-700 hover:underline">{{ $leaveRequest->employee->name }}</a>
                                     <p class="text-xs font-semibold text-slate-500">{{ $leaveRequest->employee->category->name }} · {{ ucfirst($leaveRequest->employee->staff_area) }}</p>
                                     <p class="text-sm font-semibold text-slate-500">{{ $leaveRequest->start_date->format('d M Y') }} to {{ $leaveRequest->end_date->format('d M Y') }}</p>
                                     <p class="mt-2 text-sm text-slate-700">{{ $leaveRequest->reason }}</p>

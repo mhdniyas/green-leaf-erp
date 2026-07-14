@@ -11,6 +11,7 @@ use App\Http\Requests\Web\ShopOwner\UpsertOwnedShopAttendanceRequest;
 use App\Models\Employee;
 use App\Models\EmployeeAttendance;
 use App\Models\EmployeeLeaveRequest;
+use App\Models\LeaveType;
 use App\Models\Shop;
 use App\Models\ShopEmployeeAssignment;
 use App\Services\HR\AttendanceService;
@@ -128,6 +129,7 @@ class ShopOwnerStaffController extends Controller
                     'submission_type' => 'owner',
                 ],
                 [
+                    'leave_type_id' => $this->defaultPaidLeaveTypeId(),
                     'submitted_by' => $request->user()->id,
                     'status' => 'pending',
                     'reason' => $request->string('leave_reason')->toString(),
@@ -155,6 +157,7 @@ class ShopOwnerStaffController extends Controller
 
         EmployeeLeaveRequest::query()->create([
             'employee_id' => $employee->id,
+            'leave_type_id' => $request->integer('leave_type_id'),
             'submitted_by' => $request->user()->id,
             'submitted_for_shop_id' => $shopId,
             'start_date' => $request->date('start_date'),
@@ -253,5 +256,18 @@ class ShopOwnerStaffController extends Controller
             ->orderBy('name')
             ->limit(10)
             ->get();
+    }
+
+    private function defaultPaidLeaveTypeId(): int
+    {
+        return (int) LeaveType::query()->firstOrCreate(
+            ['code' => LeaveType::CODE_PAID],
+            [
+                'name' => 'Paid Leave',
+                'is_paid' => true,
+                'is_active' => true,
+                'carry_forward_allowed' => true,
+            ],
+        )->id;
     }
 }

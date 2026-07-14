@@ -21,7 +21,7 @@
 <body class="min-h-full bg-slate-100 font-sans antialiased text-slate-900">
 @php
     $currentUser = auth()->user();
-    $navDate = request('date', today()->toDateString());
+    $navDate = request('date', app(\App\Services\Purchasing\PurchaserBusinessDayService::class)->operationalDate()->toDateString());
     $canViewStaffDashboard = \App\Support\StaffAccess::canViewDashboard($currentUser);
     $canViewStaffEmployees = \App\Support\StaffAccess::canViewEmployees($currentUser);
     $canViewStaffAttendance = \App\Support\StaffAccess::canViewAttendance($currentUser);
@@ -78,6 +78,13 @@
             'active' => request()->routeIs('admin.staff.payroll.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m0 0c-2.21 0-4-1.343-4-3s1.79-3 4-3 4-1.343 4-3-1.79-3-4-3m0 12c2.21 0 4-1.343 4-3" /></svg>',
         ];
+
+        $sidebarItems[] = [
+            'label' => 'Payments',
+            'href' => route('admin.staff.payments.index', ['date' => $navDate]),
+            'active' => request()->routeIs('admin.staff.payments.*'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5m-18 3.75h16.5m-14.25 5.25h4.5m-6.75 2.25h16.5A2.25 2.25 0 0 0 22.5 17.25V6.75A2.25 2.25 0 0 0 20.25 4.5H3.75A2.25 2.25 0 0 0 1.5 6.75v10.5A2.25 2.25 0 0 0 3.75 19.5Z" /></svg>',
+        ];
     }
 
     if ($canViewStaffCategories) {
@@ -109,9 +116,10 @@
 
     if ($canViewStaffPayroll) {
         $mobileItems[] = ['label' => 'Payroll', 'href' => route('admin.staff.payroll.index'), 'active' => request()->routeIs('admin.staff.payroll.*')];
+        $mobileItems[] = ['label' => 'Pay', 'href' => route('admin.staff.payments.index', ['date' => $navDate]), 'active' => request()->routeIs('admin.staff.payments.*')];
     }
 
-    $mobileItems = array_slice($mobileItems, 0, 4);
+    $mobileItems = array_slice($mobileItems, 0, 5);
 @endphp
 
 <div class="min-h-screen lg:flex">

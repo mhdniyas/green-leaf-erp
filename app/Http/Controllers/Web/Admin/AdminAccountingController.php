@@ -4,17 +4,22 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Admin;
 
+use App\Exports\CashFlowDayJournalExport;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Admin\GenerateShopAccountingInvoiceRequest;
+use App\Http\Requests\Web\Admin\ReviewOwnedShopPaymentRequest;
 use App\Http\Requests\Web\Admin\ReviewShopAccountingEntryRequest;
 use App\Http\Requests\Web\Admin\StoreShopAccountingCategoryRequest;
 use App\Http\Requests\Web\Admin\StoreShopAccountingEntryRequest;
+use App\Http\Requests\Web\Admin\StoreShopCreditRequest;
+use App\Http\Requests\Web\Admin\UpdateDailyBillPaymentRequest;
 use App\Http\Requests\Web\Admin\UpdateShopAccountingEntryRequest;
 use App\Models\PurchaserCredit;
 use App\Models\Shop;
 use App\Models\ShopAccountingCategory;
 use App\Models\ShopAccountingEntry;
 use App\Models\ShopAccountingInvoice;
+use App\Models\ShopCredit;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\User;
@@ -27,8 +32,12 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Maatwebsite\Excel\Facades\Excel;
 use RuntimeException;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class AdminAccountingController extends Controller
 {
@@ -45,7 +54,6 @@ class AdminAccountingController extends Controller
 
         $date = Carbon::parse($request->input('date', today()->toDateString()));
         $finance = $this->financePillars->forPeriod($date, $date);
-        $cashFlowReport = $this->financePillars->cashFlowReport($date);
         $ownedMetrics = $this->ownedShopAccountingService->dashboardMetrics($date);
         $allEligibleShops = $this->ownedShopAccountingService->eligibleShops();
         $eligibleShops = $allEligibleShops->take(6);
@@ -62,7 +70,6 @@ class AdminAccountingController extends Controller
         return view('admin.accounting.index', compact(
             'date',
             'finance',
-            'cashFlowReport',
             'ownedMetrics',
             'eligibleShops',
             'pendingOwnedShopEntries',
@@ -90,6 +97,59 @@ class AdminAccountingController extends Controller
         $report = $this->financePillars->salesDailyDetail($date, $statusFilter, $shopIds);
 
         return view('admin.accounting.daily_sales', compact('date', 'report', 'statusFilter', 'ownedShops', 'selectedOwnedShopId', 'onlyOwnedShops'));
+    }
+
+    public function cashFlowReport(Request $request): View
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::DashboardView);
+
+        $date = Carbon::parse($request->input('date', today()->toDateString()));
+        $cashFlowReport = $this->financePillars->cashFlowReport($date);
+
+        return view('admin.accounting.cash_flow', compact('date', 'cashFlowReport'));
+    }
+
+    public function cashFlowCalendar(Request $request): View
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::DashboardView);
+
+        $date = $request->filled('month')
+            ? Carbon::createFromFormat('Y-m', (string) $request->input('month'))->startOfMonth()
+            : Carbon::parse($request->input('date', today()->toDateString()));
+        $cashFlowReport = $this->financePillars->cashFlowReport($date->copy()->endOfMonth());
+        $cashFlowReport['selected_date'] = $date->toDateString();
+        $cashFlowReport['selected_day_rows'] = $cashFlowReport['journal_rows']
+            ->where('date', $date->toDateString())
+            ->values();
+
+        return view('admin.accounting.cash_flow_calendar', compact('date', 'cashFlowReport'));
+    }
+
+    public function exportCashFlowDayJournalExcel(Request $request): BinaryFileResponse
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::ReportExport);
+
+        $date = Carbon::parse($request->input('date', today()->toDateString()));
+        $cashFlowReport = $this->financePillars->cashFlowReport($date);
+
+        return Excel::download(
+            new CashFlowDayJournalExport($date, $cashFlowReport['selected_day_rows']),
+            'cash-flow-day-journal-'.$date->toDateString().'.xlsx',
+        );
+    }
+
+    public function exportCashFlowDayJournalPdf(Request $request): View
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::ReportExport);
+
+        $date = Carbon::parse($request->input('date', today()->toDateString()));
+        $cashFlowReport = $this->financePillars->cashFlowReport($date);
+
+        return view('admin.accounting.cash-flow-day-journal-pdf', [
+            'date' => $date,
+            'cashFlowReport' => $cashFlowReport,
+            'rows' => $cashFlowReport['selected_day_rows'],
+        ]);
     }
 
     public function vendorReports(Request $request): View
@@ -142,11 +202,19 @@ class AdminAccountingController extends Controller
                 ->with('warning', 'This shop is already enabled for owned-shop accounting.');
         }
 
-        $shop->update([
-            'accounting_enabled' => true,
-            'accounting_mode' => $validated['accounting_mode'],
-            'reserve_amount' => round((float) ($validated['reserve_amount'] ?? 0), 2),
-        ]);
+        $reserveAmount = round((float) ($validated['reserve_amount'] ?? 0), 2);
+
+        DB::transaction(function () use ($request, $shop, $validated, $reserveAmount): void {
+            $shop->update([
+                'accounting_enabled' => true,
+                'accounting_mode' => $validated['accounting_mode'],
+                'reserve_amount' => $reserveAmount,
+            ]);
+
+            if ($reserveAmount > 0) {
+                $this->recordReserveAdjustment($shop, 0.0, $reserveAmount, today(), $request->user()?->id);
+            }
+        });
 
         return redirect()->route('admin.accounting.owned-shops.show', ['shop' => $shop->code])
             ->with('success', 'Owned shop accounting enabled for '.$shop->name.'.');
@@ -159,13 +227,26 @@ class AdminAccountingController extends Controller
 
         $validated = $request->validate([
             'reserve_amount' => ['required', 'numeric', 'min:0'],
+            'business_date' => ['required', 'date'],
         ]);
 
-        $shop->update([
-            'reserve_amount' => round((float) $validated['reserve_amount'], 2),
-        ]);
+        $previousReserveAmount = round((float) $shop->reserve_amount, 2);
+        $newReserveAmount = round((float) $validated['reserve_amount'], 2);
+        $businessDate = Carbon::parse($validated['business_date']);
 
-        return redirect()->route('admin.accounting.owned-shops.show', ['shop' => $shop->code, 'tab' => 'cashbook'])
+        DB::transaction(function () use ($request, $shop, $previousReserveAmount, $newReserveAmount, $businessDate): void {
+            $shop->update([
+                'reserve_amount' => $newReserveAmount,
+            ]);
+
+            $this->recordReserveAdjustment($shop, $previousReserveAmount, $newReserveAmount, $businessDate, $request->user()?->id);
+        });
+
+        return redirect()->route('admin.accounting.owned-shops.show', [
+            'shop' => $shop->code,
+            'tab' => 'cashbook',
+            'date' => $businessDate->toDateString(),
+        ])
             ->with('success', 'Reserve amount updated.');
     }
 
@@ -205,6 +286,13 @@ class AdminAccountingController extends Controller
             ->with(['invoice', 'requestedBy', 'reviewedBy'])
             ->latest('id')
             ->paginate(12, ['*'], 'payment_requests_page');
+        $shopCredits = ShopCredit::query()
+            ->where('shop_id', $shop->id)
+            ->with('creator')
+            ->latest('business_date')
+            ->latest('id')
+            ->limit(12)
+            ->get();
         $periodInvoices = ShopInvoice::query()
             ->where('shop_id', $shop->id)
             ->whereDate('business_date', '>=', $startDate)
@@ -217,7 +305,12 @@ class AdminAccountingController extends Controller
             ->whereDate('business_date', '<=', $endDate)
             ->with(['lines.category'])
             ->get();
-        $analytics = $this->ownedShopAnalytics($periodInvoices, $periodEntries);
+        $periodCredits = ShopCredit::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
+            ->get();
+        $analytics = $this->ownedShopAnalytics($periodInvoices, $periodEntries, $periodCredits);
 
         $incomeTotal = $entry instanceof ShopAccountingEntry
             ? round((float) $entry->lines->where('type', 'income')->sum('amount'), 2)
@@ -240,6 +333,7 @@ class AdminAccountingController extends Controller
             'invoices' => $invoices,
             'billingInvoices' => $billingInvoices,
             'paymentRequests' => $paymentRequests,
+            'shopCredits' => $shopCredits,
             'analytics' => $analytics,
             'ownershipTotal' => $this->ownedShopAccountingService->ownershipPercentageTotal($shop),
             'incomeTotal' => $incomeTotal,
@@ -326,6 +420,7 @@ class AdminAccountingController extends Controller
         ShopAccountingCategory::query()->create([
             'shop_id' => $targetShopId,
             'type' => $validated['type'],
+            'cash_effect' => (bool) ($validated['cash_effect'] ?? true),
             'name' => trim($validated['name']),
             'is_active' => (bool) ($validated['is_active'] ?? true),
         ]);
@@ -339,7 +434,11 @@ class AdminAccountingController extends Controller
         $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
         $shop = $this->loadEligibleShop($shop);
 
-        $entry = $this->ownedShopAccountingService->saveEntry($shop, $request->validated(), (int) $request->user()->id);
+        try {
+            $entry = $this->ownedShopAccountingService->saveEntry($shop, $request->validated(), (int) $request->user()->id);
+        } catch (ValidationException $exception) {
+            return back()->withErrors($exception->errors())->withInput();
+        }
 
         return redirect()->route('admin.accounting.owned-shops.show', [
             'shop' => $shop->code,
@@ -353,7 +452,11 @@ class AdminAccountingController extends Controller
         $shop = $this->loadEligibleShop($shop);
         abort_unless($entry->shop_id === $shop->id, 404);
 
-        $entry = $this->ownedShopAccountingService->saveEntry($shop, $request->validated(), (int) $request->user()->id, $entry);
+        try {
+            $entry = $this->ownedShopAccountingService->saveEntry($shop, $request->validated(), (int) $request->user()->id, $entry);
+        } catch (ValidationException $exception) {
+            return back()->withErrors($exception->errors())->withInput();
+        }
 
         return redirect()->route('admin.accounting.owned-shops.show', [
             'shop' => $shop->code,
@@ -367,13 +470,17 @@ class AdminAccountingController extends Controller
         $shop = $this->loadEligibleShop($shop);
         abort_unless($entry->shop_id === $shop->id, 404);
 
-        $entry = $this->ownedShopAccountingService->reviewEntry(
-            $entry,
-            $request->validated('decision'),
-            (int) $request->user()->id,
-            $request->validated('admin_note'),
-            $request->validated('line_reviews', []),
-        );
+        try {
+            $entry = $this->ownedShopAccountingService->reviewEntry(
+                $entry,
+                $request->validated('decision'),
+                (int) $request->user()->id,
+                $request->validated('admin_note'),
+                $request->validated('line_reviews', []),
+            );
+        } catch (ValidationException $exception) {
+            return back()->withErrors($exception->errors())->withInput();
+        }
 
         $message = match ($entry->status) {
             'approved' => 'Daily accounting approved.',
@@ -421,6 +528,101 @@ class AdminAccountingController extends Controller
             'shop' => $shop,
             'invoice' => $invoice->load(['generatedBy', 'approvedBy', 'splits.ownership']),
         ]);
+    }
+
+    public function approveInvoice(Request $request, Shop $shop, ShopAccountingInvoice $invoice): RedirectResponse
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::InvoiceApprove);
+        $shop = $this->loadEligibleShop($shop);
+        abort_unless($invoice->shop_id === $shop->id, 404);
+
+        try {
+            $this->shopAccountingInvoiceService->approve($invoice, (int) $request->user()->id);
+        } catch (RuntimeException $exception) {
+            return back()->withErrors(['invoice' => $exception->getMessage()]);
+        }
+
+        return back()->with('success', 'Settlement invoice approved and the period is now closed.');
+    }
+
+    public function markInvoicePaid(Request $request, Shop $shop, ShopAccountingInvoice $invoice): RedirectResponse
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::InvoiceApprove);
+        $shop = $this->loadEligibleShop($shop);
+        abort_unless($invoice->shop_id === $shop->id, 404);
+
+        try {
+            $this->shopAccountingInvoiceService->markPaid($invoice, (int) $request->user()->id);
+        } catch (RuntimeException $exception) {
+            return back()->withErrors(['invoice' => $exception->getMessage()]);
+        }
+
+        return back()->with('success', 'Settlement invoice marked as paid.');
+    }
+
+    public function updateDailyBillPayment(UpdateDailyBillPaymentRequest $request, Shop $shop, ShopInvoice $invoice): RedirectResponse
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
+        $shop = $this->loadEligibleShop($shop);
+        abort_unless($invoice->shop_id === $shop->id, 404);
+
+        try {
+            $this->shopInvoiceService->recordAdminPaymentReceived($invoice, $request->validated(), (int) $request->user()->id);
+        } catch (ValidationException $exception) {
+            return back()->withErrors($exception->errors())->withInput();
+        }
+
+        return back()->with('success', 'Daily invoice payment received and approved.');
+    }
+
+    public function storeShopCredit(StoreShopCreditRequest $request, Shop $shop): RedirectResponse
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
+        $shop = $this->loadEligibleShop($shop);
+        $validated = $request->validated();
+
+        ShopCredit::query()->create([
+            'shop_id' => $shop->id,
+            'type' => $validated['type'],
+            'amount' => round((float) $validated['amount'], 2),
+            'description' => filled($validated['description'] ?? null)
+                ? trim((string) $validated['description'])
+                : ($validated['type'] === 'in' ? 'Cash given to shop' : 'Cash received from shop'),
+            'created_by' => $request->user()?->id,
+            'business_date' => $validated['business_date'],
+        ]);
+
+        return redirect()->route('admin.accounting.owned-shops.show', [
+            'shop' => $shop->code,
+            'tab' => 'cashbook',
+            'date' => $validated['business_date'],
+        ])->with('success', $validated['type'] === 'in' ? 'Cash given to shop recorded as accounting expense.' : 'Cash received from shop recorded as accounting income.');
+    }
+
+    public function reviewOwnedShopPaymentRequest(ReviewOwnedShopPaymentRequest $request, Shop $shop, ShopInvoicePaymentRequest $paymentRequest): RedirectResponse
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
+        $shop = $this->loadEligibleShop($shop);
+        abort_unless($paymentRequest->shop_id === $shop->id, 404);
+
+        try {
+            $paymentRequest = $this->shopInvoiceService->reviewPaymentRequest(
+                $paymentRequest,
+                $request->validated('decision'),
+                (int) $request->user()->id,
+                $request->validated('admin_note'),
+            );
+        } catch (ValidationException $exception) {
+            return back()->withErrors($exception->errors())->withInput();
+        }
+
+        return redirect()->route('admin.accounting.owned-shops.show', ['shop' => $shop->code, 'tab' => 'bills'])
+            ->with(
+                $paymentRequest->status === 'approved' ? 'success' : 'warning',
+                $paymentRequest->status === 'approved'
+                    ? 'Shop payment request approved and marked as paid.'
+                    : 'Shop payment request rejected.'
+            );
     }
 
     public function generateDailyWorkflowInvoices(Request $request): RedirectResponse
@@ -593,14 +795,18 @@ class AdminAccountingController extends Controller
     /**
      * @param  Collection<int, ShopInvoice>  $invoices
      * @param  Collection<int, ShopAccountingEntry>  $entries
+     * @param  Collection<int, ShopCredit>  $credits
      * @return array{
      *     cards:array<string,float>,
      *     daily_summaries:Collection<int, array<string,mixed>>,
      *     expense_breakdown:Collection<int, array<string,mixed>>
      * }
      */
-    private function ownedShopAnalytics(Collection $invoices, Collection $entries): array
+    private function ownedShopAnalytics(Collection $invoices, Collection $entries, Collection $credits): array
     {
+        $creditAmount = round((float) $credits->sum(
+            fn (ShopCredit $credit): float => $credit->signedAccountingAmount()
+        ), 2);
         $incomeAmount = round((float) $entries->sum(
             fn (ShopAccountingEntry $entry): float => (float) $entry->lines->where('type', 'income')->sum('amount')
         ), 2);
@@ -610,16 +816,20 @@ class AdminAccountingController extends Controller
 
         $dailySummaries = $invoices
             ->groupBy(fn (ShopInvoice $invoice): string => $invoice->business_date->toDateString())
-            ->map(function (Collection $dayInvoices, string $date) use ($entries): array {
+            ->map(function (Collection $dayInvoices, string $date) use ($entries, $credits): array {
                 $dayEntry = $entries->first(
                     fn (ShopAccountingEntry $entry): bool => $entry->business_date?->toDateString() === $date
                 );
+                $dayCredit = round((float) $credits
+                    ->filter(fn (ShopCredit $credit): bool => $credit->business_date?->toDateString() === $date)
+                    ->sum(fn (ShopCredit $credit): float => $credit->signedAccountingAmount()), 2);
 
                 return [
                     'date' => $date,
                     'billed' => round((float) $dayInvoices->sum('final_total'), 2),
                     'paid' => round((float) $dayInvoices->sum('paid_amount'), 2),
                     'balance' => round((float) $dayInvoices->sum('balance_amount'), 2),
+                    'credit' => $dayCredit,
                     'income' => $dayEntry instanceof ShopAccountingEntry
                         ? round((float) $dayEntry->lines->where('type', 'income')->sum('amount'), 2)
                         : 0.0,
@@ -646,12 +856,35 @@ class AdminAccountingController extends Controller
                 'total_billed' => round((float) $invoices->sum('final_total'), 2),
                 'total_paid' => round((float) $invoices->sum('paid_amount'), 2),
                 'total_balance' => round((float) $invoices->sum('balance_amount'), 2),
+                'credit' => $creditAmount,
                 'income' => $incomeAmount,
                 'expense' => $expenseAmount,
-                'cash_flow' => round(((float) $invoices->sum('paid_amount') + $incomeAmount) - $expenseAmount, 2),
+                'cash_flow' => round(((float) $invoices->sum('paid_amount') + $creditAmount + $incomeAmount) - $expenseAmount, 2),
             ],
             'daily_summaries' => $dailySummaries,
             'expense_breakdown' => $expenseBreakdown,
         ];
+    }
+
+    private function recordReserveAdjustment(Shop $shop, float $previousReserveAmount, float $newReserveAmount, Carbon $businessDate, ?int $userId): void
+    {
+        $delta = round($newReserveAmount - $previousReserveAmount, 2);
+
+        if ($delta === 0.0) {
+            return;
+        }
+
+        $isIncrease = $delta > 0;
+
+        ShopCredit::query()->create([
+            'shop_id' => $shop->id,
+            'type' => $isIncrease ? 'in' : 'out',
+            'amount' => abs($delta),
+            'description' => $isIncrease
+                ? sprintf('Reserve amount increased from Rs. %s to Rs. %s', number_format($previousReserveAmount, 2), number_format($newReserveAmount, 2))
+                : sprintf('Reserve amount reduced from Rs. %s to Rs. %s', number_format($previousReserveAmount, 2), number_format($newReserveAmount, 2)),
+            'created_by' => $userId,
+            'business_date' => $businessDate->toDateString(),
+        ]);
     }
 }

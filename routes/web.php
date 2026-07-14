@@ -5,14 +5,15 @@ declare(strict_types=1);
 use App\Http\Controllers\Web\Admin\ActivityLogController;
 use App\Http\Controllers\Web\Admin\AdminAccountingController;
 use App\Http\Controllers\Web\Admin\AdminOverviewController;
-use App\Http\Controllers\Web\Admin\DailyPriceApprovalController;
 use App\Http\Controllers\Web\Admin\DailyProgressController;
+use App\Http\Controllers\Web\Admin\DeliveryReviewController;
 use App\Http\Controllers\Web\Admin\DiscrepancyReportController;
 use App\Http\Controllers\Web\Admin\StaffManagementController;
 use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\Admin\WarehouseController;
 use App\Http\Controllers\Web\Auth\LoginController;
 use App\Http\Controllers\Web\Auth\ShopOwnerRegistrationController;
+use App\Http\Controllers\Web\BusinessDaySettingsController;
 use App\Http\Controllers\Web\DashboardController;
 use App\Http\Controllers\Web\Finance\FinanceController;
 use App\Http\Controllers\Web\Inventory\BatchController;
@@ -244,6 +245,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/approved-board', [RequisitionController::class, 'saveApprovedBoard'])->name('requisitions.approved_board.save');
     Route::get('/approved-board/export/csv', [RequisitionController::class, 'exportApprovedBoardCsv'])->name('requisitions.approved_board.export.csv');
     Route::get('/approved-board/export/pdf', [RequisitionController::class, 'exportApprovedBoardPdf'])->name('requisitions.approved_board.export.pdf');
+    Route::post('/business-day-settings/cutoff', [BusinessDaySettingsController::class, 'updateCutoff'])->name('business-day-settings.cutoff.update');
     Route::get('/requisitions/{order_number}/export/csv', [RequisitionController::class, 'exportCsv'])->name('requisitions.export.csv');
     Route::get('/requisitions/{order_number}/export/pdf', [RequisitionController::class, 'exportPdf'])->name('requisitions.export.pdf');
     Route::post('/requisitions', [RequisitionController::class, 'store'])->name('requisitions.store');
@@ -311,6 +313,10 @@ Route::middleware('auth')->group(function () {
         Route::prefix('accounting')->name('accounting.')->group(function () {
             Route::get('/', [AdminAccountingController::class, 'index'])->name('index');
             Route::get('daily-sales', [AdminAccountingController::class, 'dailySalesReport'])->name('daily-sales');
+            Route::get('cash-flow', [AdminAccountingController::class, 'cashFlowReport'])->name('cash-flow');
+            Route::get('cash-flow/calendar', [AdminAccountingController::class, 'cashFlowCalendar'])->name('cash-flow.calendar');
+            Route::get('cash-flow/export/excel', [AdminAccountingController::class, 'exportCashFlowDayJournalExcel'])->name('cash-flow.export.excel');
+            Route::get('cash-flow/export/pdf', [AdminAccountingController::class, 'exportCashFlowDayJournalPdf'])->name('cash-flow.export.pdf');
             Route::get('vendor-reports', [AdminAccountingController::class, 'vendorReports'])->name('vendor-reports');
             Route::post('daily-workflow/invoices', [AdminAccountingController::class, 'generateDailyWorkflowInvoices'])->name('daily-workflow.invoices');
             Route::get('owned-shops', [AdminAccountingController::class, 'ownedShopsIndex'])->name('owned-shops.index');
@@ -323,8 +329,13 @@ Route::middleware('auth')->group(function () {
             Route::post('owned-shops/{shop:code}/entries', [AdminAccountingController::class, 'storeEntry'])->name('owned-shops.entries.store');
             Route::patch('owned-shops/{shop:code}/entries/{entry}', [AdminAccountingController::class, 'updateEntry'])->name('owned-shops.entries.update');
             Route::patch('owned-shops/{shop:code}/entries/{entry}/review', [AdminAccountingController::class, 'reviewEntry'])->name('owned-shops.entries.review');
+            Route::post('owned-shops/{shop:code}/credits', [AdminAccountingController::class, 'storeShopCredit'])->name('owned-shops.credits.store');
             Route::post('owned-shops/{shop:code}/invoices', [AdminAccountingController::class, 'storeInvoice'])->name('owned-shops.invoices.store');
             Route::get('owned-shops/{shop:code}/invoices/{invoice}', [AdminAccountingController::class, 'showInvoice'])->name('owned-shops.invoices.show');
+            Route::patch('owned-shops/{shop:code}/invoices/{invoice}/approve', [AdminAccountingController::class, 'approveInvoice'])->name('owned-shops.invoices.approve');
+            Route::patch('owned-shops/{shop:code}/invoices/{invoice}/paid', [AdminAccountingController::class, 'markInvoicePaid'])->name('owned-shops.invoices.paid');
+            Route::patch('owned-shops/{shop:code}/daily-bills/{invoice}/payment', [AdminAccountingController::class, 'updateDailyBillPayment'])->name('owned-shops.daily-bills.payment');
+            Route::patch('owned-shops/{shop:code}/payment-requests/{paymentRequest}/review', [AdminAccountingController::class, 'reviewOwnedShopPaymentRequest'])->name('owned-shops.payment-requests.review');
             Route::get('purchasers', [AdminAccountingController::class, 'purchasersIndex'])->name('purchasers.index');
             Route::get('purchasers/{user}', [AdminAccountingController::class, 'purchaserShow'])->name('purchasers.show');
             Route::post('purchasers/{user}/credits', [AdminAccountingController::class, 'storePurchaserCredit'])->name('purchasers.credits.store');
@@ -341,11 +352,14 @@ Route::middleware('auth')->group(function () {
         Route::get('staff/categories', [StaffManagementController::class, 'categoriesIndex'])->name('staff.categories.index');
         Route::post('staff/categories', [StaffManagementController::class, 'storeCategory'])->name('staff.categories.store');
         Route::put('staff/categories/{employeeCategory}', [StaffManagementController::class, 'updateCategory'])->name('staff.categories.update');
+        Route::put('staff/categories/{employeeCategory}/leave-rules', [StaffManagementController::class, 'updateCategoryLeaveRules'])->name('staff.categories.leave-rules.update');
         Route::get('staff/attendance', [StaffManagementController::class, 'attendanceIndex'])->name('staff.attendance');
         Route::post('staff/attendance', [StaffManagementController::class, 'storeAttendance'])->name('staff.attendance.store');
         Route::get('staff/leaves', [StaffManagementController::class, 'leavesIndex'])->name('staff.leaves.index');
         Route::post('staff/leaves', [StaffManagementController::class, 'storeLeave'])->name('staff.leaves.store');
         Route::patch('staff/leaves/{leaveRequest}', [StaffManagementController::class, 'reviewLeave'])->name('staff.leaves.review');
+        Route::get('staff/payments', [StaffManagementController::class, 'paymentsIndex'])->name('staff.payments.index');
+        Route::post('staff/payments', [StaffManagementController::class, 'storePayrollPayment'])->name('staff.payments.store');
         Route::get('staff/payroll', [StaffManagementController::class, 'payrollIndex'])->name('staff.payroll.index');
         Route::get('staff/payroll/export/excel', [StaffManagementController::class, 'exportPayrollExcel'])->name('staff.payroll.export.excel');
         Route::get('staff/payroll/export/pdf', [StaffManagementController::class, 'exportPayrollPdf'])->name('staff.payroll.export.pdf');
@@ -355,8 +369,12 @@ Route::middleware('auth')->group(function () {
         Route::get('staff/{employee:employee_code}', [StaffManagementController::class, 'show'])->name('staff.show');
         Route::get('daily-progress', DailyProgressController::class)->name('daily-progress');
         Route::get('activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
-        Route::get('price-approvals', [DailyPriceApprovalController::class, 'index'])->name('price-approvals.index');
-        Route::post('price-approvals/approve', [DailyPriceApprovalController::class, 'approve'])->name('price-approvals.approve');
+        Route::get('price-approvals', function (Request $request) {
+            return redirect()->route('purchasing.prices.index', [
+                'date' => $request->input('date'),
+            ]);
+        })->name('price-approvals.index');
+        Route::get('delivery-reviews', DeliveryReviewController::class)->name('delivery-reviews.index');
         Route::get('discrepancies', DiscrepancyReportController::class)->name('discrepancies.index');
     });
 

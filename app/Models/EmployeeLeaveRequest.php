@@ -8,6 +8,7 @@ use Database\Factories\EmployeeLeaveRequestFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class EmployeeLeaveRequest extends Model
 {
@@ -16,6 +17,7 @@ class EmployeeLeaveRequest extends Model
 
     protected $fillable = [
         'employee_id',
+        'leave_type_id',
         'submitted_by',
         'submitted_for_shop_id',
         'start_date',
@@ -47,6 +49,11 @@ class EmployeeLeaveRequest extends Model
         return $this->belongsTo(User::class, 'submitted_by');
     }
 
+    public function leaveType(): BelongsTo
+    {
+        return $this->belongsTo(LeaveType::class);
+    }
+
     public function reviewedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reviewed_by');
@@ -55,5 +62,11 @@ class EmployeeLeaveRequest extends Model
     public function submittedForShop(): BelongsTo
     {
         return $this->belongsTo(Shop::class, 'submitted_for_shop_id');
+    }
+
+    public function ledgerEntries(): HasMany
+    {
+        return $this->hasMany(EmployeeLeaveLedgerEntry::class, 'source_id')
+            ->where('source_type', self::class);
     }
 }

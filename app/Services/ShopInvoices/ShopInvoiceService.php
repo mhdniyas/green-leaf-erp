@@ -204,10 +204,16 @@ class ShopInvoiceService
                 'payment_approved_at' => now(),
             ]);
 
-            $invoice = $this->recalculate($invoice->fresh('items'));
+            $invoice = ShopInvoice::query()
+                ->with('items')
+                ->findOrFail($invoice->id);
+
+            $invoice = $this->recalculate($invoice);
 
             if ($invoice->order) {
                 $invoice->order->update([
+                    'cash_collected' => $invoice->paid_amount,
+                    'cash_discrepancy' => round((float) $invoice->final_total - (float) $invoice->paid_amount, 2),
                     'payment_status' => $invoice->payment_status,
                     'balance_amount' => $invoice->balance_amount,
                 ]);
@@ -325,6 +331,53 @@ class ShopInvoiceService
         });
     }
 
+    /**
+     * @param  array{discount_total?: float|int|string|null, paid_amount: float|int|string, payment_note?: string|null}  $payload
+     */
+    public function recordAdminPaymentReceived(ShopInvoice $invoice, array $payload, int $userId): ShopInvoicePaymentRequest
+    {
+        return DB::transaction(function () use ($invoice, $payload, $userId): ShopInvoicePaymentRequest {
+            $invoice->refresh();
+
+            $currentPaidAmount = round((float) $invoice->paid_amount, 2);
+            $paidAmount = round((float) $payload['paid_amount'], 2);
+            $approvedAmount = round($paidAmount - $currentPaidAmount, 2);
+            $adminNote = filled($payload['payment_note'] ?? null) ? trim((string) $payload['payment_note']) : null;
+
+            if ($approvedAmount <= 0.0) {
+                throw ValidationException::withMessages([
+                    'paid_amount' => 'Paid amount must be greater than the current collected amount.',
+                ]);
+            }
+
+            $noteParts = array_filter([
+                (string) $invoice->payment_note,
+                'Admin payment received: Rs. '.number_format($approvedAmount, 2),
+                $adminNote,
+            ]);
+
+            $updatedInvoice = $this->approvePayment($invoice, [
+                'discount_total' => (float) ($payload['discount_total'] ?? $invoice->discount_total),
+                'paid_amount' => $paidAmount,
+                'payment_note' => implode("\n", $noteParts),
+            ], $userId);
+
+            return ShopInvoicePaymentRequest::query()->create([
+                'shop_invoice_id' => $updatedInvoice->id,
+                'shop_id' => $updatedInvoice->shop_id,
+                'requested_by' => $userId,
+                'request_type' => 'admin_manual',
+                'requested_amount' => $approvedAmount,
+                'approved_amount' => $approvedAmount,
+                'status' => 'approved',
+                'shop_note' => 'Admin recorded payment received.',
+                'admin_note' => $adminNote,
+                'reviewed_by' => $userId,
+                'reviewed_at' => now(),
+            ])->fresh(['invoice', 'requestedBy', 'reviewedBy']);
+        });
+    }
+
     public function repriceInvoice(ShopInvoice $invoice, int $userId, ?string $reason = null): ShopInvoice
     {
         $invoice->loadMissing(['shop.priceGroup', 'items.product', 'order']);
@@ -397,7 +450,7 @@ class ShopInvoiceService
 
         $status = match (true) {
             $paymentStatus === 'paid' => 'paid',
-            $invoice->delivery_status === 'received_with_discrepancy' => 'delivery_review',
+            in_array($invoice->delivery_status, ['awaiting_review', 'received_with_discrepancy'], true) => 'delivery_review',
             in_array($invoice->delivery_status, ['received_full', 'approved_after_discrepancy'], true) => 'payment_pending',
             default => $invoice->status ?: 'generated',
         };

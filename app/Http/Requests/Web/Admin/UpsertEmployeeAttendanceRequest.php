@@ -22,7 +22,7 @@ class UpsertEmployeeAttendanceRequest extends FormRequest
             'attendance_date' => ['required', 'date'],
             'status' => ['required', Rule::in(['present', 'half_day', 'absent', 'leave'])],
             'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
-            'notes' => ['nullable', 'string'],
+            'notes' => ['required', 'string', 'min:3'],
         ];
     }
 }

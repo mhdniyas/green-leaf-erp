@@ -86,10 +86,10 @@
             const selectedTone = toneClasses[tone] ?? toneClasses.danger;
 
             icon.className = 'mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl';
-            icon.classList.add(...selectedTone.icon);
+            icon.classList.add.apply(icon.classList, selectedTone.icon);
 
             confirmButton.className = 'inline-flex items-center justify-center rounded-2xl px-4 py-3 text-sm font-black text-white shadow-sm transition cursor-pointer';
-            confirmButton.classList.add(...selectedTone.button);
+            confirmButton.classList.add.apply(confirmButton.classList, selectedTone.button);
         }
 
         function openDialog(options) {
@@ -145,24 +145,22 @@
         }
 
         function showAppConfirm(options) {
-            openDialog({
-                ...options,
+            openDialog(Object.assign({}, options, {
                 variant: 'confirm',
-            });
+            }));
         }
 
         function showAppAlert(input, options = {}) {
             const alertOptions = typeof input === 'string'
-                ? { ...options, message: input }
+                ? Object.assign({}, options, { message: input })
                 : (input ?? {});
 
-            openDialog({
-                ...alertOptions,
+            openDialog(Object.assign({}, alertOptions, {
                 variant: 'alert',
                 cancelLabel: alertOptions.cancelLabel ?? 'Cancel',
                 confirmLabel: alertOptions.confirmLabel ?? 'OK',
                 onConfirm: alertOptions.onConfirm ?? alertOptions.onClose ?? null,
-            });
+            }));
         }
 
         function bindInlineConfirmForms() {

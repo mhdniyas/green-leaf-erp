@@ -11,6 +11,7 @@ use App\Http\Requests\Web\ShopOwner\StoreShopOwnerAccountingEntryRequest;
 use App\Models\Category;
 use App\Models\Shop;
 use App\Models\ShopAccountingEntry;
+use App\Models\ShopCredit;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
@@ -18,7 +19,9 @@ use App\Models\ShopPreset;
 use App\Models\User;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Pricing\PriceBoardService;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\ShopInvoices\ShopInvoiceService;
+use App\Support\ShopOwner\ActiveShopResolver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -32,59 +35,61 @@ class ShopOwnerController extends Controller
     public function __construct(
         private readonly PriceBoardService $priceBoardService,
         private readonly OwnedShopAccountingService $ownedShopAccountingService,
+        private readonly PurchaserBusinessDayService $businessDayService,
         private readonly ShopInvoiceService $shopInvoiceService,
+        private readonly ActiveShopResolver $activeShopResolver,
     ) {}
 
     public function dashboard(Request $request): View
     {
-        $user = $this->shopUser($request);
+        $activeShop = $this->currentShop($request);
 
-        return view('shop-owner.dashboard.index', $this->buildDashboardData($user));
+        return view('shop-owner.dashboard.index', $this->buildDashboardData($activeShop));
     }
 
     public function ordersIndex(Request $request): View
     {
-        $user = $this->shopUser($request);
+        $activeShop = $this->currentShop($request);
 
         return view('shop-owner.orders.index', [
-            'orders' => $this->shopOrdersQuery($user)->latest('business_date')->get(),
-            'tomorrowOrder' => $this->tomorrowOrder($user),
+            'orders' => $this->shopOrdersQuery($activeShop)->latest('business_date')->get(),
+            'tomorrowOrder' => $this->tomorrowOrder($activeShop),
         ]);
     }
 
     public function ordersCreate(Request $request): View
     {
-        $user = $this->shopUser($request);
+        $activeShop = $this->currentShop($request);
 
-        return view('shop-owner.orders.create', $this->buildOrderFormData($user));
+        return view('shop-owner.orders.create', $this->buildOrderFormData($activeShop));
     }
 
     public function ordersShow(Request $request, string $orderNumber): View
     {
-        $user = $this->shopUser($request);
+        $activeShop = $this->currentShop($request);
 
         return view('shop-owner.orders.show', [
             'order' => $this->shopOrderByNumber($request, $orderNumber),
-            'tomorrowOrder' => $this->tomorrowOrder($user),
+            'tomorrowOrder' => $this->tomorrowOrder($activeShop),
         ]);
     }
 
     public function ordersHistory(Request $request): View
     {
-        $user = $this->shopUser($request);
+        $activeShop = $this->currentShop($request);
 
         return view('shop-owner.orders.history', [
-            'orders' => $this->shopOrdersQuery($user)->latest('business_date')->paginate(12),
-            'tomorrowOrder' => $this->tomorrowOrder($user),
+            'orders' => $this->shopOrdersQuery($activeShop)->latest('business_date')->paginate(12),
+            'tomorrowOrder' => $this->tomorrowOrder($activeShop),
         ]);
     }
 
     public function deliveriesIndex(Request $request): View
     {
-        $user = $this->shopUser($request);
+        $activeShop = $this->currentShop($request);
 
         return view('shop-owner.deliveries.index', [
-            'deliveries' => $this->shopOrdersQuery($user)
+            'deliveries' => $this->shopOrdersQuery($activeShop)
                 ->where(function ($query): void {
                     $query->where('is_allocation_completed', true)
                         ->orWhere('is_delivered', true);
@@ -96,10 +101,14 @@ class ShopOwnerController extends Controller
 
     public function deliveriesShow(Request $request, string $orderNumber): View
     {
+        $activeShop = $this->currentShop($request);
+
         $order = ShopOrder::where('order_number', $orderNumber)
-            ->where('shop_id', $request->user()->shop_id)
+            ->where('shop_id', $activeShop->id)
             ->with([
                 'shop',
+                'invoice.paymentRequests.requestedBy',
+                'invoice.paymentRequests.reviewedBy',
                 'items' => fn ($q) => $q->where('sorting_status', 'loaded'),
                 'items.product',
                 'deliveredBy',
@@ -113,9 +122,9 @@ class ShopOwnerController extends Controller
 
     public function financeIndex(Request $request): View
     {
-        $user = $this->shopUser($request);
+        $activeShop = $this->currentShop($request);
         $invoices = ShopInvoice::query()
-            ->where('shop_id', $user->shop_id)
+            ->where('shop_id', $activeShop->id)
             ->with(['order', 'items'])
             ->latest('business_date')
             ->get();
@@ -130,18 +139,18 @@ class ShopOwnerController extends Controller
 
     public function financeShow(Request $request, ShopInvoice $invoice): View
     {
-        $user = $this->shopUser($request);
-        abort_unless($invoice->shop_id === $user->shop_id, 403);
+        $activeShop = $this->currentShop($request);
+        abort_unless($invoice->shop_id === $activeShop->id, 403);
 
         return view('shop-owner.finance.show', [
-            'invoice' => $invoice->load(['shop', 'items.product', 'order']),
+            'invoice' => $invoice->load(['shop', 'items.product', 'order', 'paymentRequests.requestedBy', 'paymentRequests.reviewedBy']),
         ]);
     }
 
     public function financePdf(Request $request, ShopInvoice $invoice): View
     {
-        $user = $this->shopUser($request);
-        abort_unless($invoice->shop_id === $user->shop_id, 403);
+        $activeShop = $this->currentShop($request);
+        abort_unless($invoice->shop_id === $activeShop->id, 403);
 
         return view('shop-owner.finance.pdf', [
             'invoice' => $invoice->load(['shop', 'items.product', 'order']),
@@ -150,10 +159,13 @@ class ShopOwnerController extends Controller
 
     public function accountingIndex(Request $request): View
     {
-        $user = $this->shopUser($request);
-        $shop = $this->currentShop($user);
+        $shop = $this->currentShop($request);
         $tab = $this->normalizeAccountingTab($shop, (string) $request->input('tab', 'bills'));
         $selectedDate = Carbon::parse($request->input('date', today()->toDateString()));
+        $ledgerDateFilterActive = $request->filled('start_date') || $request->filled('end_date');
+        $ledgerSourceFilter = in_array($request->input('ledger_source'), ['greenleaf_direct'], true)
+            ? (string) $request->input('ledger_source')
+            : 'all';
         [$startDate, $endDate] = $this->dateRangeFromRequest($request, $selectedDate);
         $invoices = ShopInvoice::query()
             ->where('shop_id', $shop->id)
@@ -175,7 +187,11 @@ class ShopOwnerController extends Controller
         $recentEntries = collect();
         $ledgerEntries = null;
         $deliveryExpenseByDate = collect();
+        $shopCreditByDate = collect();
+        $shopCredits = collect();
+        $greenLeafDirectLedgerDates = collect();
         $selectedDeliveryExpense = 0.0;
+        $selectedShopCredit = 0.0;
         $incomeTotal = 0.0;
         $expenseTotal = 0.0;
         $netAmount = 0.0;
@@ -189,22 +205,63 @@ class ShopOwnerController extends Controller
                 ->latest('business_date')
                 ->limit(8)
                 ->get();
+            $greenLeafDirectLedgerDates = ShopInvoice::query()
+                ->where('shop_id', $shop->id)
+                ->when($ledgerDateFilterActive, fn ($query) => $query
+                    ->whereDate('business_date', '>=', $startDate)
+                    ->whereDate('business_date', '<=', $endDate))
+                ->pluck('business_date')
+                ->map(fn ($businessDate): string => Carbon::parse($businessDate)->toDateString())
+                ->unique()
+                ->values();
             $ledgerEntries = ShopAccountingEntry::query()
                 ->where('shop_id', $shop->id)
                 ->with(['lines.category', 'submittedBy', 'reviewedBy'])
-                ->whereDate('business_date', '>=', $startDate)
-                ->whereDate('business_date', '<=', $endDate)
+                ->when($ledgerDateFilterActive, fn ($query) => $query
+                    ->whereDate('business_date', '>=', $startDate)
+                    ->whereDate('business_date', '<=', $endDate))
+                ->when($ledgerSourceFilter === 'greenleaf_direct', function ($query) use ($greenLeafDirectLedgerDates): void {
+                    if ($greenLeafDirectLedgerDates->isEmpty()) {
+                        $query->whereRaw('0 = 1');
+
+                        return;
+                    }
+
+                    $query->where(function ($dateQuery) use ($greenLeafDirectLedgerDates): void {
+                        $greenLeafDirectLedgerDates->each(
+                            fn (string $ledgerDate) => $dateQuery->orWhereDate('business_date', $ledgerDate)
+                        );
+                    });
+                })
                 ->latest('business_date')
                 ->paginate(10, ['*'], 'ledger_page');
             $deliveryExpenseByDate = ShopInvoice::query()
                 ->where('shop_id', $shop->id)
-                ->whereDate('business_date', '>=', $startDate)
-                ->whereDate('business_date', '<=', $endDate)
+                ->when($ledgerDateFilterActive, fn ($query) => $query
+                    ->whereDate('business_date', '>=', $startDate)
+                    ->whereDate('business_date', '<=', $endDate))
                 ->selectRaw('DATE(business_date) as ledger_date, SUM(final_total) as total')
                 ->groupByRaw('DATE(business_date)')
                 ->pluck('total', 'ledger_date')
                 ->map(fn ($total): float => round((float) $total, 2));
+            $shopCreditByDate = ShopCredit::query()
+                ->where('shop_id', $shop->id)
+                ->when($ledgerDateFilterActive, fn ($query) => $query
+                    ->whereDate('business_date', '>=', $startDate)
+                    ->whereDate('business_date', '<=', $endDate))
+                ->selectRaw("DATE(business_date) as ledger_date, SUM(CASE WHEN type = 'in' THEN amount ELSE -amount END) as total")
+                ->groupByRaw('DATE(business_date)')
+                ->pluck('total', 'ledger_date')
+                ->map(fn ($total): float => round((float) $total, 2));
+            $shopCredits = ShopCredit::query()
+                ->where('shop_id', $shop->id)
+                ->with('creator')
+                ->latest('business_date')
+                ->latest('id')
+                ->limit(8)
+                ->get();
             $selectedDeliveryExpense = (float) ($deliveryExpenseByDate->get($selectedDate->toDateString()) ?? 0);
+            $selectedShopCredit = (float) ($shopCreditByDate->get($selectedDate->toDateString()) ?? 0);
 
             $incomeTotal = $entry instanceof ShopAccountingEntry
                 ? round((float) $entry->lines->where('type', 'income')->sum('amount'), 2)
@@ -212,7 +269,7 @@ class ShopOwnerController extends Controller
             $expenseTotal = ($entry instanceof ShopAccountingEntry
                 ? round((float) $entry->lines->where('type', 'expense')->sum('amount'), 2)
                 : 0.0) + $selectedDeliveryExpense;
-            $netAmount = round($incomeTotal - $expenseTotal, 2);
+            $netAmount = round($incomeTotal + $selectedShopCredit - $expenseTotal, 2);
         }
 
         return view('shop-owner.accounting.index', [
@@ -229,18 +286,23 @@ class ShopOwnerController extends Controller
             'recentEntries' => $recentEntries,
             'ledgerEntries' => $ledgerEntries ?? new LengthAwarePaginator([], 0, 10),
             'deliveryExpenseByDate' => $deliveryExpenseByDate,
+            'shopCreditByDate' => $shopCreditByDate,
+            'shopCredits' => $shopCredits,
+            'greenLeafDirectLedgerDates' => $greenLeafDirectLedgerDates,
             'selectedDeliveryExpense' => $selectedDeliveryExpense,
+            'selectedShopCredit' => $selectedShopCredit,
             'incomeTotal' => $incomeTotal,
             'expenseTotal' => $expenseTotal,
             'netAmount' => $netAmount,
             'reserveAmount' => round((float) ($shop->reserve_amount ?? 0), 2),
+            'ledgerDateFilterActive' => $ledgerDateFilterActive,
+            'ledgerSourceFilter' => $ledgerSourceFilter,
         ]);
     }
 
     public function accountingHistory(Request $request): View
     {
-        $user = $this->shopUser($request);
-        $shop = $this->currentShop($user);
+        $shop = $this->currentShop($request);
         $tab = $this->normalizeAccountingTab($shop, (string) $request->input('tab', 'bills'));
         $entries = collect();
         $invoiceHistory = ShopInvoice::query()
@@ -275,7 +337,7 @@ class ShopOwnerController extends Controller
     public function storeAccountingEntry(StoreShopOwnerAccountingEntryRequest $request): RedirectResponse
     {
         $user = $this->shopUser($request);
-        $shop = $this->ownedAccountingShop($user);
+        $shop = $this->ownedAccountingShop($request);
         $validated = $request->validated();
         $businessDate = Carbon::parse($validated['business_date']);
         $entry = ShopAccountingEntry::query()
@@ -300,7 +362,7 @@ class ShopOwnerController extends Controller
     public function storePaymentRequest(StoreShopInvoicePaymentRequest $request): RedirectResponse
     {
         $user = $this->shopUser($request);
-        $shop = $this->currentShop($user);
+        $shop = $this->currentShop($request);
         $invoice = ShopInvoice::query()
             ->where('shop_id', $shop->id)
             ->findOrFail((int) $request->validated('invoice_id'));
@@ -315,19 +377,26 @@ class ShopOwnerController extends Controller
             return back()->withErrors($exception->errors())->withInput();
         }
 
-        return redirect()->route('shop-owner.accounting.index', ['tab' => 'bills'])
-            ->with('success', 'Payment request sent for admin approval.');
+        $fallbackUrl = route('shop-owner.accounting.index', ['tab' => 'bills']);
+        $redirectUrl = url()->previous();
+
+        if ($redirectUrl === url()->current()) {
+            $redirectUrl = $fallbackUrl;
+        }
+
+        return redirect()->to($redirectUrl)
+            ->with('success', 'Payment request sent for admin or purchase manager approval.');
     }
 
     /**
      * @return array<string, mixed>
      */
-    private function buildDashboardData(User $user): array
+    private function buildDashboardData(Shop $shop): array
     {
-        $recentOrders = $this->shopOrdersQuery($user)->latest('business_date')->limit(8)->get();
+        $recentOrders = $this->shopOrdersQuery($shop)->latest('business_date')->limit(8)->get();
         $deliveredOrders = $recentOrders->where('is_delivered', true);
         $recentInvoices = ShopInvoice::query()
-            ->where('shop_id', $user->shop_id)
+            ->where('shop_id', $shop->id)
             ->with('order')
             ->latest('business_date')
             ->limit(8)
@@ -343,8 +412,8 @@ class ShopOwnerController extends Controller
                 'delivered_orders_count' => $deliveredOrders->count(),
                 'outstanding_balance' => (float) $recentInvoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->balance_amount),
             ],
-            'todayOrder' => $this->todayOrder($user),
-            'tomorrowOrder' => $this->tomorrowOrder($user),
+            'todayOrder' => $this->todayOrder($shop),
+            'tomorrowOrder' => $this->tomorrowOrder($shop),
             'pendingDeliveries' => $pendingDeliveries,
             'recentOrders' => $recentOrders,
             'recentInvoices' => $recentInvoices,
@@ -359,7 +428,7 @@ class ShopOwnerController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function buildOrderFormData(User $user): array
+    private function buildOrderFormData(Shop $shop): array
     {
         $tomorrowDate = Carbon::tomorrow();
 
@@ -370,30 +439,31 @@ class ShopOwnerController extends Controller
             ->get()
             ->filter(fn (Category $category): bool => $category->products->isNotEmpty());
 
-        $productsByCategory->each(function (Category $category) use ($user): void {
-            $category->products->each(function ($product) use ($user): void {
-                $price = $this->priceBoardService->sellingPriceFor($product, $user->shop, ProductGrade::GradeA);
+        $productsByCategory->each(function (Category $category) use ($shop): void {
+            $category->products->each(function ($product) use ($shop): void {
+                $price = $this->priceBoardService->sellingPriceFor($product, $shop, ProductGrade::GradeA);
                 $product->setAttribute('effective_price', $price['price']);
             });
         });
 
-        $frequentProducts = $this->frequentProducts($user);
-        $frequentProducts->each(function (array $item) use ($user): void {
+        $frequentProducts = $this->frequentProducts($shop);
+        $frequentProducts->each(function (array $item) use ($shop): void {
             $product = $item['product'];
-            $price = $this->priceBoardService->sellingPriceFor($product, $user->shop, ProductGrade::GradeA);
+            $price = $this->priceBoardService->sellingPriceFor($product, $shop, ProductGrade::GradeA);
             $product->setAttribute('effective_price', $price['price']);
         });
 
-        $tomorrowOrder = $this->tomorrowOrder($user);
+        $tomorrowOrder = $this->tomorrowOrder($shop);
 
         return [
             'productsByCategory' => $productsByCategory,
             'frequentProducts' => $frequentProducts,
-            'presets' => ShopPreset::where('shop_id', $user->shop_id)->with('items.product')->get(),
-            'yesterdayOrder' => $this->yesterdayOrder($user),
+            'presets' => ShopPreset::where('shop_id', $shop->id)->with('items.product')->get(),
+            'yesterdayOrder' => $this->yesterdayOrder($shop),
             'tomorrowOrder' => $tomorrowOrder,
             'tomorrowDate' => $tomorrowDate,
-            'cutoffPassed' => now()->greaterThan(now()->copy()->setTime(21, 30)),
+            'cutoffPassed' => $this->businessDayService->hasRolledOver(),
+            'cutoffLabel' => $this->businessDayService->cutoffLabel(),
             'purchaseOrdersLockedForTomorrow' => $tomorrowOrder?->linkedPurchaseOrdersHaveGoodsReceived() ?? false,
         ];
     }
@@ -403,7 +473,7 @@ class ShopOwnerController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        abort_unless($user->hasRole('shop') && $user->shop_id, 403);
+        abort_unless($user->hasRole('shop') && $this->activeShopResolver->authorizedShops($user)->isNotEmpty(), 403);
 
         return $user;
     }
@@ -411,29 +481,30 @@ class ShopOwnerController extends Controller
     private function shopOrderByNumber(Request $request, string $orderNumber): ShopOrder
     {
         $user = $this->shopUser($request);
+        $shop = $this->currentShop($request);
 
-        return $this->shopOrdersQuery($user)
+        return $this->shopOrdersQuery($shop)
             ->where('order_number', $orderNumber)
             ->firstOrFail();
     }
 
-    private function todayOrder(User $user): ?ShopOrder
+    private function todayOrder(Shop $shop): ?ShopOrder
     {
-        return $this->shopOrdersQuery($user)
+        return $this->shopOrdersQuery($shop)
             ->whereDate('business_date', today())
             ->first();
     }
 
-    private function tomorrowOrder(User $user): ?ShopOrder
+    private function tomorrowOrder(Shop $shop): ?ShopOrder
     {
-        return $this->shopOrdersQuery($user)
+        return $this->shopOrdersQuery($shop)
             ->whereDate('business_date', Carbon::tomorrow())
             ->first();
     }
 
-    private function yesterdayOrder(User $user): ?ShopOrder
+    private function yesterdayOrder(Shop $shop): ?ShopOrder
     {
-        $yesterdayOrder = $this->shopOrdersQuery($user)
+        $yesterdayOrder = $this->shopOrdersQuery($shop)
             ->whereDate('business_date', today()->subDay())
             ->first();
 
@@ -441,16 +512,16 @@ class ShopOwnerController extends Controller
             return $yesterdayOrder;
         }
 
-        return $this->shopOrdersQuery($user)
+        return $this->shopOrdersQuery($shop)
             ->whereDate('business_date', '<', today())
             ->latest('business_date')
             ->first();
     }
 
-    private function shopOrdersQuery(User $user)
+    private function shopOrdersQuery(Shop $shop)
     {
         return ShopOrder::query()
-            ->where('shop_id', $user->shop_id)
+            ->where('shop_id', $shop->id)
             ->with([
                 'shop',
                 'items.product',
@@ -464,9 +535,9 @@ class ShopOwnerController extends Controller
             ]);
     }
 
-    private function frequentProducts(User $user)
+    private function frequentProducts(Shop $shop)
     {
-        $historicalOrders = $this->shopOrdersQuery($user)
+        $historicalOrders = $this->shopOrdersQuery($shop)
             ->whereDate('business_date', '<', Carbon::tomorrow())
             ->latest('business_date')
             ->limit(20)
@@ -500,14 +571,14 @@ class ShopOwnerController extends Controller
             ->values();
     }
 
-    private function currentShop(User $user): Shop
+    private function currentShop(Request $request): Shop
     {
-        return Shop::query()->findOrFail($user->shop_id);
+        return $this->activeShopResolver->resolve($request);
     }
 
-    private function ownedAccountingShop(User $user): Shop
+    private function ownedAccountingShop(Request $request): Shop
     {
-        $shop = $this->currentShop($user);
+        $shop = $this->currentShop($request);
 
         abort_unless($shop->isOwnedAccountingEnabled(), 404);
 

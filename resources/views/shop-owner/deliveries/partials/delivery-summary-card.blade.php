@@ -2,6 +2,9 @@
     $sortedItems = $order->items->sortBy(
         fn ($item) => \App\Models\Product::sortableSku((string) ($item->product?->sku ?? ''))
     );
+    $displayDeliveredQuantity = $order->hasPendingDeliveryReview()
+        ? (float) $order->items->sum('shop_reported_received_qty')
+        : (float) $order->items->sum('delivered_qty');
 @endphp
 
 <section class="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
@@ -27,7 +30,7 @@
             </div>
             <div class="rounded-[1.5rem] border border-slate-200 bg-white p-4">
                 <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Delivered Qty</p>
-                <p class="mt-2 text-2xl font-black text-slate-950">{{ number_format((float) $order->items->sum('delivered_qty'), 2) }}</p>
+                <p class="mt-2 text-2xl font-black text-slate-950">{{ number_format($displayDeliveredQuantity, 2) }}</p>
             </div>
             <div class="rounded-[1.5rem] border border-slate-200 bg-white p-4">
                 <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Shortage Value</p>

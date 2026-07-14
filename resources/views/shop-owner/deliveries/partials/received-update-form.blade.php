@@ -11,7 +11,7 @@
         <div>
             <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Step 1</p>
             <h3 class="mt-1 text-lg font-black text-slate-950">Check Delivered Quantities</h3>
-            <p class="mt-2 text-sm text-slate-600">Enter what actually reached the shop. Any difference automatically becomes a discrepancy for manager review.</p>
+            <p class="mt-2 text-sm text-slate-600">Enter what actually reached the shop. Every submission goes to admin review before final quantities and invoice totals are confirmed.</p>
         </div>
         @if ($isEditable)
             <button type="button" id="btn-receive-all" class="inline-flex items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-black uppercase tracking-[0.16em] text-emerald-700 transition hover:bg-emerald-100">
@@ -22,8 +22,8 @@
 
     @if ($isPendingApproval)
         <div class="mt-4 rounded-3xl border border-amber-200 bg-amber-50 p-4">
-            <p class="text-xs font-black uppercase tracking-[0.16em] text-amber-700">Waiting For Purchase Manager</p>
-            <p class="mt-2 text-sm leading-6 text-amber-900">Your delivery check-in has a discrepancy. Products that matched are already recorded. The remaining difference must be approved or sent back by the purchase manager before finance is finalized.</p>
+            <p class="text-xs font-black uppercase tracking-[0.16em] text-amber-700">Waiting For Admin Review</p>
+            <p class="mt-2 text-sm leading-6 text-amber-900">Your reported quantities were submitted successfully. Final received quantities and invoice totals will update only after admin approval or a correction request.</p>
         </div>
     @endif
 
@@ -97,7 +97,7 @@
                 <div class="flex items-start justify-between gap-4">
                     <div>
                         <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Step 2</p>
-                        <p class="mt-1 text-sm font-semibold text-slate-200">Submit delivery check-in. Matching quantities finish immediately. Short quantities go to purchase manager approval.</p>
+                        <p class="mt-1 text-sm font-semibold text-slate-200">Submit delivery check-in for admin review. The invoice stays provisional until the final approved received quantities are recorded.</p>
                     </div>
                 </div>
                 <button type="submit" class="mt-4 inline-flex w-full items-center justify-center rounded-2xl bg-white px-5 py-3.5 text-sm font-black text-slate-950 transition hover:bg-slate-100">
@@ -124,8 +124,8 @@
                             <p class="mt-1 text-sm font-black text-slate-950">{{ number_format((float) ($item->approved_qty ?? 0), 2) }} {{ $item->unit }}</p>
                         </div>
                         <div class="rounded-2xl bg-white p-3">
-                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Received</p>
-                            <p class="mt-1 text-sm font-black text-slate-950">{{ number_format((float) ($item->delivered_qty ?? 0), 2) }} {{ $item->unit }}</p>
+                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">{{ $isPendingApproval ? 'Reported Received' : 'Received' }}</p>
+                            <p class="mt-1 text-sm font-black text-slate-950">{{ number_format((float) ($isPendingApproval ? ($item->shop_reported_received_qty ?? 0) : ($item->delivered_qty ?? 0)), 2) }} {{ $item->unit }}</p>
                         </div>
                     </div>
                 </article>

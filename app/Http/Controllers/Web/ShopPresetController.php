@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Product;
 use App\Models\ShopPreset;
 use App\Models\ShopPresetItem;
+use App\Support\ShopOwner\ActiveShopResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -16,17 +17,18 @@ use Illuminate\View\View;
 
 class ShopPresetController extends Controller
 {
+    public function __construct(
+        private readonly ActiveShopResolver $activeShopResolver,
+    ) {}
+
     /**
      * Display a listing of the presets.
      */
     public function index(Request $request): View
     {
-        $user = $request->user();
-        if (! $user->shop_id) {
-            abort(403, 'User is not associated with any shop.');
-        }
+        $shop = $this->activeShopResolver->resolve($request);
 
-        $presets = ShopPreset::where('shop_id', $user->shop_id)
+        $presets = ShopPreset::where('shop_id', $shop->id)
             ->with(['items.product', 'creator'])
             ->orderBy('name')
             ->get();
@@ -42,10 +44,7 @@ class ShopPresetController extends Controller
      */
     public function create(Request $request): View
     {
-        $user = $request->user();
-        if (! $user->shop_id) {
-            abort(403, 'User is not associated with any shop.');
-        }
+        $this->activeShopResolver->resolve($request);
 
         $products = Product::where('is_active', true)
             ->ordered()
@@ -66,9 +65,7 @@ class ShopPresetController extends Controller
     public function store(Request $request): JsonResponse|RedirectResponse
     {
         $user = $request->user();
-        if (! $user->shop_id) {
-            abort(403, 'User is not associated with any shop.');
-        }
+        $shop = $this->activeShopResolver->resolve($request);
 
         $request->validate([
             'name' => 'required|string|max:255',
@@ -77,9 +74,9 @@ class ShopPresetController extends Controller
             'items.*.quantity' => 'required|numeric|min:0.01',
         ]);
 
-        $preset = DB::transaction(function () use ($user, $request) {
+        $preset = DB::transaction(function () use ($shop, $user, $request) {
             $preset = ShopPreset::create([
-                'shop_id' => $user->shop_id,
+                'shop_id' => $shop->id,
                 'name' => $request->input('name'),
                 'created_by' => $user->id,
             ]);
@@ -119,8 +116,8 @@ class ShopPresetController extends Controller
      */
     public function edit(Request $request, ShopPreset $preset): View
     {
-        $user = $request->user();
-        if (! $user->shop_id || $preset->shop_id !== $user->shop_id) {
+        $shop = $this->activeShopResolver->resolve($request);
+        if ($preset->shop_id !== $shop->id) {
             abort(403, 'Unauthorized access to preset.');
         }
 
@@ -138,8 +135,8 @@ class ShopPresetController extends Controller
      */
     public function update(Request $request, ShopPreset $preset): JsonResponse|RedirectResponse
     {
-        $user = $request->user();
-        if (! $user->shop_id || $preset->shop_id !== $user->shop_id) {
+        $shop = $this->activeShopResolver->resolve($request);
+        if ($preset->shop_id !== $shop->id) {
             abort(403, 'Unauthorized access to preset.');
         }
 
@@ -186,8 +183,8 @@ class ShopPresetController extends Controller
      */
     public function destroy(Request $request, ShopPreset $preset): RedirectResponse
     {
-        $user = $request->user();
-        if (! $user->shop_id || $preset->shop_id !== $user->shop_id) {
+        $shop = $this->activeShopResolver->resolve($request);
+        if ($preset->shop_id !== $shop->id) {
             abort(403, 'Unauthorized access to preset.');
         }
 

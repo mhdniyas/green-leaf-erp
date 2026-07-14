@@ -43,7 +43,7 @@
                     @endif
                 </div>
             @else
-                @include('shop-owner.components.empty-state', ['title' => 'No cart submitted', 'description' => 'Open the marketplace and build tomorrow’s cart before 9:30 PM.', 'actionLabel' => 'Open Marketplace', 'actionUrl' => route('shop-owner.orders.create')])
+                @include('shop-owner.components.empty-state', ['title' => 'No cart submitted', 'description' => 'Open the marketplace and build tomorrow’s cart before '.app(\App\Services\Purchasing\PurchaserBusinessDayService::class)->cutoffLabel().'.', 'actionLabel' => 'Open Marketplace', 'actionUrl' => route('shop-owner.orders.create')])
             @endif
         </div>
     </div>

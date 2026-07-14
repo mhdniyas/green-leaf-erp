@@ -1,9 +1,20 @@
-<x-layouts.app title="Requisition Details — {{ $order->order_number }}">
-    @php
-        $canApprove = auth()->user()->hasRole('purchase') || auth()->user()->can('purchasing.order.approve');
-        $isPendingApproval = in_array($order->state, ['submitted', 'update_requested']);
-        $showApprovalForm = $canApprove && $isPendingApproval;
-    @endphp
+@php
+    $currentUser = auth()->user();
+    $cutoffLabel = app(\App\Services\Purchasing\PurchaserBusinessDayService::class)->cutoffLabel();
+    $usesPurchaseManagerLayout = $currentUser?->hasRole('purchase') || $currentUser?->can('purchasing.order.approve');
+    $requisitionLayout = $usesPurchaseManagerLayout ? 'purchase-manager.layouts.app' : 'layouts.app';
+    $canApprove = $usesPurchaseManagerLayout;
+    $isPendingApproval = in_array($order->state, ['submitted', 'update_requested']);
+    $showApprovalForm = $canApprove && $isPendingApproval;
+@endphp
+
+@extends($requisitionLayout)
+
+@section('title', "Requisition Details — {$order->order_number}")
+@section('page_title', 'Requisition Details')
+@section('page_description', 'Review requisition lines, delivery status, receipts, and purchasing decisions.')
+
+@section('content')
 
     @if($showApprovalForm)
         <form id="review-form" method="POST" action="{{ route('requisitions.review', $order->order_number) }}">
@@ -198,7 +209,7 @@
                             <svg class="w-4 h-4 text-amber-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                             <div>
                                 <span class="font-bold block mb-1">Late Submission:</span>
-                                This order was submitted after the 9:30 PM cutoff. Accept it to include it in the Consolidated Board, or reject it.
+                                This order was submitted after the {{ $cutoffLabel }} cutoff. Accept it to include it in the Consolidated Board, or reject it.
                             </div>
                         </div>
 
@@ -448,7 +459,7 @@
                                 </div>
                             @else
                                 <div class="mb-4 text-xs text-slate-500 leading-normal">
-                                    The 9:30 PM cutoff deadline has passed. To make changes, you must submit an update request with a justification.
+                                    The {{ $cutoffLabel }} cutoff deadline has passed. To make changes, you must submit an update request with a justification.
                                 </div>
 
                                 <form action="{{ route('requisitions.update-request', $order->order_number) }}" method="POST" class="space-y-4">
@@ -473,7 +484,7 @@
                             <div>
                                 <h3 class="text-xs font-black text-emerald-800 uppercase tracking-wider mb-1">Requisition Window Open</h3>
                                 <p class="text-xs text-emerald-700 leading-normal">
-                                    You can edit this requisition directly until the **9:30 PM** cutoff time tonight.
+                                    You can edit this requisition directly until the **{{ $cutoffLabel }}** cutoff time tonight.
                                 </p>
                             </div>
                         </div>
@@ -482,4 +493,4 @@
             </div>
         </div>
     </div>
-</x-layouts.app>
+@endsection

@@ -8,9 +8,9 @@ use App\Actions\Purchasing\ApproveGoodsReceiptAction;
 use App\Http\Controllers\Controller;
 use App\Models\GoodsReceived;
 use App\Models\ShopOrderItem;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Illuminate\View\View;
 
 class PurchaseManagerGrnApprovalController extends Controller
@@ -30,7 +30,7 @@ class PurchaseManagerGrnApprovalController extends Controller
     {
         $this->authorizeManagerAccess($request);
 
-        $date = $request->input('date', Carbon::today()->format('Y-m-d'));
+        $date = $request->input('date', app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
 
         // Load all pending_approval GRNs for the date with their items
         $pendingGrns = GoodsReceived::where('status', 'pending_approval')
@@ -131,7 +131,7 @@ class PurchaseManagerGrnApprovalController extends Controller
     {
         $this->authorizeManagerAccess($request);
 
-        $date = $request->input('date', Carbon::today()->format('Y-m-d'));
+        $date = $request->input('date', app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
         $userId = (int) $request->user()->id;
 
         $pendingGrns = GoodsReceived::where('status', 'pending_approval')

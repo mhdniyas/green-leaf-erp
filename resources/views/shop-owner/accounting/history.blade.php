@@ -59,7 +59,7 @@
                         <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
                             <tr>
                                 <th class="px-4 py-3">Invoice</th>
-                                <th class="px-4 py-3 text-right">Requested</th>
+                                <th class="px-4 py-3 text-right">Amount</th>
                                 <th class="px-4 py-3">Requested On</th>
                                 <th class="px-4 py-3">Status</th>
                                 <th class="px-4 py-3">Admin Note</th>
@@ -69,7 +69,10 @@
                             @forelse ($paymentRequestHistory as $paymentRequest)
                                 <tr>
                                     <td class="px-4 py-3 font-black text-slate-950">{{ $paymentRequest->invoice?->invoice_number }}</td>
-                                    <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $paymentRequest->requested_amount, 2) }}</td>
+                                    <td class="px-4 py-3 text-right font-black text-slate-950">
+                                        <span class="block text-[10px] uppercase tracking-[0.14em] text-slate-500">{{ $paymentRequest->request_type === 'admin_manual' ? 'Admin paid' : 'Requested' }}</span>
+                                        Rs. {{ number_format((float) $paymentRequest->requested_amount, 2) }}
+                                    </td>
                                     <td class="px-4 py-3 font-semibold text-slate-600">{{ $paymentRequest->created_at?->format('d M Y h:i A') }}</td>
                                     <td class="px-4 py-3">@include('shop-owner.components.status-badge', ['label' => $paymentRequest->statusLabel(), 'tone' => $paymentRequest->statusTone()])</td>
                                     <td class="px-4 py-3 font-semibold text-slate-600">{{ $paymentRequest->admin_note ?: 'No note' }}</td>

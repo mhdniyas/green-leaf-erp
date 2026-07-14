@@ -8,6 +8,7 @@
 @section('content')
     <div class="space-y-6">
         @include('shop-owner.finance.partials.invoice-card', ['invoice' => $invoice])
+        @include('shop-owner.finance.partials.payment-request-panel', ['invoice' => $invoice, 'context' => 'finance'])
         @include('shop-owner.finance.partials.finance-note-form', ['invoice' => $invoice])
     </div>
 @endsection

@@ -1,4 +1,7 @@
 @php
+    $activeShopResolver = app(\App\Support\ShopOwner\ActiveShopResolver::class);
+    $authorizedShops = $activeShopResolver->authorizedShops(auth()->user());
+    $activeShop = $authorizedShops->isNotEmpty() ? $activeShopResolver->resolve(request()) : auth()->user()?->shop;
     $shopOwnerInitial = strtoupper(substr(auth()->user()->name, 0, 1));
 @endphp
 
@@ -18,13 +21,40 @@
 
             <div class="min-w-0">
                 <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Green Leaf Traders</p>
-                <p class="mt-0.5 text-xs sm:text-sm font-bold text-slate-800 truncate max-w-[150px] sm:max-w-none" title="{{ auth()->user()->shop?->name ?? 'Shop Owner' }}">
-                    {{ auth()->user()->shop?->name ?? 'Shop Owner' }}
+                <p class="mt-0.5 text-xs sm:text-sm font-bold text-slate-800 truncate max-w-[150px] sm:max-w-none" title="{{ $activeShop?->name ?? 'Shop Owner' }}">
+                    {{ $activeShop?->name ?? 'Shop Owner' }}
                 </p>
             </div>
         </div>
 
         <div class="flex items-center gap-2 shrink-0">
+            @if($authorizedShops->count() > 1)
+                <form method="GET" action="{{ url()->current() }}" class="hidden lg:block">
+                    @foreach(request()->except('shop') as $key => $value)
+                        @if(is_array($value))
+                            @foreach($value as $nestedValue)
+                                <input type="hidden" name="{{ $key }}[]" value="{{ $nestedValue }}">
+                            @endforeach
+                        @else
+                            <input type="hidden" name="{{ $key }}" value="{{ $value }}">
+                        @endif
+                    @endforeach
+
+                    <label class="block">
+                        <span class="sr-only">Active shop</span>
+                        <select
+                            name="shop"
+                            onchange="this.form.submit()"
+                            class="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-800 outline-none transition hover:border-slate-300 hover:bg-white"
+                        >
+                            @foreach($authorizedShops as $shop)
+                                <option value="{{ $shop->code }}" @selected($activeShop?->id === $shop->id)>{{ $shop->name }}</option>
+                            @endforeach
+                        </select>
+                    </label>
+                </form>
+            @endif
+
             <div class="text-right">
                 <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Business Date</p>
                 <p class="mt-0.5 text-xs sm:text-sm font-bold text-slate-800">

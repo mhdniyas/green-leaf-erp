@@ -15,6 +15,7 @@ use App\Models\GoodsReceived;
 use App\Models\PurchaseOrder;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\GoodsReceivedService;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -35,7 +36,7 @@ class GoodsReceivedController extends Controller
     {
         Gate::authorize('viewAny', GoodsReceived::class);
 
-        $date = $request->input('date', Carbon::today()->toDateString());
+        $date = $request->input('date', app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
 
         $submittedGrns = GoodsReceived::query()
             ->where('status', 'pending_approval')

@@ -1,10 +1,12 @@
 @php
+    $viewErrors = $errors ?? new \Illuminate\Support\ViewErrorBag;
     $purchaseManagerAssets = app()->runningUnitTests()
         ? ['resources/css/app.css', 'resources/js/app.js']
         : ['resources/css/purchase-manager/app.css', 'resources/js/purchase-manager/app.js'];
 
     $currentUser = auth()->user();
-    $navDate = request('date', today()->toDateString());
+    $businessDayService = app(\App\Services\Purchasing\PurchaserBusinessDayService::class);
+    $navDate = request('date', $businessDayService->operationalDate()->toDateString());
     $canAccessAdminOverview = $currentUser &&
         ($currentUser->hasRole('admin') ||
             $currentUser->can('admin.user.view') ||
@@ -204,9 +206,9 @@
                 </div>
             @endif
 
-            @if ($errors->any())
+            @if ($viewErrors->any())
                 <div class="mb-4 rounded-[1.35rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">
-                    {{ $errors->first() }}
+                    {{ $viewErrors->first() }}
                 </div>
             @endif
 

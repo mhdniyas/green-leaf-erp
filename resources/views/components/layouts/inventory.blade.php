@@ -2,7 +2,7 @@
 
 @php
     $currentUser = auth()->user();
-    $navDate = request('date', today()->toDateString());
+    $navDate = request('date', app(\App\Services\Purchasing\PurchaserBusinessDayService::class)->operationalDate()->toDateString());
     $sidebarItems = [
         [
             'label' => 'Dashboard',

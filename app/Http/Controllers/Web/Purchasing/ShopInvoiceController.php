@@ -13,6 +13,7 @@ use App\Models\ShopInvoicePaymentRequest;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -27,14 +28,23 @@ class ShopInvoiceController extends Controller
         abort_unless($request->user()?->hasRole('purchase') || $request->user()?->hasRole('admin'), 403);
 
         $tab = (string) $request->input('tab', 'all');
+        $selectedDate = $request->filled('date')
+            ? Carbon::parse((string) $request->input('date'))->toDateString()
+            : null;
 
         $invoiceQuery = ShopInvoice::query()
             ->with(['shop', 'order'])
             ->latest('business_date')
             ->latest('id');
 
+        if ($selectedDate !== null) {
+            $invoiceQuery->whereDate('business_date', $selectedDate);
+        }
+
         if ($tab === 'delivery-review') {
-            $invoiceQuery->where('delivery_status', 'received_with_discrepancy');
+            $invoiceQuery->whereHas('order', fn ($query) => $query
+                ->where('delivery_status', 'pending_approval')
+                ->where('delivery_review_status', 'pending'));
         }
 
         $invoices = $invoiceQuery->paginate(20);
@@ -42,9 +52,13 @@ class ShopInvoiceController extends Controller
         return view('purchasing.shop-invoices.index', [
             'invoices' => $invoices,
             'tab' => $tab,
+            'selectedDate' => $selectedDate,
+            'todayDate' => today()->toDateString(),
             'allInvoicesCount' => ShopInvoice::query()->count(),
             'deliveryReviewCount' => ShopInvoice::query()
-                ->where('delivery_status', 'received_with_discrepancy')
+                ->whereHas('order', fn ($query) => $query
+                    ->where('delivery_status', 'pending_approval')
+                    ->where('delivery_review_status', 'pending'))
                 ->count(),
         ]);
     }

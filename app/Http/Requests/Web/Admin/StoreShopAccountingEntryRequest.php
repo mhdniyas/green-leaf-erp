@@ -113,12 +113,13 @@ class StoreShopAccountingEntryRequest extends FormRequest
             ->unique()
             ->values();
 
-        if ($shop === null || $categoryIds->isEmpty()) {
+        if ($shop === null || ! $shop->isOwnedAccountingEnabled() || $categoryIds->isEmpty()) {
             return;
         }
 
         $authorizedCategoryCount = ShopAccountingCategory::query()
             ->whereIn('id', $categoryIds->all())
+            ->where('is_active', true)
             ->where(function ($query) use ($shop): void {
                 $query->whereNull('shop_id')
                     ->orWhere('shop_id', $shop->id);

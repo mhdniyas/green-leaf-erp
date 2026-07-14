@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Repositories\Inventory\StockMovementRepository;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\View\View;
@@ -16,11 +17,11 @@ class StockController extends Controller
 {
     public function __construct(
         private readonly StockMovementRepository $stockMovements,
+        private readonly PurchaserBusinessDayService $businessDayService,
     ) {}
 
     public function index(Request $request): View
     {
-        // Default to tomorrow if current time is past 9:30 PM, otherwise today
         $date = $request->input('date');
 
         if (! $date) {
@@ -33,8 +34,7 @@ class StockController extends Controller
             if ($hasTomorrowOrders && ! $hasTodayOrders) {
                 $date = $tomorrow;
             } else {
-                $cutoffTime = today()->setTime(21, 30);
-                $date = now()->greaterThan($cutoffTime) ? $tomorrow : $today;
+                $date = $this->businessDayService->operationalDate()->toDateString();
             }
         }
 

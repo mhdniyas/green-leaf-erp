@@ -1,4 +1,16 @@
-<x-layouts.app title="Shop Daily Invoices">
+@extends('purchase-manager.layouts.app')
+
+@section('title', 'Shop Daily Invoices')
+@section('page_title', 'Shop Daily Invoices')
+@section('page_description', 'Review generated shop invoices, delivery impact, and payment balances.')
+
+@section('content')
+    @php
+        $switchDate = $selectedDate ?? $todayDate;
+        $switchCarbonDate = \Illuminate\Support\Carbon::parse($switchDate);
+        $prevDate = $switchCarbonDate->copy()->subDay()->toDateString();
+        $nextDate = $switchCarbonDate->copy()->addDay()->toDateString();
+    @endphp
     <div class="rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div class="flex flex-col gap-3 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -12,16 +24,35 @@
         </div>
 
         <div class="border-b border-slate-100 px-4 py-4 sm:px-5">
+            <form method="GET" action="{{ route('purchasing.shop-invoices.index') }}" class="flex flex-wrap items-center gap-2">
+                <input type="hidden" name="tab" value="{{ $tab }}">
+                <a href="{{ route('purchasing.shop-invoices.index', ['tab' => $tab, 'date' => $prevDate]) }}" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50">
+                    Prev
+                </a>
+                <input type="date" name="date" value="{{ $switchDate }}" onchange="this.form.submit()" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-900">
+                <a href="{{ route('purchasing.shop-invoices.index', ['tab' => $tab, 'date' => $todayDate]) }}" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black uppercase tracking-[0.16em] text-emerald-700 hover:bg-emerald-50">
+                    Today
+                </a>
+                <a href="{{ route('purchasing.shop-invoices.index', ['tab' => $tab, 'date' => $nextDate]) }}" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50">
+                    Next
+                </a>
+                <span class="rounded-full bg-slate-100 px-3 py-2 text-xs font-black uppercase tracking-[0.16em] text-slate-600">
+                    {{ $switchCarbonDate->format('d M Y') }}
+                </span>
+            </form>
+        </div>
+
+        <div class="border-b border-slate-100 px-4 py-4 sm:px-5">
             <div class="grid grid-cols-2 gap-2 rounded-[1.5rem] bg-slate-100 p-1.5">
                 <a
-                    href="{{ route('purchasing.shop-invoices.index', ['tab' => 'all']) }}"
+                    href="{{ route('purchasing.shop-invoices.index', ['tab' => 'all', 'date' => $selectedDate]) }}"
                     class="{{ $tab === 'all' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500' }} rounded-[1.1rem] px-4 py-3 text-center text-xs font-black uppercase tracking-[0.16em] transition"
                 >
                     All Invoices
                     <span class="mt-1 block text-[11px]">{{ $allInvoicesCount }}</span>
                 </a>
                 <a
-                    href="{{ route('purchasing.shop-invoices.index', ['tab' => 'delivery-review']) }}"
+                    href="{{ route('purchasing.shop-invoices.index', ['tab' => 'delivery-review', 'date' => $selectedDate]) }}"
                     class="{{ $tab === 'delivery-review' ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500' }} rounded-[1.1rem] px-4 py-3 text-center text-xs font-black uppercase tracking-[0.16em] transition"
                 >
                     Delivery Review
@@ -32,7 +63,7 @@
 
         @if ($invoices->isEmpty())
             <div class="px-5 py-16 text-center text-sm text-slate-500">
-                {{ $tab === 'delivery-review' ? 'No delivery discrepancies are waiting for review.' : 'No shop invoices have been generated yet.' }}
+                {{ $tab === 'delivery-review' ? 'No delivery reviews are waiting for approval.' : 'No shop invoices have been generated yet for this date.' }}
             </div>
         @else
             <div class="space-y-3 p-4 md:hidden">
@@ -52,8 +83,8 @@
                         <div class="mt-4 flex flex-wrap gap-2 text-xs">
                             <span class="rounded-full bg-white px-2.5 py-1 font-black text-slate-700">{{ str($invoice->delivery_status)->replace('_', ' ')->title() }}</span>
                             <span class="rounded-full bg-white px-2.5 py-1 font-black text-slate-700">{{ str($invoice->payment_status)->replace('_', ' ')->title() }}</span>
-                            @if ($invoice->delivery_status === 'received_with_discrepancy')
-                                <span class="rounded-full bg-amber-100 px-2.5 py-1 font-black text-amber-800">Needs PM Review</span>
+                            @if ($invoice->order?->hasPendingDeliveryReview())
+                                <span class="rounded-full bg-amber-100 px-2.5 py-1 font-black text-amber-800">Needs Admin Review</span>
                             @endif
                         </div>
                         <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
@@ -113,4 +144,4 @@
             @endif
         @endif
     </div>
-</x-layouts.app>
+@endsection

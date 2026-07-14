@@ -50,6 +50,11 @@ class EmployeeCategory extends Model
         return $this->hasMany(Employee::class);
     }
 
+    public function leaveRules(): HasMany
+    {
+        return $this->hasMany(EmployeeCategoryLeaveRule::class);
+    }
+
     public function isCoreCategory(): bool
     {
         return in_array($this->code, self::CORE_CODES, true);

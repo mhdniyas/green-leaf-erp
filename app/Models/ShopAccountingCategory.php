@@ -13,12 +13,14 @@ class ShopAccountingCategory extends Model
     protected $fillable = [
         'shop_id',
         'type',
+        'cash_effect',
         'name',
         'is_active',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'cash_effect' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

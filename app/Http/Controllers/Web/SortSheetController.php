@@ -10,9 +10,9 @@ use App\Models\Category;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopPriceGroup;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -40,7 +40,7 @@ class SortSheetController extends Controller
     {
         $this->authorizeAccess($request);
 
-        $date = $request->input('date', Carbon::today()->format('Y-m-d'));
+        $date = $request->input('date', app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
         $shopId = $request->input('shop_id');
         $categoryId = $request->input('category_id');
         $priceGroupId = $request->input('price_group_id');
@@ -212,7 +212,7 @@ class SortSheetController extends Controller
      */
     private function buildMatrixData(Request $request): array
     {
-        $date = $request->input('date', Carbon::today()->format('Y-m-d'));
+        $date = $request->input('date', app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
         $shopId = $request->input('shop_id');
         $categoryId = $request->input('category_id');
         $priceGroupId = $request->input('price_group_id');

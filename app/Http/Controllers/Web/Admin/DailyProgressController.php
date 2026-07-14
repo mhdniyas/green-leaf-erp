@@ -8,7 +8,9 @@ use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
 use App\Models\GoodsReceived;
 use App\Models\PurchaseOrder;
+use App\Models\Shop;
 use App\Models\ShopOrder;
+use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -49,17 +51,26 @@ class DailyProgressController extends Controller
         $totalStockKg = (float) $batches->sum('total_kg');
         $pendingBatchesCount = $batches->where('status', 'pending')->count();
 
-        // 4. Shop Orders Consolidation for delivery on this date
+        // 4. Shop order flow for the selected date
         $orders = ShopOrder::whereDate('business_date', $date)
-            ->with(['shop', 'items.product', 'items.sortedBy', 'deliveredBy'])
+            ->with(['shop', 'items', 'deliveredBy'])
             ->get();
+
+        $shops = Shop::query()
+            ->active()
+            ->orderBy('name')
+            ->get(['id', 'code', 'name', 'status']);
 
         $totalOrdersCount = $orders->count();
         $approvedOrdersCount = $orders->where('state', 'approved')->count();
-        $allocationCompletedCount = $orders->where('is_allocation_completed', true)->count();
+        $outForDeliveryOrdersCount = $orders
+            ->filter(fn (ShopOrder $order): bool => $order->warehouseWorkflowStage() === 'in_transit')
+            ->count();
         $deliveredOrdersCount = $orders->where('is_delivered', true)->count();
+        $discrepancyOrdersCount = $orders
+            ->filter(fn (ShopOrder $order): bool => $this->orderHasDiscrepancy($order))
+            ->count();
 
-        // Calculate item allocation details across all orders
         $totalItemsCount = 0;
         $allocatedItemsCount = 0;
         $loadedItemsCount = 0;
@@ -76,72 +87,173 @@ class DailyProgressController extends Controller
             }
         }
 
-        // Calculate shortages & cash collection totals for today
         $totalShortagesValue = (float) $orders->sum('total_shortage_value');
         $totalCashCollected = (float) $orders->sum('cash_collected');
         $totalCashDiscrepancies = (float) $orders->sum('cash_discrepancy');
+        $shopsWithOrdersCount = $shops
+            ->filter(fn (Shop $shop): bool => $orders->contains('shop_id', $shop->id))
+            ->count();
 
-        // Compile workflow steps checklist status
-        $stages = [
+        $shopProgressRows = $shops->map(function (Shop $shop) use ($orders): array {
+            $shopOrders = $orders
+                ->where('shop_id', $shop->id)
+                ->values();
+
+            $totalOrders = $shopOrders->count();
+            $approvedOrders = $shopOrders->where('state', 'approved')->count();
+            $outForDeliveryOrders = $shopOrders
+                ->filter(fn (ShopOrder $order): bool => $order->warehouseWorkflowStage() === 'in_transit')
+                ->count();
+            $deliveredOrders = $shopOrders->where('is_delivered', true)->count();
+            $discrepancyOrders = $shopOrders
+                ->filter(fn (ShopOrder $order): bool => $this->orderHasDiscrepancy($order))
+                ->count();
+            $pendingReviewOrders = $shopOrders
+                ->filter(fn (ShopOrder $order): bool => $order->hasPendingDeliveryReview())
+                ->count();
+            $latestOrder = $shopOrders->sortByDesc('created_at')->first();
+
+            return [
+                'shop' => $shop,
+                'orders' => $shopOrders,
+                'total_orders' => $totalOrders,
+                'approved_orders' => $approvedOrders,
+                'out_for_delivery_orders' => $outForDeliveryOrders,
+                'delivered_orders' => $deliveredOrders,
+                'discrepancy_orders' => $discrepancyOrders,
+                'pending_review_orders' => $pendingReviewOrders,
+                'cash_discrepancy_total' => round((float) $shopOrders->sum('cash_discrepancy'), 2),
+                'shortage_total' => round((float) $shopOrders->sum('total_shortage_value'), 2),
+                'latest_order_number' => $latestOrder?->order_number,
+                'status_label' => $this->shopStatusLabel(
+                    totalOrders: $totalOrders,
+                    deliveredOrders: $deliveredOrders,
+                    outForDeliveryOrders: $outForDeliveryOrders,
+                    approvedOrders: $approvedOrders,
+                    discrepancyOrders: $discrepancyOrders,
+                    pendingReviewOrders: $pendingReviewOrders,
+                ),
+                'progress_percent' => $totalOrders === 0
+                    ? 0
+                    : min(100, (int) round((($approvedOrders * 0.35) + ($outForDeliveryOrders * 0.75) + ($deliveredOrders * 1.0)) / $totalOrders * 100)),
+            ];
+        });
+
+        $flowStages = [
             'po_approved' => [
-                'name' => '1. Purchase Orders Approved',
-                'description' => "{$approvedPoCount} of {$totalPoCount} POs approved",
-                'completed' => $totalPoCount > 0 && $approvedPoCount === 0 && $receivedPoCount === $totalPoCount ? true : ($totalPoCount > 0 && $approvedPoCount > 0),
+                'label' => 'PO Approved',
+                'count' => $approvedPoCount,
+                'meta' => $totalPoCount > 0 ? "of {$totalPoCount} purchase orders" : 'No purchase orders',
+                'tone' => $approvedPoCount > 0 ? 'emerald' : 'slate',
             ],
             'goods_received' => [
-                'name' => '2-4. Goods Received & GRN Created',
-                'description' => "{$grnCount} GRNs created, {$receivedPoCount} POs checked-in",
-                'completed' => $grnCount > 0,
+                'label' => 'GRN Logged',
+                'count' => $grnCount,
+                'meta' => "{$receivedPoCount} PO receipts closed",
+                'tone' => $grnCount > 0 ? 'sky' : 'slate',
             ],
             'stock_available' => [
-                'name' => '5. Stock Available in Warehouse',
-                'description' => "{$totalStockBatches} batches received ({$totalStockKg} kg)",
-                'completed' => $totalStockKg > 0,
+                'label' => 'Stock Ready',
+                'count' => $totalStockBatches,
+                'meta' => number_format($totalStockKg, 2).' kg available',
+                'tone' => $totalStockKg > 0 ? 'indigo' : 'slate',
             ],
             'shop_orders' => [
-                'name' => '6. Shop Orders Approved',
-                'description' => "{$approvedOrdersCount} of {$totalOrdersCount} orders approved",
-                'completed' => $totalOrdersCount > 0 && $approvedOrdersCount === $totalOrdersCount,
+                'label' => 'Orders Raised',
+                'count' => $totalOrdersCount,
+                'meta' => "{$shopsWithOrdersCount} shops active",
+                'tone' => $totalOrdersCount > 0 ? 'amber' : 'slate',
             ],
-            'items_picked' => [
-                'name' => '7-8. Items Picked & Allocated',
-                'description' => "{$allocatedItemsCount} of {$totalItemsCount} items sorted/allocated",
-                'completed' => $totalItemsCount > 0 && $allocatedItemsCount === $totalItemsCount,
+            'approved_orders' => [
+                'label' => 'Approved',
+                'count' => $approvedOrdersCount,
+                'meta' => "{$allocatedItemsCount} / {$totalItemsCount} items allocated",
+                'tone' => $approvedOrdersCount > 0 ? 'emerald' : 'slate',
             ],
-            'ready_dispatch' => [
-                'name' => '9. Ready for Dispatch (Loaded)',
-                'description' => "{$loadedItemsCount} of {$totalItemsCount} items loaded into trucks",
-                'completed' => $totalItemsCount > 0 && $loadedItemsCount === $totalItemsCount,
-            ],
-            'shipped' => [
-                'name' => '10. Shipped / Finalized',
-                'description' => "{$allocationCompletedCount} of {$totalOrdersCount} shop allocation sheets finalized",
-                'completed' => $totalOrdersCount > 0 && $allocationCompletedCount === $totalOrdersCount,
+            'out_for_delivery' => [
+                'label' => 'Out for Delivery',
+                'count' => $outForDeliveryOrdersCount,
+                'meta' => "{$loadedItemsCount} / {$totalItemsCount} items loaded",
+                'tone' => $outForDeliveryOrdersCount > 0 ? 'sky' : 'slate',
             ],
             'delivered' => [
-                'name' => '11. Delivered & Checked-in',
-                'description' => "{$deliveredOrdersCount} of {$totalOrdersCount} shop branches checked-in",
-                'completed' => $totalOrdersCount > 0 && $deliveredOrdersCount === $totalOrdersCount,
+                'label' => 'Delivered',
+                'count' => $deliveredOrdersCount,
+                'meta' => 'Cash collected Rs. '.number_format($totalCashCollected, 2),
+                'tone' => $deliveredOrdersCount > 0 ? 'teal' : 'slate',
+            ],
+            'discrepancies' => [
+                'label' => 'Discrepancies',
+                'count' => $discrepancyOrdersCount,
+                'meta' => 'Variance Rs. '.number_format($totalCashDiscrepancies, 2),
+                'tone' => $discrepancyOrdersCount > 0 ? 'rose' : 'emerald',
             ],
         ];
 
         return view('admin.daily_progress.index', compact(
             'date',
-            'pos',
-            'grns',
-            'batches',
-            'orders',
+            'flowStages',
+            'shopProgressRows',
+            'shopsWithOrdersCount',
             'totalOrdersCount',
             'approvedOrdersCount',
-            'allocationCompletedCount',
+            'outForDeliveryOrdersCount',
             'deliveredOrdersCount',
-            'totalItemsCount',
-            'allocatedItemsCount',
-            'loadedItemsCount',
+            'discrepancyOrdersCount',
             'totalShortagesValue',
             'totalCashCollected',
             'totalCashDiscrepancies',
-            'stages'
+            'pendingBatchesCount'
         ));
+    }
+
+    private function orderHasDiscrepancy(ShopOrder $order): bool
+    {
+        if (in_array($order->delivery_status, ['pending_approval', 'partially_delivered', 'delivery_issue'], true)) {
+            return true;
+        }
+
+        if (abs((float) $order->cash_discrepancy) > 0.01 || (float) $order->total_shortage_value > 0.01) {
+            return true;
+        }
+
+        return $order->items->contains(function (ShopOrderItem $item): bool {
+            return (float) $item->shortage_qty > 0.01
+                || filled($item->delivery_discrepancy_type)
+                || filled($item->delivery_discrepancy_note)
+                || filled($item->loadout_discrepancy_type)
+                || filled($item->loadout_discrepancy_note);
+        });
+    }
+
+    private function shopStatusLabel(
+        int $totalOrders,
+        int $deliveredOrders,
+        int $outForDeliveryOrders,
+        int $approvedOrders,
+        int $discrepancyOrders,
+        int $pendingReviewOrders,
+    ): string {
+        if ($totalOrders === 0) {
+            return 'No orders';
+        }
+
+        if ($discrepancyOrders > 0) {
+            return $pendingReviewOrders > 0 ? 'Needs admin review' : 'Discrepancy flagged';
+        }
+
+        if ($deliveredOrders === $totalOrders) {
+            return 'Completed';
+        }
+
+        if ($outForDeliveryOrders > 0) {
+            return 'Out for delivery';
+        }
+
+        if ($approvedOrders > 0) {
+            return 'Approved for warehouse';
+        }
+
+        return 'Order in progress';
     }
 }

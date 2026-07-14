@@ -52,6 +52,101 @@
             @endforeach
         </section>
 
+        <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            @php
+                $monthlyPayrollPaid = $monthlyPayrollItem?->paidAmount() ?? 0;
+                $monthlyPayrollRemaining = $monthlyPayrollItem?->remainingAmount() ?? 0;
+            @endphp
+            <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <h2 class="text-xl font-black text-slate-950">Salary payments</h2>
+                    <p class="mt-1 text-sm font-semibold text-slate-500">{{ $selectedMonth->format('F Y') }} salary payment status and recent payment journal details.</p>
+                </div>
+                <a href="{{ route('admin.staff.payments.index', ['payroll_month' => $selectedMonth->format('Y-m')]) }}" class="rounded-xl bg-slate-950 px-4 py-3 text-sm font-black text-white">Open Payments</a>
+            </div>
+
+            <div class="mt-5 grid gap-4 md:grid-cols-3">
+                <article class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Payroll amount</p>
+                    <p class="mt-2 text-xl font-black text-slate-950">Rs. {{ number_format((float) ($monthlyPayrollItem?->final_amount ?? 0), 2) }}</p>
+                </article>
+                <article class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-700">Paid</p>
+                    <p class="mt-2 text-xl font-black text-emerald-900">Rs. {{ number_format($monthlyPayrollPaid, 2) }}</p>
+                </article>
+                <article class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-amber-700">Remaining</p>
+                    <p class="mt-2 text-xl font-black text-amber-900">Rs. {{ number_format($monthlyPayrollRemaining, 2) }}</p>
+                </article>
+            </div>
+
+            <div class="mt-5 overflow-x-auto">
+                <table class="min-w-full text-left text-sm">
+                    <thead class="text-slate-500">
+                        <tr>
+                            <th class="pb-3">Date</th>
+                            <th class="pb-3">Method</th>
+                            <th class="pb-3 text-right">Amount</th>
+                            <th class="pb-3">Journal</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @forelse($recentPayrollPayments as $payment)
+                            <tr>
+                                <td class="py-3 font-bold text-slate-900">{{ $payment->paid_on->format('d M Y') }}</td>
+                                <td class="py-3 capitalize">{{ $payment->payment_method }}</td>
+                                <td class="py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $payment->amount, 2) }}</td>
+                                <td class="py-3 text-sm font-semibold text-cyan-700">{{ $payment->journalEntry?->reference ?? 'Pending journal' }}</td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="4" class="py-6 text-center text-sm font-semibold text-slate-500">No salary payments recorded yet.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                    <h2 class="text-xl font-black text-slate-950">Leave available</h2>
+                    <p class="mt-1 text-sm font-semibold text-slate-500">Current available days for this staff member. Carry-over is shown separately with a <span class="font-black text-cyan-700">+</span> so it is easy to understand.</p>
+                </div>
+                <span class="text-xs font-bold text-slate-400">As of {{ today()->format('d M Y') }}</span>
+            </div>
+
+            <div class="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                @forelse($leaveBalances as $leaveBalance)
+                    <article class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <p class="text-sm font-black text-slate-950">{{ $leaveBalance['leave_type']->name }}</p>
+                                <p class="mt-1 text-xs font-semibold text-slate-500">{{ $leaveBalance['leave_type']->is_paid ? 'Paid leave' : 'Unpaid leave' }}</p>
+                            </div>
+                            <span class="rounded-full bg-white px-2 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Days</span>
+                        </div>
+                        <p class="mt-4 text-3xl font-black text-slate-950">{{ number_format($leaveBalance['available'], 2) }}</p>
+                        <p class="mt-1 text-xs font-bold text-slate-500">Available now</p>
+                        @if($leaveBalance['carry_forward_allowed'])
+                            <div class="mt-4 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2">
+                                <p class="text-sm font-black text-cyan-800">+ up to {{ number_format($leaveBalance['carry_forward_limit'], 2) }} days</p>
+                                <p class="mt-1 text-xs font-semibold text-cyan-700">Carried over from the previous period</p>
+                                @if($leaveBalance['carry_forward_expiry_months'] !== null)
+                                    <p class="mt-1 text-[11px] font-bold text-cyan-700">Expires after {{ $leaveBalance['carry_forward_expiry_months'] }} month(s)</p>
+                                @endif
+                            </div>
+                        @else
+                            <p class="mt-4 text-xs font-semibold text-slate-400">No carry-over configured</p>
+                        @endif
+                    </article>
+                @empty
+                    <p class="text-sm font-semibold text-slate-500">No leave types are configured for this staff member.</p>
+                @endforelse
+            </div>
+        </section>
+
         <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <div>
                 <h2 class="text-xl font-black text-slate-950">Attendance Calendar</h2>

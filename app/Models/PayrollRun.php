@@ -44,6 +44,11 @@ class PayrollRun extends Model
         return $this->hasMany(PayrollRunItem::class);
     }
 
+    public function payments(): HasMany
+    {
+        return $this->hasMany(PayrollPayment::class);
+    }
+
     public function generatedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'generated_by');

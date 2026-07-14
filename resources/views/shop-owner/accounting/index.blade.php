@@ -172,7 +172,10 @@
                             <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                 <div>
                                     <p class="text-sm font-black text-slate-950">{{ $paymentRequest->invoice?->invoice_number }}</p>
-                                    <p class="mt-1 text-sm font-semibold text-slate-600">Requested Rs. {{ number_format((float) $paymentRequest->requested_amount, 2) }}</p>
+                                    <p class="mt-1 text-sm font-semibold text-slate-600">
+                                        {{ $paymentRequest->request_type === 'admin_manual' ? 'Admin recorded paid' : 'Requested' }}
+                                        Rs. {{ number_format((float) $paymentRequest->requested_amount, 2) }}
+                                    </p>
                                     @if ($paymentRequest->shop_note)
                                         <p class="mt-2 text-sm font-semibold text-slate-600">{{ $paymentRequest->shop_note }}</p>
                                     @endif
@@ -200,29 +203,34 @@
                         <p class="mt-2 text-sm font-semibold text-slate-600">Use the selected day to record manual income and expense. Warehouse delivery invoices are shown as a system expense so the ledger stays complete.</p>
                     </div>
 
-                    <form method="GET" action="{{ route('shop-owner.accounting.index') }}" class="grid gap-2 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-2 sm:grid-cols-4">
+                    <form method="GET" action="{{ route('shop-owner.accounting.index') }}" class="grid gap-2 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-2 sm:grid-cols-5">
                         <input type="hidden" name="tab" value="cashbook">
                         <label class="rounded-2xl bg-white px-4 py-2 text-slate-900 shadow-sm">
                             <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Business Date</span>
                             <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
                         </label>
                         <label class="rounded-2xl bg-white px-4 py-2 text-slate-900 shadow-sm">
-                            <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">From</span>
-                            <input type="date" name="start_date" value="{{ $startDate->format('Y-m-d') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
+                            <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">From Optional</span>
+                            <input type="date" name="start_date" value="{{ request('start_date') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
                         </label>
                         <label class="rounded-2xl bg-white px-4 py-2 text-slate-900 shadow-sm">
-                            <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">To</span>
-                            <input type="date" name="end_date" value="{{ $endDate->format('Y-m-d') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
+                            <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">To Optional</span>
+                            <input type="date" name="end_date" value="{{ request('end_date') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
                         </label>
                         <button type="submit" class="inline-flex h-14 items-center justify-center rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">Update Ledger</button>
+                        <a href="{{ route('shop-owner.accounting.index', ['tab' => 'cashbook', 'date' => today()->toDateString()]) }}" class="inline-flex h-14 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-800 transition hover:bg-slate-50">Today</a>
                     </form>
                 </div>
             </section>
 
-            <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+            <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-7">
                 <div class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
                     <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Sales Income</p>
                     <p class="mt-2 text-3xl font-black text-slate-950">Rs. {{ number_format($incomeTotal, 2) }}</p>
+                </div>
+                <div class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
+                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Admin Cash</p>
+                    <p class="mt-2 text-3xl font-black {{ $selectedShopCredit >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format($selectedShopCredit, 2) }}</p>
                 </div>
                 <div class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
                     <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Warehouse Invoice</p>
@@ -367,7 +375,12 @@
                                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                     <div>
                                         <p class="text-[10px] font-black uppercase tracking-[0.16em] text-rose-700">System Expense</p>
-                                        <p class="mt-1 text-sm font-black text-slate-950">Warehouse Delivery Invoice</p>
+                                        <div class="mt-1 flex flex-wrap items-center gap-2">
+                                            <p class="text-sm font-black text-slate-950">Warehouse Delivery Invoice</p>
+                                            @if ($selectedDeliveryExpense > 0)
+                                                <span class="inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">GreenLeaf Direct</span>
+                                            @endif
+                                        </div>
                                         <p class="mt-1 text-sm font-semibold text-rose-900">Automatically included from daily warehouse bills for {{ $selectedDate->format('d M Y') }}.</p>
                                     </div>
                                     <p class="text-2xl font-black text-rose-700">Rs. {{ number_format($selectedDeliveryExpense, 2) }}</p>
@@ -430,13 +443,72 @@
             </section>
 
             <section class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+                <div class="flex items-center justify-between gap-3">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Shop Credits</p>
+                        <h3 class="mt-2 text-lg font-black text-slate-950">Cash movements from admin</h3>
+                    </div>
+                    <p class="text-sm font-black text-emerald-700">Latest {{ $shopCredits->count() }}</p>
+                </div>
+
+                <div class="mt-5 overflow-x-auto rounded-[1.5rem] border border-slate-200">
+                    <table class="min-w-full text-left text-sm">
+                        <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                            <tr>
+                                <th class="px-4 py-3">Date</th>
+                                <th class="px-4 py-3">Type</th>
+                                <th class="px-4 py-3">Description</th>
+                                <th class="px-4 py-3 text-right">Ledger Amount</th>
+                                <th class="px-4 py-3 text-right">Added By</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @forelse ($shopCredits as $credit)
+                                <tr>
+                                    <td class="px-4 py-3 font-black text-slate-950">{{ $credit->business_date->format('d M Y') }}</td>
+                                    <td class="px-4 py-3">
+                                        <span class="inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] {{ $credit->isAccountingOut() ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700' }}">
+                                            {{ $credit->accountingLabel() }}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-3 font-semibold text-slate-600">{{ $credit->description }}</td>
+                                    <td class="px-4 py-3 text-right font-black {{ $credit->isAccountingOut() ? 'text-rose-700' : 'text-emerald-700' }}">{{ $credit->isAccountingOut() ? '-' : '+' }} Rs. {{ number_format((float) $credit->amount, 2) }}</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-slate-500">{{ $credit->creator?->name ?? 'System' }}</td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="5" class="px-4 py-8 text-center font-bold text-slate-500">No admin cash movements have been added yet.</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
                 <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                     <div>
                         <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Ledger History</p>
-                        <h3 class="mt-2 text-lg font-black text-slate-950">Date-filtered ledger table</h3>
-                        <p class="mt-2 text-sm font-semibold text-slate-600">Browse saved ledger days for the selected range. Warehouse delivery bills are included as a separate expense column.</p>
+                        <h3 class="mt-2 text-lg font-black text-slate-950">
+                            @if ($ledgerSourceFilter === 'greenleaf_direct')
+                                GreenLeaf Direct ledger days
+                            @else
+                                {{ $ledgerDateFilterActive ? 'Date-filtered ledger table' : 'All ledger days' }}
+                            @endif
+                        </h3>
+                        <p class="mt-2 text-sm font-semibold text-slate-600">Browse saved ledger days. Admin cash movements and warehouse delivery bills are included as separate columns.</p>
                     </div>
-                    <a href="{{ route('shop-owner.accounting.history', ['tab' => 'cashbook']) }}" class="text-sm font-black text-emerald-700">Open full history</a>
+                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <div class="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+                            <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date')])) }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerSourceFilter === 'all' ? 'bg-slate-950 text-white' : 'text-slate-700 hover:bg-white' }}">
+                                All
+                            </a>
+                            <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date'), 'ledger_source' => 'greenleaf_direct'])) }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerSourceFilter === 'greenleaf_direct' ? 'bg-cyan-600 text-white' : 'text-cyan-700 hover:bg-white' }}">
+                                GreenLeaf Direct
+                            </a>
+                        </div>
+                        <a href="{{ route('shop-owner.accounting.history', ['tab' => 'cashbook']) }}" class="text-sm font-black text-emerald-700">Open full history</a>
+                    </div>
                 </div>
 
                 <div class="mt-5 overflow-x-auto rounded-[1.5rem] border border-slate-200">
@@ -446,6 +518,7 @@
                                 <th class="px-4 py-3">Date</th>
                                 <th class="px-4 py-3">Status</th>
                                 <th class="px-4 py-3 text-right">Income</th>
+                                <th class="px-4 py-3 text-right">Admin Cash</th>
                                 <th class="px-4 py-3 text-right">Manual Expense</th>
                                 <th class="px-4 py-3 text-right">Warehouse Invoice</th>
                                 <th class="px-4 py-3 text-right">Net</th>
@@ -456,9 +529,10 @@
                             @forelse ($ledgerEntries as $ledgerEntry)
                                 @php
                                     $ledgerIncome = (float) $ledgerEntry->lines->where('type', 'income')->sum('amount');
+                                    $ledgerCredit = (float) ($shopCreditByDate->get($ledgerEntry->business_date->toDateString()) ?? 0);
                                     $ledgerManualExpense = (float) $ledgerEntry->lines->where('type', 'expense')->sum('amount');
                                     $ledgerWarehouseExpense = (float) ($deliveryExpenseByDate->get($ledgerEntry->business_date->toDateString()) ?? 0);
-                                    $ledgerNet = $ledgerIncome - $ledgerManualExpense - $ledgerWarehouseExpense;
+                                    $ledgerNet = $ledgerIncome + $ledgerCredit - $ledgerManualExpense - $ledgerWarehouseExpense;
                                 @endphp
                                 <tr class="transition hover:bg-slate-50">
                                     <td class="px-4 py-3">
@@ -470,14 +544,20 @@
                                         @include('shop-owner.components.status-badge', ['label' => $ledgerEntry->statusLabel(), 'tone' => $ledgerEntry->statusTone()])
                                     </td>
                                     <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($ledgerIncome, 2) }}</td>
+                                    <td class="px-4 py-3 text-right font-black text-emerald-700">Rs. {{ number_format($ledgerCredit, 2) }}</td>
                                     <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($ledgerManualExpense, 2) }}</td>
-                                    <td class="px-4 py-3 text-right font-black text-rose-700">Rs. {{ number_format($ledgerWarehouseExpense, 2) }}</td>
+                                    <td class="px-4 py-3 text-right">
+                                        @if ($ledgerWarehouseExpense > 0)
+                                            <span class="mb-1 inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">GreenLeaf Direct</span>
+                                        @endif
+                                        <p class="font-black text-rose-700">Rs. {{ number_format($ledgerWarehouseExpense, 2) }}</p>
+                                    </td>
                                     <td class="px-4 py-3 text-right font-black {{ $ledgerNet >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format($ledgerNet, 2) }}</td>
                                     <td class="px-4 py-3 text-right font-black text-slate-950">{{ $ledgerEntry->lines->count() }}</td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="7" class="px-4 py-8 text-center font-bold text-slate-500">No ledger days found for the selected date range.</td>
+                                    <td colspan="8" class="px-4 py-8 text-center font-bold text-slate-500">No ledger days found.</td>
                                 </tr>
                             @endforelse
                         </tbody>

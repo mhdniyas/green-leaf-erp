@@ -2,6 +2,12 @@
 /** @var \App\Models\User $user */
 $user = auth()->user();
 $role = $user->getRoleNames()->first() ?? 'viewer';
+$cutoffService = app(\App\Services\Purchasing\PurchaserBusinessDayService::class);
+$cutoffTimeLabel = $cutoffService->cutoffLabel();
+$cutoffTimeValue = $cutoffService->cutoffInputValue();
+$cutoffTimeParts = explode(':', $cutoffTimeValue);
+$cutoffHour = (int) ($cutoffTimeParts[0] ?? 21);
+$cutoffMinute = (int) ($cutoffTimeParts[1] ?? 30);
 
 $flatProducts = collect();
 if (isset($productsByCategory) && $productsByCategory) {
@@ -902,8 +908,8 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
         }
 
         // Constants
-        const CUTOFF_HOUR = 21; // 9:00 PM
-        const CUTOFF_MINUTE = 30; // 9:30 PM
+        const CUTOFF_HOUR = @json($cutoffHour);
+        const CUTOFF_MINUTE = @json($cutoffMinute);
 
         // Scroll to section helper
         function scrollToSection(id) {
@@ -1761,7 +1767,7 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
                 document.getElementById('hud-q1-dot').className = "w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse";
                 document.getElementById('hud-q1-val').innerHTML = getStatusHtml("No");
                 document.getElementById('hud-q1-val').className = "text-sm font-black text-red-600 mt-1.5";
-                document.getElementById('hud-q1-sub').textContent = "Deadline: 9:30 PM";
+                document.getElementById('hud-q1-sub').textContent = "Deadline: {{ $cutoffTimeLabel }}";
 
                 // HUD Q2: Approved? (Show the partial approval of the last order cycle by default)
                 document.getElementById('hud-q2-dot').className = "w-2.5 h-2.5 rounded-full bg-amber-500";
@@ -1820,9 +1826,9 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
                 // If past cutoff show warning alert
                 const now = new Date();
                 if (now.getHours() > CUTOFF_HOUR || (now.getHours() === CUTOFF_HOUR && now.getMinutes() >= CUTOFF_MINUTE)) {
-                    addNotification('alert-deadline-closed', 'danger', 'Requisition deadline closed (9:30 PM)', 'Requisitions are now locked. Please contact the Purchasing Manager for permission to submit a late order.');
+                    addNotification('alert-deadline-closed', 'danger', 'Requisition deadline closed ({{ $cutoffTimeLabel }})', 'Requisitions are now locked. Please contact the Purchasing Manager for permission to submit a late order.');
                 } else {
-                    addNotification('alert-deadline-warning', 'warning', 'Requisition draft pending submission', 'Complete tomorrow\'s order sheet and click submit before the 9:30 PM cutoff.');
+                    addNotification('alert-deadline-warning', 'warning', 'Requisition draft pending submission', 'Complete tomorrow\'s order sheet and click submit before the {{ $cutoffTimeLabel }} cutoff.');
                 }
             }
 
@@ -2004,11 +2010,11 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
             updateTabBadges();
         }
 
-        // Live Countdown Clock to 9:30 PM cutoff
+        // Live countdown clock to the business-day cutoff
         function updateDeadlineTimer() {
             const now = new Date();
             const target = new Date();
-            target.setHours(CUTOFF_HOUR, CUTOFF_MINUTE, 0, 0); // 9:30 PM
+            target.setHours(CUTOFF_HOUR, CUTOFF_MINUTE, 0, 0);
 
             const diffMs = target - now;
 

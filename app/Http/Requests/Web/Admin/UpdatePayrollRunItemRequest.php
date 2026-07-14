@@ -23,6 +23,7 @@ class UpdatePayrollRunItemRequest extends FormRequest
     {
         return [
             'override_amount' => ['nullable', 'numeric', 'min:0'],
+            'override_reason' => ['required', 'string', 'min:3'],
         ];
     }
 }

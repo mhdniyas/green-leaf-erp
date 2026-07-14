@@ -31,6 +31,8 @@
         <input type="date" id="date-select" name="date" value="{{ $date }}" onchange="this.form.submit()" class="cursor-pointer border-0 bg-transparent p-0 text-xs font-bold text-slate-700 focus:outline-none focus:ring-0">
     </form>
 
+    @include('purchase-manager.partials.cutoff-settings-modal', ['date' => $date])
+
     <a href="{{ route('requisitions.board.export.csv', ['date' => $date]) }}" class="inline-flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-100 px-4 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-200">
         CSV
     </a>

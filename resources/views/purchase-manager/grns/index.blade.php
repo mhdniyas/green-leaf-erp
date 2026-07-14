@@ -173,8 +173,8 @@
                         </p>
                     </div>
                     @if (auth()->user()?->hasRole('admin'))
-                        <a href="{{ route('admin.price-approvals.index', ['date' => $pricingBusinessDate]) }}" class="inline-flex items-center justify-center rounded-2xl border border-slate-200 px-5 py-3 text-sm font-black text-slate-700">
-                            Open Admin Approval
+                        <a href="{{ route('purchasing.prices.index', ['date' => \Illuminate\Support\Carbon::parse($pricingBusinessDate)->subDay()->toDateString()]) }}" class="inline-flex items-center justify-center rounded-2xl border border-slate-200 px-5 py-3 text-sm font-black text-slate-700">
+                            Open Price Board
                         </a>
                     @endif
                 </div>

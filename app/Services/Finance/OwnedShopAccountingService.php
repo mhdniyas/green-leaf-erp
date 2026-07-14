@@ -7,10 +7,12 @@ namespace App\Services\Finance;
 use App\Models\Shop;
 use App\Models\ShopAccountingCategory;
 use App\Models\ShopAccountingEntry;
+use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopAccountingInvoice;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class OwnedShopAccountingService
 {
@@ -84,14 +86,34 @@ class OwnedShopAccountingService
      *     }>
      * }  $payload
      */
-    public function saveEntry(Shop $shop, array $payload, int $userId, ?ShopAccountingEntry $entry = null): ShopAccountingEntry
+    public function saveEntry(Shop $shop, array $payload, int $userId, ?ShopAccountingEntry $entry = null, bool $allowApprovedEdit = false): ShopAccountingEntry
     {
-        return DB::transaction(function () use ($shop, $payload, $userId, $entry): ShopAccountingEntry {
+        return DB::transaction(function () use ($shop, $payload, $userId, $entry, $allowApprovedEdit): ShopAccountingEntry {
+            if ($entry instanceof ShopAccountingEntry && ($entry->status === 'finalized' || ($entry->status === 'approved' && ! $allowApprovedEdit))) {
+                throw ValidationException::withMessages([
+                    'business_date' => 'Approved or finalized entries cannot be edited. Use the correction review workflow.',
+                ]);
+            }
+
+            $businessDate = Carbon::parse($payload['business_date'])->toDateString();
+            $periodClosed = ShopAccountingInvoice::query()
+                ->where('shop_id', $shop->id)
+                ->whereIn('status', ['approved', 'paid'])
+                ->whereDate('period_start', '<=', $businessDate)
+                ->whereDate('period_end', '>=', $businessDate)
+                ->exists();
+
+            if ($periodClosed) {
+                throw ValidationException::withMessages([
+                    'business_date' => 'This accounting period is closed by an approved settlement invoice.',
+                ]);
+            }
+
             $entry ??= new ShopAccountingEntry;
 
             $entry->fill([
                 'shop_id' => $shop->id,
-                'business_date' => Carbon::parse($payload['business_date'])->toDateString(),
+                'business_date' => $businessDate,
                 'status' => $payload['status'],
                 'opening_cash' => $payload['opening_cash'] ?? null,
                 'closing_cash' => $payload['closing_cash'] ?? null,
@@ -104,10 +126,11 @@ class OwnedShopAccountingService
             $categoryIds = collect($payload['lines'])
                 ->pluck('shop_accounting_category_id')
                 ->map(fn ($categoryId): int => (int) $categoryId)
-                ->all();
+                ->toArray();
 
             $categories = ShopAccountingCategory::query()
                 ->whereIn('id', $categoryIds)
+                ->where('is_active', true)
                 ->where(function ($query) use ($shop): void {
                     $query->whereNull('shop_id')
                         ->orWhere('shop_id', $shop->id);
@@ -115,19 +138,22 @@ class OwnedShopAccountingService
                 ->get()
                 ->keyBy('id');
 
+            if ($categories->count() !== count(array_unique($categoryIds))) {
+                throw ValidationException::withMessages([
+                    'lines' => 'Every accounting line must reference an active category belonging to this shop.',
+                ]);
+            }
+
             $entry->lines()->delete();
 
             foreach ($payload['lines'] as $line) {
                 /** @var ShopAccountingCategory|null $category */
                 $category = $categories->get((int) $line['shop_accounting_category_id']);
 
-                if (! $category instanceof ShopAccountingCategory) {
-                    continue;
-                }
-
                 $entry->lines()->create([
                     'shop_accounting_category_id' => $category->id,
                     'type' => $category->type,
+                    'cash_effect' => $category->cash_effect,
                     'amount' => round((float) $line['amount'], 2),
                     'description' => filled($line['description'] ?? null) ? trim((string) $line['description']) : null,
                     'review_status' => null,
@@ -156,6 +182,12 @@ class OwnedShopAccountingService
      */
     public function saveShopOwnerEntry(Shop $shop, array $payload, int $userId, ?ShopAccountingEntry $entry = null): ShopAccountingEntry
     {
+        if ($entry instanceof ShopAccountingEntry && ! $entry->canBeEditedByShopOwner()) {
+            throw ValidationException::withMessages([
+                'business_date' => 'This entry is locked. Ask an administrator to send it through the correction review workflow.',
+            ]);
+        }
+
         $status = $payload['submission_action'] === 'submit' ? 'submitted' : 'draft';
         $entry = $this->saveEntry($shop, [
             'business_date' => $payload['business_date'],
@@ -164,7 +196,7 @@ class OwnedShopAccountingService
             'closing_cash' => $payload['closing_cash'] ?? null,
             'notes' => $payload['notes'] ?? null,
             'lines' => $payload['lines'],
-        ], $userId, $entry);
+        ], $userId, $entry, allowApprovedEdit: true);
 
         $entry->forceFill([
             'submitted_by' => $status === 'submitted' ? $userId : null,
@@ -183,6 +215,12 @@ class OwnedShopAccountingService
      */
     public function reviewEntry(ShopAccountingEntry $entry, string $decision, int $userId, ?string $adminNote = null, array $lineReviews = []): ShopAccountingEntry
     {
+        if ($entry->status === 'finalized') {
+            throw ValidationException::withMessages([
+                'decision' => 'Finalized entries cannot be reopened. Create a reversal or adjustment entry instead.',
+            ]);
+        }
+
         if ($decision === 'approve') {
             $entry->lines()->update([
                 'review_status' => 'approved',
@@ -238,7 +276,7 @@ class OwnedShopAccountingService
     {
         return ShopAccountingEntry::query()
             ->where('shop_id', $shop->id)
-            ->whereDate('business_date', $date)
+            ->whereDate('business_date', $date->toDateString())
             ->with(['lines.category', 'createdBy', 'updatedBy', 'submittedBy', 'reviewedBy'])
             ->first();
     }
@@ -262,28 +300,29 @@ class OwnedShopAccountingService
     public function dashboardMetrics(Carbon $date): array
     {
         $eligibleShops = $this->eligibleShops();
-        $entries = ShopAccountingEntry::query()
-            ->with('lines')
+        $entryQuery = ShopAccountingEntry::query()
             ->whereIn('shop_id', $eligibleShops->pluck('id'))
-            ->whereDate('business_date', $date)
-            ->get();
+            ->where('business_date', $date->toDateString());
+        $lineTotals = ShopAccountingEntryLine::query()
+            ->join('shop_accounting_entries', 'shop_accounting_entries.id', '=', 'shop_accounting_entry_lines.shop_accounting_entry_id')
+            ->whereIn('shop_accounting_entries.shop_id', $eligibleShops->pluck('id'))
+            ->where('shop_accounting_entries.business_date', $date->toDateString())
+            ->selectRaw("COALESCE(SUM(CASE WHEN shop_accounting_entry_lines.type = 'income' THEN shop_accounting_entry_lines.amount ELSE 0 END), 0) as total_income")
+            ->selectRaw("COALESCE(SUM(CASE WHEN shop_accounting_entry_lines.type = 'expense' THEN shop_accounting_entry_lines.amount ELSE 0 END), 0) as total_expense")
+            ->first();
 
-        $totalIncome = round((float) $entries->sum(
-            fn (ShopAccountingEntry $entry): float => (float) $entry->lines->where('type', 'income')->sum('amount')
-        ), 2);
-        $totalExpense = round((float) $entries->sum(
-            fn (ShopAccountingEntry $entry): float => (float) $entry->lines->where('type', 'expense')->sum('amount')
-        ), 2);
+        $totalIncome = round((float) ($lineTotals?->total_income ?? 0), 2);
+        $totalExpense = round((float) ($lineTotals?->total_expense ?? 0), 2);
 
         return [
             'eligible_shop_count' => $eligibleShops->count(),
             'owned_shop_count' => $eligibleShops->where('accounting_mode', 'owned')->count(),
             'partnership_shop_count' => $eligibleShops->where('accounting_mode', 'partnership')->count(),
-            'entries_today_count' => $entries->count(),
-            'draft_entries_count' => $entries->where('status', 'draft')->count(),
-            'pending_review_count' => $entries->where('status', 'submitted')->count(),
-            'recheck_count' => $entries->where('status', 'recheck_required')->count(),
-            'approved_entries_count' => $entries->where('status', 'approved')->count(),
+            'entries_today_count' => (clone $entryQuery)->count(),
+            'draft_entries_count' => (clone $entryQuery)->where('status', 'draft')->count(),
+            'pending_review_count' => (clone $entryQuery)->where('status', 'submitted')->count(),
+            'recheck_count' => (clone $entryQuery)->where('status', 'recheck_required')->count(),
+            'approved_entries_count' => (clone $entryQuery)->where('status', 'approved')->count(),
             'total_income' => $totalIncome,
             'total_expense' => $totalExpense,
             'net_amount' => round($totalIncome - $totalExpense, 2),

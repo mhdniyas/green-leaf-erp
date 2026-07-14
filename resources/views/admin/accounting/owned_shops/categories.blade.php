@@ -20,7 +20,7 @@
             <p class="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Create Category</p>
             <h2 class="mt-2 text-xl font-black text-slate-950">Add new ledger category</h2>
 
-            <form method="POST" action="{{ route('admin.accounting.owned-shops.categories.store', $shop) }}" class="mt-5 grid gap-4 xl:grid-cols-4">
+            <form method="POST" action="{{ route('admin.accounting.owned-shops.categories.store', $shop) }}" class="mt-5 grid gap-4 xl:grid-cols-5">
                 @csrf
                 <label class="block">
                     <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Scope</span>
@@ -44,6 +44,10 @@
                             Create
                         </button>
                     </div>
+                </label>
+                <label class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700">
+                    <input type="checkbox" name="cash_effect" value="1" @checked(old('cash_effect', true)) class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                    <span>Cash movement</span>
                 </label>
             </form>
         </section>

@@ -22,6 +22,7 @@ class StoreShopAccountingCategoryRequest extends FormRequest
         return [
             'scope' => ['required', 'string', Rule::in(['global', 'shop'])],
             'type' => ['required', 'string', Rule::in(['income', 'expense'])],
+            'cash_effect' => ['nullable', 'boolean'],
             'name' => ['required', 'string', 'max:100'],
             'is_active' => ['nullable', 'boolean'],
             'shop_id' => ['nullable', 'integer', Rule::in([$shop?->id])],

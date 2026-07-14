@@ -11,7 +11,9 @@ use App\Http\Requests\Web\Admin\ReviewEmployeeLeaveRequest;
 use App\Http\Requests\Web\Admin\StoreAdminEmployeeLeaveRequest;
 use App\Http\Requests\Web\Admin\StoreEmployeeCategoryRequest;
 use App\Http\Requests\Web\Admin\StoreEmployeeRequest;
+use App\Http\Requests\Web\Admin\StorePayrollPaymentRequest;
 use App\Http\Requests\Web\Admin\StorePayrollRunRequest;
+use App\Http\Requests\Web\Admin\UpdateEmployeeCategoryLeaveRulesRequest;
 use App\Http\Requests\Web\Admin\UpdateEmployeeCategoryRequest;
 use App\Http\Requests\Web\Admin\UpdateEmployeeRequest;
 use App\Http\Requests\Web\Admin\UpdateEmployeeStatusRequest;
@@ -20,20 +22,28 @@ use App\Http\Requests\Web\Admin\UpsertEmployeeAttendanceRequest;
 use App\Models\Employee;
 use App\Models\EmployeeAttendance;
 use App\Models\EmployeeCategory;
+use App\Models\EmployeeCategoryLeaveRule;
 use App\Models\EmployeeLeaveRequest as LeaveRequestModel;
+use App\Models\LeaveType;
+use App\Models\PayrollPayment;
 use App\Models\PayrollRun;
 use App\Models\PayrollRunItem;
 use App\Models\Shop;
 use App\Models\User;
 use App\Services\HR\AttendanceService;
 use App\Services\HR\EmployeeSyncService;
+use App\Services\HR\HrOverrideService;
+use App\Services\HR\LeaveLedgerService;
+use App\Services\HR\PayrollPaymentService;
 use App\Services\HR\PayrollService;
 use App\Services\HR\StaffDirectoryService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
@@ -47,7 +57,10 @@ class StaffManagementController extends Controller
         private readonly StaffDirectoryService $staffDirectoryService,
         private readonly AttendanceService $attendanceService,
         private readonly PayrollService $payrollService,
+        private readonly PayrollPaymentService $payrollPaymentService,
         private readonly EmployeeSyncService $employeeSyncService,
+        private readonly LeaveLedgerService $leaveLedgerService,
+        private readonly HrOverrideService $hrOverrideService,
     ) {}
 
     public function index(Request $request): View
@@ -128,8 +141,8 @@ class StaffManagementController extends Controller
     {
         Gate::authorize('viewAny', Employee::class);
 
-        return view('admin.staff.categories', [
-            'allCategories' => EmployeeCategory::query()->orderBy('name')->get(),
+        return view('admin.staff.payroll-settings', [
+            'allCategories' => EmployeeCategory::query()->with('leaveRules.leaveType')->orderBy('name')->get(),
         ]);
     }
 
@@ -137,7 +150,7 @@ class StaffManagementController extends Controller
     {
         Gate::authorize('view', $employee);
 
-        $employee->load(['category', 'defaultShop', 'user.roles', 'user.ownedShopAssignments.shop', 'assignedShops']);
+        $employee->load(['category.leaveRules.leaveType', 'defaultShop', 'user.roles', 'user.ownedShopAssignments.shop', 'assignedShops']);
 
         $selectedMonth = $request->filled('month')
             ? Carbon::createFromFormat('Y-m', $request->string('month')->toString())->startOfMonth()
@@ -151,6 +164,34 @@ class StaffManagementController extends Controller
             ->get()
             ->keyBy(fn (EmployeeAttendance $attendance): string => $attendance->attendance_date->toDateString());
         $ownedShops = Shop::query()->ownedForStaff()->orderBy('name')->get();
+        $leaveBalances = LeaveType::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get()
+            ->map(function (LeaveType $leaveType) use ($employee): array {
+                $rule = $employee->category?->leaveRules
+                    ->filter(fn (EmployeeCategoryLeaveRule $categoryRule): bool => (int) $categoryRule->leave_type_id === (int) $leaveType->id)
+                    ->sortByDesc(fn (EmployeeCategoryLeaveRule $categoryRule): string => $categoryRule->effective_from?->toDateString() ?? '0000-00-00')
+                    ->first(fn (EmployeeCategoryLeaveRule $categoryRule): bool => $categoryRule->isActiveOn(today()));
+
+                return [
+                    'leave_type' => $leaveType,
+                    'available' => $this->leaveLedgerService->balanceFor($employee, $leaveType, today()),
+                    'carry_forward_allowed' => (bool) ($rule?->carry_forward_allowed ?? false),
+                    'carry_forward_limit' => (float) ($rule?->maximum_carry_forward_days ?? 0),
+                    'carry_forward_expiry_months' => $rule?->carry_forward_expiry_months,
+                ];
+            });
+        $monthlyPayrollItem = $employee->payrollItems()
+            ->with(['payrollRun', 'payments.journalEntry'])
+            ->whereHas('payrollRun', fn (Builder $query) => $query->whereDate('period_start', $selectedMonth->toDateString()))
+            ->first();
+        $recentPayrollPayments = $employee->payrollPayments()
+            ->with(['payrollRun', 'journalEntry', 'paidBy'])
+            ->latest('paid_on')
+            ->latest('id')
+            ->limit(8)
+            ->get();
 
         return view('admin.staff.show', [
             'employee' => $employee,
@@ -162,6 +203,7 @@ class StaffManagementController extends Controller
                 'leave' => $attendanceRecords->where('status', 'leave')->count(),
                 'absent' => $attendanceRecords->where('status', 'absent')->count(),
             ],
+            'leaveBalances' => $leaveBalances,
             'attendanceRecords' => $attendanceRecords->sortByDesc(fn (EmployeeAttendance $attendance): string => $attendance->attendance_date->toDateString()),
             'workedShops' => Shop::query()
                 ->whereIn('id', EmployeeAttendance::query()->where('employee_id', $employee->id)->whereNotNull('shop_id')->distinct()->pluck('shop_id'))
@@ -170,7 +212,9 @@ class StaffManagementController extends Controller
                 ->get(),
             'shops' => $ownedShops,
             'categories' => EmployeeCategory::query()->where('is_active', true)->orderBy('name')->get(),
-            'payrollHistory' => $employee->payrollItems()->with('payrollRun')->latest('id')->limit(6)->get(),
+            'payrollHistory' => $employee->payrollItems()->with(['payrollRun', 'payments'])->latest('id')->limit(6)->get(),
+            'monthlyPayrollItem' => $monthlyPayrollItem,
+            'recentPayrollPayments' => $recentPayrollPayments,
             'leaveRequests' => $employee->leaveRequests()->with(['submittedBy.roles', 'submittedForShop', 'reviewedBy'])->latest('id')->limit(8)->get(),
         ]);
     }
@@ -217,10 +261,16 @@ class StaffManagementController extends Controller
 
     public function storeCategory(StoreEmployeeCategoryRequest $request): RedirectResponse
     {
-        EmployeeCategory::query()->create([
-            ...$request->validated(),
-            'is_active' => $request->boolean('is_active', true),
-        ]);
+        $validated = $request->validated();
+
+        DB::transaction(function () use ($request, $validated): void {
+            $employeeCategory = EmployeeCategory::query()->create([
+                ...$validated,
+                'is_active' => $request->boolean('is_active', true),
+            ]);
+
+            $this->syncPaidLeaveCarryOverRule($employeeCategory, $validated);
+        });
 
         return redirect()->route('admin.staff.categories.index')->with('success', 'Payroll category created successfully.');
     }
@@ -233,12 +283,83 @@ class StaffManagementController extends Controller
             unset($validated['name'], $validated['code'], $validated['staff_area']);
         }
 
-        $employeeCategory->update([
-            ...$validated,
-            'is_active' => $employeeCategory->isCoreCategory() ? true : $request->boolean('is_active'),
-        ]);
+        DB::transaction(function () use ($employeeCategory, $request, $validated): void {
+            $employeeCategory->update([
+                ...$validated,
+                'is_active' => $employeeCategory->isCoreCategory() ? true : $request->boolean('is_active'),
+            ]);
+
+            $this->syncPaidLeaveCarryOverRule($employeeCategory, $validated);
+        });
 
         return redirect()->route('admin.staff.categories.index')->with('success', 'Payroll category updated successfully.');
+    }
+
+    /**
+     * Save the simple paid leave carry-over rule used by the category form.
+     *
+     * @param  array<string, mixed>  $validated
+     */
+    private function syncPaidLeaveCarryOverRule(EmployeeCategory $employeeCategory, array $validated): void
+    {
+        $paidLeaveType = LeaveType::query()->where('code', LeaveType::CODE_PAID)->first();
+
+        if (! $paidLeaveType) {
+            return;
+        }
+
+        $monthlyPaidLeaveLimit = (float) $employeeCategory->monthly_paid_leave_limit;
+
+        EmployeeCategoryLeaveRule::query()->updateOrCreate(
+            [
+                'employee_category_id' => $employeeCategory->id,
+                'leave_type_id' => $paidLeaveType->id,
+            ],
+            [
+                'annual_entitlement' => $monthlyPaidLeaveLimit * 12,
+                'monthly_accrual_amount' => $monthlyPaidLeaveLimit,
+                'allocation_frequency' => 'monthly',
+                'carry_forward_allowed' => (bool) ($validated['paid_leave_carry_forward_allowed'] ?? false),
+                'maximum_carry_forward_days' => (float) ($validated['paid_leave_maximum_carry_forward_days'] ?? 0),
+                'carry_forward_expiry_months' => $validated['paid_leave_carry_forward_expiry_months'] ?? null,
+                'payroll_weight' => 1,
+                'negative_balance_allowed' => false,
+            ],
+        );
+    }
+
+    public function updateCategoryLeaveRules(UpdateEmployeeCategoryLeaveRulesRequest $request, EmployeeCategory $employeeCategory): RedirectResponse
+    {
+        abort_unless($request->user()?->can('hr.employee.update'), 403);
+
+        collect($request->validated('rules'))
+            ->each(function (array $rulePayload) use ($employeeCategory): void {
+                EmployeeCategoryLeaveRule::query()->updateOrCreate(
+                    [
+                        'employee_category_id' => $employeeCategory->id,
+                        'leave_type_id' => (int) $rulePayload['leave_type_id'],
+                    ],
+                    [
+                        'annual_entitlement' => round((float) $rulePayload['annual_entitlement'], 2),
+                        'monthly_accrual_amount' => filled($rulePayload['monthly_accrual_amount'] ?? null)
+                            ? round((float) $rulePayload['monthly_accrual_amount'], 2)
+                            : null,
+                        'allocation_frequency' => (string) $rulePayload['allocation_frequency'],
+                        'carry_forward_allowed' => (bool) ($rulePayload['carry_forward_allowed'] ?? false),
+                        'maximum_carry_forward_days' => round((float) ($rulePayload['maximum_carry_forward_days'] ?? 0), 2),
+                        'carry_forward_expiry_months' => $rulePayload['carry_forward_expiry_months'] ?? null,
+                        'carry_forward_expiry_date' => $rulePayload['carry_forward_expiry_date'] ?? null,
+                        'payroll_weight' => round((float) $rulePayload['payroll_weight'], 2),
+                        'negative_balance_allowed' => (bool) ($rulePayload['negative_balance_allowed'] ?? false),
+                        'effective_from' => $rulePayload['effective_from'] ?? null,
+                        'effective_to' => $rulePayload['effective_to'] ?? null,
+                        'notes' => filled($rulePayload['notes'] ?? null) ? trim((string) $rulePayload['notes']) : null,
+                    ],
+                );
+            });
+
+        return redirect()->route('admin.staff.categories.index')
+            ->with('success', 'Leave and payroll settings updated successfully.');
     }
 
     public function attendanceIndex(Request $request): View
@@ -366,15 +487,38 @@ class StaffManagementController extends Controller
         Gate::authorize('create', EmployeeAttendance::class);
 
         $shop = $request->filled('shop_id') ? Shop::query()->findOrFail($request->integer('shop_id')) : null;
+        $attendanceDate = Carbon::parse($request->string('attendance_date')->toString());
+        $existingAttendance = EmployeeAttendance::query()
+            ->where('employee_id', $employee->id)
+            ->whereDate('attendance_date', $attendanceDate->toDateString())
+            ->first();
 
-        $this->attendanceService->upsert(
+        $attendance = $this->attendanceService->upsert(
             $employee,
-            Carbon::parse($request->string('attendance_date')->toString()),
+            $attendanceDate,
             $request->string('status')->toString(),
             $request->user(),
             'admin',
             $shop,
             $request->input('notes'),
+        );
+
+        $this->hrOverrideService->record(
+            'attendance',
+            $employee,
+            $attendance,
+            [
+                'status' => $existingAttendance?->status,
+                'shop_id' => $existingAttendance?->shop_id,
+                'notes' => $existingAttendance?->notes,
+            ],
+            [
+                'status' => $attendance->status,
+                'shop_id' => $attendance->shop_id,
+                'notes' => $attendance->notes,
+            ],
+            $request->string('notes')->toString(),
+            $request->user(),
         );
 
         if ($request->input('redirect_to') === 'profile') {
@@ -415,6 +559,7 @@ class StaffManagementController extends Controller
 
         LeaveRequestModel::query()->create([
             'employee_id' => $employee->id,
+            'leave_type_id' => $request->integer('leave_type_id'),
             'submitted_by' => $request->user()->id,
             'submitted_for_shop_id' => $shopId,
             'start_date' => $request->date('start_date'),
@@ -429,12 +574,23 @@ class StaffManagementController extends Controller
 
     public function reviewLeave(ReviewEmployeeLeaveRequest $request, LeaveRequestModel $leaveRequest): RedirectResponse
     {
+        $oldStatus = $leaveRequest->status;
         $leaveRequest->forceFill([
             'status' => $request->string('status')->toString(),
             'review_note' => $request->input('review_note'),
             'reviewed_by' => $request->user()->id,
             'reviewed_at' => now(),
         ])->save();
+
+        $this->hrOverrideService->record(
+            'leave_approval',
+            $leaveRequest->employee,
+            $leaveRequest,
+            ['status' => $oldStatus, 'review_note' => null],
+            ['status' => $leaveRequest->status, 'review_note' => $leaveRequest->review_note],
+            $request->string('review_note')->toString(),
+            $request->user(),
+        );
 
         if ($leaveRequest->status === 'approved') {
             $currentDate = $leaveRequest->start_date->copy();
@@ -451,6 +607,35 @@ class StaffManagementController extends Controller
                 );
 
                 $currentDate->addDay();
+            }
+
+            $this->leaveLedgerService->recordApprovedLeave($leaveRequest, $request->user());
+        }
+
+        if ($leaveRequest->status === 'rejected') {
+            EmployeeAttendance::query()
+                ->where('employee_id', $leaveRequest->employee_id)
+                ->whereBetween('attendance_date', [$leaveRequest->start_date->toDateString(), $leaveRequest->end_date->toDateString()])
+                ->where('status', 'leave')
+                ->where(function (Builder $query) use ($leaveRequest): void {
+                    $query->where(function (Builder $ownerQuery) use ($leaveRequest): void {
+                        $ownerQuery
+                            ->where('source', 'owner')
+                            ->where('shop_id', $leaveRequest->submitted_for_shop_id);
+                    })->orWhere(function (Builder $approvedQuery): void {
+                        $approvedQuery
+                            ->where('source', 'admin')
+                            ->where('notes', 'Auto-marked from approved leave request.');
+                    });
+                })
+                ->delete();
+
+            if ($oldStatus === 'approved') {
+                $this->leaveLedgerService->reverseApprovedLeave(
+                    $leaveRequest,
+                    $request->user(),
+                    $request->string('review_note')->toString(),
+                );
             }
         }
 
@@ -476,6 +661,58 @@ class StaffManagementController extends Controller
         ]);
     }
 
+    public function paymentsIndex(Request $request): View
+    {
+        Gate::authorize('viewAny', PayrollRun::class);
+
+        $payrollMonth = $request->string('payroll_month')->toString();
+
+        if ($payrollMonth === '' && $request->filled('date')) {
+            $payrollMonth = Carbon::parse($request->string('date')->toString())->format('Y-m');
+        }
+
+        $selectedPayrollMonth = $this->resolvePayrollMonth($payrollMonth);
+
+        $payrollRun = PayrollRun::query()
+            ->with(['items.employee', 'items.category', 'items.payments.journalEntry', 'items.payments.paidBy'])
+            ->whereDate('period_start', $selectedPayrollMonth->toDateString())
+            ->first();
+
+        $payments = PayrollPayment::query()
+            ->with(['employee', 'payrollRun', 'journalEntry', 'paidBy'])
+            ->whereDate('paid_on', '>=', $selectedPayrollMonth->toDateString())
+            ->whereDate('paid_on', '<=', $selectedPayrollMonth->copy()->endOfMonth()->toDateString())
+            ->latest('paid_on')
+            ->latest('id')
+            ->get();
+
+        return view('admin.staff.payments', [
+            'selectedPayrollMonth' => $selectedPayrollMonth,
+            'payrollRun' => $payrollRun,
+            'payments' => $payments,
+        ]);
+    }
+
+    public function storePayrollPayment(StorePayrollPaymentRequest $request): RedirectResponse
+    {
+        $validated = $request->validated();
+        $payrollRunItem = PayrollRunItem::query()->with(['payrollRun', 'employee', 'payments'])->findOrFail((int) $validated['payroll_run_item_id']);
+
+        $payment = $this->payrollPaymentService->record(
+            $payrollRunItem,
+            (float) $validated['amount'],
+            (string) $validated['payment_method'],
+            (string) $validated['payment_type'],
+            Carbon::parse((string) $validated['paid_on']),
+            $request->user(),
+            $validated['notes'] ?? null,
+        );
+
+        return redirect()->route('admin.staff.payments.index', [
+            'payroll_month' => $payment->payrollRun->period_start->format('Y-m'),
+        ])->with('success', 'Salary payment recorded and posted to journals.');
+    }
+
     public function storePayroll(StorePayrollRunRequest $request): RedirectResponse
     {
         $payrollRun = $this->payrollService->generate(
@@ -490,14 +727,44 @@ class StaffManagementController extends Controller
             ->with('success', 'Payroll draft generated for '.$payrollRun->period_start->format('F Y').'. Review and finalize when ready.');
     }
 
-    public function updatePayrollItem(UpdatePayrollRunItemRequest $request, PayrollRun $payrollRun, PayrollRunItem $payrollRunItem): RedirectResponse
+    public function updatePayrollItem(UpdatePayrollRunItemRequest $request, PayrollRun $payrollRun, PayrollRunItem $payrollRunItem): JsonResponse|RedirectResponse
     {
         abort_unless($payrollRunItem->payroll_run_id === $payrollRun->id, 404);
 
-        $this->payrollService->updateOverride(
+        $validated = $request->validated();
+        $updatedItem = $this->payrollService->updateOverride(
             $payrollRunItem,
-            $request->filled('override_amount') ? (float) $request->input('override_amount') : null,
+            $request->filled('override_amount') ? (float) $validated['override_amount'] : null,
+            $request->user(),
+            (string) $validated['override_reason'],
         );
+
+        if ($request->expectsJson()) {
+            $updatedRun = $payrollRun->fresh(['items.category']);
+
+            return response()->json([
+                'message' => 'Payroll override updated.',
+                'item' => [
+                    'id' => $updatedItem->id,
+                    'final_amount' => (float) $updatedItem->final_amount,
+                    'final_amount_formatted' => 'Rs. '.number_format((float) $updatedItem->final_amount, 2),
+                ],
+                'run' => [
+                    'id' => $updatedRun?->id,
+                    'net_amount' => (float) ($updatedRun?->net_amount ?? 0),
+                    'net_amount_formatted' => 'Rs. '.number_format((float) ($updatedRun?->net_amount ?? 0), 2),
+                ],
+                'categories' => $updatedRun?->items
+                    ->groupBy(fn (PayrollRunItem $item): string => $item->category?->name ?? 'Uncategorized')
+                    ->map(fn (Collection $items, string $categoryName): array => [
+                        'name' => $categoryName,
+                        'total' => (float) $items->sum('final_amount'),
+                        'total_formatted' => 'Rs. '.number_format((float) $items->sum('final_amount'), 2),
+                    ])
+                    ->values()
+                    ->all() ?? [],
+            ]);
+        }
 
         return redirect()->route('admin.staff.payroll.index', [
             'payroll_month' => $payrollRun->period_start->format('Y-m'),

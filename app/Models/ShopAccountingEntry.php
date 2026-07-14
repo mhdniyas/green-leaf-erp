@@ -89,6 +89,6 @@ class ShopAccountingEntry extends Model
 
     public function canBeEditedByShopOwner(): bool
     {
-        return true;
+        return in_array($this->status, ['draft', 'recheck_required', 'approved'], true);
     }
 }

@@ -20,6 +20,10 @@ class ShopOrderItem extends Model
         'requested_qty',
         'approved_qty',
         'loaded_qty',
+        'shop_reported_received_qty',
+        'shop_reported_missing_qty',
+        'shop_reported_damaged_qty',
+        'shop_reported_returned_qty',
         'loadout_discrepancy_type',
         'loadout_discrepancy_note',
         'unit',
@@ -45,6 +49,10 @@ class ShopOrderItem extends Model
         'requested_qty' => 'decimal:2',
         'approved_qty' => 'decimal:2',
         'loaded_qty' => 'decimal:2',
+        'shop_reported_received_qty' => 'decimal:2',
+        'shop_reported_missing_qty' => 'decimal:2',
+        'shop_reported_damaged_qty' => 'decimal:2',
+        'shop_reported_returned_qty' => 'decimal:2',
         'locked_selling_price' => 'decimal:2',
         'line_total' => 'decimal:2',
         'is_sorted' => 'boolean',
@@ -100,10 +108,6 @@ class ShopOrderItem extends Model
         $order = $this->relationLoaded('order') ? $this->order : null;
 
         if ($order?->delivery_status === 'pending_approval') {
-            if ((float) $this->delivered_qty === (float) $this->approved_qty) {
-                return 'delivered';
-            }
-
             return 'pending_approval';
         }
 
@@ -134,7 +138,7 @@ class ShopOrderItem extends Model
             'partially_delivered' => 'Partial Delivery',
             'delivered' => 'Delivered',
             'delivery_issue' => 'Delivery Issue',
-            'pending_approval' => 'Pending Approval',
+            'pending_approval' => 'Awaiting Admin Review',
             default => 'Approved',
         };
     }

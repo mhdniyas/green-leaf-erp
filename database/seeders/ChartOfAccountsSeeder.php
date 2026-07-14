@@ -23,6 +23,7 @@ class ChartOfAccountsSeeder extends Seeder
 
             // Liabilities (2000-2999)
             ['code' => '2100', 'name' => 'Accounts Payable', 'type' => 'liability', 'is_active' => true, 'parent_id' => null],
+            ['code' => '2150', 'name' => 'Goods Received Not Invoiced', 'type' => 'liability', 'is_active' => true, 'parent_id' => null],
 
             // Equity (3000-3999)
             ['code' => '3100', 'name' => 'Owner\'s Equity', 'type' => 'equity', 'is_active' => true, 'parent_id' => null],

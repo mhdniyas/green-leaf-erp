@@ -8,9 +8,11 @@ use App\DTOs\Finance\JournalEntryData;
 use App\Models\Account;
 use App\Models\Employee;
 use App\Models\EmployeeAttendance;
+use App\Models\EmployeeLeaveRequest;
 use App\Models\JournalEntry;
 use App\Models\PayrollRun;
 use App\Models\PayrollRunItem;
+use App\Models\User;
 use App\Services\Finance\JournalService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -20,6 +22,7 @@ class PayrollService
 {
     public function __construct(
         private readonly JournalService $journalService,
+        private readonly HrOverrideService $hrOverrideService,
     ) {}
 
     public function generate(Carbon $periodStart, Carbon $periodEnd, int $userId): PayrollRun
@@ -100,14 +103,31 @@ class PayrollService
         });
     }
 
-    public function updateOverride(PayrollRunItem $payrollRunItem, ?float $overrideAmount): PayrollRunItem
+    public function updateOverride(PayrollRunItem $payrollRunItem, ?float $overrideAmount, User $actor, string $reason): PayrollRunItem
     {
         $overrideAmount = $overrideAmount !== null ? round($overrideAmount, 2) : null;
+        $oldValues = [
+            'override_amount' => $payrollRunItem->override_amount !== null ? (float) $payrollRunItem->override_amount : null,
+            'final_amount' => (float) $payrollRunItem->final_amount,
+        ];
 
         $payrollRunItem->forceFill([
             'override_amount' => $overrideAmount,
             'final_amount' => $overrideAmount ?? (float) $payrollRunItem->computed_amount,
         ])->save();
+
+        $this->hrOverrideService->record(
+            'payroll_item',
+            $payrollRunItem->employee,
+            $payrollRunItem,
+            $oldValues,
+            [
+                'override_amount' => $overrideAmount,
+                'final_amount' => (float) $payrollRunItem->final_amount,
+            ],
+            $reason,
+            $actor,
+        );
 
         $this->refreshRunTotals($payrollRunItem->payrollRun);
 
@@ -151,12 +171,31 @@ class PayrollService
             ->whereDate('attendance_date', '>=', $periodStart->toDateString())
             ->whereDate('attendance_date', '<=', $periodEnd->toDateString())
             ->get();
+        $approvedLeaveRequests = EmployeeLeaveRequest::query()
+            ->with('leaveType')
+            ->where('employee_id', $employee->id)
+            ->where('status', 'approved')
+            ->whereDate('start_date', '<=', $periodEnd->toDateString())
+            ->whereDate('end_date', '>=', $periodStart->toDateString())
+            ->get();
 
         $attendanceByDate = $attendances->keyBy(fn (EmployeeAttendance $attendance): string => $attendance->attendance_date->toDateString());
+        $approvedLeaveByDate = [];
+
+        foreach ($approvedLeaveRequests as $leaveRequest) {
+            $cursor = $leaveRequest->start_date->copy();
+
+            while ($cursor->lte($leaveRequest->end_date)) {
+                $approvedLeaveByDate[$cursor->toDateString()] = $leaveRequest;
+                $cursor->addDay();
+            }
+        }
+
         $presentDays = 0.0;
         $halfDays = 0.0;
         $absentDays = 0.0;
-        $leaveCount = 0;
+        $approvedPaidLikeLeaveCount = 0.0;
+        $unpaidLeaveDays = 0.0;
         $cursor = $periodStart->copy();
 
         while ($cursor->lte($periodEnd)) {
@@ -172,7 +211,13 @@ class PayrollService
             match ($attendance->status) {
                 'present' => $presentDays++,
                 'half_day' => $halfDays++,
-                'leave' => $leaveCount++,
+                'leave' => $this->accumulateLeaveDay(
+                    $attendance,
+                    $approvedLeaveByDate[$cursor->toDateString()] ?? null,
+                    $approvedPaidLikeLeaveCount,
+                    $unpaidLeaveDays,
+                    $absentDays,
+                ),
                 default => $absentDays++,
             };
 
@@ -180,8 +225,8 @@ class PayrollService
         }
 
         $paidLeaveLimit = max(0, (int) $employee->category->monthly_paid_leave_limit);
-        $paidLeaveDays = min($leaveCount, $paidLeaveLimit);
-        $unpaidLeaveDays = max(0, $leaveCount - $paidLeaveDays);
+        $paidLeaveDays = min($approvedPaidLikeLeaveCount, $paidLeaveLimit);
+        $unpaidLeaveDays += max(0, $approvedPaidLikeLeaveCount - $paidLeaveDays);
 
         return [
             'present_days' => $presentDays,
@@ -245,5 +290,31 @@ class PayrollService
             ),
             $userId,
         );
+    }
+
+    private function accumulateLeaveDay(
+        EmployeeAttendance $attendance,
+        ?EmployeeLeaveRequest $approvedLeaveRequest,
+        float &$approvedPaidLikeLeaveCount,
+        float &$unpaidLeaveDays,
+        float &$absentDays,
+    ): void {
+        if ($approvedLeaveRequest !== null) {
+            if ($approvedLeaveRequest->leaveType?->is_paid ?? true) {
+                $approvedPaidLikeLeaveCount++;
+            } else {
+                $unpaidLeaveDays++;
+            }
+
+            return;
+        }
+
+        if ($attendance->isHrManaged()) {
+            $approvedPaidLikeLeaveCount++;
+
+            return;
+        }
+
+        $absentDays++;
     }
 }

@@ -4,10 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web;
 
-use App\DTOs\Inventory\WastageEntryData;
+use App\Domains\ShopOrder\Actions\ResolveDeliveryReviewAction;
 use App\Enums\Inventory\ProductGrade;
-use App\Enums\Inventory\StockMovementType;
-use App\Enums\Inventory\WastageReason;
 use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\ReviewDeliveryDiscrepancyRequest;
@@ -17,7 +15,6 @@ use App\Models\PurchaseOrderItem;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
-use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Notifications\LateRequisitionSubmittedNotification;
@@ -25,14 +22,14 @@ use App\Notifications\PurchaseOrderCreatedNotification;
 use App\Notifications\PurchasingOrderRevisionRequestedNotification;
 use App\Notifications\PurchasingOrderSubmittedNotification;
 use App\Services\Inventory\StockLedgerService;
-use App\Services\Inventory\WastageService;
 use App\Services\Pricing\PriceBoardService;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Requisition\ShopOrderRevisionService;
 use App\Services\ShopInvoices\ShopInvoiceService;
+use App\Support\ShopOwner\ActiveShopResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -45,8 +42,11 @@ class RequisitionController extends Controller
     public function __construct(
         private readonly StockLedgerService $stockLedgerService,
         private readonly PriceBoardService $priceBoardService,
+        private readonly PurchaserBusinessDayService $businessDayService,
         private readonly ShopOrderRevisionService $shopOrderRevisionService,
         private readonly ShopInvoiceService $shopInvoiceService,
+        private readonly ActiveShopResolver $activeShopResolver,
+        private readonly ResolveDeliveryReviewAction $resolveDeliveryReviewAction,
     ) {}
 
     /**
@@ -58,7 +58,7 @@ class RequisitionController extends Controller
     {
         $user = $request->user();
 
-        if (! $user->shop_id) {
+        if ($user->hasRole('shop') && $this->activeShopResolver->authorizedShops($user)->isEmpty()) {
             if ($request->expectsJson()) {
                 return response()->json(['error' => 'User is not associated with any shop.'], 400);
             }
@@ -80,26 +80,22 @@ class RequisitionController extends Controller
                 ->withInput();
         }
 
-        $businessDate = Carbon::tomorrow()->format('Y-m-d');
+        $activeShop = $user->hasRole('shop') ? $this->activeShopResolver->resolve($request) : $user->shop;
+        abort_unless($activeShop instanceof Shop, 403, 'User is not associated with any shop.');
 
-        // Enforcement: check if cutoff has passed for tomorrow's date
-        // Cutoff is today 9:30 PM.
-        $cutoff = Carbon::today()->setTime(21, 30, 0);
-        $isLate = now()->greaterThan($cutoff);
+        $nowInKolkata = now('Asia/Kolkata');
+        $businessDate = $nowInKolkata->copy()->addDay()->toDateString();
+        $cutoff = $this->businessDayService->rolloverStartsAt($nowInKolkata);
+        $isLate = $nowInKolkata->greaterThan($cutoff);
 
-        $order = DB::transaction(function () use ($user, $items, $businessDate, $isLate) {
-            // Delete any existing draft/submitted order for tomorrow
-            ShopOrder::where('shop_id', $user->shop_id)
-                ->where('business_date', $businessDate)
-                ->delete();
-
+        $order = DB::transaction(function () use ($activeShop, $user, $items, $businessDate, $isLate, $cutoff) {
             $shopOrder = ShopOrder::create([
-                'shop_id' => $user->shop_id,
+                'shop_id' => $activeShop->id,
                 'business_date' => $businessDate,
                 'state' => 'submitted',
                 'is_late' => $isLate,
                 'submitted_at' => now(),
-                'deadline_at' => Carbon::today()->setTime(21, 30, 0),
+                'deadline_at' => $cutoff->utc(),
                 'created_by' => $user->id,
             ]);
 
@@ -150,9 +146,7 @@ class RequisitionController extends Controller
 
         $user = $request->user();
 
-        if ($user->hasRole('shop') && $order->shop_id !== $user->shop_id) {
-            abort(403, 'Unauthorized access to shop order.');
-        }
+        $this->authorizeShopOrderAccess($request, $order);
 
         if ($user->hasRole('shop')) {
             return redirect()->route('shop-owner.orders.show', $order->order_number);
@@ -172,9 +166,7 @@ class RequisitionController extends Controller
             ->with(['items.product'])
             ->firstOrFail();
 
-        if ($request->user()->hasRole('shop') && $order->shop_id !== $request->user()->shop_id) {
-            abort(403, 'Unauthorized access.');
-        }
+        $this->authorizeShopOrderAccess($request, $order);
 
         if ($request->user()->hasRole('shop')) {
             return redirect()->route(
@@ -201,9 +193,7 @@ class RequisitionController extends Controller
     {
         $order = ShopOrder::where('order_number', $orderNumber)->firstOrFail();
 
-        if ($request->user()->hasRole('shop') && $order->shop_id !== $request->user()->shop_id) {
-            abort(403, 'Unauthorized access.');
-        }
+        $this->authorizeShopOrderAccess($request, $order);
 
         if (! $order->canEditDirectly()) {
             return redirect()->route(
@@ -249,9 +239,7 @@ class RequisitionController extends Controller
     {
         $order = ShopOrder::where('order_number', $orderNumber)->firstOrFail();
 
-        if ($request->user()->hasRole('shop') && $order->shop_id !== $request->user()->shop_id) {
-            abort(403, 'Unauthorized access.');
-        }
+        $this->authorizeShopOrderAccess($request, $order);
 
         $canRequestApprovedUpdate = $order->state === 'approved';
 
@@ -329,9 +317,7 @@ class RequisitionController extends Controller
             ->with(['items.product', 'shop'])
             ->firstOrFail();
 
-        if ($request->user()->hasRole('shop') && $order->shop_id !== $request->user()->shop_id) {
-            abort(403, 'Unauthorized access.');
-        }
+        $this->authorizeShopOrderAccess($request, $order);
 
         $headers = [
             'Content-Type' => 'text/csv',
@@ -374,9 +360,7 @@ class RequisitionController extends Controller
             ->with(['items.product', 'shop', 'creator'])
             ->firstOrFail();
 
-        if ($request->user()->hasRole('shop') && $order->shop_id !== $request->user()->shop_id) {
-            abort(403, 'Unauthorized access.');
-        }
+        $this->authorizeShopOrderAccess($request, $order);
 
         return view('requisitions.print', compact('order'));
     }
@@ -551,7 +535,7 @@ class RequisitionController extends Controller
             abort(403, 'Unauthorized access.');
         }
 
-        $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
+        $date = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
 
         $orders = ShopOrder::query()
             ->whereDate('business_date', $date)
@@ -595,7 +579,7 @@ class RequisitionController extends Controller
             abort(403, 'Unauthorized access.');
         }
 
-        $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
+        $date = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
 
         // Load all active shops
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
@@ -693,7 +677,7 @@ class RequisitionController extends Controller
                         'business_date' => $date,
                         'state' => 'approved',
                         'submitted_at' => now(),
-                        'deadline_at' => Carbon::parse($date)->subDay()->setTime(21, 30, 0),
+                        'deadline_at' => $this->businessDayService->rolloverStartsAt(Carbon::parse($date)->subDay()),
                         'created_by' => $request->user()->id,
                     ]);
                 }
@@ -794,7 +778,7 @@ class RequisitionController extends Controller
             abort(403, 'Unauthorized access.');
         }
 
-        $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
+        $date = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
 
         // Load all active shops
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
@@ -971,7 +955,7 @@ class RequisitionController extends Controller
                         'business_date' => $date,
                         'state' => 'approved',
                         'submitted_at' => now(),
-                        'deadline_at' => Carbon::parse($date)->subDay()->setTime(21, 30, 0),
+                        'deadline_at' => $this->businessDayService->rolloverStartsAt(Carbon::parse($date)->subDay()),
                         'created_by' => $request->user()->id,
                     ]);
                 }
@@ -1048,7 +1032,7 @@ class RequisitionController extends Controller
             abort(403, 'Unauthorized access.');
         }
 
-        $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
+        $date = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
         $products = Product::with('category')->where('is_active', true)->ordered()->get();
         $orders = ShopOrder::whereDate('business_date', $date)
@@ -1118,7 +1102,7 @@ class RequisitionController extends Controller
             abort(403, 'Unauthorized access.');
         }
 
-        $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
+        $date = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
         $type = (string) $request->input('type', 'both');
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
         $products = Product::with('category')->where('is_active', true)->ordered()->get();
@@ -1152,7 +1136,7 @@ class RequisitionController extends Controller
             abort(403, 'Unauthorized access.');
         }
 
-        $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
+        $date = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
         $products = Product::with('category')->where('is_active', true)->ordered()->get();
         $orders = ShopOrder::whereDate('business_date', $date)
@@ -1217,7 +1201,7 @@ class RequisitionController extends Controller
             abort(403, 'Unauthorized access.');
         }
 
-        $date = $request->input('date', Carbon::tomorrow()->format('Y-m-d'));
+        $date = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
         $products = Product::with('category')->where('is_active', true)->ordered()->get();
         $orders = ShopOrder::whereDate('business_date', $date)
@@ -1458,9 +1442,7 @@ class RequisitionController extends Controller
             ->firstOrFail();
 
         // Access control: Shop Owner can only see their own shop orders
-        if ($request->user()->hasRole('shop') && $order->shop_id !== $request->user()->shop_id) {
-            abort(403, 'Unauthorized access to shop order.');
-        }
+        $this->authorizeShopOrderAccess($request, $order);
 
         if (! $order->is_allocation_completed) {
             return redirect()->route(
@@ -1503,9 +1485,7 @@ class RequisitionController extends Controller
             ->firstOrFail();
 
         // Access control: Shop Owner can only see their own shop orders
-        if ($request->user()->hasRole('shop') && $order->shop_id !== $request->user()->shop_id) {
-            abort(403, 'Unauthorized access to shop order.');
-        }
+        $this->authorizeShopOrderAccess($request, $order);
 
         if (! $order->is_allocation_completed) {
             return redirect()->route('requisitions.show', $orderNumber)
@@ -1529,7 +1509,6 @@ class RequisitionController extends Controller
         $cashCollected = (float) $request->input('cash_collected', 0.00);
         $financeNote = $request->input('finance_note');
 
-        // First validate that no delivered_qty is more than loaded_qty (or approved_qty fallback)
         $hasDiscrepancy = false;
         foreach ($order->items as $item) {
             $deliveredQty = (float) ($deliveredQtys[$item->id] ?? 0.00);
@@ -1546,64 +1525,47 @@ class RequisitionController extends Controller
             }
         }
 
-        DB::transaction(function () use ($order, $deliveredQtys, $cashCollected, $financeNote, $request, $hasDiscrepancy): void {
-            foreach ($order->items as $item) {
-                $deliveredQty = (float) ($deliveredQtys[$item->id] ?? 0.00);
-                $expectedQty = $item->loaded_qty !== null ? (float) $item->loaded_qty : (float) ($item->approved_qty ?? 0.00);
-
-                // shortage_qty = expected_qty - delivered_qty (shorted amount)
-                $shortageQty = max(0.00, $expectedQty - $deliveredQty);
-
-                // Fetch unit cost
-                $unitCost = $this->resolveProductUnitCost(
+        foreach ($order->items as $item) {
+            $item->update([
+                'unit_cost' => $this->resolveProductUnitCost(
                     $item->product_id,
                     $order->business_date->format('Y-m-d')
-                );
-
-                $item->update([
-                    'delivered_qty' => $deliveredQty,
-                    'shortage_qty' => $shortageQty,
-                    'unit_cost' => $unitCost,
-                    'shortage_value' => $shortageQty * $unitCost,
-                ]);
-
-                // Stock was already consumed at "Move to Delivery" (dispatchOrder).
-                // Driver check-in only records what was received vs loaded for discrepancy tracking.
-            }
-
-            $invoice = $this->shopInvoiceService->applyDeliveryCheckin(
-                $order,
-                $deliveredQtys,
-                (int) $request->user()->id,
-                $request->input('delivery_notes'),
-            );
-
-            $expectedDeliveredValue = (float) ($invoice->subtotal - $invoice->shortage_total);
-            $cashDiscrepancy = $expectedDeliveredValue - $cashCollected;
-
-            $invoice->update([
-                'paid_amount' => $cashCollected,
+                ),
             ]);
+        }
 
-            $invoice = $this->shopInvoiceService->recalculate($invoice);
+        $order = $this->resolveDeliveryReviewAction->submit(
+            $order,
+            array_map(static fn ($value): float => (float) $value, $deliveredQtys),
+            (int) $request->user()->id,
+            $request->input('delivery_notes'),
+        );
 
-            $order->update([
-                'cash_collected' => $cashCollected,
-                'cash_discrepancy' => $cashDiscrepancy,
-                'finance_note' => $financeNote,
-                'balance_amount' => $invoice->balance_amount,
-                'payment_status' => $invoice->payment_status,
-            ]);
-
-            activity()
-                ->performedOn($order)
-                ->causedBy($request->user())
-                ->log($hasDiscrepancy ? 'delivery_checkin_discrepancy_filed' : 'delivered');
+        $reportedFinalValue = $order->items->sum(function (ShopOrderItem $item): float {
+            return round((float) ($item->shop_reported_received_qty ?? 0) * (float) ($item->locked_selling_price ?? 0), 2);
         });
+        $reportedShortageValue = $order->items->sum(function (ShopOrderItem $item): float {
+            return round((float) ($item->shop_reported_missing_qty ?? 0) * (float) ($item->unit_cost ?? 0), 2);
+        });
+        $cashDiscrepancy = round($reportedFinalValue - $cashCollected, 2);
+        $reportedBalance = round(max(0, $cashDiscrepancy), 2);
+
+        $order->update([
+            'cash_collected' => $cashCollected,
+            'cash_discrepancy' => $cashDiscrepancy,
+            'finance_note' => $financeNote,
+            'balance_amount' => $reportedBalance,
+            'total_shortage_value' => $reportedShortageValue,
+            'payment_status' => match (true) {
+                $cashCollected <= 0.0 => 'unpaid',
+                $reportedBalance > 0.0 => 'partial',
+                default => 'paid',
+            },
+        ]);
 
         $message = $hasDiscrepancy
-            ? 'Delivery check-in submitted with discrepancies. Sent to manager for approval.'
-            : 'Delivery checked-in successfully.';
+            ? 'Delivery check-in submitted. Admin review is required before the invoice is updated.'
+            : 'Delivery check-in submitted. Admin approval is still required before the invoice is updated.';
 
         return redirect()->route(
             $request->user()->hasRole('shop') ? 'shop-owner.deliveries.show' : 'requisitions.show',
@@ -1624,127 +1586,21 @@ class RequisitionController extends Controller
             ->with(['items', 'invoice'])
             ->firstOrFail();
 
-        if ($order->is_delivered) {
-            return redirect()->route('requisitions.show', $orderNumber)
-                ->with('error', 'This order has already been marked as delivered.');
-        }
-
-        if ($order->delivery_status !== 'pending_approval') {
-            return redirect()->route('requisitions.show', $orderNumber)
-                ->with('error', 'This order is not pending discrepancy approval.');
-        }
-
-        DB::transaction(function () use ($order, $request): void {
-            $this->applyApprovedDeliveryAdjustments(
-                $order,
-                $request->validated('approved_delivered_qty', []),
-                $request->validated('item_review_notes', []),
-                $request->validated('delivery_discrepancy_types', []),
-                $request->validated('delivery_discrepancy_notes', [])
-            );
-
-            $order->refresh()->loadMissing(['items', 'invoice.items']);
-            $totalDeliveredQuantity = 0.00;
-            $totalApprovedQuantity = 0.00;
-            $userId = (int) $request->user()->id;
-
-            foreach ($order->items as $item) {
-                $deliveredQty = (float) $item->delivered_qty;
-                $expectedQty = $item->loaded_qty !== null ? (float) $item->loaded_qty : (float) $item->approved_qty;
-                $shortageQty = (float) $item->shortage_qty;
-                $discrepancyType = $item->delivery_discrepancy_type;
-                if ($discrepancyType === 'none' || ! $discrepancyType) {
-                    $discrepancyType = 'wastage';
-                }
-                $discrepancyNote = $item->delivery_discrepancy_note;
-
-                // Stock OUT was already consumed at "Move to Delivery" dispatch.
-                // Here we only write off the shortage amount from stock (wastage or adjustment).
-                if ($shortageQty > 0.0) {
-                    if ($discrepancyType === 'wastage') {
-                        // Consume wastage in stock ledger
-                        $notes = "Delivery shortage discrepancy (approved): {$order->order_number}";
-                        $this->stockLedgerService->consumeSortedStockForProduct(
-                            $item->product_id,
-                            $shortageQty,
-                            $userId,
-                            StockMovementType::Wastage,
-                            $notes
-                        );
-
-                        // Find the movements we just created to record corresponding WastageEntry records
-                        $movements = StockMovement::where('product_id', $item->product_id)
-                            ->where('type', StockMovementType::Wastage->value)
-                            ->where('created_by', $userId)
-                            ->where('notes', $notes)
-                            ->get();
-
-                        $wastageService = app(WastageService::class);
-                        foreach ($movements as $m) {
-                            $wastageService->record(new WastageEntryData(
-                                productId: $m->product_id,
-                                batchId: $m->batch_id,
-                                grade: $m->grade instanceof ProductGrade ? $m->grade->value : (string) $m->grade,
-                                quantity: (float) $m->quantity,
-                                costPerKg: (float) $m->cost_per_unit,
-                                reason: WastageReason::TransitDamage,
-                                wastageDate: now()->toDateString(),
-                                notes: 'Delivery discrepancy wastage: '.($discrepancyNote ?? 'Order delivery discrepancy'),
-                            ), $userId);
-                        }
-                    } else {
-                        // Consume as adjustment/other in stock ledger
-                        $this->stockLedgerService->consumeSortedStockForProduct(
-                            $item->product_id,
-                            $shortageQty,
-                            $userId,
-                            StockMovementType::Adjustment,
-                            "Delivery shortage discrepancy other (approved): {$order->order_number}"
-                        );
-                    }
-                }
-
-                $totalDeliveredQuantity += $deliveredQty;
-                $totalApprovedQuantity += $expectedQty;
-            }
-
-            $deliveryStatus = match (true) {
-                $totalDeliveredQuantity <= 0.00 => 'delivery_issue',
-                $totalDeliveredQuantity < $totalApprovedQuantity => 'partially_delivered',
-                default => 'delivered',
-            };
-
-            $this->shopInvoiceService->finalizeDiscrepancy($order, (int) $request->user()->id);
-
-            $order->refresh();
-            $order->update([
-                'delivery_status' => $deliveryStatus,
-                'delivery_notes' => $this->appendReviewNote(
-                    $order->delivery_notes,
-                    'Discrepancy approved',
-                    $request->validated('review_note')
-                ),
-            ]);
-
-            $order->invoice?->update([
-                'delivery_note' => $this->appendReviewNote(
-                    $order->invoice->delivery_note,
-                    'Discrepancy approved',
-                    $request->validated('review_note')
-                ),
-            ]);
-
-            activity()
-                ->performedOn($order)
-                ->causedBy($request->user())
-                ->log('delivery_discrepancy_approved');
-        });
+        $order = $this->resolveDeliveryReviewAction->approve(
+            $order,
+            $request->validated('approved_delivered_qty', []),
+            $request->validated('item_review_notes', []),
+            $request->validated('delivery_discrepancy_types', []),
+            $request->validated('delivery_discrepancy_notes', []),
+            (int) $request->user()->id,
+            $request->validated('review_note')
+        );
 
         return redirect()->route(
             $this->deliveryReviewRedirectRoute($request),
             $this->deliveryReviewRedirectParameter($request, $order)
         )
-            ->with('success', 'Delivery discrepancies approved and check-in finalized.');
+            ->with('success', 'Delivery review approved and invoice totals were recalculated.');
     }
 
     public function rejectDeliveryDiscrepancy(ReviewDeliveryDiscrepancyRequest $request, string $orderNumber): RedirectResponse
@@ -1757,152 +1613,16 @@ class RequisitionController extends Controller
             ->with(['items', 'invoice.items'])
             ->firstOrFail();
 
-        if ($order->is_delivered) {
-            return redirect()->route(
-                $this->deliveryReviewRedirectRoute($request),
-                $this->deliveryReviewRedirectParameter($request, $order)
-            )->with('error', 'This order has already been marked as delivered.');
-        }
-
-        if ($order->delivery_status !== 'pending_approval') {
-            return redirect()->route(
-                $this->deliveryReviewRedirectRoute($request),
-                $this->deliveryReviewRedirectParameter($request, $order)
-            )->with('error', 'This order is not pending discrepancy approval.');
-        }
-
-        DB::transaction(function () use ($order, $request): void {
-            foreach ($order->items as $item) {
-                $item->update([
-                    'delivered_qty' => 0,
-                    'shortage_qty' => 0,
-                    'shortage_value' => 0,
-                ]);
-            }
-
-            if ($order->invoice) {
-                foreach ($order->invoice->items as $invoiceItem) {
-                    $invoiceItem->update([
-                        'delivered_qty' => 0,
-                        'shortage_qty' => 0,
-                        'shortage_amount' => 0,
-                        'final_line_total' => (float) $invoiceItem->line_subtotal,
-                    ]);
-                }
-
-                $order->invoice->update([
-                    'delivery_status' => 'pending',
-                    'status' => 'generated',
-                    'delivery_note' => $this->appendReviewNote(
-                        $order->invoice->delivery_note,
-                        'Discrepancy rejected',
-                        $request->validated('review_note')
-                    ),
-                    'delivery_confirmed_by' => null,
-                    'delivery_confirmed_at' => null,
-                ]);
-
-                $invoice = $this->shopInvoiceService->recalculate($order->invoice->fresh('items'));
-
-                $order->update([
-                    'balance_amount' => $invoice->balance_amount,
-                ]);
-            }
-
-            $order->update([
-                'delivery_status' => 'in_transit',
-                'is_delivered' => false,
-                'delivered_at' => null,
-                'delivered_by' => null,
-                'delivery_notes' => $this->appendReviewNote(
-                    $order->delivery_notes,
-                    'Discrepancy rejected',
-                    $request->validated('review_note')
-                ),
-                'total_shortage_value' => 0,
-            ]);
-
-            activity()
-                ->performedOn($order)
-                ->causedBy($request->user())
-                ->log('delivery_discrepancy_rejected');
-        });
+        $order = $this->resolveDeliveryReviewAction->reject(
+            $order,
+            (int) $request->user()->id,
+            $request->validated('review_note')
+        );
 
         return redirect()->route(
             $this->deliveryReviewRedirectRoute($request),
             $this->deliveryReviewRedirectParameter($request, $order)
-        )->with('success', 'Delivery discrepancy rejected. Shop owner can submit delivery check-in again.');
-    }
-
-    private function appendReviewNote(?string $existing, string $label, ?string $note): string
-    {
-        $message = trim($label.($note ? ': '.$note : ''));
-
-        return trim(implode("\n", array_filter([
-            $existing,
-            '['.now()->format('d M Y H:i').'] '.$message,
-        ])));
-    }
-
-    /**
-     * @param  array<int|string, mixed>  $approvedDeliveredQuantities
-     * @param  array<int|string, mixed>  $itemReviewNotes
-     * @param  array<int|string, string>  $deliveryDiscrepancyTypes
-     * @param  array<int|string, string>  $deliveryDiscrepancyNotes
-     */
-    private function applyApprovedDeliveryAdjustments(
-        ShopOrder $order,
-        array $approvedDeliveredQuantities,
-        array $itemReviewNotes,
-        array $deliveryDiscrepancyTypes = [],
-        array $deliveryDiscrepancyNotes = []
-    ): void {
-        $order->loadMissing(['items', 'invoice.items']);
-        $invoiceItemsByOrderItemId = collect($order->invoice?->items ?? [])
-            ->keyBy(fn ($invoiceItem) => (int) $invoiceItem->shop_order_item_id);
-
-        foreach ($order->items as $item) {
-            $expectedQty = $item->loaded_qty !== null ? round((float) $item->loaded_qty, 2) : round((float) $item->approved_qty, 2);
-            $deliveredQty = round((float) Arr::get($approvedDeliveredQuantities, $item->id, $item->delivered_qty ?? 0), 2);
-
-            if ($deliveredQty < 0 || $deliveredQty > $expectedQty) {
-                $productName = $item->product?->name ?? 'this item';
-
-                throw ValidationException::withMessages([
-                    "approved_delivered_qty.{$item->id}" => "Approved delivered quantity for {$productName} must be between 0 and {$expectedQty}.",
-                ]);
-            }
-
-            $shortageQty = round(max(0, $expectedQty - $deliveredQty), 2);
-            $shortageValue = round($shortageQty * (float) $item->unit_cost, 2);
-            $itemReviewNote = trim((string) Arr::get($itemReviewNotes, $item->id, ''));
-
-            $item->update([
-                'delivered_qty' => $deliveredQty,
-                'shortage_qty' => $shortageQty,
-                'shortage_value' => $shortageValue,
-                'delivery_discrepancy_type' => Arr::get($deliveryDiscrepancyTypes, $item->id, 'none'),
-                'delivery_discrepancy_note' => Arr::get($deliveryDiscrepancyNotes, $item->id),
-                'notes' => $itemReviewNote !== ''
-                    ? $this->appendReviewNote($item->notes, 'Delivery review', $itemReviewNote)
-                    : $item->notes,
-            ]);
-
-            $invoiceItem = $invoiceItemsByOrderItemId->get((int) $item->id);
-
-            if (! $invoiceItem) {
-                continue;
-            }
-
-            $shortageAmount = round($shortageQty * (float) $invoiceItem->unit_price, 2);
-
-            $invoiceItem->update([
-                'delivered_qty' => $deliveredQty,
-                'shortage_qty' => $shortageQty,
-                'shortage_amount' => $shortageAmount,
-                'final_line_total' => round((float) $invoiceItem->line_subtotal - $shortageAmount, 2),
-            ]);
-        }
+        )->with('success', 'Delivery review rejected. Shop owner can submit delivery check-in again.');
     }
 
     private function deliveryReviewRedirectRoute(Request $request): string
@@ -2379,5 +2099,16 @@ class RequisitionController extends Controller
             number_format($rejectedQty, 2, '.', ''),
             $item->unit
         );
+    }
+
+    private function authorizeShopOrderAccess(Request $request, ShopOrder $order): void
+    {
+        if (! $request->user()->hasRole('shop')) {
+            return;
+        }
+
+        $activeShop = $this->activeShopResolver->resolve($request);
+
+        abort_unless($order->shop_id === $activeShop->id, 403, 'Unauthorized access to shop order.');
     }
 }

@@ -22,6 +22,8 @@ class ShopAccountingInvoice extends Model
         'generated_by',
         'approved_by',
         'approved_at',
+        'paid_by',
+        'paid_at',
         'notes',
     ];
 
@@ -29,6 +31,7 @@ class ShopAccountingInvoice extends Model
         'period_start' => 'date',
         'period_end' => 'date',
         'approved_at' => 'datetime',
+        'paid_at' => 'datetime',
         'total_income' => 'decimal:2',
         'total_expense' => 'decimal:2',
         'net_amount' => 'decimal:2',
@@ -49,6 +52,11 @@ class ShopAccountingInvoice extends Model
     public function approvedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function paidBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'paid_by');
     }
 
     public function splits(): HasMany

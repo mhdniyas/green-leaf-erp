@@ -1,9 +1,11 @@
+@php($cutoffLabel = $cutoffLabel ?? app(\App\Services\Purchasing\PurchaserBusinessDayService::class)->cutoffLabel())
+
 <section class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
     <div class="flex flex-col gap-4 border-b border-slate-100 pb-5 md:flex-row md:items-start md:justify-between">
         <div>
             <p class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">{{ isset($isUpdateRequest) && $isUpdateRequest ? 'Request Items' : 'Marketplace' }}</p>
             <h2 class="mt-1 text-xl font-black text-slate-950">{{ $tomorrowDate->format('d F Y') }}</h2>
-            <p class="mt-2 text-sm text-slate-600">Select products, add quantity or box packs, then submit the daily order from your cart before 9:30 PM.</p>
+            <p class="mt-2 text-sm text-slate-600">Select products, add quantity or box packs, then submit the daily order from your cart before {{ $cutoffLabel }}.</p>
         </div>
         @if ($presets->isNotEmpty())
             <div class="flex items-center gap-2 mt-2 md:mt-0 shrink-0">
@@ -83,7 +85,7 @@
                 </svg>
                 <div class="text-xs sm:text-sm">
                     <h4 class="font-black text-amber-900">Late Daily Order Submission</h4>
-                    <p class="mt-1 font-medium leading-relaxed text-amber-800/95">The 9:30 PM cutoff deadline has passed. Submitting this cart will file it as a late item request pending Purchase Manager approval.</p>
+                    <p class="mt-1 font-medium leading-relaxed text-amber-800/95">The {{ $cutoffLabel }} cutoff deadline has passed. Submitting this cart will file it as a late item request pending Purchase Manager approval.</p>
                 </div>
             </div>
         @endif

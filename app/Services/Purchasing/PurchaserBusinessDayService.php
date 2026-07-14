@@ -4,10 +4,15 @@ declare(strict_types=1);
 
 namespace App\Services\Purchasing;
 
+use App\Models\BusinessSetting;
 use Illuminate\Support\Carbon;
 
 class PurchaserBusinessDayService
 {
+    private const CUTOFF_SETTING_KEY = 'business_day_cutoff_time';
+
+    private ?string $cachedCutoffTime = null;
+
     public function operationalDate(?Carbon $moment = null): Carbon
     {
         $moment ??= now();
@@ -30,7 +35,7 @@ class PurchaserBusinessDayService
     {
         $moment ??= now();
 
-        return $moment->copy()->format('H:i') >= '21:30';
+        return $moment->gte($this->rolloverStartsAt($moment));
     }
 
     public function maxSelectableDate(?Carbon $moment = null): Carbon
@@ -50,7 +55,9 @@ class PurchaserBusinessDayService
 
     public function rolloverStartsAt(Carbon|string $date): Carbon
     {
-        return Carbon::parse($date)->startOfDay()->setTime(21, 30);
+        [$hour, $minute, $second] = $this->cutoffTimeParts();
+
+        return Carbon::parse($date)->startOfDay()->setTime($hour, $minute, $second);
     }
 
     public function isWarningWindowOpen(Carbon|string $date, ?Carbon $moment = null): bool
@@ -58,5 +65,59 @@ class PurchaserBusinessDayService
         $moment ??= now();
 
         return $moment->gte($this->warningStartsAt($date));
+    }
+
+    public function cutoffTime(): string
+    {
+        if ($this->cachedCutoffTime !== null) {
+            return $this->cachedCutoffTime;
+        }
+
+        return $this->cachedCutoffTime = BusinessSetting::query()
+            ->where('key', self::CUTOFF_SETTING_KEY)
+            ->value('value')
+            ?? (string) config('business-day.cutoff_time', '21:30:00');
+    }
+
+    public function cutoffInputValue(): string
+    {
+        return Carbon::createFromFormat('H:i:s', $this->normalizedCutoffTime())
+            ->format('H:i');
+    }
+
+    public function cutoffLabel(): string
+    {
+        return Carbon::createFromFormat('H:i:s', $this->normalizedCutoffTime())
+            ->format('g:i A');
+    }
+
+    public function updateCutoffTime(string $time): void
+    {
+        $normalizedTime = strlen($time) === 5 ? "{$time}:00" : $time;
+
+        BusinessSetting::query()->updateOrCreate(
+            ['key' => self::CUTOFF_SETTING_KEY],
+            ['value' => $normalizedTime],
+        );
+
+        $this->cachedCutoffTime = $normalizedTime;
+    }
+
+    /**
+     * @return array{0: int, 1: int, 2: int}
+     */
+    private function cutoffTimeParts(): array
+    {
+        return array_map(
+            static fn (string $segment): int => (int) $segment,
+            explode(':', $this->normalizedCutoffTime())
+        );
+    }
+
+    private function normalizedCutoffTime(): string
+    {
+        $cutoffTime = $this->cutoffTime();
+
+        return strlen($cutoffTime) === 5 ? "{$cutoffTime}:00" : $cutoffTime;
     }
 }

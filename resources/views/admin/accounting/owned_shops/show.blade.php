@@ -44,6 +44,10 @@
                             <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Update Reserve Amount</span>
                             <input type="number" step="0.01" min="0" name="reserve_amount" value="{{ old('reserve_amount', number_format((float) $shop->reserve_amount, 2, '.', '')) }}" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900">
                         </label>
+                        <label class="block flex-1">
+                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Adjustment Date</span>
+                            <input type="date" name="business_date" value="{{ old('business_date', $selectedDate->format('Y-m-d')) }}" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900">
+                        </label>
                         <button type="submit" class="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800">
                             Save Reserve
                         </button>
@@ -74,7 +78,7 @@
                 </form>
             </div>
 
-            <div class="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+            <div class="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-7">
                 <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
                     <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Billed</p>
                     <p class="mt-2 text-2xl font-black text-slate-950">Rs. {{ number_format((float) $analytics['cards']['total_billed'], 2) }}</p>
@@ -86,6 +90,10 @@
                 <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
                     <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Balance</p>
                     <p class="mt-2 text-2xl font-black text-rose-700">Rs. {{ number_format((float) $analytics['cards']['total_balance'], 2) }}</p>
+                </div>
+                <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
+                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Shop Cash</p>
+                    <p class="mt-2 text-2xl font-black {{ (float) $analytics['cards']['credit'] >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format((float) $analytics['cards']['credit'], 2) }}</p>
                 </div>
                 <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
                     <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Income</p>
@@ -103,7 +111,7 @@
         </section>
 
         @if ($tab === 'bills')
-            <section class="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+            <div class="space-y-6">
                 <article class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
                     <div class="flex items-center justify-between gap-3">
                         <div>
@@ -112,35 +120,75 @@
                         </div>
                     </div>
 
-                    <div class="mt-6 space-y-3">
-                        @forelse($billingInvoices as $billingInvoice)
-                            <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                                <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                    <div>
-                                        <p class="text-sm font-black text-slate-950">{{ $billingInvoice->invoice_number }}</p>
-                                        <p class="mt-1 text-xs font-semibold text-slate-500">{{ $billingInvoice->business_date->format('d M Y') }}</p>
-                                    </div>
-                                    <div class="grid gap-3 sm:grid-cols-3 lg:min-w-[360px]">
-                                        <div>
-                                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Bill</p>
-                                            <p class="mt-1 text-sm font-black text-slate-950">Rs. {{ number_format((float) $billingInvoice->final_total, 2) }}</p>
-                                        </div>
-                                        <div>
-                                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Paid</p>
-                                            <p class="mt-1 text-sm font-black text-emerald-700">Rs. {{ number_format((float) $billingInvoice->paid_amount, 2) }}</p>
-                                        </div>
-                                        <div>
-                                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Due</p>
-                                            <p class="mt-1 text-sm font-black text-rose-700">Rs. {{ number_format((float) $billingInvoice->balance_amount, 2) }}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        @empty
-                            <div class="rounded-[1.25rem] border border-dashed border-slate-300 px-4 py-8 text-center text-sm font-bold text-slate-500">
-                                No delivery bills found in this timeframe.
-                            </div>
-                        @endforelse
+                    <div class="mt-6 overflow-x-auto rounded-[1.25rem] border border-slate-200">
+                        <table class="min-w-full text-left">
+                            <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                                <tr>
+                                    <th class="px-4 py-3">Invoice Number</th>
+                                    <th class="px-4 py-3">Date</th>
+                                    <th class="px-4 py-3 text-right">Bill</th>
+                                    <th class="px-4 py-3 text-right">Paid</th>
+                                    <th class="px-4 py-3 text-right">Due</th>
+                                    <th class="px-4 py-3 text-center">Status</th>
+                                    <th class="px-4 py-3 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 text-sm">
+                                @forelse($billingInvoices as $billingInvoice)
+                                    <tr>
+                                        <td class="px-4 py-3 font-black text-slate-950 text-xs sm:text-sm">
+                                            {{ $billingInvoice->invoice_number }}
+                                        </td>
+                                        <td class="px-4 py-3 text-slate-500 font-semibold text-xs sm:text-sm">
+                                            {{ $billingInvoice->business_date->format('d M Y') }}
+                                        </td>
+                                        <td class="px-4 py-3 text-right font-black text-slate-950 text-xs sm:text-sm">
+                                            Rs. {{ number_format((float) $billingInvoice->final_total, 2) }}
+                                        </td>
+                                        <td class="px-4 py-3 text-right font-black text-emerald-700 text-xs sm:text-sm">
+                                            Rs. {{ number_format((float) $billingInvoice->paid_amount, 2) }}
+                                        </td>
+                                        <td class="px-4 py-3 text-right font-black text-rose-700 text-xs sm:text-sm">
+                                            Rs. {{ number_format((float) $billingInvoice->balance_amount, 2) }}
+                                        </td>
+                                        <td class="px-4 py-3 text-center">
+                                            @if ((float) $billingInvoice->balance_amount <= 0)
+                                                <span class="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-black text-emerald-700 border border-emerald-200">
+                                                    Settled
+                                                </span>
+                                            @else
+                                                <span class="inline-flex items-center rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-black text-rose-700 border border-rose-200">
+                                                    Due
+                                                </span>
+                                            @endif
+                                        </td>
+                                        <td class="px-4 py-3 text-right">
+                                            @if ((float) $billingInvoice->balance_amount > 0)
+                                                <button type="button" 
+                                                        class="daily-bill-payment-open inline-flex h-8 items-center rounded-xl bg-cyan-600 px-3 text-xs font-black text-white transition hover:bg-cyan-500" 
+                                                        data-invoice-number="{{ $billingInvoice->invoice_number }}"
+                                                        data-final-total="{{ (float) $billingInvoice->final_total }}"
+                                                        data-paid-amount="{{ (float) $billingInvoice->paid_amount }}"
+                                                        data-balance-amount="{{ (float) $billingInvoice->balance_amount }}"
+                                                        data-discount-total="{{ (float) $billingInvoice->discount_total }}"
+                                                        data-payment-note="{{ $billingInvoice->payment_note }}"
+                                                        data-action="{{ route('admin.accounting.owned-shops.daily-bills.payment', ['shop' => $shop, 'invoice' => $billingInvoice]) }}">
+                                                    Update Paid
+                                                </button>
+                                            @else
+                                                <span class="text-xs font-bold text-slate-400">N/A</span>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="7" class="px-4 py-8 text-center font-bold text-slate-500">
+                                            No delivery bills found in this timeframe.
+                                        </td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
                     </div>
 
                     @if ($billingInvoices->hasPages())
@@ -174,13 +222,22 @@
                                     </div>
 
                                     @if ($paymentRequest->status === 'pending')
-                                        <div class="rounded-[1.1rem] border border-sky-200 bg-sky-50 px-4 py-3">
-                                            <p class="text-sm font-black text-sky-900">Review moved to Purchasing Dashboard.</p>
-                                            <p class="mt-1 text-sm font-semibold text-sky-800">Payment approvals are no longer handled from admin accounting.</p>
-                                            <a href="{{ route('purchasing.dashboard') }}" class="mt-3 inline-flex h-10 items-center rounded-2xl bg-slate-950 px-4 text-xs font-black uppercase tracking-[0.16em] text-white transition hover:bg-slate-800">
-                                                Open Purchasing Dashboard
-                                            </a>
-                                        </div>
+                                        <form method="POST" action="{{ route('admin.accounting.owned-shops.payment-requests.review', ['shop' => $shop, 'paymentRequest' => $paymentRequest]) }}" class="rounded-[1.1rem] border border-white/80 bg-white/80 px-4 py-3">
+                                            @csrf
+                                            @method('PATCH')
+                                            <label class="block">
+                                                <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Admin Note</span>
+                                                <textarea name="admin_note" rows="2" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none" placeholder="Optional note for shop owner">{{ old('admin_note') }}</textarea>
+                                            </label>
+                                            <div class="mt-3 flex flex-wrap justify-end gap-2">
+                                                <button type="submit" name="decision" value="reject" class="inline-flex h-10 items-center rounded-2xl bg-red-600 px-4 text-xs font-black uppercase tracking-[0.14em] text-white transition hover:bg-red-500">
+                                                    Reject
+                                                </button>
+                                                <button type="submit" name="decision" value="approve" class="inline-flex h-10 items-center rounded-2xl bg-emerald-600 px-4 text-xs font-black uppercase tracking-[0.14em] text-white transition hover:bg-emerald-500">
+                                                    Approve Paid
+                                                </button>
+                                            </div>
+                                        </form>
                                     @elseif ($paymentRequest->admin_note)
                                         <p class="text-sm font-semibold text-slate-700">Admin note: {{ $paymentRequest->admin_note }}</p>
                                     @endif
@@ -197,47 +254,183 @@
                         <div class="mt-5">{{ $paymentRequests->withQueryString()->links() }}</div>
                     @endif
                 </article>
-            </section>
 
-            <section class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-                <div class="flex items-center justify-between gap-3">
-                    <div>
-                        <p class="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Daily Summary</p>
-                        <h2 class="mt-2 text-xl font-black text-slate-950">Cash flow by day</h2>
+                <section class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
+                    <div class="flex items-center justify-between gap-3">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Daily Summary</p>
+                            <h2 class="mt-2 text-xl font-black text-slate-950">Cash flow by day</h2>
+                        </div>
+                    </div>
+
+                    <div class="mt-6 overflow-x-auto rounded-[1.25rem] border border-slate-200">
+                        <table class="min-w-full text-left">
+                            <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                                <tr>
+                                    <th class="px-4 py-3">Date</th>
+                                    <th class="px-4 py-3 text-right">Billed</th>
+                                    <th class="px-4 py-3 text-right">Collected</th>
+                                    <th class="px-4 py-3 text-right">Credit</th>
+                                    <th class="px-4 py-3 text-right">Balance</th>
+                                    <th class="px-4 py-3 text-right">Income</th>
+                                    <th class="px-4 py-3 text-right">Expense</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 text-sm">
+                                @forelse($analytics['daily_summaries'] as $summary)
+                                    <tr>
+                                        <td class="px-4 py-3 font-black text-slate-950">{{ \Illuminate\Support\Carbon::parse($summary['date'])->format('d M Y') }}</td>
+                                        <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $summary['billed'], 2) }}</td>
+                                        <td class="px-4 py-3 text-right font-black text-emerald-700">Rs. {{ number_format((float) $summary['paid'], 2) }}</td>
+                                        <td class="px-4 py-3 text-right font-black text-emerald-700">Rs. {{ number_format((float) $summary['credit'], 2) }}</td>
+                                        <td class="px-4 py-3 text-right font-black text-rose-700">Rs. {{ number_format((float) $summary['balance'], 2) }}</td>
+                                        <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $summary['income'], 2) }}</td>
+                                        <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $summary['expense'], 2) }}</td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="7" class="px-4 py-8 text-center font-bold text-slate-500">No daily summary rows found.</td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Daily Bill Payment Collection Modal -->
+            <div id="daily-bill-payment-modal" class="hidden fixed inset-0 z-[70]">
+                <div class="daily-bill-payment-modal-overlay absolute inset-0 bg-slate-950/50 backdrop-blur-sm"></div>
+                <div class="relative flex min-h-full items-center justify-center p-4">
+                    <div class="w-full max-w-lg rounded-[2rem] border border-slate-200 bg-white shadow-[0_30px_80px_rgba(15,23,42,0.22)]">
+                        <div class="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Daily Bill Payment</p>
+                                <h2 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Update Collected Money</h2>
+                            </div>
+                            <button type="button" class="daily-bill-payment-modal-close inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">
+                                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <form id="daily-bill-payment-form" method="POST" action="" class="space-y-4 px-6 py-6">
+                            @csrf
+                            @method('PATCH')
+                            
+                            <div>
+                                <p class="text-sm font-bold text-slate-700">Invoice Number: <span id="payment-modal-invoice-number" class="font-black text-slate-950"></span></p>
+                            </div>
+
+                            <div class="grid grid-cols-3 gap-3 rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
+                                <div>
+                                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Bill Total</p>
+                                    <p id="payment-modal-final-total" class="mt-1 text-sm font-black text-slate-950">Rs. 0.00</p>
+                                </div>
+                                <div>
+                                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Current Paid</p>
+                                    <p id="payment-modal-current-paid" class="mt-1 text-sm font-black text-emerald-700">Rs. 0.00</p>
+                                </div>
+                                <div>
+                                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Remaining Due</p>
+                                    <p id="payment-modal-remaining-due" class="mt-1 text-sm font-black text-rose-700">Rs. 0.00</p>
+                                </div>
+                            </div>
+
+                            <input type="hidden" name="discount_total" id="payment-modal-discount-total" value="0.00">
+
+                            <div>
+                                <label class="block">
+                                    <span class="mb-2 block text-xs font-black uppercase tracking-[0.16em] text-slate-500">Total Paid Amount (Rs.)</span>
+                                    <input type="number" step="0.01" min="0" name="paid_amount" id="payment-modal-paid-amount-input" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-cyan-400 focus:outline-none">
+                                </label>
+                                <p class="mt-1.5 text-xs text-slate-500">Enter the cumulative collected amount. The newly received balance will be recorded as an approved paid request for the shop owner.</p>
+                                <button type="button" id="payment-modal-set-full-btn" class="mt-2 inline-flex h-8 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-700 transition hover:bg-slate-100">
+                                    Set to Full
+                                </button>
+                            </div>
+
+                            <div>
+                                <label class="block">
+                                    <span class="mb-2 block text-xs font-black uppercase tracking-[0.16em] text-slate-500">Payment Note</span>
+                                    <textarea name="payment_note" id="payment-modal-payment-note-input" rows="3" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none" placeholder="e.g. Balance collected in cash."></textarea>
+                                </label>
+                            </div>
+
+                            <div class="flex justify-end gap-3 pt-2">
+                                <button type="button" class="daily-bill-payment-modal-close inline-flex h-11 items-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
+                                    Cancel
+                                </button>
+                                <button type="submit" class="inline-flex h-11 items-center rounded-2xl bg-cyan-600 px-5 text-sm font-black text-white transition hover:bg-cyan-500">
+                                    Confirm collected money
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
+            </div>
 
-                <div class="mt-6 overflow-x-auto rounded-[1.25rem] border border-slate-200">
-                    <table class="min-w-full text-left">
-                        <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
-                            <tr>
-                                <th class="px-4 py-3">Date</th>
-                                <th class="px-4 py-3 text-right">Billed</th>
-                                <th class="px-4 py-3 text-right">Collected</th>
-                                <th class="px-4 py-3 text-right">Balance</th>
-                                <th class="px-4 py-3 text-right">Income</th>
-                                <th class="px-4 py-3 text-right">Expense</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-100 text-sm">
-                            @forelse($analytics['daily_summaries'] as $summary)
-                                <tr>
-                                    <td class="px-4 py-3 font-black text-slate-950">{{ \Illuminate\Support\Carbon::parse($summary['date'])->format('d M Y') }}</td>
-                                    <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $summary['billed'], 2) }}</td>
-                                    <td class="px-4 py-3 text-right font-black text-emerald-700">Rs. {{ number_format((float) $summary['paid'], 2) }}</td>
-                                    <td class="px-4 py-3 text-right font-black text-rose-700">Rs. {{ number_format((float) $summary['balance'], 2) }}</td>
-                                    <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $summary['income'], 2) }}</td>
-                                    <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $summary['expense'], 2) }}</td>
-                                </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="6" class="px-4 py-8 text-center font-bold text-slate-500">No daily summary rows found.</td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
-            </section>
+            <script>
+                (() => {
+                    const dailyBillPaymentModal = document.getElementById('daily-bill-payment-modal');
+                    const dailyBillPaymentForm = document.getElementById('daily-bill-payment-form');
+                    const dailyBillPaymentButtons = document.querySelectorAll('.daily-bill-payment-open');
+                    const modalInvoiceNumber = document.getElementById('payment-modal-invoice-number');
+                    const modalFinalTotal = document.getElementById('payment-modal-final-total');
+                    const modalCurrentPaid = document.getElementById('payment-modal-current-paid');
+                    const modalRemainingDue = document.getElementById('payment-modal-remaining-due');
+                    const modalDiscountTotal = document.getElementById('payment-modal-discount-total');
+                    const modalPaidAmountInput = document.getElementById('payment-modal-paid-amount-input');
+                    const modalPaymentNoteInput = document.getElementById('payment-modal-payment-note-input');
+                    const modalSetFullBtn = document.getElementById('payment-modal-set-full-btn');
+
+                    let currentInvoiceFinalTotal = 0;
+
+                    const money = (amount) => 'Rs. ' + amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    const closeModal = () => {
+                        dailyBillPaymentModal?.classList.add('hidden');
+                        document.body.classList.remove('overflow-hidden');
+                    };
+
+                    dailyBillPaymentButtons.forEach((button) => {
+                        button.addEventListener('click', () => {
+                            if (!dailyBillPaymentModal || !dailyBillPaymentForm) {
+                                return;
+                            }
+
+                            const finalTotal = parseFloat(button.dataset.finalTotal ?? '0');
+                            const paidAmount = parseFloat(button.dataset.paidAmount ?? '0');
+                            const balanceAmount = parseFloat(button.dataset.balanceAmount ?? '0');
+                            const discountTotal = parseFloat(button.dataset.discountTotal ?? '0');
+
+                            currentInvoiceFinalTotal = finalTotal;
+                            dailyBillPaymentForm.action = button.dataset.action ?? '';
+                            if (modalInvoiceNumber) modalInvoiceNumber.textContent = button.dataset.invoiceNumber ?? '';
+                            if (modalFinalTotal) modalFinalTotal.textContent = money(finalTotal);
+                            if (modalCurrentPaid) modalCurrentPaid.textContent = money(paidAmount);
+                            if (modalRemainingDue) modalRemainingDue.textContent = money(balanceAmount);
+                            if (modalDiscountTotal) modalDiscountTotal.value = discountTotal.toFixed(2);
+                            if (modalPaidAmountInput) modalPaidAmountInput.value = finalTotal.toFixed(2);
+                            if (modalPaymentNoteInput) modalPaymentNoteInput.value = button.dataset.paymentNote ?? '';
+
+                            dailyBillPaymentModal.classList.remove('hidden');
+                            document.body.classList.add('overflow-hidden');
+                        });
+                    });
+
+                    modalSetFullBtn?.addEventListener('click', () => {
+                        if (modalPaidAmountInput) {
+                            modalPaidAmountInput.value = currentInvoiceFinalTotal.toFixed(2);
+                        }
+                    });
+                    dailyBillPaymentModal?.querySelectorAll('.daily-bill-payment-modal-close').forEach((button) => button.addEventListener('click', closeModal));
+                    dailyBillPaymentModal?.addEventListener('click', (event) => {
+                        if (event.target instanceof HTMLElement && event.target.classList.contains('daily-bill-payment-modal-overlay')) {
+                            closeModal();
+                        }
+                    });
+                })();
+            </script>
         @endif
 
         @if ($tab === 'cashbook')
@@ -274,6 +467,84 @@
                         {{ $hasEntry ? 'Update Daily Entry' : 'Add Daily Entry' }}
                     </button>
                 </div>
+
+                <section class="mt-6 grid gap-6 lg:grid-cols-[0.75fr_1.25fr]">
+                    <form method="POST" action="{{ route('admin.accounting.owned-shops.credits.store', $shop) }}" class="rounded-[1.25rem] border border-emerald-200 bg-emerald-50 p-4">
+                        @csrf
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Shop Cash Movement</p>
+                        <h3 class="mt-2 text-lg font-black text-slate-950">Add shop cash</h3>
+                        <p class="mt-1 text-sm font-semibold text-emerald-900">Cash given to shop is an accounting expense. Cash received from shop is accounting income.</p>
+                        <div class="mt-4 grid gap-3">
+                            <label>
+                                <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Movement Type</span>
+                                <select name="type" class="h-11 w-full rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                                    <option value="in" @selected(old('type', 'in') === 'in')>Cash Given to Shop - Expense</option>
+                                    <option value="out" @selected(old('type') === 'out')>Cash Received from Shop - Income</option>
+                                </select>
+                            </label>
+                            <label>
+                                <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Amount</span>
+                                <input type="number" step="0.01" min="0.01" name="amount" value="{{ old('amount') }}" class="h-11 w-full rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                            </label>
+                            <label>
+                                <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Movement Date</span>
+                                <input type="date" name="business_date" value="{{ old('business_date', $selectedDate->format('Y-m-d')) }}" class="h-11 w-full rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                            </label>
+                            <label>
+                                <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Description</span>
+                                <input type="text" name="description" value="{{ old('description') }}" placeholder="Cash given to shop or received from shop" class="h-11 w-full rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                            </label>
+                        </div>
+                        <button type="submit" class="mt-4 inline-flex h-11 w-full items-center justify-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
+                            Add Shop Cash Movement
+                        </button>
+                    </form>
+
+                    <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
+                        <div class="flex items-center justify-between gap-3">
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Cash Movement Ledger</p>
+                                <h3 class="mt-2 text-lg font-black text-slate-950">Latest admin cash movements</h3>
+                            </div>
+                            @php
+                                $shopCashTotal = (float) $shopCredits->sum(fn ($credit) => $credit->signedAccountingAmount());
+                            @endphp
+                            <p class="text-sm font-black {{ $shopCashTotal >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format($shopCashTotal, 2) }}</p>
+                        </div>
+                        <div class="mt-4 overflow-x-auto rounded-[1rem] border border-slate-200 bg-white">
+                            <table class="min-w-full text-left text-sm">
+                                <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                                    <tr>
+                                        <th class="px-4 py-3">Date</th>
+                                        <th class="px-4 py-3">Type</th>
+                                        <th class="px-4 py-3">Description</th>
+                                        <th class="px-4 py-3 text-right">Ledger Amount</th>
+                                        <th class="px-4 py-3 text-right">By</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    @forelse($shopCredits as $credit)
+                                        <tr>
+                                            <td class="px-4 py-3 font-black text-slate-950">{{ $credit->business_date->format('d M Y') }}</td>
+                                            <td class="px-4 py-3">
+                                                <span class="inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] {{ $credit->isAccountingOut() ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700' }}">
+                                                    {{ $credit->accountingLabel() }}
+                                                </span>
+                                            </td>
+                                            <td class="px-4 py-3 font-semibold text-slate-600">{{ $credit->description }}</td>
+                                            <td class="px-4 py-3 text-right font-black {{ $credit->isAccountingOut() ? 'text-rose-700' : 'text-emerald-700' }}">{{ $credit->isAccountingOut() ? '-' : '+' }} Rs. {{ number_format((float) $credit->amount, 2) }}</td>
+                                            <td class="px-4 py-3 text-right font-semibold text-slate-500">{{ $credit->creator?->name ?? 'System' }}</td>
+                                        </tr>
+                                    @empty
+                                        <tr>
+                                            <td colspan="5" class="px-4 py-8 text-center font-bold text-slate-500">No shop cash movements added yet.</td>
+                                        </tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
 
                 @if ($hasEntry)
                     <div class="mt-6 space-y-4">
@@ -858,6 +1129,7 @@
                     lineReviewNoteHidden.value = note;
                     lineReviewAdminNoteHidden.value = lineReviewDecision.value === 'recheck' ? note : '';
                 });
+
             })();
         </script>
         @endif

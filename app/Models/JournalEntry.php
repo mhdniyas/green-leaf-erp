@@ -19,11 +19,15 @@ class JournalEntry extends Model
         'entry_date',
         'reference',
         'description',
+        'source_type',
+        'source_id',
+        'source_event',
         'created_by',
     ];
 
     protected $casts = [
         'entry_date' => 'date',
+        'source_id' => 'integer',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

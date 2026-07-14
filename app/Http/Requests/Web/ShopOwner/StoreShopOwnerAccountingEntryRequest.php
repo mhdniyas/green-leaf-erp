@@ -67,7 +67,8 @@ class StoreShopOwnerAccountingEntryRequest extends FormRequest
         }
 
         $authorizedCategoryCount = ShopAccountingCategory::query()
-            ->whereIn('id', $categoryIds->all())
+            ->whereIn('id', $categoryIds->toArray())
+            ->where('is_active', true)
             ->where(function ($query): void {
                 $query->whereNull('shop_id')
                     ->orWhere('shop_id', $this->user()?->shop_id);
@@ -89,7 +90,7 @@ class StoreShopOwnerAccountingEntryRequest extends FormRequest
                 }
 
                 $categories = ShopAccountingCategory::query()
-                    ->whereIn('id', collect($lines)->pluck('shop_accounting_category_id')->filter()->all())
+                    ->whereIn('id', collect($lines)->pluck('shop_accounting_category_id')->filter()->toArray())
                     ->get()
                     ->keyBy('id');
 

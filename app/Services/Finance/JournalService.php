@@ -28,32 +28,20 @@ class JournalService
      */
     public function createEntry(JournalEntryData $data, int $userId): JournalEntry
     {
-        $debitsSum = 0.0;
-        $creditsSum = 0.0;
+        $lines = $this->validatedLines($data->lines);
 
-        foreach ($data->lines as $line) {
-            $amount = (float) $line['amount'];
-            if (strtolower($line['type']) === 'debit') {
-                $debitsSum += $amount;
-            } elseif (strtolower($line['type']) === 'credit') {
-                $creditsSum += $amount;
-            } else {
-                throw new RuntimeException("Invalid transaction type: {$line['type']}");
+        return DB::transaction(function () use ($data, $lines, $userId): JournalEntry {
+            $existingEntry = $this->entryForSource($data->sourceType, $data->sourceId, $data->sourceEvent);
+            if ($existingEntry instanceof JournalEntry) {
+                return $existingEntry;
             }
-        }
 
-        // Allow micro variance due to floating points
-        if (abs($debitsSum - $creditsSum) > 0.01) {
-            throw new RuntimeException("Unbalanced journal entry. Debits ({$debitsSum}) must equal Credits ({$creditsSum}).");
-        }
-
-        return DB::transaction(function () use ($data, $userId) {
             /** @var JournalEntry $entry */
             $entry = $this->repository->create(array_merge($data->toArray(), [
                 'created_by' => $userId,
             ]));
 
-            foreach ($data->lines as $line) {
+            foreach ($lines as $line) {
                 $entry->transactions()->create([
                     'account_id' => $line['account_id'],
                     'type' => strtolower($line['type']),
@@ -71,6 +59,12 @@ class JournalService
      */
     public function recordSalesInvoice(SalesInvoice $invoice): JournalEntry
     {
+        $existingEntry = $this->entryForSource(SalesInvoice::class, $invoice->id, 'invoice')
+            ?? $this->entryForReference($invoice->invoice_number);
+        if ($existingEntry instanceof JournalEntry) {
+            return $existingEntry;
+        }
+
         $arAccountId = $this->getAccountIdByCode('1100');
         $salesAccountId = $this->getAccountIdByCode('4100');
 
@@ -83,7 +77,10 @@ class JournalService
             entryDate: $invoice->created_at->format('Y-m-d'),
             reference: $invoice->invoice_number,
             description: "Invoice generated for Sales Order #{$invoice->salesOrder->so_number}",
-            lines: $lines
+            lines: $lines,
+            sourceType: SalesInvoice::class,
+            sourceId: $invoice->id,
+            sourceEvent: 'invoice'
         );
 
         return $this->createEntry($data, $invoice->created_by);
@@ -96,6 +93,12 @@ class JournalService
     public function recordSalesPayment(Payment $payment): JournalEntry
     {
         $payment->load('salesInvoice');
+
+        $existingEntry = $this->entryForSource(Payment::class, $payment->id, 'payment')
+            ?? $this->entryForReference("PAY-{$payment->id}");
+        if ($existingEntry instanceof JournalEntry) {
+            return $existingEntry;
+        }
 
         $method = $payment->payment_method;
         $methodStr = $method instanceof \BackedEnum ? $method->value : ($method ?? 'cash');
@@ -115,7 +118,10 @@ class JournalService
             entryDate: $payment->paid_at->format('Y-m-d'),
             reference: "PAY-{$payment->id}",
             description: "Payment received for Invoice #{$payment->salesInvoice->invoice_number}",
-            lines: $lines
+            lines: $lines,
+            sourceType: Payment::class,
+            sourceId: $payment->id,
+            sourceEvent: 'payment'
         );
 
         return $this->createEntry($data, $payment->created_by);
@@ -123,17 +129,23 @@ class JournalService
 
     /**
      * Record purchase invoice entry.
-     * Debit COGS (5100), Credit AP (2100)
+     * Debit GRNI (2150), Credit AP (2100).
      */
     public function recordPurchaseInvoice(PurchaseInvoice $invoice): JournalEntry
     {
         $invoice->load(['goodsReceived.purchaseOrder', 'supplier']);
 
-        $cogsAccountId = $this->getAccountIdByCode('5100');
+        $existingEntry = $this->entryForSource(PurchaseInvoice::class, $invoice->id, 'invoice')
+            ?? $this->entryForReference($invoice->invoice_number);
+        if ($existingEntry instanceof JournalEntry) {
+            return $existingEntry;
+        }
+
+        $grniAccountId = $this->getAccountIdByCode('2150');
         $apAccountId = $this->getAccountIdByCode('2100');
 
         $lines = [
-            ['account_id' => $cogsAccountId, 'type' => 'debit', 'amount' => (float) $invoice->amount],
+            ['account_id' => $grniAccountId, 'type' => 'debit', 'amount' => (float) $invoice->amount],
             ['account_id' => $apAccountId, 'type' => 'credit', 'amount' => (float) $invoice->amount],
         ];
 
@@ -143,7 +155,10 @@ class JournalService
             entryDate: $invoice->created_at->format('Y-m-d'),
             reference: $invoice->invoice_number,
             description: "Purchase Invoice matched to GRN #{$invoice->goods_received_id} for Supplier: {$invoice->supplier->name}",
-            lines: $lines
+            lines: $lines,
+            sourceType: PurchaseInvoice::class,
+            sourceId: $invoice->id,
+            sourceEvent: 'invoice'
         );
 
         return $this->createEntry($data, (int) $userId);
@@ -157,6 +172,13 @@ class JournalService
     {
         $invoice->load('supplier');
 
+        $reference = "PMT-{$invoice->invoice_number}";
+        $existingEntry = $this->entryForSource(PurchaseInvoice::class, $invoice->id, 'payment')
+            ?? $this->entryForReference($reference);
+        if ($existingEntry instanceof JournalEntry) {
+            return $existingEntry;
+        }
+
         $apAccountId = $this->getAccountIdByCode('2100');
         $bankAccountId = $this->getAccountIdByCode('1020');
 
@@ -169,9 +191,12 @@ class JournalService
 
         $data = new JournalEntryData(
             entryDate: now()->format('Y-m-d'),
-            reference: "PMT-{$invoice->invoice_number}",
+            reference: $reference,
             description: "Supplier payment made for Invoice #{$invoice->invoice_number}",
-            lines: $lines
+            lines: $lines,
+            sourceType: PurchaseInvoice::class,
+            sourceId: $invoice->id,
+            sourceEvent: 'payment'
         );
 
         return $this->createEntry($data, (int) $userId);
@@ -197,7 +222,10 @@ class JournalService
             entryDate: $wastage->wastage_date->format('Y-m-d'),
             reference: "WASTE-{$wastage->id}",
             description: "Wastage logged: {$wastage->quantity} kg of {$wastage->product->name} (Grade {$wastage->grade->value}) - Reason: {$wastage->reason->value}",
-            lines: $lines
+            lines: $lines,
+            sourceType: WastageEntry::class,
+            sourceId: $wastage->id,
+            sourceEvent: 'wastage'
         );
 
         return $this->createEntry($data, $wastage->recorded_by);
@@ -205,14 +233,20 @@ class JournalService
 
     /**
      * Record Goods Received Note entry upon approval.
-     * Debit Graded Inventory (1200), Credit Accounts Payable (2100)
+     * Debit Graded Inventory (1200), Credit Goods Received Not Invoiced (2150)
      */
     public function recordGoodsReceipt(GoodsReceived $grn): JournalEntry
     {
         $grn->load(['purchaseOrder.supplier', 'items.purchaseOrderItem']);
 
+        $existingEntry = $this->entryForSource(GoodsReceived::class, $grn->id, 'receipt')
+            ?? $this->entryForReference($grn->grn_number);
+        if ($existingEntry instanceof JournalEntry) {
+            return $existingEntry;
+        }
+
         $inventoryAccountId = $this->getAccountIdByCode('1200');
-        $apAccountId = $this->getAccountIdByCode('2100');
+        $grniAccountId = $this->getAccountIdByCode('2150');
 
         // Calculate material cost of received items
         $materialCost = 0.00;
@@ -223,7 +257,7 @@ class JournalService
 
         $lines = [
             ['account_id' => $inventoryAccountId, 'type' => 'debit', 'amount' => $materialCost],
-            ['account_id' => $apAccountId, 'type' => 'credit', 'amount' => $materialCost],
+            ['account_id' => $grniAccountId, 'type' => 'credit', 'amount' => $materialCost],
         ];
 
         $userId = auth()->id() ?? User::first()?->id ?? 1;
@@ -232,7 +266,10 @@ class JournalService
             entryDate: $grn->received_at->format('Y-m-d'),
             reference: $grn->grn_number,
             description: "Goods Received Note #{$grn->grn_number} approved for Supplier: {$grn->purchaseOrder->supplier->name}",
-            lines: $lines
+            lines: $lines,
+            sourceType: GoodsReceived::class,
+            sourceId: $grn->id,
+            sourceEvent: 'receipt'
         );
 
         return $this->createEntry($data, (int) $userId);
@@ -240,11 +277,102 @@ class JournalService
 
     private function getAccountIdByCode(string $code): int
     {
-        $account = Account::where('code', $code)->first();
+        $account = Account::query()->where('code', $code)->where('is_active', true)->first();
         if (! $account) {
             throw new RuntimeException("Chart of Accounts is missing account code: {$code}. Please seed the Chart of Accounts.");
         }
 
         return (int) $account->id;
+    }
+
+    private function entryForReference(string $reference): ?JournalEntry
+    {
+        return JournalEntry::query()
+            ->where('reference', $reference)
+            ->with('transactions.account')
+            ->first();
+    }
+
+    private function entryForSource(?string $sourceType, ?int $sourceId, ?string $sourceEvent): ?JournalEntry
+    {
+        if ($sourceType === null || $sourceId === null || $sourceEvent === null) {
+            return null;
+        }
+
+        return JournalEntry::query()
+            ->where('source_type', $sourceType)
+            ->where('source_id', $sourceId)
+            ->where('source_event', $sourceEvent)
+            ->with('transactions.account')
+            ->lockForUpdate()
+            ->first();
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $lines
+     * @return array<int, array{account_id:int, type:string, amount:float}>
+     */
+    private function validatedLines(array $lines): array
+    {
+        if (count($lines) < 2) {
+            throw new RuntimeException('A journal entry must contain at least one debit and one credit line.');
+        }
+
+        $normalizedLines = [];
+        $accountIds = [];
+        $debitCents = 0;
+        $creditCents = 0;
+
+        foreach ($lines as $index => $line) {
+            if (! is_array($line) || ! isset($line['account_id'], $line['type'], $line['amount'])) {
+                throw new RuntimeException("Malformed journal line at index {$index}.");
+            }
+
+            $accountId = filter_var($line['account_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            $type = strtolower(trim((string) $line['type']));
+            $amount = is_numeric($line['amount']) ? (float) $line['amount'] : null;
+
+            if ($accountId === false || ! in_array($type, ['debit', 'credit'], true)) {
+                throw new RuntimeException("Invalid journal line at index {$index}.");
+            }
+
+            if ($amount === null || ! is_finite($amount) || $amount <= 0) {
+                throw new RuntimeException("Journal line {$index} must have a positive amount.");
+            }
+
+            $amountCents = (int) round($amount * 100);
+            if ($amountCents <= 0 || abs(($amount * 100) - $amountCents) > 0.0001) {
+                throw new RuntimeException("Journal line {$index} amount must have no more than two decimal places.");
+            }
+
+            $accountIds[] = $accountId;
+            $normalizedLines[] = [
+                'account_id' => $accountId,
+                'type' => $type,
+                'amount' => round($amountCents / 100, 2),
+            ];
+
+            if ($type === 'debit') {
+                $debitCents += $amountCents;
+            } else {
+                $creditCents += $amountCents;
+            }
+        }
+
+        $activeAccountCount = Account::query()
+            ->whereIn('id', array_unique($accountIds))
+            ->where('is_active', true)
+            ->whereIn('type', ['asset', 'liability', 'equity', 'revenue', 'expense'])
+            ->count();
+
+        if ($activeAccountCount !== count(array_unique($accountIds))) {
+            throw new RuntimeException('Journal entries may only use existing active accounts.');
+        }
+
+        if ($debitCents === 0 || $creditCents === 0 || $debitCents !== $creditCents) {
+            throw new RuntimeException("Unbalanced journal entry. Debits ({$debitCents}) must equal Credits ({$creditCents}).");
+        }
+
+        return $normalizedLines;
     }
 }

@@ -1,6 +1,6 @@
 <section class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
     <h2 class="text-xl font-black text-slate-950">Invoice Breakdown</h2>
-    <p class="mt-2 text-sm text-slate-600">This invoice is generated from the approved shop order and updated from delivery confirmation.</p>
+    <p class="mt-2 text-sm text-slate-600">This invoice is generated from the approved shop order and updated after the delivery review is approved.</p>
 
     <div class="mt-5 overflow-hidden rounded-3xl border border-slate-200">
         <div class="overflow-x-auto">
@@ -34,7 +34,7 @@
         </div>
     </div>
 
-    @if ($invoice->delivery_status === 'pending' && $invoice->order?->is_allocation_completed)
+    @if (in_array($invoice->delivery_status, ['pending', 'awaiting_review'], true) && $invoice->order?->is_allocation_completed)
         <div class="mt-5">
             @include('shop-owner.components.action-button', ['href' => route('shop-owner.deliveries.show', $invoice->order->order_number), 'label' => 'Confirm Delivery Against Invoice', 'classes' => 'bg-indigo-600 text-white'])
         </div>

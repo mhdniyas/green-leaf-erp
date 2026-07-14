@@ -47,4 +47,9 @@ class EmployeeAttendance extends Model
     {
         return $this->belongsTo(User::class, 'marked_by');
     }
+
+    public function isHrManaged(): bool
+    {
+        return $this->source === 'admin';
+    }
 }

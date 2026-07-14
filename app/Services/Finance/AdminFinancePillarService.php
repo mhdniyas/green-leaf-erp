@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Services\Finance;
 
+use App\Models\PayrollPayment;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaserCredit;
 use App\Models\ShopAccountingEntry;
+use App\Models\ShopCredit;
 use App\Models\ShopInvoice;
 use App\Models\Supplier;
 use Illuminate\Database\Eloquent\Builder;
@@ -98,6 +100,8 @@ class AdminFinancePillarService
      *     end_date:string,
      *     summary:array<string, float>,
      *     journal_rows:Collection<int, array<string, mixed>>,
+     *     selected_date:string,
+     *     selected_day_rows:Collection<int, array<string, mixed>>,
      *     daily_rows:Collection<int, array<string, mixed>>,
      *     purchaser_columns:Collection<int, array{id:int,label:string}>,
      *     paid_rows:Collection<int, array<string, mixed>>,
@@ -126,11 +130,28 @@ class AdminFinancePillarService
             ->orderBy('id')
             ->get();
 
-        $journalRows = $this->buildCashFlowJournalRows($purchaserCredits, $ownedShopEntries);
+        $shopCredits = ShopCredit::query()
+            ->with('shop')
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
+            ->orderBy('business_date')
+            ->orderBy('id')
+            ->get();
+        $payrollPayments = PayrollPayment::query()
+            ->with(['employee', 'payrollRun'])
+            ->whereDate('paid_on', '>=', $startDate)
+            ->whereDate('paid_on', '<=', $endDate)
+            ->orderBy('paid_on')
+            ->orderBy('id')
+            ->get();
+
+        $journalRows = $this->buildCashFlowJournalRows($purchaserCredits, $ownedShopEntries, $shopCredits, $payrollPayments);
         $openingBalance = $this->cashFlowOpeningBalance($startDate);
         $monthlyIn = round((float) $journalRows->where('direction', 'IN')->sum('amount'), 2);
         $monthlyOut = round((float) $journalRows->where('direction', 'OUT')->sum('amount'), 2);
         $closingBalance = round($openingBalance + $monthlyIn - $monthlyOut, 2);
+        $dailyRows = $this->buildCashFlowDailyRows($journalRows, $startDate, $endDate, $openingBalance);
+        $selectedDate = $date->toDateString();
         $purchaserColumns = $purchaserCredits
             ->groupBy('purchaser_id')
             ->map(fn (Collection $credits, int|string $purchaserId): array => [
@@ -155,7 +176,9 @@ class AdminFinancePillarService
                 'owned_shop_out' => round((float) $journalRows->where('source', 'owned_shop')->where('direction', 'OUT')->sum('amount'), 2),
             ],
             'journal_rows' => $journalRows,
-            'daily_rows' => $this->buildCashFlowDailyRows($journalRows, $startDate, $endDate, $openingBalance),
+            'selected_date' => $selectedDate,
+            'selected_day_rows' => $journalRows->where('date', $selectedDate)->values(),
+            'daily_rows' => $dailyRows,
             'purchaser_columns' => $purchaserColumns,
             'paid_rows' => $this->buildPurchaserCashPivotRows($purchaserCredits, $purchaserColumns, $startDate, $endDate, 'out'),
             'received_rows' => $this->buildPurchaserCashPivotRows($purchaserCredits, $purchaserColumns, $startDate, $endDate, 'in'),
@@ -446,9 +469,11 @@ class AdminFinancePillarService
     /**
      * @param  Collection<int, PurchaserCredit>  $purchaserCredits
      * @param  Collection<int, ShopAccountingEntry>  $ownedShopEntries
+     * @param  Collection<int, ShopCredit>  $shopCredits
+     * @param  Collection<int, PayrollPayment>  $payrollPayments
      * @return Collection<int, array<string, mixed>>
      */
-    private function buildCashFlowJournalRows(Collection $purchaserCredits, Collection $ownedShopEntries): Collection
+    private function buildCashFlowJournalRows(Collection $purchaserCredits, Collection $ownedShopEntries, Collection $shopCredits, Collection $payrollPayments): Collection
     {
         $purchaserRows = $purchaserCredits
             ->groupBy(function (PurchaserCredit $credit): string {
@@ -483,7 +508,7 @@ class AdminFinancePillarService
                 return [
                     'date' => $firstCredit->business_date?->toDateString() ?? $firstCredit->created_at?->toDateString() ?? today()->toDateString(),
                     'amount' => round((float) $credits->sum('amount'), 2),
-                    'direction' => strtoupper((string) $firstCredit->type),
+                    'direction' => 'OUT',
                     'journal' => (string) ($firstCredit->purchaser?->name ?? 'Purchaser'),
                     'remarks' => $remarks,
                     'category' => 'Purchaser Credit',
@@ -494,7 +519,7 @@ class AdminFinancePillarService
             ->values();
 
         $ownedShopRows = $ownedShopEntries->flatMap(function (ShopAccountingEntry $entry): Collection {
-            return $entry->lines->map(function ($line) use ($entry): array {
+            return $entry->lines->filter(fn ($line): bool => $line->cash_effect !== false)->map(function ($line) use ($entry): array {
                 $direction = $line->type === 'income' ? 'IN' : 'OUT';
 
                 return [
@@ -510,8 +535,35 @@ class AdminFinancePillarService
             });
         });
 
+        $shopCreditRows = $shopCredits->map(function (ShopCredit $credit): array {
+            return [
+                'date' => $credit->business_date?->toDateString() ?? $credit->created_at?->toDateString() ?? today()->toDateString(),
+                'amount' => round((float) $credit->amount, 2),
+                'direction' => $credit->accountingDirection(),
+                'journal' => (string) ($credit->shop?->name ?? 'Owned Shop'),
+                'remarks' => $credit->description,
+                'category' => $credit->accountingCategory(),
+                'source' => 'owned_shop',
+                'sort_at' => $credit->created_at?->timestamp ?? 0,
+            ];
+        });
+        $payrollRows = $payrollPayments->map(function (PayrollPayment $payment): array {
+            return [
+                'date' => $payment->paid_on?->toDateString() ?? $payment->created_at?->toDateString() ?? today()->toDateString(),
+                'amount' => round((float) $payment->amount, 2),
+                'direction' => 'OUT',
+                'journal' => (string) ($payment->employee?->name ?? 'Staff Salary'),
+                'remarks' => $payment->notes ?: 'Salary payment for '.$payment->payrollRun?->period_start?->format('F Y'),
+                'category' => 'Staff Salary',
+                'source' => 'payroll',
+                'sort_at' => $payment->created_at?->timestamp ?? 0,
+            ];
+        });
+
         return $purchaserRows
             ->concat($ownedShopRows)
+            ->concat($shopCreditRows)
+            ->concat($payrollRows)
             ->sortBy([
                 ['date', 'asc'],
                 ['sort_at', 'asc'],
@@ -522,12 +574,7 @@ class AdminFinancePillarService
 
     private function cashFlowOpeningBalance(Carbon $startDate): float
     {
-        $purchaserIn = (float) PurchaserCredit::query()
-            ->where('type', 'in')
-            ->whereDate('business_date', '<', $startDate)
-            ->sum('amount');
         $purchaserOut = (float) PurchaserCredit::query()
-            ->where('type', 'out')
             ->whereDate('business_date', '<', $startDate)
             ->sum('amount');
         $ownedShopEntries = ShopAccountingEntry::query()
@@ -536,13 +583,24 @@ class AdminFinancePillarService
             ->whereDate('business_date', '<', $startDate)
             ->get();
         $ownedShopIn = (float) $ownedShopEntries->sum(
-            fn (ShopAccountingEntry $entry): float => (float) $entry->lines->where('type', 'income')->sum('amount')
+            fn (ShopAccountingEntry $entry): float => (float) $entry->lines->filter(fn ($line): bool => $line->cash_effect !== false)->where('type', 'income')->sum('amount')
         );
         $ownedShopOut = (float) $ownedShopEntries->sum(
-            fn (ShopAccountingEntry $entry): float => (float) $entry->lines->where('type', 'expense')->sum('amount')
+            fn (ShopAccountingEntry $entry): float => (float) $entry->lines->filter(fn ($line): bool => $line->cash_effect !== false)->where('type', 'expense')->sum('amount')
         );
+        $shopCreditIn = (float) ShopCredit::query()
+            ->where('type', 'out')
+            ->whereDate('business_date', '<', $startDate)
+            ->sum('amount');
+        $shopCreditOut = (float) ShopCredit::query()
+            ->where('type', 'in')
+            ->whereDate('business_date', '<', $startDate)
+            ->sum('amount');
+        $payrollOut = (float) PayrollPayment::query()
+            ->whereDate('paid_on', '<', $startDate)
+            ->sum('amount');
 
-        return round(($purchaserIn + $ownedShopIn) - ($purchaserOut + $ownedShopOut), 2);
+        return round(($ownedShopIn + $shopCreditIn) - ($purchaserOut + $ownedShopOut + $shopCreditOut + $payrollOut), 2);
     }
 
     /**

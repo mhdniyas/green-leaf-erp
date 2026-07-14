@@ -90,6 +90,11 @@ class ShopInvoice extends Model
         return $this->belongsTo(User::class, 'payment_approved_by');
     }
 
+    public function deliveryConfirmedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'delivery_confirmed_by');
+    }
+
     public function priceUpdatedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'price_updated_by');

@@ -39,6 +39,18 @@
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18M7 14l3-3 3 2 5-6" /></svg>',
         ],
         [
+            'label' => 'Cash Flow Report',
+            'href' => route('admin.accounting.cash-flow', ['date' => request('date', today()->toDateString())]),
+            'active' => request()->routeIs('admin.accounting.cash-flow'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m0 14h16M8 15l3-3 3 2 4-6M8 8h.01M8 12h.01" /></svg>',
+        ],
+        [
+            'label' => 'Calendar',
+            'href' => route('admin.accounting.cash-flow.calendar', ['date' => request('date', today()->toDateString())]),
+            'active' => request()->routeIs('admin.accounting.cash-flow.calendar'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3.75 8.25h16.5M5.25 5.25h13.5a1.5 1.5 0 0 1 1.5 1.5v11.5a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5V6.75a1.5 1.5 0 0 1 1.5-1.5Z" /></svg>',
+        ],
+        [
             'label' => 'Vendor Reports',
             'href' => route('admin.accounting.vendor-reports', ['date' => request('date', today()->toDateString())]),
             'active' => request()->routeIs('admin.accounting.vendor-reports'),
@@ -76,6 +88,7 @@
     $mobileItems = [
         ['label' => 'Home', 'href' => route('admin.accounting.index', ['date' => $navDate]), 'active' => request()->routeIs('admin.accounting.index')],
         ['label' => 'Sales', 'href' => route('admin.accounting.daily-sales', ['date' => request('date', today()->toDateString())]), 'active' => request()->routeIs('admin.accounting.daily-sales')],
+        ['label' => 'Cash', 'href' => route('admin.accounting.cash-flow', ['date' => request('date', today()->toDateString())]), 'active' => request()->routeIs('admin.accounting.cash-flow')],
         ['label' => 'Vendor', 'href' => route('admin.accounting.vendor-reports', ['date' => request('date', today()->toDateString())]), 'active' => request()->routeIs('admin.accounting.vendor-reports')],
     ];
 

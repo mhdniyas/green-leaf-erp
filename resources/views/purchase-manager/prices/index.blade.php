@@ -5,6 +5,10 @@
 @section('page_description', 'Purchase manager proposes category prices from purchased-product cost. Admin approval publishes prices and generates shop invoices.')
 
 @section('content')
+    @php
+        $isAdminViewer = auth()->user()?->hasRole('admin');
+        $allApprovals = $pendingApprovals->concat($approvedApprovals);
+    @endphp
     <div class="space-y-6">
         <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <form method="GET" action="{{ route('purchasing.prices.index') }}" class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px_auto] lg:items-end">
@@ -62,12 +66,12 @@
             <article class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Already Approved</p>
                 <p class="mt-3 text-3xl font-black text-slate-950">{{ $approvedApprovals->count() }}</p>
-                <p class="mt-2 text-sm text-slate-500">Editing any approved row will send it back for approval.</p>
+                <p class="mt-2 text-sm text-slate-500">{{ $isAdminViewer ? 'Editing any approved row will publish the update immediately.' : 'Editing any approved row will send it back for approval.' }}</p>
             </article>
             <article class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Invoice Trigger</p>
-                <p class="mt-3 text-lg font-black text-slate-950">Admin Publish</p>
-                <p class="mt-2 text-sm text-slate-500">When admin approves, selling prices go live and shop-owner invoices are generated or repriced.</p>
+                <p class="mt-3 text-lg font-black text-slate-950">{{ $isAdminViewer ? 'Instant Publish' : 'Admin Publish' }}</p>
+                <p class="mt-2 text-sm text-slate-500">{{ $isAdminViewer ? 'Saving as admin publishes live prices immediately and reprices shop invoices.' : 'When admin approves, selling prices go live and shop-owner invoices are generated or repriced.' }}</p>
             </article>
         </section>
 
@@ -81,7 +85,7 @@
                     <div>
                         <p class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Proposal Update</p>
                         <h2 class="mt-1 text-lg font-black text-slate-950">Proposed Shop Category Prices</h2>
-                        <p class="mt-1 text-sm text-slate-500">This page no longer updates live selling prices directly. It only edits admin approval proposals.</p>
+                        <p class="mt-1 text-sm text-slate-500">{{ $isAdminViewer ? 'As admin, saving here publishes the live selling prices directly.' : 'This page no longer updates live selling prices directly. It only edits admin approval proposals.' }}</p>
                     </div>
                     <div>
                         <label for="reason" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Reason</label>
@@ -89,11 +93,6 @@
                     </div>
                 </div>
             </div>
-
-            @php
-                $allApprovals = $pendingApprovals->concat($approvedApprovals);
-            @endphp
-
             @if ($allApprovals->isEmpty())
                 <div class="px-5 py-12 text-center">
                     <p class="text-base font-black text-slate-900">No purchased products found.</p>
@@ -163,6 +162,8 @@
                                     <td class="px-5 py-4 text-xs font-semibold text-slate-500">
                                         @if ($approval->approved_at)
                                             Approved {{ $approval->approved_at->format('d M, h:i A') }}
+                                        @elseif ($isAdminViewer)
+                                            Ready for admin publish
                                         @else
                                             Waiting for admin approval
                                         @endif
@@ -174,9 +175,9 @@
                 </div>
 
                 <div class="flex flex-col gap-3 border-t border-slate-200 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
-                    <p class="text-sm font-semibold text-slate-500">Saving any row submits the proposal back to admin approval. Admin publish updates live prices and shop-owner finance invoices.</p>
+                    <p class="text-sm font-semibold text-slate-500">{{ $isAdminViewer ? 'Saving any row publishes live prices immediately and reprices shop-owner finance invoices.' : 'Saving any row submits the proposal back to admin approval. Admin publish updates live prices and shop-owner finance invoices.' }}</p>
                     <button type="submit" class="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-black text-white">
-                        Save And Send To Admin
+                        {{ $isAdminViewer ? 'Save And Publish' : 'Save And Send To Admin' }}
                     </button>
                 </div>
             @endif

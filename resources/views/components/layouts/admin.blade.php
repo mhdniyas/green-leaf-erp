@@ -21,7 +21,7 @@
 <body class="min-h-full bg-slate-100 font-sans antialiased text-slate-900">
 @php
     $currentUser = auth()->user();
-    $navDate = request('date', today()->toDateString());
+    $navDate = request('date', app(\App\Services\Purchasing\PurchaserBusinessDayService::class)->operationalDate()->toDateString());
     $sidebarSections = [];
 
     $workspaceItems = [];
@@ -136,12 +136,6 @@
             'href' => route('admin.warehouses.index'),
             'active' => request()->routeIs('admin.warehouses.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5 12 3l9 4.5M4.5 8.25v8.25A2.25 2.25 0 0 0 6.75 18.75h10.5A2.25 2.25 0 0 0 19.5 16.5V8.25M9 12h6" /></svg>',
-        ];
-        $adminItems[] = [
-            'label' => 'Price Approvals',
-            'href' => route('admin.price-approvals.index', ['date' => $navDate]),
-            'active' => request()->routeIs('admin.price-approvals.*'),
-            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m3.75-9.75h-6a2.25 2.25 0 100 4.5h4.5a2.25 2.25 0 100 4.5h-6" /></svg>',
         ];
     }
 

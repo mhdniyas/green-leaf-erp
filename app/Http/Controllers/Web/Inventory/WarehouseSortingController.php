@@ -18,6 +18,7 @@ use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Services\Inventory\WastageService;
 use App\Services\Purchasing\GoodsReceivedService;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -425,9 +426,7 @@ class WarehouseSortingController extends Controller
             return $tomorrow;
         }
 
-        $cutoffTime = today()->setTime(21, 30);
-
-        return now()->greaterThan($cutoffTime) ? $tomorrow : $today;
+        return app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
     }
 
     private function approvedOrdersQuery(string $date, array $poBackedProductIds = []): Builder

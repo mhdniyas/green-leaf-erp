@@ -2,7 +2,9 @@
     /** @var \App\Models\User $user */
     $user = auth()->user();
     $shopName = $user->shop?->name ?? 'Shop';
-    $cutoffTime = now()->copy()->setTime(21, 30);
+    $cutoffService = app(\App\Services\Purchasing\PurchaserBusinessDayService::class);
+    $cutoffTime = $cutoffService->rolloverStartsAt(now());
+    $cutoffLabel = $cutoffService->cutoffLabel();
     $tomorrowDate = now()->addDay();
     $orderForm = collect();
 
@@ -90,7 +92,7 @@
 
                     <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
                         <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Cutoff Time</p>
-                        <p class="mt-1 font-bold text-slate-900">9:30 PM</p>
+                        <p class="mt-1 font-bold text-slate-900">{{ $cutoffLabel }}</p>
                         <p class="text-xs text-slate-500">
                             {{ now()->greaterThan($cutoffTime) ? 'Cutoff passed for new submission.' : 'Submission window is open.' }}
                         </p>

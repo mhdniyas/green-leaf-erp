@@ -16,6 +16,8 @@ class AccountingAccess
 
     public const InvoiceGenerate = 'accounting.invoice.generate';
 
+    public const InvoiceApprove = 'accounting.invoice.approve';
+
     public const PurchaserCashManage = 'accounting.purchaser-cash.manage';
 
     public const ReportExport = 'accounting.report.export';

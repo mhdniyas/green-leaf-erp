@@ -38,6 +38,17 @@ class ShopAccountingInvoiceService
             throw new RuntimeException('A settlement invoice already exists for the selected shop and period.');
         }
 
+        $overlappingInvoiceExists = ShopAccountingInvoice::query()
+            ->where('shop_id', $shop->id)
+            ->whereNotIn('status', ['void'])
+            ->whereDate('period_start', '<=', $periodEnd)
+            ->whereDate('period_end', '>=', $periodStart)
+            ->exists();
+
+        if ($overlappingInvoiceExists) {
+            throw new RuntimeException('The selected period overlaps an existing settlement invoice.');
+        }
+
         $entries = ShopAccountingEntry::query()
             ->with('lines')
             ->where('shop_id', $shop->id)
@@ -83,6 +94,40 @@ class ShopAccountingInvoiceService
             }
 
             return $invoice->fresh(['shop', 'generatedBy', 'splits.ownership']);
+        });
+    }
+
+    public function approve(ShopAccountingInvoice $invoice, int $userId): ShopAccountingInvoice
+    {
+        if ($invoice->status !== 'generated') {
+            throw new RuntimeException('Only generated settlement invoices can be approved.');
+        }
+
+        return DB::transaction(function () use ($invoice, $userId): ShopAccountingInvoice {
+            $invoice->update([
+                'status' => 'approved',
+                'approved_by' => $userId,
+                'approved_at' => now(),
+            ]);
+
+            return $invoice->fresh(['shop', 'generatedBy', 'approvedBy', 'splits.ownership']);
+        });
+    }
+
+    public function markPaid(ShopAccountingInvoice $invoice, int $userId): ShopAccountingInvoice
+    {
+        if ($invoice->status !== 'approved') {
+            throw new RuntimeException('Only approved settlement invoices can be marked as paid.');
+        }
+
+        return DB::transaction(function () use ($invoice, $userId): ShopAccountingInvoice {
+            $invoice->update([
+                'status' => 'paid',
+                'paid_by' => $userId,
+                'paid_at' => now(),
+            ]);
+
+            return $invoice->fresh(['shop', 'generatedBy', 'approvedBy', 'splits.ownership']);
         });
     }
 

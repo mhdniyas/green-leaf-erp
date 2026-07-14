@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -20,6 +21,7 @@ class ShopOrder extends Model
         'order_number',
         'state',
         'delivery_status',
+        'delivery_review_status',
         'payment_status',
         'business_date',
         'submitted_at',
@@ -38,6 +40,11 @@ class ShopOrder extends Model
         'delivered_at',
         'delivered_by',
         'delivery_notes',
+        'shop_checked_by',
+        'shop_checked_at',
+        'admin_reviewed_by',
+        'admin_reviewed_at',
+        'admin_review_note',
         'cash_collected',
         'cash_discrepancy',
         'balance_amount',
@@ -55,6 +62,8 @@ class ShopOrder extends Model
         'is_delivered' => 'boolean',
         'is_late' => 'boolean',
         'delivered_at' => 'datetime',
+        'shop_checked_at' => 'datetime',
+        'admin_reviewed_at' => 'datetime',
         'cash_collected' => 'decimal:2',
         'cash_discrepancy' => 'decimal:2',
         'balance_amount' => 'decimal:2',
@@ -64,6 +73,16 @@ class ShopOrder extends Model
     public function deliveredBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'delivered_by');
+    }
+
+    public function shopCheckedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'shop_checked_by');
+    }
+
+    public function adminReviewedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'admin_reviewed_by');
     }
 
     protected static function booted(): void
@@ -81,7 +100,7 @@ class ShopOrder extends Model
     }
 
     /**
-     * Check if this order is editable directly (before 9:30 PM of the day before delivery).
+     * Check if this order is editable directly before the configured cutoff on the day before delivery.
      */
     public function canEditDirectly(): bool
     {
@@ -89,8 +108,8 @@ class ShopOrder extends Model
             return false;
         }
 
-        // Cutoff is 9:30 PM (21:30) of the day before the target business date.
-        $cutoff = Carbon::parse($this->business_date)->subDay()->setTime(21, 30, 0);
+        $cutoff = app(PurchaserBusinessDayService::class)
+            ->rolloverStartsAt(Carbon::parse($this->business_date)->subDay());
 
         return now()->lessThanOrEqualTo($cutoff);
     }
@@ -245,9 +264,15 @@ class ShopOrder extends Model
             'partially_delivered' => 'Partially Delivered',
             'delivery_issue' => 'Delivery Issue',
             'delivered' => 'Delivered',
-            'pending_approval' => 'Pending Discrepancy Approval',
+            'pending_approval' => 'Awaiting Admin Review',
             default => 'Approved For Warehouse',
         };
+    }
+
+    public function hasPendingDeliveryReview(): bool
+    {
+        return $this->delivery_status === 'pending_approval'
+            && $this->delivery_review_status === 'pending';
     }
 
     public function warehouseWorkflowTone(): string

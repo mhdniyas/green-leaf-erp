@@ -1,3 +1,5 @@
+@php($cutoffLabel = app(\App\Services\Purchasing\PurchaserBusinessDayService::class)->cutoffLabel())
+
 <x-layouts.app title="Edit Requisition — {{ $order->order_number }}">
     <div class="max-w-4xl mx-auto px-4 py-8">
         <!-- Header -->
@@ -9,7 +11,7 @@
             <h1 class="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-3">
                 Edit Requisition: <span class="text-emerald-600">{{ $order->order_number }}</span>
             </h1>
-            <p class="text-xs text-slate-500 mt-1">Enforcing 9:30 PM cutoff deadline for tomorrow's deliveries.</p>
+            <p class="text-xs text-slate-500 mt-1">Enforcing {{ $cutoffLabel }} cutoff deadline for tomorrow's deliveries.</p>
         </div>
 
         <form action="{{ route('requisitions.update', $order->order_number) }}" method="POST" class="space-y-6">

@@ -18,7 +18,7 @@ class ReviewEmployeeLeaveRequest extends FormRequest
     {
         return [
             'status' => ['required', Rule::in(['approved', 'rejected'])],
-            'review_note' => ['nullable', 'string'],
+            'review_note' => ['required', 'string', 'min:3'],
         ];
     }
 }

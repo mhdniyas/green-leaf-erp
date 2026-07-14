@@ -523,11 +523,6 @@
                             Activity Log
                         </x-nav-item>
                         @endcan
-                        @can('admin.user.view')
-                        <x-nav-item href="{{ route('admin.price-approvals.index') }}" :active="request()->routeIs('admin.price-approvals.*')" :sub="true">
-                            Daily Price Approvals
-                        </x-nav-item>
-                        @endcan
                         @if(auth()->user()->hasRole('admin') || auth()->user()->can('admin.discrepancies.view'))
                         <x-nav-item href="{{ route('admin.discrepancies.index') }}" :active="request()->routeIs('admin.discrepancies.*')" :sub="true">
                             Discrepancies & Wastage

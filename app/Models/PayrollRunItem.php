@@ -8,6 +8,7 @@ use Database\Factories\PayrollRunItemFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PayrollRunItem extends Model
 {
@@ -61,5 +62,22 @@ class PayrollRunItem extends Model
     public function category(): BelongsTo
     {
         return $this->belongsTo(EmployeeCategory::class, 'employee_category_id');
+    }
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(PayrollPayment::class);
+    }
+
+    public function paidAmount(): float
+    {
+        $payments = $this->relationLoaded('payments') ? $this->payments : $this->payments()->get();
+
+        return round((float) $payments->sum('amount'), 2);
+    }
+
+    public function remainingAmount(): float
+    {
+        return round(max(0, (float) $this->final_amount - $this->paidAmount()), 2);
     }
 }

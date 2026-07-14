@@ -36,6 +36,9 @@ class UpdateEmployeeCategoryRequest extends FormRequest
             'paid_leave_weight' => ['required', 'numeric', 'min:0', 'max:1'],
             'excess_leave_weight' => ['required', 'numeric', 'min:0', 'max:1'],
             'absent_day_weight' => ['required', 'numeric', 'min:0', 'max:1'],
+            'paid_leave_carry_forward_allowed' => ['nullable', 'boolean'],
+            'paid_leave_maximum_carry_forward_days' => ['nullable', 'numeric', 'min:0'],
+            'paid_leave_carry_forward_expiry_months' => ['nullable', 'integer', 'min:0', 'max:24'],
             'is_active' => ['nullable', 'boolean'],
             'notes' => ['nullable', 'string'],
         ];

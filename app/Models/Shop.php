@@ -96,6 +96,11 @@ class Shop extends Model
         return $this->hasMany(ShopAccountingEntry::class);
     }
 
+    public function credits(): HasMany
+    {
+        return $this->hasMany(ShopCredit::class);
+    }
+
     public function latestAccountingEntry(): HasOne
     {
         return $this->hasOne(ShopAccountingEntry::class)->latestOfMany('updated_at');

@@ -10,12 +10,17 @@ use App\Models\GoodsReceived;
 use App\Models\PurchaseOrder;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Support\ShopOwner\ActiveShopResolver;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Carbon;
 
 class DeliveryDashboardController extends Controller
 {
+    public function __construct(
+        private readonly ActiveShopResolver $activeShopResolver,
+    ) {}
+
     /**
      * Display the daily delivery dashboard.
      */
@@ -26,7 +31,7 @@ class DeliveryDashboardController extends Controller
 
         $user = $request->user();
         $isShop = $user->hasRole('shop');
-        $shopId = $user->shop_id;
+        $shopId = $isShop ? $this->activeShopResolver->resolve($request)->id : $user->shop_id;
 
         // Fetch all shop orders for the selected business date
         $ordersQuery = ShopOrder::whereDate('business_date', $date)

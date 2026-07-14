@@ -71,9 +71,24 @@ class Employee extends Model
         return $this->hasMany(EmployeeLeaveRequest::class);
     }
 
+    public function leaveLedgerEntries(): HasMany
+    {
+        return $this->hasMany(EmployeeLeaveLedgerEntry::class);
+    }
+
+    public function hrOverrides(): HasMany
+    {
+        return $this->hasMany(HrOverride::class);
+    }
+
     public function payrollItems(): HasMany
     {
         return $this->hasMany(PayrollRunItem::class);
+    }
+
+    public function payrollPayments(): HasMany
+    {
+        return $this->hasMany(PayrollPayment::class);
     }
 
     public function assignedShops(): BelongsToMany

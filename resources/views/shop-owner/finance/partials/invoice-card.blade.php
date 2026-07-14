@@ -11,8 +11,8 @@
             </a>
             @include('shop-owner.finance.partials.payment-status-badge', ['invoice' => $invoice])
             @include('shop-owner.components.status-badge', [
-                'label' => str($invoice->delivery_status)->replace('_', ' ')->title(),
-                'tone' => in_array($invoice->delivery_status, ['received_full', 'approved_after_discrepancy'], true) ? 'success' : ($invoice->delivery_status === 'received_with_discrepancy' ? 'warning' : 'neutral'),
+                'label' => $invoice->delivery_status === 'awaiting_review' ? 'Awaiting Admin Review' : str($invoice->delivery_status)->replace('_', ' ')->title(),
+                'tone' => in_array($invoice->delivery_status, ['received_full', 'approved_after_discrepancy'], true) ? 'success' : (in_array($invoice->delivery_status, ['received_with_discrepancy', 'awaiting_review'], true) ? 'warning' : 'neutral'),
             ])
         </div>
     </div>

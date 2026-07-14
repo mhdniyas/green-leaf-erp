@@ -163,7 +163,7 @@
                             @forelse($attendanceRecords as $attendance)
                                 <tr>
                                     <td class="py-3 font-black text-slate-500">{{ $loop->iteration }}</td>
-                                    <td class="py-3 font-bold text-slate-900">{{ $attendance->employee->name }}</td>
+                                    <td class="py-3"><a href="{{ route('admin.staff.show', $attendance->employee) }}" class="font-bold text-slate-900 underline-offset-4 hover:text-cyan-700 hover:underline">{{ $attendance->employee->name }}</a></td>
                                     <td class="py-3">{{ $attendance->employee->category->name }}</td>
                                     <td class="py-3 capitalize">{{ str_replace('_', ' ', $attendance->status) }}</td>
                                     <td class="py-3">{{ $attendance->markedBy?->name ?? 'System' }}</td>

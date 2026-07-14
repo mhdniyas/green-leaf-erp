@@ -1,3 +1,5 @@
+@php($cutoffLabel = app(\App\Services\Purchasing\PurchaserBusinessDayService::class)->cutoffLabel())
+
 @if (($deadlineAlert['show'] ?? false) === true)
     <section class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-4 shadow-sm lg:rounded-[2rem]">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -7,7 +9,7 @@
                     @if (($deadlineAlert['overdue_count'] ?? 0) > 0)
                         {{ $deadlineAlert['overdue_count'] }} overdue carts from older business dates still need warehouse confirmation or payment follow-up before the active purchase day stays clean.
                     @else
-                        Resolve carts before the 9:30 PM business-day rollover.
+                        Resolve carts before the {{ $cutoffLabel }} business-day rollover.
                     @endif
                 </p>
                 <div class="mt-2 flex flex-wrap gap-2 text-[11px] font-bold text-rose-800">

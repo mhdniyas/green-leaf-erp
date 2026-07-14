@@ -11,8 +11,9 @@
 @endif
 
 @php
-    $itemError = $errors->first('items');
-    $nonItemErrors = collect($errors->getMessages())->except('items')->flatten();
+    $viewErrors = $errors ?? new \Illuminate\Support\ViewErrorBag();
+    $itemError = $viewErrors->first('items');
+    $nonItemErrors = collect($viewErrors->getMessages())->except('items')->flatten();
 @endphp
 
 @if ($itemError !== '')

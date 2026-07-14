@@ -72,6 +72,7 @@ class RolePermissionSeeder extends Seeder
             'accounting.owned-shop.manage',
             'accounting.entry.review',
             'accounting.invoice.generate',
+            'accounting.invoice.approve',
             'accounting.purchaser-cash.manage',
 
             // HR

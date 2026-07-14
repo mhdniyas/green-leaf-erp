@@ -11,6 +11,22 @@
                     Back to Shop Accounting
                 </a>
             </div>
+            <div class="mt-5 flex flex-wrap items-center gap-3">
+                <span class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-700">Status: {{ str($invoice->status)->replace('_', ' ')->title() }}</span>
+                @if ($invoice->status === 'generated')
+                    <form method="POST" action="{{ route('admin.accounting.owned-shops.invoices.approve', ['shop' => $shop, 'invoice' => $invoice]) }}">
+                        @csrf
+                        @method('PATCH')
+                        <button type="submit" class="inline-flex h-10 items-center rounded-2xl bg-emerald-600 px-4 text-sm font-black text-white transition hover:bg-emerald-500">Approve & Close Period</button>
+                    </form>
+                @elseif ($invoice->status === 'approved')
+                    <form method="POST" action="{{ route('admin.accounting.owned-shops.invoices.paid', ['shop' => $shop, 'invoice' => $invoice]) }}">
+                        @csrf
+                        @method('PATCH')
+                        <button type="submit" class="inline-flex h-10 items-center rounded-2xl bg-cyan-600 px-4 text-sm font-black text-white transition hover:bg-cyan-500">Mark as Paid</button>
+                    </form>
+                @endif
+            </div>
         </section>
 
         <section class="grid gap-4 md:grid-cols-4">
