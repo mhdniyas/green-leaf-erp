@@ -1,6 +1,8 @@
 <x-layouts.accounting title="Owned Shop Accounting">
     @php
         $openAddModal = $errors->any() || old('shop_id');
+        $pendingBalanceTotal = (float) $shops->sum(fn ($shop): float => (float) ($shop->pending_balance_amount ?? 0));
+        $pettyBalanceTotal = (float) $shops->sum(fn ($shop): float => (float) ($shop->petty_cash_balance_amount ?? 0));
     @endphp
 
     <div class="mx-auto max-w-[96rem] space-y-6">
@@ -9,7 +11,7 @@
                 <div>
                     <p class="text-[10px] font-black uppercase tracking-[0.26em] text-slate-400">Owned Shop Accounting</p>
                     <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-950">Eligible shops</h1>
-                    <p class="mt-3 max-w-3xl text-sm font-semibold leading-6 text-slate-600">Only owned and partnership shops with accounting enabled appear here. Keep this page as a clean control table for reserve amount, ownership mode, and settlement access.</p>
+                    <p class="mt-3 max-w-3xl text-sm font-semibold leading-6 text-slate-600">Only owned and partnership shops with accounting enabled appear here. Keep this page as a clean control table for petty cash, ownership mode, and settlement access.</p>
                 </div>
 
                 <div class="flex flex-wrap items-center gap-3">
@@ -48,7 +50,7 @@
                             <th class="px-4 py-3">Mode</th>
                             <th class="px-4 py-3">Update Alert</th>
                             <th class="px-4 py-3 text-right">Pending Balance</th>
-                            <th class="px-4 py-3 text-right">Reserve Amount</th>
+                            <th class="px-4 py-3 text-right">Petty Balance</th>
                             <th class="px-4 py-3">Configured</th>
                             <th class="px-4 py-3 text-right">Open</th>
                         </tr>
@@ -108,7 +110,12 @@
                                 <td class="px-4 py-4 text-right font-black {{ (float) ($shop->pending_balance_amount ?? 0) > 0 ? 'text-rose-700' : 'text-emerald-700' }}">
                                     Rs. {{ number_format((float) ($shop->pending_balance_amount ?? 0), 2) }}
                                 </td>
-                                <td class="px-4 py-4 text-right font-black text-slate-950">Rs. {{ number_format((float) $shop->reserve_amount, 2) }}</td>
+                                @php
+                                    $pettyBalance = (float) ($shop->petty_cash_balance_amount ?? 0);
+                                @endphp
+                                <td class="px-4 py-4 text-right font-black {{ $pettyBalance >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">
+                                    {{ $pettyBalance >= 0 ? '+' : '-' }} Rs. {{ number_format(abs($pettyBalance), 2) }}
+                                </td>
                                 <td class="px-4 py-4">
                                     <span @class([
                                         'inline-flex rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em]',
@@ -132,6 +139,20 @@
                             </tr>
                         @endforelse
                     </tbody>
+                    @if($shops->isNotEmpty())
+                        <tfoot class="border-t border-slate-200 bg-slate-50 text-sm">
+                            <tr>
+                                <td colspan="4" class="px-4 py-4 text-right font-black uppercase tracking-[0.14em] text-slate-500">Total</td>
+                                <td class="px-4 py-4 text-right font-black {{ $pendingBalanceTotal > 0 ? 'text-rose-700' : 'text-emerald-700' }}">
+                                    Rs. {{ number_format($pendingBalanceTotal, 2) }}
+                                </td>
+                                <td class="px-4 py-4 text-right font-black {{ $pettyBalanceTotal >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">
+                                    {{ $pettyBalanceTotal >= 0 ? '+' : '-' }} Rs. {{ number_format(abs($pettyBalanceTotal), 2) }}
+                                </td>
+                                <td colspan="2" class="px-4 py-4"></td>
+                            </tr>
+                        </tfoot>
+                    @endif
                 </table>
             </div>
         </section>
@@ -179,8 +200,8 @@
                             </label>
 
                             <label class="block">
-                                <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Reserve Amount</span>
-                                <input type="number" step="0.01" min="0" name="reserve_amount" value="{{ old('reserve_amount', '0.00') }}" class="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900">
+                                <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Default Petty Cash</span>
+                                <input type="number" step="0.01" min="0" name="default_petty_cash_amount" value="{{ old('default_petty_cash_amount', '0.00') }}" class="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900">
                             </label>
 
                             <div class="lg:col-span-3 flex flex-wrap items-center justify-end gap-3 border-t border-slate-100 pt-4">

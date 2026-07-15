@@ -8,6 +8,7 @@ use App\Http\Controllers\Web\Admin\AdminOverviewController;
 use App\Http\Controllers\Web\Admin\DailyProgressController;
 use App\Http\Controllers\Web\Admin\DeliveryReviewController;
 use App\Http\Controllers\Web\Admin\DiscrepancyReportController;
+use App\Http\Controllers\Web\Admin\EnquiryController;
 use App\Http\Controllers\Web\Admin\StaffManagementController;
 use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\Admin\WarehouseController;
@@ -43,11 +44,14 @@ use App\Http\Controllers\Web\ShopPresetController;
 use App\Http\Controllers\Web\SortSheetController;
 use App\Http\Controllers\Web\Warehouse\WarehouseLoadoutController;
 use App\Http\Controllers\Web\Warehouse\WarehouseReceiverController;
+use App\Http\Controllers\Web\WebsiteEnquiryController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-// Root redirect
-Route::get('/', fn () => redirect()->route('login'));
+// Public website
+Route::view('/', 'welcome')->name('home');
+Route::view('/products', 'products.index')->name('products.index');
+Route::post('/enquiries', [WebsiteEnquiryController::class, 'store'])->name('website-enquiries.store');
 
 // Guest routes (unauthenticated only)
 Route::middleware('guest')->group(function () {
@@ -85,7 +89,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/deliveries/{order_number}', [ShopOwnerController::class, 'deliveriesShow'])->name('deliveries.show');
         Route::get('/accounting', [ShopOwnerController::class, 'accountingIndex'])->name('accounting.index');
         Route::get('/accounting/history', [ShopOwnerController::class, 'accountingHistory'])->name('accounting.history');
+        Route::get('/accounting/petty-cash', [ShopOwnerController::class, 'pettyCashIndex'])->name('accounting.petty-cash.index');
         Route::post('/accounting/entries', [ShopOwnerController::class, 'storeAccountingEntry'])->name('accounting.entries.store');
+        Route::post('/accounting/petty-cash-expenses', [ShopOwnerController::class, 'storePettyCashExpense'])->name('accounting.petty-cash-expenses.store');
         Route::post('/accounting/payment-requests', [ShopOwnerController::class, 'storePaymentRequest'])->name('accounting.payment-requests.store');
         Route::get('/finance', [ShopOwnerController::class, 'financeIndex'])->name('finance.index');
         Route::get('/finance/{invoice}', [ShopOwnerController::class, 'financeShow'])->name('finance.show');
@@ -246,6 +252,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/approved-board/export/csv', [RequisitionController::class, 'exportApprovedBoardCsv'])->name('requisitions.approved_board.export.csv');
     Route::get('/approved-board/export/pdf', [RequisitionController::class, 'exportApprovedBoardPdf'])->name('requisitions.approved_board.export.pdf');
     Route::post('/business-day-settings/cutoff', [BusinessDaySettingsController::class, 'updateCutoff'])->name('business-day-settings.cutoff.update');
+    Route::post('/business-day-settings/auto-approve', [BusinessDaySettingsController::class, 'updateAutoApprove'])->name('business-day-settings.auto-approve.update');
     Route::get('/requisitions/{order_number}/export/csv', [RequisitionController::class, 'exportCsv'])->name('requisitions.export.csv');
     Route::get('/requisitions/{order_number}/export/pdf', [RequisitionController::class, 'exportPdf'])->name('requisitions.export.pdf');
     Route::post('/requisitions', [RequisitionController::class, 'store'])->name('requisitions.store');
@@ -324,6 +331,7 @@ Route::middleware('auth')->group(function () {
             Route::get('owned-shops/{shop:code}', [AdminAccountingController::class, 'ownedShopShow'])->name('owned-shops.show');
             Route::get('owned-shops/{shop:code}/categories', [AdminAccountingController::class, 'ownedShopCategories'])->name('owned-shops.categories.index');
             Route::patch('owned-shops/{shop:code}/reserve-amount', [AdminAccountingController::class, 'updateReserveAmount'])->name('owned-shops.reserve-amount.update');
+            Route::patch('owned-shops/{shop:code}/petty-cash-settings', [AdminAccountingController::class, 'updatePettyCashSettings'])->name('owned-shops.petty-cash-settings.update');
             Route::post('owned-shops/{shop:code}/ownerships', [AdminAccountingController::class, 'storeOwnerships'])->name('owned-shops.ownerships.store');
             Route::post('owned-shops/{shop:code}/categories', [AdminAccountingController::class, 'storeCategory'])->name('owned-shops.categories.store');
             Route::post('owned-shops/{shop:code}/entries', [AdminAccountingController::class, 'storeEntry'])->name('owned-shops.entries.store');
@@ -337,8 +345,11 @@ Route::middleware('auth')->group(function () {
             Route::patch('owned-shops/{shop:code}/daily-bills/{invoice}/payment', [AdminAccountingController::class, 'updateDailyBillPayment'])->name('owned-shops.daily-bills.payment');
             Route::patch('owned-shops/{shop:code}/payment-requests/{paymentRequest}/review', [AdminAccountingController::class, 'reviewOwnedShopPaymentRequest'])->name('owned-shops.payment-requests.review');
             Route::get('purchasers', [AdminAccountingController::class, 'purchasersIndex'])->name('purchasers.index');
-            Route::get('purchasers/{user}', [AdminAccountingController::class, 'purchaserShow'])->name('purchasers.show');
-            Route::post('purchasers/{user}/credits', [AdminAccountingController::class, 'storePurchaserCredit'])->name('purchasers.credits.store');
+            Route::get('purchasers/direct-purchase/create', [RequisitionController::class, 'createAdminDirectPurchase'])->name('purchasers.direct-purchase.create');
+            Route::post('purchasers/direct-purchase', [RequisitionController::class, 'storeAdminDirectPurchase'])->name('purchasers.direct-purchase.store');
+            Route::get('purchasers/{user:public_uuid}', [AdminAccountingController::class, 'purchaserShow'])->name('purchasers.show');
+            Route::post('purchasers/{user:public_uuid}/credits', [AdminAccountingController::class, 'storePurchaserCredit'])->name('purchasers.credits.store');
+            Route::post('purchasers/{user:public_uuid}/buy', [AdminAccountingController::class, 'buyAsPurchaser'])->name('purchasers.buy');
         });
         Route::post('users/{user}/approve', [UserController::class, 'approve'])->name('users.approve');
         Route::resource('users', UserController::class);
@@ -369,6 +380,7 @@ Route::middleware('auth')->group(function () {
         Route::get('staff/{employee:employee_code}', [StaffManagementController::class, 'show'])->name('staff.show');
         Route::get('daily-progress', DailyProgressController::class)->name('daily-progress');
         Route::get('activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
+        Route::get('enquiries', [EnquiryController::class, 'index'])->name('enquiries.index');
         Route::get('price-approvals', function (Request $request) {
             return redirect()->route('purchasing.prices.index', [
                 'date' => $request->input('date'),

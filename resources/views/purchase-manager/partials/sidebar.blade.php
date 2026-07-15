@@ -1,4 +1,6 @@
 @php
+    $businessDayService = app(\App\Services\Purchasing\PurchaserBusinessDayService::class);
+    $navDate = request('date', $businessDayService->operationalDate()->toDateString());
     $purchaseManagerNavItems = [];
 
     $purchaseManagerNavItems[] = [
@@ -8,8 +10,9 @@
     ];
 
     if (auth()->user()->hasRole('purchase') || auth()->user()->can('purchasing.order.approve')) {
-        $purchaseManagerNavItems[] = ['label' => 'Approve Shop Orders', 'route' => 'requisitions.board', 'active' => request()->routeIs('requisitions.board')];
-        $purchaseManagerNavItems[] = ['label' => 'Approved Board', 'route' => 'requisitions.approved_board', 'active' => request()->routeIs('requisitions.approved_board')];
+        $purchaseManagerNavItems[] = ['label' => 'Approve Shop Orders', 'route' => 'requisitions.board', 'params' => ['date' => $navDate], 'active' => request()->routeIs('requisitions.board')];
+        $purchaseManagerNavItems[] = ['label' => 'Approved Board', 'route' => 'requisitions.approved_board', 'params' => ['date' => $navDate], 'active' => request()->routeIs('requisitions.approved_board') && ! request()->boolean('settings')];
+        $purchaseManagerNavItems[] = ['label' => 'Settings', 'route' => 'requisitions.approved_board', 'params' => ['date' => $navDate, 'settings' => 1], 'active' => request()->routeIs('requisitions.approved_board') && request()->boolean('settings')];
     }
 
     $purchaseManagerNavItems[] = ['label' => 'Purchase Orders', 'route' => 'purchasing.orders.index', 'active' => request()->routeIs('purchasing.orders.*') && ! request()->routeIs('purchasing.orders.index')];
@@ -28,7 +31,7 @@
     <nav class="flex-1 space-y-2 px-4 py-6">
         @foreach ($purchaseManagerNavItems as $item)
             <a
-                href="{{ route($item['route']) }}"
+                href="{{ route($item['route'], $item['params'] ?? []) }}"
                 @class([
                     'block rounded-2xl px-4 py-3 text-sm font-bold transition',
                     'bg-cyan-400 text-slate-950 shadow-sm' => $item['active'],

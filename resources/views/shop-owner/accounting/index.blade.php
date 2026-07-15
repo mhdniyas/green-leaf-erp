@@ -245,8 +245,8 @@
                     <p class="mt-2 text-3xl font-black text-slate-950">Rs. {{ number_format($netAmount, 2) }}</p>
                 </div>
                 <div class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Reserve Cash</p>
-                    <p class="mt-2 text-3xl font-black text-cyan-700">Rs. {{ number_format($reserveAmount, 2) }}</p>
+                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Petty Cash Balance</p>
+                    <p class="mt-2 text-3xl font-black {{ $pettyCashBalance >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format($pettyCashBalance, 2) }}</p>
                 </div>
                 <div class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
                     <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Status</p>
@@ -259,6 +259,133 @@
                     </div>
                 </div>
             </section>
+
+            <section class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Petty Cash</p>
+                        <h3 class="mt-2 text-lg font-black text-slate-950">Daily petty cash table</h3>
+                        <p class="mt-2 text-sm font-semibold {{ $pettyCashBalance >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">
+                            {{ $pettyCashBalance < 0 ? 'Petty cash pending' : 'Petty cash balance' }} Rs. {{ number_format(abs($pettyCashBalance), 2) }}
+                        </p>
+                    </div>
+                    <button type="button" id="petty-cash-open-modal" class="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800">
+                        Add Daily Petty Expense
+                    </button>
+                </div>
+
+                <div class="mt-5 overflow-x-auto rounded-[1.5rem] border border-slate-200">
+                    <table class="min-w-full text-left text-sm">
+                        <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                            <tr>
+                                <th class="px-4 py-3">Date</th>
+                                <th class="px-4 py-3">Credit</th>
+                                <th class="px-4 py-3 text-right">EXP</th>
+                                <th class="px-4 py-3 text-right">BAL</th>
+                                <th class="px-4 py-3 text-right">Last Update</th>
+                                <th class="px-4 py-3 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @forelse ($pettyCashRows as $pettyRow)
+                                <tr>
+                                    <td class="px-4 py-3 font-black text-slate-950">{{ \Illuminate\Support\Carbon::parse($pettyRow['date'])->format('d M Y') }}</td>
+                                    <td class="px-4 py-3 font-semibold text-slate-600">{{ $pettyRow['admin_cash_label'] ?: '—' }}</td>
+                                    <td class="px-4 py-3 text-right font-black text-rose-700">
+                                        Rs. {{ number_format((float) $pettyRow['expense'], 2) }}
+                                        @if ($pettyRow['expense_source'])
+                                            <span class="ml-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-slate-500">{{ $pettyRow['expense_source'] }}</span>
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-3 text-right font-black {{ (float) $pettyRow['balance'] >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format((float) $pettyRow['balance'], 2) }}</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-slate-500">
+                                        {{ $pettyRow['expense_updated_at'] ? $pettyRow['expense_updated_at']->format('d M Y h:i A') : '—' }}
+                                        @if ($pettyRow['amount_change_label'])
+                                            <span class="mt-1 block text-xs font-bold text-amber-700">{{ $pettyRow['amount_change_label'] }}</span>
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <button type="button" class="petty-cash-row-edit inline-flex h-9 items-center rounded-xl border border-slate-200 px-4 text-xs font-black uppercase tracking-[0.14em] text-slate-700 transition hover:bg-slate-50" data-date="{{ $pettyRow['date'] }}" data-amount="{{ number_format((float) $pettyRow['expense'], 2, '.', '') }}">
+                                            Update
+                                        </button>
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="6" class="px-4 py-8 text-center font-bold text-slate-500">No petty cash rows found.</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <div id="petty-cash-modal" class="fixed inset-0 z-[80] hidden overflow-y-auto bg-slate-950/50 px-4 py-8">
+                <div class="mx-auto w-full max-w-md rounded-[2rem] border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Petty Cash</p>
+                            <h3 class="mt-2 text-xl font-black text-slate-950">Daily petty expense</h3>
+                        </div>
+                        <button type="button" class="petty-cash-close inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-xl font-black text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">×</button>
+                    </div>
+
+                    <form method="POST" action="{{ route('shop-owner.accounting.petty-cash-expenses.store') }}" class="mt-5 space-y-4">
+                        @csrf
+                        <label class="block">
+                            <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Date</span>
+                            <input id="petty-cash-date-input" type="date" name="business_date" value="{{ old('business_date', $selectedDate->format('Y-m-d')) }}" class="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                        </label>
+                        <label class="block">
+                            <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Cash / Amount</span>
+                            <input id="petty-cash-amount-input" type="number" name="amount" step="0.01" min="0" value="{{ old('amount', $selectedPettyCashExpense ? number_format((float) $selectedPettyCashExpense->amount, 2, '.', '') : number_format((float) $shop->default_petty_cash_amount, 2, '.', '')) }}" class="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                        </label>
+                        <div class="flex justify-end gap-3">
+                            <button type="button" class="petty-cash-close inline-flex h-11 items-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">Cancel</button>
+                            <button type="submit" class="inline-flex h-11 items-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">Save</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <script>
+                (() => {
+                    const modal = document.getElementById('petty-cash-modal');
+                    const openButton = document.getElementById('petty-cash-open-modal');
+                    const closeButtons = document.querySelectorAll('.petty-cash-close');
+                    const rowEditButtons = document.querySelectorAll('.petty-cash-row-edit');
+                    const dateInput = document.getElementById('petty-cash-date-input');
+                    const amountInput = document.getElementById('petty-cash-amount-input');
+                    const defaultAmount = {{ \Illuminate\Support\Js::from(number_format((float) $shop->default_petty_cash_amount, 2, '.', '')) }};
+
+                    openButton?.addEventListener('click', () => {
+                        if (dateInput) {
+                            dateInput.value = {{ \Illuminate\Support\Js::from($selectedDate->format('Y-m-d')) }};
+                        }
+                        if (amountInput && !amountInput.value) {
+                            amountInput.value = defaultAmount;
+                        }
+                        modal?.classList.remove('hidden');
+                        document.body.classList.add('overflow-hidden');
+                    });
+
+                    rowEditButtons.forEach((button) => button.addEventListener('click', () => {
+                        if (dateInput) {
+                            dateInput.value = button.dataset.date ?? '';
+                        }
+                        if (amountInput) {
+                            amountInput.value = button.dataset.amount ?? defaultAmount;
+                        }
+                        modal?.classList.remove('hidden');
+                        document.body.classList.add('overflow-hidden');
+                    }));
+
+                    closeButtons.forEach((button) => button.addEventListener('click', () => {
+                        modal?.classList.add('hidden');
+                        document.body.classList.remove('overflow-hidden');
+                    }));
+                })();
+            </script>
 
             @if ($hasEntry && ($entry->admin_note || $entry->shop_reply_note))
                 <section class="grid gap-4 lg:grid-cols-2">

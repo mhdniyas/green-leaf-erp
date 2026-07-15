@@ -27,6 +27,7 @@ class PurchaseInvoice extends Model
         'goods_received_id',
         'supplier_id',
         'purchaser_cart_id',
+        'purchase_source',
         'invoice_number',
         'amount',
         'discount_amount',
@@ -99,6 +100,21 @@ class PurchaseInvoice extends Model
             ->logFillable()
             ->logOnlyDirty()
             ->dontLogEmptyChanges();
+    }
+
+    public function isGreenLeafDirectPurchase(): bool
+    {
+        return in_array($this->purchase_source, ['green_leaf_direct_purchase', 'mixed'], true)
+            || $this->purchaserCart?->isGreenLeafDirectPurchase() === true;
+    }
+
+    public function purchaseSourceLabel(): string
+    {
+        return match ($this->purchase_source) {
+            'green_leaf_direct_purchase' => 'Green Leaf Direct Purchase',
+            'mixed' => 'Green Leaf Direct Purchase + Shop Demand',
+            default => $this->purchaserCart?->purchaseSourceLabel() ?? 'Shop Demand',
+        };
     }
 
     // Relationships

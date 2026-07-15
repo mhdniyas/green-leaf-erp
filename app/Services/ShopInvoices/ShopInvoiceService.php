@@ -10,6 +10,7 @@ use App\Models\ShopInvoiceItem;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Services\Finance\JournalService;
 use App\Services\Pricing\PriceBoardService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -18,6 +19,7 @@ class ShopInvoiceService
 {
     public function __construct(
         private readonly PriceBoardService $priceBoardService,
+        private readonly JournalService $journalService,
     ) {}
 
     public function generateForBusinessDate(string $businessDate, int $userId): void
@@ -26,6 +28,7 @@ class ShopInvoiceService
             ->with(['shop.priceGroup', 'items.product', 'invoice.items'])
             ->whereDate('business_date', $businessDate)
             ->where('state', 'approved')
+            ->where('order_source', '!=', 'admin_direct_purchase')
             ->get()
             ->each(fn (ShopOrder $order) => $this->synchronizeOrderInvoice($order, $userId));
     }
@@ -196,6 +199,8 @@ class ShopInvoiceService
     public function approvePayment(ShopInvoice $invoice, array $payload, int $userId): ShopInvoice
     {
         return DB::transaction(function () use ($invoice, $payload, $userId): ShopInvoice {
+            $previousPaidAmount = round((float) $invoice->paid_amount, 2);
+
             $invoice->update([
                 'discount_total' => round((float) ($payload['discount_total'] ?? 0), 2),
                 'paid_amount' => round((float) ($payload['paid_amount'] ?? 0), 2),
@@ -209,6 +214,18 @@ class ShopInvoiceService
                 ->findOrFail($invoice->id);
 
             $invoice = $this->recalculate($invoice);
+            $approvedPaymentIncrease = round((float) $invoice->paid_amount - $previousPaidAmount, 2);
+
+            if ($approvedPaymentIncrease > 0.00) {
+                $paidAmountCents = (int) round((float) $invoice->paid_amount * 100);
+
+                $this->journalService->recordShopInvoicePayment(
+                    $invoice,
+                    $approvedPaymentIncrease,
+                    $userId,
+                    "payment:paid-{$paidAmountCents}",
+                );
+            }
 
             if ($invoice->order) {
                 $invoice->order->update([

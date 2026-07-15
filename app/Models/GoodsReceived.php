@@ -27,6 +27,7 @@ class GoodsReceived extends Model
     protected $fillable = [
         'public_uuid',
         'purchase_order_id',
+        'purchaser_cart_id',
         'grn_number',
         'status',
         'rejection_remarks',

@@ -19,6 +19,7 @@ class ShopCreditFactory extends Factory
         return [
             'shop_id' => Shop::factory(),
             'type' => 'in',
+            'is_petty_cash' => false,
             'amount' => fake()->randomFloat(2, 100, 5000),
             'description' => fake()->sentence(),
             'created_by' => User::factory(),

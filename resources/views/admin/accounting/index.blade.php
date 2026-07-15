@@ -309,7 +309,7 @@
                                 <td class="px-4 py-3 text-right font-black text-slate-600">{{ number_format($row['transaction_count']) }}</td>
                                 @if($canManagePurchaserCash)
                                     <td class="px-4 py-3 text-right">
-                                        <a href="{{ route('admin.accounting.purchasers.show', $row['purchaser']) }}" class="inline-flex h-8 items-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">
+                                        <a href="{{ route('admin.accounting.purchasers.show', $row['purchaser']->public_uuid) }}" class="inline-flex h-8 items-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">
                                             Open
                                         </a>
                                     </td>

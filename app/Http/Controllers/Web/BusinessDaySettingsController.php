@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\UpdateBusinessDayCutoffRequest;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 
 class BusinessDaySettingsController extends Controller
 {
@@ -22,5 +23,26 @@ class BusinessDaySettingsController extends Controller
         return redirect()
             ->back()
             ->with('success', 'Business-day cutoff updated to '.$this->businessDayService->cutoffLabel().'.');
+    }
+
+    public function updateAutoApprove(Request $request): RedirectResponse
+    {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+            abort(403, 'Unauthorized access.');
+        }
+
+        $validated = $request->validate([
+            'auto_approve_shop_orders' => ['nullable', 'boolean'],
+        ]);
+
+        $enabled = (bool) ($validated['auto_approve_shop_orders'] ?? false);
+
+        $this->businessDayService->updateAutoApproveShopOrders($enabled);
+
+        return redirect()
+            ->back()
+            ->with('success', $enabled
+                ? 'Automatic shop-order approval enabled. New on-time shop orders will go directly to Approved Board.'
+                : 'Automatic shop-order approval disabled. New shop orders will wait on the review board.');
     }
 }

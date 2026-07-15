@@ -33,12 +33,24 @@ class PurchaseInvoiceService
     public function create(PurchaseInvoiceData $data): PurchaseInvoice
     {
         return DB::transaction(function () use ($data): PurchaseInvoice {
+            /** @var GoodsReceived $grn */
+            $grn = GoodsReceived::query()
+                ->with('purchaseOrder.purchaserCart')
+                ->findOrFail($data->goodsReceivedId);
+
+            $invoiceData = $data->toArray();
+
+            if ($grn->purchaseOrder?->purchaserCart?->isGreenLeafDirectPurchase()) {
+                $invoiceData['purchaser_cart_id'] = $grn->purchaseOrder->purchaserCart->id;
+                $invoiceData['purchase_source'] = $grn->purchaseOrder->purchaserCart->purchase_source;
+                $invoiceData['purchaser_submitted_by'] = $grn->purchaseOrder->purchaserCart->user_id;
+                $invoiceData['purchaser_submitted_at'] = $grn->purchaseOrder->purchaserCart->submitted_at;
+            }
+
             /** @var PurchaseInvoice $invoice */
-            $invoice = $this->repository->create($data->toArray());
+            $invoice = $this->repository->create($invoiceData);
 
             // Transition associated Purchase Order status to Closed upon matching invoice
-            /** @var GoodsReceived $grn */
-            $grn = GoodsReceived::findOrFail($data->goodsReceivedId);
             $po = $grn->purchaseOrder;
             if ($po) {
                 $po->update([
@@ -51,9 +63,6 @@ class PurchaseInvoiceService
                 ->performedOn($invoice)
                 ->log('invoice.created');
 
-            // Post General Ledger entries
-            $this->journalService->recordPurchaseInvoice($invoice);
-
             return $invoice->fresh(['goodsReceived', 'supplier']);
         });
     }
@@ -61,13 +70,7 @@ class PurchaseInvoiceService
     public function updateStatus(PurchaseInvoice $invoice, string $status): PurchaseInvoice
     {
         return DB::transaction(function () use ($invoice, $status): PurchaseInvoice {
-            $oldStatus = $invoice->status;
             $invoice->update(['status' => $status]);
-
-            if ($status === InvoiceStatus::Paid->value && $oldStatus !== InvoiceStatus::Paid) {
-                // Post General Ledger entries for payment
-                $this->journalService->recordPurchasePayment($invoice);
-            }
 
             return $invoice->fresh();
         });
@@ -80,9 +83,10 @@ class PurchaseInvoiceService
     {
         return DB::transaction(function () use ($invoice, $payload): PurchaseInvoice {
             $invoice->loadMissing(['supplier', 'purchaserCart']);
+            $previousPaidAmount = round((float) ($invoice->paid_amount ?? 0), 2);
 
             $invoiceAmount = round((float) $invoice->amount, 2);
-            $discountAmount = min($invoiceAmount, max(0, round((float) ($payload['discount_amount'] ?? 0), 2)));
+            $discountAmount = min($invoiceAmount, max(0, round((float) ($payload['discount_amount'] ?? $invoice->discount_amount ?? 0), 2)));
             $netInvoiceAmount = max(0, round($invoiceAmount - $discountAmount, 2));
             $paidAmount = min($netInvoiceAmount, max(0, round((float) $payload['paid_amount'], 2)));
             $paymentMethod = $payload['payment_method'];
@@ -95,8 +99,6 @@ class PurchaseInvoiceService
             $invoiceStatus = $paymentStatus === 'paid'
                 ? InvoiceStatus::Paid->value
                 : InvoiceStatus::Pending->value;
-            $oldStatus = $invoice->status;
-
             $invoiceUpdateData = [
                 'payment_method' => $paymentMethod,
                 'discount_amount' => $discountAmount,
@@ -145,11 +147,18 @@ class PurchaseInvoiceService
                 );
             }
 
-            if ($invoiceStatus === InvoiceStatus::Paid->value && $oldStatus !== InvoiceStatus::Paid) {
-                $this->journalService->recordPurchasePayment($invoice->fresh());
+            $updatedInvoice = $invoice->fresh(['supplier', 'purchaserCart']);
+            $paidIncrease = round((float) $updatedInvoice->paid_amount - $previousPaidAmount, 2);
+
+            if ($updatedInvoice->isGreenLeafDirectPurchase() && $paidIncrease > 0) {
+                $this->journalService->recordGreenLeafDirectPurchasePayment(
+                    invoice: $updatedInvoice,
+                    amount: $paidIncrease,
+                    userId: (int) (auth()->id() ?: $updatedInvoice->purchaser_submitted_by ?: 1)
+                );
             }
 
-            return $invoice->fresh(['supplier', 'purchaserCart']);
+            return $updatedInvoice;
         });
     }
 

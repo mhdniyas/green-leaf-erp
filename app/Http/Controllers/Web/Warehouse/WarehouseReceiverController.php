@@ -274,6 +274,15 @@ class WarehouseReceiverController extends Controller
             'items.*.discrepancy_note' => ['nullable', 'string', 'max:1000'],
         ]);
 
+        $zeroPricedItems = $this->zeroPricedReceivedItems($grn, $validated['items']);
+
+        if ($zeroPricedItems !== []) {
+            return redirect()
+                ->back()
+                ->withInput()
+                ->with('warning', 'Price is zero on: '.implode(', ', $zeroPricedItems).'. Update the purchaser bill price before receiving this vendor sheet.');
+        }
+
         $userId = (int) $request->user()->id;
 
         DB::transaction(function () use ($grn, $validated, $userId): void {
@@ -751,6 +760,26 @@ class WarehouseReceiverController extends Controller
         } catch (\Exception $e) {
             return redirect()->back()->withErrors([$e->getMessage()]);
         }
+    }
+
+    /**
+     * @param  array<int|string, array{received_qty:mixed}>  $items
+     * @return array<int, string>
+     */
+    private function zeroPricedReceivedItems(GoodsReceived $grn, array $items): array
+    {
+        $grn->loadMissing(['items.product', 'items.purchaseOrderItem']);
+
+        return $grn->items
+            ->filter(function ($item) use ($items): bool {
+                $receivedQty = (float) ($items[$item->id]['received_qty'] ?? 0);
+                $unitPrice = (float) ($item->purchaseOrderItem?->unit_price ?? 0);
+
+                return $receivedQty > 0.0 && $unitPrice <= 0.0;
+            })
+            ->map(fn ($item): string => $item->product?->name ?? "Item #{$item->id}")
+            ->values()
+            ->all();
     }
 
     private function updatePurchaserCartReceiptStatus(GoodsReceived $grn): void

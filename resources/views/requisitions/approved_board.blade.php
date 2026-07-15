@@ -9,7 +9,11 @@
         <label for="date-select" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Date</label>
         <input type="date" id="date-select" name="date" value="{{ $date }}" onchange="this.form.submit()" class="border-0 bg-transparent p-0 text-xs font-bold text-slate-700 focus:outline-none focus:ring-0">
     </form>
-    @include('purchase-manager.partials.cutoff-settings-modal', ['date' => $date])
+    @include('purchase-manager.partials.approved-board-settings-modal', [
+        'date' => $date,
+        'autoApprovedOrders' => $autoApprovedOrders,
+        'autoApproveShopOrdersEnabled' => $autoApproveShopOrdersEnabled,
+    ])
 @endsection
 
 @section('content')

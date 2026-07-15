@@ -1,11 +1,17 @@
-@php($cutoffLabel = $cutoffLabel ?? app(\App\Services\Purchasing\PurchaserBusinessDayService::class)->cutoffLabel())
+@php
+    $cutoffLabel = $cutoffLabel ?? app(\App\Services\Purchasing\PurchaserBusinessDayService::class)->cutoffLabel();
+    $orderFormMode = $orderFormMode ?? 'shop-owner';
+    $isAdminDirectPurchase = $orderFormMode === 'admin-direct-purchase';
+    $formAction = $orderFormAction ?? route('requisitions.store');
+    $allowPresetSave = $allowPresetSave ?? true;
+@endphp
 
 <section class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
     <div class="flex flex-col gap-4 border-b border-slate-100 pb-5 md:flex-row md:items-start md:justify-between">
         <div>
-            <p class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">{{ isset($isUpdateRequest) && $isUpdateRequest ? 'Request Items' : 'Marketplace' }}</p>
+            <p class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">{{ $isAdminDirectPurchase ? 'Green Leaf Direct Purchase' : (isset($isUpdateRequest) && $isUpdateRequest ? 'Request Items' : 'Marketplace') }}</p>
             <h2 class="mt-1 text-xl font-black text-slate-950">{{ $tomorrowDate->format('d F Y') }}</h2>
-            <p class="mt-2 text-sm text-slate-600">Select products, add quantity or box packs, then submit the daily order from your cart before {{ $cutoffLabel }}.</p>
+            <p class="mt-2 text-sm text-slate-600">{{ $isAdminDirectPurchase ? 'Select products and quantities. The order will be approved immediately and shown to purchaser demand as Green Leaf Direct Purchase.' : 'Select products, add quantity or box packs, then submit the daily order from your cart before '.$cutoffLabel.'.' }}</p>
         </div>
         @if ($presets->isNotEmpty())
             <div class="flex items-center gap-2 mt-2 md:mt-0 shrink-0">
@@ -90,9 +96,12 @@
             </div>
         @endif
 
-        <form action="{{ route('requisitions.store') }}" method="POST" class="mt-5 space-y-5" id="shop-owner-order-form">
+        <form action="{{ $formAction }}" method="POST" class="mt-5 space-y-5" id="shop-owner-order-form">
             @csrf
-            @include('shop-owner.orders.partials.product-selection-table', ['productsByCategory' => $productsByCategory, 'frequentProducts' => $frequentProducts, 'tomorrowOrder' => $tomorrowOrder, 'yesterdayOrder' => $yesterdayOrder])
+            @if ($isAdminDirectPurchase)
+                <input type="hidden" name="business_date" value="{{ $tomorrowDate->format('Y-m-d') }}">
+            @endif
+            @include('shop-owner.orders.partials.product-selection-table', ['productsByCategory' => $productsByCategory, 'frequentProducts' => $frequentProducts, 'tomorrowOrder' => $tomorrowOrder, 'yesterdayOrder' => $yesterdayOrder, 'presets' => $presets, 'allowPresetSave' => $allowPresetSave])
 
             <div class="flex flex-col gap-4 border-t border-slate-100 pt-5 md:flex-row md:items-center md:justify-between">
                 @include('shop-owner.orders.partials.order-summary-card', ['order' => $tomorrowOrder, 'yesterdayOrder' => $yesterdayOrder, 'isDraft' => true])

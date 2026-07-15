@@ -2653,6 +2653,57 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
                     @endforelse
                 </div>
             </div>
+
+            <div class="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 lg:col-span-3">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Green Leaf Direct Purchase</p>
+                        <p class="mt-1 text-sm font-bold text-emerald-950">Purchase invoices created from admin direct buying demand</p>
+                    </div>
+                    <a href="{{ route('purchasing.invoices.index') }}" class="inline-flex items-center justify-center rounded-xl border border-emerald-200 bg-white px-4 py-2 text-[11px] font-black text-emerald-800 hover:border-emerald-300">Open purchase invoices</a>
+                </div>
+
+                <div class="mt-4 overflow-x-auto rounded-2xl border border-emerald-200 bg-white">
+                    <div class="min-w-[760px]">
+                        <div class="grid grid-cols-12 gap-3 border-b border-emerald-100 bg-emerald-100/70 px-4 py-3 text-[10px] font-black uppercase tracking-[0.14em] text-emerald-800">
+                            <span class="col-span-3">Invoice</span>
+                            <span class="col-span-3">Vendor</span>
+                            <span class="col-span-2 text-right">Amount</span>
+                            <span class="col-span-2 text-right">Paid</span>
+                            <span class="col-span-2 text-right">Status</span>
+                        </div>
+                        <div class="divide-y divide-emerald-100">
+                            @forelse($purchaseDashboard['green_leaf_direct_invoices'] as $invoice)
+                                @php
+                                    $invoiceAmount = (float) $invoice->amount;
+                                    $paidAmount = (float) $invoice->paid_amount;
+                                    $balanceAmount = max(0, round($invoiceAmount - (float) $invoice->discount_amount - $paidAmount, 2));
+                                @endphp
+                                <a href="{{ route('purchasing.invoices.show', $invoice) }}" class="grid grid-cols-12 gap-3 px-4 py-3 text-xs font-bold text-slate-700 hover:bg-emerald-50">
+                                    <span class="col-span-3 min-w-0">
+                                        <span class="block truncate font-black text-slate-950">{{ $invoice->invoice_number }}</span>
+                                        <span class="mt-1 inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-700">{{ $invoice->purchaseSourceLabel() }}</span>
+                                    </span>
+                                    <span class="col-span-3 min-w-0">
+                                        <span class="block truncate">{{ $invoice->supplier?->name ?? 'No vendor' }}</span>
+                                        <span class="mt-0.5 block truncate text-[11px] text-slate-500">{{ $invoice->purchaserCart?->user?->name ?? 'Purchaser' }}</span>
+                                    </span>
+                                    <span class="col-span-2 text-right font-black text-slate-950">Rs. {{ number_format($invoiceAmount, 2) }}</span>
+                                    <span class="col-span-2 text-right">
+                                        <span class="block font-black text-emerald-700">Rs. {{ number_format($paidAmount, 2) }}</span>
+                                        @if($balanceAmount > 0)
+                                            <span class="mt-0.5 block text-[10px] text-rose-600">Bal Rs. {{ number_format($balanceAmount, 2) }}</span>
+                                        @endif
+                                    </span>
+                                    <span class="col-span-2 text-right text-[10px] font-black uppercase tracking-wider text-slate-500">{{ str($invoice->payment_status)->replace('_', ' ') }}</span>
+                                </a>
+                            @empty
+                                <p class="px-4 py-5 text-xs font-semibold text-slate-400">No Green Leaf direct purchase invoices yet.</p>
+                            @endforelse
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 

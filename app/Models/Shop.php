@@ -26,6 +26,7 @@ class Shop extends Model
         'accounting_mode',
         'accounting_enabled',
         'reserve_amount',
+        'default_petty_cash_amount',
         'approved_at',
         'address',
         'contact_name',
@@ -38,6 +39,7 @@ class Shop extends Model
             'approved_at' => 'datetime',
             'accounting_enabled' => 'boolean',
             'reserve_amount' => 'decimal:2',
+            'default_petty_cash_amount' => 'decimal:2',
         ];
     }
 
@@ -99,6 +101,11 @@ class Shop extends Model
     public function credits(): HasMany
     {
         return $this->hasMany(ShopCredit::class);
+    }
+
+    public function pettyCashExpenses(): HasMany
+    {
+        return $this->hasMany(ShopPettyCashExpense::class);
     }
 
     public function latestAccountingEntry(): HasOne

@@ -198,7 +198,11 @@
                                     </div>
                                     <div class="text-left sm:text-right">
                                         <p class="text-sm font-black text-emerald-700">{{ number_format((float) $summary['remaining_qty'], 2) }} {{ $summary['unit'] }}</p>
-                                        <p class="mt-1 text-xs font-semibold text-slate-500">{{ count($summary['shop_details']) }} shops</p>
+                                        @php
+                                            $directPurchaseCount = collect($summary['shop_details'])->where('is_direct_purchase', true)->count();
+                                            $shopDemandCount = count($summary['shop_details']) - $directPurchaseCount;
+                                        @endphp
+                                        <p class="mt-1 text-xs font-semibold text-slate-500">{{ $directPurchaseCount > 0 ? 'Direct + ' : '' }}{{ $shopDemandCount }} shops</p>
                                     </div>
                                 </div>
                             </div>

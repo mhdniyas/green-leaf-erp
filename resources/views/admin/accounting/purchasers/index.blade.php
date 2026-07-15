@@ -7,6 +7,8 @@
             'total_out' => 'Total Out',
             'balance' => 'Balance',
         ];
+        $currentUser = auth()->user();
+        $canBuyAsPurchaser = $currentUser?->hasRole('admin') && $currentUser->hasRole('purchaser');
     @endphp
 
     <div class="mx-auto max-w-[96rem] space-y-6">
@@ -63,6 +65,9 @@
                                 </th>
                             @endforeach
                             <th class="px-4 py-3 text-right">Add Credit</th>
+                            @if($canBuyAsPurchaser)
+                                <th class="px-4 py-3 text-right">Buy</th>
+                            @endif
                             <th class="px-4 py-3 text-right">Ledger</th>
                         </tr>
                     </thead>
@@ -73,6 +78,7 @@
                                 $totalIn = (float) $row['total_in'];
                                 $totalOut = (float) $row['total_out'];
                                 $balance = (float) $row['balance'];
+                                $canBuyThisPurchaser = $canBuyAsPurchaser && $purchaser->is($currentUser);
                             @endphp
                             <tr class="transition hover:bg-slate-50">
                                 <td class="px-4 py-4">
@@ -83,19 +89,33 @@
                                 <td class="px-4 py-4 text-right font-black text-rose-700">Rs. {{ number_format($totalOut, 2) }}</td>
                                 <td class="px-4 py-4 text-right font-black {{ $balance >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format($balance, 2) }}</td>
                                 <td class="px-4 py-4 text-right">
-                                    <a href="{{ route('admin.accounting.purchasers.show', $purchaser) }}" class="inline-flex h-9 items-center rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-emerald-700 transition hover:bg-emerald-100">
+                                    <a href="{{ route('admin.accounting.purchasers.show', $purchaser->public_uuid) }}" class="inline-flex h-9 items-center rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-emerald-700 transition hover:bg-emerald-100">
                                         Add Credit
                                     </a>
                                 </td>
+                                @if($canBuyAsPurchaser)
+                                    <td class="px-4 py-4 text-right">
+                                        @if($canBuyThisPurchaser)
+                                            <form method="POST" action="{{ route('admin.accounting.purchasers.buy', $purchaser->public_uuid) }}" class="inline-flex">
+                                                @csrf
+                                                <button type="submit" class="inline-flex h-9 items-center rounded-xl border border-cyan-200 bg-cyan-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-cyan-700 transition hover:bg-cyan-100">
+                                                    Buy
+                                                </button>
+                                            </form>
+                                        @else
+                                            <span class="text-xs font-bold text-slate-300">—</span>
+                                        @endif
+                                    </td>
+                                @endif
                                 <td class="px-4 py-4 text-right">
-                                    <a href="{{ route('admin.accounting.purchasers.show', $purchaser) }}" class="inline-flex h-9 items-center rounded-xl border border-slate-200 px-4 text-xs font-black uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-50">
+                                    <a href="{{ route('admin.accounting.purchasers.show', $purchaser->public_uuid) }}" class="inline-flex h-9 items-center rounded-xl border border-slate-200 px-4 text-xs font-black uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-50">
                                         Open Ledger
                                     </a>
                                 </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="6" class="px-4 py-12 text-center text-sm font-bold text-slate-500">
+                                <td colspan="{{ $canBuyAsPurchaser ? 7 : 6 }}" class="px-4 py-12 text-center text-sm font-bold text-slate-500">
                                     No users with the 'purchaser' role were found.
                                 </td>
                             </tr>
@@ -108,6 +128,9 @@
                             <td class="px-4 py-4 text-right text-rose-700">Rs. {{ number_format($totals['total_out'], 2) }}</td>
                             <td class="px-4 py-4 text-right {{ $totals['balance'] >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format($totals['balance'], 2) }}</td>
                             <td class="px-4 py-4"></td>
+                            @if($canBuyAsPurchaser)
+                                <td class="px-4 py-4"></td>
+                            @endif
                             <td class="px-4 py-4"></td>
                         </tr>
                     </tfoot>

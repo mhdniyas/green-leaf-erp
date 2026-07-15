@@ -279,7 +279,7 @@
         
         <div class="px-6 py-3 border-b border-slate-100 flex items-center justify-between shrink-0">
             <div>
-                <h3 class="text-base font-black text-slate-900">{{ isset($isUpdateRequest) && $isUpdateRequest ? 'Item Request Cart' : 'Daily Order Cart' }}</h3>
+                <h3 class="text-base font-black text-slate-900">{{ ($orderFormMode ?? '') === 'admin-direct-purchase' ? 'Direct Purchase Cart' : (isset($isUpdateRequest) && $isUpdateRequest ? 'Item Request Cart' : 'Daily Order Cart') }}</h3>
                 <p id="review-items-count" class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">0 items</p>
             </div>
             <button type="button" id="cart-review-close" class="rounded-full bg-slate-100 p-2 text-slate-500 hover:bg-slate-200 transition">
@@ -297,6 +297,7 @@
             <!-- Extra Options (Save as Custom List & Reason for Change) -->
             <div class="border-t border-slate-100 pt-4 space-y-4">
                 <!-- Save Preset Form Container (inline trigger & input) -->
+                @if ($allowPresetSave ?? true)
                 <div class="pb-2 space-y-2">
                     <button type="button" id="review-save-preset-trigger" class="text-xs font-black uppercase tracking-wider text-emerald-700 hover:text-emerald-800 flex items-center gap-1.5 transition active:scale-95 duration-100">
                         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -317,6 +318,7 @@
                         </button>
                     </div>
                 </div>
+                @endif
 
                 @if (isset($isUpdateRequest) && $isUpdateRequest)
                     <div class="space-y-2 pb-2">
@@ -340,18 +342,20 @@
                     Add Items
                 </button>
                 <button type="button" id="review-submit-btn" class="flex-[2] rounded-2xl {{ isset($isUpdateRequest) && $isUpdateRequest ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-600/10' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/10' }} active:scale-95 text-white py-3 text-xs font-black uppercase tracking-wider shadow-md transition duration-150">
-                    {{ isset($isUpdateRequest) && $isUpdateRequest ? 'Submit Item Request' : 'Submit Daily Order' }}
+                    {{ ($orderFormMode ?? '') === 'admin-direct-purchase' ? 'Submit Direct Purchase' : (isset($isUpdateRequest) && $isUpdateRequest ? 'Submit Item Request' : 'Submit Daily Order') }}
                 </button>
             </div>
         </div>
     </div>
     
     <!-- Hidden Preset Save Form -->
-    <form method="POST" action="{{ route('requisitions.presets.store') }}" data-save-preset-form class="hidden" aria-hidden="true">
-        @csrf
-        <input type="hidden" name="redirect_to" value="shop-owner-orders-create">
-        <input type="text" name="name" data-preset-name-input>
-    </form>
+    @if ($allowPresetSave ?? true)
+        <form method="POST" action="{{ route('requisitions.presets.store') }}" data-save-preset-form class="hidden" aria-hidden="true">
+            @csrf
+            <input type="hidden" name="redirect_to" value="shop-owner-orders-create">
+            <input type="text" name="name" data-preset-name-input>
+        </form>
+    @endif
 
     <!-- Serialized Presets Data -->
     <script id="shop-owner-presets-data" type="application/json">

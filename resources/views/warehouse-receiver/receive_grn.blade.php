@@ -23,6 +23,18 @@
             </div>
         </section>
 
+        @if (session('warning'))
+            <div class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900 shadow-sm">
+                {{ session('warning') }}
+            </div>
+        @endif
+
+        @if ($errors->any())
+            <div class="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-900 shadow-sm">
+                {{ $errors->first() }}
+            </div>
+        @endif
+
         {{-- GRN Meta Card --}}
         <div class="rounded-2xl bg-white border border-slate-200 p-4 shadow-sm">
             <h3 class="text-xs font-black uppercase tracking-[0.14em] text-slate-500 mb-3 pl-0.5">Sheet Information</h3>

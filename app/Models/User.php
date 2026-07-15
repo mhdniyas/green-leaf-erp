@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
 use OwenIt\Auditing\Auditable;
 use OwenIt\Auditing\Contracts\Auditable as AuditableContract;
@@ -19,7 +20,7 @@ use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Permission\Traits\HasPermissions;
 use Spatie\Permission\Traits\HasRoles;
 
-#[Fillable(['name', 'email', 'password', 'shop_id', 'registration_status', 'approved_at', 'approved_by'])]
+#[Fillable(['public_uuid', 'name', 'email', 'password', 'shop_id', 'registration_status', 'approved_at', 'approved_by', 'own_purchase_purchaser_id'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements AuditableContract
 {
@@ -39,6 +40,15 @@ class User extends Authenticatable implements AuditableContract
             'password' => 'hashed',
             'approved_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $user): void {
+            if (! $user->public_uuid) {
+                $user->public_uuid = (string) Str::uuid();
+            }
+        });
     }
 
     /**
@@ -64,6 +74,16 @@ class User extends Authenticatable implements AuditableContract
     public function purchaserCredits(): HasMany
     {
         return $this->hasMany(PurchaserCredit::class, 'purchaser_id');
+    }
+
+    public function ownPurchasePurchaser(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'own_purchase_purchaser_id');
+    }
+
+    public function linkedAdminForOwnPurchase(): HasOne
+    {
+        return $this->hasOne(self::class, 'own_purchase_purchaser_id');
     }
 
     public function employee(): HasOne

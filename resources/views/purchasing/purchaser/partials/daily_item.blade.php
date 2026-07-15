@@ -1,5 +1,10 @@
 @php
     $step = $summary['unit'] === 'kg' ? '0.5' : '1';
+    $directPurchaseCount = collect($summary['shop_details'])->where('is_direct_purchase', true)->count();
+    $shopDemandCount = count($summary['shop_details']) - $directPurchaseCount;
+    $purchaseSource = $directPurchaseCount > 0
+        ? ($shopDemandCount > 0 ? 'mixed' : 'green_leaf_direct_purchase')
+        : 'shop_order';
 @endphp
 <article class="relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
     <div class="flex flex-col gap-4">
@@ -60,13 +65,15 @@
             </div>
             <button type="button" onclick="document.getElementById('info-product-{{ $summary['product_id'] }}').classList.remove('hidden'); document.body.classList.add('overflow-hidden')" class="mt-3 flex w-full items-center justify-between text-left text-[11px] font-black text-slate-500">
                 <span>Demand split</span>
-                <span class="rounded-full bg-white px-2.5 py-1 text-[10px] text-slate-700 shadow-sm">{{ count($summary['shop_details']) }} shops</span>
+                <span class="rounded-full bg-white px-2.5 py-1 text-[10px] text-slate-700 shadow-sm">
+                    {{ $directPurchaseCount > 0 ? 'Direct + ' : '' }}{{ $shopDemandCount }} shops
+                </span>
             </button>
         </div>
 
         @if ($summary['remaining_qty'] > 0)
             <div class="mt-2.5">
-                <button type="button" onclick="openAddToCartModal({{ $summary['product_id'] }}, '{{ addslashes($summary['product_name']) }}', '{{ $summary['unit'] }}', {{ $summary['remaining_qty'] }}, {{ $summary['draft_qty'] }}, '{{ $step }}', '{{ addslashes(implode(', ', $summary['draft_purchasers'])) }}')" class="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-teal-600 px-3 text-xs font-black text-white shadow-sm transition-all hover:bg-teal-500">
+                <button type="button" onclick="openAddToCartModal({{ $summary['product_id'] }}, '{{ addslashes($summary['product_name']) }}', '{{ $summary['unit'] }}', {{ $summary['remaining_qty'] }}, {{ $summary['draft_qty'] }}, '{{ $step }}', '{{ addslashes(implode(', ', $summary['draft_purchasers'])) }}', '{{ $purchaseSource }}')" class="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-teal-600 px-3 text-xs font-black text-white shadow-sm transition-all hover:bg-teal-500">
                     <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                     </svg>
@@ -96,9 +103,9 @@
             </div>
             <div class="mt-4 space-y-2">
                 @foreach ($summary['shop_details'] as $detail)
-                    <div class="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700 lg:rounded-2xl">
+                    <div class="flex min-w-0 items-center justify-between gap-3 rounded-xl border {{ $detail['is_direct_purchase'] ?? false ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50' }} px-3 py-3 text-sm font-semibold text-slate-700 lg:rounded-2xl">
                         <div class="min-w-0">
-                            <p class="truncate font-black text-slate-900">{{ $detail['shop_name'] }}</p>
+                            <p class="truncate font-black {{ $detail['is_direct_purchase'] ?? false ? 'text-emerald-800' : 'text-slate-900' }}">{{ $detail['shop_name'] }}</p>
                             <p class="truncate text-xs text-slate-500">{{ $detail['order_number'] }}</p>
                         </div>
                         <span class="shrink-0">{{ number_format($detail['approved_qty'], 2) }} {{ $detail['unit'] }}</span>

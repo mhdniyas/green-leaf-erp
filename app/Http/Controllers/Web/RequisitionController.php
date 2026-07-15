@@ -9,12 +9,14 @@ use App\Enums\Inventory\ProductGrade;
 use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\ReviewDeliveryDiscrepancyRequest;
+use App\Models\Category;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Models\ShopPreset;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Notifications\LateRequisitionSubmittedNotification;
@@ -87,19 +89,29 @@ class RequisitionController extends Controller
         $businessDate = $nowInKolkata->copy()->addDay()->toDateString();
         $cutoff = $this->businessDayService->rolloverStartsAt($nowInKolkata);
         $isLate = $nowInKolkata->greaterThan($cutoff);
+        $autoApproveOrder = ! $isLate && $this->businessDayService->autoApproveShopOrders();
 
-        $order = DB::transaction(function () use ($activeShop, $user, $items, $businessDate, $isLate, $cutoff) {
+        $order = DB::transaction(function () use ($activeShop, $user, $items, $businessDate, $isLate, $cutoff, $autoApproveOrder) {
             $shopOrder = ShopOrder::create([
                 'shop_id' => $activeShop->id,
                 'business_date' => $businessDate,
-                'state' => 'submitted',
+                'state' => $autoApproveOrder ? 'approved' : 'submitted',
                 'is_late' => $isLate,
                 'submitted_at' => now(),
                 'deadline_at' => $cutoff->utc(),
                 'created_by' => $user->id,
+                'reviewed_at' => $autoApproveOrder ? now() : null,
+                'manager_note' => $autoApproveOrder ? PurchaserBusinessDayService::AUTO_APPROVE_MANAGER_NOTE : null,
             ]);
 
             $this->syncShopOrderItems($shopOrder, $items);
+
+            if ($autoApproveOrder) {
+                $shopOrder->items()->update([
+                    'approved_qty' => DB::raw('requested_qty'),
+                    'notes' => PurchaserBusinessDayService::AUTO_APPROVE_MANAGER_NOTE,
+                ]);
+            }
 
             return $shopOrder;
         });
@@ -108,15 +120,17 @@ class RequisitionController extends Controller
             $this->shopOrderRevisionService->notifyPurchaseManagers(
                 new LateRequisitionSubmittedNotification($order->loadMissing('shop'))
             );
-        } else {
+        } elseif (! $autoApproveOrder) {
             $this->shopOrderRevisionService->notifyPurchaseManagers(
                 new PurchasingOrderSubmittedNotification($order->loadMissing('shop'))
             );
         }
 
-        $successMessage = $isLate
-            ? 'Late order request submitted successfully for manager approval.'
-            : 'Tomorrow order submitted successfully.';
+        $successMessage = match (true) {
+            $isLate => 'Late order request submitted successfully for manager approval.',
+            $autoApproveOrder => 'Tomorrow order submitted and automatically approved.',
+            default => 'Tomorrow order submitted successfully.',
+        };
 
         if ($request->expectsJson()) {
             return response()->json([
@@ -133,6 +147,92 @@ class RequisitionController extends Controller
             $order->order_number
         )
             ->with('success', $successMessage);
+    }
+
+    public function createAdminDirectPurchase(Request $request): View
+    {
+        $this->authorizeAdminDirectPurchase($request);
+
+        $businessDate = Carbon::parse($request->input('date', today()->toDateString()));
+        $productsByCategory = Category::with(['products' => function ($query): void {
+            $query->where('is_active', true)->ordered();
+        }])
+            ->where('is_active', true)
+            ->get()
+            ->filter(fn (Category $category): bool => $category->products->isNotEmpty());
+
+        $productsByCategory->each(function (Category $category): void {
+            $category->products->each(function (Product $product): void {
+                $price = $this->priceBoardService->sellingPriceFor($product, null, ProductGrade::GradeA);
+                $product->setAttribute('effective_price', $price['price']);
+            });
+        });
+
+        return view('admin.accounting.purchasers.direct-purchase', [
+            'productsByCategory' => $productsByCategory,
+            'frequentProducts' => collect(),
+            'presets' => ShopPreset::query()->whereRaw('1 = 0')->with('items.product')->get(),
+            'yesterdayOrder' => null,
+            'tomorrowOrder' => null,
+            'tomorrowDate' => $businessDate,
+            'cutoffPassed' => false,
+            'cutoffLabel' => $this->businessDayService->cutoffLabel(),
+            'purchaseOrdersLockedForTomorrow' => false,
+            'businessDate' => $businessDate,
+            'orderFormAction' => route('admin.accounting.purchasers.direct-purchase.store'),
+            'orderFormMode' => 'admin-direct-purchase',
+            'allowPresetSave' => false,
+        ]);
+    }
+
+    public function storeAdminDirectPurchase(Request $request): RedirectResponse
+    {
+        $this->authorizeAdminDirectPurchase($request);
+
+        $validated = $request->validate([
+            'business_date' => ['required', 'date'],
+            'items' => ['required', 'array'],
+        ]);
+
+        $items = $this->resolveRequestedProducts($validated['items']);
+
+        if ($items === []) {
+            return redirect()->route('admin.accounting.purchasers.direct-purchase.create', [
+                'date' => Carbon::parse($validated['business_date'])->toDateString(),
+            ])
+                ->withErrors(['items' => 'Direct purchase order cannot be empty.'])
+                ->withInput();
+        }
+
+        $businessDate = Carbon::parse($validated['business_date']);
+        $user = $request->user();
+
+        $order = DB::transaction(function () use ($businessDate, $user, $items): ShopOrder {
+            $shopOrder = ShopOrder::query()->create([
+                'shop_id' => null,
+                'business_date' => $businessDate,
+                'order_source' => 'admin_direct_purchase',
+                'state' => 'approved',
+                'is_late' => false,
+                'submitted_at' => now(),
+                'reviewed_by' => $user->id,
+                'reviewed_at' => now(),
+                'created_by' => $user->id,
+                'manager_note' => 'Green Leaf Direct Purchase',
+            ]);
+
+            $this->syncShopOrderItems($shopOrder, $items);
+
+            $shopOrder->items()->update([
+                'approved_qty' => DB::raw('requested_qty'),
+                'notes' => 'Green Leaf Direct Purchase',
+            ]);
+
+            return $shopOrder->fresh(['items.product']);
+        });
+
+        return redirect()->route('purchaser.vendors', ['date' => $businessDate->toDateString()])
+            ->with('success', 'Green Leaf Direct Purchase order '.$order->order_number.' added to purchaser demand.');
     }
 
     /**
@@ -800,6 +900,12 @@ class RequisitionController extends Controller
             ->whereIn('state', ['approved', 'update_requested'])
             ->with(['items', 'latestPendingRevision.items'])
             ->get();
+        $autoApprovedOrders = $orders
+            ->filter(fn (ShopOrder $order): bool => $order->manager_note === PurchaserBusinessDayService::AUTO_APPROVE_MANAGER_NOTE)
+            ->loadMissing(['shop', 'items.product'])
+            ->sortBy(fn (ShopOrder $order): string => (string) ($order->shop?->name ?? $order->order_number))
+            ->values();
+        $autoApproveShopOrdersEnabled = $this->businessDayService->autoApproveShopOrders();
         [
             'matrix' => $matrix,
             'productFulfillmentTypes' => $productFulfillmentTypes,
@@ -861,7 +967,9 @@ class RequisitionController extends Controller
             'poBackedApprovedProductCount',
             'existingPos',
             'shopUpdateMeta',
-            'shopPoStatusMeta'
+            'shopPoStatusMeta',
+            'autoApprovedOrders',
+            'autoApproveShopOrdersEnabled'
         ));
     }
 
@@ -1769,6 +1877,13 @@ class RequisitionController extends Controller
             'locked_price_source' => $price['source'],
             'line_total' => round($quantity * $price['price'], 2),
         ];
+    }
+
+    private function authorizeAdminDirectPurchase(Request $request): void
+    {
+        $user = $request->user();
+
+        abort_unless($user?->hasRole('admin') && $user->hasRole('purchaser'), 403, 'Unauthorized access.');
     }
 
     /**

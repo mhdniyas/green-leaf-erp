@@ -30,6 +30,7 @@ class StorePurchaserCartItemRequest extends FormRequest
             'cart_id' => ['nullable', 'exists:purchaser_carts,id'],
             'quantity' => ['required', 'numeric', 'min:0.01'],
             'unit_price' => ['nullable', 'numeric', 'min:0'],
+            'purchase_source' => ['nullable', 'string', 'in:shop_order,green_leaf_direct_purchase,mixed'],
             'notes' => ['nullable', 'string', 'max:1000'],
         ];
     }

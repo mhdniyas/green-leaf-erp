@@ -10,6 +10,8 @@ class WarehouseWorkflowSeeder extends Seeder
 {
     public function run(): void
     {
-        $this->command?->info('WarehouseWorkflowSeeder cleaned. No workflow orders, receipts, or invoices were seeded.');
+        $this->call(WarehouseReceiverSeeder::class);
+
+        $this->command?->info('Warehouse workflow receiver handoff seeded.');
     }
 }

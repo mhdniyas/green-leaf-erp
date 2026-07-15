@@ -1,4 +1,9 @@
 <x-layouts.accounting title="Purchaser Credits — {{ $user->name }}">
+    @php
+        $currentUser = auth()->user();
+        $canBuyAsPurchaser = $currentUser?->hasRole('admin') && $currentUser->hasRole('purchaser') && $user->is($currentUser);
+    @endphp
+
     <div class="mx-auto max-w-7xl space-y-6">
         <section class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
             <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -7,7 +12,15 @@
                     <h1 class="mt-2 text-2xl font-black tracking-tight text-slate-950">{{ $user->name }}</h1>
                     <p class="mt-2 text-sm font-semibold text-slate-600">{{ $user->email }} • Purchaser Account Details</p>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
+                    @if($canBuyAsPurchaser)
+                        <form method="POST" action="{{ route('admin.accounting.purchasers.buy', $user->public_uuid) }}">
+                            @csrf
+                            <button type="submit" class="inline-flex h-11 items-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 text-sm font-black text-emerald-700 transition hover:bg-emerald-100">
+                                Buy as Purchaser
+                            </button>
+                        </form>
+                    @endif
                     <a href="{{ route('admin.accounting.purchasers.index') }}" class="inline-flex h-11 items-center rounded-2xl border border-slate-200 px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50">
                         Back to Purchasers
                     </a>
@@ -42,7 +55,7 @@
                 <h2 class="text-lg font-black text-slate-950">Add Cash / Credit</h2>
                 <p class="mt-1 text-xs font-semibold text-slate-500">Provide cash advance or credit to this purchaser from Green Leaf.</p>
 
-                <form method="POST" action="{{ route('admin.accounting.purchasers.credits.store', $user) }}" class="mt-5 space-y-4">
+                <form method="POST" action="{{ route('admin.accounting.purchasers.credits.store', $user->public_uuid) }}" class="mt-5 space-y-4">
                     @csrf
                     <div>
                         <label for="amount" class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Amount (₹)</label>

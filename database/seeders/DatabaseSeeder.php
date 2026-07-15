@@ -14,7 +14,12 @@ class DatabaseSeeder extends Seeder
             RolePermissionSeeder::class,
             ChartOfAccountsSeeder::class,
             EmployeeCategorySeeder::class,
+            CategorySeeder::class,
+            ProductSeeder::class,
+            WarehouseSeeder::class,
             ShopAccountingCategorySeeder::class,
+            WarehouseWorkflowSeeder::class,
+            AdminOwnPurchasePurchaserSeeder::class,
         ]);
     }
 }

@@ -59,29 +59,93 @@
     ];
 
     if ($canManageOwnedShops) {
+        $ownedShopChildren = [
+            [
+                'label' => 'All Shops',
+                'href' => route('admin.accounting.owned-shops.index'),
+                'active' => request()->routeIs('admin.accounting.owned-shops.index'),
+            ],
+        ];
+
+        if ($currentShop instanceof \App\Models\Shop) {
+            $ownedShopChildren = array_merge($ownedShopChildren, [
+                [
+                    'label' => 'Bills',
+                    'href' => route('admin.accounting.owned-shops.show', ['shop' => $currentShop, 'tab' => 'bills', 'date' => $navDate]),
+                    'active' => request()->routeIs('admin.accounting.owned-shops.show') && request('tab', 'bills') === 'bills',
+                ],
+                [
+                    'label' => 'Ledger',
+                    'href' => route('admin.accounting.owned-shops.show', ['shop' => $currentShop, 'tab' => 'cashbook', 'date' => $navDate]),
+                    'active' => request()->routeIs('admin.accounting.owned-shops.show') && request('tab') === 'cashbook',
+                ],
+                [
+                    'label' => 'Summary',
+                    'href' => route('admin.accounting.owned-shops.show', ['shop' => $currentShop, 'tab' => request('tab', 'bills'), 'date' => $navDate]).'#owned-shop-summary',
+                    'active' => false,
+                ],
+                [
+                    'label' => 'Petty Cash',
+                    'href' => route('admin.accounting.owned-shops.show', ['shop' => $currentShop, 'tab' => 'cashbook', 'date' => $navDate]).'#owned-shop-petty-cash',
+                    'active' => false,
+                ],
+                [
+                    'label' => 'Categories',
+                    'href' => route('admin.accounting.owned-shops.categories.index', $currentShop),
+                    'active' => request()->routeIs('admin.accounting.owned-shops.categories.*'),
+                ],
+            ]);
+        }
+
         $sidebarItems[] = [
             'label' => 'Owned Shops',
             'href' => route('admin.accounting.owned-shops.index'),
             'active' => request()->routeIs('admin.accounting.owned-shops.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M4.5 21V8.25m15 12.75V8.25M9 21V3.75h6V21M7.5 6h9" /></svg>',
+            'children' => $ownedShopChildren,
         ];
     }
 
     if ($canManagePurchaserCash) {
+        $purchaserChildren = [
+            [
+                'label' => 'Ledger',
+                'href' => route('admin.accounting.purchasers.index'),
+                'active' => request()->routeIs('admin.accounting.purchasers.index') || request()->routeIs('admin.accounting.purchasers.show'),
+            ],
+            [
+                'label' => 'Direct Purchase',
+                'href' => route('admin.accounting.purchasers.direct-purchase.create', ['date' => $navDate]),
+                'active' => request()->routeIs('admin.accounting.purchasers.direct-purchase.*'),
+            ],
+            [
+                'label' => 'Purchaser Daily',
+                'href' => route('purchaser.daily', ['date' => $navDate]),
+                'active' => request()->routeIs('purchaser.daily'),
+            ],
+            [
+                'label' => 'Vendor Carts',
+                'href' => route('purchaser.vendors', ['date' => $navDate]),
+                'active' => request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill'),
+            ],
+            [
+                'label' => 'Purchase Invoices',
+                'href' => route('purchasing.invoices.index', ['date' => $navDate]),
+                'active' => request()->routeIs('purchasing.invoices.*'),
+            ],
+        ];
+
         $sidebarItems[] = [
             'label' => 'Purchasers',
             'href' => route('admin.accounting.purchasers.index'),
-            'active' => request()->routeIs('admin.accounting.purchasers.*'),
+            'active' => request()->routeIs('admin.accounting.purchasers.*')
+                || request()->routeIs('purchaser.daily')
+                || request()->routeIs('purchaser.vendors')
+                || request()->routeIs('purchaser.cart')
+                || request()->routeIs('purchaser.bill')
+                || request()->routeIs('purchasing.invoices.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>',
-        ];
-    }
-
-    if ($canManageOwnedShops && $currentShop instanceof \App\Models\Shop) {
-        $sidebarItems[] = [
-            'label' => 'Current Shop',
-            'href' => route('admin.accounting.owned-shops.show', ['shop' => $currentShop, 'date' => $navDate]),
-            'active' => false,
-            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a8.966 8.966 0 0 1-5.657-2.004C4.233 17.228 3 14.76 3 12s1.233-5.228 3.343-6.996A8.966 8.966 0 0 1 12 3c2.212 0 4.236.8 5.657 2.004C19.767 6.772 21 9.24 21 12s-1.233 5.228-3.343 6.996A8.966 8.966 0 0 1 12 21Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75h4.5v4.5h-4.5z" /></svg>',
+            'children' => $purchaserChildren,
         ];
     }
 
@@ -94,6 +158,10 @@
 
     if ($canManageOwnedShops) {
         $mobileItems[] = ['label' => 'Shops', 'href' => route('admin.accounting.owned-shops.index'), 'active' => request()->routeIs('admin.accounting.owned-shops.*')];
+    }
+
+    if ($canManagePurchaserCash) {
+        $mobileItems[] = ['label' => 'Buy', 'href' => route('admin.accounting.purchasers.direct-purchase.create', ['date' => $navDate]), 'active' => request()->routeIs('admin.accounting.purchasers.direct-purchase.*')];
     }
 @endphp
 
@@ -138,10 +206,22 @@
 
         <nav class="flex-1 space-y-2 overflow-y-auto px-4 py-5">
             @foreach($sidebarItems as $item)
-                <a href="{{ $item['href'] }}" title="{{ $item['label'] }}" class="flex items-center gap-3 rounded-[1.2rem] px-4 py-3 text-sm font-black transition {{ $item['active'] ? 'bg-emerald-50 text-emerald-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}">
-                    <span class="{{ $item['active'] ? 'text-emerald-700' : 'text-slate-400' }}">{!! $item['icon'] !!}</span>
-                    <span data-accounting-sidebar-label>{{ $item['label'] }}</span>
-                </a>
+                <div>
+                    <a href="{{ $item['href'] }}" title="{{ $item['label'] }}" class="flex items-center gap-3 rounded-[1.2rem] px-4 py-3 text-sm font-black transition {{ $item['active'] ? 'bg-emerald-50 text-emerald-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}">
+                        <span class="{{ $item['active'] ? 'text-emerald-700' : 'text-slate-400' }}">{!! $item['icon'] !!}</span>
+                        <span data-accounting-sidebar-label>{{ $item['label'] }}</span>
+                    </a>
+
+                    @if (! empty($item['children']) && ($item['active'] ?? false))
+                        <div data-accounting-sidebar-label class="mt-1 space-y-1 pl-10">
+                            @foreach ($item['children'] as $child)
+                                <a href="{{ $child['href'] }}" class="block rounded-xl px-3 py-2 text-xs font-black transition {{ $child['active'] ? 'bg-slate-950 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900' }}">
+                                    {{ $child['label'] }}
+                                </a>
+                            @endforeach
+                        </div>
+                    @endif
+                </div>
             @endforeach
         </nav>
 

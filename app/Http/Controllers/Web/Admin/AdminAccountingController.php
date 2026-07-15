@@ -14,6 +14,7 @@ use App\Http\Requests\Web\Admin\StoreShopAccountingEntryRequest;
 use App\Http\Requests\Web\Admin\StoreShopCreditRequest;
 use App\Http\Requests\Web\Admin\UpdateDailyBillPaymentRequest;
 use App\Http\Requests\Web\Admin\UpdateShopAccountingEntryRequest;
+use App\Http\Requests\Web\Admin\UpdateShopPettyCashSettingsRequest;
 use App\Models\PurchaserCredit;
 use App\Models\Shop;
 use App\Models\ShopAccountingCategory;
@@ -24,6 +25,7 @@ use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\User;
 use App\Services\Finance\AdminFinancePillarService;
+use App\Services\Finance\JournalService;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Finance\ShopAccountingInvoiceService;
 use App\Services\ShopInvoices\ShopInvoiceService;
@@ -43,6 +45,7 @@ class AdminAccountingController extends Controller
 {
     public function __construct(
         private readonly AdminFinancePillarService $financePillars,
+        private readonly JournalService $journalService,
         private readonly OwnedShopAccountingService $ownedShopAccountingService,
         private readonly ShopAccountingInvoiceService $shopAccountingInvoiceService,
         private readonly ShopInvoiceService $shopInvoiceService,
@@ -173,6 +176,11 @@ class AdminAccountingController extends Controller
             'accountingEntries as pending_updates_count' => fn ($query) => $query->where('status', 'submitted'),
             'accountingEntries as recheck_updates_count' => fn ($query) => $query->where('status', 'recheck_required'),
         ]);
+        $shops->each(function (Shop $shop): void {
+            $pettyCashRows = $this->ownedShopAccountingService->pettyCashRows($shop, Carbon::parse('2000-01-01'), today());
+
+            $shop->setAttribute('petty_cash_balance_amount', (float) ($pettyCashRows->first()['balance'] ?? 0.0));
+        });
         $availableShops = Shop::query()
             ->where(function ($query): void {
                 $query->where('accounting_enabled', false)
@@ -192,6 +200,7 @@ class AdminAccountingController extends Controller
             'shop_id' => ['required', 'integer', 'exists:shops,id'],
             'accounting_mode' => ['required', 'string', 'in:owned,partnership'],
             'reserve_amount' => ['nullable', 'numeric', 'min:0'],
+            'default_petty_cash_amount' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         /** @var Shop $shop */
@@ -203,12 +212,14 @@ class AdminAccountingController extends Controller
         }
 
         $reserveAmount = round((float) ($validated['reserve_amount'] ?? 0), 2);
+        $defaultPettyCashAmount = round((float) ($validated['default_petty_cash_amount'] ?? 0), 2);
 
-        DB::transaction(function () use ($request, $shop, $validated, $reserveAmount): void {
+        DB::transaction(function () use ($request, $shop, $validated, $reserveAmount, $defaultPettyCashAmount): void {
             $shop->update([
                 'accounting_enabled' => true,
                 'accounting_mode' => $validated['accounting_mode'],
                 'reserve_amount' => $reserveAmount,
+                'default_petty_cash_amount' => $defaultPettyCashAmount,
             ]);
 
             if ($reserveAmount > 0) {
@@ -293,6 +304,9 @@ class AdminAccountingController extends Controller
             ->latest('id')
             ->limit(12)
             ->get();
+        $pettyCashRows = $this->ownedShopAccountingService->pettyCashRows($shop, $startDate, $endDate);
+        $pettyCashBalanceRows = $this->ownedShopAccountingService->pettyCashRows($shop, Carbon::parse('2000-01-01'), $endDate);
+        $pettyCashBalance = (float) ($pettyCashBalanceRows->first()['balance'] ?? 0.0);
         $periodInvoices = ShopInvoice::query()
             ->where('shop_id', $shop->id)
             ->whereDate('business_date', '>=', $startDate)
@@ -334,12 +348,27 @@ class AdminAccountingController extends Controller
             'billingInvoices' => $billingInvoices,
             'paymentRequests' => $paymentRequests,
             'shopCredits' => $shopCredits,
+            'pettyCashRows' => $pettyCashRows,
+            'pettyCashBalance' => $pettyCashBalance,
             'analytics' => $analytics,
             'ownershipTotal' => $this->ownedShopAccountingService->ownershipPercentageTotal($shop),
             'incomeTotal' => $incomeTotal,
             'expenseTotal' => $expenseTotal,
             'netAmount' => round($incomeTotal - $expenseTotal, 2),
         ]);
+    }
+
+    public function updatePettyCashSettings(UpdateShopPettyCashSettingsRequest $request, Shop $shop): RedirectResponse
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
+        $shop = $this->loadEligibleShop($shop);
+        $validated = $request->validated();
+
+        $shop->update([
+            'default_petty_cash_amount' => round((float) $validated['default_petty_cash_amount'], 2),
+        ]);
+
+        return back()->with('success', 'Default petty cash expense updated.');
     }
 
     public function ownedShopCategories(Request $request, Shop $shop): View
@@ -584,10 +613,13 @@ class AdminAccountingController extends Controller
         ShopCredit::query()->create([
             'shop_id' => $shop->id,
             'type' => $validated['type'],
+            'is_petty_cash' => $request->boolean('is_petty_cash'),
             'amount' => round((float) $validated['amount'], 2),
             'description' => filled($validated['description'] ?? null)
                 ? trim((string) $validated['description'])
-                : ($validated['type'] === 'in' ? 'Cash given to shop' : 'Cash received from shop'),
+                : ($request->boolean('is_petty_cash')
+                    ? ($validated['type'] === 'in' ? 'Petty cash given to shop' : 'Petty cash returned from shop')
+                    : ($validated['type'] === 'in' ? 'Cash given to shop' : 'Cash received from shop')),
             'created_by' => $request->user()?->id,
             'business_date' => $validated['business_date'],
         ]);
@@ -596,7 +628,7 @@ class AdminAccountingController extends Controller
             'shop' => $shop->code,
             'tab' => 'cashbook',
             'date' => $validated['business_date'],
-        ])->with('success', $validated['type'] === 'in' ? 'Cash given to shop recorded as accounting expense.' : 'Cash received from shop recorded as accounting income.');
+        ])->with('success', $request->boolean('is_petty_cash') ? 'Petty cash movement recorded.' : ($validated['type'] === 'in' ? 'Cash given to shop recorded as accounting expense.' : 'Cash received from shop recorded as accounting income.'));
     }
 
     public function reviewOwnedShopPaymentRequest(ReviewOwnedShopPaymentRequest $request, Shop $shop, ShopInvoicePaymentRequest $paymentRequest): RedirectResponse
@@ -721,7 +753,7 @@ class AdminAccountingController extends Controller
             'business_date' => ['required', 'date'],
         ]);
 
-        PurchaserCredit::create([
+        $credit = PurchaserCredit::create([
             'purchaser_id' => $user->id,
             'type' => 'in',
             'amount' => (float) $validated['amount'],
@@ -730,8 +762,25 @@ class AdminAccountingController extends Controller
             'business_date' => $validated['business_date'],
         ]);
 
-        return redirect()->route('admin.accounting.purchasers.show', $user)
+        $this->journalService->recordPurchaserCredit($credit);
+
+        return redirect()->route('admin.accounting.purchasers.show', $user->public_uuid)
             ->with('success', 'Credit added successfully.');
+    }
+
+    public function buyAsPurchaser(Request $request, User $user): RedirectResponse
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::PurchaserCashManage);
+        $admin = $request->user();
+
+        abort_unless($admin?->hasRole('admin'), 403);
+        abort_unless($admin->hasRole('purchaser'), 403);
+        abort_unless($user->hasRole('purchaser'), 404);
+        abort_unless($user->is($admin), 403);
+
+        return redirect()
+            ->route('admin.accounting.purchasers.direct-purchase.create', ['date' => today()->toDateString()])
+            ->with('success', 'Green Leaf Direct Purchase window opened for '.$admin->name.'.');
     }
 
     private function ensureAccountingAccess(Request $request, string $permission): void

@@ -8,6 +8,7 @@ use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\ShopOwner\StoreShopInvoicePaymentRequest;
 use App\Http\Requests\Web\ShopOwner\StoreShopOwnerAccountingEntryRequest;
+use App\Http\Requests\Web\ShopOwner\StoreShopPettyCashExpenseRequest;
 use App\Models\Category;
 use App\Models\Shop;
 use App\Models\ShopAccountingEntry;
@@ -15,6 +16,7 @@ use App\Models\ShopCredit;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
+use App\Models\ShopPettyCashExpense;
 use App\Models\ShopPreset;
 use App\Models\User;
 use App\Services\Finance\OwnedShopAccountingService;
@@ -189,6 +191,9 @@ class ShopOwnerController extends Controller
         $deliveryExpenseByDate = collect();
         $shopCreditByDate = collect();
         $shopCredits = collect();
+        $pettyCashRows = collect();
+        $pettyCashBalance = 0.0;
+        $selectedPettyCashExpense = null;
         $greenLeafDirectLedgerDates = collect();
         $selectedDeliveryExpense = 0.0;
         $selectedShopCredit = 0.0;
@@ -260,6 +265,13 @@ class ShopOwnerController extends Controller
                 ->latest('id')
                 ->limit(8)
                 ->get();
+            $pettyCashRows = $this->ownedShopAccountingService->pettyCashRows($shop, $startDate, $endDate);
+            $pettyCashBalanceRows = $this->ownedShopAccountingService->pettyCashRows($shop, Carbon::parse('2000-01-01'), $endDate);
+            $pettyCashBalance = (float) ($pettyCashBalanceRows->first()['balance'] ?? 0.0);
+            $selectedPettyCashExpense = ShopPettyCashExpense::query()
+                ->where('shop_id', $shop->id)
+                ->whereDate('business_date', $selectedDate)
+                ->first();
             $selectedDeliveryExpense = (float) ($deliveryExpenseByDate->get($selectedDate->toDateString()) ?? 0);
             $selectedShopCredit = (float) ($shopCreditByDate->get($selectedDate->toDateString()) ?? 0);
 
@@ -288,6 +300,9 @@ class ShopOwnerController extends Controller
             'deliveryExpenseByDate' => $deliveryExpenseByDate,
             'shopCreditByDate' => $shopCreditByDate,
             'shopCredits' => $shopCredits,
+            'pettyCashRows' => $pettyCashRows,
+            'pettyCashBalance' => $pettyCashBalance,
+            'selectedPettyCashExpense' => $selectedPettyCashExpense,
             'greenLeafDirectLedgerDates' => $greenLeafDirectLedgerDates,
             'selectedDeliveryExpense' => $selectedDeliveryExpense,
             'selectedShopCredit' => $selectedShopCredit,
@@ -334,6 +349,34 @@ class ShopOwnerController extends Controller
         ]);
     }
 
+    public function pettyCashIndex(Request $request): View
+    {
+        $shop = $this->ownedAccountingShop($request);
+        $startDate = Carbon::parse($request->input('start_date', today()->startOfMonth()->toDateString()));
+        $endDate = Carbon::parse($request->input('end_date', today()->toDateString()));
+
+        if ($endDate->isFuture()) {
+            $endDate = today();
+        }
+
+        if ($startDate->gt($endDate)) {
+            $startDate = $endDate->copy()->startOfMonth();
+        }
+
+        $pettyCashRows = $this->ownedShopAccountingService->pettyCashRows($shop, $startDate, $endDate, includeEmptyDays: true);
+        $pettyCashBalanceRows = $this->ownedShopAccountingService->pettyCashRows($shop, Carbon::parse('2000-01-01'), $endDate);
+        $pettyCashBalance = (float) ($pettyCashBalanceRows->first()['balance'] ?? 0.0);
+
+        return view('shop-owner.accounting.petty-cash', [
+            'shop' => $shop,
+            'tab' => 'cashbook',
+            'startDate' => $startDate,
+            'endDate' => $endDate,
+            'pettyCashRows' => $pettyCashRows,
+            'pettyCashBalance' => $pettyCashBalance,
+        ]);
+    }
+
     public function storeAccountingEntry(StoreShopOwnerAccountingEntryRequest $request): RedirectResponse
     {
         $user = $this->shopUser($request);
@@ -357,6 +400,30 @@ class ShopOwnerController extends Controller
 
         return redirect()->route('shop-owner.accounting.index', ['tab' => 'cashbook', 'date' => $entry->business_date?->toDateString()])
             ->with('success', $message);
+    }
+
+    public function storePettyCashExpense(StoreShopPettyCashExpenseRequest $request): RedirectResponse
+    {
+        $user = $this->shopUser($request);
+        $shop = $this->ownedAccountingShop($request);
+        $validated = $request->validated();
+        $businessDate = Carbon::parse($validated['business_date']);
+
+        try {
+            $this->ownedShopAccountingService->recordManualPettyCashExpense(
+                $shop,
+                $businessDate,
+                round((float) $validated['amount'], 2),
+                (int) $user->id,
+            );
+        } catch (ValidationException $exception) {
+            return back()->withErrors($exception->errors())->withInput();
+        }
+
+        return redirect()->route('shop-owner.accounting.index', [
+            'tab' => 'cashbook',
+            'date' => $businessDate->toDateString(),
+        ])->with('success', 'Petty cash expense updated for '.$businessDate->format('d M Y').'.');
     }
 
     public function storePaymentRequest(StoreShopInvoicePaymentRequest $request): RedirectResponse

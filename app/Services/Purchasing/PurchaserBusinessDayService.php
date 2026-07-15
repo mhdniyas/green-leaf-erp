@@ -11,7 +11,13 @@ class PurchaserBusinessDayService
 {
     private const CUTOFF_SETTING_KEY = 'business_day_cutoff_time';
 
+    private const AUTO_APPROVE_SHOP_ORDERS_KEY = 'auto_approve_shop_orders';
+
+    public const AUTO_APPROVE_MANAGER_NOTE = 'Automatically approved by purchase setting.';
+
     private ?string $cachedCutoffTime = null;
+
+    private ?bool $cachedAutoApproveShopOrders = null;
 
     public function operationalDate(?Carbon $moment = null): Carbon
     {
@@ -101,6 +107,30 @@ class PurchaserBusinessDayService
         );
 
         $this->cachedCutoffTime = $normalizedTime;
+    }
+
+    public function autoApproveShopOrders(): bool
+    {
+        if ($this->cachedAutoApproveShopOrders !== null) {
+            return $this->cachedAutoApproveShopOrders;
+        }
+
+        return $this->cachedAutoApproveShopOrders = filter_var(
+            BusinessSetting::query()
+                ->where('key', self::AUTO_APPROVE_SHOP_ORDERS_KEY)
+                ->value('value') ?? false,
+            FILTER_VALIDATE_BOOLEAN
+        );
+    }
+
+    public function updateAutoApproveShopOrders(bool $enabled): void
+    {
+        BusinessSetting::query()->updateOrCreate(
+            ['key' => self::AUTO_APPROVE_SHOP_ORDERS_KEY],
+            ['value' => $enabled ? '1' : '0'],
+        );
+
+        $this->cachedAutoApproveShopOrders = $enabled;
     }
 
     /**

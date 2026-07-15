@@ -18,6 +18,7 @@ class ShopCredit extends Model
     protected $fillable = [
         'shop_id',
         'type',
+        'is_petty_cash',
         'amount',
         'description',
         'created_by',
@@ -27,6 +28,7 @@ class ShopCredit extends Model
     protected function casts(): array
     {
         return [
+            'is_petty_cash' => 'boolean',
             'amount' => 'decimal:2',
             'business_date' => 'date',
         ];

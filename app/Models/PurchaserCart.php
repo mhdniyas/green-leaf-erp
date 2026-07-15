@@ -16,6 +16,7 @@ class PurchaserCart extends Model
         'supplier_id',
         'business_date',
         'status',
+        'purchase_source',
         'cart_number',
         'bill_number',
         'discount_amount',
@@ -47,6 +48,20 @@ class PurchaserCart extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
+
+    public function isGreenLeafDirectPurchase(): bool
+    {
+        return in_array($this->purchase_source, ['green_leaf_direct_purchase', 'mixed'], true);
+    }
+
+    public function purchaseSourceLabel(): string
+    {
+        return match ($this->purchase_source) {
+            'green_leaf_direct_purchase' => 'Green Leaf Direct Purchase',
+            'mixed' => 'Green Leaf Direct Purchase + Shop Demand',
+            default => 'Shop Demand',
+        };
+    }
 
     public function getRouteKeyName(): string
     {

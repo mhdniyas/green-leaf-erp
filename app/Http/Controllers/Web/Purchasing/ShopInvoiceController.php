@@ -92,8 +92,7 @@ class ShopInvoiceController extends Controller
             (int) $request->user()->id,
         );
 
-        return redirect()->route('purchasing.shop-invoices.show', $invoice)
-            ->with('success', 'Daily invoice payment approval updated.');
+        return back()->with('success', 'Daily invoice payment approval updated.');
     }
 
     public function reviewPaymentRequest(ReviewShopInvoicePaymentRequest $request, ShopInvoicePaymentRequest $paymentRequest): RedirectResponse

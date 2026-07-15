@@ -1,4 +1,4 @@
-<div class="grid gap-2 sm:flex sm:flex-wrap {{ $shop->isOwnedAccountingEnabled() ? 'grid-cols-3' : 'grid-cols-2' }}">
+<div class="grid gap-2 sm:flex sm:flex-wrap {{ $shop->isOwnedAccountingEnabled() ? 'grid-cols-4' : 'grid-cols-2' }}">
     @include('shop-owner.components.action-button', [
         'href' => route('shop-owner.accounting.index', ['tab' => 'bills']),
         'label' => 'Bills',
@@ -9,6 +9,11 @@
             'href' => route('shop-owner.accounting.index', ['tab' => 'cashbook']),
             'label' => 'Cashbook',
             'classes' => (request()->routeIs('shop-owner.accounting.index') && ($tab ?? 'bills') === 'cashbook' ? 'bg-slate-950 text-white' : 'border border-slate-200 bg-white text-slate-800') . ' justify-center w-full sm:w-auto text-center'
+        ])
+        @include('shop-owner.components.action-button', [
+            'href' => route('shop-owner.accounting.petty-cash.index'),
+            'label' => 'Petty Cash',
+            'classes' => (request()->routeIs('shop-owner.accounting.petty-cash.index') ? 'bg-slate-950 text-white' : 'border border-slate-200 bg-white text-slate-800') . ' justify-center w-full sm:w-auto text-center'
         ])
     @endif
     @include('shop-owner.components.action-button', [

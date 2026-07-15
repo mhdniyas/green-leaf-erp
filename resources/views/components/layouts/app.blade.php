@@ -21,6 +21,7 @@
 <body class="flex min-h-screen flex-col bg-slate-100 font-sans antialiased">
 @php
     $currentUser = auth()->user();
+    $navDate = request()->input('date', app(\App\Services\Purchasing\PurchaserBusinessDayService::class)->operationalDate()->toDateString());
     $currentUserInitial = $currentUser ? strtoupper(substr($currentUser->name, 0, 1)) : 'U';
     $staffLandingUrl = \App\Support\StaffAccess::landingUrl($currentUser, request()->input('date', today()->toDateString()));
     $canAccessStaffWorkspace = \App\Support\StaffAccess::canAccessAny($currentUser);
@@ -139,8 +140,17 @@
         [
             'label' => 'Approved',
             'route' => 'requisitions.approved_board',
-            'active' => request()->routeIs('requisitions.approved_board'),
+            'params' => ['date' => $navDate],
+            'active' => request()->routeIs('requisitions.approved_board') && ! request()->boolean('settings'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m6 2.25a9 9 0 11-18 0 9 9 0 0118 0Z" /></svg>',
+            'type' => 'link',
+        ],
+        [
+            'label' => 'Settings',
+            'route' => 'requisitions.approved_board',
+            'params' => ['date' => $navDate, 'settings' => 1],
+            'active' => request()->routeIs('requisitions.approved_board') && request()->boolean('settings'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.094c.55 0 1.02.398 1.11.94l.149.894c.07.424.349.78.746.944.397.164.85.104 1.198-.148l.735-.535a1.125 1.125 0 0 1 1.45.12l.773.774c.39.389.44 1.002.12 1.45l-.535.735c-.252.348-.312.801-.148 1.198.164.397.52.676.944.746l.894.149c.542.09.94.56.94 1.11v1.094c0 .55-.398 1.02-.94 1.11l-.894.149c-.424.07-.78.349-.944.746-.164.397-.104.85.148 1.198l.535.735c.32.448.27 1.061-.12 1.45l-.773.774a1.125 1.125 0 0 1-1.45.12l-.735-.535c-.348-.252-.801-.312-1.198-.148-.397.164-.676.52-.746.944l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.02-.398-1.11-.94l-.149-.894c-.07-.424-.349-.78-.746-.944-.397-.164-.85-.104-1.198.148l-.735.535a1.125 1.125 0 0 1-1.45-.12l-.773-.774a1.125 1.125 0 0 1-.12-1.45l.535-.735c.252-.348.312-.801.148-1.198-.164-.397-.52-.676-.944-.746l-.894-.149a1.125 1.125 0 0 1-.94-1.11v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.78-.349.944-.746.164-.397.104-.85-.148-1.198l-.535-.735a1.125 1.125 0 0 1 .12-1.45l.773-.774a1.125 1.125 0 0 1 1.45-.12l.735.535c.348.252.801.312 1.198.148.397-.164.676-.52.746-.944l.149-.894Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>',
             'type' => 'link',
         ],
         [
@@ -308,6 +318,58 @@
             <x-nav-item href="{{ route('dashboard') }}" icon="squares-2x2" :active="request()->routeIs('dashboard')">
                 Dashboard
             </x-nav-item>
+
+            @if($currentUser?->hasRole('admin') && $currentUser?->hasRole('purchaser'))
+                @php
+                    $isAdminPurchaseFlowActive = request()->routeIs('admin.accounting.purchasers.*')
+                        || request()->routeIs('purchaser.*')
+                        || request()->routeIs('purchasing.invoices.*')
+                        || request()->routeIs('requisitions.approved_board');
+                @endphp
+                <div class="sidebar-group space-y-1">
+                    <button
+                        type="button"
+                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isAdminPurchaseFlowActive ? 'bg-white/5 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}"
+                        aria-expanded="{{ $isAdminPurchaseFlowActive ? 'true' : 'false' }}"
+                    >
+                        <span class="flex items-center gap-3">
+                            <svg class="h-4 w-4 shrink-0 opacity-80 transition-opacity group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
+                            </svg>
+                            <span>Admin Purchase</span>
+                        </span>
+                        <svg class="chevron-icon h-3.5 w-3.5 transition-transform duration-200 {{ $isAdminPurchaseFlowActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
+                    </button>
+                    <div class="sidebar-group-items space-y-1 pl-3 pr-1 transition-all duration-200 {{ $isAdminPurchaseFlowActive ? '' : 'hidden' }}">
+                        <x-nav-item href="{{ route('admin.accounting.index', ['date' => $navDate]) }}" :active="request()->routeIs('admin.accounting.index')" :sub="true">
+                            Accounting
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('admin.accounting.purchasers.index') }}" :active="request()->routeIs('admin.accounting.purchasers.index') || request()->routeIs('admin.accounting.purchasers.show')" :sub="true">
+                            Purchaser Ledger
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('admin.accounting.purchasers.direct-purchase.create', ['date' => $navDate]) }}" :active="request()->routeIs('admin.accounting.purchasers.direct-purchase.*')" :sub="true">
+                            Direct Purchase
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('requisitions.approved_board', ['date' => $navDate, 'settings' => 1]) }}" :active="request()->routeIs('requisitions.approved_board') && request()->boolean('settings')" :sub="true">
+                            Purchase Settings
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('purchaser.daily', ['date' => $navDate]) }}" :active="request()->routeIs('purchaser.daily')" :sub="true">
+                            Purchaser Daily
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('purchaser.vendors', ['date' => $navDate]) }}" :active="request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill')" :sub="true">
+                            Vendor Carts
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('purchasing.invoices.index', ['date' => $navDate]) }}" :active="request()->routeIs('purchasing.invoices.*')" :sub="true">
+                            Purchase Invoices
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('admin.accounting.cash-flow', ['date' => $navDate]) }}" :active="request()->routeIs('admin.accounting.cash-flow')" :sub="true">
+                            Cash Flow
+                        </x-nav-item>
+                    </div>
+                </div>
+            @endif
 
             @if(auth()->user()->hasRole('shop'))
                 <x-nav-item href="{{ route('purchasing.orders.index') }}" icon="shopping-cart" :active="request()->routeIs('purchasing.orders.*')">

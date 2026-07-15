@@ -21,6 +21,7 @@ use App\Models\PurchaserCredit;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Models\Supplier;
+use App\Services\Finance\JournalService;
 use App\Services\Purchasing\PurchaseInvoiceService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\VendorPriceService;
@@ -51,6 +52,7 @@ class PurchaserDashboardController extends Controller
     public function __construct(
         private readonly VendorPriceService $vendorPriceService,
         private readonly PurchaserBusinessDayService $businessDayService,
+        private readonly JournalService $journalService,
     ) {}
 
     public function index(): RedirectResponse
@@ -1087,6 +1089,16 @@ class PurchaserDashboardController extends Controller
         $product = Product::query()->with('category')->findOrFail($request->integer('product_id'));
         $quantity = (float) $request->validated('quantity');
         $unitPrice = (float) $request->input('unit_price', 0);
+        $cartHasItems = $cart->items()->exists();
+        $purchaseSource = $this->resolveCartPurchaseSource(
+            currentSource: $cartHasItems ? (string) ($cart->purchase_source ?? 'shop_order') : '',
+            incomingSource: (string) ($request->validated('purchase_source') ?? 'shop_order')
+        );
+
+        if ($purchaseSource !== $cart->purchase_source) {
+            $cart->update(['purchase_source' => $purchaseSource]);
+        }
+
         $existingItem = $cart->items()->where('product_id', $product->id)->first();
         $newQuantity = $existingItem instanceof PurchaserCartItem
             ? (float) $existingItem->quantity + $quantity
@@ -1492,6 +1504,7 @@ class PurchaserDashboardController extends Controller
                 'goods_received_id' => $primaryDocuments['grn']->id,
                 'supplier_id' => $supplier->id,
                 'purchaser_cart_id' => $cart->id,
+                'purchase_source' => $cart->purchase_source ?? 'shop_order',
                 'invoice_number' => $request->validated('bill_number') ?: 'PENDING-BILL-'.$cart->cart_number,
                 'amount' => $invoiceAmount,
                 'discount_amount' => round($discountAmount, 2),
@@ -1526,6 +1539,14 @@ class PurchaserDashboardController extends Controller
                 'payment_made_at' => $paymentStatus === 'paid' ? now() : null,
             ]);
 
+            if ($invoice->isGreenLeafDirectPurchase() && $paidAmount > 0) {
+                $this->journalService->recordGreenLeafDirectPurchasePayment(
+                    invoice: $invoice->fresh(['purchaserCart', 'supplier']),
+                    amount: $paidAmount,
+                    userId: (int) $user->id
+                );
+            }
+
             $this->vendorPriceService->syncMany(
                 $supplier->id,
                 $cart->items->map(fn (PurchaserCartItem $item): array => [
@@ -1554,6 +1575,32 @@ class PurchaserDashboardController extends Controller
         return redirect()
             ->route('purchaser.vendors', ['date' => $date->format('Y-m-d'), 'tab' => 'pending'])
             ->with('success', 'Cart submitted successfully.');
+    }
+
+    private function resolveCartPurchaseSource(string $currentSource, string $incomingSource): string
+    {
+        if ($currentSource === '') {
+            return in_array($incomingSource, ['shop_order', 'green_leaf_direct_purchase', 'mixed'], true)
+                ? $incomingSource
+                : 'shop_order';
+        }
+
+        $currentSource = in_array($currentSource, ['shop_order', 'green_leaf_direct_purchase', 'mixed'], true)
+            ? $currentSource
+            : 'shop_order';
+        $incomingSource = in_array($incomingSource, ['shop_order', 'green_leaf_direct_purchase', 'mixed'], true)
+            ? $incomingSource
+            : 'shop_order';
+
+        if ($currentSource === $incomingSource) {
+            return $currentSource;
+        }
+
+        if ($currentSource === 'mixed' || $incomingSource === 'mixed') {
+            return 'mixed';
+        }
+
+        return 'mixed';
     }
 
     public function updateOperationalStatus(Request $request, PurchaserCart $cart): RedirectResponse
@@ -2013,7 +2060,8 @@ class PurchaserDashboardController extends Controller
                     'order_date' => $itemDate,
                     'shop_details' => $items->map(fn (ShopOrderItem $item): array => [
                         'shop_order_item_id' => $item->id,
-                        'shop_name' => $item->order->shop->name,
+                        'shop_name' => $item->order->demandSourceLabel(),
+                        'is_direct_purchase' => $item->order->isAdminDirectPurchase(),
                         'approved_qty' => (float) $item->approved_qty,
                         'unit' => $item->unit,
                         'order_number' => $item->order->order_number,

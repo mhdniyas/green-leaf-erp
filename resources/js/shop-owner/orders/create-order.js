@@ -77,7 +77,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const productCatalog = productCatalogNode ? JSON.parse(productCatalogNode.textContent ?? '[]') : [];
     const productsById = new Map(productCatalog.map((p) => [String(p.id), p]));
     const masterInputsById = new Map(masterQtyInputs.map((input) => [input.getAttribute('data-product-id'), input]));
-    const draftStorageKey = 'shop-owner-order-draft';
+    const draftStorageKey = `shop-owner-order-draft:${formNode.action}:${formNode.querySelector('[name="business_date"]')?.value ?? window.location.pathname}`;
 
     // Active Modal Context
     let currentModalProduct = null;
@@ -426,7 +426,7 @@ document.addEventListener('DOMContentLoaded', () => {
             button.addEventListener('click', () => {
                 const currentVal = Number.parseFloat(modalQtyInput.value) || 0;
                 modalQtyInput.value = (currentVal + p).toString();
-                updateModalSubtotalAndConversion();
+                updateModalConversionPreview();
             });
             modalQuickPills.appendChild(button);
         });

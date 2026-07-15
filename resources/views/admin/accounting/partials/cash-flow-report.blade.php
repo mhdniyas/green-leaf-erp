@@ -7,8 +7,8 @@
             <div class="flex flex-col gap-4 border-b border-slate-100 pb-4 xl:flex-row xl:items-start xl:justify-between">
                 <div class="max-w-3xl">
                     <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Cash Flow Report</p>
-                    <h3 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Combined purchaser and owned shop cash journal</h3>
-                    <p class="mt-2 text-sm font-semibold text-slate-600">Monthly view for {{ $cashFlowReport['month_label'] }} with one journal, running balance, and purchaser-wise paid and received details.</p>
+                    <h3 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Company cash and bank journal</h3>
+                    <p class="mt-2 text-sm font-semibold text-slate-600">Monthly view for {{ $cashFlowReport['month_label'] }} from posted journal entries, running balance, and purchaser-wise paid and received details.</p>
                 </div>
 
                 <div class="flex flex-col gap-3 xl:items-end">
@@ -63,7 +63,7 @@
                 <section data-cash-flow-tab-panel="journal" @class(['hidden' => $cashFlowTab !== 'journal'])>
                     <div class="border-b border-slate-200 bg-slate-50 px-4 py-3">
                         <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Journal</p>
-                        <p class="mt-1 text-sm font-black text-slate-950">Purchaser credits and owned shop approved entries</p>
+                        <p class="mt-1 text-sm font-black text-slate-950">Posted cash and bank journal entries</p>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="min-w-full text-left">

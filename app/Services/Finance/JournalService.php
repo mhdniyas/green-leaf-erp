@@ -10,10 +10,13 @@ use App\Models\GoodsReceived;
 use App\Models\JournalEntry;
 use App\Models\Payment;
 use App\Models\PurchaseInvoice;
+use App\Models\PurchaserCredit;
 use App\Models\SalesInvoice;
+use App\Models\ShopInvoice;
 use App\Models\User;
 use App\Models\WastageEntry;
 use App\Repositories\Finance\JournalEntryRepository;
+use App\Support\ChartOfAccounts;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -128,78 +131,116 @@ class JournalService
     }
 
     /**
-     * Record purchase invoice entry.
-     * Debit GRNI (2150), Credit AP (2100).
+     * Record income received from a shop invoice.
+     * Debit Cash (1010), Credit Sales Revenue (4100).
      */
-    public function recordPurchaseInvoice(PurchaseInvoice $invoice): JournalEntry
+    public function recordShopInvoicePayment(ShopInvoice $invoice, float $amount, int $userId, ?string $sourceEvent = null): JournalEntry
     {
-        $invoice->load(['goodsReceived.purchaseOrder', 'supplier']);
+        $amount = round($amount, 2);
 
-        $existingEntry = $this->entryForSource(PurchaseInvoice::class, $invoice->id, 'invoice')
-            ?? $this->entryForReference($invoice->invoice_number);
-        if ($existingEntry instanceof JournalEntry) {
-            return $existingEntry;
+        if ($amount <= 0.00) {
+            throw new RuntimeException('Shop invoice payment journal amount must be positive.');
         }
 
-        $grniAccountId = $this->getAccountIdByCode('2150');
-        $apAccountId = $this->getAccountIdByCode('2100');
+        $cashAccountId = $this->getAccountIdByCode('1010');
+        $salesAccountId = $this->getAccountIdByCode('4100');
+
+        $paidAmountCents = (int) round((float) $invoice->paid_amount * 100);
+        $event = $sourceEvent ?? "payment:paid-{$paidAmountCents}";
 
         $lines = [
-            ['account_id' => $grniAccountId, 'type' => 'debit', 'amount' => (float) $invoice->amount],
-            ['account_id' => $apAccountId, 'type' => 'credit', 'amount' => (float) $invoice->amount],
+            ['account_id' => $cashAccountId, 'type' => 'debit', 'amount' => $amount],
+            ['account_id' => $salesAccountId, 'type' => 'credit', 'amount' => $amount],
         ];
 
-        $userId = auth()->id() ?? User::first()?->id ?? 1;
-
         $data = new JournalEntryData(
-            entryDate: $invoice->created_at->format('Y-m-d'),
-            reference: $invoice->invoice_number,
-            description: "Purchase Invoice matched to GRN #{$invoice->goods_received_id} for Supplier: {$invoice->supplier->name}",
+            entryDate: $invoice->business_date->format('Y-m-d'),
+            reference: "SHOP-PAY-{$invoice->invoice_number}-{$paidAmountCents}",
+            description: "Shop invoice payment approved for Invoice #{$invoice->invoice_number}",
             lines: $lines,
-            sourceType: PurchaseInvoice::class,
+            sourceType: ShopInvoice::class,
             sourceId: $invoice->id,
-            sourceEvent: 'invoice'
+            sourceEvent: $event
         );
 
-        return $this->createEntry($data, (int) $userId);
+        return $this->createEntry($data, $userId);
     }
 
     /**
-     * Record payment made for purchase invoice.
-     * Debit AP (2100), Credit Bank Account (1020)
+     * Record cash advanced from Green Leaf to a purchaser.
+     * Debit Purchaser Advances (1300), Credit Cash (1010).
      */
-    public function recordPurchasePayment(PurchaseInvoice $invoice): JournalEntry
+    public function recordPurchaserCredit(PurchaserCredit $credit): ?JournalEntry
     {
-        $invoice->load('supplier');
-
-        $reference = "PMT-{$invoice->invoice_number}";
-        $existingEntry = $this->entryForSource(PurchaseInvoice::class, $invoice->id, 'payment')
-            ?? $this->entryForReference($reference);
-        if ($existingEntry instanceof JournalEntry) {
-            return $existingEntry;
+        if ($credit->type !== 'in') {
+            return null;
         }
 
-        $apAccountId = $this->getAccountIdByCode('2100');
-        $bankAccountId = $this->getAccountIdByCode('1020');
+        $amount = round((float) $credit->amount, 2);
+
+        if ($amount <= 0.00) {
+            throw new RuntimeException('Purchaser credit journal amount must be positive.');
+        }
+
+        $advanceAccountId = $this->getAccountIdByCode('1300');
+        $cashAccountId = $this->getAccountIdByCode('1010');
 
         $lines = [
-            ['account_id' => $apAccountId, 'type' => 'debit', 'amount' => (float) $invoice->amount],
-            ['account_id' => $bankAccountId, 'type' => 'credit', 'amount' => (float) $invoice->amount],
+            ['account_id' => $advanceAccountId, 'type' => 'debit', 'amount' => $amount],
+            ['account_id' => $cashAccountId, 'type' => 'credit', 'amount' => $amount],
         ];
 
-        $userId = auth()->id() ?? User::first()?->id ?? 1;
+        $data = new JournalEntryData(
+            entryDate: $credit->business_date->format('Y-m-d'),
+            reference: "PURCH-CREDIT-{$credit->id}",
+            description: $credit->description ?: 'Cash advance given to purchaser.',
+            lines: $lines,
+            sourceType: PurchaserCredit::class,
+            sourceId: $credit->id,
+            sourceEvent: 'cash_advance'
+        );
+
+        return $this->createEntry($data, (int) ($credit->created_by ?? $credit->purchaser_id));
+    }
+
+    /**
+     * Record cash paid for Green Leaf direct purchase invoice.
+     * Debit Graded Inventory (1200), Credit Cash (1010).
+     */
+    public function recordGreenLeafDirectPurchasePayment(PurchaseInvoice $invoice, float $amount, int $userId, ?string $sourceEvent = null): JournalEntry
+    {
+        $amount = round($amount, 2);
+
+        if ($amount <= 0.00) {
+            throw new RuntimeException('Direct purchase payment journal amount must be positive.');
+        }
+
+        $invoice->loadMissing(['purchaserCart', 'supplier']);
+
+        $inventoryAccountId = $this->getAccountIdByCode('1200');
+        $cashAccountId = $this->getAccountIdByCode('1010');
+        $paidAmountCents = (int) round((float) $invoice->paid_amount * 100);
+        $event = $sourceEvent ?? "green_leaf_direct_purchase_payment:paid-{$paidAmountCents}";
+        $businessDate = $invoice->purchaserCart?->business_date?->format('Y-m-d')
+            ?? $invoice->created_at?->format('Y-m-d')
+            ?? now()->format('Y-m-d');
+
+        $lines = [
+            ['account_id' => $inventoryAccountId, 'type' => 'debit', 'amount' => $amount],
+            ['account_id' => $cashAccountId, 'type' => 'credit', 'amount' => $amount],
+        ];
 
         $data = new JournalEntryData(
-            entryDate: now()->format('Y-m-d'),
-            reference: $reference,
-            description: "Supplier payment made for Invoice #{$invoice->invoice_number}",
+            entryDate: $businessDate,
+            reference: "GL-DIRECT-PAY-{$invoice->id}-{$paidAmountCents}",
+            description: 'Green Leaf Direct Purchase payment for invoice #'.($invoice->invoice_number ?: $invoice->id),
             lines: $lines,
             sourceType: PurchaseInvoice::class,
             sourceId: $invoice->id,
-            sourceEvent: 'payment'
+            sourceEvent: $event
         );
 
-        return $this->createEntry($data, (int) $userId);
+        return $this->createEntry($data, $userId);
     }
 
     /**
@@ -278,6 +319,23 @@ class JournalService
     private function getAccountIdByCode(string $code): int
     {
         $account = Account::query()->where('code', $code)->where('is_active', true)->first();
+
+        if (! $account) {
+            $defaultAccount = ChartOfAccounts::find($code);
+
+            if ($defaultAccount !== null) {
+                $account = Account::query()->updateOrCreate(
+                    ['code' => $defaultAccount['code']],
+                    [
+                        'name' => $defaultAccount['name'],
+                        'type' => $defaultAccount['type'],
+                        'is_active' => $defaultAccount['is_active'],
+                        'parent_id' => $defaultAccount['parent_id'],
+                    ],
+                );
+            }
+        }
+
         if (! $account) {
             throw new RuntimeException("Chart of Accounts is missing account code: {$code}. Please seed the Chart of Accounts.");
         }

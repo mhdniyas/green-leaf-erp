@@ -9,6 +9,8 @@ use App\Models\ShopAccountingCategory;
 use App\Models\ShopAccountingEntry;
 use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopAccountingInvoice;
+use App\Models\ShopCredit;
+use App\Models\ShopPettyCashExpense;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -208,6 +210,175 @@ class OwnedShopAccountingService
         ])->save();
 
         return $entry->fresh(['lines.category', 'shop', 'createdBy', 'updatedBy', 'submittedBy', 'reviewedBy']);
+    }
+
+    public function ensureDefaultPettyCashExpense(Shop $shop, Carbon $businessDate, ?int $userId = null): ?ShopPettyCashExpense
+    {
+        $amount = round((float) ($shop->default_petty_cash_amount ?? 0), 2);
+
+        if ($amount <= 0) {
+            return null;
+        }
+
+        $date = $businessDate->toDateString();
+        $expense = ShopPettyCashExpense::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', $date)
+            ->first();
+
+        if ($expense instanceof ShopPettyCashExpense && $expense->isManual()) {
+            return $expense;
+        }
+
+        if (! $expense instanceof ShopPettyCashExpense) {
+            return ShopPettyCashExpense::query()->create([
+                'shop_id' => $shop->id,
+                'business_date' => $date,
+                'amount' => $amount,
+                'source' => 'auto',
+                'created_by' => $userId,
+            ]);
+        }
+
+        $expense->update([
+            'amount' => $amount,
+            'updated_by' => $userId,
+        ]);
+
+        return $expense->fresh();
+    }
+
+    public function recordManualPettyCashExpense(Shop $shop, Carbon $businessDate, float $amount, int $userId): ShopPettyCashExpense
+    {
+        $date = $businessDate->toDateString();
+        $expense = ShopPettyCashExpense::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', $date)
+            ->first();
+
+        if (! $expense instanceof ShopPettyCashExpense) {
+            return ShopPettyCashExpense::query()->create([
+                'shop_id' => $shop->id,
+                'business_date' => $date,
+                'amount' => round($amount, 2),
+                'source' => 'manual',
+                'created_by' => $userId,
+            ]);
+        }
+
+        $newAmount = round($amount, 2);
+        $currentAmount = round((float) $expense->amount, 2);
+        $changedPayload = $currentAmount !== $newAmount
+            ? [
+                'previous_amount' => $currentAmount,
+                'amount_changed_by' => $userId,
+                'amount_changed_at' => now(),
+            ]
+            : [];
+
+        $expense->update([
+            ...$changedPayload,
+            'amount' => $newAmount,
+            'source' => 'manual',
+            'updated_by' => $userId,
+        ]);
+
+        return $expense->fresh();
+    }
+
+    /**
+     * @return Collection<int, array{
+     *     date:string,
+     *     admin_cash:float,
+     *     admin_cash_label:string,
+     *     expense:float,
+     *     expense_source:?string,
+     *     expense_updated_at:?Carbon,
+     *     amount_change_label:?string,
+     *     balance:float
+     * }>
+     */
+    public function pettyCashRows(Shop $shop, Carbon $startDate, Carbon $endDate, bool $includeEmptyDays = false): Collection
+    {
+        $pettyCredits = ShopCredit::query()
+            ->where('shop_id', $shop->id)
+            ->where('is_petty_cash', true)
+            ->whereDate('business_date', '<=', $endDate)
+            ->with('creator')
+            ->orderBy('business_date')
+            ->orderBy('id')
+            ->get();
+
+        $pettyExpenses = ShopPettyCashExpense::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', '<=', $endDate)
+            ->with('amountChangedBy')
+            ->orderBy('business_date')
+            ->get();
+
+        $creditByDate = $pettyCredits->groupBy(fn (ShopCredit $credit): string => $credit->business_date?->toDateString() ?? today()->toDateString());
+        $expenseByDate = $pettyExpenses->keyBy(fn (ShopPettyCashExpense $expense): string => $expense->business_date?->toDateString() ?? today()->toDateString());
+
+        $allDates = $creditByDate->keys()
+            ->merge($expenseByDate->keys())
+            ->unique()
+            ->sort()
+            ->values();
+
+        if ($includeEmptyDays) {
+            $calendarDate = $startDate->copy();
+
+            while ($calendarDate->lte($endDate)) {
+                $allDates->push($calendarDate->toDateString());
+                $calendarDate->addDay();
+            }
+
+            $allDates = $allDates->unique()->sort()->values();
+        }
+
+        $runningBalance = 0.0;
+        $rows = collect();
+
+        foreach ($allDates as $date) {
+            $dayCredits = $creditByDate->get($date, collect());
+            $adminCash = round((float) $dayCredits->sum(
+                fn (ShopCredit $credit): float => $credit->type === 'in' ? (float) $credit->amount : (float) $credit->amount * -1
+            ), 2);
+            $expense = $expenseByDate->get($date);
+            $expenseAmount = $expense instanceof ShopPettyCashExpense ? round((float) $expense->amount, 2) : 0.0;
+
+            $runningBalance = round($runningBalance + $adminCash - $expenseAmount, 2);
+
+            if (Carbon::parse($date)->lt($startDate) || Carbon::parse($date)->gt($endDate)) {
+                continue;
+            }
+
+            $adminCashLabel = $dayCredits
+                ->map(fn (ShopCredit $credit): string => ($credit->creator?->name ?? 'Admin').' - Rs. '.number_format((float) $credit->amount, 2))
+                ->implode(', ');
+
+            $rows->push([
+                'date' => $date,
+                'admin_cash' => $adminCash,
+                'admin_cash_label' => $adminCashLabel,
+                'expense' => $expenseAmount,
+                'expense_source' => $expense instanceof ShopPettyCashExpense ? $expense->source : null,
+                'expense_updated_at' => $expense instanceof ShopPettyCashExpense ? $expense->updated_at : null,
+                'amount_change_label' => $expense instanceof ShopPettyCashExpense && $expense->previous_amount !== null && $expense->amount_changed_at !== null
+                    ? sprintf(
+                        'Changed from Rs. %s to Rs. %s on %s by %s for %s',
+                        number_format((float) $expense->previous_amount, 2),
+                        number_format((float) $expense->amount, 2),
+                        $expense->amount_changed_at->format('d M Y h:i A'),
+                        $expense->amountChangedBy?->name ?? 'Shop owner',
+                        Carbon::parse($date)->format('d M Y'),
+                    )
+                    : null,
+                'balance' => $runningBalance,
+            ]);
+        }
+
+        return $rows->sortByDesc('date')->values();
     }
 
     /**

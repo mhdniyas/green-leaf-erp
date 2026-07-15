@@ -164,7 +164,14 @@
                                         @endphp
                                         <tr>
                                             <td class="px-5 py-4 lg:px-6">
-                                                <p class="font-mono font-black text-teal-700">{{ $invoice->invoice_number }}</p>
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <p class="font-mono font-black text-teal-700">{{ $invoice->invoice_number }}</p>
+                                                    @if($invoice->isGreenLeafDirectPurchase())
+                                                        <span class="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-700">
+                                                            Green Leaf Direct
+                                                        </span>
+                                                    @endif
+                                                </div>
                                                 <p class="mt-1 text-xs font-semibold text-slate-500">{{ $invoice->purchaserCart?->cart_number ?: $invoice->goodsReceived?->grn_number ?: 'Manual bill' }}</p>
                                             </td>
                                             <td class="px-5 py-4 font-semibold text-slate-700">{{ $invoice->created_at->format('d M Y') }}</td>

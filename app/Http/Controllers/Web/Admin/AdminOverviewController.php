@@ -187,6 +187,7 @@ class AdminOverviewController extends Controller
             ['label' => 'Users & Permissions', 'href' => route('admin.users.index')],
             ['label' => 'Daily Progress', 'href' => route('admin.daily-progress', ['date' => $date->format('Y-m-d')])],
             ['label' => 'Activity Log', 'href' => route('admin.activity-logs.index')],
+            ['label' => 'Website Enquiries', 'href' => route('admin.enquiries.index')],
             ['label' => 'Staff Management', 'href' => route('admin.staff.index')],
         ]);
 

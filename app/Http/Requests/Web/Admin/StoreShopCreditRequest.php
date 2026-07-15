@@ -22,6 +22,7 @@ class StoreShopCreditRequest extends FormRequest
         return [
             'amount' => ['required', 'numeric', 'gt:0'],
             'type' => ['required', 'string', 'in:in,out'],
+            'is_petty_cash' => ['nullable', 'boolean'],
             'description' => ['nullable', 'string', 'max:255'],
             'business_date' => ['required', 'date'],
         ];

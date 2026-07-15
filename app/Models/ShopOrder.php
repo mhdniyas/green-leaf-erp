@@ -19,6 +19,7 @@ class ShopOrder extends Model
     protected $fillable = [
         'shop_id',
         'order_number',
+        'order_source',
         'state',
         'delivery_status',
         'delivery_review_status',
@@ -206,6 +207,18 @@ class ShopOrder extends Model
         }
 
         return (string) str($this->state)->replace('_', ' ')->title();
+    }
+
+    public function isAdminDirectPurchase(): bool
+    {
+        return $this->order_source === 'admin_direct_purchase';
+    }
+
+    public function demandSourceLabel(): string
+    {
+        return $this->isAdminDirectPurchase()
+            ? 'Green Leaf Direct Purchase'
+            : (string) ($this->shop?->name ?? 'Unknown Shop');
     }
 
     public function hasLinkedPurchaseOrders(): bool

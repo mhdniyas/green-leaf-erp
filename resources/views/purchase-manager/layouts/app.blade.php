@@ -32,8 +32,14 @@
         $sidebarItems[] = [
             'label' => 'Approved Board',
             'href' => route('requisitions.approved_board', ['date' => $navDate]),
-            'active' => request()->routeIs('requisitions.approved_board'),
+            'active' => request()->routeIs('requisitions.approved_board') && ! request()->boolean('settings'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m6 2.25a9 9 0 11-18 0 9 9 0 0118 0Z" /></svg>',
+        ];
+        $sidebarItems[] = [
+            'label' => 'Settings',
+            'href' => route('requisitions.approved_board', ['date' => $navDate, 'settings' => 1]),
+            'active' => request()->routeIs('requisitions.approved_board') && request()->boolean('settings'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.094c.55 0 1.02.398 1.11.94l.149.894c.07.424.349.78.746.944.397.164.85.104 1.198-.148l.735-.535a1.125 1.125 0 0 1 1.45.12l.773.774c.39.389.44 1.002.12 1.45l-.535.735c-.252.348-.312.801-.148 1.198.164.397.52.676.944.746l.894.149c.542.09.94.56.94 1.11v1.094c0 .55-.398 1.02-.94 1.11l-.894.149c-.424.07-.78.349-.944.746-.164.397-.104.85.148 1.198l.535.735c.32.448.27 1.061-.12 1.45l-.773.774a1.125 1.125 0 0 1-1.45.12l-.735-.535c-.348-.252-.801-.312-1.198-.148-.397.164-.676.52-.746.944l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.02-.398-1.11-.94l-.149-.894c-.07-.424-.349-.78-.746-.944-.397-.164-.85-.104-1.198.148l-.735.535a1.125 1.125 0 0 1-1.45-.12l-.773-.774a1.125 1.125 0 0 1-.12-1.45l.535-.735c.252-.348.312-.801.148-1.198-.164-.397-.52-.676-.944-.746l-.894-.149a1.125 1.125 0 0 1-.94-1.11v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.78-.349.944-.746.164-.397.104-.85-.148-1.198l-.535-.735a1.125 1.125 0 0 1 .12-1.45l.773-.774a1.125 1.125 0 0 1 1.45-.12l.735.535c.348.252.801.312 1.198.148.397-.164.676-.52.746-.944l.149-.894Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>',
         ];
     }
 
@@ -76,7 +82,8 @@
 
     $mobileItems = [
         ['label' => 'Home', 'href' => route('purchasing.dashboard'), 'active' => request()->routeIs('purchasing.dashboard') || request()->routeIs('purchasing.orders.index')],
-        ['label' => 'Board', 'href' => route('requisitions.board', ['date' => $navDate]), 'active' => request()->routeIs('requisitions.board') || request()->routeIs('requisitions.approved_board')],
+        ['label' => 'Board', 'href' => route('requisitions.board', ['date' => $navDate]), 'active' => request()->routeIs('requisitions.board') || (request()->routeIs('requisitions.approved_board') && ! request()->boolean('settings'))],
+        ['label' => 'Settings', 'href' => route('requisitions.approved_board', ['date' => $navDate, 'settings' => 1]), 'active' => request()->routeIs('requisitions.approved_board') && request()->boolean('settings')],
         ['label' => 'Orders', 'href' => route('purchasing.orders.index'), 'active' => request()->routeIs('purchasing.orders.*') && ! request()->routeIs('purchasing.orders.index')],
         ['label' => 'Bills', 'href' => route('purchasing.invoices.index'), 'active' => request()->routeIs('purchasing.invoices.*')],
     ];

@@ -138,10 +138,12 @@
                                     <th class="px-4 py-3 text-right">Collected</th>
                                     <th class="px-4 py-3 text-right">Balance</th>
                                     <th class="px-4 py-3 text-right">Invoices</th>
+                                    <th class="px-4 py-3 text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100 text-sm">
                                 @forelse ($shopRows as $row)
+                                    @php($latestInvoice = $row['latest_invoice'] ?? null)
                                     <tr>
                                         <td class="px-4 py-3">
                                             <p class="font-black text-slate-950">{{ $row['shop']?->name ?? 'Shop pending' }}</p>
@@ -151,10 +153,34 @@
                                         <td class="px-4 py-3 text-right font-black text-emerald-700">Rs. {{ number_format($row['paid_amount'], 2) }}</td>
                                         <td class="px-4 py-3 text-right font-black {{ $row['outstanding_amount'] > 0 ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format($row['outstanding_amount'], 2) }}</td>
                                         <td class="px-4 py-3 text-right font-black text-slate-600">{{ number_format($row['invoice_count']) }}</td>
+                                        <td class="px-4 py-3">
+                                            <div class="flex flex-wrap justify-end gap-2">
+                                                @if ($latestInvoice instanceof \App\Models\ShopInvoice)
+                                                    <a href="{{ route('purchasing.shop-invoices.show', $latestInvoice) }}" class="inline-flex h-9 items-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">
+                                                        Show invoice
+                                                    </a>
+                                                    @if ((float) $latestInvoice->balance_amount > 0)
+                                                        <button type="button"
+                                                                class="daily-sales-payment-open inline-flex h-9 items-center rounded-xl bg-cyan-600 px-3 text-xs font-black text-white transition hover:bg-cyan-500"
+                                                                data-invoice-number="{{ $latestInvoice->invoice_number }}"
+                                                                data-final-total="{{ (float) $latestInvoice->final_total }}"
+                                                                data-paid-amount="{{ (float) $latestInvoice->paid_amount }}"
+                                                                data-balance-amount="{{ (float) $latestInvoice->balance_amount }}"
+                                                                data-discount-total="{{ (float) $latestInvoice->discount_total }}"
+                                                                data-payment-note="{{ $latestInvoice->payment_note }}"
+                                                                data-action="{{ route('purchasing.shop-invoices.payment-approval', $latestInvoice) }}">
+                                                            Approve payment
+                                                        </button>
+                                                    @endif
+                                                @else
+                                                    <span class="text-xs font-bold text-slate-400">N/A</span>
+                                                @endif
+                                            </div>
+                                        </td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="5" class="px-4 py-10 text-center text-sm font-bold text-slate-500">No shop sales rows for the selected filter.</td>
+                                        <td colspan="6" class="px-4 py-10 text-center text-sm font-bold text-slate-500">No shop sales rows for the selected filter.</td>
                                     </tr>
                                 @endforelse
                             </tbody>
@@ -181,6 +207,7 @@
                                     <th class="px-4 py-3 text-right">Paid</th>
                                     <th class="px-4 py-3 text-right">Balance</th>
                                     <th class="px-4 py-3">Status</th>
+                                    <th class="px-4 py-3 text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100 text-sm">
@@ -202,10 +229,30 @@
                                                 {{ (float) $invoice->balance_amount > 0 ? 'Pending' : 'Settled' }}
                                             </span>
                                         </td>
+                                        <td class="px-4 py-3">
+                                            <div class="flex flex-wrap justify-end gap-2">
+                                                <a href="{{ route('purchasing.shop-invoices.show', $invoice) }}" class="inline-flex h-9 items-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">
+                                                    Show invoice
+                                                </a>
+                                                @if ((float) $invoice->balance_amount > 0)
+                                                    <button type="button"
+                                                            class="daily-sales-payment-open inline-flex h-9 items-center rounded-xl bg-cyan-600 px-3 text-xs font-black text-white transition hover:bg-cyan-500"
+                                                            data-invoice-number="{{ $invoice->invoice_number }}"
+                                                            data-final-total="{{ (float) $invoice->final_total }}"
+                                                            data-paid-amount="{{ (float) $invoice->paid_amount }}"
+                                                            data-balance-amount="{{ (float) $invoice->balance_amount }}"
+                                                            data-discount-total="{{ (float) $invoice->discount_total }}"
+                                                            data-payment-note="{{ $invoice->payment_note }}"
+                                                            data-action="{{ route('purchasing.shop-invoices.payment-approval', $invoice) }}">
+                                                        Approve payment
+                                                    </button>
+                                                @endif
+                                            </div>
+                                        </td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="6" class="px-4 py-10 text-center text-sm font-bold text-slate-500">No invoice rows for the selected filter.</td>
+                                        <td colspan="7" class="px-4 py-10 text-center text-sm font-bold text-slate-500">No invoice rows for the selected filter.</td>
                                     </tr>
                                 @endforelse
                             </tbody>
@@ -215,6 +262,136 @@
             @endif
         </section>
     </div>
+
+    <div id="daily-sales-payment-modal" class="fixed inset-0 z-[70] hidden">
+        <div class="daily-sales-payment-modal-overlay absolute inset-0 bg-slate-950/50 backdrop-blur-sm"></div>
+        <div class="relative flex min-h-full items-center justify-center p-4">
+            <div class="w-full max-w-xl overflow-hidden rounded-[1.75rem] bg-white shadow-2xl">
+                <div class="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Approve Payment</p>
+                        <h2 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Record collected amount</h2>
+                    </div>
+                    <button type="button" class="daily-sales-payment-modal-close inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">
+                        <span class="sr-only">Close</span>
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+
+                <form id="daily-sales-payment-form" method="POST" action="" class="space-y-4 px-6 py-6">
+                    @csrf
+                    @method('PATCH')
+
+                    <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
+                        <p class="text-sm font-bold text-slate-700">Invoice Number: <span id="daily-sales-payment-invoice-number" class="font-black text-slate-950"></span></p>
+                        <div class="mt-4 grid gap-3 sm:grid-cols-3">
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Invoice Total</p>
+                                <p id="daily-sales-payment-final-total" class="mt-1 text-sm font-black text-slate-950">Rs. 0.00</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Collected</p>
+                                <p id="daily-sales-payment-current-paid" class="mt-1 text-sm font-black text-emerald-700">Rs. 0.00</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Balance</p>
+                                <p id="daily-sales-payment-remaining-due" class="mt-1 text-sm font-black text-rose-700">Rs. 0.00</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <input type="hidden" name="discount_total" id="daily-sales-payment-discount-total" value="0.00">
+
+                    <label class="block">
+                        <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Total collected amount</span>
+                        <input type="number" step="0.01" min="0" name="paid_amount" id="daily-sales-payment-paid-amount-input" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-cyan-400 focus:outline-none">
+                    </label>
+
+                    <button type="button" id="daily-sales-payment-set-full-btn" class="inline-flex h-8 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-700 transition hover:bg-slate-100">
+                        Set full invoice amount
+                    </button>
+
+                    <label class="block">
+                        <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Payment Note</span>
+                        <textarea name="payment_note" id="daily-sales-payment-note-input" rows="3" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none" placeholder="e.g. Balance collected in cash."></textarea>
+                    </label>
+
+                    <div class="flex justify-end gap-3 pt-2">
+                        <button type="button" class="daily-sales-payment-modal-close inline-flex h-11 items-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
+                            Cancel
+                        </button>
+                        <button type="submit" class="inline-flex h-11 items-center rounded-2xl bg-cyan-600 px-5 text-sm font-black text-white transition hover:bg-cyan-500">
+                            Approve payment
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (() => {
+            const modal = document.getElementById('daily-sales-payment-modal');
+            const form = document.getElementById('daily-sales-payment-form');
+            const buttons = document.querySelectorAll('.daily-sales-payment-open');
+            const invoiceNumber = document.getElementById('daily-sales-payment-invoice-number');
+            const finalTotalDisplay = document.getElementById('daily-sales-payment-final-total');
+            const currentPaidDisplay = document.getElementById('daily-sales-payment-current-paid');
+            const remainingDueDisplay = document.getElementById('daily-sales-payment-remaining-due');
+            const discountInput = document.getElementById('daily-sales-payment-discount-total');
+            const paidInput = document.getElementById('daily-sales-payment-paid-amount-input');
+            const noteInput = document.getElementById('daily-sales-payment-note-input');
+            const setFullButton = document.getElementById('daily-sales-payment-set-full-btn');
+
+            let currentInvoiceFinalTotal = 0;
+            const money = (amount) => 'Rs. ' + amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const closeModal = () => {
+                modal?.classList.add('hidden');
+                document.body.classList.remove('overflow-hidden');
+            };
+
+            buttons.forEach((button) => {
+                button.addEventListener('click', () => {
+                    if (!modal || !form) {
+                        return;
+                    }
+
+                    const finalTotal = parseFloat(button.dataset.finalTotal ?? '0');
+                    const paidAmount = parseFloat(button.dataset.paidAmount ?? '0');
+                    const balanceAmount = parseFloat(button.dataset.balanceAmount ?? '0');
+                    const discountTotal = parseFloat(button.dataset.discountTotal ?? '0');
+
+                    currentInvoiceFinalTotal = finalTotal;
+                    form.action = button.dataset.action ?? '';
+                    if (invoiceNumber) invoiceNumber.textContent = button.dataset.invoiceNumber ?? '';
+                    if (finalTotalDisplay) finalTotalDisplay.textContent = money(finalTotal);
+                    if (currentPaidDisplay) currentPaidDisplay.textContent = money(paidAmount);
+                    if (remainingDueDisplay) remainingDueDisplay.textContent = money(balanceAmount);
+                    if (discountInput) discountInput.value = discountTotal.toFixed(2);
+                    if (paidInput) paidInput.value = finalTotal.toFixed(2);
+                    if (noteInput) noteInput.value = button.dataset.paymentNote ?? '';
+
+                    modal.classList.remove('hidden');
+                    document.body.classList.add('overflow-hidden');
+                });
+            });
+
+            setFullButton?.addEventListener('click', () => {
+                if (paidInput) {
+                    paidInput.value = currentInvoiceFinalTotal.toFixed(2);
+                }
+            });
+
+            modal?.querySelectorAll('.daily-sales-payment-modal-close').forEach((button) => button.addEventListener('click', closeModal));
+            modal?.addEventListener('click', (event) => {
+                if (event.target instanceof HTMLElement && event.target.classList.contains('daily-sales-payment-modal-overlay')) {
+                    closeModal();
+                }
+            });
+        })();
+    </script>
 
     <script src="{{ asset('js/accounting-daily-sales-export.js') }}" defer></script>
 </x-layouts.accounting>

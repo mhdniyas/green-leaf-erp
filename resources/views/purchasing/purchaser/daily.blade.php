@@ -331,6 +331,7 @@
                 @csrf
                 <input type="hidden" name="business_date" value="{{ $date }}">
                 <input type="hidden" id="add-to-cart-product-id" name="product_id" value="">
+                <input type="hidden" id="add-to-cart-purchase-source" name="purchase_source" value="shop_order">
                 <input type="hidden" name="return_to" value="daily">
                 <input type="hidden" name="chip" value="{{ $selectedChip }}">
                 <input type="hidden" name="search" value="{{ $search }}">
@@ -496,8 +497,9 @@
             }
         });
 
-        function openAddToCartModal(productId, productName, productUnit, remainingQty, draftQty, step, draftPurchasers) {
+        function openAddToCartModal(productId, productName, productUnit, remainingQty, draftQty, step, draftPurchasers, purchaseSource = 'shop_order') {
             document.getElementById('add-to-cart-product-id').value = productId;
+            document.getElementById('add-to-cart-purchase-source').value = purchaseSource;
             document.getElementById('add-to-cart-product-name').textContent = productName;
             currentProductUnit = productUnit;
 

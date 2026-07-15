@@ -10,6 +10,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\GoodsReceived;
 use App\Models\Product;
+use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\SalesInvoice;
@@ -165,6 +166,14 @@ class DashboardController extends Controller
                 ->latest('id')
                 ->get();
 
+            $greenLeafDirectInvoices = PurchaseInvoice::query()
+                ->whereIn('purchase_source', ['green_leaf_direct_purchase', 'mixed'])
+                ->with(['supplier', 'purchaserCart.user'])
+                ->latest('updated_at')
+                ->latest('id')
+                ->limit(6)
+                ->get();
+
             $purchaseDashboard = [
                 'headline' => [
                     'pending_review' => $pendingReviewOrders->count(),
@@ -173,6 +182,7 @@ class DashboardController extends Controller
                     'open_purchase_orders' => $openPurchaseOrders->count(),
                     'grns_awaiting_approval' => $recheckGrns->count(),
                     'pending_invoices' => $invoiceExceptions->count(),
+                    'green_leaf_direct_invoices' => $greenLeafDirectInvoices->count(),
                 ],
                 'focus_cards' => [
                     [
@@ -243,6 +253,7 @@ class DashboardController extends Controller
                 'recent_grns' => $approvedGrns->take(3),
                 'recent_purchase_orders' => $openPurchaseOrders->take(4),
                 'recent_invoices' => $invoiceExceptions->take(3),
+                'green_leaf_direct_invoices' => $greenLeafDirectInvoices,
                 'notifications' => $user->unreadNotifications()->latest()->limit(8)->get(),
             ];
 

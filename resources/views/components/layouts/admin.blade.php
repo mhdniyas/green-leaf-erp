@@ -157,6 +157,15 @@
         ];
     }
 
+    if ($currentUser?->hasRole('admin')) {
+        $adminItems[] = [
+            'label' => 'Enquiries',
+            'href' => route('admin.enquiries.index'),
+            'active' => request()->routeIs('admin.enquiries.*'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5A2.25 2.25 0 0 1 19.5 19.5h-15A2.25 2.25 0 0 1 2.25 17.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15A2.25 2.25 0 0 0 2.25 6.75m19.5 0-9.214 6.142a1 1 0 0 1-1.072 0L2.25 6.75" /></svg>',
+        ];
+    }
+
     if ($currentUser?->can('admin.discrepancies.view') || $currentUser?->hasRole('admin')) {
         $adminItems[] = [
             'label' => 'Discrepancies',

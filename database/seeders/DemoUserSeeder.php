@@ -77,6 +77,8 @@ class DemoUserSeeder extends Seeder
             app(EmployeeSyncService::class)->ensureForUser($user->fresh());
         }
 
+        $this->call(AdminOwnPurchasePurchaserSeeder::class);
+
         foreach ($shops as $shop) {
             $emailSlug = str($shop->code)->lower()->replace('_', '-');
 

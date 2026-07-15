@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace App\Services\Finance;
 
+use App\Models\JournalEntry;
+use App\Models\JournalTransaction;
 use App\Models\PayrollPayment;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaserCredit;
-use App\Models\ShopAccountingEntry;
 use App\Models\ShopCredit;
 use App\Models\ShopInvoice;
 use App\Models\Supplier;
@@ -17,6 +18,11 @@ use Illuminate\Support\Collection;
 
 class AdminFinancePillarService
 {
+    /**
+     * @var list<string>
+     */
+    private const CASH_FLOW_ACCOUNT_CODES = ['1010', '1020'];
+
     /**
      * @return array{
      *     start_date:string,
@@ -121,31 +127,16 @@ class AdminFinancePillarService
             ->orderBy('id')
             ->get();
 
-        $ownedShopEntries = ShopAccountingEntry::query()
-            ->with(['shop', 'lines.category'])
-            ->whereIn('status', ['approved', 'finalized'])
-            ->whereDate('business_date', '>=', $startDate)
-            ->whereDate('business_date', '<=', $endDate)
-            ->orderBy('business_date')
-            ->orderBy('id')
-            ->get();
-
-        $shopCredits = ShopCredit::query()
-            ->with('shop')
-            ->whereDate('business_date', '>=', $startDate)
-            ->whereDate('business_date', '<=', $endDate)
-            ->orderBy('business_date')
-            ->orderBy('id')
-            ->get();
-        $payrollPayments = PayrollPayment::query()
-            ->with(['employee', 'payrollRun'])
-            ->whereDate('paid_on', '>=', $startDate)
-            ->whereDate('paid_on', '<=', $endDate)
-            ->orderBy('paid_on')
-            ->orderBy('id')
-            ->get();
-
-        $journalRows = $this->buildCashFlowJournalRows($purchaserCredits, $ownedShopEntries, $shopCredits, $payrollPayments);
+        $journalEntries = $this->cashFlowJournalEntriesForPeriod($startDate, $endDate);
+        $pettyCashCredits = $this->pettyCashCreditsForPeriod($startDate, $endDate);
+        $journalRows = $this->buildCashFlowJournalRows($journalEntries)
+            ->merge($this->buildPettyCashCreditCashFlowRows($pettyCashCredits))
+            ->sortBy([
+                ['date', 'asc'],
+                ['sort_at', 'asc'],
+                ['journal', 'asc'],
+            ])
+            ->values();
         $openingBalance = $this->cashFlowOpeningBalance($startDate);
         $monthlyIn = round((float) $journalRows->where('direction', 'IN')->sum('amount'), 2);
         $monthlyOut = round((float) $journalRows->where('direction', 'OUT')->sum('amount'), 2);
@@ -174,6 +165,8 @@ class AdminFinancePillarService
                 'purchaser_out' => round((float) $purchaserCredits->where('type', 'out')->sum('amount'), 2),
                 'owned_shop_in' => round((float) $journalRows->where('source', 'owned_shop')->where('direction', 'IN')->sum('amount'), 2),
                 'owned_shop_out' => round((float) $journalRows->where('source', 'owned_shop')->where('direction', 'OUT')->sum('amount'), 2),
+                'petty_cash_in' => round((float) $journalRows->where('source', 'owned_shop_petty_cash')->where('direction', 'IN')->sum('amount'), 2),
+                'petty_cash_out' => round((float) $journalRows->where('source', 'owned_shop_petty_cash')->where('direction', 'OUT')->sum('amount'), 2),
             ],
             'journal_rows' => $journalRows,
             'selected_date' => $selectedDate,
@@ -324,6 +317,7 @@ class AdminFinancePillarService
                     'paid_amount' => $shopPaid,
                     'outstanding_amount' => $shopOutstanding,
                     'latest_invoice' => $latestInvoice,
+                    'invoices' => $shopInvoices->sortByDesc('id')->values(),
                     'status' => $shopOutstanding > 0 ? 'Due' : 'Settled',
                 ];
             })
@@ -467,103 +461,72 @@ class AdminFinancePillarService
     }
 
     /**
-     * @param  Collection<int, PurchaserCredit>  $purchaserCredits
-     * @param  Collection<int, ShopAccountingEntry>  $ownedShopEntries
-     * @param  Collection<int, ShopCredit>  $shopCredits
-     * @param  Collection<int, PayrollPayment>  $payrollPayments
+     * @return Collection<int, JournalEntry>
+     */
+    private function cashFlowJournalEntriesForPeriod(Carbon $startDate, Carbon $endDate): Collection
+    {
+        return JournalEntry::query()
+            ->with(['transactions.account'])
+            ->whereDate('entry_date', '>=', $startDate)
+            ->whereDate('entry_date', '<=', $endDate)
+            ->where(function (Builder $query): void {
+                $query->whereNull('source_type')
+                    ->orWhere('source_type', '!=', PurchaseInvoice::class)
+                    ->orWhere(function (Builder $query): void {
+                        $query->where('source_type', PurchaseInvoice::class)
+                            ->where('source_event', 'like', 'green_leaf_direct_purchase_payment:%');
+                    });
+            })
+            ->whereHas('transactions.account', fn (Builder $query): Builder => $query->whereIn('code', self::CASH_FLOW_ACCOUNT_CODES))
+            ->orderBy('entry_date')
+            ->orderBy('id')
+            ->get();
+    }
+
+    /**
+     * @return Collection<int, ShopCredit>
+     */
+    private function pettyCashCreditsForPeriod(Carbon $startDate, Carbon $endDate): Collection
+    {
+        return ShopCredit::query()
+            ->with(['shop', 'creator'])
+            ->where('is_petty_cash', true)
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
+            ->orderBy('business_date')
+            ->orderBy('id')
+            ->get();
+    }
+
+    /**
+     * @param  Collection<int, JournalEntry>  $journalEntries
      * @return Collection<int, array<string, mixed>>
      */
-    private function buildCashFlowJournalRows(Collection $purchaserCredits, Collection $ownedShopEntries, Collection $shopCredits, Collection $payrollPayments): Collection
+    private function buildCashFlowJournalRows(Collection $journalEntries): Collection
     {
-        $purchaserRows = $purchaserCredits
-            ->groupBy(function (PurchaserCredit $credit): string {
-                $date = $credit->business_date?->toDateString() ?? $credit->created_at?->toDateString() ?? today()->toDateString();
-
-                return implode('|', [
-                    $date,
-                    (string) $credit->purchaser_id,
-                    (string) $credit->type,
-                ]);
-            })
-            ->map(function (Collection $credits): array {
-                /** @var PurchaserCredit $firstCredit */
-                $firstCredit = $credits->sortBy('id')->first();
-                $creditCount = $credits->count();
-                $invoiceNumbers = $credits
-                    ->map(fn (PurchaserCredit $credit): ?string => $credit->purchaseInvoice?->invoice_number)
-                    ->filter()
+        return $journalEntries
+            ->flatMap(function (JournalEntry $entry): Collection {
+                $cashTransactions = $entry->transactions
+                    ->filter(fn (JournalTransaction $transaction): bool => in_array((string) $transaction->account?->code, self::CASH_FLOW_ACCOUNT_CODES, true));
+                $counterpartyAccounts = $entry->transactions
+                    ->reject(fn (JournalTransaction $transaction): bool => in_array((string) $transaction->account?->code, self::CASH_FLOW_ACCOUNT_CODES, true))
+                    ->map(fn (JournalTransaction $transaction): string => (string) ($transaction->account?->name ?? 'Journal Entry'))
                     ->unique()
                     ->values();
 
-                $remarks = $invoiceNumbers->isNotEmpty()
-                    ? 'Invoices: '.$invoiceNumbers->implode(', ')
-                    : ($firstCredit->description ?: null);
-
-                if ($creditCount > 1) {
-                    $remarks = $remarks !== null
-                        ? $remarks.' (combined '.$creditCount.' entries)'
-                        : 'Combined '.$creditCount.' purchaser credit entries';
-                }
-
-                return [
-                    'date' => $firstCredit->business_date?->toDateString() ?? $firstCredit->created_at?->toDateString() ?? today()->toDateString(),
-                    'amount' => round((float) $credits->sum('amount'), 2),
-                    'direction' => 'OUT',
-                    'journal' => (string) ($firstCredit->purchaser?->name ?? 'Purchaser'),
-                    'remarks' => $remarks,
-                    'category' => 'Purchaser Credit',
-                    'source' => 'purchaser',
-                    'sort_at' => $credits->min(fn (PurchaserCredit $credit): int => $credit->created_at?->timestamp ?? 0),
-                ];
+                return $cashTransactions->map(function (JournalTransaction $transaction) use ($entry, $counterpartyAccounts): array {
+                    return [
+                        'date' => $entry->entry_date->toDateString(),
+                        'amount' => round((float) $transaction->amount, 2),
+                        'direction' => $transaction->type === 'debit' ? 'IN' : 'OUT',
+                        'journal' => $counterpartyAccounts->isNotEmpty() ? $counterpartyAccounts->implode(', ') : ((string) ($entry->reference ?: 'Journal Entry')),
+                        'remarks' => $entry->description ?: $entry->reference,
+                        'category' => $this->cashFlowCategory($entry, $counterpartyAccounts),
+                        'source' => $this->cashFlowSource($entry),
+                        'sort_at' => $entry->created_at?->timestamp ?? 0,
+                    ];
+                });
             })
-            ->values();
-
-        $ownedShopRows = $ownedShopEntries->flatMap(function (ShopAccountingEntry $entry): Collection {
-            return $entry->lines->filter(fn ($line): bool => $line->cash_effect !== false)->map(function ($line) use ($entry): array {
-                $direction = $line->type === 'income' ? 'IN' : 'OUT';
-
-                return [
-                    'date' => $entry->business_date?->toDateString() ?? today()->toDateString(),
-                    'amount' => round((float) $line->amount, 2),
-                    'direction' => $direction,
-                    'journal' => (string) ($entry->shop?->name ?? 'Owned Shop'),
-                    'remarks' => $line->description,
-                    'category' => (string) ($line->category?->name ?? 'Owned Shop Entry'),
-                    'source' => 'owned_shop',
-                    'sort_at' => $entry->created_at?->timestamp ?? 0,
-                ];
-            });
-        });
-
-        $shopCreditRows = $shopCredits->map(function (ShopCredit $credit): array {
-            return [
-                'date' => $credit->business_date?->toDateString() ?? $credit->created_at?->toDateString() ?? today()->toDateString(),
-                'amount' => round((float) $credit->amount, 2),
-                'direction' => $credit->accountingDirection(),
-                'journal' => (string) ($credit->shop?->name ?? 'Owned Shop'),
-                'remarks' => $credit->description,
-                'category' => $credit->accountingCategory(),
-                'source' => 'owned_shop',
-                'sort_at' => $credit->created_at?->timestamp ?? 0,
-            ];
-        });
-        $payrollRows = $payrollPayments->map(function (PayrollPayment $payment): array {
-            return [
-                'date' => $payment->paid_on?->toDateString() ?? $payment->created_at?->toDateString() ?? today()->toDateString(),
-                'amount' => round((float) $payment->amount, 2),
-                'direction' => 'OUT',
-                'journal' => (string) ($payment->employee?->name ?? 'Staff Salary'),
-                'remarks' => $payment->notes ?: 'Salary payment for '.$payment->payrollRun?->period_start?->format('F Y'),
-                'category' => 'Staff Salary',
-                'source' => 'payroll',
-                'sort_at' => $payment->created_at?->timestamp ?? 0,
-            ];
-        });
-
-        return $purchaserRows
-            ->concat($ownedShopRows)
-            ->concat($shopCreditRows)
-            ->concat($payrollRows)
             ->sortBy([
                 ['date', 'asc'],
                 ['sort_at', 'asc'],
@@ -572,35 +535,86 @@ class AdminFinancePillarService
             ->values();
     }
 
+    /**
+     * @param  Collection<int, ShopCredit>  $credits
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function buildPettyCashCreditCashFlowRows(Collection $credits): Collection
+    {
+        return $credits->map(function (ShopCredit $credit): array {
+            $isCreditToShop = $credit->type === 'in';
+            $shopName = (string) ($credit->shop?->name ?? 'Unknown shop');
+            $category = $isCreditToShop ? 'Petty Cash Credit' : 'Petty Cash Return';
+
+            return [
+                'date' => $credit->business_date?->toDateString() ?? $credit->created_at?->toDateString(),
+                'amount' => round((float) $credit->amount, 2),
+                'direction' => $isCreditToShop ? 'OUT' : 'IN',
+                'journal' => $category.' - '.$shopName,
+                'remarks' => $credit->description ?: $category.' for '.$shopName,
+                'category' => $category,
+                'source' => 'owned_shop_petty_cash',
+                'sort_at' => $credit->created_at?->timestamp ?? 0,
+            ];
+        })->values();
+    }
+
     private function cashFlowOpeningBalance(Carbon $startDate): float
     {
-        $purchaserOut = (float) PurchaserCredit::query()
-            ->whereDate('business_date', '<', $startDate)
-            ->sum('amount');
-        $ownedShopEntries = ShopAccountingEntry::query()
-            ->with('lines')
-            ->whereIn('status', ['approved', 'finalized'])
-            ->whereDate('business_date', '<', $startDate)
+        $transactions = JournalTransaction::query()
+            ->with('account')
+            ->whereHas('account', fn (Builder $query): Builder => $query->whereIn('code', self::CASH_FLOW_ACCOUNT_CODES))
+            ->whereHas('journalEntry', fn (Builder $query): Builder => $query->whereDate('entry_date', '<', $startDate))
             ->get();
-        $ownedShopIn = (float) $ownedShopEntries->sum(
-            fn (ShopAccountingEntry $entry): float => (float) $entry->lines->filter(fn ($line): bool => $line->cash_effect !== false)->where('type', 'income')->sum('amount')
-        );
-        $ownedShopOut = (float) $ownedShopEntries->sum(
-            fn (ShopAccountingEntry $entry): float => (float) $entry->lines->filter(fn ($line): bool => $line->cash_effect !== false)->where('type', 'expense')->sum('amount')
-        );
-        $shopCreditIn = (float) ShopCredit::query()
-            ->where('type', 'out')
-            ->whereDate('business_date', '<', $startDate)
-            ->sum('amount');
-        $shopCreditOut = (float) ShopCredit::query()
-            ->where('type', 'in')
-            ->whereDate('business_date', '<', $startDate)
-            ->sum('amount');
-        $payrollOut = (float) PayrollPayment::query()
-            ->whereDate('paid_on', '<', $startDate)
-            ->sum('amount');
 
-        return round(($ownedShopIn + $shopCreditIn) - ($purchaserOut + $ownedShopOut + $shopCreditOut + $payrollOut), 2);
+        $journalOpeningBalance = round((float) $transactions->sum(
+            fn (JournalTransaction $transaction): float => $transaction->type === 'debit'
+                ? (float) $transaction->amount
+                : -1 * (float) $transaction->amount
+        ), 2);
+
+        $pettyCashOpeningBalance = round((float) ShopCredit::query()
+            ->where('is_petty_cash', true)
+            ->whereDate('business_date', '<', $startDate)
+            ->get()
+            ->sum(fn (ShopCredit $credit): float => $credit->type === 'in' ? -1 * (float) $credit->amount : (float) $credit->amount), 2);
+
+        return round($journalOpeningBalance + $pettyCashOpeningBalance, 2);
+    }
+
+    /**
+     * @param  Collection<int, string>  $counterpartyAccounts
+     */
+    private function cashFlowCategory(JournalEntry $entry, Collection $counterpartyAccounts): string
+    {
+        if ($entry->source_type === ShopInvoice::class) {
+            return 'Daily Sales Income';
+        }
+
+        if ($entry->source_type === PurchaserCredit::class) {
+            return 'Purchaser Cash Advance';
+        }
+
+        if ($entry->source_type === PurchaseInvoice::class && str_starts_with((string) $entry->source_event, 'green_leaf_direct_purchase_payment:')) {
+            return 'Green Leaf Direct Purchase';
+        }
+
+        if ($entry->source_event === 'payroll_payment') {
+            return 'Staff Salary';
+        }
+
+        return $counterpartyAccounts->first() ?: 'Journal Entry';
+    }
+
+    private function cashFlowSource(JournalEntry $entry): string
+    {
+        return match ($entry->source_type) {
+            ShopInvoice::class => 'daily_sales',
+            PayrollPayment::class => 'payroll',
+            PurchaserCredit::class => 'purchaser',
+            PurchaseInvoice::class => str_starts_with((string) $entry->source_event, 'green_leaf_direct_purchase_payment:') ? 'green_leaf_direct_purchase' : 'journal',
+            default => 'journal',
+        };
     }
 
     /**

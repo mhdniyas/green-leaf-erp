@@ -122,9 +122,9 @@
                                         <summary class="cursor-pointer text-xs font-black text-slate-900">Shop order details</summary>
                                         <div class="mt-3 space-y-2">
                                             @foreach ($summary['shop_details'] as $detail)
-                                                <div class="flex items-center justify-between gap-2 rounded-xl bg-white px-3 py-2">
+                                                <div class="flex items-center justify-between gap-2 rounded-xl {{ $detail['is_direct_purchase'] ?? false ? 'bg-emerald-50' : 'bg-white' }} px-3 py-2">
                                                     <div class="min-w-0">
-                                                        <p class="truncate text-xs font-black text-slate-900">{{ $detail['shop_name'] }}</p>
+                                                        <p class="truncate text-xs font-black {{ $detail['is_direct_purchase'] ?? false ? 'text-emerald-800' : 'text-slate-900' }}">{{ $detail['shop_name'] }}</p>
                                                         <p class="text-[10px] font-bold text-slate-400">{{ $detail['order_number'] }}</p>
                                                     </div>
                                                     <p class="text-xs font-black text-slate-900">{{ number_format($detail['approved_qty'], 2) }} {{ $detail['unit'] }}</p>

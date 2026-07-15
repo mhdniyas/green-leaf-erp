@@ -29,86 +29,11 @@
                 </form>
             </div>
 
-            <div class="mt-6 grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
-                <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Reserve Amount</p>
-                    <p class="mt-2 text-2xl font-black text-slate-950">Rs. {{ number_format((float) $shop->reserve_amount, 2) }}</p>
-                    <p class="mt-2 text-xs font-semibold text-slate-500">Admin provides this reserve cash for the shop to use as the base cash amount.</p>
-                </div>
-
-                <form method="POST" action="{{ route('admin.accounting.owned-shops.reserve-amount.update', $shop) }}" class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                    @csrf
-                    @method('PATCH')
-                    <div class="flex flex-col gap-3 lg:flex-row lg:items-end">
-                        <label class="block flex-1">
-                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Update Reserve Amount</span>
-                            <input type="number" step="0.01" min="0" name="reserve_amount" value="{{ old('reserve_amount', number_format((float) $shop->reserve_amount, 2, '.', '')) }}" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900">
-                        </label>
-                        <label class="block flex-1">
-                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Adjustment Date</span>
-                            <input type="date" name="business_date" value="{{ old('business_date', $selectedDate->format('Y-m-d')) }}" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900">
-                        </label>
-                        <button type="submit" class="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800">
-                            Save Reserve
-                        </button>
-                    </div>
-                </form>
-            </div>
         </section>
 
-        <section class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-            <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-                <div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-                    <a href="{{ route('admin.accounting.owned-shops.show', ['shop' => $shop, 'tab' => 'bills', 'date' => $selectedDate->format('Y-m-d'), 'start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}" class="{{ $tab === 'bills' ? 'bg-slate-950 text-white' : 'border border-slate-200 bg-white text-slate-800' }} inline-flex h-11 items-center justify-center rounded-2xl px-5 text-sm font-black transition">
-                        Bills
-                    </a>
-                    <a href="{{ route('admin.accounting.owned-shops.show', ['shop' => $shop, 'tab' => 'cashbook', 'date' => $selectedDate->format('Y-m-d'), 'start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}" class="{{ $tab === 'cashbook' ? 'bg-slate-950 text-white' : 'border border-slate-200 bg-white text-slate-800' }} inline-flex h-11 items-center justify-center rounded-2xl px-5 text-sm font-black transition">
-                        Ledger
-                    </a>
-                </div>
+        @include('admin.accounting.owned_shops.partials.section-tabs')
 
-                <form method="GET" action="{{ route('admin.accounting.owned-shops.show', $shop) }}" class="grid gap-3 sm:grid-cols-4">
-                    <input type="hidden" name="tab" value="{{ $tab }}">
-                    <input type="hidden" name="date" value="{{ $selectedDate->format('Y-m-d') }}">
-                    <input type="date" name="start_date" value="{{ $startDate->format('Y-m-d') }}" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none">
-                    <input type="date" name="end_date" value="{{ $endDate->format('Y-m-d') }}" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none">
-                    <button type="submit" class="inline-flex h-12 items-center justify-center rounded-2xl bg-cyan-600 px-4 text-sm font-black text-white transition hover:bg-cyan-500">
-                        Update Analytics
-                    </button>
-                </form>
-            </div>
-
-            <div class="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-7">
-                <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Billed</p>
-                    <p class="mt-2 text-2xl font-black text-slate-950">Rs. {{ number_format((float) $analytics['cards']['total_billed'], 2) }}</p>
-                </div>
-                <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Collected</p>
-                    <p class="mt-2 text-2xl font-black text-emerald-700">Rs. {{ number_format((float) $analytics['cards']['total_paid'], 2) }}</p>
-                </div>
-                <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Balance</p>
-                    <p class="mt-2 text-2xl font-black text-rose-700">Rs. {{ number_format((float) $analytics['cards']['total_balance'], 2) }}</p>
-                </div>
-                <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Shop Cash</p>
-                    <p class="mt-2 text-2xl font-black {{ (float) $analytics['cards']['credit'] >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format((float) $analytics['cards']['credit'], 2) }}</p>
-                </div>
-                <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Income</p>
-                    <p class="mt-2 text-2xl font-black text-slate-950">Rs. {{ number_format((float) $analytics['cards']['income'], 2) }}</p>
-                </div>
-                <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Expense</p>
-                    <p class="mt-2 text-2xl font-black text-slate-950">Rs. {{ number_format((float) $analytics['cards']['expense'], 2) }}</p>
-                </div>
-                <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Cash Flow</p>
-                    <p class="mt-2 text-2xl font-black text-cyan-700">Rs. {{ number_format((float) $analytics['cards']['cash_flow'], 2) }}</p>
-                </div>
-            </div>
-        </section>
+        @include('admin.accounting.owned_shops.partials.analytics-cards')
 
         @if ($tab === 'bills')
             <div class="space-y-6">
@@ -468,7 +393,7 @@
                     </button>
                 </div>
 
-                <section class="mt-6 grid gap-6 lg:grid-cols-[0.75fr_1.25fr]">
+                <section id="owned-shop-cash-movements" class="mt-6 grid gap-6">
                     <form method="POST" action="{{ route('admin.accounting.owned-shops.credits.store', $shop) }}" class="rounded-[1.25rem] border border-emerald-200 bg-emerald-50 p-4">
                         @csrf
                         <p class="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Shop Cash Movement</p>
@@ -489,6 +414,13 @@
                             <label>
                                 <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Movement Date</span>
                                 <input type="date" name="business_date" value="{{ old('business_date', $selectedDate->format('Y-m-d')) }}" class="h-11 w-full rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                            </label>
+                            <label class="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-white px-4 py-3">
+                                <input type="checkbox" name="is_petty_cash" value="1" @checked(old('is_petty_cash')) class="mt-1 h-4 w-4 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500">
+                                <span>
+                                    <span class="block text-sm font-black text-slate-950">Petty Cash</span>
+                                    <span class="mt-1 block text-xs font-semibold text-slate-500">Show this movement in the petty cash table.</span>
+                                </span>
                             </label>
                             <label>
                                 <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Description</span>
@@ -545,6 +477,10 @@
                         </div>
                     </div>
                 </section>
+
+                <div class="mt-6">
+                    @include('admin.accounting.owned_shops.partials.petty-cash-table')
+                </div>
 
                 @if ($hasEntry)
                     <div class="mt-6 space-y-4">
