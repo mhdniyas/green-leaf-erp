@@ -19,7 +19,9 @@ class PayrollRunItem extends Model
         'payroll_run_id',
         'employee_id',
         'employee_category_id',
+        'salary_type',
         'base_salary',
+        'daily_wage',
         'present_days',
         'half_days',
         'paid_leave_days',
@@ -36,6 +38,7 @@ class PayrollRunItem extends Model
     {
         return [
             'base_salary' => 'decimal:2',
+            'daily_wage' => 'decimal:2',
             'present_days' => 'decimal:2',
             'half_days' => 'decimal:2',
             'paid_leave_days' => 'decimal:2',
@@ -69,11 +72,31 @@ class PayrollRunItem extends Model
         return $this->hasMany(PayrollPayment::class);
     }
 
+    public function shopStaffPayments(): HasMany
+    {
+        return $this->hasMany(ShopStaffPayment::class);
+    }
+
     public function paidAmount(): float
+    {
+        $payments = $this->relationLoaded('payments') ? $this->payments : $this->payments()->get();
+        $shopStaffPayments = $this->relationLoaded('shopStaffPayments') ? $this->shopStaffPayments : $this->shopStaffPayments()->get();
+
+        return round((float) $payments->sum('amount') + (float) $shopStaffPayments->sum('amount'), 2);
+    }
+
+    public function officePaidAmount(): float
     {
         $payments = $this->relationLoaded('payments') ? $this->payments : $this->payments()->get();
 
         return round((float) $payments->sum('amount'), 2);
+    }
+
+    public function shopPaidAmount(): float
+    {
+        $shopStaffPayments = $this->relationLoaded('shopStaffPayments') ? $this->shopStaffPayments : $this->shopStaffPayments()->get();
+
+        return round((float) $shopStaffPayments->sum('amount'), 2);
     }
 
     public function remainingAmount(): float

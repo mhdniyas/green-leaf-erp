@@ -5,16 +5,21 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Web\ShopOwner\StoreEmployeeAdvanceRequest;
 use App\Http\Requests\Web\ShopOwner\StoreEmployeeLeaveRequest;
 use App\Http\Requests\Web\ShopOwner\StoreShopEmployeeAssignmentRequest;
+use App\Http\Requests\Web\ShopOwner\StoreShopStaffSalaryPaymentRequest;
 use App\Http\Requests\Web\ShopOwner\UpsertOwnedShopAttendanceRequest;
 use App\Models\Employee;
+use App\Models\EmployeeAdvanceRequest;
 use App\Models\EmployeeAttendance;
 use App\Models\EmployeeLeaveRequest;
 use App\Models\LeaveType;
 use App\Models\Shop;
 use App\Models\ShopEmployeeAssignment;
+use App\Models\ShopStaffPayment;
 use App\Services\HR\AttendanceService;
+use App\Services\HR\EmployeeAdvanceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -25,6 +30,7 @@ class ShopOwnerStaffController extends Controller
 {
     public function __construct(
         private readonly AttendanceService $attendanceService,
+        private readonly EmployeeAdvanceService $employeeAdvanceService,
     ) {}
 
     public function index(Request $request): View
@@ -57,6 +63,19 @@ class ShopOwnerStaffController extends Controller
             'employeeSearch' => $employeeSearch,
             'employees' => $quickEmployees,
             'attendanceRecords' => $attendanceRecords,
+            'recentPayrollPayments' => ShopStaffPayment::query()
+                ->with(['employee', 'advanceRequest'])
+                ->when($selectedShop !== null, fn ($query) => $query->where('shop_id', $selectedShop->id))
+                ->latest('paid_on')
+                ->latest('id')
+                ->limit(8)
+                ->get(),
+            'advanceRequests' => EmployeeAdvanceRequest::query()
+                ->with(['employee', 'reviewedBy'])
+                ->when($selectedShop !== null, fn ($query) => $query->where('shop_id', $selectedShop->id))
+                ->latest('id')
+                ->limit(8)
+                ->get(),
             'searchResults' => $this->employeeSearchResults($employeeSearch, $selectedShop?->id),
             'leaveRequests' => EmployeeLeaveRequest::query()
                 ->with(['employee.category', 'submittedForShop', 'reviewedBy'])
@@ -69,26 +88,58 @@ class ShopOwnerStaffController extends Controller
 
     public function storeEmployeeAssignment(StoreShopEmployeeAssignmentRequest $request): RedirectResponse
     {
+        abort(404);
+    }
+
+    public function storeSalaryPayment(StoreShopStaffSalaryPaymentRequest $request): RedirectResponse
+    {
         $this->ensureOwnerAccess($request);
 
         $shop = Shop::query()->findOrFail($request->integer('shop_id'));
         $employee = Employee::query()->findOrFail($request->integer('employee_id'));
 
         abort_unless($request->user()->ownedShopAssignments()->where('shop_id', $shop->id)->exists(), 403, 'This shop is outside your scope.');
-        abort_unless($employee->staff_area === 'shop', 403, 'Only shop staff can be added to owned shop attendance lists.');
 
-        ShopEmployeeAssignment::query()->firstOrCreate(
-            [
-                'shop_id' => $shop->id,
-                'employee_id' => $employee->id,
-            ],
-            [
-                'assigned_by' => $request->user()->id,
-            ],
+        $this->employeeAdvanceService->recordShopSalaryPayment(
+            $employee,
+            $shop,
+            round((float) $request->validated('amount'), 2),
+            (string) $request->validated('fund_source'),
+            Carbon::parse((string) $request->validated('paid_on')),
+            $request->user(),
+            $request->validated('notes'),
         );
 
         return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code])
-            ->with('success', 'Employee added to this shop attendance list.');
+            ->with('success', 'Staff salary payment recorded.');
+    }
+
+    public function storeAdvanceRequest(StoreEmployeeAdvanceRequest $request): RedirectResponse
+    {
+        $this->ensureOwnerAccess($request);
+
+        $shop = Shop::query()->findOrFail($request->integer('shop_id'));
+        $employee = Employee::query()->findOrFail($request->integer('employee_id'));
+
+        abort_unless($request->user()->ownedShopAssignments()->where('shop_id', $shop->id)->exists(), 403, 'This shop is outside your scope.');
+
+        $advanceRequest = $this->employeeAdvanceService->requestOrPayAdvance(
+            $employee,
+            $shop,
+            round((float) $request->validated('amount'), 2),
+            (string) $request->validated('fund_source'),
+            Carbon::parse((string) $request->validated('requested_on')),
+            $request->user(),
+            $request->validated('request_note'),
+        );
+
+        return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code])
+            ->with(
+                $advanceRequest->status === 'approved' ? 'success' : 'warning',
+                $advanceRequest->status === 'approved'
+                    ? 'Employee advance paid within HR rule.'
+                    : 'Employee advance request sent to HR/admin for approval.',
+            );
     }
 
     public function storeAttendance(UpsertOwnedShopAttendanceRequest $request): RedirectResponse
@@ -208,6 +259,15 @@ class ShopOwnerStaffController extends Controller
 
         $assignedEmployeeIds = ShopEmployeeAssignment::query()
             ->where('shop_id', $shopId)
+            ->where('status', 'active')
+            ->where(function ($query) use ($selectedDate): void {
+                $query->whereNull('effective_from')
+                    ->orWhereDate('effective_from', '<=', $selectedDate->toDateString());
+            })
+            ->where(function ($query) use ($selectedDate): void {
+                $query->whereNull('effective_to')
+                    ->orWhereDate('effective_to', '>=', $selectedDate->toDateString());
+            })
             ->pluck('employee_id');
 
         $todayEmployeeIds = EmployeeAttendance::query()
@@ -241,6 +301,7 @@ class ShopOwnerStaffController extends Controller
 
         $assignedEmployeeIds = ShopEmployeeAssignment::query()
             ->where('shop_id', $selectedShopId)
+            ->where('status', 'active')
             ->pluck('employee_id');
 
         return Employee::query()

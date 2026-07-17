@@ -85,12 +85,6 @@ class AdminOverviewController extends Controller
             ->orderByDesc('last_seen_at')
             ->get();
 
-        $usersWithDirectPermissions = User::query()
-            ->with(['roles', 'permissions', 'shop'])
-            ->whereHas('permissions')
-            ->orderBy('name')
-            ->get();
-
         $roleProgress = [
             [
                 'name' => 'Shop Owners',
@@ -120,8 +114,8 @@ class AdminOverviewController extends Controller
                 'name' => 'Administrators',
                 'count' => User::role('admin')->count(),
                 'online' => $onlineUsers->filter(fn (User $user): bool => $user->hasRole('admin'))->count(),
-                'pending' => $usersWithDirectPermissions->count(),
-                'label' => 'users with direct permission overrides',
+                'pending' => User::query()->where('registration_status', 'pending')->count(),
+                'label' => 'new registrations waiting for approval',
                 'tone' => 'slate',
             ],
         ];
@@ -147,11 +141,6 @@ class AdminOverviewController extends Controller
                     'detail' => $grn->grn_number.' was sent back for warehouse review.',
                     'severity' => 'warning',
                 ]))
-            ->concat($usersWithDirectPermissions->map(fn (User $user): array => [
-                'title' => 'Direct permission override in use',
-                'detail' => $user->name.' has '.$user->permissions->count().' direct permission override(s).',
-                'severity' => 'info',
-            ]))
             ->take(8)
             ->values();
 
@@ -184,7 +173,7 @@ class AdminOverviewController extends Controller
         $quickLinks = array_merge($quickLinks, [
             ['label' => 'Purchasing Dashboard', 'href' => route('purchasing.dashboard')],
             ['label' => 'Inventory Dashboard', 'href' => route('inventory.dashboard', ['date' => $date->format('Y-m-d')])],
-            ['label' => 'Users & Permissions', 'href' => route('admin.users.index')],
+            ['label' => 'Users & Roles', 'href' => route('admin.users.index')],
             ['label' => 'Daily Progress', 'href' => route('admin.daily-progress', ['date' => $date->format('Y-m-d')])],
             ['label' => 'Activity Log', 'href' => route('admin.activity-logs.index')],
             ['label' => 'Website Enquiries', 'href' => route('admin.enquiries.index')],
@@ -204,7 +193,6 @@ class AdminOverviewController extends Controller
             'recentActivities',
             'suspiciousActivities',
             'quickLinks',
-            'usersWithDirectPermissions'
         ));
     }
 }

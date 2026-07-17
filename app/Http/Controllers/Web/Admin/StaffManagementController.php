@@ -7,19 +7,25 @@ namespace App\Http\Controllers\Web\Admin;
 use App\Exports\PayrollMonthExport;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Admin\FinalizePayrollRunRequest;
+use App\Http\Requests\Web\Admin\ReviewEmployeeAdvanceRequest;
 use App\Http\Requests\Web\Admin\ReviewEmployeeLeaveRequest;
 use App\Http\Requests\Web\Admin\StoreAdminEmployeeLeaveRequest;
+use App\Http\Requests\Web\Admin\StoreContractWorkerPaymentRequest;
 use App\Http\Requests\Web\Admin\StoreEmployeeCategoryRequest;
 use App\Http\Requests\Web\Admin\StoreEmployeeRequest;
 use App\Http\Requests\Web\Admin\StorePayrollPaymentRequest;
 use App\Http\Requests\Web\Admin\StorePayrollRunRequest;
+use App\Http\Requests\Web\Admin\StoreShopEmployeeAssignmentRequest;
+use App\Http\Requests\Web\Admin\StoreShopStaffPaymentRequest;
 use App\Http\Requests\Web\Admin\UpdateEmployeeCategoryLeaveRulesRequest;
 use App\Http\Requests\Web\Admin\UpdateEmployeeCategoryRequest;
 use App\Http\Requests\Web\Admin\UpdateEmployeeRequest;
 use App\Http\Requests\Web\Admin\UpdateEmployeeStatusRequest;
 use App\Http\Requests\Web\Admin\UpdatePayrollRunItemRequest;
 use App\Http\Requests\Web\Admin\UpsertEmployeeAttendanceRequest;
+use App\Models\ContractWorkerPayment;
 use App\Models\Employee;
+use App\Models\EmployeeAdvanceRequest;
 use App\Models\EmployeeAttendance;
 use App\Models\EmployeeCategory;
 use App\Models\EmployeeCategoryLeaveRule;
@@ -29,13 +35,18 @@ use App\Models\PayrollPayment;
 use App\Models\PayrollRun;
 use App\Models\PayrollRunItem;
 use App\Models\Shop;
+use App\Models\ShopEmployeeAssignment;
+use App\Models\ShopStaffPayment;
 use App\Models\User;
 use App\Services\HR\AttendanceService;
+use App\Services\HR\ContractWorkerPaymentService;
+use App\Services\HR\EmployeeAdvanceService;
 use App\Services\HR\EmployeeSyncService;
 use App\Services\HR\HrOverrideService;
 use App\Services\HR\LeaveLedgerService;
 use App\Services\HR\PayrollPaymentService;
 use App\Services\HR\PayrollService;
+use App\Services\HR\ShopEmployeeAssignmentService;
 use App\Services\HR\StaffDirectoryService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -45,6 +56,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -61,6 +73,9 @@ class StaffManagementController extends Controller
         private readonly EmployeeSyncService $employeeSyncService,
         private readonly LeaveLedgerService $leaveLedgerService,
         private readonly HrOverrideService $hrOverrideService,
+        private readonly ShopEmployeeAssignmentService $shopEmployeeAssignmentService,
+        private readonly EmployeeAdvanceService $employeeAdvanceService,
+        private readonly ContractWorkerPaymentService $contractWorkerPaymentService,
     ) {}
 
     public function index(Request $request): View
@@ -125,6 +140,12 @@ class StaffManagementController extends Controller
                 $selectedCategory?->code,
                 $search !== '' ? $search : null,
             ),
+            'activeAssignments' => ShopEmployeeAssignment::query()
+                ->with(['employee', 'shop', 'assignedBy'])
+                ->where('status', 'active')
+                ->latest('effective_from')
+                ->limit(12)
+                ->get(),
             'categories' => $categories,
             'categoryTabs' => $categories->map(fn (EmployeeCategory $category): array => [
                 'code' => $category->code,
@@ -183,12 +204,23 @@ class StaffManagementController extends Controller
                 ];
             });
         $monthlyPayrollItem = $employee->payrollItems()
-            ->with(['payrollRun', 'payments.journalEntry'])
+            ->with(['payrollRun', 'payments.journalEntry', 'shopStaffPayments.shop'])
             ->whereHas('payrollRun', fn (Builder $query) => $query->whereDate('period_start', $selectedMonth->toDateString()))
             ->first();
         $recentPayrollPayments = $employee->payrollPayments()
             ->with(['payrollRun', 'journalEntry', 'paidBy'])
             ->latest('paid_on')
+            ->latest('id')
+            ->limit(8)
+            ->get();
+        $recentShopStaffPayments = $employee->shopStaffPayments()
+            ->with(['shop', 'paidBy', 'advanceRequest'])
+            ->latest('paid_on')
+            ->latest('id')
+            ->limit(8)
+            ->get();
+        $employeeAdvanceRequests = $employee->advanceRequests()
+            ->with(['shop', 'requestedBy', 'reviewedBy', 'shopStaffPayment'])
             ->latest('id')
             ->limit(8)
             ->get();
@@ -215,6 +247,8 @@ class StaffManagementController extends Controller
             'payrollHistory' => $employee->payrollItems()->with(['payrollRun', 'payments'])->latest('id')->limit(6)->get(),
             'monthlyPayrollItem' => $monthlyPayrollItem,
             'recentPayrollPayments' => $recentPayrollPayments,
+            'recentShopStaffPayments' => $recentShopStaffPayments,
+            'employeeAdvanceRequests' => $employeeAdvanceRequests,
             'leaveRequests' => $employee->leaveRequests()->with(['submittedBy.roles', 'submittedForShop', 'reviewedBy'])->latest('id')->limit(8)->get(),
         ]);
     }
@@ -223,16 +257,35 @@ class StaffManagementController extends Controller
     {
         $validated = $request->validated();
         $validated['is_user_linked'] = filled($validated['user_id'] ?? null);
+        $validated['daily_wage'] = round((float) ($validated['daily_wage'] ?? 0), 2);
 
         Employee::query()->create($validated);
 
         return redirect()->route('admin.staff.employees.index')->with('success', 'Employee created successfully.');
     }
 
+    public function storeShopEmployeeAssignment(StoreShopEmployeeAssignmentRequest $request): RedirectResponse
+    {
+        $employee = Employee::query()->findOrFail($request->integer('employee_id'));
+        $shop = Shop::query()->findOrFail($request->integer('shop_id'));
+
+        $this->shopEmployeeAssignmentService->assign(
+            $employee,
+            $shop,
+            Carbon::parse((string) $request->validated('effective_from')),
+            $request->user(),
+            $request->validated('notes'),
+        );
+
+        return redirect()->route('admin.staff.employees.index')
+            ->with('success', 'Employee assigned to '.$shop->name.'.');
+    }
+
     public function update(UpdateEmployeeRequest $request, Employee $employee): RedirectResponse
     {
         $validated = $request->validated();
         $validated['is_user_linked'] = filled($validated['user_id'] ?? null);
+        $validated['daily_wage'] = round((float) ($validated['daily_wage'] ?? 0), 2);
 
         $employee->update($validated);
 
@@ -674,7 +727,7 @@ class StaffManagementController extends Controller
         $selectedPayrollMonth = $this->resolvePayrollMonth($payrollMonth);
 
         $payrollRun = PayrollRun::query()
-            ->with(['items.employee', 'items.category', 'items.payments.journalEntry', 'items.payments.paidBy'])
+            ->with(['items.employee', 'items.category', 'items.payments.journalEntry', 'items.payments.paidBy', 'items.shopStaffPayments.shop'])
             ->whereDate('period_start', $selectedPayrollMonth->toDateString())
             ->first();
 
@@ -685,11 +738,32 @@ class StaffManagementController extends Controller
             ->latest('paid_on')
             ->latest('id')
             ->get();
+        $shopStaffPayments = ShopStaffPayment::query()
+            ->with(['employee', 'shop', 'paidBy', 'advanceRequest'])
+            ->whereDate('paid_on', '>=', $selectedPayrollMonth->toDateString())
+            ->whereDate('paid_on', '<=', $selectedPayrollMonth->copy()->endOfMonth()->toDateString())
+            ->latest('paid_on')
+            ->latest('id')
+            ->get();
 
         return view('admin.staff.payments', [
             'selectedPayrollMonth' => $selectedPayrollMonth,
             'payrollRun' => $payrollRun,
             'payments' => $payments,
+            'shopStaffPayments' => $shopStaffPayments,
+            'advanceRequests' => EmployeeAdvanceRequest::query()
+                ->with(['employee', 'shop', 'requestedBy', 'reviewedBy', 'shopStaffPayment'])
+                ->whereDate('payroll_month', $selectedPayrollMonth->toDateString())
+                ->latest('id')
+                ->get(),
+            'contractPayments' => ContractWorkerPayment::query()
+                ->with(['shop', 'paidBy'])
+                ->whereDate('paid_on', '>=', $selectedPayrollMonth->toDateString())
+                ->whereDate('paid_on', '<=', $selectedPayrollMonth->copy()->endOfMonth()->toDateString())
+                ->latest('paid_on')
+                ->latest('id')
+                ->get(),
+            'shops' => Shop::query()->ownedForStaff()->orderBy('name')->get(),
         ]);
     }
 
@@ -711,6 +785,74 @@ class StaffManagementController extends Controller
         return redirect()->route('admin.staff.payments.index', [
             'payroll_month' => $payment->payrollRun->period_start->format('Y-m'),
         ])->with('success', 'Salary payment recorded and posted to journals.');
+    }
+
+    public function storeShopStaffPayment(StoreShopStaffPaymentRequest $request): RedirectResponse
+    {
+        $validated = $request->validated();
+        $payrollRunItem = PayrollRunItem::query()
+            ->with(['payrollRun', 'employee', 'shopStaffPayments', 'payments'])
+            ->findOrFail((int) $validated['payroll_run_item_id']);
+        $amount = round((float) $validated['amount'], 2);
+
+        if ((string) $validated['payment_type'] === 'salary' && $amount > $payrollRunItem->remainingAmount()) {
+            throw ValidationException::withMessages([
+                'amount' => 'The shop salary payment cannot be more than the remaining salary.',
+            ]);
+        }
+
+        $payment = ShopStaffPayment::query()->create([
+            'payroll_run_id' => $payrollRunItem->payroll_run_id,
+            'payroll_run_item_id' => $payrollRunItem->id,
+            'employee_id' => $payrollRunItem->employee_id,
+            'shop_id' => (int) $validated['shop_id'],
+            'paid_by' => $request->user()->id,
+            'paid_on' => Carbon::parse((string) $validated['paid_on'])->toDateString(),
+            'amount' => $amount,
+            'payment_type' => (string) $validated['payment_type'],
+            'fund_source' => (string) $validated['fund_source'],
+            'status' => 'paid',
+            'notes' => $validated['notes'] ?? null,
+        ]);
+
+        return redirect()->route('admin.staff.payments.index', [
+            'payroll_month' => $payment->paid_on->format('Y-m'),
+        ])->with('success', 'Shop staff payment recorded without duplicate payroll journal.');
+    }
+
+    public function reviewEmployeeAdvance(ReviewEmployeeAdvanceRequest $request, EmployeeAdvanceRequest $advanceRequest): RedirectResponse
+    {
+        $reviewedAdvance = $this->employeeAdvanceService->review(
+            $advanceRequest,
+            (string) $request->validated('decision'),
+            (float) ($request->validated('approved_amount') ?? $advanceRequest->requested_amount),
+            $request->user(),
+            $request->validated('review_note'),
+        );
+
+        return redirect()->route('admin.staff.payments.index', [
+            'payroll_month' => $reviewedAdvance->payroll_month->format('Y-m'),
+        ])->with(
+            $reviewedAdvance->status === 'approved' ? 'success' : 'warning',
+            $reviewedAdvance->status === 'approved' ? 'Advance approved and paid.' : 'Advance request rejected.',
+        );
+    }
+
+    public function storeContractWorkerPayment(StoreContractWorkerPaymentRequest $request): RedirectResponse
+    {
+        $shop = $request->filled('shop_id')
+            ? Shop::query()->findOrFail($request->integer('shop_id'))
+            : null;
+
+        $payment = $this->contractWorkerPaymentService->record(
+            $request->validated(),
+            $request->user(),
+            $shop,
+        );
+
+        return redirect()->route('admin.staff.payments.index', [
+            'payroll_month' => $payment->paid_on->format('Y-m'),
+        ])->with('success', 'Contract worker payment recorded.');
     }
 
     public function storePayroll(StorePayrollRunRequest $request): RedirectResponse

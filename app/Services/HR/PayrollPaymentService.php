@@ -9,6 +9,7 @@ use App\Models\Account;
 use App\Models\JournalEntry;
 use App\Models\PayrollPayment;
 use App\Models\PayrollRunItem;
+use App\Models\Shop;
 use App\Models\User;
 use App\Services\Finance\JournalService;
 use Illuminate\Support\Carbon;
@@ -21,26 +22,40 @@ class PayrollPaymentService
         private readonly JournalService $journalService,
     ) {}
 
-    public function record(PayrollRunItem $payrollRunItem, float $amount, string $paymentMethod, string $paymentType, Carbon $paidOn, User $actor, ?string $notes = null): PayrollPayment
-    {
+    public function record(
+        PayrollRunItem $payrollRunItem,
+        float $amount,
+        string $paymentMethod,
+        string $paymentType,
+        Carbon $paidOn,
+        User $actor,
+        ?string $notes = null,
+        ?Shop $shop = null,
+        string $fundSource = 'company_cash',
+        ?int $advanceRequestId = null,
+        bool $allowAdvanceOverage = false,
+    ): PayrollPayment {
         $payrollRunItem->loadMissing(['payrollRun', 'employee', 'payments']);
 
         $remainingAmount = $payrollRunItem->remainingAmount();
 
-        if ($amount <= 0 || $amount > $remainingAmount) {
+        if ($amount <= 0 || ($amount > $remainingAmount && ! $allowAdvanceOverage)) {
             throw new RuntimeException('Payment amount is outside the remaining salary balance.');
         }
 
-        return DB::transaction(function () use ($payrollRunItem, $amount, $paymentMethod, $paymentType, $paidOn, $actor, $notes): PayrollPayment {
+        return DB::transaction(function () use ($payrollRunItem, $amount, $paymentMethod, $paymentType, $paidOn, $actor, $notes, $shop, $fundSource, $advanceRequestId): PayrollPayment {
             $payment = PayrollPayment::query()->create([
                 'payroll_run_id' => $payrollRunItem->payroll_run_id,
                 'payroll_run_item_id' => $payrollRunItem->id,
                 'employee_id' => $payrollRunItem->employee_id,
+                'shop_id' => $shop?->id,
+                'employee_advance_request_id' => $advanceRequestId,
                 'paid_by' => $actor->id,
                 'paid_on' => $paidOn->toDateString(),
                 'amount' => round($amount, 2),
                 'payment_method' => $paymentMethod,
                 'payment_type' => $paymentType,
+                'fund_source' => $fundSource,
                 'notes' => $notes,
             ]);
 
@@ -50,7 +65,7 @@ class PayrollPaymentService
                 'journal_entry_id' => $journalEntry->id,
             ])->save();
 
-            return $payment->fresh(['employee', 'payrollRun', 'payrollRunItem.payrollRun', 'journalEntry.transactions.account', 'paidBy']);
+            return $payment->fresh(['employee', 'shop', 'payrollRun', 'payrollRunItem.payrollRun', 'journalEntry.transactions.account', 'paidBy']);
         });
     }
 
@@ -81,7 +96,7 @@ class PayrollPaymentService
             new JournalEntryData(
                 entryDate: $payment->paid_on->format('Y-m-d'),
                 reference: sprintf('PAYROLL-PAY-%s', $payment->id),
-                description: 'Salary payment to '.$payment->employee->name.' for '.$payment->payrollRun->period_start->format('F Y'),
+                description: $this->paymentDescription($payment),
                 lines: [
                     [
                         'account_id' => (int) $salaryExpenseAccount->id,
@@ -100,5 +115,17 @@ class PayrollPaymentService
             ),
             $actor->id,
         );
+    }
+
+    private function paymentDescription(PayrollPayment $payment): string
+    {
+        $typeLabel = $payment->payment_type === 'advance' ? 'Salary advance' : 'Salary payment';
+        $sourceLabel = match ($payment->fund_source) {
+            'petty_cash' => ' from shop petty cash',
+            'sales_income' => ' from shop sales income',
+            default => '',
+        };
+
+        return $typeLabel.' to '.$payment->employee->name.$sourceLabel.' for '.$payment->payrollRun->period_start->format('F Y');
     }
 }

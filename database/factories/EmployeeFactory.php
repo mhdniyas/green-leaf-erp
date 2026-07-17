@@ -30,6 +30,8 @@ class EmployeeFactory extends Factory
             'employment_status' => 'active',
             'joined_on' => today()->subDays(fake()->numberBetween(5, 50)),
             'monthly_salary' => fake()->numberBetween(15000, 30000),
+            'salary_type' => 'monthly',
+            'daily_wage' => 0,
             'is_user_linked' => false,
         ];
     }

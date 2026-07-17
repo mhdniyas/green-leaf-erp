@@ -61,7 +61,9 @@ class WebsiteEnquiryTest extends TestCase
             ->assertSee('Website enquiries')
             ->assertSee('City Market')
             ->assertSee('Need bananas and oranges for Friday.')
-            ->assertSee('Marketplace');
+            ->assertSee('Marketplace')
+            ->assertSee('xl:grid-cols-[minmax(0,1fr)_220px_auto]', false)
+            ->assertSee('min-w-28', false);
     }
 
     public function test_non_admin_cannot_view_website_enquiries(): void

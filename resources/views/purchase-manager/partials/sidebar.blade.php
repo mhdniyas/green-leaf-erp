@@ -21,11 +21,11 @@
     $purchaseManagerNavItems[] = ['label' => 'Daily Prices', 'route' => 'purchasing.prices.index', 'active' => request()->routeIs('purchasing.prices.*')];
 @endphp
 
-<aside class="hidden border-r border-slate-200 bg-slate-950 text-white lg:fixed lg:inset-y-0 lg:flex lg:w-72 lg:flex-col">
-    <div class="border-b border-white/10 px-6 py-6">
-        <p class="text-xs font-black uppercase tracking-[0.2em] text-cyan-300">Purchasing Dashboard</p>
-        <h1 class="mt-2 text-xl font-black">{{ auth()->user()->name }}</h1>
-        <p class="mt-1 text-sm text-slate-400">Requisition review first, then approvals, vendor buying, receipts, and invoice control.</p>
+<aside class="hidden border-r border-slate-200 bg-white text-slate-900 shadow-sm lg:fixed lg:inset-y-0 lg:flex lg:w-72 lg:flex-col">
+    <div class="border-b border-slate-200 px-6 py-6">
+        <p class="text-xs font-black uppercase tracking-[0.2em] text-sky-700">Purchasing Dashboard</p>
+        <h1 class="mt-2 text-xl font-black text-slate-950">{{ auth()->user()->name }}</h1>
+        <p class="mt-1 text-sm font-semibold text-slate-500">Approvals, vendor buying, receipts, and invoice control.</p>
     </div>
 
     <nav class="flex-1 space-y-2 px-4 py-6">
@@ -34,8 +34,8 @@
                 href="{{ route($item['route'], $item['params'] ?? []) }}"
                 @class([
                     'block rounded-2xl px-4 py-3 text-sm font-bold transition',
-                    'bg-cyan-400 text-slate-950 shadow-sm' => $item['active'],
-                    'text-slate-300 hover:bg-white/5 hover:text-white' => ! $item['active'],
+                    'bg-sky-50 text-sky-800 shadow-sm' => $item['active'],
+                    'text-slate-600 hover:bg-slate-100 hover:text-slate-950' => ! $item['active'],
                 ])
             >
                 {{ $item['label'] }}
@@ -43,10 +43,10 @@
         @endforeach
     </nav>
 
-    <div class="border-t border-white/10 px-4 py-4">
+    <div class="border-t border-slate-200 px-4 py-4">
         <form method="POST" action="{{ route('logout') }}">
             @csrf
-            <button type="submit" class="w-full rounded-2xl border border-white/10 px-4 py-3 text-left text-sm font-bold text-slate-300 transition hover:bg-white/5 hover:text-white">
+            <button type="submit" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950">
                 Sign Out
             </button>
         </form>

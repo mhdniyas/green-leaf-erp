@@ -12,6 +12,7 @@ use App\Enums\Inventory\StockMovementType;
 use App\Enums\Inventory\WastageReason;
 use App\Http\Controllers\Controller;
 use App\Models\GoodsReceived;
+use App\Models\PurchaserCart;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
@@ -161,6 +162,35 @@ class WarehouseReceiverController extends Controller
             $stockMap[$level->product_id] = ($stockMap[$level->product_id] ?? 0.0) + (float) $level->current_stock;
         }
 
+        $directPurchaseGrnProductIds = GoodsReceived::query()
+            ->whereDate('received_at', $date)
+            ->whereIn('status', ['pending_approval', 'approved'])
+            ->whereIn('purchaser_cart_id', PurchaserCart::query()
+                ->where('purchase_source', 'green_leaf_direct_purchase')
+                ->select('id'))
+            ->with('items:id,goods_received_id,product_id')
+            ->get()
+            ->flatMap(fn (GoodsReceived $goodsReceived) => $goodsReceived->items->pluck('product_id'))
+            ->unique()
+            ->values();
+
+        $pendingDirectPurchaseOrders = ShopOrder::query()
+            ->whereDate('business_date', $date)
+            ->where('order_source', 'admin_direct_purchase')
+            ->where('state', 'approved')
+            ->where('delivery_status', 'pending_delivery')
+            ->where('is_allocation_completed', false)
+            ->with(['items.product'])
+            ->whereHas('items')
+            ->get()
+            ->filter(function (ShopOrder $order) use ($directPurchaseGrnProductIds): bool {
+                return $order->items
+                    ->pluck('product_id')
+                    ->intersect($directPurchaseGrnProductIds)
+                    ->isEmpty();
+            })
+            ->values();
+
         // Fetch approved daily shop orders for Loadout
         $approvedOrders = ShopOrder::whereDate('business_date', $date)
             ->where('state', 'approved')
@@ -235,11 +265,71 @@ class WarehouseReceiverController extends Controller
             'inMovements',
             'outMovements',
             'stockLevels',
+            'pendingDirectPurchaseOrders',
             'approvedOrders',
             'shopOrders',
             'selectedWarehouseId',
             'warehouses',
         ));
+    }
+
+    public function receiveDirectPurchase(ShopOrder $order, Request $request): RedirectResponse
+    {
+        $this->authorizeReceiverAccess($request);
+
+        abort_unless($order->isAdminDirectPurchase(), 404);
+
+        if ($order->delivery_status !== 'pending_delivery' || $order->is_allocation_completed) {
+            return redirect()->back()->withErrors(['This direct purchase has already been received for warehouse flow.']);
+        }
+
+        $validated = $request->validate([
+            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+        ]);
+
+        $order->loadMissing('items.product');
+
+        if ($order->items->isEmpty()) {
+            return redirect()->back()->withErrors(['This direct purchase has no items to receive.']);
+        }
+
+        $userId = (int) $request->user()->id;
+
+        DB::transaction(function () use ($order, $validated, $userId): void {
+            foreach ($order->items as $item) {
+                $quantity = (float) ($item->approved_qty > 0 ? $item->approved_qty : $item->requested_qty);
+
+                if ($quantity <= 0.0) {
+                    continue;
+                }
+
+                StockBatch::query()->create([
+                    'product_id' => $item->product_id,
+                    'warehouse_id' => (int) $validated['warehouse_id'],
+                    'created_by' => $userId,
+                    'reference' => $this->generateDirectPurchaseBatchReference(),
+                    'received_at' => $order->business_date,
+                    'total_kg' => $quantity,
+                    'cost_per_kg' => 0,
+                    'transport_cost' => 0,
+                    'labour_cost' => 0,
+                    'status' => BatchStatus::Pending,
+                    'warehouse_receive_pending' => false,
+                    'warehouse_confirmed_at' => now(),
+                    'warehouse_confirmed_by' => $userId,
+                    'notes' => "Direct purchase received from admin order: {$order->order_number}",
+                ]);
+            }
+
+            $order->update([
+                'delivery_status' => 'ready_for_dispatch',
+                'sorting_notes' => trim((string) $order->sorting_notes."\nDirect purchase received by warehouse."),
+            ]);
+        });
+
+        return redirect()
+            ->route('warehouse.receiver.checklist', ['date' => $order->business_date->format('Y-m-d'), 'tab' => 'pending'])
+            ->with('success', 'Direct Purchase received into warehouse inventory.');
     }
 
     /**
@@ -796,5 +886,14 @@ class WarehouseReceiverController extends Controller
                 ]);
             }
         }
+    }
+
+    private function generateDirectPurchaseBatchReference(): string
+    {
+        do {
+            $reference = 'DP-'.now()->format('Ymd').'-'.strtoupper(bin2hex(random_bytes(2)));
+        } while (StockBatch::query()->where('reference', $reference)->exists());
+
+        return $reference;
     }
 }

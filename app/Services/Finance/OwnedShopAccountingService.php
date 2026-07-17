@@ -11,6 +11,7 @@ use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopAccountingInvoice;
 use App\Models\ShopCredit;
 use App\Models\ShopPettyCashExpense;
+use App\Models\ShopStaffPayment;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -315,12 +316,22 @@ class OwnedShopAccountingService
             ->with('amountChangedBy')
             ->orderBy('business_date')
             ->get();
+        $pettyPayrollPayments = ShopStaffPayment::query()
+            ->where('shop_id', $shop->id)
+            ->where('fund_source', 'petty_cash')
+            ->whereDate('paid_on', '<=', $endDate)
+            ->with('employee')
+            ->orderBy('paid_on')
+            ->orderBy('id')
+            ->get();
 
         $creditByDate = $pettyCredits->groupBy(fn (ShopCredit $credit): string => $credit->business_date?->toDateString() ?? today()->toDateString());
         $expenseByDate = $pettyExpenses->keyBy(fn (ShopPettyCashExpense $expense): string => $expense->business_date?->toDateString() ?? today()->toDateString());
+        $payrollPaymentByDate = $pettyPayrollPayments->groupBy(fn (ShopStaffPayment $payment): string => $payment->paid_on?->toDateString() ?? today()->toDateString());
 
         $allDates = $creditByDate->keys()
             ->merge($expenseByDate->keys())
+            ->merge($payrollPaymentByDate->keys())
             ->unique()
             ->sort()
             ->values();
@@ -345,7 +356,10 @@ class OwnedShopAccountingService
                 fn (ShopCredit $credit): float => $credit->type === 'in' ? (float) $credit->amount : (float) $credit->amount * -1
             ), 2);
             $expense = $expenseByDate->get($date);
-            $expenseAmount = $expense instanceof ShopPettyCashExpense ? round((float) $expense->amount, 2) : 0.0;
+            $payrollPayments = $payrollPaymentByDate->get($date, collect());
+            $manualExpenseAmount = $expense instanceof ShopPettyCashExpense ? round((float) $expense->amount, 2) : 0.0;
+            $payrollExpenseAmount = round((float) $payrollPayments->sum('amount'), 2);
+            $expenseAmount = round($manualExpenseAmount + $payrollExpenseAmount, 2);
 
             $runningBalance = round($runningBalance + $adminCash - $expenseAmount, 2);
 
@@ -356,14 +370,19 @@ class OwnedShopAccountingService
             $adminCashLabel = $dayCredits
                 ->map(fn (ShopCredit $credit): string => ($credit->creator?->name ?? 'Admin').' - Rs. '.number_format((float) $credit->amount, 2))
                 ->implode(', ');
+            $payrollPaymentLabel = $payrollPayments
+                ->map(fn (ShopStaffPayment $payment): string => str($payment->payment_type)->headline().' '.$payment->employee?->name.' - Rs. '.number_format((float) $payment->amount, 2))
+                ->implode(', ');
 
             $rows->push([
                 'date' => $date,
                 'admin_cash' => $adminCash,
                 'admin_cash_label' => $adminCashLabel,
                 'expense' => $expenseAmount,
-                'expense_source' => $expense instanceof ShopPettyCashExpense ? $expense->source : null,
+                'expense_source' => $payrollExpenseAmount > 0 ? 'salary' : ($expense instanceof ShopPettyCashExpense ? $expense->source : null),
                 'expense_updated_at' => $expense instanceof ShopPettyCashExpense ? $expense->updated_at : null,
+                'payroll_expense' => $payrollExpenseAmount,
+                'payroll_expense_label' => $payrollPaymentLabel,
                 'amount_change_label' => $expense instanceof ShopPettyCashExpense && $expense->previous_amount !== null && $expense->amount_changed_at !== null
                     ? sprintf(
                         'Changed from Rs. %s to Rs. %s on %s by %s for %s',

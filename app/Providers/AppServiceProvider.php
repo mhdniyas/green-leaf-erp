@@ -21,6 +21,7 @@ use App\Policies\SupplierPolicy;
 use App\Policies\UserPolicy;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
+use Spatie\Activitylog\Models\Activity;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -47,5 +48,20 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(User::class, UserPolicy::class);
 
         User::observe(UserObserver::class);
+
+        Activity::creating(function (Activity $activity): void {
+            if (app()->runningInConsole() && ! app()->environment('testing')) {
+                return;
+            }
+
+            $properties = $activity->properties?->toArray() ?? [];
+
+            $activity->properties = array_merge([
+                'ip_address' => request()->ip(),
+                'user_agent' => request()->userAgent(),
+                'method' => request()->method(),
+                'url' => request()->fullUrl(),
+            ], $properties);
+        });
     }
 }

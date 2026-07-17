@@ -260,6 +260,24 @@
                 </div>
             </section>
 
+            @php
+                $ledgerStatusTabs = [
+                    'draft' => 'Draft / Today',
+                    'submitted' => 'Submitted',
+                    'approved' => 'Approved',
+                    'recheck' => 'Recheck Required',
+                ];
+            @endphp
+            <section class="rounded-[2rem] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+                <div class="flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1">
+                    @foreach ($ledgerStatusTabs as $statusKey => $statusLabel)
+                        <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'ledger_status' => $statusKey, 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date'), 'ledger_source' => request('ledger_source')])) }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerStatusTab === $statusKey ? 'bg-slate-950 text-white' : 'text-slate-700 hover:bg-white' }}">
+                            {{ $statusLabel }}
+                        </a>
+                    @endforeach
+                </div>
+            </section>
+
             <section class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
                 <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
@@ -269,9 +287,14 @@
                             {{ $pettyCashBalance < 0 ? 'Petty cash pending' : 'Petty cash balance' }} Rs. {{ number_format(abs($pettyCashBalance), 2) }}
                         </p>
                     </div>
-                    <button type="button" id="petty-cash-open-modal" class="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800">
-                        Add Daily Petty Expense
-                    </button>
+                    <div class="flex flex-wrap gap-2">
+                        <button type="button" id="sales-petty-open-modal" class="inline-flex h-11 items-center justify-center rounded-2xl bg-emerald-600 px-4 text-sm font-black text-white transition hover:bg-emerald-500">
+                            Sales to Petty
+                        </button>
+                        <button type="button" id="petty-cash-open-modal" class="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">
+                            Petty Expense
+                        </button>
+                    </div>
                 </div>
 
                 <div class="mt-5 overflow-x-auto rounded-[1.5rem] border border-slate-200">
@@ -295,6 +318,9 @@
                                         Rs. {{ number_format((float) $pettyRow['expense'], 2) }}
                                         @if ($pettyRow['expense_source'])
                                             <span class="ml-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-slate-500">{{ $pettyRow['expense_source'] }}</span>
+                                        @endif
+                                        @if (! empty($pettyRow['payroll_expense_label']))
+                                            <span class="mt-1 block text-xs font-bold text-slate-500">{{ $pettyRow['payroll_expense_label'] }}</span>
                                         @endif
                                     </td>
                                     <td class="px-4 py-3 text-right font-black {{ (float) $pettyRow['balance'] >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format((float) $pettyRow['balance'], 2) }}</td>
@@ -348,11 +374,46 @@
                 </div>
             </div>
 
+            <div id="sales-petty-modal" class="fixed inset-0 z-[80] hidden overflow-y-auto bg-slate-950/50 px-4 py-8">
+                <div class="mx-auto w-full max-w-md rounded-[2rem] border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Petty Cash Credit</p>
+                            <h3 class="mt-2 text-xl font-black text-slate-950">Move sales income to petty cash</h3>
+                        </div>
+                        <button type="button" class="sales-petty-close inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-xl font-black text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">×</button>
+                    </div>
+
+                    <form method="POST" action="{{ route('shop-owner.accounting.sales-to-petty-cash.store') }}" class="mt-5 space-y-4">
+                        @csrf
+                        <label class="block">
+                            <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Date</span>
+                            <input type="date" name="business_date" value="{{ old('business_date', $selectedDate->format('Y-m-d')) }}" class="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                        </label>
+                        <label class="block">
+                            <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Amount</span>
+                            <input type="number" name="amount" step="0.01" min="0.01" class="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                        </label>
+                        <label class="block">
+                            <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Note</span>
+                            <input type="text" name="description" value="Sales income moved to petty cash" class="mt-2 h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                        </label>
+                        <div class="flex justify-end gap-3">
+                            <button type="button" class="sales-petty-close inline-flex h-11 items-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">Cancel</button>
+                            <button type="submit" class="inline-flex h-11 items-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">Save</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
             <script>
                 (() => {
                     const modal = document.getElementById('petty-cash-modal');
+                    const salesPettyModal = document.getElementById('sales-petty-modal');
                     const openButton = document.getElementById('petty-cash-open-modal');
+                    const salesPettyOpenButton = document.getElementById('sales-petty-open-modal');
                     const closeButtons = document.querySelectorAll('.petty-cash-close');
+                    const salesPettyCloseButtons = document.querySelectorAll('.sales-petty-close');
                     const rowEditButtons = document.querySelectorAll('.petty-cash-row-edit');
                     const dateInput = document.getElementById('petty-cash-date-input');
                     const amountInput = document.getElementById('petty-cash-amount-input');
@@ -369,6 +430,11 @@
                         document.body.classList.add('overflow-hidden');
                     });
 
+                    salesPettyOpenButton?.addEventListener('click', () => {
+                        salesPettyModal?.classList.remove('hidden');
+                        document.body.classList.add('overflow-hidden');
+                    });
+
                     rowEditButtons.forEach((button) => button.addEventListener('click', () => {
                         if (dateInput) {
                             dateInput.value = button.dataset.date ?? '';
@@ -382,6 +448,11 @@
 
                     closeButtons.forEach((button) => button.addEventListener('click', () => {
                         modal?.classList.add('hidden');
+                        document.body.classList.remove('overflow-hidden');
+                    }));
+
+                    salesPettyCloseButtons.forEach((button) => button.addEventListener('click', () => {
+                        salesPettyModal?.classList.add('hidden');
                         document.body.classList.remove('overflow-hidden');
                     }));
                 })();
@@ -446,7 +517,7 @@
                     @if ($hasEntry && $entry->status === 'approved')
                         <div class="mb-5 rounded-[1.5rem] border border-cyan-200 bg-cyan-50 px-4 py-4">
                             <p class="text-sm font-black text-cyan-950">This day is already approved.</p>
-                            <p class="mt-2 text-sm font-semibold text-cyan-900">You can still add or update items for {{ $selectedDate->format('d M Y') }}. Once submitted, accounting will review the updated ledger again.</p>
+                            <p class="mt-2 text-sm font-semibold text-cyan-900">Approved entries are read-only. Any new correction must be sent through the recheck workflow by accounting.</p>
                         </div>
                     @elseif ($hasEntry && $entry->status === 'submitted')
                         <div class="mb-5 rounded-[1.5rem] border border-amber-200 bg-amber-50 px-4 py-4">
@@ -455,6 +526,7 @@
                         </div>
                     @endif
 
+                    @if ($canEdit)
                     <form method="POST" action="{{ route('shop-owner.accounting.entries.store') }}" class="space-y-5">
                         @csrf
                         <input type="hidden" name="business_date" value="{{ $selectedDate->format('Y-m-d') }}">
@@ -531,6 +603,50 @@
                             </button>
                         </div>
                     </form>
+                    @elseif ($hasEntry)
+                        <div class="space-y-4">
+                            <div class="grid gap-4 md:grid-cols-3">
+                                <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+                                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Opening Cash</p>
+                                    <p class="mt-2 text-lg font-black text-slate-950">Rs. {{ number_format((float) $entry->opening_cash, 2) }}</p>
+                                </div>
+                                <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+                                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Closing Cash</p>
+                                    <p class="mt-2 text-lg font-black text-slate-950">Rs. {{ number_format((float) $entry->closing_cash, 2) }}</p>
+                                </div>
+                                <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+                                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Approved By</p>
+                                    <p class="mt-2 text-sm font-black text-slate-950">{{ $entry->reviewedBy?->name ?? 'Accounting' }}</p>
+                                    <p class="mt-1 text-xs font-semibold text-slate-500">{{ $entry->reviewed_at?->format('d M Y h:i A') }}</p>
+                                </div>
+                            </div>
+
+                            <div class="overflow-x-auto rounded-[1.5rem] border border-slate-200">
+                                <table class="min-w-full text-left text-sm">
+                                    <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                                        <tr>
+                                            <th class="px-4 py-3">Type</th>
+                                            <th class="px-4 py-3">Category</th>
+                                            <th class="px-4 py-3">Notes</th>
+                                            <th class="px-4 py-3 text-right">Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100">
+                                        @foreach ($entry->lines as $line)
+                                            <tr>
+                                                <td class="px-4 py-3">
+                                                    <span class="inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] {{ $line->type === 'income' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700' }}">{{ $line->type }}</span>
+                                                </td>
+                                                <td class="px-4 py-3 font-black text-slate-950">{{ $line->category?->name ?? 'Category removed' }}</td>
+                                                <td class="px-4 py-3 font-semibold text-slate-600">{{ $line->description ?: 'No note added' }}</td>
+                                                <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $line->amount, 2) }}</td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    @endif
                 </article>
 
                 <article class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
@@ -627,10 +743,10 @@
                     </div>
                     <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
                         <div class="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
-                            <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date')])) }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerSourceFilter === 'all' ? 'bg-slate-950 text-white' : 'text-slate-700 hover:bg-white' }}">
+                            <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'ledger_status' => $ledgerStatusTab, 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date')])) }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerSourceFilter === 'all' ? 'bg-slate-950 text-white' : 'text-slate-700 hover:bg-white' }}">
                                 All
                             </a>
-                            <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date'), 'ledger_source' => 'greenleaf_direct'])) }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerSourceFilter === 'greenleaf_direct' ? 'bg-cyan-600 text-white' : 'text-cyan-700 hover:bg-white' }}">
+                            <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'ledger_status' => $ledgerStatusTab, 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date'), 'ledger_source' => 'greenleaf_direct'])) }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerSourceFilter === 'greenleaf_direct' ? 'bg-cyan-600 text-white' : 'text-cyan-700 hover:bg-white' }}">
                                 GreenLeaf Direct
                             </a>
                         </div>
@@ -663,7 +779,7 @@
                                 @endphp
                                 <tr class="transition hover:bg-slate-50">
                                     <td class="px-4 py-3">
-                                        <a href="{{ route('shop-owner.accounting.index', ['tab' => 'cashbook', 'date' => $ledgerEntry->business_date->format('Y-m-d'), 'start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}" class="font-black text-slate-950">
+                                        <a href="{{ route('shop-owner.accounting.index', ['tab' => 'cashbook', 'ledger_status' => $ledgerStatusTab, 'date' => $ledgerEntry->business_date->format('Y-m-d'), 'start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}" class="font-black text-slate-950">
                                             {{ $ledgerEntry->business_date->format('d M Y') }}
                                         </a>
                                     </td>

@@ -8,22 +8,22 @@
         $entryExpenseTotal = $hasEntry ? (float) $entry->lines->where('type', 'expense')->sum('amount') : 0.0;
     @endphp
 
-    <div class="mx-auto max-w-7xl space-y-6">
-        <section class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-            <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+    <div class="mx-auto max-w-7xl space-y-5">
+        <section class="rounded-3xl border border-slate-200 bg-white px-4 py-4 shadow-[0_12px_34px_rgba(15,23,42,0.05)] sm:px-6 sm:py-5">
+            <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                 <div>
-                    <p class="text-[10px] font-black uppercase tracking-[0.26em] text-slate-400">Owned Shop Accounting</p>
-                    <h1 class="mt-2 text-2xl font-black tracking-tight text-slate-950">{{ $shop->name }}</h1>
-                    <p class="mt-2 text-sm font-semibold text-slate-600">{{ $shop->code }} • {{ ucfirst($shop->accounting_mode) }} accounting workflow.</p>
+                    <p class="text-[11px] font-semibold uppercase text-slate-400">Owned Shop Accounting</p>
+                    <h1 class="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{{ $shop->name }}</h1>
+                    <p class="mt-2 text-sm font-medium text-slate-500">{{ $shop->code }} • {{ ucfirst($shop->accounting_mode) }} accounting workflow.</p>
                 </div>
 
-                <form method="GET" action="{{ route('admin.accounting.owned-shops.show', $shop) }}" class="flex flex-wrap items-center gap-2 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-2">
+                <form method="GET" action="{{ route('admin.accounting.owned-shops.show', $shop) }}" class="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2">
                     <input type="hidden" name="tab" value="{{ $tab }}">
-                    <label class="rounded-2xl bg-white px-4 py-2 text-slate-900 shadow-sm">
-                        <span class="block text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Business Date</span>
-                        <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" onchange="this.form.submit()" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
+                    <label class="rounded-xl bg-white px-4 py-2 text-slate-900 shadow-sm">
+                        <span class="block text-[10px] font-semibold uppercase text-slate-400">Business Date</span>
+                        <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" onchange="this.form.submit()" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-semibold focus:outline-none focus:ring-0">
                     </label>
-                    <a href="{{ route('admin.accounting.owned-shops.index') }}" class="inline-flex h-11 items-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-100">
+                    <a href="{{ route('admin.accounting.owned-shops.index') }}" class="inline-flex h-11 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-950">
                         All Shops
                     </a>
                 </form>
@@ -359,6 +359,76 @@
         @endif
 
         @if ($tab === 'cashbook')
+            @php
+                $approvalTabs = [
+                    'pending' => ['label' => 'Pending Approval', 'empty' => 'No new entries waiting for approval.'],
+                    'approved' => ['label' => 'Approved', 'empty' => 'No approved entries in this period.'],
+                    'recheck' => ['label' => 'Recheck Required', 'empty' => 'No entries waiting for shop correction.'],
+                ];
+                $selectedApprovalEntryIsVisible = $hasEntry && match ($approvalTab) {
+                    'approved' => $entry->status === 'approved',
+                    'recheck' => $entry->status === 'recheck_required',
+                    default => $entry->status === 'submitted',
+                };
+            @endphp
+
+            <section class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                        <p class="text-[11px] font-semibold uppercase text-slate-400">Admin Approval</p>
+                        <h2 class="mt-1 text-xl font-semibold text-slate-950">Shop entry workflow</h2>
+                    </div>
+                    <div class="flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1">
+                        @foreach ($approvalTabs as $approvalKey => $approvalMeta)
+                            <a href="{{ route('admin.accounting.owned-shops.show', ['shop' => $shop, 'tab' => 'cashbook', 'approval_tab' => $approvalKey, 'date' => $selectedDate->format('Y-m-d'), 'start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}" class="{{ $approvalTab === $approvalKey ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-900' }} inline-flex h-10 items-center rounded-xl px-4 text-sm font-semibold transition">
+                                {{ $approvalMeta['label'] }}
+                            </a>
+                        @endforeach
+                    </div>
+                </div>
+
+                <div class="mt-4 space-y-3">
+                    @if ($selectedApprovalEntryIsVisible)
+                        @include('admin.accounting.owned_shops.partials.admin-approval')
+                    @endif
+
+                    @forelse ($approvalEntries as $workflowEntry)
+                        @continue($selectedApprovalEntryIsVisible && $workflowEntry->is($entry))
+                        @php
+                            $workflowIncome = round((float) $workflowEntry->lines->where('type', 'income')->sum('amount'), 2);
+                            $workflowExpense = round((float) $workflowEntry->lines->where('type', 'expense')->sum('amount'), 2);
+                        @endphp
+                        <a href="{{ route('admin.accounting.owned-shops.show', ['shop' => $shop, 'tab' => 'cashbook', 'approval_tab' => $approvalTab, 'date' => $workflowEntry->business_date->format('Y-m-d'), 'start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}" class="block rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:border-emerald-200 hover:bg-emerald-50">
+                            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <p class="text-sm font-semibold text-slate-950">{{ $workflowEntry->business_date->format('d M Y') }}</p>
+                                        <span class="rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase {{ $workflowEntry->statusTone() === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($workflowEntry->statusTone() === 'danger' ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700') }}">{{ $workflowEntry->statusLabel() }}</span>
+                                    </div>
+                                    <p class="mt-2 text-sm font-medium text-slate-600">
+                                        Income Rs. {{ number_format($workflowIncome, 2) }} / Expense Rs. {{ number_format($workflowExpense, 2) }}
+                                    </p>
+                                    @if ($workflowEntry->admin_note)
+                                        <p class="mt-2 text-sm font-medium text-slate-500">{{ $workflowEntry->admin_note }}</p>
+                                    @endif
+                                </div>
+                                <p class="text-sm font-semibold text-slate-950">Rs. {{ number_format($workflowIncome - $workflowExpense, 2) }}</p>
+                            </div>
+                        </a>
+                    @empty
+                        @unless ($selectedApprovalEntryIsVisible)
+                            <div class="rounded-2xl border border-dashed border-slate-300 p-6 text-center text-sm font-semibold text-slate-500">
+                                {{ $approvalTabs[$approvalTab]['empty'] }}
+                            </div>
+                        @endunless
+                    @endforelse
+                </div>
+
+                @if ($approvalEntries->hasPages())
+                    <div class="mt-4">{{ $approvalEntries->withQueryString()->links() }}</div>
+                @endif
+            </section>
+
         <section class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
                 <div class="grid gap-4 lg:grid-cols-4">
                     <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
@@ -394,44 +464,6 @@
                 </div>
 
                 <section id="owned-shop-cash-movements" class="mt-6 grid gap-6">
-                    <form method="POST" action="{{ route('admin.accounting.owned-shops.credits.store', $shop) }}" class="rounded-[1.25rem] border border-emerald-200 bg-emerald-50 p-4">
-                        @csrf
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Shop Cash Movement</p>
-                        <h3 class="mt-2 text-lg font-black text-slate-950">Add shop cash</h3>
-                        <p class="mt-1 text-sm font-semibold text-emerald-900">Cash given to shop is an accounting expense. Cash received from shop is accounting income.</p>
-                        <div class="mt-4 grid gap-3">
-                            <label>
-                                <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Movement Type</span>
-                                <select name="type" class="h-11 w-full rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
-                                    <option value="in" @selected(old('type', 'in') === 'in')>Cash Given to Shop - Expense</option>
-                                    <option value="out" @selected(old('type') === 'out')>Cash Received from Shop - Income</option>
-                                </select>
-                            </label>
-                            <label>
-                                <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Amount</span>
-                                <input type="number" step="0.01" min="0.01" name="amount" value="{{ old('amount') }}" class="h-11 w-full rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
-                            </label>
-                            <label>
-                                <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Movement Date</span>
-                                <input type="date" name="business_date" value="{{ old('business_date', $selectedDate->format('Y-m-d')) }}" class="h-11 w-full rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
-                            </label>
-                            <label class="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-white px-4 py-3">
-                                <input type="checkbox" name="is_petty_cash" value="1" @checked(old('is_petty_cash')) class="mt-1 h-4 w-4 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500">
-                                <span>
-                                    <span class="block text-sm font-black text-slate-950">Petty Cash</span>
-                                    <span class="mt-1 block text-xs font-semibold text-slate-500">Show this movement in the petty cash table.</span>
-                                </span>
-                            </label>
-                            <label>
-                                <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Description</span>
-                                <input type="text" name="description" value="{{ old('description') }}" placeholder="Cash given to shop or received from shop" class="h-11 w-full rounded-2xl border border-emerald-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
-                            </label>
-                        </div>
-                        <button type="submit" class="mt-4 inline-flex h-11 w-full items-center justify-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
-                            Add Shop Cash Movement
-                        </button>
-                    </form>
-
                     <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
                         <div class="flex items-center justify-between gap-3">
                             <div>
@@ -441,7 +473,12 @@
                             @php
                                 $shopCashTotal = (float) $shopCredits->sum(fn ($credit) => $credit->signedAccountingAmount());
                             @endphp
-                            <p class="text-sm font-black {{ $shopCashTotal >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format($shopCashTotal, 2) }}</p>
+                            <div class="flex flex-wrap items-center justify-end gap-2">
+                                <p class="text-sm font-black {{ $shopCashTotal >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format($shopCashTotal, 2) }}</p>
+                                <button type="button" id="shop-cash-open-modal" class="inline-flex h-10 items-center rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white transition hover:bg-emerald-500">
+                                    Add shop cash
+                                </button>
+                            </div>
                         </div>
                         <div class="mt-4 overflow-x-auto rounded-[1rem] border border-slate-200 bg-white">
                             <table class="min-w-full text-left text-sm">
@@ -511,90 +548,6 @@
                             </div>
                         </div>
 
-                        <form method="POST" action="{{ route('admin.accounting.owned-shops.entries.review', ['shop' => $shop, 'entry' => $entry]) }}" class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                            @csrf
-                            @method('PATCH')
-                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Admin Approval</p>
-                            <div class="mt-3 rounded-[1rem] border border-slate-200 bg-white p-3">
-                                <div class="flex items-center justify-between gap-3">
-                                    <p class="text-sm font-black text-slate-950">Request details</p>
-                                    <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">{{ $entry->lines->count() }} item{{ $entry->lines->count() === 1 ? '' : 's' }}</p>
-                                </div>
-                                <p class="mt-2 text-xs font-semibold text-slate-500">Approve all at once, or review each item separately when some lines need recheck.</p>
-                                <div class="mt-3 space-y-2">
-                                    @foreach ($entry->lines as $line)
-                                        <div class="rounded-[0.95rem] border border-slate-200 bg-slate-50 px-3 py-3">
-                                            <div class="flex items-start justify-between gap-3">
-                                                <div class="min-w-0">
-                                                    <div class="flex flex-wrap items-center gap-2">
-                                                        <span class="inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] {{ $line->type === 'income' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700' }}">
-                                                            {{ $line->type }}
-                                                        </span>
-                                                        <span class="text-sm font-black text-slate-950">{{ $line->category?->name ?? 'Category removed' }}</span>
-                                                        <span class="inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] {{ $line->reviewStatusTone() === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($line->reviewStatusTone() === 'danger' ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700') }}">
-                                                            {{ $line->reviewStatusLabel() }}
-                                                        </span>
-                                                    </div>
-                                                    <p class="mt-2 text-sm font-semibold text-slate-600">{{ $line->description ?: 'No note added' }}</p>
-                                                </div>
-                                                <p class="shrink-0 text-sm font-black text-slate-950">Rs. {{ number_format((float) $line->amount, 2) }}</p>
-                                            </div>
-                                            <div class="mt-3 flex flex-wrap items-center gap-2">
-                                                <button
-                                                    type="button"
-                                                    class="line-review-open inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-600 text-white transition hover:bg-emerald-500"
-                                                    data-line-id="{{ $line->id }}"
-                                                    data-line-action="approve"
-                                                    data-line-title="Approve This Item"
-                                                    data-line-label="{{ $line->category?->name ?? 'Category removed' }}"
-                                                    data-line-description="{{ $line->description ?: 'No note added' }}"
-                                                >
-                                                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.7">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" d="m5 13 4 4L19 7" />
-                                                    </svg>
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    class="line-review-open inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-red-600 text-white transition hover:bg-red-500"
-                                                    data-line-id="{{ $line->id }}"
-                                                    data-line-action="recheck"
-                                                    data-line-title="Send Item For Recheck"
-                                                    data-line-label="{{ $line->category?->name ?? 'Category removed' }}"
-                                                    data-line-description="{{ $line->description ?: 'No note added' }}"
-                                                >
-                                                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.7">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6 6 18" />
-                                                    </svg>
-                                                </button>
-                                                <span class="text-xs font-semibold text-slate-500">Use the tick to approve this line or X to send only this item for recheck.</span>
-                                            </div>
-                                        </div>
-                                    @endforeach
-                                </div>
-                                <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                                    <div class="rounded-[0.95rem] border border-emerald-200 bg-emerald-50 px-3 py-3">
-                                        <p class="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">Income Total</p>
-                                        <p class="mt-1 text-sm font-black text-emerald-900">Rs. {{ number_format($entryIncomeTotal, 2) }}</p>
-                                    </div>
-                                    <div class="rounded-[0.95rem] border border-amber-200 bg-amber-50 px-3 py-3">
-                                        <p class="text-[10px] font-black uppercase tracking-[0.14em] text-amber-700">Expense Total</p>
-                                        <p class="mt-1 text-sm font-black text-amber-900">Rs. {{ number_format($entryExpenseTotal, 2) }}</p>
-                                    </div>
-                                </div>
-                            </div>
-                            <textarea name="admin_note" rows="4" class="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none" placeholder="Add a note when approval or recheck needs context.">{{ old('admin_note', $entry->admin_note) }}</textarea>
-                            <div class="mt-4 flex flex-col gap-3 sm:flex-row">
-                                <button type="button" id="approve-entry-open-modal" class="inline-flex h-11 items-center justify-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
-                                    Approve All Items
-                                </button>
-                                <button type="submit" name="decision" value="recheck" class="inline-flex h-11 items-center justify-center rounded-2xl bg-red-600 px-5 text-sm font-black text-white transition hover:bg-red-500">
-                                    Send Recheck
-                                </button>
-                                <button type="button" id="review-details-open-modal" class="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-800 transition hover:bg-slate-50">
-                                    View Request
-                                </button>
-                            </div>
-                        </form>
                     </div>
 
                     <div class="mt-4 rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
@@ -740,6 +693,64 @@
                 </table>
             </div>
         </section>
+
+        <div id="shop-cash-modal" class="hidden fixed inset-0 z-[70]">
+            <div class="shop-cash-modal-overlay absolute inset-0 bg-slate-950/50 backdrop-blur-sm"></div>
+            <div class="relative flex min-h-full items-center justify-center p-4">
+                <div class="w-full max-w-lg rounded-[2rem] border border-slate-200 bg-white shadow-[0_30px_80px_rgba(15,23,42,0.22)]">
+                    <div class="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-700">Shop Cash Movement</p>
+                            <h2 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Add shop cash</h2>
+                            <p class="mt-2 text-sm font-semibold text-slate-500">Cash given to shop is an accounting expense. Cash received from shop is accounting income.</p>
+                        </div>
+                        <button type="button" class="shop-cash-modal-close inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">
+                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <form method="POST" action="{{ route('admin.accounting.owned-shops.credits.store', $shop) }}" class="space-y-4 px-6 py-6">
+                        @csrf
+                        <label>
+                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Movement Type</span>
+                            <select name="type" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                                <option value="in" @selected(old('type', 'in') === 'in')>Cash Given to Shop - Expense</option>
+                                <option value="out" @selected(old('type') === 'out')>Cash Received from Shop - Income</option>
+                            </select>
+                        </label>
+                        <label>
+                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Amount</span>
+                            <input type="number" step="0.01" min="0.01" name="amount" value="{{ old('amount') }}" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                        </label>
+                        <label>
+                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Movement Date</span>
+                            <input type="date" name="business_date" value="{{ old('business_date', $selectedDate->format('Y-m-d')) }}" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                        </label>
+                        <label class="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                            <input type="checkbox" name="is_petty_cash" value="1" @checked(old('is_petty_cash')) class="mt-1 h-4 w-4 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500">
+                            <span>
+                                <span class="block text-sm font-black text-slate-950">Petty Cash</span>
+                                <span class="mt-1 block text-xs font-semibold text-slate-500">Show this movement in the petty cash table.</span>
+                            </span>
+                        </label>
+                        <label>
+                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Description</span>
+                            <input type="text" name="description" value="{{ old('description') }}" placeholder="Cash given to shop or received from shop" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                        </label>
+                        <div class="flex justify-end gap-3 pt-2">
+                            <button type="button" class="shop-cash-modal-close inline-flex h-11 items-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
+                                Cancel
+                            </button>
+                            <button type="submit" class="inline-flex h-11 items-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
+                                Add shop cash
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
 
         <div id="ownership-modal" class="hidden fixed inset-0 z-[70]">
             <div class="ownership-modal-overlay absolute inset-0 bg-slate-950/50 backdrop-blur-sm"></div>
@@ -995,6 +1006,7 @@
                 };
 
                 bindModal('ownership-open-modal', 'ownership-modal', '.ownership-modal-close', {{ $errors->has('ownerships') ? 'true' : 'false' }});
+                bindModal('shop-cash-open-modal', 'shop-cash-modal', '.shop-cash-modal-close', {{ $errors->has('type') || $errors->has('amount') || $errors->has('description') ? 'true' : 'false' }});
                 bindModal('daily-entry-open-modal', 'daily-entry-modal', '.daily-entry-modal-close', {{ $errors->has('lines') || $errors->has('business_date') ? 'true' : 'false' }});
                 bindModal('approve-entry-open-modal', 'approve-entry-modal', '.approve-entry-modal-close');
                 bindModal('review-details-open-modal', 'approve-entry-modal', '.approve-entry-modal-close');

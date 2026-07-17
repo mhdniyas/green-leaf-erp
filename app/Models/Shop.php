@@ -108,6 +108,26 @@ class Shop extends Model
         return $this->hasMany(ShopPettyCashExpense::class);
     }
 
+    public function payrollPayments(): HasMany
+    {
+        return $this->hasMany(PayrollPayment::class);
+    }
+
+    public function shopStaffPayments(): HasMany
+    {
+        return $this->hasMany(ShopStaffPayment::class);
+    }
+
+    public function advanceRequests(): HasMany
+    {
+        return $this->hasMany(EmployeeAdvanceRequest::class);
+    }
+
+    public function contractWorkerPayments(): HasMany
+    {
+        return $this->hasMany(ContractWorkerPayment::class);
+    }
+
     public function latestAccountingEntry(): HasOne
     {
         return $this->hasOne(ShopAccountingEntry::class)->latestOfMany('updated_at');
@@ -136,6 +156,7 @@ class Shop extends Model
     public function assignedEmployees(): BelongsToMany
     {
         return $this->belongsToMany(Employee::class, 'shop_employee_assignments')
+            ->withPivot(['effective_from', 'effective_to', 'status', 'notes', 'assigned_by'])
             ->withTimestamps();
     }
 

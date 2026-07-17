@@ -9,6 +9,11 @@ use App\Models\User;
 
 class GoodsReceivedPolicy
 {
+    public function before(User $user, string $ability): ?bool
+    {
+        return $user->hasRole('admin') ? true : null;
+    }
+
     public function viewAny(User $user): bool
     {
         return $user->can('purchasing.grn.view') || $user->can('warehouse.receive.view');

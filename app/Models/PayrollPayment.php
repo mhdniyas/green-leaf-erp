@@ -18,18 +18,22 @@ class PayrollPayment extends Model
         'payroll_run_id',
         'payroll_run_item_id',
         'employee_id',
+        'shop_id',
         'journal_entry_id',
+        'employee_advance_request_id',
         'paid_by',
         'paid_on',
         'amount',
         'payment_method',
         'payment_type',
+        'fund_source',
         'notes',
     ];
 
     protected $attributes = [
         'payment_method' => 'cash',
         'payment_type' => 'partial',
+        'fund_source' => 'company_cash',
     ];
 
     protected function casts(): array
@@ -55,6 +59,11 @@ class PayrollPayment extends Model
         return $this->belongsTo(Employee::class);
     }
 
+    public function shop(): BelongsTo
+    {
+        return $this->belongsTo(Shop::class);
+    }
+
     public function journalEntry(): BelongsTo
     {
         return $this->belongsTo(JournalEntry::class);
@@ -63,5 +72,10 @@ class PayrollPayment extends Model
     public function paidBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'paid_by');
+    }
+
+    public function advanceRequest(): BelongsTo
+    {
+        return $this->belongsTo(EmployeeAdvanceRequest::class, 'employee_advance_request_id');
     }
 }

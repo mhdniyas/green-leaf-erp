@@ -274,6 +274,13 @@
             'badge' => $wrLoadoutCount,
             'type' => 'link',
         ],
+        [
+            'label' => 'Sort',
+            'route' => 'sort-sheet.index',
+            'active' => request()->routeIs('sort-sheet.*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5m-16.5 5.25h16.5m-16.5 5.25h16.5" /></svg>',
+            'type' => 'link',
+        ],
     ];
     $showMobileBottomNav = $showAdminMobileNav || $showStaffMobileNav || $showPurchaseMobileNav || $showPurchaserMobileNav || $showWarehouseReceiverMobileNav;
 @endphp
@@ -283,31 +290,31 @@
     {{-- ── Sidebar ─────────────────────────────────────────────── --}}
     <aside
         id="sidebar"
-        class="fixed inset-y-0 left-0 z-50 flex w-72 flex-col bg-slate-950 text-white transition-transform duration-300 lg:translate-x-0 -translate-x-full"
+        class="fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-slate-200 bg-white text-slate-900 shadow-sm transition-transform duration-300 lg:translate-x-0 -translate-x-full"
         aria-label="Sidebar navigation"
     >
         {{-- Logo --}}
-        <div class="border-b border-white/10 px-6 py-6">
+        <div class="border-b border-slate-200 px-6 py-6">
             <div class="flex items-center gap-3">
-                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-cyan-400 text-slate-950 shadow-sm">
+                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-cyan-500 text-white shadow-sm">
                     <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2.2" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m8.25-9H21M3 12h.75m13.364 6.364.53.53M6.106 6.106l.53.53m10.728-.53-.53.53M6.106 17.894l-.53.53M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
                     </svg>
                 </div>
                 <div class="min-w-0">
-                    <p class="truncate text-sm font-black leading-none text-white">Green Leaf Traders</p>
-                    <p class="mt-1 text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300">Operations Hub</p>
+                    <p class="truncate text-sm font-black leading-none text-slate-950">Green Leaf ERP</p>
+                    <p class="mt-1 text-[10px] font-black uppercase tracking-[0.2em] text-cyan-700">Workspace</p>
                 </div>
-                <button id="sidebar-close" class="ml-auto text-slate-400 transition hover:text-white lg:hidden">
+                <button id="sidebar-close" class="ml-auto rounded-2xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 lg:hidden">
                     <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                 </button>
             </div>
-            <div class="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+            <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                 <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Signed In</p>
-                <p class="mt-1 truncate text-sm font-bold text-white">{{ auth()->user()->name }}</p>
-                <p class="mt-1 truncate text-xs text-slate-400">{{ auth()->user()->email }}</p>
+                <p class="mt-1 truncate text-sm font-bold text-slate-950">{{ auth()->user()->name }}</p>
+                <p class="mt-1 truncate text-xs text-slate-500">{{ auth()->user()->email }}</p>
             </div>
         </div>
 
@@ -329,7 +336,7 @@
                 <div class="sidebar-group space-y-1">
                     <button
                         type="button"
-                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isAdminPurchaseFlowActive ? 'bg-white/5 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}"
+                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isAdminPurchaseFlowActive ? 'bg-cyan-50 text-cyan-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}"
                         aria-expanded="{{ $isAdminPurchaseFlowActive ? 'true' : 'false' }}"
                     >
                         <span class="flex items-center gap-3">
@@ -419,12 +426,12 @@
                 </div>
             @elseif(auth()->user()->hasRole('warehouse_receiver'))
                 @php
-                    $isWarehouseReceiverActive = request()->routeIs('warehouse.receiver.*') || request()->routeIs('warehouse.loadout.*');
+                    $isWarehouseReceiverActive = request()->routeIs('warehouse.receiver.*') || request()->routeIs('warehouse.loadout.*') || request()->routeIs('sort-sheet.*');
                 @endphp
                 <div class="sidebar-group space-y-1">
                     <button
                         type="button"
-                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isWarehouseReceiverActive ? 'bg-white/5 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}"
+                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isWarehouseReceiverActive ? 'bg-cyan-50 text-cyan-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}"
                         aria-expanded="{{ $isWarehouseReceiverActive ? 'true' : 'false' }}"
                     >
                         <span class="flex items-center gap-3">
@@ -446,6 +453,9 @@
                         </x-nav-item>
                         <x-nav-item href="{{ route('warehouse.loadout.index') }}" :active="request()->routeIs('warehouse.loadout.*')" :sub="true">
                             Loadout
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('sort-sheet.index') }}" :active="request()->routeIs('sort-sheet.*')" :sub="true">
+                            Sort Sheet
                         </x-nav-item>
                     </div>
                 </div>
@@ -500,7 +510,7 @@
                 <div class="sidebar-group space-y-1">
                     <button
                         type="button"
-                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isSalesActive ? 'bg-white/5 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}"
+                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isSalesActive ? 'bg-cyan-50 text-cyan-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}"
                         aria-expanded="{{ $isSalesActive ? 'true' : 'false' }}"
                     >
                         <span class="flex items-center gap-3">
@@ -546,7 +556,7 @@
                 <div class="sidebar-group space-y-1">
                     <button
                         type="button"
-                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isAdminActive ? 'bg-white/5 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white' }}"
+                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isAdminActive ? 'bg-cyan-50 text-cyan-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}"
                         aria-expanded="{{ $isAdminActive ? 'true' : 'false' }}"
                     >
                         <span class="flex items-center gap-3">
@@ -598,18 +608,18 @@
         </nav>
 
         {{-- User footer --}}
-        <div class="border-t border-white/10 px-4 py-4">
-            <div class="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
-                <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-800">
-                    <span class="text-xs font-bold text-cyan-300">{{ strtoupper(substr(auth()->user()->name, 0, 1)) }}</span>
+        <div class="border-t border-slate-200 px-4 py-4">
+            <div class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cyan-50">
+                    <span class="text-xs font-bold text-cyan-700">{{ strtoupper(substr(auth()->user()->name, 0, 1)) }}</span>
                 </div>
                 <div class="min-w-0 flex-1">
-                    <p class="truncate text-xs font-semibold text-white">{{ auth()->user()->name }}</p>
-                    <p class="truncate text-[10px] text-slate-400">{{ auth()->user()->email }}</p>
+                    <p class="truncate text-xs font-semibold text-slate-950">{{ auth()->user()->name }}</p>
+                    <p class="truncate text-[10px] text-slate-500">{{ auth()->user()->email }}</p>
                 </div>
                 <form method="POST" action="{{ route('logout') }}">
                     @csrf
-                    <button type="submit" title="Sign out" class="rounded-xl p-2 text-slate-400 transition hover:bg-white/5 hover:text-white">
+                    <button type="submit" title="Sign out" class="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
                         </svg>

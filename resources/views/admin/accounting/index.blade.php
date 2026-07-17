@@ -152,44 +152,7 @@
             </div>
         </section>
 
-        <section class="grid gap-5 2xl:grid-cols-[1.55fr_0.95fr]">
-            <article class="rounded-[1.9rem] border border-slate-200 bg-white p-5 shadow-sm">
-                <div class="flex flex-col gap-4 border-b border-slate-100 pb-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                        <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Purchasing Dashboard</p>
-                        <h3 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Purchasing workflow moved out of admin</h3>
-                        <p class="mt-2 text-sm font-semibold leading-6 text-slate-600">Approve shop orders, daily price board, shop invoices, purchase orders, goods receipts, and supplier bills now live in the dedicated purchasing dashboard.</p>
-                    </div>
-
-                    <a href="{{ route('purchasing.dashboard') }}" class="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-4 text-xs font-black uppercase tracking-[0.18em] text-white transition hover:bg-slate-800">
-                        Open Purchasing Dashboard
-                    </a>
-                </div>
-
-                <div class="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5">
-                    <div class="grid gap-4 md:grid-cols-2">
-                        @foreach([
-                            'Approve Shop Orders',
-                            'Approved Board',
-                            'Daily Price Board',
-                            'Shop Price Categories',
-                            'Shop Daily Invoices',
-                            'Purchase Orders',
-                            'Goods Receipts',
-                            'Supplier Bills',
-                        ] as $purchasingArea)
-                            <div class="rounded-[1.2rem] border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700">
-                                {{ $purchasingArea }}
-                            </div>
-                        @endforeach
-                    </div>
-
-                    <p class="mt-4 text-sm font-semibold leading-6 text-slate-600">
-                        Admin accounting no longer generates or manages purchasing records from this screen.
-                    </p>
-                </div>
-            </article>
-
+        <section>
             <article class="rounded-[1.9rem] border border-slate-200 bg-white p-5 shadow-sm">
                 <div class="flex items-center justify-between gap-3">
                     <div>

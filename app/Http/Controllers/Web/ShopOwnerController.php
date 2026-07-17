@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Web\ShopOwner\StoreSalesToPettyCashRequest;
 use App\Http\Requests\Web\ShopOwner\StoreShopInvoicePaymentRequest;
 use App\Http\Requests\Web\ShopOwner\StoreShopOwnerAccountingEntryRequest;
 use App\Http\Requests\Web\ShopOwner\StoreShopPettyCashExpenseRequest;
@@ -168,6 +169,15 @@ class ShopOwnerController extends Controller
         $ledgerSourceFilter = in_array($request->input('ledger_source'), ['greenleaf_direct'], true)
             ? (string) $request->input('ledger_source')
             : 'all';
+        $ledgerStatusTab = in_array((string) $request->input('ledger_status', 'draft'), ['draft', 'submitted', 'approved', 'recheck'], true)
+            ? (string) $request->input('ledger_status', 'draft')
+            : 'draft';
+        $ledgerStatus = match ($ledgerStatusTab) {
+            'submitted' => 'submitted',
+            'approved' => 'approved',
+            'recheck' => 'recheck_required',
+            default => 'draft',
+        };
         [$startDate, $endDate] = $this->dateRangeFromRequest($request, $selectedDate);
         $invoices = ShopInvoice::query()
             ->where('shop_id', $shop->id)
@@ -222,6 +232,7 @@ class ShopOwnerController extends Controller
             $ledgerEntries = ShopAccountingEntry::query()
                 ->where('shop_id', $shop->id)
                 ->with(['lines.category', 'submittedBy', 'reviewedBy'])
+                ->where('status', $ledgerStatus)
                 ->when($ledgerDateFilterActive, fn ($query) => $query
                     ->whereDate('business_date', '>=', $startDate)
                     ->whereDate('business_date', '<=', $endDate))
@@ -312,6 +323,7 @@ class ShopOwnerController extends Controller
             'reserveAmount' => round((float) ($shop->reserve_amount ?? 0), 2),
             'ledgerDateFilterActive' => $ledgerDateFilterActive,
             'ledgerSourceFilter' => $ledgerSourceFilter,
+            'ledgerStatusTab' => $ledgerStatusTab,
         ]);
     }
 
@@ -424,6 +436,31 @@ class ShopOwnerController extends Controller
             'tab' => 'cashbook',
             'date' => $businessDate->toDateString(),
         ])->with('success', 'Petty cash expense updated for '.$businessDate->format('d M Y').'.');
+    }
+
+    public function storeSalesToPettyCash(StoreSalesToPettyCashRequest $request): RedirectResponse
+    {
+        $user = $this->shopUser($request);
+        $shop = $this->ownedAccountingShop($request);
+        $validated = $request->validated();
+        $businessDate = Carbon::parse($validated['business_date']);
+
+        ShopCredit::query()->create([
+            'shop_id' => $shop->id,
+            'type' => 'in',
+            'is_petty_cash' => true,
+            'amount' => round((float) $validated['amount'], 2),
+            'description' => filled($validated['description'] ?? null)
+                ? trim((string) $validated['description'])
+                : 'Sales income moved to petty cash',
+            'created_by' => $user->id,
+            'business_date' => $businessDate->toDateString(),
+        ]);
+
+        return redirect()->route('shop-owner.accounting.index', [
+            'tab' => 'cashbook',
+            'date' => $businessDate->toDateString(),
+        ])->with('success', 'Sales income moved to petty cash.');
     }
 
     public function storePaymentRequest(StoreShopInvoicePaymentRequest $request): RedirectResponse

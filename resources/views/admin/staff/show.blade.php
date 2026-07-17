@@ -38,7 +38,9 @@
 
         <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
             @foreach([
-                'Salary' => 'Rs. '.number_format((float) $employee->monthly_salary, 2),
+                'Salary' => $employee->salary_type === 'daily_wage'
+                    ? 'Daily Rs. '.number_format((float) $employee->daily_wage, 2)
+                    : 'Rs. '.number_format((float) $employee->monthly_salary, 2),
                 'Present' => $monthlySummary['present'],
                 'Half Day' => $monthlySummary['half_day'],
                 'Leave' => $monthlySummary['leave'],
@@ -55,6 +57,8 @@
         <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             @php
                 $monthlyPayrollPaid = $monthlyPayrollItem?->paidAmount() ?? 0;
+                $monthlyOfficePaid = $monthlyPayrollItem?->officePaidAmount() ?? 0;
+                $monthlyShopPaid = $monthlyPayrollItem?->shopPaidAmount() ?? 0;
                 $monthlyPayrollRemaining = $monthlyPayrollItem?->remainingAmount() ?? 0;
             @endphp
             <div class="flex flex-wrap items-start justify-between gap-4">
@@ -65,14 +69,22 @@
                 <a href="{{ route('admin.staff.payments.index', ['payroll_month' => $selectedMonth->format('Y-m')]) }}" class="rounded-xl bg-slate-950 px-4 py-3 text-sm font-black text-white">Open Payments</a>
             </div>
 
-            <div class="mt-5 grid gap-4 md:grid-cols-3">
+            <div class="mt-5 grid gap-4 md:grid-cols-5">
                 <article class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Payroll amount</p>
                     <p class="mt-2 text-xl font-black text-slate-950">Rs. {{ number_format((float) ($monthlyPayrollItem?->final_amount ?? 0), 2) }}</p>
                 </article>
                 <article class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-700">Paid</p>
+                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-700">Paid Total</p>
                     <p class="mt-2 text-xl font-black text-emerald-900">Rs. {{ number_format($monthlyPayrollPaid, 2) }}</p>
+                </article>
+                <article class="rounded-2xl border border-cyan-200 bg-cyan-50 p-4">
+                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-cyan-700">Office Paid</p>
+                    <p class="mt-2 text-xl font-black text-cyan-900">Rs. {{ number_format($monthlyOfficePaid, 2) }}</p>
+                </article>
+                <article class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Shop Paid</p>
+                    <p class="mt-2 text-xl font-black text-slate-950">Rs. {{ number_format($monthlyShopPaid, 2) }}</p>
                 </article>
                 <article class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
                     <p class="text-[11px] font-black uppercase tracking-[0.18em] text-amber-700">Remaining</p>
@@ -80,31 +92,83 @@
                 </article>
             </div>
 
-            <div class="mt-5 overflow-x-auto">
-                <table class="min-w-full text-left text-sm">
-                    <thead class="text-slate-500">
-                        <tr>
-                            <th class="pb-3">Date</th>
-                            <th class="pb-3">Method</th>
-                            <th class="pb-3 text-right">Amount</th>
-                            <th class="pb-3">Journal</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        @forelse($recentPayrollPayments as $payment)
+            <div class="mt-5 grid gap-4 lg:grid-cols-2">
+                <div class="overflow-x-auto rounded-2xl border border-slate-200">
+                    <table class="min-w-full text-left text-sm">
+                        <thead class="bg-slate-50 text-slate-500">
                             <tr>
-                                <td class="py-3 font-bold text-slate-900">{{ $payment->paid_on->format('d M Y') }}</td>
-                                <td class="py-3 capitalize">{{ $payment->payment_method }}</td>
-                                <td class="py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $payment->amount, 2) }}</td>
-                                <td class="py-3 text-sm font-semibold text-cyan-700">{{ $payment->journalEntry?->reference ?? 'Pending journal' }}</td>
+                                <th class="px-3 py-3">Office Date</th>
+                                <th class="px-3 py-3">Method</th>
+                                <th class="px-3 py-3 text-right">Amount</th>
+                                <th class="px-3 py-3">Journal</th>
                             </tr>
-                        @empty
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @forelse($recentPayrollPayments as $payment)
+                                <tr>
+                                    <td class="px-3 py-3 font-bold text-slate-900">{{ $payment->paid_on->format('d M Y') }}</td>
+                                    <td class="px-3 py-3 capitalize">Office {{ $payment->payment_method }}</td>
+                                    <td class="px-3 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $payment->amount, 2) }}</td>
+                                    <td class="px-3 py-3 text-sm font-semibold text-cyan-700">{{ $payment->journalEntry?->reference ?? 'Pending journal' }}</td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="4" class="px-3 py-6 text-center text-sm font-semibold text-slate-500">No office salary payments recorded yet.</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="overflow-x-auto rounded-2xl border border-slate-200">
+                    <table class="min-w-full text-left text-sm">
+                        <thead class="bg-slate-50 text-slate-500">
                             <tr>
-                                <td colspan="4" class="py-6 text-center text-sm font-semibold text-slate-500">No salary payments recorded yet.</td>
+                                <th class="px-3 py-3">Shop Date</th>
+                                <th class="px-3 py-3">Shop</th>
+                                <th class="px-3 py-3">Type</th>
+                                <th class="px-3 py-3 text-right">Amount</th>
                             </tr>
-                        @endforelse
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @forelse($recentShopStaffPayments as $payment)
+                                <tr>
+                                    <td class="px-3 py-3 font-bold text-slate-900">{{ $payment->paid_on->format('d M Y') }}</td>
+                                    <td class="px-3 py-3 font-semibold text-slate-600">{{ $payment->shop?->name }}</td>
+                                    <td class="px-3 py-3 capitalize">{{ $payment->payment_type }} / {{ str($payment->fund_source)->replace('_', ' ')->headline() }}</td>
+                                    <td class="px-3 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $payment->amount, 2) }}</td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="4" class="px-3 py-6 text-center text-sm font-semibold text-slate-500">No shop salary or advance payments recorded yet.</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <h3 class="text-sm font-black text-slate-950">Advance Details</h3>
+                <div class="mt-3 grid gap-3 md:grid-cols-2">
+                    @forelse($employeeAdvanceRequests as $advanceRequest)
+                        <div class="rounded-xl border border-slate-200 bg-white p-3">
+                            <div class="flex items-start justify-between gap-3">
+                                <div>
+                                    <p class="text-sm font-black text-slate-900">{{ $advanceRequest->shop?->name }}</p>
+                                    <p class="text-xs font-semibold text-slate-500">{{ $advanceRequest->requested_on->format('d M Y') }} · {{ str($advanceRequest->fund_source)->replace('_', ' ')->headline() }}</p>
+                                </div>
+                                <span class="rounded-full border px-2 py-1 text-[10px] font-black uppercase {{ $advanceRequest->status === 'approved' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($advanceRequest->status === 'rejected' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-amber-200 bg-amber-50 text-amber-700') }}">{{ $advanceRequest->status }}</span>
+                            </div>
+                            <p class="mt-2 text-sm font-bold text-slate-700">Requested Rs. {{ number_format((float) $advanceRequest->requested_amount, 2) }} · Eligible Rs. {{ number_format((float) $advanceRequest->eligible_amount, 2) }}</p>
+                            @if($advanceRequest->review_note)
+                                <p class="mt-1 text-xs font-semibold text-slate-500">{{ $advanceRequest->review_note }}</p>
+                            @endif
+                        </div>
+                    @empty
+                        <p class="text-sm font-semibold text-slate-500">No advance requests recorded for this employee.</p>
+                    @endforelse
+                </div>
             </div>
         </section>
 
@@ -176,7 +240,7 @@
                             @if($attendance)
                                 <div class="mt-3 space-y-1 text-xs font-semibold text-slate-600">
                                     <p>{{ $attendance->shop?->name ?? 'Admin desk' }}</p>
-                                    <p>{{ $attendance->markedBy?->name ?? 'System' }}</p>
+                                    <p>{{ $attendance->source ? str($attendance->source)->headline() : 'Source pending' }} · {{ $attendance->markedBy?->name ?? 'System' }}</p>
                                     <p>{{ $attendance->marked_at?->format('h:i A') ?? 'Time pending' }}</p>
                                 </div>
                             @else
@@ -256,6 +320,11 @@
                             <option value="shop" @selected($employee->staff_area === 'shop')>Shop</option>
                         </select>
                         <input type="number" step="0.01" name="monthly_salary" value="{{ (float) $employee->monthly_salary }}" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+                        <select name="salary_type" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+                            <option value="monthly" @selected($employee->salary_type === 'monthly')>Monthly salary</option>
+                            <option value="daily_wage" @selected($employee->salary_type === 'daily_wage')>Daily wage</option>
+                        </select>
+                        <input type="number" step="0.01" name="daily_wage" value="{{ (float) $employee->daily_wage }}" placeholder="Daily wage" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
                         <input type="date" name="joined_on" value="{{ $employee->joined_on?->format('Y-m-d') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
                         <input type="hidden" name="employment_status" value="{{ $employee->employment_status }}">
                         <input type="hidden" name="user_id" value="{{ $employee->user_id }}">

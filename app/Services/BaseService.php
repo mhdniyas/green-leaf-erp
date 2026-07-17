@@ -20,6 +20,10 @@ abstract class BaseService
             ->withProperties(array_merge($properties, [
                 'model' => class_basename($this->model),
                 'id' => $this->model->id,
+                'ip_address' => request()->ip(),
+                'user_agent' => request()->userAgent(),
+                'method' => request()->method(),
+                'url' => request()->fullUrl(),
             ]))
             ->log($action);
     }

@@ -1,4 +1,4 @@
-<x-layouts.app title="Loadout — {{ $shopOrder->shop->name }}">
+<x-layouts.app title="Loadout — {{ $shopOrder->loadoutDisplayName() }}">
     <div id="loadout-page-top" class="mx-auto flex w-full max-w-xl min-w-0 flex-col gap-4 py-3 pb-56 lg:px-4 lg:py-4 lg:pb-32">
 
         {{-- Header --}}
@@ -13,7 +13,7 @@
                             </svg>
                         </a>
                         <div>
-                            <h1 class="text-base font-black tracking-tight text-white">{{ $shopOrder->shop->name }}</h1>
+                            <h1 class="text-base font-black tracking-tight text-white">{{ $shopOrder->loadoutDisplayName() }}</h1>
                             <p class="text-[9px] font-semibold text-indigo-300">
                                 Order: <span class="font-mono">{{ $shopOrder->order_number }}</span>
                                 &middot; {{ $shopOrder->business_date->format('d M Y') }}

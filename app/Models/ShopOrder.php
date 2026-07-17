@@ -221,6 +221,13 @@ class ShopOrder extends Model
             : (string) ($this->shop?->name ?? 'Unknown Shop');
     }
 
+    public function loadoutDisplayName(): string
+    {
+        return $this->isAdminDirectPurchase()
+            ? 'Direct Purchase'
+            : (string) ($this->shop?->name ?? 'Unknown Shop');
+    }
+
     public function hasLinkedPurchaseOrders(): bool
     {
         return PurchaseOrder::query()

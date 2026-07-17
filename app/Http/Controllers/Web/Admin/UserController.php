@@ -15,7 +15,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\View\View;
-use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
 class UserController extends Controller
@@ -53,11 +52,10 @@ class UserController extends Controller
     {
         Gate::authorize('create', User::class);
 
-        $roles = Role::orderBy('name')->get();
-        $permissions = Permission::orderBy('name')->get();
+        $roles = Role::withCount('permissions')->orderBy('name')->get();
         $shops = Shop::orderBy('name')->get();
 
-        return view('admin.users.create', compact('roles', 'permissions', 'shops'));
+        return view('admin.users.create', compact('roles', 'shops'));
     }
 
     public function store(StoreUserRequest $request): RedirectResponse
@@ -72,12 +70,11 @@ class UserController extends Controller
     {
         Gate::authorize('update', $user);
 
-        $user->load(['roles', 'permissions']);
-        $roles = Role::orderBy('name')->get();
-        $permissions = Permission::orderBy('name')->get();
+        $user->load('roles');
+        $roles = Role::withCount('permissions')->orderBy('name')->get();
         $shops = Shop::orderBy('name')->get();
 
-        return view('admin.users.edit', compact('user', 'roles', 'permissions', 'shops'));
+        return view('admin.users.edit', compact('user', 'roles', 'shops'));
     }
 
     public function update(UpdateUserRequest $request, User $user): RedirectResponse

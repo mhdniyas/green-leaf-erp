@@ -25,6 +25,10 @@
     $currentShop = request()->route('shop');
     $canManageOwnedShops = \App\Support\AccountingAccess::canManageOwnedShops($currentUser);
     $canManagePurchaserCash = \App\Support\AccountingAccess::canManagePurchaserCash($currentUser);
+    $ownedShopPendingApprovalCount = $canManageOwnedShops
+        ? \App\Models\ShopInvoicePaymentRequest::query()->where('status', 'pending')->count()
+            + \App\Models\ShopAccountingEntry::query()->where('status', 'submitted')->count()
+        : 0;
     $sidebarItems = [
         [
             'label' => 'Dashboard',
@@ -103,6 +107,7 @@
             'active' => request()->routeIs('admin.accounting.owned-shops.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M4.5 21V8.25m15 12.75V8.25M9 21V3.75h6V21M7.5 6h9" /></svg>',
             'children' => $ownedShopChildren,
+            'badge' => $ownedShopPendingApprovalCount,
         ];
     }
 
@@ -209,7 +214,12 @@
                 <div>
                     <a href="{{ $item['href'] }}" title="{{ $item['label'] }}" class="flex items-center gap-3 rounded-[1.2rem] px-4 py-3 text-sm font-black transition {{ $item['active'] ? 'bg-emerald-50 text-emerald-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}">
                         <span class="{{ $item['active'] ? 'text-emerald-700' : 'text-slate-400' }}">{!! $item['icon'] !!}</span>
-                        <span data-accounting-sidebar-label>{{ $item['label'] }}</span>
+                        <span data-accounting-sidebar-label class="min-w-0 flex-1">{{ $item['label'] }}</span>
+                        @if (($item['badge'] ?? 0) > 0)
+                            <span data-accounting-sidebar-label class="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-black text-white">
+                                {{ $item['badge'] }}
+                            </span>
+                        @endif
                     </a>
 
                     @if (! empty($item['children']) && ($item['active'] ?? false))

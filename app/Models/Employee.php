@@ -28,6 +28,8 @@ class Employee extends Model
         'employment_status',
         'joined_on',
         'monthly_salary',
+        'salary_type',
+        'daily_wage',
         'is_user_linked',
         'notes',
     ];
@@ -37,6 +39,7 @@ class Employee extends Model
         return [
             'joined_on' => 'date',
             'monthly_salary' => 'decimal:2',
+            'daily_wage' => 'decimal:2',
             'is_user_linked' => 'boolean',
         ];
     }
@@ -89,6 +92,16 @@ class Employee extends Model
     public function payrollPayments(): HasMany
     {
         return $this->hasMany(PayrollPayment::class);
+    }
+
+    public function shopStaffPayments(): HasMany
+    {
+        return $this->hasMany(ShopStaffPayment::class);
+    }
+
+    public function advanceRequests(): HasMany
+    {
+        return $this->hasMany(EmployeeAdvanceRequest::class);
     }
 
     public function assignedShops(): BelongsToMany

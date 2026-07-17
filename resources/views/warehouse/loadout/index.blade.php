@@ -127,7 +127,7 @@
                         <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                             <div class="flex items-center gap-4 p-4">
                                 <div class="min-w-0 flex-1">
-                                    <p class="truncate text-sm font-black text-slate-900">{{ $shopOrder->shop->name }}</p>
+                                    <p class="truncate text-sm font-black text-slate-900">{{ $shopOrder->loadoutDisplayName() }}</p>
                                     <p class="mt-0.5 text-[11px] font-semibold text-slate-400">{{ $shopOrder->order_number }}</p>
 
                                     <div class="mt-2 flex items-center gap-2">

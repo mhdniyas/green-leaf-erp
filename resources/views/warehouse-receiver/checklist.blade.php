@@ -25,7 +25,7 @@
             
             {{-- TAB: Receive (Pending) --}}
             <div id="tab-pending" class="wr-tab active space-y-4">
-                @if($pendingGrns->isEmpty() && $pendingBatches->isEmpty())
+                @if($pendingGrns->isEmpty() && $pendingBatches->isEmpty() && $pendingDirectPurchaseOrders->isEmpty())
                     <div class="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm lg:rounded-[2rem]">
                         <div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 border border-emerald-100">
                             <svg class="h-7 w-7 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -59,6 +59,62 @@
                                                 <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
                                             </svg>
                                         </a>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
+
+                    @if(!$pendingDirectPurchaseOrders->isEmpty())
+                        <div class="space-y-3 mt-4">
+                            <h3 class="text-xs font-black uppercase tracking-[0.14em] text-slate-500 pl-1">Pending Direct Purchases</h3>
+                            <div class="grid gap-3 sm:grid-cols-2">
+                                @foreach($pendingDirectPurchaseOrders as $order)
+                                    <div class="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div class="min-w-0">
+                                                <span class="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-700">
+                                                    Direct Purchase
+                                                </span>
+                                                <h4 class="mt-1.5 truncate text-sm font-black text-slate-900">{{ $order->order_number }}</h4>
+                                                <p class="mt-1 text-[10px] font-bold text-slate-500">
+                                                    {{ $order->items->count() }} item(s) · {{ number_format((float) $order->items->sum(fn ($item) => $item->approved_qty > 0 ? $item->approved_qty : $item->requested_qty), 2) }} kg
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div class="mt-3 space-y-1.5 rounded-xl bg-slate-50 p-3">
+                                            @foreach($order->items->take(4) as $item)
+                                                <div class="flex items-center justify-between gap-3 text-[11px] font-bold text-slate-600">
+                                                    <span class="truncate">{{ $item->product?->name ?? 'Product #'.$item->product_id }}</span>
+                                                    <span class="shrink-0 text-slate-900">{{ number_format((float) ($item->approved_qty > 0 ? $item->approved_qty : $item->requested_qty), 2) }} {{ $item->unit }}</span>
+                                                </div>
+                                            @endforeach
+                                        </div>
+
+                                        <form action="{{ route('warehouse.receiver.direct-purchase.receive', $order) }}" method="POST" class="warehouse-confirm-form mt-3 flex items-center gap-2 border-t border-dashed border-slate-100 pt-3"
+                                              data-confirm-title="Receive direct purchase"
+                                              data-confirm-message="Receive {{ $order->order_number }} directly into warehouse inventory?"
+                                              data-confirm-button="Receive">
+                                            @csrf
+                                            <div class="relative min-w-0 flex-1">
+                                                <select name="warehouse_id" required class="w-full appearance-none rounded-xl border border-slate-200 bg-white py-2.5 pl-3 pr-9 text-xs font-semibold text-slate-900 shadow-sm transition-all hover:bg-slate-50/50 focus:border-indigo-500 focus:outline-none cursor-pointer">
+                                                    @foreach($warehouses as $wh)
+                                                        <option value="{{ $wh->id }}">
+                                                            {{ $wh->name }} ({{ $wh->code }})
+                                                        </option>
+                                                    @endforeach
+                                                </select>
+                                                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400">
+                                                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                                                    </svg>
+                                                </div>
+                                            </div>
+                                            <button type="submit" class="shrink-0 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-black text-white shadow-sm transition-colors hover:bg-emerald-700 border-none cursor-pointer">
+                                                Receive
+                                            </button>
+                                        </form>
                                     </div>
                                 @endforeach
                             </div>
@@ -366,7 +422,7 @@
                                         <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500 mb-1.5">
                                             {{ $order->shop->warehouse_tag ?? 'NO TAG' }}
                                         </span>
-                                        <h4 class="truncate text-sm font-black text-slate-900">{{ $order->shop->name }}</h4>
+                                        <h4 class="truncate text-sm font-black text-slate-900">{{ $order->loadoutDisplayName() }}</h4>
                                         <p class="text-[10px] text-slate-400 font-medium">Order: <span class="font-mono">{{ $order->order_number }}</span></p>
                                         <p class="text-[10px] text-slate-500 font-bold mt-1.5">
                                             Progress: {{ $order->loaded_items_count }} / {{ $order->total_items_count }} items loaded
@@ -434,7 +490,7 @@
                                                 <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-500 mb-1">
                                                     {{ $order->shop->warehouse_tag ?? 'NO TAG' }}
                                                 </span>
-                                                <h4 class="text-sm font-black text-slate-900">{{ $order->shop->name }}</h4>
+                                                <h4 class="text-sm font-black text-slate-900">{{ $order->loadoutDisplayName() }}</h4>
                                                 <p class="text-[10px] text-slate-400 font-medium">Order: <span class="font-mono">{{ $order->order_number }}</span></p>
                                             </div>
                                             <div class="text-right">
@@ -511,7 +567,7 @@
                                             <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-500 mb-1">
                                                 {{ $order->shop->warehouse_tag ?? 'NO TAG' }}
                                             </span>
-                                            <h4 class="truncate text-sm font-black text-slate-900">{{ $order->shop->name }}</h4>
+                                            <h4 class="truncate text-sm font-black text-slate-900">{{ $order->loadoutDisplayName() }}</h4>
                                             <p class="text-[10px] text-slate-400 font-medium">Order: <span class="font-mono">{{ $order->order_number }}</span></p>
                                         </div>
                                         <div class="text-right shrink-0 flex flex-col items-end gap-1.5">
@@ -564,7 +620,7 @@
                                         <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-500 mb-1">
                                             {{ $order->shop->warehouse_tag ?? 'NO TAG' }}
                                         </span>
-                                        <h4 class="truncate text-sm font-black text-slate-900">{{ $order->shop->name }}</h4>
+                                        <h4 class="truncate text-sm font-black text-slate-900">{{ $order->loadoutDisplayName() }}</h4>
                                         <p class="text-[10px] text-slate-400 font-medium font-mono">Order: {{ $order->order_number }}</p>
                                     </div>
                                     <div class="flex items-center gap-3 shrink-0">

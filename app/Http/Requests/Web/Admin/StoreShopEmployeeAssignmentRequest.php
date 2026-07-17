@@ -1,0 +1,28 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Web\Admin;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class StoreShopEmployeeAssignmentRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this->user()?->can('hr.employee.update') ?? false;
+    }
+
+    /**
+     * @return array<string, array<int, mixed>>
+     */
+    public function rules(): array
+    {
+        return [
+            'employee_id' => ['required', 'integer', 'exists:employees,id'],
+            'shop_id' => ['required', 'integer', 'exists:shops,id'],
+            'effective_from' => ['required', 'date'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ];
+    }
+}

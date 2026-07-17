@@ -87,7 +87,6 @@
                     <tr class="border-b border-gray-100">
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">User</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Roles</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Direct Permissions</th>
                         <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
                     </tr>
                 </thead>
@@ -131,19 +130,6 @@
                                 </div>
                             @else
                                 <span class="text-xs text-gray-400">No roles assigned</span>
-                            @endif
-                        </td>
-                        <td class="px-6 py-4">
-                            @if($u->permissions->isNotEmpty())
-                                <div class="flex flex-wrap gap-1">
-                                    @foreach($u->permissions as $perm)
-                                        <span class="inline-flex items-center bg-green-50 border border-green-200 text-green-700 text-[10px] font-medium px-2 py-0.5 rounded-full">
-                                            {{ $perm->name }}
-                                        </span>
-                                    @endforeach
-                                </div>
-                            @else
-                                <span class="text-xs text-gray-400">—</span>
                             @endif
                         </td>
                         <td class="px-6 py-4 text-right">

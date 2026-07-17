@@ -104,7 +104,14 @@
                                             <span class="text-xs font-semibold text-slate-400">No linked user</span>
                                         @endif
                                     </td>
-                                    <td class="py-3">Rs. {{ number_format((float) $employee->monthly_salary, 2) }}</td>
+                                    <td class="py-3">
+                                        <p class="font-bold text-slate-900">Rs. {{ number_format((float) $employee->monthly_salary, 2) }}</p>
+                                        @if($employee->salary_type === 'daily_wage')
+                                            <p class="text-xs font-semibold text-cyan-700">Daily Rs. {{ number_format((float) $employee->daily_wage, 2) }}</p>
+                                        @else
+                                            <p class="text-xs font-semibold text-slate-500">Monthly</p>
+                                        @endif
+                                    </td>
                                 </tr>
                             @endforeach
                     </tbody>
@@ -112,6 +119,44 @@
             </div>
 
             <div class="mt-4">{{ $employees->withQueryString()->links() }}</div>
+        </section>
+
+        <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 class="text-xl font-black text-slate-950">Assign Employees to Shop</h2>
+            <form method="POST" action="{{ route('admin.staff.shop-assignments.store') }}" class="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                @csrf
+                <select name="employee_id" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+                    <option value="">Employee</option>
+                    @foreach($employees as $employee)
+                        <option value="{{ $employee->id }}">{{ $employee->name }} · {{ $employee->employee_code }}</option>
+                    @endforeach
+                </select>
+                <select name="shop_id" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+                    <option value="">Shop</option>
+                    @foreach($shops as $shop)
+                        <option value="{{ $shop->id }}">{{ $shop->name }}</option>
+                    @endforeach
+                </select>
+                <input type="date" name="effective_from" value="{{ $selectedDate->format('Y-m-d') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+                <input type="text" name="notes" placeholder="Note" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                <button type="submit" class="rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white">Assign</button>
+            </form>
+
+            <div class="mt-5 grid gap-3 md:grid-cols-2">
+                @forelse($activeAssignments as $assignment)
+                    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <p class="font-black text-slate-950">{{ $assignment->employee?->name }}</p>
+                                <p class="text-xs font-semibold text-slate-500">{{ $assignment->shop?->name }} · from {{ $assignment->effective_from?->format('d M Y') ?? 'not set' }}</p>
+                            </div>
+                            <span class="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase text-emerald-700">{{ $assignment->status }}</span>
+                        </div>
+                    </div>
+                @empty
+                    <p class="text-sm font-semibold text-slate-500">No active shop assignments yet.</p>
+                @endforelse
+            </div>
         </section>
 
         <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -143,6 +188,11 @@
                     @endforeach
                 </select>
                 <input type="number" step="0.01" name="monthly_salary" placeholder="Monthly salary" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+                <select name="salary_type" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
+                    <option value="monthly">Monthly salary</option>
+                    <option value="daily_wage">Daily wage</option>
+                </select>
+                <input type="number" step="0.01" name="daily_wage" placeholder="Daily wage" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
                 <input type="text" name="phone" placeholder="Phone" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
                 <input type="date" name="joined_on" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
                 <input type="hidden" name="employment_status" value="active">

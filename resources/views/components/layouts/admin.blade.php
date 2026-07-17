@@ -36,6 +36,7 @@
     }
 
     if (
+        $currentUser?->hasRole('admin') ||
         $currentUser?->hasRole('purchase') ||
         $currentUser?->can('purchasing.supplier.view') ||
         $currentUser?->can('purchasing.order.view') ||

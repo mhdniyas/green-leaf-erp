@@ -8,7 +8,8 @@
             $currentUser->can('admin.activity-log.view'));
     $canAccessAccountingDashboard = \App\Support\AccountingAccess::canViewDashboard($currentUser);
     $canAccessPurchasingDashboard = $currentUser &&
-        ($currentUser->hasRole('purchase') ||
+        ($currentUser->hasRole('admin') ||
+            $currentUser->hasRole('purchase') ||
             $currentUser->can('purchasing.supplier.view') ||
             $currentUser->can('purchasing.order.view') ||
             $currentUser->can('purchasing.grn.view') ||

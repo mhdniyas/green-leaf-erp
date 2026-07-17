@@ -29,7 +29,7 @@
         </div>
 
         <section class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-            <form method="GET" action="{{ route('admin.enquiries.index') }}" class="grid gap-4 lg:grid-cols-[1fr_220px_140px]">
+            <form method="GET" action="{{ route('admin.enquiries.index') }}" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_220px_auto] xl:items-end">
                 <label class="grid gap-2">
                     <span class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Search</span>
                     <input type="search" name="search" value="{{ $search }}" placeholder="Name, phone, or message" class="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-900 outline-none transition focus:border-emerald-400 focus:bg-white">
@@ -42,9 +42,9 @@
                         <option value="products" @selected($source === 'products')>Marketplace</option>
                     </select>
                 </label>
-                <div class="flex items-end gap-3">
-                    <button type="submit" class="inline-flex h-12 items-center justify-center rounded-2xl bg-slate-950 px-5 text-xs font-black uppercase tracking-[0.18em] text-white transition hover:bg-slate-800">Filter</button>
-                    <a href="{{ route('admin.enquiries.index') }}" class="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-200 px-5 text-xs font-black uppercase tracking-[0.18em] text-slate-600 transition hover:bg-slate-50">Reset</a>
+                <div class="flex flex-col gap-3 sm:flex-row xl:justify-end">
+                    <button type="submit" class="inline-flex h-12 min-w-28 items-center justify-center rounded-2xl bg-slate-950 px-5 text-xs font-black uppercase tracking-[0.18em] text-white transition hover:bg-slate-800">Filter</button>
+                    <a href="{{ route('admin.enquiries.index') }}" class="inline-flex h-12 min-w-28 items-center justify-center rounded-2xl border border-slate-200 px-5 text-xs font-black uppercase tracking-[0.18em] text-slate-600 transition hover:bg-slate-50">Reset</a>
                 </div>
             </form>
         </section>

@@ -23,6 +23,7 @@ use App\Models\ShopAccountingInvoice;
 use App\Models\ShopCredit;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
+use App\Models\ShopStaffPayment;
 use App\Models\User;
 use App\Services\Finance\AdminFinancePillarService;
 use App\Services\Finance\JournalService;
@@ -270,6 +271,14 @@ class AdminAccountingController extends Controller
         $tab = in_array((string) $request->input('tab', 'bills'), ['bills', 'cashbook'], true)
             ? (string) $request->input('tab', 'bills')
             : 'bills';
+        $approvalTab = in_array((string) $request->input('approval_tab', 'pending'), ['pending', 'approved', 'recheck'], true)
+            ? (string) $request->input('approval_tab', 'pending')
+            : 'pending';
+        $approvalStatus = match ($approvalTab) {
+            'approved' => 'approved',
+            'recheck' => 'recheck_required',
+            default => 'submitted',
+        };
         $startDate = Carbon::parse($request->input('start_date', $selectedDate->copy()->startOfMonth()->toDateString()));
         $endDate = Carbon::parse($request->input('end_date', $selectedDate->copy()->endOfMonth()->toDateString()));
         $entry = $this->ownedShopAccountingService->entryForDate($shop, $selectedDate);
@@ -304,6 +313,15 @@ class AdminAccountingController extends Controller
             ->latest('id')
             ->limit(12)
             ->get();
+        $approvalEntries = ShopAccountingEntry::query()
+            ->where('shop_id', $shop->id)
+            ->where('status', $approvalStatus)
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
+            ->with(['lines.category', 'submittedBy', 'reviewedBy'])
+            ->latest('business_date')
+            ->latest('id')
+            ->paginate(8, ['*'], 'approval_page');
         $pettyCashRows = $this->ownedShopAccountingService->pettyCashRows($shop, $startDate, $endDate);
         $pettyCashBalanceRows = $this->ownedShopAccountingService->pettyCashRows($shop, Carbon::parse('2000-01-01'), $endDate);
         $pettyCashBalance = (float) ($pettyCashBalanceRows->first()['balance'] ?? 0.0);
@@ -324,7 +342,13 @@ class AdminAccountingController extends Controller
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
             ->get();
-        $analytics = $this->ownedShopAnalytics($periodInvoices, $periodEntries, $periodCredits);
+        $periodPayrollPayments = ShopStaffPayment::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('paid_on', '>=', $startDate)
+            ->whereDate('paid_on', '<=', $endDate)
+            ->with('employee')
+            ->get();
+        $analytics = $this->ownedShopAnalytics($periodInvoices, $periodEntries, $periodCredits, $periodPayrollPayments);
 
         $incomeTotal = $entry instanceof ShopAccountingEntry
             ? round((float) $entry->lines->where('type', 'income')->sum('amount'), 2)
@@ -336,6 +360,8 @@ class AdminAccountingController extends Controller
         return view('admin.accounting.owned_shops.show', [
             'shop' => $shop->loadMissing(['ownerships.user', 'users']),
             'tab' => $tab,
+            'approvalTab' => $approvalTab,
+            'approvalEntries' => $approvalEntries,
             'selectedDate' => $selectedDate,
             'startDate' => $startDate,
             'endDate' => $endDate,
@@ -520,6 +546,11 @@ class AdminAccountingController extends Controller
         return redirect()->route('admin.accounting.owned-shops.show', [
             'shop' => $shop->code,
             'tab' => 'cashbook',
+            'approval_tab' => match ($entry->status) {
+                'approved' => 'approved',
+                'recheck_required' => 'recheck',
+                default => 'pending',
+            },
             'date' => $entry->business_date->toDateString(),
         ])->with($entry->status === 'recheck_required' ? 'warning' : 'success', $message);
     }
@@ -845,13 +876,15 @@ class AdminAccountingController extends Controller
      * @param  Collection<int, ShopInvoice>  $invoices
      * @param  Collection<int, ShopAccountingEntry>  $entries
      * @param  Collection<int, ShopCredit>  $credits
+     * @param  Collection<int, ShopStaffPayment>  $payrollPayments
      * @return array{
      *     cards:array<string,float>,
      *     daily_summaries:Collection<int, array<string,mixed>>,
-     *     expense_breakdown:Collection<int, array<string,mixed>>
+     *     expense_breakdown:Collection<int, array<string,mixed>>,
+     *     income_breakdown:Collection<int, array<string,mixed>>
      * }
      */
-    private function ownedShopAnalytics(Collection $invoices, Collection $entries, Collection $credits): array
+    private function ownedShopAnalytics(Collection $invoices, Collection $entries, Collection $credits, Collection $payrollPayments): array
     {
         $creditAmount = round((float) $credits->sum(
             fn (ShopCredit $credit): float => $credit->signedAccountingAmount()
@@ -862,36 +895,74 @@ class AdminAccountingController extends Controller
         $expenseAmount = round((float) $entries->sum(
             fn (ShopAccountingEntry $entry): float => (float) $entry->lines->where('type', 'expense')->sum('amount')
         ), 2);
+        $salaryAmount = round((float) $payrollPayments->where('payment_type', '!=', 'advance')->sum('amount'), 2);
+        $advanceAmount = round((float) $payrollPayments->where('payment_type', 'advance')->sum('amount'), 2);
+        $pettyCashTaken = round((float) $credits->where('is_petty_cash', true)->sum(
+            fn (ShopCredit $credit): float => $credit->type === 'in' ? (float) $credit->amount : (float) $credit->amount * -1
+        ), 2);
 
-        $dailySummaries = $invoices
-            ->groupBy(fn (ShopInvoice $invoice): string => $invoice->business_date->toDateString())
-            ->map(function (Collection $dayInvoices, string $date) use ($entries, $credits): array {
-                $dayEntry = $entries->first(
+        $dailySummaries = collect($invoices->map(fn (ShopInvoice $invoice): ?string => $invoice->business_date?->toDateString())->all())
+            ->merge($entries->map(fn (ShopAccountingEntry $entry): ?string => $entry->business_date?->toDateString()))
+            ->merge($credits->map(fn (ShopCredit $credit): ?string => $credit->business_date?->toDateString()))
+            ->merge($payrollPayments->map(fn (ShopStaffPayment $payment): ?string => $payment->paid_on?->toDateString()))
+            ->filter()
+            ->unique()
+            ->sortDesc()
+            ->map(function (string $date) use ($invoices, $entries, $credits, $payrollPayments): array {
+                $dayInvoices = $invoices->filter(
+                    fn (ShopInvoice $invoice): bool => $invoice->business_date?->toDateString() === $date
+                );
+                $dayEntries = $entries->filter(
                     fn (ShopAccountingEntry $entry): bool => $entry->business_date?->toDateString() === $date
                 );
-                $dayCredit = round((float) $credits
-                    ->filter(fn (ShopCredit $credit): bool => $credit->business_date?->toDateString() === $date)
-                    ->sum(fn (ShopCredit $credit): float => $credit->signedAccountingAmount()), 2);
+                $dayCredits = $credits->filter(
+                    fn (ShopCredit $credit): bool => $credit->business_date?->toDateString() === $date
+                );
+                $dayPayrollPayments = $payrollPayments->filter(
+                    fn (ShopStaffPayment $payment): bool => $payment->paid_on?->toDateString() === $date
+                );
+
+                $paidAmount = round((float) $dayInvoices->sum('paid_amount'), 2);
+                $creditAmount = round((float) $dayCredits->sum(fn (ShopCredit $credit): float => $credit->signedAccountingAmount()), 2);
+                $incomeAmount = round((float) $dayEntries->sum(
+                    fn (ShopAccountingEntry $entry): float => (float) $entry->lines->where('type', 'income')->sum('amount')
+                ), 2);
+                $expenseAmount = round((float) $dayEntries->sum(
+                    fn (ShopAccountingEntry $entry): float => (float) $entry->lines->where('type', 'expense')->sum('amount')
+                ), 2);
+                $salaryAmount = round((float) $dayPayrollPayments->where('payment_type', '!=', 'advance')->sum('amount'), 2);
+                $advanceAmount = round((float) $dayPayrollPayments->where('payment_type', 'advance')->sum('amount'), 2);
+                $pettyCashTaken = round((float) $dayCredits->where('is_petty_cash', true)->sum(
+                    fn (ShopCredit $credit): float => $credit->type === 'in' ? (float) $credit->amount : (float) $credit->amount * -1
+                ), 2);
 
                 return [
                     'date' => $date,
                     'billed' => round((float) $dayInvoices->sum('final_total'), 2),
-                    'paid' => round((float) $dayInvoices->sum('paid_amount'), 2),
+                    'paid' => $paidAmount,
                     'balance' => round((float) $dayInvoices->sum('balance_amount'), 2),
-                    'credit' => $dayCredit,
-                    'income' => $dayEntry instanceof ShopAccountingEntry
-                        ? round((float) $dayEntry->lines->where('type', 'income')->sum('amount'), 2)
-                        : 0.0,
-                    'expense' => $dayEntry instanceof ShopAccountingEntry
-                        ? round((float) $dayEntry->lines->where('type', 'expense')->sum('amount'), 2)
-                        : 0.0,
+                    'credit' => $creditAmount,
+                    'income' => $incomeAmount,
+                    'expense' => $expenseAmount,
+                    'staff_salary' => $salaryAmount,
+                    'staff_advance' => $advanceAmount,
+                    'petty_cash_taken' => $pettyCashTaken,
+                    'cash_flow' => round(($paidAmount + $creditAmount + $incomeAmount) - $expenseAmount - $salaryAmount - $advanceAmount, 2),
                 ];
             })
-            ->sortByDesc('date')
             ->values();
 
         $expenseBreakdown = $entries
             ->flatMap(fn (ShopAccountingEntry $entry) => $entry->lines->where('type', 'expense'))
+            ->groupBy(fn ($line): string => $line->category?->name ?? 'Uncategorized')
+            ->map(fn (Collection $lines, string $label): array => [
+                'label' => $label,
+                'amount' => round((float) $lines->sum('amount'), 2),
+            ])
+            ->sortByDesc('amount')
+            ->values();
+        $incomeBreakdown = $entries
+            ->flatMap(fn (ShopAccountingEntry $entry) => $entry->lines->where('type', 'income'))
             ->groupBy(fn ($line): string => $line->category?->name ?? 'Uncategorized')
             ->map(fn (Collection $lines, string $label): array => [
                 'label' => $label,
@@ -908,10 +979,14 @@ class AdminAccountingController extends Controller
                 'credit' => $creditAmount,
                 'income' => $incomeAmount,
                 'expense' => $expenseAmount,
-                'cash_flow' => round(((float) $invoices->sum('paid_amount') + $creditAmount + $incomeAmount) - $expenseAmount, 2),
+                'staff_salary' => $salaryAmount,
+                'staff_advance' => $advanceAmount,
+                'petty_cash_taken' => $pettyCashTaken,
+                'cash_flow' => round(((float) $invoices->sum('paid_amount') + $creditAmount + $incomeAmount) - $expenseAmount - $salaryAmount - $advanceAmount, 2),
             ],
             'daily_summaries' => $dailySummaries,
             'expense_breakdown' => $expenseBreakdown,
+            'income_breakdown' => $incomeBreakdown,
         ];
     }
 

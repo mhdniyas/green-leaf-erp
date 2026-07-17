@@ -7,6 +7,7 @@ namespace App\Services\HR;
 use App\Models\Employee;
 use App\Models\EmployeeAttendance;
 use App\Models\Shop;
+use App\Models\ShopEmployeeAssignment;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 
@@ -30,7 +31,20 @@ class AttendanceService
             return false;
         }
 
-        return $user->ownedShopAssignments()->where('shop_id', $shopId)->exists();
+        return $user->ownedShopAssignments()->where('shop_id', $shopId)->exists()
+            && ShopEmployeeAssignment::query()
+                ->where('employee_id', $employee->id)
+                ->where('shop_id', $shopId)
+                ->where('status', 'active')
+                ->where(function ($query) use ($date): void {
+                    $query->whereNull('effective_from')
+                        ->orWhereDate('effective_from', '<=', $date->toDateString());
+                })
+                ->where(function ($query) use ($date): void {
+                    $query->whereNull('effective_to')
+                        ->orWhereDate('effective_to', '>=', $date->toDateString());
+                })
+                ->exists();
     }
 
     public function upsert(

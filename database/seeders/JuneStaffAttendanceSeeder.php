@@ -14,6 +14,12 @@ use Illuminate\Support\Carbon;
 
 class JuneStaffAttendanceSeeder extends Seeder
 {
+    private const SPECIAL_DEMO_EMPLOYEE_CODES = [
+        'DEMO-DB-001',
+        'DEMO-OFF-ABS-001',
+        'DEMO-SH-MIX-001',
+    ];
+
     public function run(): void
     {
         $selectedMonth = Carbon::create(2026, 6, 1)->startOfMonth();
@@ -79,6 +85,7 @@ class JuneStaffAttendanceSeeder extends Seeder
         $this->resetMonthAttendances($directBoardEmployee, $selectedMonth, $monthEnd);
         $this->resetMonthAttendances($officeAbsentEmployee, $selectedMonth, $monthEnd);
         $this->resetMonthAttendances($shopMixedEmployee, $selectedMonth, $monthEnd);
+        $this->seedPresentMonthForExistingEmployees($selectedMonth, $monthEnd, $adminUser?->id);
 
         foreach (range(1, 30) as $day) {
             $attendanceDate = $selectedMonth->copy()->day($day);
@@ -118,7 +125,33 @@ class JuneStaffAttendanceSeeder extends Seeder
             );
         }
 
-        $this->command?->info('June staff attendance demo seeded: Direct Board leave sample, all-absent office sample, and mixed shop sample.');
+        $this->command?->info('June staff attendance demo seeded: existing active staff as present, plus Direct Board leave, all-absent office, and mixed shop samples.');
+    }
+
+    private function seedPresentMonthForExistingEmployees(Carbon $monthStart, Carbon $monthEnd, ?int $markedBy): void
+    {
+        Employee::query()
+            ->where('employment_status', 'active')
+            ->whereNotIn('employee_code', self::SPECIAL_DEMO_EMPLOYEE_CODES)
+            ->get()
+            ->each(function (Employee $employee) use ($monthStart, $monthEnd, $markedBy): void {
+                $this->resetMonthAttendances($employee, $monthStart, $monthEnd);
+
+                $cursor = $monthStart->copy();
+
+                while ($cursor->lte($monthEnd)) {
+                    $this->seedAttendance(
+                        $employee,
+                        $cursor,
+                        'present',
+                        $markedBy,
+                        $employee->staff_area === 'shop' ? $employee->default_shop_id : null,
+                        'June demo attendance for manual payroll testing.',
+                    );
+
+                    $cursor->addDay();
+                }
+            });
     }
 
     private function resetMonthAttendances(Employee $employee, Carbon $monthStart, Carbon $monthEnd): void

@@ -19,7 +19,7 @@ class UserRepository extends BaseRepository
     public function paginateFiltered(int $perPage = 15, ?string $search = null, string $scope = 'all', ?string $role = null): LengthAwarePaginator
     {
         return $this->query()
-            ->with(['roles', 'permissions', 'shop'])
+            ->with(['roles', 'shop'])
             ->when($scope === 'pending', function ($query) {
                 $query->where('registration_status', 'pending');
             })

@@ -32,6 +32,8 @@ class UpdateEmployeeRequest extends FormRequest
             'employment_status' => ['required', Rule::in(['active', 'inactive'])],
             'joined_on' => ['nullable', 'date'],
             'monthly_salary' => ['required', 'numeric', 'min:0'],
+            'salary_type' => ['required', Rule::in(['monthly', 'daily_wage'])],
+            'daily_wage' => ['nullable', 'numeric', 'min:0'],
             'notes' => ['nullable', 'string'],
         ];
     }

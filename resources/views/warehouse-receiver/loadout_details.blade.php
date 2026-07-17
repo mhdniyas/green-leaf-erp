@@ -12,7 +12,7 @@
                             </svg>
                         </a>
                         <div>
-                            <h1 class="text-base font-black tracking-tight text-white">{{ $order->shop->name }}</h1>
+                            <h1 class="text-base font-black tracking-tight text-white">{{ $order->loadoutDisplayName() }}</h1>
                             <p class="text-[9px] font-semibold text-indigo-300">Order: <span class="font-mono">{{ $order->order_number }}</span></p>
                         </div>
                     </div>

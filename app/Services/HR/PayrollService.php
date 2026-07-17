@@ -56,42 +56,10 @@ class PayrollService
             $grossAmount = 0.0;
 
             foreach ($employees as $employee) {
-                $summary = $this->attendanceSummary($employee, $periodStart, $periodEnd);
-                $baseSalary = (float) $employee->monthly_salary;
-                $payableUnits = round(
-                    ($summary['present_days'] * (float) $employee->category->present_day_weight)
-                    + ($summary['half_days'] * (float) $employee->category->half_day_weight)
-                    + ($summary['paid_leave_days'] * (float) $employee->category->paid_leave_weight)
-                    + ($summary['unpaid_leave_days'] * (float) $employee->category->excess_leave_weight)
-                    + ($summary['absent_days'] * (float) $employee->category->absent_day_weight),
-                    2,
-                );
-                $daysInPeriod = max(1, $periodStart->diffInDays($periodEnd) + 1);
-                $computedAmount = round(($baseSalary / $daysInPeriod) * $payableUnits, 2);
-                $grossAmount += $computedAmount;
+                $payload = $this->payrollItemPayload($employee, $periodStart, $periodEnd);
+                $grossAmount += (float) $payload['computed_amount'];
 
-                $payrollRun->items()->create([
-                    'employee_id' => $employee->id,
-                    'employee_category_id' => $employee->employee_category_id,
-                    'base_salary' => $baseSalary,
-                    'present_days' => $summary['present_days'],
-                    'half_days' => $summary['half_days'],
-                    'paid_leave_days' => $summary['paid_leave_days'],
-                    'unpaid_leave_days' => $summary['unpaid_leave_days'],
-                    'absent_days' => $summary['absent_days'],
-                    'payable_units' => $payableUnits,
-                    'computed_amount' => $computedAmount,
-                    'override_amount' => null,
-                    'final_amount' => $computedAmount,
-                    'rule_snapshot' => [
-                        'monthly_paid_leave_limit' => (int) $employee->category->monthly_paid_leave_limit,
-                        'present_day_weight' => (float) $employee->category->present_day_weight,
-                        'half_day_weight' => (float) $employee->category->half_day_weight,
-                        'paid_leave_weight' => (float) $employee->category->paid_leave_weight,
-                        'excess_leave_weight' => (float) $employee->category->excess_leave_weight,
-                        'absent_day_weight' => (float) $employee->category->absent_day_weight,
-                    ],
-                ]);
+                $payrollRun->items()->create($payload);
             }
 
             $payrollRun->forceFill([
@@ -100,6 +68,46 @@ class PayrollService
             ])->save();
 
             return $payrollRun->fresh(['items.employee', 'items.category', 'journalEntry']);
+        });
+    }
+
+    public function ensurePayrollRunItem(Employee $employee, Carbon $periodStart, Carbon $periodEnd, int $userId): PayrollRunItem
+    {
+        return DB::transaction(function () use ($employee, $periodStart, $periodEnd, $userId): PayrollRunItem {
+            $payrollRun = PayrollRun::query()->firstOrCreate(
+                [
+                    'period_start' => $periodStart->toDateString(),
+                    'period_end' => $periodEnd->toDateString(),
+                ],
+                [
+                    'status' => 'draft',
+                    'generated_by' => $userId,
+                    'gross_amount' => 0,
+                    'net_amount' => 0,
+                ],
+            );
+
+            $payrollRunItem = PayrollRunItem::query()->firstOrNew([
+                'payroll_run_id' => $payrollRun->id,
+                'employee_id' => $employee->id,
+            ]);
+
+            if ($payrollRunItem->exists && $payrollRun->status !== 'draft') {
+                return $payrollRunItem->fresh(['payrollRun', 'employee', 'payments']);
+            }
+
+            $existingOverrideAmount = $payrollRunItem->exists ? $payrollRunItem->override_amount : null;
+            $payrollRunItem->fill($this->payrollItemPayload($employee->loadMissing('category'), $periodStart, $periodEnd));
+
+            if ($payrollRunItem->exists) {
+                $payrollRunItem->override_amount = $existingOverrideAmount;
+                $payrollRunItem->final_amount = $existingOverrideAmount ?? $payrollRunItem->computed_amount;
+            }
+
+            $payrollRunItem->save();
+            $this->refreshRunTotals($payrollRun);
+
+            return $payrollRunItem->fresh(['payrollRun', 'employee', 'payments']);
         });
     }
 
@@ -234,6 +242,60 @@ class PayrollService
             'paid_leave_days' => (float) $paidLeaveDays,
             'unpaid_leave_days' => (float) $unpaidLeaveDays,
             'absent_days' => $absentDays,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function payrollItemPayload(Employee $employee, Carbon $periodStart, Carbon $periodEnd): array
+    {
+        $employee->loadMissing('category');
+
+        $summary = $this->attendanceSummary($employee, $periodStart, $periodEnd);
+        $baseSalary = (float) $employee->monthly_salary;
+        $dailyWage = (float) $employee->daily_wage;
+        $salaryType = in_array((string) $employee->salary_type, ['monthly', 'daily_wage'], true)
+            ? (string) $employee->salary_type
+            : 'monthly';
+        $payableUnits = round(
+            ($summary['present_days'] * (float) $employee->category->present_day_weight)
+            + ($summary['half_days'] * (float) $employee->category->half_day_weight)
+            + ($summary['paid_leave_days'] * (float) $employee->category->paid_leave_weight)
+            + ($summary['unpaid_leave_days'] * (float) $employee->category->excess_leave_weight)
+            + ($summary['absent_days'] * (float) $employee->category->absent_day_weight),
+            2,
+        );
+        $daysInPeriod = max(1, $periodStart->diffInDays($periodEnd) + 1);
+        $computedAmount = $salaryType === 'daily_wage'
+            ? round($dailyWage * $payableUnits, 2)
+            : round(($baseSalary / $daysInPeriod) * $payableUnits, 2);
+
+        return [
+            'employee_id' => $employee->id,
+            'employee_category_id' => $employee->employee_category_id,
+            'salary_type' => $salaryType,
+            'base_salary' => $baseSalary,
+            'daily_wage' => $dailyWage,
+            'present_days' => $summary['present_days'],
+            'half_days' => $summary['half_days'],
+            'paid_leave_days' => $summary['paid_leave_days'],
+            'unpaid_leave_days' => $summary['unpaid_leave_days'],
+            'absent_days' => $summary['absent_days'],
+            'payable_units' => $payableUnits,
+            'computed_amount' => $computedAmount,
+            'override_amount' => null,
+            'final_amount' => $computedAmount,
+            'rule_snapshot' => [
+                'salary_type' => $salaryType,
+                'daily_wage' => $dailyWage,
+                'monthly_paid_leave_limit' => (int) $employee->category->monthly_paid_leave_limit,
+                'present_day_weight' => (float) $employee->category->present_day_weight,
+                'half_day_weight' => (float) $employee->category->half_day_weight,
+                'paid_leave_weight' => (float) $employee->category->paid_leave_weight,
+                'excess_leave_weight' => (float) $employee->category->excess_leave_weight,
+                'absent_day_weight' => (float) $employee->category->absent_day_weight,
+            ],
         ];
     }
 

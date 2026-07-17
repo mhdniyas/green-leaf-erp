@@ -117,7 +117,7 @@
 
                 @if($employees->isEmpty())
                     <div class="mt-5 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm font-semibold text-slate-500">
-                        No quick staff added for this shop yet. Search and add shop employees from the panel on the right.
+                        No HR-assigned shop staff for this shop and date.
                     </div>
                 @else
                     <div class="mt-5 space-y-4">
@@ -180,30 +180,93 @@
             </section>
 
             <section class="space-y-6">
-                <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                    <h2 class="text-xl font-black text-slate-950">Add Shop Employees</h2>
-                    <p class="mt-1 text-sm font-semibold text-slate-500">Search all shop staff and add them to this shop&apos;s quick attendance list.</p>
-
-                    <form method="GET" class="mt-5 flex flex-wrap gap-2">
-                        <input type="hidden" name="shop" value="{{ $selectedShop?->code }}">
-                        <input type="search" name="employee_search" value="{{ $employeeSearch }}" placeholder="Search employee name, code, phone" class="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm">
-                        <button type="submit" class="rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white">Search</button>
+                <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                    <h2 class="text-lg font-black text-slate-950">Salary Payment</h2>
+                    <form method="POST" action="{{ route('shop-owner.staff.salary-payments.store') }}" class="mt-4 grid gap-2">
+                        @csrf
+                        <input type="hidden" name="shop_id" value="{{ $selectedShop?->id }}">
+                        <input type="date" name="paid_on" value="{{ $selectedDate->format('Y-m-d') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold" required>
+                        <select name="employee_id" class="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold" required>
+                            <option value="">Employee</option>
+                            @foreach($employees as $employee)
+                                <option value="{{ $employee->id }}">{{ $employee->name }}</option>
+                            @endforeach
+                        </select>
+                        <input type="number" step="0.01" min="0.01" name="amount" placeholder="Amount" class="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold" required>
+                        <div class="grid grid-cols-2 gap-2">
+                            <label class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800">
+                                <input type="radio" name="fund_source" value="petty_cash" checked class="mr-1"> Petty cash
+                            </label>
+                            <label class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">
+                                <input type="radio" name="fund_source" value="sales_income" class="mr-1"> Sales
+                            </label>
+                        </div>
+                        <input type="text" name="notes" placeholder="Note" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                        <button type="submit" class="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-black text-white">Pay Salary</button>
                     </form>
+                </section>
 
-                    <div class="mt-5 space-y-3">
-                        @forelse($searchResults as $employee)
-                            <form method="POST" action="{{ route('shop-owner.staff.employees.store') }}" class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                @csrf
-                                <input type="hidden" name="shop_id" value="{{ $selectedShop?->id }}">
-                                <input type="hidden" name="employee_id" value="{{ $employee->id }}">
-                                <div>
-                                    <p class="font-black text-slate-950">{{ $employee->name }}</p>
-                                    <p class="text-xs font-semibold text-slate-500">{{ $employee->employee_code }} · {{ $employee->category->name }}</p>
+                <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                    <h2 class="text-lg font-black text-slate-950">Employee Advance</h2>
+                    <form method="POST" action="{{ route('shop-owner.staff.advance-requests.store') }}" class="mt-4 grid gap-2">
+                        @csrf
+                        <input type="hidden" name="shop_id" value="{{ $selectedShop?->id }}">
+                        <input type="date" name="requested_on" value="{{ $selectedDate->format('Y-m-d') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold" required>
+                        <select name="employee_id" class="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold" required>
+                            <option value="">Employee</option>
+                            @foreach($employees as $employee)
+                                <option value="{{ $employee->id }}">{{ $employee->name }}</option>
+                            @endforeach
+                        </select>
+                        <input type="number" step="0.01" min="0.01" name="amount" placeholder="Advance amount" class="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold" required>
+                        <div class="grid grid-cols-2 gap-2">
+                            <label class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800">
+                                <input type="radio" name="fund_source" value="petty_cash" checked class="mr-1"> Petty cash
+                            </label>
+                            <label class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">
+                                <input type="radio" name="fund_source" value="sales_income" class="mr-1"> Sales
+                            </label>
+                        </div>
+                        <textarea name="request_note" rows="2" placeholder="Reason / note" class="rounded-xl border border-slate-200 px-3 py-2 text-sm"></textarea>
+                        <button type="submit" class="rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-black text-slate-950">Submit Advance</button>
+                    </form>
+                </section>
+
+                <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                    <h2 class="text-lg font-black text-slate-950">Recent Staff Money</h2>
+                    <div class="mt-4 space-y-2">
+                        @forelse($recentPayrollPayments as $payment)
+                            <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div>
+                                        <p class="text-sm font-black text-slate-900">{{ $payment->employee?->name }}</p>
+                                        <p class="text-xs font-semibold text-slate-500">{{ str($payment->payment_type)->headline() }} · {{ str($payment->fund_source)->replace('_', ' ')->headline() }}</p>
+                                    </div>
+                                    <p class="text-sm font-black text-slate-950">Rs. {{ number_format((float) $payment->amount, 2) }}</p>
                                 </div>
-                                <button type="submit" class="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-black text-slate-950">Add to Shop</button>
-                            </form>
+                            </div>
                         @empty
-                            <p class="text-sm font-semibold text-slate-500">{{ $employeeSearch === '' ? 'Search to add more employees to this shop list.' : 'No matching shop employees found.' }}</p>
+                            <p class="text-sm font-semibold text-slate-500">No salary or advance payments yet.</p>
+                        @endforelse
+                    </div>
+                </section>
+
+                <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                    <h2 class="text-lg font-black text-slate-950">Advance Requests</h2>
+                    <div class="mt-4 space-y-2">
+                        @forelse($advanceRequests as $advanceRequest)
+                            <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div>
+                                        <p class="text-sm font-black text-slate-900">{{ $advanceRequest->employee?->name }}</p>
+                                        <p class="text-xs font-semibold text-slate-500">Eligible Rs. {{ number_format((float) $advanceRequest->eligible_amount, 2) }}</p>
+                                    </div>
+                                    <span class="rounded-full border px-2 py-1 text-[10px] font-black uppercase {{ $advanceRequest->status === 'approved' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($advanceRequest->status === 'rejected' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-amber-200 bg-amber-50 text-amber-700') }}">{{ $advanceRequest->status }}</span>
+                                </div>
+                                <p class="mt-1 text-sm font-black text-slate-950">Rs. {{ number_format((float) $advanceRequest->requested_amount, 2) }}</p>
+                            </div>
+                        @empty
+                            <p class="text-sm font-semibold text-slate-500">No advance requests yet.</p>
                         @endforelse
                     </div>
                 </section>

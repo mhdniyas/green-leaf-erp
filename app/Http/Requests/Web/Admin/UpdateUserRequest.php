@@ -24,8 +24,7 @@ class UpdateUserRequest extends FormRequest
             'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
             'roles' => ['nullable', 'array'],
             'roles.*' => ['string', 'exists:roles,name'],
-            'permissions' => ['nullable', 'array'],
-            'permissions.*' => ['string', 'exists:permissions,name'],
+            'permissions' => ['prohibited'],
         ];
     }
 }

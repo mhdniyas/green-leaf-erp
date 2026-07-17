@@ -38,7 +38,7 @@ class UserService
             $user = $this->repository->create($data->toArray());
 
             $user->syncRoles($data->roles);
-            $user->syncPermissions($data->permissions);
+            $user->syncPermissions([]);
             $this->employeeSyncService->ensureForUser($user->fresh());
 
             return $user;
@@ -51,7 +51,7 @@ class UserService
             $user = $this->repository->update($user, $data->toArray());
 
             $user->syncRoles($data->roles);
-            $user->syncPermissions($data->permissions);
+            $user->syncPermissions([]);
             $this->employeeSyncService->ensureForUser($user->fresh());
 
             return $user;

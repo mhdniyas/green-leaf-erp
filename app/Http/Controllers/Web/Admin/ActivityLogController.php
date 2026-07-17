@@ -6,8 +6,10 @@ namespace App\Http\Controllers\Web\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 use Spatie\Activitylog\Models\Activity;
 
@@ -23,7 +25,14 @@ class ActivityLogController extends Controller
             abort(403, 'Unauthorized access to activity logs.');
         }
 
-        $query = Activity::query()->with(['causer', 'subject']);
+        $query = Activity::query()->with([
+            'causer' => function (MorphTo $morphTo): void {
+                $morphTo->morphWith([
+                    User::class => ['roles'],
+                ]);
+            },
+            'subject',
+        ]);
 
         // 1. Apply Filters
         if ($request->filled('causer_id')) {
@@ -50,13 +59,52 @@ class ActivityLogController extends Controller
             $endDate->copy()->endOfDay(),
         ]);
 
+        if ($request->filled('ip_address')) {
+            $query->where('properties->ip_address', 'like', '%'.$request->string('ip_address')->toString().'%');
+        }
+
+        if ($request->filled('search')) {
+            $search = $request->string('search')->toString();
+
+            $query->where(function ($searchQuery) use ($search): void {
+                $searchQuery
+                    ->where('description', 'like', "%{$search}%")
+                    ->orWhere('log_name', 'like', "%{$search}%")
+                    ->orWhere('properties->url', 'like', "%{$search}%")
+                    ->orWhere('properties->ip_address', 'like', "%{$search}%");
+            });
+        }
+
+        $filteredActivitiesCount = (clone $query)->count();
+        $filteredUsersCount = (clone $query)
+            ->whereNotNull('causer_id')
+            ->distinct()
+            ->count('causer_id');
+        $filteredSubjectTypesCount = (clone $query)
+            ->whereNotNull('subject_type')
+            ->distinct()
+            ->count('subject_type');
+
         // 2. Fetch Paginated Records
         $activities = $query->orderBy('created_at', 'desc')->paginate(20)->withQueryString();
 
         // 3. Fetch Filter Options
-        $users = User::orderBy('name')->get();
-        $events = Activity::whereNotNull('event')->distinct()->pluck('event');
-        $subjectTypes = Activity::whereNotNull('subject_type')->distinct()->pluck('subject_type');
+        $users = User::query()->select(['id', 'name', 'email'])->orderBy('name')->get();
+        $events = Activity::query()->whereNotNull('event')->distinct()->orderBy('event')->pluck('event');
+        $subjectTypes = Activity::query()
+            ->whereNotNull('subject_type')
+            ->distinct()
+            ->orderBy('subject_type')
+            ->pluck('subject_type');
+        $dailyActivityCounts = Activity::query()
+            ->selectRaw('DATE(created_at) as activity_date, COUNT(*) as aggregate')
+            ->whereBetween('created_at', [
+                $startDate->copy()->startOfDay(),
+                $endDate->copy()->endOfDay(),
+            ])
+            ->groupBy(DB::raw('DATE(created_at)'))
+            ->orderBy('activity_date')
+            ->pluck('aggregate', 'activity_date');
 
         return view('admin.activity_logs.index', compact(
             'activities',
@@ -64,7 +112,11 @@ class ActivityLogController extends Controller
             'events',
             'subjectTypes',
             'startDate',
-            'endDate'
+            'endDate',
+            'filteredActivitiesCount',
+            'filteredUsersCount',
+            'filteredSubjectTypesCount',
+            'dailyActivityCounts',
         ));
     }
 }
