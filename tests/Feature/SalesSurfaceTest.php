@@ -4,10 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Models\Customer;
 use App\Models\SalesInvoice;
+use App\Models\Shop;
 use App\Models\User;
-use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\ViewErrorBag;
 use Spatie\Permission\Models\Permission;
@@ -37,8 +36,11 @@ class SalesSurfaceTest extends TestCase
             ->assertOk()
             ->assertSee('Admin Panel')
             ->assertSee('Sales Destinations')
+            ->assertSee('Shop Deliveries')
             ->assertSee('Sales Invoices')
-            ->assertDontSee('Sales Orders');
+            ->assertDontSee('Sales Orders')
+            ->assertDontSee('External Customers')
+            ->assertDontSee('Add External Customer');
 
         $this
             ->actingAs($admin)
@@ -56,6 +58,23 @@ class SalesSurfaceTest extends TestCase
             ->actingAs($this->salesAdmin())
             ->get('/sales/orders')
             ->assertNotFound();
+    }
+
+    public function test_external_customer_crud_web_surface_is_removed(): void
+    {
+        $admin = $this->salesAdmin();
+
+        $this
+            ->actingAs($admin)
+            ->get('/sales/customers/create')
+            ->assertNotFound();
+
+        $this
+            ->actingAs($admin)
+            ->post('/sales/customers', [
+                'name' => 'External Customer',
+            ])
+            ->assertStatus(405);
     }
 
     public function test_sales_invoice_pages_tolerate_archived_related_records(): void
@@ -83,71 +102,48 @@ class SalesSurfaceTest extends TestCase
             ->assertSee($invoice->salesOrder->so_number);
     }
 
-    public function test_admin_can_create_update_and_delete_external_customers(): void
+    public function test_sales_customers_page_shows_shop_delivery_rows_only(): void
     {
-        $this->seed(RolePermissionSeeder::class);
+        $admin = $this->salesAdmin();
+        $shopRole = Role::findOrCreate('shop', 'web');
 
-        $admin = User::factory()->create();
-        $admin->assignRole('admin');
+        $shop = Shop::factory()->create([
+            'name' => 'Ashirwad',
+            'code' => 'SHOP_ASHIRWAD',
+            'warehouse_tag' => 'TAG D',
+            'status' => 'active',
+            'accounting_mode' => 'shop_sale',
+            'accounting_enabled' => true,
+            'contact_name' => 'Ashirwad Demo',
+            'contact_phone' => '9876543210',
+            'address' => 'Main Road',
+        ]);
+
+        $owner = User::factory()->create([
+            'name' => 'Ashirwad Owner',
+            'email' => 'shop-ashirwad@example.com',
+            'shop_id' => $shop->id,
+        ]);
+        $owner->assignRole($shopRole);
 
         $this
             ->actingAs($admin)
             ->get(route('sales.customers.index'))
             ->assertOk()
-            ->assertSee('Add External Customer');
-
-        $this
-            ->post(route('sales.customers.store'), [
-                'name' => 'Hotel Fresh',
-                'type' => 'Restaurant',
-                'contact' => 'Manager 9876543210',
-                'email' => 'hotel@example.com',
-                'address' => 'Main Road',
-                'payment_terms' => 'Net 7',
-                'credit_limit' => 25000,
-                'is_active' => 1,
-            ])
-            ->assertRedirect(route('sales.customers.index'));
-
-        $this->assertDatabaseHas('customers', [
-            'name' => 'Hotel Fresh',
-            'type' => 'Restaurant',
-            'payment_terms' => 'Net 7',
-        ]);
-
-        $customer = Customer::query()->where('name', 'Hotel Fresh')->firstOrFail();
-
-        $this
-            ->get(route('sales.customers.edit', $customer))
-            ->assertOk()
-            ->assertSee('Edit Customer');
-
-        $this
-            ->put(route('sales.customers.update', $customer), [
-                'name' => 'Hotel Fresh Updated',
-                'type' => 'Supermarket',
-                'contact' => 'Owner 9876543211',
-                'email' => 'updated@example.com',
-                'address' => 'Market Road',
-                'payment_terms' => 'Net 15',
-                'credit_limit' => 50000,
-                'is_active' => 1,
-            ])
-            ->assertRedirect(route('sales.customers.index'));
-
-        $this->assertDatabaseHas('customers', [
-            'id' => $customer->id,
-            'name' => 'Hotel Fresh Updated',
-            'type' => 'Supermarket',
-        ]);
-
-        $this
-            ->delete(route('sales.customers.destroy', $customer))
-            ->assertRedirect(route('sales.customers.index'));
-
-        $this->assertSoftDeleted('customers', [
-            'id' => $customer->id,
-        ]);
+            ->assertSee('Shop Deliveries')
+            ->assertSee('Ashirwad')
+            ->assertSee('SHOP_ASHIRWAD')
+            ->assertSee('TAG D')
+            ->assertSee('Ashirwad Demo')
+            ->assertSee('9876543210')
+            ->assertSee('Main Road')
+            ->assertSee('Ashirwad Owner')
+            ->assertSee('shop-ashirwad@example.com')
+            ->assertSee('Shop Sale')
+            ->assertSee('Enabled')
+            ->assertDontSee('External Customers')
+            ->assertDontSee('Add External Customer')
+            ->assertDontSee('No external customers found');
     }
 
     private function salesAdmin(): User

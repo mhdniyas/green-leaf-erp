@@ -180,7 +180,7 @@ Route::middleware('auth')->group(function () {
     // ── Sales ──────────────────────────────────────────────────────────────
     Route::prefix('sales')->name('sales.')->middleware('can:sales.customer.view')->group(function () {
         // Customers
-        Route::resource('customers', CustomerController::class)->except(['show']);
+        Route::get('customers', [CustomerController::class, 'index'])->name('customers.index');
 
         // Sales Invoices
         Route::resource('invoices', SalesInvoiceController::class)->only(['index', 'create', 'store', 'show']);
