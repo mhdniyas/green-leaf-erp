@@ -121,7 +121,7 @@ class PayrollPaymentService
     {
         $typeLabel = $payment->payment_type === 'advance' ? 'Salary advance' : 'Salary payment';
         $sourceLabel = match ($payment->fund_source) {
-            'petty_cash' => ' from shop petty cash',
+            'petty_cash' => ' from shop cash balance',
             'sales_income' => ' from shop sales income',
             default => '',
         };

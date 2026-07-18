@@ -18,6 +18,7 @@ use App\Models\ShopOrder;
 use App\Models\StockBatch;
 use App\Models\User;
 use App\Models\WastageEntry;
+use App\Services\DashboardNotificationService;
 use App\Services\Finance\AdminFinancePillarService;
 use App\Support\AccountingAccess;
 use App\Support\StaffAccess;
@@ -31,6 +32,7 @@ class AdminOverviewController extends Controller
 {
     public function __construct(
         private readonly AdminFinancePillarService $financePillars,
+        private readonly DashboardNotificationService $dashboardNotifications,
     ) {}
 
     public function __invoke(Request $request): View|RedirectResponse
@@ -145,6 +147,7 @@ class AdminOverviewController extends Controller
             ->values();
 
         $finance = $this->financePillars->forPeriod($date, $date);
+        $actionItems = $this->dashboardNotifications->adminActionItems($date);
 
         $overview = [
             'today_orders' => $ordersToday->count(),
@@ -193,6 +196,7 @@ class AdminOverviewController extends Controller
             'recentActivities',
             'suspiciousActivities',
             'quickLinks',
+            'actionItems',
         ));
     }
 }

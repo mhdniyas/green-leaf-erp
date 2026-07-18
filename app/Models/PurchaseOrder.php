@@ -83,4 +83,30 @@ class PurchaseOrder extends Model
     {
         return $this->items->sum(fn ($item) => (float) $item->subtotal);
     }
+
+    public function hasFinalLockedShopInvoices(): bool
+    {
+        $productIds = $this->items()->pluck('product_id');
+
+        return ShopOrder::query()
+            ->whereDate('business_date', $this->order_date)
+            ->whereHas('items', function ($query) use ($productIds): void {
+                $query->whereIn('product_id', $productIds);
+            })
+            ->where(function ($query): void {
+                $query
+                    ->where('delivery_review_status', 'approved')
+                    ->orWhereIn('delivery_status', ['delivered', 'partially_delivered'])
+                    ->orWhere('is_delivered', true)
+                    ->orWhereHas('invoice', function ($invoiceQuery): void {
+                        $invoiceQuery
+                            ->whereIn('delivery_status', ['received_full', 'approved_after_discrepancy'])
+                            ->orWhereIn('status', ['finalized', 'payment_pending', 'paid'])
+                            ->orWhereIn('payment_status', ['partially_paid', 'paid'])
+                            ->orWhereNotNull('payment_approved_at')
+                            ->orWhere('paid_amount', '>', 0);
+                    });
+            })
+            ->exists();
+    }
 }

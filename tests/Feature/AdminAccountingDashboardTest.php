@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\User;
+use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\ViewErrorBag;
-use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
@@ -21,12 +21,12 @@ class AdminAccountingDashboardTest extends TestCase
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
         view()->share('errors', new ViewErrorBag);
+        $this->seed(RolePermissionSeeder::class);
     }
 
     public function test_admin_accounting_dashboard_does_not_show_purchasing_handoff_card(): void
     {
         $admin = User::factory()->create();
-        Role::findOrCreate('admin', 'web');
         $admin->assignRole('admin');
 
         $this

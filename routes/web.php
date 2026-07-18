@@ -37,7 +37,6 @@ use App\Http\Controllers\Web\RequisitionController;
 use App\Http\Controllers\Web\Sales\CustomerController;
 use App\Http\Controllers\Web\Sales\PaymentController;
 use App\Http\Controllers\Web\Sales\SalesInvoiceController;
-use App\Http\Controllers\Web\Sales\SalesOrderController;
 use App\Http\Controllers\Web\ShopOwnerController;
 use App\Http\Controllers\Web\ShopOwnerStaffController;
 use App\Http\Controllers\Web\ShopPresetController;
@@ -51,20 +50,14 @@ use Illuminate\Support\Facades\Route;
 // Public website
 Route::view('/', 'welcome')->name('home');
 Route::view('/products', 'products.index')->name('products.index');
-Route::post('/enquiries', [WebsiteEnquiryController::class, 'store'])->name('website-enquiries.store');
+Route::post('/enquiries', [WebsiteEnquiryController::class, 'store'])->middleware('throttle:public-form')->name('website-enquiries.store');
 
 // Guest routes (unauthenticated only)
 Route::middleware('guest')->group(function () {
     Route::get('/login', [LoginController::class, 'show'])->name('login');
-    Route::get('/green-leaf', [LoginController::class, 'demo'])->name('login.demo');
-    Route::get('/gree-leaf', [LoginController::class, 'demo']);
-    Route::post('/green-leaf/access', [LoginController::class, 'unlockDemoAccess'])->name('login.demo.unlock');
-    Route::post('/gree-leaf/access', [LoginController::class, 'unlockDemoAccess']);
-    Route::post('/green-leaf/login', [LoginController::class, 'demoLogin'])->name('login.demo.account');
-    Route::post('/gree-leaf/login', [LoginController::class, 'demoLogin']);
     Route::get('/shop-owner/register', [ShopOwnerRegistrationController::class, 'create'])->name('shop-owner.register');
-    Route::post('/shop-owner/register', [ShopOwnerRegistrationController::class, 'store'])->name('shop-owner.register.store');
-    Route::post('/login', [LoginController::class, 'store'])->name('login.submit');
+    Route::post('/shop-owner/register', [ShopOwnerRegistrationController::class, 'store'])->middleware('throttle:public-form')->name('shop-owner.register.store');
+    Route::post('/login', [LoginController::class, 'store'])->middleware('throttle:login')->name('login.submit');
 });
 
 // Stub: password reset (required by blade for the link to work)
@@ -79,7 +72,7 @@ Route::middleware('auth')->group(function () {
     // Dashboard
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
 
-    Route::prefix('shop-owner')->name('shop-owner.')->group(function () {
+    Route::prefix('shop-owner')->name('shop-owner.')->middleware('can:sales.order.create')->group(function () {
         Route::get('/dashboard', [ShopOwnerController::class, 'dashboard'])->name('dashboard');
         Route::get('/orders', [ShopOwnerController::class, 'ordersIndex'])->name('orders.index');
         Route::get('/orders/create', [ShopOwnerController::class, 'ordersCreate'])->name('orders.create');
@@ -88,13 +81,12 @@ Route::middleware('auth')->group(function () {
         Route::get('/deliveries', [ShopOwnerController::class, 'deliveriesIndex'])->name('deliveries.index');
         Route::get('/deliveries/{order_number}', [ShopOwnerController::class, 'deliveriesShow'])->name('deliveries.show');
         Route::get('/accounting', [ShopOwnerController::class, 'accountingIndex'])->name('accounting.index');
+        Route::get('/accounting/daily-report', [ShopOwnerController::class, 'accountingDailyReport'])->name('accounting.daily-report');
         Route::get('/accounting/history', [ShopOwnerController::class, 'accountingHistory'])->name('accounting.history');
-        Route::get('/accounting/petty-cash', [ShopOwnerController::class, 'pettyCashIndex'])->name('accounting.petty-cash.index');
         Route::post('/accounting/entries', [ShopOwnerController::class, 'storeAccountingEntry'])->name('accounting.entries.store');
-        Route::post('/accounting/petty-cash-expenses', [ShopOwnerController::class, 'storePettyCashExpense'])->name('accounting.petty-cash-expenses.store');
-        Route::post('/accounting/sales-to-petty-cash', [ShopOwnerController::class, 'storeSalesToPettyCash'])->name('accounting.sales-to-petty-cash.store');
         Route::post('/accounting/payment-requests', [ShopOwnerController::class, 'storePaymentRequest'])->name('accounting.payment-requests.store');
         Route::get('/finance', [ShopOwnerController::class, 'financeIndex'])->name('finance.index');
+        Route::post('/finance/payments', [ShopOwnerController::class, 'storeCompanyPayment'])->name('finance.payments.store');
         Route::get('/finance/{invoice}', [ShopOwnerController::class, 'financeShow'])->name('finance.show');
         Route::get('/finance/{invoice}/pdf', [ShopOwnerController::class, 'financePdf'])->name('finance.pdf');
         Route::get('/staff', [ShopOwnerStaffController::class, 'index'])->name('staff.index');
@@ -105,7 +97,7 @@ Route::middleware('auth')->group(function () {
     });
 
     // ── Inventory ──────────────────────────────────────────────────────────
-    Route::prefix('inventory')->name('inventory.')->group(function () {
+    Route::prefix('inventory')->name('inventory.')->middleware('can:inventory.product.view')->group(function () {
         Route::get('dashboard', function (Request $request) {
             return redirect()->route(
                 'inventory.deliveries.dashboard',
@@ -149,7 +141,7 @@ Route::middleware('auth')->group(function () {
     });
 
     // ── Purchasing ─────────────────────────────────────────────────────────
-    Route::prefix('purchasing')->name('purchasing.')->group(function () {
+    Route::prefix('purchasing')->name('purchasing.')->middleware('can:purchasing.order.view')->group(function () {
         Route::get('dashboard', fn () => redirect()->route('purchasing.orders.index'))->name('dashboard');
 
         // Suppliers
@@ -163,8 +155,6 @@ Route::middleware('auth')->group(function () {
         Route::get('shop-invoices', [ShopInvoiceController::class, 'index'])->name('shop-invoices.index');
         Route::get('shop-invoices/{invoice}', [ShopInvoiceController::class, 'show'])->name('shop-invoices.show');
         Route::get('shop-invoices/{invoice}/pdf', [ShopInvoiceController::class, 'pdf'])->name('shop-invoices.pdf');
-        Route::patch('shop-invoices/{invoice}/payment-approval', [ShopInvoiceController::class, 'approvePayment'])->name('shop-invoices.payment-approval');
-        Route::patch('shop-invoices/payment-requests/{paymentRequest}', [ShopInvoiceController::class, 'reviewPaymentRequest'])->name('shop-invoices.payment-requests.review');
         Route::patch('shop-invoices/{invoice}/reprice', [ShopInvoiceController::class, 'reprice'])->name('shop-invoices.reprice');
 
         // Purchase Orders
@@ -188,15 +178,9 @@ Route::middleware('auth')->group(function () {
     });
 
     // ── Sales ──────────────────────────────────────────────────────────────
-    Route::prefix('sales')->name('sales.')->group(function () {
+    Route::prefix('sales')->name('sales.')->middleware('can:sales.customer.view')->group(function () {
         // Customers
-        Route::resource('customers', CustomerController::class);
-
-        // Sales Orders
-        Route::resource('orders', SalesOrderController::class);
-        Route::post('orders/{order}/confirm', [SalesOrderController::class, 'confirm'])->name('orders.confirm');
-        Route::post('orders/{order}/dispatch', [SalesOrderController::class, 'dispatch'])->name('orders.dispatch');
-        Route::post('orders/{order}/cancel', [SalesOrderController::class, 'cancel'])->name('orders.cancel');
+        Route::resource('customers', CustomerController::class)->except(['show']);
 
         // Sales Invoices
         Route::resource('invoices', SalesInvoiceController::class)->only(['index', 'create', 'store', 'show']);
@@ -206,7 +190,7 @@ Route::middleware('auth')->group(function () {
     });
 
     // ── Finance & Accounting ────────────────────────────────────────────────
-    Route::prefix('finance')->name('finance.')->group(function () {
+    Route::prefix('finance')->name('finance.')->middleware('can:accounting.report.view')->group(function () {
         Route::get('/', [FinanceController::class, 'index'])->name('index');
         Route::get('/vendors', [FinanceController::class, 'vendors'])->name('vendors.index');
         Route::get('/vendors/excel', [FinanceController::class, 'vendorsExcel'])->name('vendors.excel');
@@ -292,7 +276,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/purchaser/corrections/{correctionRequest}/reject', [PurchaserDashboardController::class, 'rejectCorrectionRequest'])->name('purchaser.corrections.reject');
 
     // ── Warehouse Receiver ─────────────────────────────────────────────────
-    Route::prefix('warehouse-receiver')->name('warehouse.receiver.')->group(function () {
+    Route::prefix('warehouse-receiver')->name('warehouse.receiver.')->middleware('can:warehouse.receive.view')->group(function () {
         Route::get('/checklist', [WarehouseReceiverController::class, 'index'])->name('checklist');
         Route::post('/confirm/{batch}', [WarehouseReceiverController::class, 'confirm'])->name('confirm');
         Route::post('/confirm-all', [WarehouseReceiverController::class, 'confirmAll'])->name('confirm-all');
@@ -308,7 +292,7 @@ Route::middleware('auth')->group(function () {
     });
 
     // ── Warehouse Loadout (PRD v2) ─────────────────────────────────────────
-    Route::prefix('warehouse/loadout')->name('warehouse.loadout.')->group(function () {
+    Route::prefix('warehouse/loadout')->name('warehouse.loadout.')->middleware('can:warehouse.receive.view')->group(function () {
         Route::get('/', [WarehouseLoadoutController::class, 'index'])->name('index');
         Route::get('/{shopOrder}', [WarehouseLoadoutController::class, 'show'])->name('show');
         Route::post('/{shopOrder}/save', [WarehouseLoadoutController::class, 'save'])->name('save');
@@ -320,9 +304,11 @@ Route::middleware('auth')->group(function () {
     // ── Admin ──────────────────────────────────────────────────────────────
     Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('/', AdminOverviewController::class)->name('overview');
-        Route::prefix('accounting')->name('accounting.')->group(function () {
+        Route::prefix('accounting')->name('accounting.')->middleware('can:accounting.dashboard.view')->group(function () {
             Route::get('/', [AdminAccountingController::class, 'index'])->name('index');
             Route::get('daily-sales', [AdminAccountingController::class, 'dailySalesReport'])->name('daily-sales');
+            Route::patch('shop-invoices/{invoice}/payment', [AdminAccountingController::class, 'updateShopInvoicePayment'])->name('shop-invoices.payment');
+            Route::patch('shop-invoice-payment-requests/{paymentRequest}/review', [AdminAccountingController::class, 'reviewShopInvoicePaymentRequest'])->name('shop-invoice-payment-requests.review');
             Route::get('cash-flow', [AdminAccountingController::class, 'cashFlowReport'])->name('cash-flow');
             Route::get('cash-flow/calendar', [AdminAccountingController::class, 'cashFlowCalendar'])->name('cash-flow.calendar');
             Route::get('cash-flow/export/excel', [AdminAccountingController::class, 'exportCashFlowDayJournalExcel'])->name('cash-flow.export.excel');
@@ -337,10 +323,13 @@ Route::middleware('auth')->group(function () {
             Route::patch('owned-shops/{shop:code}/petty-cash-settings', [AdminAccountingController::class, 'updatePettyCashSettings'])->name('owned-shops.petty-cash-settings.update');
             Route::post('owned-shops/{shop:code}/ownerships', [AdminAccountingController::class, 'storeOwnerships'])->name('owned-shops.ownerships.store');
             Route::post('owned-shops/{shop:code}/categories', [AdminAccountingController::class, 'storeCategory'])->name('owned-shops.categories.store');
+            Route::patch('owned-shops/{shop:code}/categories/{category}', [AdminAccountingController::class, 'updateCategory'])->name('owned-shops.categories.update');
+            Route::delete('owned-shops/{shop:code}/categories/{category}', [AdminAccountingController::class, 'destroyCategory'])->name('owned-shops.categories.destroy');
             Route::post('owned-shops/{shop:code}/entries', [AdminAccountingController::class, 'storeEntry'])->name('owned-shops.entries.store');
             Route::patch('owned-shops/{shop:code}/entries/{entry}', [AdminAccountingController::class, 'updateEntry'])->name('owned-shops.entries.update');
             Route::patch('owned-shops/{shop:code}/entries/{entry}/review', [AdminAccountingController::class, 'reviewEntry'])->name('owned-shops.entries.review');
             Route::post('owned-shops/{shop:code}/credits', [AdminAccountingController::class, 'storeShopCredit'])->name('owned-shops.credits.store');
+            Route::patch('owned-shops/{shop:code}/company-payments/{credit}/review', [AdminAccountingController::class, 'reviewCompanyPayment'])->name('owned-shops.company-payments.review');
             Route::post('owned-shops/{shop:code}/invoices', [AdminAccountingController::class, 'storeInvoice'])->name('owned-shops.invoices.store');
             Route::get('owned-shops/{shop:code}/invoices/{invoice}', [AdminAccountingController::class, 'showInvoice'])->name('owned-shops.invoices.show');
             Route::patch('owned-shops/{shop:code}/invoices/{invoice}/approve', [AdminAccountingController::class, 'approveInvoice'])->name('owned-shops.invoices.approve');
@@ -355,36 +344,40 @@ Route::middleware('auth')->group(function () {
             Route::post('purchasers/{user:public_uuid}/buy', [AdminAccountingController::class, 'buyAsPurchaser'])->name('purchasers.buy');
         });
         Route::post('users/{user}/approve', [UserController::class, 'approve'])->name('users.approve');
-        Route::resource('users', UserController::class);
-        Route::resource('warehouses', WarehouseController::class);
-        Route::get('staff', [StaffManagementController::class, 'index'])->name('staff.index');
-        Route::get('staff/employees', [StaffManagementController::class, 'employeesIndex'])->name('staff.employees.index');
-        Route::post('staff', [StaffManagementController::class, 'store'])->name('staff.store');
-        Route::post('staff/shop-assignments', [StaffManagementController::class, 'storeShopEmployeeAssignment'])->name('staff.shop-assignments.store');
-        Route::post('staff/sync-users', [StaffManagementController::class, 'syncLinkedUsers'])->name('staff.sync-users');
-        Route::put('staff/{employee:employee_code}', [StaffManagementController::class, 'update'])->name('staff.update');
-        Route::patch('staff/{employee:employee_code}/employment-status', [StaffManagementController::class, 'updateEmploymentStatus'])->name('staff.employment-status.update');
-        Route::get('staff/categories', [StaffManagementController::class, 'categoriesIndex'])->name('staff.categories.index');
-        Route::post('staff/categories', [StaffManagementController::class, 'storeCategory'])->name('staff.categories.store');
-        Route::put('staff/categories/{employeeCategory}', [StaffManagementController::class, 'updateCategory'])->name('staff.categories.update');
-        Route::put('staff/categories/{employeeCategory}/leave-rules', [StaffManagementController::class, 'updateCategoryLeaveRules'])->name('staff.categories.leave-rules.update');
-        Route::get('staff/attendance', [StaffManagementController::class, 'attendanceIndex'])->name('staff.attendance');
-        Route::post('staff/attendance', [StaffManagementController::class, 'storeAttendance'])->name('staff.attendance.store');
-        Route::get('staff/leaves', [StaffManagementController::class, 'leavesIndex'])->name('staff.leaves.index');
-        Route::post('staff/leaves', [StaffManagementController::class, 'storeLeave'])->name('staff.leaves.store');
-        Route::patch('staff/leaves/{leaveRequest}', [StaffManagementController::class, 'reviewLeave'])->name('staff.leaves.review');
-        Route::get('staff/payments', [StaffManagementController::class, 'paymentsIndex'])->name('staff.payments.index');
-        Route::post('staff/payments', [StaffManagementController::class, 'storePayrollPayment'])->name('staff.payments.store');
-        Route::post('staff/shop-staff-payments', [StaffManagementController::class, 'storeShopStaffPayment'])->name('staff.shop-staff-payments.store');
-        Route::post('staff/contract-worker-payments', [StaffManagementController::class, 'storeContractWorkerPayment'])->name('staff.contract-worker-payments.store');
-        Route::patch('staff/advance-requests/{advanceRequest}', [StaffManagementController::class, 'reviewEmployeeAdvance'])->name('staff.advance-requests.review');
-        Route::get('staff/payroll', [StaffManagementController::class, 'payrollIndex'])->name('staff.payroll.index');
-        Route::get('staff/payroll/export/excel', [StaffManagementController::class, 'exportPayrollExcel'])->name('staff.payroll.export.excel');
-        Route::get('staff/payroll/export/pdf', [StaffManagementController::class, 'exportPayrollPdf'])->name('staff.payroll.export.pdf');
-        Route::post('staff/payroll', [StaffManagementController::class, 'storePayroll'])->name('staff.payroll.store');
-        Route::patch('staff/payroll/{payrollRun}/items/{payrollRunItem}', [StaffManagementController::class, 'updatePayrollItem'])->name('staff.payroll.items.update');
-        Route::post('staff/payroll/{payrollRun}/finalize', [StaffManagementController::class, 'finalizePayroll'])->name('staff.payroll.finalize');
-        Route::get('staff/{employee:employee_code}', [StaffManagementController::class, 'show'])->name('staff.show');
+        Route::resource('users', UserController::class)->middleware('can:admin.user.view');
+        Route::resource('warehouses', WarehouseController::class)->middleware('can:inventory.stock.adjust');
+        Route::middleware('can:hr.employee.view')->group(function () {
+            Route::get('staff', [StaffManagementController::class, 'index'])->name('staff.index');
+            Route::get('staff/employees', [StaffManagementController::class, 'employeesIndex'])->name('staff.employees.index');
+            Route::get('staff/assignments', [StaffManagementController::class, 'assignmentsIndex'])->name('staff.assignments.index');
+            Route::post('staff', [StaffManagementController::class, 'store'])->name('staff.store');
+            Route::post('staff/shop-assignments', [StaffManagementController::class, 'storeShopEmployeeAssignment'])->name('staff.shop-assignments.store');
+            Route::post('staff/sync-users', [StaffManagementController::class, 'syncLinkedUsers'])->name('staff.sync-users');
+            Route::put('staff/{employee:employee_code}', [StaffManagementController::class, 'update'])->name('staff.update');
+            Route::patch('staff/{employee:employee_code}/employment-status', [StaffManagementController::class, 'updateEmploymentStatus'])->name('staff.employment-status.update');
+            Route::get('staff/categories', [StaffManagementController::class, 'categoriesIndex'])->name('staff.categories.index');
+            Route::post('staff/categories', [StaffManagementController::class, 'storeCategory'])->name('staff.categories.store');
+            Route::put('staff/categories/{employeeCategory}', [StaffManagementController::class, 'updateCategory'])->name('staff.categories.update');
+            Route::put('staff/categories/{employeeCategory}/leave-rules', [StaffManagementController::class, 'updateCategoryLeaveRules'])->name('staff.categories.leave-rules.update');
+            Route::get('staff/attendance', [StaffManagementController::class, 'attendanceIndex'])->name('staff.attendance');
+            Route::post('staff/attendance', [StaffManagementController::class, 'storeAttendance'])->name('staff.attendance.store');
+            Route::get('staff/leaves', [StaffManagementController::class, 'leavesIndex'])->name('staff.leaves.index');
+            Route::post('staff/leaves', [StaffManagementController::class, 'storeLeave'])->name('staff.leaves.store');
+            Route::patch('staff/leaves/{leaveRequest}', [StaffManagementController::class, 'reviewLeave'])->name('staff.leaves.review');
+            Route::get('staff/payments', [StaffManagementController::class, 'paymentsIndex'])->name('staff.payments.index');
+            Route::get('staff/advance-payments', [StaffManagementController::class, 'advancePaymentsIndex'])->name('staff.advance-payments.index');
+            Route::post('staff/payments', [StaffManagementController::class, 'storePayrollPayment'])->name('staff.payments.store');
+            Route::post('staff/shop-staff-payments', [StaffManagementController::class, 'storeShopStaffPayment'])->name('staff.shop-staff-payments.store');
+            Route::post('staff/contract-worker-payments', [StaffManagementController::class, 'storeContractWorkerPayment'])->name('staff.contract-worker-payments.store');
+            Route::patch('staff/advance-requests/{advanceRequest}', [StaffManagementController::class, 'reviewEmployeeAdvance'])->name('staff.advance-requests.review');
+            Route::get('staff/payroll', [StaffManagementController::class, 'payrollIndex'])->name('staff.payroll.index');
+            Route::get('staff/payroll/export/excel', [StaffManagementController::class, 'exportPayrollExcel'])->name('staff.payroll.export.excel');
+            Route::get('staff/payroll/export/pdf', [StaffManagementController::class, 'exportPayrollPdf'])->name('staff.payroll.export.pdf');
+            Route::post('staff/payroll', [StaffManagementController::class, 'storePayroll'])->name('staff.payroll.store');
+            Route::patch('staff/payroll/{payrollRun}/items/{payrollRunItem}', [StaffManagementController::class, 'updatePayrollItem'])->name('staff.payroll.items.update');
+            Route::post('staff/payroll/{payrollRun}/finalize', [StaffManagementController::class, 'finalizePayroll'])->name('staff.payroll.finalize');
+            Route::get('staff/{employee:employee_code}', [StaffManagementController::class, 'show'])->name('staff.show');
+        });
         Route::get('daily-progress', DailyProgressController::class)->name('daily-progress');
         Route::get('activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
         Route::get('enquiries', [EnquiryController::class, 'index'])->name('enquiries.index');
@@ -398,7 +391,7 @@ Route::middleware('auth')->group(function () {
     });
 
     // ── Sort Sheet ──────────────────────────────────────────────────────────────
-    Route::prefix('sort-sheet')->name('sort-sheet.')->group(function () {
+    Route::prefix('sort-sheet')->name('sort-sheet.')->middleware('can:sort.sheet.view')->group(function () {
         Route::get('/', [SortSheetController::class, 'index'])->name('index');
         Route::get('/generate', [SortSheetController::class, 'generate'])->name('generate');
         Route::get('/export/excel', [SortSheetController::class, 'exportExcel'])->name('export.excel');

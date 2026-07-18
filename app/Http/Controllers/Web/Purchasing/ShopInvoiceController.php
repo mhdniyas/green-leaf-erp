@@ -6,15 +6,11 @@ namespace App\Http\Controllers\Web\Purchasing;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Admin\RepriceShopInvoiceRequest;
-use App\Http\Requests\Web\Purchasing\ApproveShopInvoicePaymentRequest;
-use App\Http\Requests\Web\Purchasing\ReviewShopInvoicePaymentRequest;
 use App\Models\ShopInvoice;
-use App\Models\ShopInvoicePaymentRequest;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class ShopInvoiceController extends Controller
@@ -80,43 +76,6 @@ class ShopInvoiceController extends Controller
         $invoice->load(['shop', 'order', 'items.product', 'items.orderItem', 'paymentApprovedBy', 'priceUpdatedBy']);
 
         return view('purchasing.shop-invoices.pdf', compact('invoice'));
-    }
-
-    public function approvePayment(ApproveShopInvoicePaymentRequest $request, ShopInvoice $invoice): RedirectResponse
-    {
-        abort_unless($request->user()?->hasRole('purchase') || $request->user()?->hasRole('admin'), 403);
-
-        $this->shopInvoiceService->approvePayment(
-            $invoice,
-            $request->validated(),
-            (int) $request->user()->id,
-        );
-
-        return back()->with('success', 'Daily invoice payment approval updated.');
-    }
-
-    public function reviewPaymentRequest(ReviewShopInvoicePaymentRequest $request, ShopInvoicePaymentRequest $paymentRequest): RedirectResponse
-    {
-        abort_unless($request->user()?->hasRole('purchase') || $request->user()?->hasRole('admin'), 403);
-
-        try {
-            $paymentRequest = $this->shopInvoiceService->reviewPaymentRequest(
-                $paymentRequest,
-                $request->validated('decision'),
-                (int) $request->user()->id,
-                $request->validated('admin_note'),
-            );
-        } catch (ValidationException $exception) {
-            return back()->withErrors($exception->errors())->withInput();
-        }
-
-        return redirect()->route('purchasing.shop-invoices.show', $paymentRequest->invoice)
-            ->with(
-                $paymentRequest->status === 'approved' ? 'success' : 'warning',
-                $paymentRequest->status === 'approved'
-                    ? 'Shop payment request approved and added to sales collections.'
-                    : 'Shop payment request rejected.'
-            );
     }
 
     public function reprice(RepriceShopInvoiceRequest $request, ShopInvoice $invoice): RedirectResponse

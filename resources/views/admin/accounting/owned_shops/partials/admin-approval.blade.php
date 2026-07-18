@@ -19,14 +19,52 @@
     </div>
 
     <div class="mt-4 rounded-2xl border border-amber-100 bg-white p-3">
+        <div class="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+            <div class="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <p class="text-[10px] font-semibold uppercase text-slate-500">Opening</p>
+                <p class="mt-1 text-sm font-semibold text-slate-950">Rs. {{ number_format($receiptSummary['opening_balance'], 2) }}</p>
+            </div>
+            <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+                <p class="text-[10px] font-semibold uppercase text-emerald-700">Cash Credit</p>
+                <p class="mt-1 text-sm font-semibold text-emerald-900">Rs. {{ number_format($receiptSummary['cash_credit'], 2) }}</p>
+            </div>
+            <div class="rounded-2xl border border-cyan-200 bg-cyan-50 px-3 py-3">
+                <p class="text-[10px] font-semibold uppercase text-cyan-700">Non-Cash</p>
+                <p class="mt-1 text-sm font-semibold text-cyan-900">Rs. {{ number_format($receiptSummary['non_cash_income'], 2) }}</p>
+            </div>
+            <div class="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3">
+                <p class="text-[10px] font-semibold uppercase text-rose-700">Cash Debit</p>
+                <p class="mt-1 text-sm font-semibold text-rose-900">Rs. {{ number_format($receiptSummary['cash_debit'], 2) }}</p>
+            </div>
+            <div class="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <p class="text-[10px] font-semibold uppercase text-slate-500">Expected</p>
+                <p class="mt-1 text-sm font-semibold text-slate-950">Rs. {{ number_format($receiptSummary['expected_closing'], 2) }}</p>
+            </div>
+            <div class="rounded-2xl border {{ ($receiptSummary['entered_closing'] ?? 0) < 0 ? 'border-rose-200 bg-rose-50' : 'border-emerald-200 bg-emerald-50' }} px-3 py-3">
+                <p class="text-[10px] font-semibold uppercase {{ ($receiptSummary['entered_closing'] ?? 0) < 0 ? 'text-rose-700' : 'text-emerald-700' }}">Closing</p>
+                <p class="mt-1 text-sm font-semibold {{ ($receiptSummary['entered_closing'] ?? 0) < 0 ? 'text-rose-900' : 'text-emerald-900' }}">
+                    {{ $receiptSummary['entered_closing'] === null ? 'None' : 'Rs. '.number_format($receiptSummary['entered_closing'], 2) }}
+                </p>
+            </div>
+        </div>
         <div class="space-y-2">
             @foreach ($entry->lines as $line)
+                @php
+                    $lineLabel = $line->type === 'income'
+                        ? ((bool) $line->cash_effect ? 'Cash Credit' : 'Non-Cash Income')
+                        : ((bool) $line->cash_effect ? 'Cash Debit' : 'Non-Cash Debit');
+                    $lineTone = $line->type === 'income' && (bool) $line->cash_effect
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : ($line->type === 'income'
+                            ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
+                            : 'border-amber-200 bg-amber-50 text-amber-700');
+                @endphp
                 <div class="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                     <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
                             <div class="flex flex-wrap items-center gap-2">
-                                <span class="inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase {{ $line->type === 'income' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700' }}">
-                                    {{ $line->type }}
+                                <span class="inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase {{ $lineTone }}">
+                                    {{ $lineLabel }}
                                 </span>
                                 <span class="text-sm font-semibold text-slate-950">{{ $line->category?->name ?? 'Category removed' }}</span>
                                 <span class="inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase {{ $line->reviewStatusTone() === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($line->reviewStatusTone() === 'danger' ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700') }}">

@@ -124,6 +124,59 @@
                 <article class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
                     <div class="flex items-center justify-between gap-3">
                         <div>
+                            <p class="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Company Payments</p>
+                            <h2 class="mt-2 text-xl font-black text-slate-950">Approve payments to company</h2>
+                        </div>
+                    </div>
+
+                    <div class="mt-6 space-y-3">
+                        @forelse($companyPaymentRequests as $companyPayment)
+                            <div class="rounded-[1.25rem] border {{ $companyPayment->status === 'pending' ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50' }} p-4">
+                                <div class="flex flex-col gap-3">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div>
+                                            <p class="text-sm font-black text-slate-950">{{ $companyPayment->business_date?->format('d M Y') }}</p>
+                                            <p class="mt-1 text-sm font-semibold text-slate-600">{{ $companyPayment->description ?: 'Cash paid to company' }}</p>
+                                            <p class="mt-2 text-sm font-black text-rose-700">Rs. {{ number_format((float) $companyPayment->amount, 2) }}</p>
+                                        </div>
+                                        <span class="rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] {{ $companyPayment->statusTone() === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($companyPayment->statusTone() === 'danger' ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700') }}">
+                                            {{ $companyPayment->statusLabel() }}
+                                        </span>
+                                    </div>
+
+                                    @if ($companyPayment->status === 'pending')
+                                        <form method="POST" action="{{ route('admin.accounting.owned-shops.company-payments.review', ['shop' => $shop, 'credit' => $companyPayment]) }}" class="rounded-[1.1rem] border border-white/80 bg-white/80 px-4 py-3">
+                                            @csrf
+                                            @method('PATCH')
+                                            <label class="block">
+                                                <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Admin Note</span>
+                                                <textarea name="admin_note" rows="2" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none" placeholder="Optional note for shop owner">{{ old('admin_note') }}</textarea>
+                                            </label>
+                                            <div class="mt-3 flex flex-wrap justify-end gap-2">
+                                                <button type="submit" name="decision" value="reject" class="inline-flex h-10 items-center rounded-2xl bg-red-600 px-4 text-xs font-black uppercase tracking-[0.14em] text-white transition hover:bg-red-500">
+                                                    Reject
+                                                </button>
+                                                <button type="submit" name="decision" value="approve" class="inline-flex h-10 items-center rounded-2xl bg-emerald-600 px-4 text-xs font-black uppercase tracking-[0.14em] text-white transition hover:bg-emerald-500">
+                                                    Approve Payment
+                                                </button>
+                                            </div>
+                                        </form>
+                                    @elseif ($companyPayment->admin_note)
+                                        <p class="text-sm font-semibold text-slate-700">Admin note: {{ $companyPayment->admin_note }}</p>
+                                    @endif
+                                </div>
+                            </div>
+                        @empty
+                            <div class="rounded-[1.25rem] border border-dashed border-slate-300 px-4 py-8 text-center text-sm font-bold text-slate-500">
+                                No company payment requests found.
+                            </div>
+                        @endforelse
+                    </div>
+                </article>
+
+                <article class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
+                    <div class="flex items-center justify-between gap-3">
+                        <div>
                             <p class="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Payment Requests</p>
                             <h2 class="mt-2 text-xl font-black text-slate-950">Approve requested payments</h2>
                         </div>
@@ -365,87 +418,189 @@
                     'approved' => ['label' => 'Approved', 'empty' => 'No approved entries in this period.'],
                     'recheck' => ['label' => 'Recheck Required', 'empty' => 'No entries waiting for shop correction.'],
                 ];
-                $selectedApprovalEntryIsVisible = $hasEntry && match ($approvalTab) {
-                    'approved' => $entry->status === 'approved',
-                    'recheck' => $entry->status === 'recheck_required',
-                    default => $entry->status === 'submitted',
-                };
             @endphp
 
             <section class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                        <p class="text-[11px] font-semibold uppercase text-slate-400">Company Payments</p>
+                        <h2 class="mt-1 text-xl font-semibold text-slate-950">Approve payments to company</h2>
+                    </div>
+                    @php
+                        $pendingCompanyPayments = $companyPaymentRequests->where('status', 'pending');
+                    @endphp
+                    <span class="w-fit rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold uppercase text-amber-700">
+                        {{ $pendingCompanyPayments->count() }} pending
+                    </span>
+                </div>
+
+                <div class="mt-4 space-y-3">
+                    @forelse($pendingCompanyPayments as $companyPayment)
+                        <form method="POST" action="{{ route('admin.accounting.owned-shops.company-payments.review', ['shop' => $shop, 'credit' => $companyPayment]) }}" class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                            @csrf
+                            @method('PATCH')
+                            <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                <div>
+                                    <p class="text-sm font-black text-slate-950">{{ $companyPayment->business_date?->format('d M Y') }} - Rs. {{ number_format((float) $companyPayment->amount, 2) }}</p>
+                                    <p class="mt-1 text-sm font-semibold text-slate-600">{{ $companyPayment->description ?: 'Cash paid to company' }}</p>
+                                </div>
+                                <div class="flex min-w-0 flex-1 flex-col gap-2 lg:max-w-xl">
+                                    <textarea name="admin_note" rows="2" class="w-full rounded-2xl border border-amber-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none" placeholder="Optional note for shop owner">{{ old('admin_note') }}</textarea>
+                                    <div class="flex flex-wrap justify-end gap-2">
+                                        <button type="submit" name="decision" value="reject" class="inline-flex h-10 items-center rounded-2xl bg-red-600 px-4 text-xs font-black uppercase tracking-[0.14em] text-white transition hover:bg-red-500">
+                                            Reject
+                                        </button>
+                                        <button type="submit" name="decision" value="approve" class="inline-flex h-10 items-center rounded-2xl bg-emerald-600 px-4 text-xs font-black uppercase tracking-[0.14em] text-white transition hover:bg-emerald-500">
+                                            Approve Payment
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
+                    @empty
+                        <div class="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm font-bold text-slate-500">
+                            No company payments waiting for approval.
+                        </div>
+                    @endforelse
+                </div>
+            </section>
+
+            <section id="owned-shop-approval-workflow" class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                 <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                         <p class="text-[11px] font-semibold uppercase text-slate-400">Admin Approval</p>
-                        <h2 class="mt-1 text-xl font-semibold text-slate-950">Shop entry workflow</h2>
+                        <h2 class="mt-1 text-xl font-semibold text-slate-950">Daily Shop Receipt workflow</h2>
                     </div>
                     <div class="flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1">
                         @foreach ($approvalTabs as $approvalKey => $approvalMeta)
-                            <a href="{{ route('admin.accounting.owned-shops.show', ['shop' => $shop, 'tab' => 'cashbook', 'approval_tab' => $approvalKey, 'date' => $selectedDate->format('Y-m-d'), 'start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}" class="{{ $approvalTab === $approvalKey ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-900' }} inline-flex h-10 items-center rounded-xl px-4 text-sm font-semibold transition">
+                            <button type="button" data-approval-tab-trigger="{{ $approvalKey }}" aria-selected="{{ $approvalTab === $approvalKey ? 'true' : 'false' }}" class="{{ $approvalTab === $approvalKey ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-900' }} inline-flex h-10 items-center rounded-xl px-4 text-sm font-semibold transition">
                                 {{ $approvalMeta['label'] }}
-                            </a>
+                            </button>
                         @endforeach
                     </div>
                 </div>
 
                 <div class="mt-4 space-y-3">
-                    @if ($selectedApprovalEntryIsVisible)
-                        @include('admin.accounting.owned_shops.partials.admin-approval')
-                    @endif
-
-                    @forelse ($approvalEntries as $workflowEntry)
-                        @continue($selectedApprovalEntryIsVisible && $workflowEntry->is($entry))
+                    @foreach ($approvalTabs as $approvalKey => $approvalMeta)
                         @php
-                            $workflowIncome = round((float) $workflowEntry->lines->where('type', 'income')->sum('amount'), 2);
-                            $workflowExpense = round((float) $workflowEntry->lines->where('type', 'expense')->sum('amount'), 2);
+                            $workflowEntries = $approvalEntriesByTab->get($approvalKey, collect());
+                            $selectedApprovalEntryIsVisible = $hasEntry && match ($approvalKey) {
+                                'approved' => $entry->status === 'approved',
+                                'recheck' => $entry->status === 'recheck_required',
+                                default => $entry->status === 'submitted',
+                            };
+                            $visibleWorkflowEntries = $selectedApprovalEntryIsVisible
+                                ? $workflowEntries->reject(fn ($workflowEntry) => $workflowEntry->is($entry))->values()
+                                : $workflowEntries;
                         @endphp
-                        <a href="{{ route('admin.accounting.owned-shops.show', ['shop' => $shop, 'tab' => 'cashbook', 'approval_tab' => $approvalTab, 'date' => $workflowEntry->business_date->format('Y-m-d'), 'start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}" class="block rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:border-emerald-200 hover:bg-emerald-50">
-                            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                <div>
-                                    <div class="flex flex-wrap items-center gap-2">
-                                        <p class="text-sm font-semibold text-slate-950">{{ $workflowEntry->business_date->format('d M Y') }}</p>
-                                        <span class="rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase {{ $workflowEntry->statusTone() === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($workflowEntry->statusTone() === 'danger' ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700') }}">{{ $workflowEntry->statusLabel() }}</span>
-                                    </div>
-                                    <p class="mt-2 text-sm font-medium text-slate-600">
-                                        Income Rs. {{ number_format($workflowIncome, 2) }} / Expense Rs. {{ number_format($workflowExpense, 2) }}
-                                    </p>
-                                    @if ($workflowEntry->admin_note)
-                                        <p class="mt-2 text-sm font-medium text-slate-500">{{ $workflowEntry->admin_note }}</p>
-                                    @endif
-                                </div>
-                                <p class="text-sm font-semibold text-slate-950">Rs. {{ number_format($workflowIncome - $workflowExpense, 2) }}</p>
-                            </div>
-                        </a>
-                    @empty
-                        @unless ($selectedApprovalEntryIsVisible)
-                            <div class="rounded-2xl border border-dashed border-slate-300 p-6 text-center text-sm font-semibold text-slate-500">
-                                {{ $approvalTabs[$approvalTab]['empty'] }}
-                            </div>
-                        @endunless
-                    @endforelse
-                </div>
+                        <div data-approval-tab-panel="{{ $approvalKey }}" @class(['space-y-3', 'hidden' => $approvalTab !== $approvalKey])>
+                            @if ($selectedApprovalEntryIsVisible)
+                                @include('admin.accounting.owned_shops.partials.admin-approval')
+                            @endif
 
-                @if ($approvalEntries->hasPages())
-                    <div class="mt-4">{{ $approvalEntries->withQueryString()->links() }}</div>
-                @endif
+                            @forelse ($visibleWorkflowEntries as $workflowEntry)
+                                @php
+                                    $workflowIncome = round((float) $workflowEntry->lines->where('type', 'income')->sum('amount'), 2);
+                                    $workflowExpense = round((float) $workflowEntry->lines->where('type', 'expense')->sum('amount'), 2);
+                                @endphp
+                                <a href="{{ route('admin.accounting.owned-shops.show', ['shop' => $shop, 'tab' => 'cashbook', 'approval_tab' => $approvalKey, 'date' => $workflowEntry->business_date->format('Y-m-d'), 'start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}" class="block rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:border-emerald-200 hover:bg-emerald-50">
+                                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                        <div>
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <p class="text-sm font-semibold text-slate-950">{{ $workflowEntry->business_date->format('d M Y') }}</p>
+                                                <span class="rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase {{ $workflowEntry->statusTone() === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($workflowEntry->statusTone() === 'danger' ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700') }}">{{ $workflowEntry->statusLabel() }}</span>
+                                            </div>
+                                            <p class="mt-2 text-sm font-medium text-slate-600">
+                                                Income Rs. {{ number_format($workflowIncome, 2) }} / Expense Rs. {{ number_format($workflowExpense, 2) }}
+                                            </p>
+                                            @if ($workflowEntry->admin_note)
+                                                <p class="mt-2 text-sm font-medium text-slate-500">{{ $workflowEntry->admin_note }}</p>
+                                            @endif
+                                        </div>
+                                        <p class="text-sm font-semibold text-slate-950">Rs. {{ number_format($workflowIncome - $workflowExpense, 2) }}</p>
+                                    </div>
+                                </a>
+                            @empty
+                                @unless ($selectedApprovalEntryIsVisible)
+                                    <div class="rounded-2xl border border-dashed border-slate-300 p-6 text-center text-sm font-semibold text-slate-500">
+                                        {{ $approvalMeta['empty'] }}
+                                    </div>
+                                @endunless
+                            @endforelse
+                        </div>
+                    @endforeach
+                </div>
             </section>
 
-        <section class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-                <div class="grid gap-4 lg:grid-cols-4">
-                    <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Income</p>
-                        <p class="mt-2 text-2xl font-black text-slate-950">Rs. {{ number_format($incomeTotal, 2) }}</p>
+            <script>
+                (() => {
+                    const workflow = document.getElementById('owned-shop-approval-workflow');
+
+                    if (!workflow) {
+                        return;
+                    }
+
+                    const buttons = workflow.querySelectorAll('[data-approval-tab-trigger]');
+                    const panels = workflow.querySelectorAll('[data-approval-tab-panel]');
+
+                    const setTab = (tab) => {
+                        buttons.forEach((button) => {
+                            const isActive = button.dataset.approvalTabTrigger === tab;
+                            button.classList.toggle('bg-white', isActive);
+                            button.classList.toggle('text-slate-950', isActive);
+                            button.classList.toggle('shadow-sm', isActive);
+                            button.classList.toggle('text-slate-500', !isActive);
+                            button.classList.toggle('hover:text-slate-900', !isActive);
+                            button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+                        });
+
+                        panels.forEach((panel) => {
+                            panel.classList.toggle('hidden', panel.dataset.approvalTabPanel !== tab);
+                        });
+
+                        const url = new URL(window.location.href);
+                        url.searchParams.set('tab', 'cashbook');
+                        url.searchParams.set('approval_tab', tab);
+                        window.history.replaceState({}, '', url);
+                    };
+
+                    buttons.forEach((button) => {
+                        button.addEventListener('click', () => setTab(button.dataset.approvalTabTrigger ?? 'pending'));
+                    });
+                })();
+            </script>
+
+        <section class="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                    <div class="rounded-[1rem] border border-slate-200 bg-slate-50 p-3">
+                        <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Opening</p>
+                        <p class="mt-2 whitespace-nowrap text-base font-black leading-none tracking-tight text-slate-950 tabular-nums xl:text-lg">Rs. {{ number_format($receiptSummary['opening_balance'], 2) }}</p>
                     </div>
-                    <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Expense</p>
-                        <p class="mt-2 text-2xl font-black text-slate-950">Rs. {{ number_format($expenseTotal, 2) }}</p>
+                    <div class="rounded-[1rem] border border-emerald-200 bg-emerald-50 p-3">
+                        <p class="text-[9px] font-black uppercase tracking-[0.14em] text-emerald-700">Cash Credit</p>
+                        <p class="mt-2 whitespace-nowrap text-base font-black leading-none tracking-tight text-emerald-800 tabular-nums xl:text-lg">Rs. {{ number_format($receiptSummary['cash_credit'], 2) }}</p>
                     </div>
-                    <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Net</p>
-                        <p class="mt-2 text-2xl font-black text-slate-950">Rs. {{ number_format($netAmount, 2) }}</p>
+                    <div class="rounded-[1rem] border border-cyan-200 bg-cyan-50 p-3">
+                        <p class="text-[9px] font-black uppercase tracking-[0.14em] text-cyan-700">Non-Cash Income</p>
+                        <p class="mt-2 whitespace-nowrap text-base font-black leading-none tracking-tight text-cyan-800 tabular-nums xl:text-lg">Rs. {{ number_format($receiptSummary['non_cash_income'], 2) }}</p>
                     </div>
-                    <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Approval Status</p>
-                        <div class="mt-3">
+                    <div class="rounded-[1rem] border border-rose-200 bg-rose-50 p-3">
+                        <p class="text-[9px] font-black uppercase tracking-[0.14em] text-rose-700">Cash Debit</p>
+                        <p class="mt-2 whitespace-nowrap text-base font-black leading-none tracking-tight text-rose-800 tabular-nums xl:text-lg">Rs. {{ number_format($receiptSummary['cash_debit'], 2) }}</p>
+                    </div>
+                    <div class="rounded-[1rem] border border-slate-200 bg-slate-50 p-3">
+                        <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Expected Closing</p>
+                        <p class="mt-2 whitespace-nowrap text-base font-black leading-none tracking-tight text-slate-950 tabular-nums xl:text-lg">Rs. {{ number_format($receiptSummary['expected_closing'], 2) }}</p>
+                    </div>
+                    <div class="rounded-[1rem] border {{ ($receiptSummary['entered_closing'] ?? 0) < 0 ? 'border-rose-200 bg-rose-50' : 'border-emerald-200 bg-emerald-50' }} p-3">
+                        <p class="text-[9px] font-black uppercase tracking-[0.14em] {{ ($receiptSummary['entered_closing'] ?? 0) < 0 ? 'text-rose-700' : 'text-emerald-700' }}">Closing</p>
+                        <p class="mt-2 whitespace-nowrap text-base font-black leading-none tracking-tight tabular-nums {{ ($receiptSummary['entered_closing'] ?? 0) < 0 ? 'text-rose-800' : 'text-emerald-800' }} xl:text-lg">
+                            {{ $receiptSummary['entered_closing'] === null ? 'None' : 'Rs. '.number_format($receiptSummary['entered_closing'], 2) }}
+                        </p>
+                    </div>
+                    <div class="rounded-[1rem] border border-slate-200 bg-slate-50 p-3">
+                        <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Approval Status</p>
+                        <div class="mt-2">
                             @if ($hasEntry)
                                 <span class="inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] {{ $entry->statusTone() === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($entry->statusTone() === 'danger' ? 'border-red-200 bg-red-50 text-red-700' : ($entry->statusTone() === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-slate-100 text-slate-700')) }}">
                                     {{ $entry->statusLabel() }}
@@ -456,6 +611,21 @@
                         </div>
                     </div>
                 </div>
+
+                @if ($receiptSummary['owner_funded'] > 0 || ($receiptSummary['difference'] !== null && abs((float) $receiptSummary['difference']) > 0.009))
+                    <div class="mt-4 grid gap-3 lg:grid-cols-2">
+                        @if ($receiptSummary['owner_funded'] > 0)
+                            <div class="rounded-[1.25rem] border border-rose-200 bg-rose-50 px-4 py-4">
+                                <p class="text-sm font-black text-rose-900">Owner Funded / Payable: Rs. {{ number_format($receiptSummary['owner_funded'], 2) }}</p>
+                            </div>
+                        @endif
+                        @if ($receiptSummary['difference'] !== null && abs((float) $receiptSummary['difference']) > 0.009)
+                            <div class="rounded-[1.25rem] border border-amber-200 bg-amber-50 px-4 py-4">
+                                <p class="text-sm font-black text-amber-900">Closing Difference: Rs. {{ number_format((float) $receiptSummary['difference'], 2) }}</p>
+                            </div>
+                        @endif
+                    </div>
+                @endif
 
                 <div class="mt-6 flex flex-wrap items-center gap-3">
                     <button type="button" id="daily-entry-open-modal" class="inline-flex h-11 items-center rounded-2xl bg-cyan-600 px-5 text-sm font-black text-white transition hover:bg-cyan-500">
@@ -514,10 +684,6 @@
                         </div>
                     </div>
                 </section>
-
-                <div class="mt-6">
-                    @include('admin.accounting.owned_shops.partials.petty-cash-table')
-                </div>
 
                 @if ($hasEntry)
                     <div class="mt-6 space-y-4">
@@ -700,10 +866,10 @@
                 <div class="w-full max-w-lg rounded-[2rem] border border-slate-200 bg-white shadow-[0_30px_80px_rgba(15,23,42,0.22)]">
                     <div class="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
                         <div>
-                            <p class="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-700">Shop Cash Movement</p>
-                            <h2 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Add shop cash</h2>
-                            <p class="mt-2 text-sm font-semibold text-slate-500">Cash given to shop is an accounting expense. Cash received from shop is accounting income.</p>
-                        </div>
+	                            <p class="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-700">Shop Cash Movement</p>
+	                            <h2 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Add shop cash</h2>
+	                            <p class="mt-2 text-sm font-semibold text-slate-500">This records company cash out and shop working cash in. Sales income stays in approved daily receipts.</p>
+	                        </div>
                         <button type="button" class="shop-cash-modal-close inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">
                             <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -713,13 +879,12 @@
 
                     <form method="POST" action="{{ route('admin.accounting.owned-shops.credits.store', $shop) }}" class="space-y-4 px-6 py-6">
                         @csrf
-                        <label>
-                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Movement Type</span>
-                            <select name="type" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
-                                <option value="in" @selected(old('type', 'in') === 'in')>Cash Given to Shop - Expense</option>
-                                <option value="out" @selected(old('type') === 'out')>Cash Received from Shop - Income</option>
-                            </select>
-                        </label>
+	                        <input type="hidden" name="type" value="in">
+	                        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+	                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Movement Type</p>
+	                            <p class="mt-1 text-sm font-black text-slate-950">Working cash given to shop</p>
+	                            <p class="mt-1 text-xs font-semibold text-slate-600">Company view: cash out. Shop view: cash credit.</p>
+	                        </div>
                         <label>
                             <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Amount</span>
                             <input type="number" step="0.01" min="0.01" name="amount" value="{{ old('amount') }}" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
@@ -728,16 +893,9 @@
                             <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Movement Date</span>
                             <input type="date" name="business_date" value="{{ old('business_date', $selectedDate->format('Y-m-d')) }}" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
                         </label>
-                        <label class="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-                            <input type="checkbox" name="is_petty_cash" value="1" @checked(old('is_petty_cash')) class="mt-1 h-4 w-4 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500">
-                            <span>
-                                <span class="block text-sm font-black text-slate-950">Petty Cash</span>
-                                <span class="mt-1 block text-xs font-semibold text-slate-500">Show this movement in the petty cash table.</span>
-                            </span>
-                        </label>
-                        <label>
+	                        <label>
                             <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Description</span>
-                            <input type="text" name="description" value="{{ old('description') }}" placeholder="Cash given to shop or received from shop" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+	                            <input type="text" name="description" value="{{ old('description') }}" placeholder="Shop working cash given to shop" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
                         </label>
                         <div class="flex justify-end gap-3 pt-2">
                             <button type="button" class="shop-cash-modal-close inline-flex h-11 items-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
@@ -815,7 +973,9 @@
                             @method('PATCH')
                         @endif
                         <input type="hidden" name="business_date" value="{{ $selectedDate->format('Y-m-d') }}">
-                        <input type="hidden" name="status" value="{{ old('status', $entry?->status ?? 'draft') }}">
+                        <input type="hidden" name="status" value="{{ old('status', in_array($entry?->status, ['approved', 'finalized'], true) ? $entry->status : 'submitted') }}">
+                        <input type="hidden" name="opening_cash" value="{{ old('opening_cash', $entry?->opening_cash ?? $suggestedOpeningBalance) }}">
+                        <input type="hidden" name="closing_cash" value="{{ old('closing_cash', $entry?->closing_cash) }}">
 
                         <div class="space-y-3">
                             @for($index = 0; $index < max(4, $hasEntry ? $entry->lines->count() : 0); $index++)
@@ -829,7 +989,7 @@
                                             </option>
                                         @endforeach
                                     </select>
-                                    <input type="number" step="0.01" min="0" name="lines[{{ $index }}][amount]" value="{{ old("lines.$index.amount", $line?->amount) }}" placeholder="Amount" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none">
+                                    <input type="number" step="0.01" min="0.01" name="lines[{{ $index }}][amount]" value="{{ old("lines.$index.amount", $line?->amount) }}" placeholder="Amount" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none">
                                     <input type="text" name="lines[{{ $index }}][description]" value="{{ old("lines.$index.description", $line?->description) }}" placeholder="Description" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none">
                                 </div>
                             @endfor
@@ -837,7 +997,7 @@
 
                         <div class="flex justify-end pt-2">
                             <button type="submit" class="inline-flex h-11 items-center rounded-2xl bg-cyan-600 px-5 text-sm font-black text-white transition hover:bg-cyan-500">
-                                {{ $hasEntry ? 'Update Daily Entry' : 'Save Daily Entry' }}
+                                {{ $hasEntry ? 'Submit Daily Update' : 'Submit Daily Entry' }}
                             </button>
                         </div>
                     </form>

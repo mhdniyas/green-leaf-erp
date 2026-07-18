@@ -8,8 +8,8 @@ use App\Models\Product;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\User;
+use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
-use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
@@ -22,14 +22,13 @@ class WarehouseLoadoutPageTest extends TestCase
         parent::setUp();
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
+        $this->seed(RolePermissionSeeder::class);
     }
 
     public function test_warehouse_receiver_can_view_admin_direct_purchase_loadout_without_shop(): void
     {
         $admin = User::factory()->create(['name' => 'Administrator']);
         $warehouseReceiver = User::factory()->create();
-        Role::findOrCreate('admin', 'web');
-        Role::findOrCreate('warehouse_receiver', 'web');
         $admin->assignRole('admin');
         $warehouseReceiver->assignRole('warehouse_receiver');
 

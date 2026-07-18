@@ -343,6 +343,11 @@ class RequisitionController extends Controller
 
         $canRequestApprovedUpdate = $order->state === 'approved';
 
+        if ($order->isFinanciallyLocked()) {
+            return redirect()->route('shop-owner.orders.show', $orderNumber)
+                ->with('error', 'This order is linked to a finalized shop invoice. Create an adjustment request instead of changing the original order.');
+        }
+
         if ((! in_array($order->state, ['submitted', 'update_requested'], true) && ! $canRequestApprovedUpdate) || $order->is_delivered) {
             return redirect()->route('shop-owner.orders.show', $orderNumber)
                 ->with('error', 'This order can no longer be modified from the shop owner workflow.');
@@ -580,7 +585,7 @@ class RequisitionController extends Controller
 
                 if ($revision && $revision->status === 'blocked') {
                     throw ValidationException::withMessages([
-                        'purchase_orders' => 'This revision cannot be applied because goods receipt has already started for the linked purchase order.',
+                        'purchase_orders' => 'This revision cannot be applied because the linked purchasing or shop invoice workflow is already locked.',
                     ]);
                 }
 
@@ -1025,7 +1030,7 @@ class RequisitionController extends Controller
                 if ($revision && $revision->status === 'blocked') {
                     return redirect()->route('requisitions.approved_board', ['date' => $date])
                         ->withInput()
-                        ->with('error', 'This revision cannot be applied because goods receipt has already started for the linked purchase order.');
+                        ->with('error', 'This revision cannot be applied because the linked purchasing or shop invoice workflow is already locked.');
                 }
             }
 

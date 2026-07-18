@@ -131,15 +131,6 @@ $modules = [
         'badge'       => $salesStats && $salesStats['active_customers'] > 0 ? ($salesStats['active_customers'] . ' active') : null,
     ],
     [
-        'title'       => 'Sales Orders',
-        'description' => 'Manage customers, orders, and invoices.',
-        'href'        => route('sales.orders.index'),
-        'permission'  => 'sales.order.view',
-        'icon'        => 'M9 14.25l6-6m4.5-3.493V21.75l-3.75-1.5-3.75 1.5-3.75-1.5-3.75 1.5V4.757c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0c1.1.128 1.907 1.077 1.907 2.185zM9.75 9h.008v.008H9.75V9zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 4.5h.008v.008h-.008V13.5zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z',
-        'color'       => 'bg-blue-50 text-blue-700 border-blue-100',
-        'badge'       => $salesStats && $salesStats['pending_sos'] > 0 ? ($salesStats['pending_sos'] . ' pending') : null,
-    ],
-    [
         'title'       => 'Sales Invoices',
         'description' => 'Generate sales invoices, log payments, and track receivables.',
         'href'        => route('sales.invoices.index'),
@@ -2368,22 +2359,6 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
                 <p class="text-2xl font-bold text-gray-900 mt-0.5">{{ $salesStats['active_customers'] }}</p>
                 @can('sales.customer.view')
                 <a href="{{ route('sales.customers.index') }}" class="text-xs text-blue-600 font-medium hover:underline mt-0.5 block">View customers →</a>
-                @endcan
-            </div>
-        </div>
-
-        {{-- Pending Sales Orders --}}
-        <div class="bg-white rounded-2xl border border-gray-200 p-5 flex items-start gap-4">
-            <div class="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
-                <svg class="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 14.25l6-6m4.5-3.493V21.75l-3.75-1.5-3.75 1.5-3.75-1.5-3.75 1.5V4.757c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0c1.1.128 1.907 1.077 1.907 2.185zM9.75 9h.008v.008H9.75V9zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 4.5h.008v.008h-.008V13.5zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-                </svg>
-            </div>
-            <div>
-                <p class="text-xs text-gray-500 font-medium">Pending Sales Orders</p>
-                <p class="text-2xl font-bold text-gray-900 mt-0.5">{{ $salesStats['pending_sos'] }}</p>
-                @can('sales.order.view')
-                <a href="{{ route('sales.orders.index') }}" class="text-xs text-blue-600 font-medium hover:underline mt-0.5 block">View orders →</a>
                 @endcan
             </div>
         </div>

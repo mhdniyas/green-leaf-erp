@@ -10,8 +10,10 @@ use App\Models\ShopAccountingEntry;
 use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopAccountingInvoice;
 use App\Models\ShopCredit;
+use App\Models\ShopInvoice;
 use App\Models\ShopPettyCashExpense;
 use App\Models\ShopStaffPayment;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -191,14 +193,18 @@ class OwnedShopAccountingService
             ]);
         }
 
+        $businessDate = Carbon::parse($payload['business_date']);
+        $lines = $payload['lines'] ?? [];
+        $openingCash = $this->previousClosingBalance($shop, $businessDate);
+        $closingCash = $this->calculatedClosingCash($shop, $businessDate, $openingCash, $lines);
         $status = $payload['submission_action'] === 'submit' ? 'submitted' : 'draft';
         $entry = $this->saveEntry($shop, [
-            'business_date' => $payload['business_date'],
+            'business_date' => $businessDate->toDateString(),
             'status' => $status,
-            'opening_cash' => $payload['opening_cash'] ?? null,
-            'closing_cash' => $payload['closing_cash'] ?? null,
+            'opening_cash' => $openingCash,
+            'closing_cash' => $closingCash,
             'notes' => $payload['notes'] ?? null,
-            'lines' => $payload['lines'],
+            'lines' => $lines,
         ], $userId, $entry, allowApprovedEdit: true);
 
         $entry->forceFill([
@@ -211,6 +217,375 @@ class OwnedShopAccountingService
         ])->save();
 
         return $entry->fresh(['lines.category', 'shop', 'createdBy', 'updatedBy', 'submittedBy', 'reviewedBy']);
+    }
+
+    /**
+     * @param  array<int, array{shop_accounting_category_id:int, amount: float|int|string, description?: string|null}>  $lines
+     */
+    private function calculatedClosingCash(Shop $shop, Carbon $businessDate, float $openingCash, array $lines): float
+    {
+        $categoryIds = collect($lines)
+            ->pluck('shop_accounting_category_id')
+            ->map(fn ($categoryId): int => (int) $categoryId)
+            ->unique()
+            ->values();
+
+        if ($categoryIds->isEmpty()) {
+            return round($openingCash + $this->shopCashMovementForDate($shop, $businessDate) - $this->approvedDeliveryBillTotalForDate($shop, $businessDate), 2);
+        }
+
+        $categories = ShopAccountingCategory::query()
+            ->whereIn('id', $categoryIds->toArray())
+            ->where('is_active', true)
+            ->where(function ($query) use ($shop): void {
+                $query->whereNull('shop_id')
+                    ->orWhere('shop_id', $shop->id);
+            })
+            ->get()
+            ->keyBy('id');
+
+        $cashMovement = collect($lines)->sum(function (array $line) use ($categories): float {
+            $category = $categories->get((int) $line['shop_accounting_category_id']);
+
+            if (! $category instanceof ShopAccountingCategory || ! (bool) $category->cash_effect) {
+                return 0.0;
+            }
+
+            $amount = round((float) $line['amount'], 2);
+
+            return $category->type === 'income' ? $amount : -$amount;
+        });
+
+        return round($openingCash + $this->shopCashMovementForDate($shop, $businessDate) + (float) $cashMovement - $this->approvedDeliveryBillTotalForDate($shop, $businessDate), 2);
+    }
+
+    public function previousClosingBalance(Shop $shop, Carbon $businessDate): float
+    {
+        $previousEntryDate = ShopAccountingEntry::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', '<', $businessDate->toDateString())
+            ->max('business_date');
+        $previousShopCashDate = ShopCredit::query()
+            ->approved()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', '<', $businessDate->toDateString())
+            ->max('business_date');
+        $previousDate = collect([$previousEntryDate, $previousShopCashDate])
+            ->filter()
+            ->map(fn (string $date): string => Carbon::parse($date)->toDateString())
+            ->sort()
+            ->last();
+
+        if ($previousDate === null) {
+            return 0.0;
+        }
+
+        return $this->closingBalanceForDate($shop, Carbon::parse($previousDate));
+    }
+
+    public function closingBalanceForDate(Shop $shop, Carbon $businessDate): float
+    {
+        $entries = ShopAccountingEntry::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', $businessDate->toDateString())
+            ->with('lines')
+            ->orderBy('id')
+            ->get();
+
+        if ($entries->isEmpty()) {
+            return round($this->previousClosingBalance($shop, $businessDate) + $this->shopCashMovementForDate($shop, $businessDate) - $this->approvedDeliveryBillTotalForDate($shop, $businessDate), 2);
+        }
+
+        if ($entries->every(fn (ShopAccountingEntry $entry): bool => $entry->lines->isEmpty())) {
+            $shopCashMovement = $this->shopCashMovementForDate($shop, $businessDate) - $this->approvedDeliveryBillTotalForDate($shop, $businessDate);
+
+            if (abs($shopCashMovement) > 0.009) {
+                $openingBalance = round((float) ($entries->first()?->opening_cash ?? $this->previousClosingBalance($shop, $businessDate)), 2);
+
+                return round($openingBalance + $shopCashMovement, 2);
+            }
+
+            return round((float) ($entries->last()?->closing_cash ?? 0.0), 2);
+        }
+
+        $openingBalance = round((float) ($entries->first()?->opening_cash ?? 0.0), 2);
+        $shopCashMovement = $this->shopCashMovementForDate($shop, $businessDate);
+        $approvedDeliveryBill = $this->approvedDeliveryBillTotalForDate($shop, $businessDate);
+        $cashMovement = round((float) $entries->sum(function (ShopAccountingEntry $entry): float {
+            $cashCredit = (float) $entry->lines
+                ->where('type', 'income')
+                ->where('cash_effect', true)
+                ->sum('amount');
+            $cashDebit = (float) $entry->lines
+                ->where('type', 'expense')
+                ->where('cash_effect', true)
+                ->sum('amount');
+
+            return $cashCredit - $cashDebit;
+        }), 2);
+
+        return round($openingBalance + $shopCashMovement + $cashMovement - $approvedDeliveryBill, 2);
+    }
+
+    public function syncStoredClosingBalanceForDate(Shop $shop, Carbon $businessDate, int $userId): ShopAccountingEntry
+    {
+        return DB::transaction(function () use ($shop, $businessDate, $userId): ShopAccountingEntry {
+            $entries = ShopAccountingEntry::query()
+                ->where('shop_id', $shop->id)
+                ->whereDate('business_date', $businessDate->toDateString())
+                ->with('lines')
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            $openingBalance = $this->previousClosingBalance($shop, $businessDate);
+            $runningClosing = round($openingBalance + $this->shopCashMovementForDate($shop, $businessDate) - $this->approvedDeliveryBillTotalForDate($shop, $businessDate), 2);
+
+            if ($entries->isEmpty()) {
+                return ShopAccountingEntry::query()->create([
+                    'shop_id' => $shop->id,
+                    'business_date' => $businessDate->toDateString(),
+                    'status' => 'draft',
+                    'opening_cash' => $openingBalance,
+                    'closing_cash' => $runningClosing,
+                    'notes' => 'Auto-created when shop working cash was added.',
+                    'created_by' => $userId,
+                ]);
+            }
+
+            $latestEntry = $entries->last();
+
+            $entries->each(function (ShopAccountingEntry $entry, int $index) use (&$runningClosing, $openingBalance, $userId): void {
+                $cashCredit = (float) $entry->lines
+                    ->where('type', 'income')
+                    ->where('cash_effect', true)
+                    ->sum('amount');
+                $cashDebit = (float) $entry->lines
+                    ->where('type', 'expense')
+                    ->where('cash_effect', true)
+                    ->sum('amount');
+
+                $runningClosing = round($runningClosing + $cashCredit - $cashDebit, 2);
+
+                $entry->forceFill([
+                    'opening_cash' => $index === 0 ? $openingBalance : $entry->opening_cash,
+                    'closing_cash' => $runningClosing,
+                    'updated_by' => $userId,
+                ])->save();
+            });
+
+            return $latestEntry->fresh(['lines.category', 'shop', 'createdBy', 'updatedBy', 'submittedBy', 'reviewedBy']);
+        });
+    }
+
+    /**
+     * @return array{
+     *     opening_balance:float,
+     *     cash_credit:float,
+     *     non_cash_income:float,
+     *     cash_debit:float,
+     *     non_cash_debit:float,
+     *     approved_delivery_bill:float,
+     *     cash_given_to_shop:float,
+     *     payment_to_company:float,
+     *     shop_cash_credit:float,
+     *     total_income:float,
+     *     total_debit:float,
+     *     expected_closing:float,
+     *     entered_closing:?float,
+     *     difference:?float,
+     *     owner_funded:float
+     * }
+     */
+    public function receiptSummary(?ShopAccountingEntry $entry, float $fallbackOpeningBalance = 0.0, float $shopCashMovement = 0.0, float $approvedDeliveryBill = 0.0): array
+    {
+        $lines = $entry?->lines ?? collect();
+        $openingBalance = round((float) ($entry?->opening_cash ?? $fallbackOpeningBalance), 2);
+        $enteredClosing = $entry?->closing_cash !== null ? round((float) $entry->closing_cash, 2) : null;
+
+        $cashCredit = round((float) $lines
+            ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'income' && (bool) $line->cash_effect)
+            ->sum('amount'), 2);
+        $nonCashIncome = round((float) $lines
+            ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'income' && ! (bool) $line->cash_effect)
+            ->sum('amount'), 2);
+        $cashDebit = round((float) $lines
+            ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'expense' && (bool) $line->cash_effect)
+            ->sum('amount'), 2);
+        $nonCashDebit = round((float) $lines
+            ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'expense' && ! (bool) $line->cash_effect)
+            ->sum('amount'), 2);
+        $shopCashMovement = round($shopCashMovement, 2);
+        $approvedDeliveryBill = round($approvedDeliveryBill, 2);
+        $cashGivenToShop = max(0.0, $shopCashMovement);
+        $paymentToCompany = abs(min(0.0, $shopCashMovement));
+        $cashDebitWithBills = round($cashDebit + $approvedDeliveryBill, 2);
+        $expectedClosing = round($openingBalance + $cashGivenToShop - $paymentToCompany + $cashCredit - $cashDebitWithBills, 2);
+
+        return [
+            'opening_balance' => $openingBalance,
+            'cash_credit' => $cashCredit,
+            'non_cash_income' => $nonCashIncome,
+            'cash_debit' => $cashDebitWithBills,
+            'non_cash_debit' => $nonCashDebit,
+            'approved_delivery_bill' => $approvedDeliveryBill,
+            'cash_given_to_shop' => $cashGivenToShop,
+            'payment_to_company' => $paymentToCompany,
+            'shop_cash_credit' => $shopCashMovement,
+            'total_income' => round($cashCredit + $nonCashIncome, 2),
+            'total_debit' => round($cashDebitWithBills + $nonCashDebit, 2),
+            'expected_closing' => $expectedClosing,
+            'entered_closing' => $enteredClosing,
+            'difference' => $enteredClosing === null ? null : round($enteredClosing - $expectedClosing, 2),
+            'owner_funded' => $enteredClosing !== null && $enteredClosing < 0 ? abs($enteredClosing) : 0.0,
+        ];
+    }
+
+    /**
+     * @return array{
+     *     opening_balance:float,
+     *     cash_credit:float,
+     *     non_cash_income:float,
+     *     cash_debit:float,
+     *     non_cash_debit:float,
+     *     approved_delivery_bill:float,
+     *     cash_given_to_shop:float,
+     *     payment_to_company:float,
+     *     shop_cash_credit:float,
+     *     total_income:float,
+     *     total_debit:float,
+     *     expected_closing:float,
+     *     entered_closing:?float,
+     *     difference:?float,
+     *     owner_funded:float
+     * }
+     */
+    public function receiptSummaryForDate(Shop $shop, Carbon $businessDate): array
+    {
+        $entries = ShopAccountingEntry::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', $businessDate->toDateString())
+            ->with('lines')
+            ->orderBy('id')
+            ->get();
+        $openingBalance = $this->previousClosingBalance($shop, $businessDate);
+        $cashMovement = $this->shopCashMovementBreakdownForDate($shop, $businessDate);
+        $approvedDeliveryBill = $this->approvedDeliveryBillTotalForDate($shop, $businessDate);
+        $lines = $entries->flatMap(fn (ShopAccountingEntry $entry): Collection => $entry->lines);
+        $cashCredit = round((float) $lines
+            ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'income' && (bool) $line->cash_effect)
+            ->sum('amount'), 2);
+        $nonCashIncome = round((float) $lines
+            ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'income' && ! (bool) $line->cash_effect)
+            ->sum('amount'), 2);
+        $cashDebit = round((float) $lines
+            ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'expense' && (bool) $line->cash_effect)
+            ->sum('amount'), 2);
+        $nonCashDebit = round((float) $lines
+            ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'expense' && ! (bool) $line->cash_effect)
+            ->sum('amount'), 2);
+        $cashDebitWithBills = round($cashDebit + $approvedDeliveryBill, 2);
+        $expectedClosing = round($openingBalance + $cashMovement['cash_given_to_shop'] - $cashMovement['payment_to_company'] + $cashCredit - $cashDebitWithBills, 2);
+        $hasDayActivity = $entries->isNotEmpty()
+            || $cashMovement['cash_given_to_shop'] > 0
+            || $cashMovement['payment_to_company'] > 0
+            || $approvedDeliveryBill > 0;
+        $enteredClosing = $hasDayActivity ? $this->closingBalanceForDate($shop, $businessDate) : null;
+
+        return [
+            'opening_balance' => round($openingBalance, 2),
+            'cash_credit' => $cashCredit,
+            'non_cash_income' => $nonCashIncome,
+            'cash_debit' => $cashDebitWithBills,
+            'non_cash_debit' => $nonCashDebit,
+            'approved_delivery_bill' => round($approvedDeliveryBill, 2),
+            'cash_given_to_shop' => $cashMovement['cash_given_to_shop'],
+            'payment_to_company' => $cashMovement['payment_to_company'],
+            'shop_cash_credit' => $cashMovement['net'],
+            'total_income' => round($cashCredit + $nonCashIncome, 2),
+            'total_debit' => round($cashDebitWithBills + $nonCashDebit, 2),
+            'expected_closing' => $expectedClosing,
+            'entered_closing' => $enteredClosing,
+            'difference' => $enteredClosing === null ? null : round($enteredClosing - $expectedClosing, 2),
+            'owner_funded' => $enteredClosing !== null && $enteredClosing < 0 ? abs($enteredClosing) : 0.0,
+        ];
+    }
+
+    private function shopCashMovementForDate(Shop $shop, Carbon $businessDate): float
+    {
+        return round((float) ShopCredit::query()
+            ->approved()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', $businessDate->toDateString())
+            ->get()
+            ->sum(fn (ShopCredit $credit): float => $credit->shopSignedAmount()), 2);
+    }
+
+    /**
+     * @return array{cash_given_to_shop:float,payment_to_company:float,net:float}
+     */
+    public function shopCashMovementBreakdownForDate(Shop $shop, Carbon $businessDate): array
+    {
+        $credits = ShopCredit::query()
+            ->approved()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', $businessDate->toDateString())
+            ->get();
+        $cashGivenToShop = round((float) $credits
+            ->where('type', 'in')
+            ->sum('amount'), 2);
+        $paymentToCompany = round((float) $credits
+            ->where('type', 'out')
+            ->sum('amount'), 2);
+
+        return [
+            'cash_given_to_shop' => $cashGivenToShop,
+            'payment_to_company' => $paymentToCompany,
+            'net' => round($cashGivenToShop - $paymentToCompany, 2),
+        ];
+    }
+
+    public function approvedDeliveryBillTotalForDate(Shop $shop, Carbon $businessDate): float
+    {
+        return round((float) $this->approvedDeliveryBillQuery($shop)
+            ->whereDate('business_date', $businessDate->toDateString())
+            ->sum('final_total'), 2);
+    }
+
+    /**
+     * @return array{count:int,amount:float}
+     */
+    public function pendingDeliveryBillApprovalSummary(Shop $shop): array
+    {
+        $query = ShopInvoice::query()
+            ->where('shop_id', $shop->id)
+            ->where('final_total', '>', 0)
+            ->whereNot(function (Builder $query): void {
+                $this->approvedDeliveryBillScope($query);
+            });
+
+        return [
+            'count' => (int) $query->count(),
+            'amount' => round((float) $query->sum('final_total'), 2),
+        ];
+    }
+
+    private function approvedDeliveryBillQuery(Shop $shop): Builder
+    {
+        return ShopInvoice::query()
+            ->where('shop_id', $shop->id)
+            ->where('final_total', '>', 0)
+            ->where(function (Builder $query): void {
+                $this->approvedDeliveryBillScope($query);
+            });
+    }
+
+    private function approvedDeliveryBillScope(Builder $query): void
+    {
+        $query
+            ->whereIn('delivery_status', ['received_full', 'approved_after_discrepancy'])
+            ->orWhereIn('status', ['finalized', 'payment_pending', 'paid'])
+            ->orWhereIn('payment_status', ['partially_paid', 'paid']);
     }
 
     public function ensureDefaultPettyCashExpense(Shop $shop, Carbon $businessDate, ?int $userId = null): ?ShopPettyCashExpense
@@ -302,6 +677,7 @@ class OwnedShopAccountingService
     public function pettyCashRows(Shop $shop, Carbon $startDate, Carbon $endDate, bool $includeEmptyDays = false): Collection
     {
         $pettyCredits = ShopCredit::query()
+            ->approved()
             ->where('shop_id', $shop->id)
             ->where('is_petty_cash', true)
             ->whereDate('business_date', '<=', $endDate)
@@ -468,6 +844,8 @@ class OwnedShopAccountingService
             ->where('shop_id', $shop->id)
             ->whereDate('business_date', $date->toDateString())
             ->with(['lines.category', 'createdBy', 'updatedBy', 'submittedBy', 'reviewedBy'])
+            ->orderByRaw("CASE status WHEN 'recheck_required' THEN 0 WHEN 'submitted' THEN 1 WHEN 'draft' THEN 2 WHEN 'approved' THEN 3 ELSE 4 END")
+            ->latest('id')
             ->first();
     }
 

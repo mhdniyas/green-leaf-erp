@@ -280,7 +280,7 @@
                                 </td>
                                 @if(!auth()->user()->hasRole('shop'))
                                     <td class="py-4 px-6 text-slate-700 font-semibold">
-                                        {{ $order->shop->name }}
+                                        {{ $order->shop?->name ?? 'Direct Purchase' }}
                                     </td>
                                 @endif
                                 <td class="py-4 px-6 text-center">
@@ -314,7 +314,7 @@
                                     @endif
                                 </td>
                                 <td class="py-4 px-6 text-slate-500">
-                                    {{ $order->deliveredBy ? $order->deliveredBy->name : 'N/A' }}
+                                    {{ $order->deliveredBy?->name ?? 'N/A' }}
                                 </td>
                             </tr>
                         @empty

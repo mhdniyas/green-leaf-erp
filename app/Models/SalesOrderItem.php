@@ -34,12 +34,12 @@ class SalesOrderItem extends Model
     // Relationships
     public function salesOrder(): BelongsTo
     {
-        return $this->belongsTo(SalesOrder::class);
+        return $this->belongsTo(SalesOrder::class)->withTrashed();
     }
 
     public function product(): BelongsTo
     {
-        return $this->belongsTo(Product::class);
+        return $this->belongsTo(Product::class)->withTrashed();
     }
 
     // Computed

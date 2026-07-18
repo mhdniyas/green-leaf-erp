@@ -1,4 +1,4 @@
-<x-layouts.app title="Sales Destinations">
+<x-layouts.admin title="Sales Destinations">
 
     <x-slot:actions>
         @can('sales.customer.create')
@@ -222,4 +222,4 @@
         </div>
     </div>
 
-</x-layouts.app>
+</x-layouts.admin>

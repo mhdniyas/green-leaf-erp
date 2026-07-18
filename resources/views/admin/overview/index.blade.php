@@ -62,6 +62,34 @@
             </div>
         </section>
 
+        <section class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <p class="text-[10px] font-black uppercase tracking-[0.26em] text-slate-400">Action Required</p>
+                    <h2 class="mt-2 text-xl font-black tracking-tight text-slate-950">Pending approvals and review queues</h2>
+                </div>
+                <span class="inline-flex w-fit rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">
+                    {{ collect($actionItems)->sum('count') }} open
+                </span>
+            </div>
+
+            <div class="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                @foreach($actionItems as $item)
+                    <a href="{{ $item['href'] }}" class="group rounded-[1.35rem] border border-slate-200 bg-slate-50 p-4 transition hover:border-cyan-200 hover:bg-cyan-50">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0">
+                                <p class="truncate text-sm font-black text-slate-950 group-hover:text-cyan-900">{{ $item['label'] }}</p>
+                                <p class="mt-1 text-xs font-semibold leading-5 text-slate-500">{{ $item['hint'] }}</p>
+                            </div>
+                            <span class="inline-flex h-9 min-w-9 shrink-0 items-center justify-center rounded-full border px-2 text-sm font-black {{ $toneClasses[$item['tone']] ?? $toneClasses['slate'] }}">
+                                {{ $item['count'] }}
+                            </span>
+                        </div>
+                    </a>
+                @endforeach
+            </div>
+        </section>
+
         <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             @foreach($overviewCards as $card)
                 <article class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">

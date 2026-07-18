@@ -34,6 +34,12 @@ class ShopOrderRevisionService
         User $requester,
         ?string $reason = null
     ): ?ShopOrderRevision {
+        if ($order->isFinanciallyLocked()) {
+            throw ValidationException::withMessages([
+                'items' => 'This order is linked to a finalized shop invoice. Create an adjustment request instead of changing the original order.',
+            ]);
+        }
+
         $baselineItems = $order->items()->with('product')->get()->keyBy('product_id');
         $incomingQuantities = collect($items)
             ->mapWithKeys(fn (array $item): array => [(int) $item['product']->id => (float) $item['quantity']]);
@@ -116,6 +122,24 @@ class ShopOrderRevisionService
 
         if (! $revision) {
             return null;
+        }
+
+        if ($order->isFinanciallyLocked()) {
+            $revision->update([
+                'status' => 'blocked',
+                'reviewed_by' => $reviewer->id,
+                'reviewed_at' => now(),
+                'manager_note' => $managerNote,
+            ]);
+
+            $order->update([
+                'state' => 'approved',
+                'update_reason' => null,
+                'has_pending_revision' => false,
+                'manager_note' => $managerNote,
+            ]);
+
+            return $revision->fresh(['items.product', 'shopOrder']);
         }
 
         $changedProductIds = $revision->items->pluck('product_id')->all();

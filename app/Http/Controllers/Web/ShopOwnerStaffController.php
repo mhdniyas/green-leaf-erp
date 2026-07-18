@@ -15,6 +15,7 @@ use App\Models\EmployeeAdvanceRequest;
 use App\Models\EmployeeAttendance;
 use App\Models\EmployeeLeaveRequest;
 use App\Models\LeaveType;
+use App\Models\PayrollRunItem;
 use App\Models\Shop;
 use App\Models\ShopEmployeeAssignment;
 use App\Models\ShopStaffPayment;
@@ -43,6 +44,9 @@ class ShopOwnerStaffController extends Controller
             ->orderBy('name')
             ->get();
         $selectedShop = $this->selectedShop($ownedShops, $request->string('shop')->toString());
+        $selectedTab = in_array($request->string('tab', 'attendance')->toString(), ['attendance', 'advance', 'salary', 'leave', 'history'], true)
+            ? $request->string('tab', 'attendance')->toString()
+            : 'attendance';
         $employeeSearch = trim($request->string('employee_search')->toString());
         $ownerEmployee = $request->user()->employee()->with('category')->first();
         $attendanceRecords = EmployeeAttendance::query()
@@ -53,15 +57,26 @@ class ShopOwnerStaffController extends Controller
             ->keyBy('employee_id');
 
         $quickEmployees = $this->quickEmployeesForShop($selectedShop?->id, $selectedDate);
+        $advanceEmployees = $this->advanceEmployeesForShop($selectedShop?->id, $selectedDate);
+        $advanceOptions = $advanceEmployees
+            ->mapWithKeys(fn (Employee $employee): array => [$employee->id => $this->advanceOptionForEmployee($employee, $selectedDate)])
+            ->all();
+        $salaryOptions = $quickEmployees
+            ->mapWithKeys(fn (Employee $employee): array => [$employee->id => $this->salaryOptionForEmployee($employee, $selectedDate)])
+            ->all();
 
         return view('shop-owner.staff.index', [
             'selectedDate' => $selectedDate,
+            'selectedTab' => $selectedTab,
             'shops' => $ownedShops,
             'selectedShop' => $selectedShop,
             'ownerEmployee' => $ownerEmployee,
             'ownerAttendance' => $ownerEmployee !== null ? $attendanceRecords->get($ownerEmployee->id) : null,
             'employeeSearch' => $employeeSearch,
             'employees' => $quickEmployees,
+            'advanceEmployees' => $advanceEmployees,
+            'advanceOptions' => $advanceOptions,
+            'salaryOptions' => $salaryOptions,
             'attendanceRecords' => $attendanceRecords,
             'recentPayrollPayments' => ShopStaffPayment::query()
                 ->with(['employee', 'advanceRequest'])
@@ -110,7 +125,7 @@ class ShopOwnerStaffController extends Controller
             $request->validated('notes'),
         );
 
-        return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code])
+        return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'salary'])
             ->with('success', 'Staff salary payment recorded.');
     }
 
@@ -133,7 +148,7 @@ class ShopOwnerStaffController extends Controller
             $request->validated('request_note'),
         );
 
-        return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code])
+        return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'advance'])
             ->with(
                 $advanceRequest->status === 'approved' ? 'success' : 'warning',
                 $advanceRequest->status === 'approved'
@@ -191,7 +206,7 @@ class ShopOwnerStaffController extends Controller
             );
         }
 
-        return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code])
+        return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'attendance'])
             ->with('success', 'Attendance updated for today.');
     }
 
@@ -218,7 +233,7 @@ class ShopOwnerStaffController extends Controller
             'reason' => $request->string('reason')->toString(),
         ]);
 
-        return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code])->with('success', 'Leave request submitted for admin review.');
+        return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'leave'])->with('success', 'Leave request submitted for admin review.');
     }
 
     private function ensureOwnerAccess(Request $request): void
@@ -317,6 +332,73 @@ class ShopOwnerStaffController extends Controller
             ->orderBy('name')
             ->limit(10)
             ->get();
+    }
+
+    /**
+     * @return Collection<int, Employee>
+     */
+    private function advanceEmployeesForShop(?int $shopId, Carbon $selectedDate): Collection
+    {
+        if ($shopId === null) {
+            return collect();
+        }
+
+        $employeeIds = ShopEmployeeAssignment::query()
+            ->where('shop_id', $shopId)
+            ->where(function ($query) use ($selectedDate): void {
+                $query->whereNull('effective_from')
+                    ->orWhereDate('effective_from', '<=', $selectedDate->toDateString());
+            })
+            ->pluck('employee_id')
+            ->unique()
+            ->values();
+
+        if ($employeeIds->isEmpty()) {
+            return collect();
+        }
+
+        return Employee::query()
+            ->with(['category'])
+            ->whereIn('id', $employeeIds)
+            ->where('staff_area', 'shop')
+            ->where('employment_status', 'active')
+            ->orderBy('name')
+            ->get();
+    }
+
+    /**
+     * @return array{present_days:float, earned_amount:float, eligible_amount:float, already_advanced_amount:float, available_amount:float, rule_label:string}
+     */
+    private function advanceOptionForEmployee(Employee $employee, Carbon $selectedDate): array
+    {
+        $eligibility = $this->employeeAdvanceService->eligibility($employee, $selectedDate->copy()->startOfMonth());
+
+        return [
+            'present_days' => (float) $eligibility['present_days'],
+            'earned_amount' => (float) $eligibility['earned_amount'],
+            'eligible_amount' => (float) $eligibility['eligible_amount'],
+            'already_advanced_amount' => (float) $eligibility['already_advanced_amount'],
+            'available_amount' => (float) $eligibility['available_amount'],
+            'rule_label' => (float) $eligibility['rule']->advance_percent.'% after '.(int) $eligibility['rule']->minimum_present_days.' present days',
+        ];
+    }
+
+    /**
+     * @return array{salary_amount:float, paid_amount:float, remaining_amount:float|null}
+     */
+    private function salaryOptionForEmployee(Employee $employee, Carbon $selectedDate): array
+    {
+        $payrollRunItem = PayrollRunItem::query()
+            ->with(['payments', 'shopStaffPayments'])
+            ->where('employee_id', $employee->id)
+            ->whereHas('payrollRun', fn ($query) => $query->whereDate('period_start', $selectedDate->copy()->startOfMonth()->toDateString()))
+            ->first();
+
+        return [
+            'salary_amount' => round((float) ($payrollRunItem?->final_amount ?? ($employee->salary_type === 'daily_wage' ? $employee->daily_wage : $employee->monthly_salary)), 2),
+            'paid_amount' => round((float) ($payrollRunItem?->paidAmount() ?? 0), 2),
+            'remaining_amount' => $payrollRunItem ? $payrollRunItem->remainingAmount() : null,
+        ];
     }
 
     private function defaultPaidLeaveTypeId(): int

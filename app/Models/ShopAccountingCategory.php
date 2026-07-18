@@ -14,6 +14,7 @@ class ShopAccountingCategory extends Model
         'shop_id',
         'type',
         'cash_effect',
+        'purpose',
         'name',
         'is_active',
     ];

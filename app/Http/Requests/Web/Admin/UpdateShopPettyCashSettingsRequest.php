@@ -20,7 +20,7 @@ class UpdateShopPettyCashSettingsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'default_petty_cash_amount' => ['required', 'numeric', 'min:0'],
+            'default_petty_cash_amount' => ['required', 'numeric'],
         ];
     }
 }

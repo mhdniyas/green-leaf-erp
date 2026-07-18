@@ -47,42 +47,7 @@
             </article>
         </section>
 
-        <section class="grid gap-6 xl:grid-cols-2">
-            <article class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-                <h2 class="text-xl font-black text-slate-950">Advance Shop Payments</h2>
-                <div class="mt-5 space-y-3">
-                    @forelse($advanceRequests as $advanceRequest)
-                        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                            <div class="flex flex-wrap items-start justify-between gap-3">
-                                <div>
-                                    <p class="font-black text-slate-950">{{ $advanceRequest->employee?->name }}</p>
-                                    <p class="text-xs font-semibold text-slate-500">{{ $advanceRequest->shop?->name }} · {{ str($advanceRequest->fund_source)->replace('_', ' ')->headline() }} · {{ $advanceRequest->shopStaffPayment ? 'paid from shop' : 'not paid' }}</p>
-                                    <p class="mt-1 text-sm font-bold text-slate-700">Requested Rs. {{ number_format((float) $advanceRequest->requested_amount, 2) }} · Eligible Rs. {{ number_format((float) $advanceRequest->eligible_amount, 2) }}</p>
-                                </div>
-                                <span class="rounded-full border px-3 py-1 text-[10px] font-black uppercase {{ $advanceRequest->status === 'approved' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($advanceRequest->status === 'rejected' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-amber-200 bg-amber-50 text-amber-700') }}">{{ $advanceRequest->status }}</span>
-                            </div>
-
-                            @if($advanceRequest->status === 'pending')
-                                <form method="POST" action="{{ route('admin.staff.advance-requests.review', $advanceRequest) }}" class="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-                                    @csrf
-                                    @method('PATCH')
-                                    <input type="number" step="0.01" min="0.01" name="approved_amount" value="{{ number_format((float) $advanceRequest->requested_amount, 2, '.', '') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold">
-                                    <input type="text" name="review_note" placeholder="Review note" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
-                                    <div class="flex gap-2">
-                                        <button type="submit" name="decision" value="approve" class="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-black text-white">Approve</button>
-                                        <button type="submit" name="decision" value="reject" class="rounded-xl bg-rose-600 px-3 py-2 text-xs font-black text-white">Reject</button>
-                                    </div>
-                                </form>
-                            @elseif($advanceRequest->review_note)
-                                <p class="mt-3 text-sm font-semibold text-slate-600">{{ $advanceRequest->review_note }}</p>
-                            @endif
-                        </div>
-                    @empty
-                        <p class="text-sm font-semibold text-slate-500">No employee advance requests for this month.</p>
-                    @endforelse
-                </div>
-            </article>
-
+        <section>
             <article class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
                 <h2 class="text-xl font-black text-slate-950">Contract Worker Payment</h2>
                 <form method="POST" action="{{ route('admin.staff.contract-worker-payments.store') }}" class="mt-5 grid gap-3 sm:grid-cols-2">
@@ -267,7 +232,7 @@
                         <option value="advance">Advance</option>
                     </select>
                     <select name="fund_source" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
-                        <option value="petty_cash">Shop petty cash</option>
+                        <option value="petty_cash">Shop cash balance</option>
                         <option value="sales_income">Shop sales</option>
                     </select>
                     <input type="date" name="paid_on" value="{{ today()->toDateString() }}" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
@@ -280,7 +245,7 @@
 
         <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <h2 class="text-xl font-black text-slate-950">Shop Salary and Advance Payments</h2>
-            <p class="mt-1 text-sm font-semibold text-slate-500">These reduce shop petty cash or sales cash tracking and do not post a duplicate salary expense journal.</p>
+            <p class="mt-1 text-sm font-semibold text-slate-500">These reduce shop cash balance or sales cash tracking and do not post a duplicate salary expense journal.</p>
             <div class="mt-5 overflow-x-auto">
                 <table class="min-w-full text-left text-sm">
                     <thead class="text-slate-500">

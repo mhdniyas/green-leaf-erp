@@ -1,13 +1,14 @@
 @php
     $dailyRows = $analytics['daily_summaries']->take(6)->reverse()->values();
-    $dailyGraphMax = max(1, (float) $dailyRows->flatMap(fn ($summary) => [
-        abs((float) $summary['billed']),
-        abs((float) $summary['paid']),
-        abs((float) $summary['expense']),
-        abs((float) ($summary['staff_salary'] ?? 0)),
-        abs((float) ($summary['staff_advance'] ?? 0)),
-        abs((float) ($summary['cash_flow'] ?? 0)),
-    ])->max());
+	    $dailyGraphMax = max(1, (float) $dailyRows->flatMap(fn ($summary) => [
+	        abs((float) $summary['billed']),
+	        abs((float) $summary['paid']),
+	        abs((float) ($summary['cash_credit'] ?? 0)),
+	        abs((float) ($summary['cash_debit'] ?? 0)),
+	        abs((float) ($summary['closing_balance'] ?? 0)),
+	        abs((float) ($summary['staff_salary'] ?? 0)),
+	        abs((float) ($summary['staff_advance'] ?? 0)),
+	    ])->max());
     $dailyAxisMax = $dailyRows->count() > 0 ? $dailyGraphMax : 1;
     $incomeTotal = max(1, (float) $analytics['cards']['income']);
     $expenseTotal = max(1, (float) $analytics['cards']['expense']);
@@ -19,26 +20,26 @@
     $balanceRate = (float) $analytics['cards']['total_billed'] > 0
         ? max(0, 100 - $collectionRate)
         : 0;
-    $donutSegments = [
-        ['label' => 'Expenses', 'amount' => (float) $analytics['cards']['expense'], 'class' => 'bg-rose-500 text-rose-700'],
-        ['label' => 'Staff', 'amount' => $staffTotal, 'class' => 'bg-amber-400 text-amber-700'],
-        ['label' => 'Petty taken', 'amount' => abs((float) $analytics['cards']['petty_cash_taken']), 'class' => 'bg-emerald-500 text-emerald-700'],
-    ];
+	    $donutSegments = [
+	        ['label' => 'Cash Debit', 'amount' => (float) ($analytics['cards']['cash_debit'] ?? 0), 'class' => 'bg-rose-500 text-rose-700'],
+	        ['label' => 'Staff', 'amount' => $staffTotal, 'class' => 'bg-amber-400 text-amber-700'],
+	        ['label' => 'Shop Cash Movement', 'amount' => abs((float) ($analytics['cards']['shop_cash_movement'] ?? 0)), 'class' => 'bg-emerald-500 text-emerald-700'],
+	    ];
     $donutTotal = max(1, collect($donutSegments)->sum('amount'));
     $primaryCards = [
         ['label' => 'Billed', 'value' => (float) $analytics['cards']['total_billed'], 'tone' => 'text-slate-950', 'caption' => 'Generated invoices'],
         ['label' => 'Collected', 'value' => (float) $analytics['cards']['total_paid'], 'tone' => 'text-emerald-700', 'caption' => $collectionRate.'% collection'],
         ['label' => 'Balance', 'value' => (float) $analytics['cards']['total_balance'], 'tone' => 'text-rose-700', 'caption' => $balanceRate.'% pending'],
-        ['label' => 'Petty Cash', 'value' => (float) $pettyCashBalance, 'tone' => $pettyCashBalance >= 0 ? 'text-emerald-700' : 'text-rose-700', 'caption' => 'Current balance'],
-    ];
-    $secondaryCards = [
-        ['label' => 'Income', 'value' => (float) $analytics['cards']['income'], 'tone' => 'text-slate-950'],
-        ['label' => 'Expenses', 'value' => (float) $analytics['cards']['expense'], 'tone' => 'text-rose-700'],
-        ['label' => 'Staff Salary', 'value' => (float) $analytics['cards']['staff_salary'], 'tone' => 'text-amber-700'],
-        ['label' => 'Staff Advance', 'value' => (float) $analytics['cards']['staff_advance'], 'tone' => 'text-amber-700'],
-        ['label' => 'Petty Taken', 'value' => (float) $analytics['cards']['petty_cash_taken'], 'tone' => (float) $analytics['cards']['petty_cash_taken'] >= 0 ? 'text-emerald-700' : 'text-rose-700'],
-        ['label' => 'Cash Flow', 'value' => $cashFlow, 'tone' => $cashFlow >= 0 ? 'text-cyan-700' : 'text-rose-700'],
-    ];
+	        ['label' => 'Closing Balance', 'value' => (float) ($analytics['cards']['closing_balance'] ?? $pettyCashBalance), 'tone' => (float) ($analytics['cards']['closing_balance'] ?? $pettyCashBalance) >= 0 ? 'text-emerald-700' : 'text-rose-700', 'caption' => 'Latest receipt balance'],
+	    ];
+	    $secondaryCards = [
+	        ['label' => 'Cash Credit', 'value' => (float) ($analytics['cards']['cash_credit'] ?? 0), 'tone' => 'text-emerald-700'],
+	        ['label' => 'Cash Debit', 'value' => (float) ($analytics['cards']['cash_debit'] ?? 0), 'tone' => 'text-rose-700'],
+	        ['label' => 'Staff Salary', 'value' => (float) $analytics['cards']['staff_salary'], 'tone' => 'text-amber-700'],
+	        ['label' => 'Staff Advance', 'value' => (float) $analytics['cards']['staff_advance'], 'tone' => 'text-amber-700'],
+	        ['label' => 'Shop Cash Movement', 'value' => (float) ($analytics['cards']['shop_cash_movement'] ?? 0), 'tone' => (float) ($analytics['cards']['shop_cash_movement'] ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'],
+	        ['label' => 'Receipt Balance', 'value' => $cashFlow, 'tone' => $cashFlow >= 0 ? 'text-cyan-700' : 'text-rose-700'],
+	    ];
 @endphp
 
 <section id="owned-shop-summary" class="rounded-3xl border border-slate-200 bg-[#f7f8fa] p-3 shadow-sm sm:p-4">
@@ -131,12 +132,12 @@
             <article class="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
                 <div class="flex items-start justify-between gap-4">
                     <div>
-                        <p class="text-sm font-semibold text-slate-500">Cash Flow Forecast</p>
+	                        <p class="text-sm font-semibold text-slate-500">Daily Receipt Balance</p>
                         <p class="mt-3 text-3xl font-semibold tracking-tight {{ $cashFlow >= 0 ? 'text-slate-950' : 'text-rose-700' }} tabular-nums">
                             Rs. {{ number_format($cashFlow, 2) }}
                         </p>
                         <p class="mt-2 text-sm font-medium text-slate-500">
-                            Includes shop cash, income, expenses, staff salary and advances.
+	                            Tracks opening balance, cash credit, cash debit, and closing balance from receipts.
                         </p>
                     </div>
                     <svg class="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -147,13 +148,13 @@
                 <div class="mt-7 space-y-4">
                     @foreach ($dailyRows as $summary)
                         @php
-                            $rowFlow = (float) ($summary['cash_flow'] ?? 0);
-                            $rowWidth = min(100, (abs($rowFlow) / $dailyGraphMax) * 100);
+	                            $rowFlow = (float) ($summary['closing_balance'] ?? 0);
+	                            $rowWidth = min(100, (abs($rowFlow) / $dailyGraphMax) * 100);
                         @endphp
                         <div>
                             <div class="mb-1 flex items-center justify-between gap-2 text-xs font-semibold text-slate-500">
                                 <span>{{ \Illuminate\Support\Carbon::parse($summary['date'])->format('d M') }}</span>
-                                <span class="{{ $rowFlow >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format($rowFlow, 0) }}</span>
+	                                <span class="{{ $rowFlow >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Closing Rs. {{ number_format($rowFlow, 0) }}</span>
                             </div>
                             <div class="h-2 rounded-full bg-slate-100">
                                 <div class="h-2 rounded-full {{ $rowFlow >= 0 ? 'bg-emerald-400' : 'bg-rose-500' }}" style="width: {{ $rowWidth }}%"></div>

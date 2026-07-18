@@ -7,6 +7,7 @@
     $currentUser = auth()->user();
     $businessDayService = app(\App\Services\Purchasing\PurchaserBusinessDayService::class);
     $navDate = request('date', $businessDayService->operationalDate()->toDateString());
+    $notificationCounts = app(\App\Services\DashboardNotificationService::class)->counts(\Illuminate\Support\Carbon::parse($navDate));
     $canAccessAdminOverview = $currentUser &&
         ($currentUser->hasRole('admin') ||
             $currentUser->can('admin.user.view') ||
@@ -19,15 +20,17 @@
             'href' => route('purchasing.dashboard'),
             'active' => request()->routeIs('purchasing.dashboard') || request()->routeIs('purchasing.orders.index'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75h7.5v7.5h-7.5v-7.5Zm9 0h7.5v10.5h-7.5V3.75Zm0 12h7.5v4.5h-7.5v-4.5Zm-9-3h7.5v7.5h-7.5v-7.5Z" /></svg>',
+            'badge' => $notificationCounts['purchasing_total'],
         ],
     ];
 
-    if ($currentUser && ($currentUser->hasRole('purchase') || $currentUser->can('purchasing.order.approve'))) {
+    if ($currentUser && ($currentUser->hasRole('admin') || $currentUser->hasRole('purchase') || $currentUser->can('purchasing.order.approve'))) {
         $sidebarItems[] = [
             'label' => 'Approve Shop Orders',
             'href' => route('requisitions.board', ['date' => $navDate]),
             'active' => request()->routeIs('requisitions.board'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5.25h6M9 9.75h6M9 14.25h6M5.25 5.25h.008v.008H5.25V5.25zm0 4.5h.008v.008H5.25V9.75zm0 4.5h.008v.008H5.25V14.25zm-1.5-9A2.25 2.25 0 016 3h12a2.25 2.25 0 012.25 2.25v13.5A2.25 2.25 0 0118 21H6a2.25 2.25 0 01-2.25-2.25V5.25z" /></svg>',
+            'badge' => $notificationCounts['shop_orders_pending'],
         ];
         $sidebarItems[] = [
             'label' => 'Approved Board',
@@ -60,6 +63,8 @@
         'href' => route('purchasing.shop-invoices.index'),
         'active' => request()->routeIs('purchasing.shop-invoices.*'),
         'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75h9A2.25 2.25 0 0118.75 6v12A2.25 2.25 0 0116.5 20.25h-9A2.25 2.25 0 015.25 18V6A2.25 2.25 0 017.5 3.75Zm2.25 4.5h4.5m-4.5 3h4.5m-4.5 3h3" /></svg>',
+        'badge' => $notificationCounts['delivery_reviews_pending'],
+        'badge_tone' => 'danger',
     ];
     $sidebarItems[] = [
         'label' => 'Purchase Orders',
@@ -72,12 +77,14 @@
         'href' => route('purchasing.grns.index', ['date' => $navDate]),
         'active' => request()->routeIs('purchasing.grns.*'),
         'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3.75A.75.75 0 013.75 3h10.5a.75.75 0 01.53.22l5 5a.75.75 0 01.22.53v11.5a.75.75 0 01-.75.75H3.75a.75.75 0 01-.75-.75V3.75z" /><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 12h7.5m-7.5 3h4.5" /></svg>',
+        'badge' => $notificationCounts['grn_approvals_pending'],
     ];
     $sidebarItems[] = [
         'label' => 'Supplier Bills',
         'href' => route('purchasing.invoices.index'),
         'active' => request()->routeIs('purchasing.invoices.*'),
         'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75h9A2.25 2.25 0 0118.75 6v12A2.25 2.25 0 0116.5 20.25h-9A2.25 2.25 0 015.25 18V6A2.25 2.25 0 017.5 3.75Zm2.25 4.5h4.5m-4.5 3h4.5m-4.5 3h4.5" /></svg>',
+        'badge' => $notificationCounts['supplier_invoices_pending'],
     ];
 
     $mobileItems = [
@@ -109,7 +116,7 @@
 </head>
 <body class="min-h-full bg-slate-100 font-sans antialiased text-slate-900">
 <div id="purchasing-layout-shell" class="min-h-screen lg:flex" data-sidebar-state="expanded">
-    <aside id="purchasing-sidebar" class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-slate-200 bg-white transition-[width,transform] duration-300 lg:translate-x-0">
+    <aside id="purchasing-sidebar" class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-slate-200 bg-slate-100 transition-[width,transform] duration-300 lg:translate-x-0">
         <div class="border-b border-slate-200 px-5 py-5">
             <div class="flex items-center gap-3">
                 <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-500 text-white shadow-sm">
@@ -151,10 +158,7 @@
 
         <nav class="flex-1 space-y-2 overflow-y-auto px-4 py-5">
             @foreach ($sidebarItems as $item)
-                <a href="{{ $item['href'] }}" title="{{ $item['label'] }}" class="flex items-center gap-3 rounded-[1.2rem] px-4 py-3 text-sm font-black transition {{ $item['active'] ? 'bg-sky-50 text-sky-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}">
-                    <span class="{{ $item['active'] ? 'text-sky-700' : 'text-slate-400' }}">{!! $item['icon'] !!}</span>
-                    <span data-purchasing-sidebar-label>{{ $item['label'] }}</span>
-                </a>
+                <x-sidebar-link :item="$item" label-attribute="data-purchasing-sidebar-label" />
             @endforeach
         </nav>
 
@@ -241,82 +245,18 @@
 
 @include('components.app-dialogs')
 
-<script>
-    (() => {
-        const storageKey = 'purchasing-sidebar-state';
-        const shell = document.getElementById('purchasing-layout-shell');
-        const sidebar = document.getElementById('purchasing-sidebar');
-        const main = document.getElementById('purchasing-main');
-        const overlay = document.getElementById('purchasing-sidebar-overlay');
-        const openButton = document.getElementById('purchasing-sidebar-open');
-        const closeButton = document.getElementById('purchasing-sidebar-close');
-        const collapseButton = document.getElementById('purchasing-sidebar-collapse');
-        const toggleButton = document.getElementById('purchasing-sidebar-toggle');
-        const labels = document.querySelectorAll('[data-purchasing-sidebar-label]');
-
-        if (!shell || !sidebar || !main || !overlay || !openButton || !closeButton) {
-            return;
-        }
-
-        const syncDesktopState = (state) => {
-            const isCollapsed = state === 'collapsed';
-            shell.dataset.sidebarState = state;
-
-            if (window.innerWidth >= 1024) {
-                sidebar.classList.toggle('lg:w-72', !isCollapsed);
-                sidebar.classList.toggle('lg:w-24', isCollapsed);
-                main.classList.toggle('lg:pl-72', !isCollapsed);
-                main.classList.toggle('lg:pl-24', isCollapsed);
-                labels.forEach((label) => {
-                    label.classList.toggle('hidden', isCollapsed);
-                });
-            } else {
-                sidebar.classList.remove('lg:w-24');
-                sidebar.classList.add('lg:w-72');
-                main.classList.remove('lg:pl-24');
-                main.classList.add('lg:pl-72');
-                labels.forEach((label) => {
-                    label.classList.remove('hidden');
-                });
-            }
-        };
-
-        const setDesktopState = (state) => {
-            localStorage.setItem(storageKey, state);
-            syncDesktopState(state);
-        };
-
-        const openSidebar = () => {
-            sidebar.classList.remove('-translate-x-full');
-            overlay.classList.remove('hidden');
-        };
-
-        const closeSidebar = () => {
-            sidebar.classList.add('-translate-x-full');
-            overlay.classList.add('hidden');
-        };
-
-        openButton.addEventListener('click', openSidebar);
-        closeButton.addEventListener('click', closeSidebar);
-        overlay.addEventListener('click', closeSidebar);
-
-        const toggleDesktopSidebar = () => {
-            if (window.innerWidth < 1024) {
-                return;
-            }
-
-            setDesktopState(shell.dataset.sidebarState === 'collapsed' ? 'expanded' : 'collapsed');
-        };
-
-        collapseButton?.addEventListener('click', toggleDesktopSidebar);
-        toggleButton?.addEventListener('click', toggleDesktopSidebar);
-
-        syncDesktopState(localStorage.getItem(storageKey) === 'collapsed' ? 'collapsed' : 'expanded');
-        window.addEventListener('resize', () => {
-            syncDesktopState(localStorage.getItem(storageKey) === 'collapsed' ? 'collapsed' : 'expanded');
-        });
-    })();
-</script>
+<x-sidebar-state-script
+    storage-key="purchasing-sidebar-state"
+    shell-id="purchasing-layout-shell"
+    sidebar-id="purchasing-sidebar"
+    main-id="purchasing-main"
+    overlay-id="purchasing-sidebar-overlay"
+    open-button-id="purchasing-sidebar-open"
+    close-button-id="purchasing-sidebar-close"
+    collapse-button-id="purchasing-sidebar-collapse"
+    toggle-button-id="purchasing-sidebar-toggle"
+    label-selector="[data-purchasing-sidebar-label]"
+/>
 @stack('scripts')
 </body>
 </html>

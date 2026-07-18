@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\Category;
-use App\Models\GoodsReceived;
 use App\Models\Product;
-use App\Models\ShopOrder;
+use App\Models\ShopAccountingCategory;
+use App\Models\ShopOwnerAssignment;
 use App\Models\User;
 use App\Models\Warehouse;
 use Database\Seeders\DatabaseSeeder;
@@ -18,7 +18,7 @@ class DatabaseSeederBootstrapTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
-    public function test_database_seeder_bootstraps_categories_warehouses_and_july_fourteen_shop_orders(): void
+    public function test_database_seeder_bootstraps_production_base_data_without_demo_orders(): void
     {
         $this->seed(DatabaseSeeder::class);
 
@@ -35,30 +35,23 @@ class DatabaseSeederBootstrapTest extends TestCase
 
         $this->assertTrue($vegWarehouse->exists);
         $this->assertTrue($fruitWarehouse->exists);
-        $this->assertDatabaseCount('shop_orders', 4);
-        $this->assertSame(
-            4,
-            ShopOrder::query()
-                ->whereDate('business_date', '2026-07-14')
-                ->where('order_number', 'like', 'RQ-SHOP-20260714-%')
-                ->where('state', 'approved')
-                ->count(),
-        );
-
-        $this->assertSame(2, GoodsReceived::query()
-            ->whereDate('received_at', '2026-07-14')
-            ->where('status', 'pending_approval')
-            ->where('grn_number', 'like', 'GRN-20260714-WH%')
-            ->count());
-
-        $receiver = User::query()->where('email', 'receiver@greenleaf.com')->firstOrFail();
-
-        $this
-            ->actingAs($receiver)
-            ->get(route('warehouse.receiver.checklist', ['date' => '2026-07-14']))
-            ->assertOk()
-            ->assertSee('GRN-20260714-WH01')
-            ->assertSee('GRN-20260714-WH02');
+        $this->assertDatabaseCount('shop_orders', 0);
+        $this->assertDatabaseCount('goods_received', 0);
+        $this->assertDatabaseHas('roles', ['name' => 'admin', 'guard_name' => 'web']);
+        $this->assertDatabaseHas('roles', ['name' => 'shop', 'guard_name' => 'web']);
+        $this->assertDatabaseHas('roles', ['name' => 'hr_manager', 'guard_name' => 'web']);
+        $this->assertDatabaseHas('permissions', ['name' => 'hr.employee.view', 'guard_name' => 'web']);
+        $this->assertDatabaseHas('permissions', ['name' => 'sort.sheet.view', 'guard_name' => 'web']);
+        $this->assertDatabaseHas('users', ['email' => 'admin@greenleaf.com', 'registration_status' => 'approved']);
+        $this->assertDatabaseHas('users', ['email' => 'hr@greenleaf.com', 'registration_status' => 'approved']);
+        $this->assertDatabaseHas('users', ['email' => 'purchase@greenleaf.com', 'registration_status' => 'approved']);
+        $this->assertDatabaseHas('users', ['email' => 'purchaser@greenleaf.com', 'registration_status' => 'approved']);
+        $this->assertDatabaseHas('users', ['email' => 'receiver@greenleaf.com', 'registration_status' => 'approved']);
+        $this->assertDatabaseHas('shops', ['code' => 'SHOP_ASHIRWAD', 'name' => 'Ashirwad', 'status' => 'active']);
+        $this->assertDatabaseHas('users', ['email' => 'shop-ashirwad@greenleaf.com', 'registration_status' => 'approved']);
+        $this->assertSame(14, User::role('shop')->count());
+        $this->assertSame(14, ShopOwnerAssignment::query()->count());
+        $this->assertGreaterThan(0, ShopAccountingCategory::query()->whereNull('shop_id')->where('is_active', true)->count());
 
         $this->assertGreaterThan(
             0,

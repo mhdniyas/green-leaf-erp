@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Web\Admin;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreShopEmployeeAssignmentRequest extends FormRequest
 {
@@ -20,7 +21,14 @@ class StoreShopEmployeeAssignmentRequest extends FormRequest
     {
         return [
             'employee_id' => ['required', 'integer', 'exists:employees,id'],
-            'shop_id' => ['required', 'integer', 'exists:shops,id'],
+            'shop_id' => [
+                'required',
+                'integer',
+                Rule::exists('shops', 'id')
+                    ->where('status', 'active')
+                    ->where('accounting_enabled', true)
+                    ->whereIn('accounting_mode', ['owned', 'partnership']),
+            ],
             'effective_from' => ['required', 'date'],
             'notes' => ['nullable', 'string', 'max:1000'],
         ];

@@ -133,6 +133,14 @@ class Shop extends Model
         return $this->hasOne(ShopAccountingEntry::class)->latestOfMany('updated_at');
     }
 
+    public function latestClosingAccountingEntry(): HasOne
+    {
+        return $this->hasOne(ShopAccountingEntry::class)->ofMany([
+            'business_date' => 'max',
+            'id' => 'max',
+        ]);
+    }
+
     public function accountingInvoices(): HasMany
     {
         return $this->hasMany(ShopAccountingInvoice::class);

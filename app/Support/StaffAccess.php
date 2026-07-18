@@ -38,6 +38,11 @@ class StaffAccess
         return $user !== null && $user->can('hr.payroll.view');
     }
 
+    public static function canViewAdvancePayments(?User $user): bool
+    {
+        return self::canViewPayroll($user);
+    }
+
     public static function canAccessAny(?User $user): bool
     {
         return self::canViewDashboard($user)

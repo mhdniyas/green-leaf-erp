@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Database\Factories\ShopCreditFactory;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -21,8 +23,12 @@ class ShopCredit extends Model
         'is_petty_cash',
         'amount',
         'description',
+        'admin_note',
         'created_by',
+        'reviewed_by',
+        'reviewed_at',
         'business_date',
+        'status',
     ];
 
     protected function casts(): array
@@ -31,6 +37,7 @@ class ShopCredit extends Model
             'is_petty_cash' => 'boolean',
             'amount' => 'decimal:2',
             'business_date' => 'date',
+            'reviewed_at' => 'datetime',
         ];
     }
 
@@ -42,6 +49,17 @@ class ShopCredit extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function reviewedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    #[Scope]
+    protected function approved(Builder $query): void
+    {
+        $query->where('status', 'approved');
     }
 
     public function isAccountingOut(): bool
@@ -77,5 +95,40 @@ class ShopCredit extends Model
         $amount = (float) $this->amount;
 
         return $this->isAccountingOut() ? $amount * -1 : $amount;
+    }
+
+    public function shopCashLabel(): string
+    {
+        return $this->type === 'in' ? 'Shop Cash Credit' : 'Cash Returned To Company';
+    }
+
+    public function shopSignedAmount(): float
+    {
+        $amount = (float) $this->amount;
+
+        return $this->type === 'in' ? $amount : $amount * -1;
+    }
+
+    public function isShopCashIn(): bool
+    {
+        return $this->shopSignedAmount() >= 0;
+    }
+
+    public function statusLabel(): string
+    {
+        return match ((string) $this->status) {
+            'approved' => 'Approved',
+            'rejected' => 'Rejected',
+            default => 'Pending Approval',
+        };
+    }
+
+    public function statusTone(): string
+    {
+        return match ((string) $this->status) {
+            'approved' => 'success',
+            'rejected' => 'danger',
+            default => 'warning',
+        };
     }
 }

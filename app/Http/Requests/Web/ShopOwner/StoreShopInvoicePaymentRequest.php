@@ -17,7 +17,7 @@ class StoreShopInvoicePaymentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'invoice_id' => ['required', 'integer', 'exists:shop_invoices,id'],
+            'invoice_id' => ['nullable', 'integer', 'exists:shop_invoices,id'],
             'amount_mode' => ['required', 'string', Rule::in(['balance_due', 'custom'])],
             'amount' => ['nullable', 'numeric', 'gt:0'],
             'shop_note' => ['nullable', 'string', 'max:1000'],

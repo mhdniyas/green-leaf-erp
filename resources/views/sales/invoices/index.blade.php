@@ -1,4 +1,4 @@
-<x-layouts.app title="Sales Invoices">
+<x-layouts.admin title="Sales Invoices">
 
     <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
         <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
@@ -40,9 +40,9 @@
                             </a>
                         </td>
                         <td class="px-6 py-4">
-                            <p class="font-medium text-gray-900">{{ $invoice->customer->name }}</p>
+                            <p class="font-medium text-gray-900">{{ $invoice->customer?->name ?? 'Archived Customer' }}</p>
                         </td>
-                        <td class="px-6 py-4 text-gray-500 font-mono text-xs">{{ $invoice->salesOrder->so_number }}</td>
+                        <td class="px-6 py-4 text-gray-500 font-mono text-xs">{{ $invoice->salesOrder?->so_number ?? 'Archived Order' }}</td>
                         <td class="px-6 py-4 text-right font-semibold text-gray-900">INR {{ number_format((float) $invoice->amount, 2) }}</td>
                         <td class="px-6 py-4 text-right">
                             @php $outstanding = $invoice->outstanding_amount; @endphp
@@ -79,4 +79,4 @@
         @endif
     </div>
 
-</x-layouts.app>
+</x-layouts.admin>

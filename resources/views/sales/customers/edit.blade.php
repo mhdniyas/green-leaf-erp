@@ -1,4 +1,4 @@
-<x-layouts.app title="Edit Customer">
+<x-layouts.admin title="Edit Customer">
 
     <x-slot:actions>
         <a href="{{ route('sales.customers.index') }}" class="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
@@ -86,4 +86,4 @@
         </div>
     </div>
 
-</x-layouts.app>
+</x-layouts.admin>

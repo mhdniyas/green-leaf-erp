@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\Models\Account;
 use App\Models\JournalEntry;
+use App\Models\Product;
 use App\Models\ShopInvoice;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
@@ -48,7 +49,7 @@ class DailySalesInvoiceActionsTest extends TestCase
             ->assertSee('Show invoice')
             ->assertSee('Approve payment')
             ->assertSee(route('purchasing.shop-invoices.show', $invoice), false)
-            ->assertSee(route('purchasing.shop-invoices.payment-approval', $invoice), false);
+            ->assertSee(route('admin.accounting.shop-invoices.payment', $invoice), false);
     }
 
     public function test_approving_payment_from_daily_sales_returns_to_report_and_updates_invoice(): void
@@ -68,6 +69,19 @@ class DailySalesInvoiceActionsTest extends TestCase
             'balance_amount' => 1713.80,
             'payment_status' => 'unpaid',
         ]);
+        $product = Product::factory()->create(['base_price' => 1713.80]);
+        $invoice->items()->create([
+            'product_id' => $product->id,
+            'product_name' => $product->name,
+            'unit' => $product->unit,
+            'approved_qty' => 1,
+            'delivered_qty' => 1,
+            'shortage_qty' => 0,
+            'unit_price' => 1713.80,
+            'line_subtotal' => 1713.80,
+            'shortage_amount' => 0,
+            'final_line_total' => 1713.80,
+        ]);
 
         $dailySalesUrl = route('admin.accounting.daily-sales', [
             'date' => '2026-07-14',
@@ -80,7 +94,7 @@ class DailySalesInvoiceActionsTest extends TestCase
             ->actingAs($admin)
             ->withSession(['_token' => $csrfToken])
             ->from($dailySalesUrl)
-            ->patch(route('purchasing.shop-invoices.payment-approval', $invoice), [
+            ->patch(route('admin.accounting.shop-invoices.payment', $invoice), [
                 '_token' => $csrfToken,
                 'discount_total' => 0,
                 'paid_amount' => 1713.80,
@@ -89,7 +103,7 @@ class DailySalesInvoiceActionsTest extends TestCase
 
         $response
             ->assertRedirect($dailySalesUrl)
-            ->assertSessionHas('success', 'Daily invoice payment approval updated.');
+            ->assertSessionHas('success', 'Shop payment approved and added to accounting journal.');
 
         $invoice->refresh();
 
@@ -100,8 +114,9 @@ class DailySalesInvoiceActionsTest extends TestCase
         $journalEntry = JournalEntry::query()
             ->where('source_type', ShopInvoice::class)
             ->where('source_id', $invoice->id)
-            ->where('source_event', 'payment:paid-171380')
             ->firstOrFail();
+
+        $this->assertStringStartsWith('admin-shop-payment:', (string) $journalEntry->source_event);
 
         $cashAccount = Account::query()->where('code', '1010')->firstOrFail();
         $salesRevenueAccount = Account::query()->where('code', '4100')->firstOrFail();

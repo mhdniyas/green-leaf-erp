@@ -95,7 +95,7 @@
 </head>
 <body class="min-h-full bg-slate-100 font-sans antialiased text-slate-900">
 <div id="inventory-layout-shell" class="min-h-screen lg:flex" data-sidebar-state="expanded">
-    <aside id="inventory-sidebar" class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-slate-200 bg-white transition-[width,transform] duration-300 lg:translate-x-0">
+    <aside id="inventory-sidebar" class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-slate-200 bg-slate-100 transition-[width,transform] duration-300 lg:translate-x-0">
         <div class="border-b border-slate-200 px-5 py-5">
             <div class="flex items-center gap-3">
                 <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-sm">
@@ -128,10 +128,7 @@
 
         <nav class="flex-1 space-y-2 overflow-y-auto px-4 py-5">
             @foreach ($sidebarItems as $item)
-                <a href="{{ $item['href'] }}" title="{{ $item['label'] }}" class="flex items-center gap-3 rounded-[1.2rem] px-4 py-3 text-sm font-black transition {{ $item['active'] ? 'bg-emerald-50 text-emerald-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}">
-                    <span class="{{ $item['active'] ? 'text-emerald-700' : 'text-slate-400' }}">{!! $item['icon'] !!}</span>
-                    <span data-inventory-sidebar-label>{{ $item['label'] }}</span>
-                </a>
+                <x-sidebar-link :item="$item" label-attribute="data-inventory-sidebar-label" />
             @endforeach
         </nav>
 
@@ -224,78 +221,18 @@
 
 @include('components.app-dialogs')
 
-<script>
-    (() => {
-        const storageKey = 'inventory-sidebar-state';
-        const shell = document.getElementById('inventory-layout-shell');
-        const sidebar = document.getElementById('inventory-sidebar');
-        const main = document.getElementById('inventory-main');
-        const overlay = document.getElementById('inventory-sidebar-overlay');
-        const openButton = document.getElementById('inventory-sidebar-open');
-        const closeButton = document.getElementById('inventory-sidebar-close');
-        const collapseButton = document.getElementById('inventory-sidebar-collapse');
-        const toggleButton = document.getElementById('inventory-sidebar-toggle');
-        const labels = document.querySelectorAll('[data-inventory-sidebar-label]');
-
-        if (!shell || !sidebar || !main || !overlay || !openButton || !closeButton) {
-            return;
-        }
-
-        const syncDesktopState = (state) => {
-            const isCollapsed = state === 'collapsed';
-            shell.dataset.sidebarState = state;
-
-            if (window.innerWidth >= 1024) {
-                sidebar.classList.toggle('lg:w-72', !isCollapsed);
-                sidebar.classList.toggle('lg:w-24', isCollapsed);
-                main.classList.toggle('lg:pl-72', !isCollapsed);
-                main.classList.toggle('lg:pl-24', isCollapsed);
-                labels.forEach((label) => label.classList.toggle('hidden', isCollapsed));
-            } else {
-                sidebar.classList.remove('lg:w-24');
-                sidebar.classList.add('lg:w-72');
-                main.classList.remove('lg:pl-24');
-                main.classList.add('lg:pl-72');
-                labels.forEach((label) => label.classList.remove('hidden'));
-            }
-        };
-
-        const setDesktopState = (state) => {
-            localStorage.setItem(storageKey, state);
-            syncDesktopState(state);
-        };
-
-        const openSidebar = () => {
-            sidebar.classList.remove('-translate-x-full');
-            overlay.classList.remove('hidden');
-        };
-
-        const closeSidebar = () => {
-            sidebar.classList.add('-translate-x-full');
-            overlay.classList.add('hidden');
-        };
-
-        openButton.addEventListener('click', openSidebar);
-        closeButton.addEventListener('click', closeSidebar);
-        overlay.addEventListener('click', closeSidebar);
-
-        const toggleDesktopSidebar = () => {
-            if (window.innerWidth < 1024) {
-                return;
-            }
-
-            setDesktopState(shell.dataset.sidebarState === 'collapsed' ? 'expanded' : 'collapsed');
-        };
-
-        collapseButton?.addEventListener('click', toggleDesktopSidebar);
-        toggleButton?.addEventListener('click', toggleDesktopSidebar);
-
-        syncDesktopState(localStorage.getItem(storageKey) === 'collapsed' ? 'collapsed' : 'expanded');
-        window.addEventListener('resize', () => {
-            syncDesktopState(localStorage.getItem(storageKey) === 'collapsed' ? 'collapsed' : 'expanded');
-        });
-    })();
-</script>
+<x-sidebar-state-script
+    storage-key="inventory-sidebar-state"
+    shell-id="inventory-layout-shell"
+    sidebar-id="inventory-sidebar"
+    main-id="inventory-main"
+    overlay-id="inventory-sidebar-overlay"
+    open-button-id="inventory-sidebar-open"
+    close-button-id="inventory-sidebar-close"
+    collapse-button-id="inventory-sidebar-collapse"
+    toggle-button-id="inventory-sidebar-toggle"
+    label-selector="[data-inventory-sidebar-label]"
+/>
 @stack('scripts')
 </body>
 </html>

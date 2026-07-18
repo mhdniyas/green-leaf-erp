@@ -1,4 +1,4 @@
-<x-layouts.app title="Invoice {{ $invoice->invoice_number }}">
+<x-layouts.admin title="Invoice {{ $invoice->invoice_number }}">
 
     <x-slot:actions>
         <a href="{{ route('sales.invoices.index') }}" class="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
@@ -17,16 +17,16 @@
                         {{ $invoice->status->label() }}
                     </span>
                 </div>
-                <a href="{{ route('sales.orders.show', $invoice->salesOrder) }}" class="text-xs text-brand-600 hover:underline font-mono">
-                    {{ $invoice->salesOrder->so_number }}
-                </a>
+                <span class="text-xs font-mono text-gray-500">
+                    {{ $invoice->salesOrder?->so_number ?? 'Archived Order' }}
+                </span>
             </div>
 
             <div class="grid grid-cols-4 divide-x divide-gray-100 px-6 py-4">
                 <div class="pr-6">
                     <p class="text-xs text-gray-400 mb-0.5">Customer</p>
-                    <p class="text-sm font-semibold text-gray-900">{{ $invoice->customer->name }}</p>
-                    <p class="text-xs text-gray-400">{{ $invoice->customer->payment_terms }}</p>
+                    <p class="text-sm font-semibold text-gray-900">{{ $invoice->customer?->name ?? 'Archived Customer' }}</p>
+                    <p class="text-xs text-gray-400">{{ $invoice->customer?->payment_terms ?? 'N/A' }}</p>
                 </div>
                 <div class="px-6">
                     <p class="text-xs text-gray-400 mb-0.5">Invoice Amount</p>
@@ -64,9 +64,9 @@
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-50">
-                        @foreach($invoice->salesOrder->items as $item)
+                        @foreach($invoice->salesOrder?->items ?? collect() as $item)
                         <tr>
-                            <td class="px-6 py-3 font-medium text-gray-900">{{ $item->product->name }}</td>
+                            <td class="px-6 py-3 font-medium text-gray-900">{{ $item->product?->name ?? 'Archived Product' }}</td>
                             <td class="px-6 py-3">
                                 @php $badge = $item->grade->badge(); @endphp
                                 <span class="inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full bg-{{ $badge }}-100 text-{{ $badge }}-700">
@@ -179,4 +179,4 @@
 
     </div>
 
-</x-layouts.app>
+</x-layouts.admin>

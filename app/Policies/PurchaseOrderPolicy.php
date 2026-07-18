@@ -11,6 +11,10 @@ class PurchaseOrderPolicy
 {
     public function before(User $user, string $ability): ?bool
     {
+        if ($ability === 'updateItems') {
+            return null;
+        }
+
         return $user->hasRole('admin') ? true : null;
     }
 
@@ -37,7 +41,9 @@ class PurchaseOrderPolicy
 
     public function updateItems(User $user, PurchaseOrder $po): bool
     {
-        return $user->can('purchasing.order.create') && in_array($po->status->value, ['draft', 'approved']);
+        return $user->can('purchasing.order.create')
+            && in_array($po->status->value, ['draft', 'approved'])
+            && ! $po->hasFinalLockedShopInvoices();
     }
 
     public function delete(User $user, PurchaseOrder $po): bool

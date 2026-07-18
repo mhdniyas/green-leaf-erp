@@ -25,10 +25,9 @@
     $currentShop = request()->route('shop');
     $canManageOwnedShops = \App\Support\AccountingAccess::canManageOwnedShops($currentUser);
     $canManagePurchaserCash = \App\Support\AccountingAccess::canManagePurchaserCash($currentUser);
-    $ownedShopPendingApprovalCount = $canManageOwnedShops
-        ? \App\Models\ShopInvoicePaymentRequest::query()->where('status', 'pending')->count()
-            + \App\Models\ShopAccountingEntry::query()->where('status', 'submitted')->count()
-        : 0;
+    $notificationCounts = app(\App\Services\DashboardNotificationService::class)->counts(\Illuminate\Support\Carbon::parse($navDate));
+    $ownedShopPendingApprovalCount = $canManageOwnedShops ? $notificationCounts['owned_shop_total'] : 0;
+    $shopPaymentPendingCount = $canManageOwnedShops ? $notificationCounts['shop_payment_requests_pending'] : 0;
     $sidebarItems = [
         [
             'label' => 'Dashboard',
@@ -68,6 +67,7 @@
                 'label' => 'All Shops',
                 'href' => route('admin.accounting.owned-shops.index'),
                 'active' => request()->routeIs('admin.accounting.owned-shops.index'),
+                'badge' => $notificationCounts['owned_shop_total'],
             ],
         ];
 
@@ -89,14 +89,50 @@
                     'active' => false,
                 ],
                 [
-                    'label' => 'Petty Cash',
-                    'href' => route('admin.accounting.owned-shops.show', ['shop' => $currentShop, 'tab' => 'cashbook', 'date' => $navDate]).'#owned-shop-petty-cash',
+                    'label' => 'Daily Balance',
+                    'href' => route('admin.accounting.owned-shops.show', ['shop' => $currentShop, 'tab' => 'cashbook', 'date' => $navDate]).'#owned-shop-cash-movements',
                     'active' => false,
+                ],
+                [
+                    'label' => 'Approvals',
+                    'href' => route('admin.accounting.owned-shops.show', ['shop' => $currentShop, 'tab' => 'cashbook', 'date' => $navDate, 'approval_tab' => 'pending']),
+                    'active' => request()->routeIs('admin.accounting.owned-shops.show') && request('approval_tab') === 'pending',
+                    'badge' => $notificationCounts['owned_shop_receipts_pending'],
+                ],
+                [
+                    'label' => 'Company Payments',
+                    'href' => route('admin.accounting.owned-shops.show', ['shop' => $currentShop, 'tab' => 'cashbook', 'date' => $navDate]).'#owned-shop-cash-movements',
+                    'active' => false,
+                    'badge' => $notificationCounts['owned_shop_company_payments_pending'],
+                    'badge_tone' => 'danger',
                 ],
                 [
                     'label' => 'Categories',
                     'href' => route('admin.accounting.owned-shops.categories.index', $currentShop),
                     'active' => request()->routeIs('admin.accounting.owned-shops.categories.*'),
+                ],
+            ]);
+        } else {
+            $ownedShopChildren = array_merge($ownedShopChildren, [
+                [
+                    'label' => 'Receipt Approval',
+                    'href' => route('admin.accounting.owned-shops.index'),
+                    'active' => false,
+                    'badge' => $notificationCounts['owned_shop_receipts_pending'],
+                ],
+                [
+                    'label' => 'Recheck',
+                    'href' => route('admin.accounting.owned-shops.index'),
+                    'active' => false,
+                    'badge' => $notificationCounts['owned_shop_recheck'],
+                    'badge_tone' => 'danger',
+                ],
+                [
+                    'label' => 'Company Payments',
+                    'href' => route('admin.accounting.owned-shops.index'),
+                    'active' => false,
+                    'badge' => $notificationCounts['owned_shop_company_payments_pending'],
+                    'badge_tone' => 'danger',
                 ],
             ]);
         }
@@ -108,6 +144,15 @@
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M4.5 21V8.25m15 12.75V8.25M9 21V3.75h6V21M7.5 6h9" /></svg>',
             'children' => $ownedShopChildren,
             'badge' => $ownedShopPendingApprovalCount,
+        ];
+
+        $sidebarItems[] = [
+            'label' => 'Shop Payments',
+            'href' => route('admin.accounting.daily-sales', ['date' => $navDate]).'#shop-payment-requests',
+            'active' => false,
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m3.75-9.75h-6a2.25 2.25 0 1 0 0 4.5h4.5a2.25 2.25 0 1 1 0 4.5h-6" /></svg>',
+            'badge' => $shopPaymentPendingCount,
+            'badge_tone' => 'danger',
         ];
     }
 
@@ -171,7 +216,7 @@
 @endphp
 
 <div id="accounting-layout-shell" class="min-h-screen lg:flex" data-sidebar-state="expanded">
-    <aside id="accounting-sidebar" class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-slate-200 bg-white transition-[width,transform] duration-300 lg:translate-x-0">
+    <aside id="accounting-sidebar" class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-slate-200 bg-slate-100 transition-[width,transform] duration-300 lg:translate-x-0">
         <div class="border-b border-slate-200 px-5 py-5">
             <div class="flex items-center gap-3">
                 <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500 text-white shadow-sm">
@@ -211,27 +256,7 @@
 
         <nav class="flex-1 space-y-2 overflow-y-auto px-4 py-5">
             @foreach($sidebarItems as $item)
-                <div>
-                    <a href="{{ $item['href'] }}" title="{{ $item['label'] }}" class="flex items-center gap-3 rounded-[1.2rem] px-4 py-3 text-sm font-black transition {{ $item['active'] ? 'bg-emerald-50 text-emerald-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}">
-                        <span class="{{ $item['active'] ? 'text-emerald-700' : 'text-slate-400' }}">{!! $item['icon'] !!}</span>
-                        <span data-accounting-sidebar-label class="min-w-0 flex-1">{{ $item['label'] }}</span>
-                        @if (($item['badge'] ?? 0) > 0)
-                            <span data-accounting-sidebar-label class="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-black text-white">
-                                {{ $item['badge'] }}
-                            </span>
-                        @endif
-                    </a>
-
-                    @if (! empty($item['children']) && ($item['active'] ?? false))
-                        <div data-accounting-sidebar-label class="mt-1 space-y-1 pl-10">
-                            @foreach ($item['children'] as $child)
-                                <a href="{{ $child['href'] }}" class="block rounded-xl px-3 py-2 text-xs font-black transition {{ $child['active'] ? 'bg-slate-950 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900' }}">
-                                    {{ $child['label'] }}
-                                </a>
-                            @endforeach
-                        </div>
-                    @endif
-                </div>
+                <x-sidebar-link :item="$item" label-attribute="data-accounting-sidebar-label" />
             @endforeach
         </nav>
 
@@ -315,81 +340,17 @@
 
 @include('components.app-dialogs')
 
-<script>
-    (() => {
-        const storageKey = 'accounting-sidebar-state';
-        const shell = document.getElementById('accounting-layout-shell');
-        const sidebar = document.getElementById('accounting-sidebar');
-        const main = document.getElementById('accounting-main');
-        const overlay = document.getElementById('accounting-sidebar-overlay');
-        const openButton = document.getElementById('accounting-sidebar-open');
-        const closeButton = document.getElementById('accounting-sidebar-close');
-        const collapseButton = document.getElementById('accounting-sidebar-collapse');
-        const toggleButton = document.getElementById('accounting-sidebar-toggle');
-        const labels = document.querySelectorAll('[data-accounting-sidebar-label]');
-
-        if (!shell || !sidebar || !main || !overlay || !openButton || !closeButton) {
-            return;
-        }
-
-        const syncDesktopState = (state) => {
-            const isCollapsed = state === 'collapsed';
-            shell.dataset.sidebarState = state;
-
-            if (window.innerWidth >= 1024) {
-                sidebar.classList.toggle('lg:w-72', !isCollapsed);
-                sidebar.classList.toggle('lg:w-24', isCollapsed);
-                main.classList.toggle('lg:pl-72', !isCollapsed);
-                main.classList.toggle('lg:pl-24', isCollapsed);
-                labels.forEach((label) => {
-                    label.classList.toggle('hidden', isCollapsed);
-                });
-            } else {
-                sidebar.classList.remove('lg:w-24');
-                sidebar.classList.add('lg:w-72');
-                main.classList.remove('lg:pl-24');
-                main.classList.add('lg:pl-72');
-                labels.forEach((label) => {
-                    label.classList.remove('hidden');
-                });
-            }
-        };
-
-        const setDesktopState = (state) => {
-            localStorage.setItem(storageKey, state);
-            syncDesktopState(state);
-        };
-
-        const openSidebar = () => {
-            sidebar.classList.remove('-translate-x-full');
-            overlay.classList.remove('hidden');
-        };
-
-        const closeSidebar = () => {
-            sidebar.classList.add('-translate-x-full');
-            overlay.classList.add('hidden');
-        };
-
-        openButton.addEventListener('click', openSidebar);
-        closeButton.addEventListener('click', closeSidebar);
-        overlay.addEventListener('click', closeSidebar);
-
-        const toggleDesktopSidebar = () => {
-            if (window.innerWidth < 1024) {
-                return;
-            }
-
-            setDesktopState(shell.dataset.sidebarState === 'collapsed' ? 'expanded' : 'collapsed');
-        };
-
-        collapseButton?.addEventListener('click', toggleDesktopSidebar);
-        toggleButton?.addEventListener('click', toggleDesktopSidebar);
-
-        syncDesktopState(localStorage.getItem(storageKey) === 'collapsed' ? 'collapsed' : 'expanded');
-        window.addEventListener('resize', () => {
-            syncDesktopState(localStorage.getItem(storageKey) === 'collapsed' ? 'collapsed' : 'expanded');
-        });
-    })();
-</script>
+<x-sidebar-state-script
+    storage-key="accounting-sidebar-state"
+    shell-id="accounting-layout-shell"
+    sidebar-id="accounting-sidebar"
+    main-id="accounting-main"
+    overlay-id="accounting-sidebar-overlay"
+    open-button-id="accounting-sidebar-open"
+    close-button-id="accounting-sidebar-close"
+    collapse-button-id="accounting-sidebar-collapse"
+    toggle-button-id="accounting-sidebar-toggle"
+    label-selector="[data-accounting-sidebar-label]"
+/>
 </body>
 </html>

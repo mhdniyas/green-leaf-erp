@@ -92,6 +92,79 @@
             </div>
         </section>
 
+        @if (($pendingPaymentRequests ?? collect())->isNotEmpty())
+            <section id="shop-payment-requests" class="rounded-[1.9rem] border border-amber-200 bg-amber-50/70 p-5 shadow-sm">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.22em] text-amber-700">Payment Requests</p>
+                        <h3 class="mt-2 text-xl font-black tracking-tight text-slate-950">Pending shop payments</h3>
+                        <p class="mt-1 text-sm font-semibold text-amber-900">Approval updates invoice paid amount and posts the accounting journal.</p>
+                    </div>
+                    <span class="inline-flex h-9 items-center rounded-2xl bg-white px-4 text-xs font-black uppercase tracking-[0.16em] text-amber-800">
+                        {{ $pendingPaymentRequests->count() }} pending
+                    </span>
+                </div>
+
+                <div class="mt-4 overflow-x-auto rounded-[1.25rem] border border-amber-200 bg-white">
+                    <table class="min-w-full text-left text-sm">
+                        <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                            <tr>
+                                <th class="px-4 py-3">Shop</th>
+                                <th class="px-4 py-3">Invoice</th>
+                                <th class="px-4 py-3 text-right">Amount</th>
+                                <th class="px-4 py-3">Note</th>
+                                <th class="px-4 py-3 text-right">Review</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @foreach ($pendingPaymentRequests as $paymentRequest)
+                                @php($preview = ($paymentRequestPreviews ?? collect())->get($paymentRequest->id, ['total_due' => 0, 'applied_amount' => 0, 'credit_amount' => 0, 'invoices' => []]))
+                                <tr>
+                                    <td class="px-4 py-3">
+                                        <p class="font-black text-slate-950">{{ $paymentRequest->shop?->name ?? 'Shop removed' }}</p>
+                                        <p class="mt-1 text-xs font-semibold text-slate-500">{{ $paymentRequest->requestedBy?->name ?? 'Shop owner' }}</p>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <p class="font-bold text-slate-700">{{ count($preview['invoices']) }} invoice(s)</p>
+                                        <p class="mt-1 text-xs font-semibold text-slate-500">Total due Rs. {{ number_format((float) $preview['total_due'], 2) }}</p>
+                                        <div class="mt-2 space-y-1">
+                                            @forelse ($preview['invoices'] as $allocation)
+                                                <p class="flex justify-between gap-3 rounded-lg bg-slate-50 px-2 py-1 text-xs font-bold text-slate-600">
+                                                    <span>{{ $allocation['invoice']->invoice_number }}</span>
+                                                    <span>Rs. {{ number_format((float) $allocation['amount'], 2) }}</span>
+                                                </p>
+                                            @empty
+                                                <p class="rounded-lg bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">No pending invoice. Full amount becomes credit.</p>
+                                            @endforelse
+                                        </div>
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <p class="font-black text-emerald-700">Rs. {{ number_format((float) $paymentRequest->requested_amount, 2) }}</p>
+                                        <p class="mt-1 text-xs font-bold text-slate-500">Apply Rs. {{ number_format((float) $preview['applied_amount'], 2) }}</p>
+                                        @if ((float) $preview['credit_amount'] > 0)
+                                            <p class="mt-1 text-xs font-black text-cyan-700">Credit Rs. {{ number_format((float) $preview['credit_amount'], 2) }}</p>
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-3 font-semibold text-slate-600">{{ $paymentRequest->shop_note ?: 'No note' }}</td>
+                                    <td class="px-4 py-3">
+                                        <form method="POST" action="{{ route('admin.accounting.shop-invoice-payment-requests.review', $paymentRequest) }}" class="flex flex-col gap-2 sm:items-end">
+                                            @csrf
+                                            @method('PATCH')
+                                            <input type="text" name="admin_note" class="h-10 w-full min-w-[14rem] rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 focus:border-amber-400 focus:outline-none sm:w-64" placeholder="Approval note">
+                                            <div class="flex justify-end gap-2">
+                                                <button type="submit" name="decision" value="approve" class="inline-flex h-9 items-center rounded-xl bg-emerald-600 px-3 text-xs font-black text-white transition hover:bg-emerald-500">Approve</button>
+                                                <button type="submit" name="decision" value="reject" class="inline-flex h-9 items-center rounded-xl bg-rose-600 px-3 text-xs font-black text-white transition hover:bg-rose-500">Reject</button>
+                                            </div>
+                                        </form>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        @endif
+
         <section
             class="rounded-[1.9rem] border border-slate-200 bg-white p-5 shadow-sm"
             data-daily-sales-export
@@ -162,13 +235,13 @@
                                                     @if ((float) $latestInvoice->balance_amount > 0)
                                                         <button type="button"
                                                                 class="daily-sales-payment-open inline-flex h-9 items-center rounded-xl bg-cyan-600 px-3 text-xs font-black text-white transition hover:bg-cyan-500"
-                                                                data-invoice-number="{{ $latestInvoice->invoice_number }}"
-                                                                data-final-total="{{ (float) $latestInvoice->final_total }}"
-                                                                data-paid-amount="{{ (float) $latestInvoice->paid_amount }}"
-                                                                data-balance-amount="{{ (float) $latestInvoice->balance_amount }}"
+                                                                data-invoice-number="{{ $row['shop']?->name ?? $latestInvoice->invoice_number }} - {{ number_format($row['invoice_count']) }} invoice(s)"
+                                                                data-final-total="{{ (float) $row['total_amount'] }}"
+                                                                data-paid-amount="{{ (float) $row['paid_amount'] }}"
+                                                                data-balance-amount="{{ (float) $row['outstanding_amount'] }}"
                                                                 data-discount-total="{{ (float) $latestInvoice->discount_total }}"
                                                                 data-payment-note="{{ $latestInvoice->payment_note }}"
-                                                                data-action="{{ route('purchasing.shop-invoices.payment-approval', $latestInvoice) }}">
+                                                                data-action="{{ route('admin.accounting.shop-invoices.payment', $latestInvoice) }}">
                                                             Approve payment
                                                         </button>
                                                     @endif
@@ -243,7 +316,7 @@
                                                             data-balance-amount="{{ (float) $invoice->balance_amount }}"
                                                             data-discount-total="{{ (float) $invoice->discount_total }}"
                                                             data-payment-note="{{ $invoice->payment_note }}"
-                                                            data-action="{{ route('purchasing.shop-invoices.payment-approval', $invoice) }}">
+                                                            data-action="{{ route('admin.accounting.shop-invoices.payment', $invoice) }}">
                                                         Approve payment
                                                     </button>
                                                 @endif
@@ -285,10 +358,10 @@
                     @method('PATCH')
 
                     <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                        <p class="text-sm font-bold text-slate-700">Invoice Number: <span id="daily-sales-payment-invoice-number" class="font-black text-slate-950"></span></p>
+                        <p class="text-sm font-bold text-slate-700">Payment Scope: <span id="daily-sales-payment-invoice-number" class="font-black text-slate-950"></span></p>
                         <div class="mt-4 grid gap-3 sm:grid-cols-3">
                             <div>
-                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Invoice Total</p>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Bill Total</p>
                                 <p id="daily-sales-payment-final-total" class="mt-1 text-sm font-black text-slate-950">Rs. 0.00</p>
                             </div>
                             <div>
@@ -310,7 +383,7 @@
                     </label>
 
                     <button type="button" id="daily-sales-payment-set-full-btn" class="inline-flex h-8 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-700 transition hover:bg-slate-100">
-                        Set full invoice amount
+                        Set full payable amount
                     </button>
 
                     <label class="block">

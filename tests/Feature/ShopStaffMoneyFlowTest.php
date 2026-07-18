@@ -5,13 +5,17 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\Employee;
+use App\Models\EmployeeAdvanceRequest;
 use App\Models\EmployeeAdvanceRule;
 use App\Models\EmployeeAttendance;
 use App\Models\EmployeeCategory;
+use App\Models\JournalEntry;
 use App\Models\PayrollPayment;
+use App\Models\Product;
 use App\Models\Shop;
 use App\Models\ShopAccountingCategory;
 use App\Models\ShopAccountingEntry;
+use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopCredit;
 use App\Models\ShopEmployeeAssignment;
 use App\Models\ShopInvoice;
@@ -57,7 +61,7 @@ class ShopStaffMoneyFlowTest extends TestCase
                 'effective_from' => '2026-07-17',
                 'notes' => 'Moved for weekend coverage',
             ])
-            ->assertRedirect(route('admin.staff.employees.index'))
+            ->assertRedirect(route('admin.staff.assignments.index'))
             ->assertSessionHas('success');
 
         $this->assertDatabaseHas('shop_employee_assignments', [
@@ -81,7 +85,129 @@ class ShopStaffMoneyFlowTest extends TestCase
             ->assertOk();
     }
 
-    public function test_shop_owner_can_move_sales_to_petty_cash_and_pay_salary_from_petty_cash(): void
+    public function test_hr_assignment_page_shows_shop_owner_daily_details_and_assignment_action(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $shop = $this->ownedShop([
+            'code' => 'OWN-101',
+            'name' => 'Central Owned Shop',
+        ]);
+        $owner = $this->shopOwner($shop);
+        $employee = $this->shopEmployee([
+            'name' => 'Assigned Staff',
+            'employee_code' => 'EMP-100',
+        ]);
+        $availableEmployee = $this->shopEmployee([
+            'name' => 'Available Staff',
+            'employee_code' => 'EMP-101',
+        ]);
+
+        ShopEmployeeAssignment::factory()->create([
+            'employee_id' => $employee->id,
+            'shop_id' => $shop->id,
+            'assigned_by' => $admin->id,
+            'effective_from' => '2026-07-18',
+            'status' => 'active',
+        ]);
+        EmployeeAttendance::factory()->create([
+            'employee_id' => $employee->id,
+            'shop_id' => $shop->id,
+            'attendance_date' => '2026-07-18',
+            'status' => 'present',
+            'source' => 'admin',
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->get(route('admin.staff.assignments.index', ['date' => '2026-07-18']))
+            ->assertOk()
+            ->assertSee('Assign Employees')
+            ->assertSee('Central Owned Shop')
+            ->assertSee($owner->name)
+            ->assertSee('Assigned Staff')
+            ->assertSee('Available Staff')
+            ->assertSee('1 assigned')
+            ->assertSee('Assign to Central Owned Shop')
+            ->assertSee('data-employee-dropdown', false)
+            ->assertSee('Search employee, code, shop')
+            ->assertSee('Shop Employees')
+            ->assertSee('Office')
+            ->assertSee('value="shop"', false)
+            ->assertSee('checked', false);
+
+        $this->assertTrue($availableEmployee->exists);
+    }
+
+    public function test_hr_cannot_assign_employee_to_non_owned_staff_shop(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $employee = $this->shopEmployee();
+        $regularShop = Shop::factory()->create([
+            'accounting_enabled' => false,
+            'accounting_mode' => 'standard',
+            'name' => 'Regular Retail Shop',
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->post(route('admin.staff.shop-assignments.store'), [
+                'employee_id' => $employee->id,
+                'shop_id' => $regularShop->id,
+                'effective_from' => '2026-07-18',
+                'notes' => 'Invalid target',
+            ])
+            ->assertSessionHasErrors('shop_id');
+
+        $this->assertDatabaseMissing('shop_employee_assignments', [
+            'employee_id' => $employee->id,
+            'shop_id' => $regularShop->id,
+        ]);
+    }
+
+    public function test_owned_shop_index_shows_latest_closing_balance_instead_of_daily_balance(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $shop = $this->ownedShop(['name' => 'Ashirwad']);
+
+        ShopAccountingEntry::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-07-16',
+            'status' => 'approved',
+            'opening_cash' => 0,
+            'closing_cash' => 999,
+            'created_by' => $admin->id,
+            'updated_by' => $admin->id,
+        ]);
+        ShopAccountingEntry::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-07-17',
+            'status' => 'draft',
+            'opening_cash' => 999,
+            'closing_cash' => -121223,
+            'created_by' => $admin->id,
+            'updated_by' => $admin->id,
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->get(route('admin.accounting.owned-shops.index'))
+            ->assertOk()
+            ->assertSeeText('Closing Balance')
+            ->assertSeeText('- Rs. 121,223.00')
+            ->assertSeeText('17 Jul 2026')
+            ->assertDontSeeText('Daily Balance');
+    }
+
+    public function test_shop_owner_can_submit_daily_receipt_and_pay_salary_from_shop_cash(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-07-17 10:00:00'));
         $this->seed(RolePermissionSeeder::class);
@@ -109,14 +235,37 @@ class ShopStaffMoneyFlowTest extends TestCase
             'source' => 'owner',
         ]);
 
+        ShopAccountingEntry::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-07-16',
+            'status' => 'approved',
+            'opening_cash' => 0,
+            'closing_cash' => 250,
+            'created_by' => $shopOwner->id,
+        ]);
+
+        $cashSales = ShopAccountingCategory::query()->create([
+            'type' => 'income',
+            'cash_effect' => true,
+            'name' => 'Cash Sales',
+            'is_active' => true,
+        ]);
+
         $this
             ->actingAs($shopOwner)
-            ->post(route('shop-owner.accounting.sales-to-petty-cash.store'), [
+            ->post(route('shop-owner.accounting.entries.store'), [
                 'business_date' => '2026-07-17',
-                'amount' => 1000,
-                'description' => 'Cash kept from sales',
+                'submission_action' => 'submit',
+                'notes' => 'Cash kept in shop balance.',
+                'lines' => [
+                    [
+                        'shop_accounting_category_id' => $cashSales->id,
+                        'amount' => 1000,
+                        'description' => 'Cash sales retained in closing balance',
+                    ],
+                ],
             ])
-            ->assertRedirect(route('shop-owner.accounting.index', ['tab' => 'cashbook', 'date' => '2026-07-17']))
+            ->assertRedirect(route('shop-owner.accounting.index', ['tab' => 'cashbook', 'ledger_status' => 'submitted', 'date' => '2026-07-17']))
             ->assertSessionHas('success');
 
         $this
@@ -129,15 +278,17 @@ class ShopStaffMoneyFlowTest extends TestCase
                 'fund_source' => 'petty_cash',
                 'notes' => 'Daily wage part payment',
             ])
-            ->assertRedirect(route('shop-owner.staff.index', ['shop' => $shop->code]))
+            ->assertRedirect(route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'salary']))
             ->assertSessionHas('success');
 
-        $this->assertDatabaseHas('shop_credits', [
-            'shop_id' => $shop->id,
-            'is_petty_cash' => true,
-            'amount' => 1000,
-            'description' => 'Cash kept from sales',
-        ]);
+        $entry = ShopAccountingEntry::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', '2026-07-17')
+            ->firstOrFail();
+
+        $this->assertSame('250.00', $entry->opening_cash);
+        $this->assertSame('1250.00', $entry->closing_cash);
+        $this->assertSame('submitted', $entry->status);
         $this->assertDatabaseHas('shop_staff_payments', [
             'shop_id' => $shop->id,
             'employee_id' => $employee->id,
@@ -151,18 +302,21 @@ class ShopStaffMoneyFlowTest extends TestCase
             'amount' => 300,
         ]);
 
-        $row = app(OwnedShopAccountingService::class)
-            ->pettyCashRows($shop, Carbon::parse('2026-07-17'), Carbon::parse('2026-07-17'))
-            ->first();
+        $summary = app(OwnedShopAccountingService::class)->receiptSummary($entry);
 
-        $this->assertSame(1000.00, $row['admin_cash']);
-        $this->assertSame(300.00, $row['payroll_expense']);
-        $this->assertSame(700.00, $row['balance']);
+        $this->assertSame(250.00, $summary['opening_balance']);
+        $this->assertSame(1000.00, $summary['cash_credit']);
+        $this->assertSame(1250.00, $summary['entered_closing']);
 
         $this
             ->actingAs($shopOwner)
             ->get(route('shop-owner.staff.index', ['shop' => $shop->code]))
-            ->assertOk();
+            ->assertOk()
+            ->assertSee('Attendance')
+            ->assertSee('Advance')
+            ->assertSee('Salary')
+            ->assertSee('Leave')
+            ->assertSee('History');
 
         Carbon::setTestNow();
     }
@@ -213,7 +367,7 @@ class ShopStaffMoneyFlowTest extends TestCase
                 'fund_source' => 'petty_cash',
                 'request_note' => 'Allowed advance',
             ])
-            ->assertRedirect(route('shop-owner.staff.index', ['shop' => $shop->code]))
+            ->assertRedirect(route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'advance']))
             ->assertSessionHas('success');
 
         $this->assertDatabaseHas('employee_advance_requests', [
@@ -236,7 +390,7 @@ class ShopStaffMoneyFlowTest extends TestCase
                 'fund_source' => 'petty_cash',
                 'request_note' => 'Needs more',
             ])
-            ->assertRedirect(route('shop-owner.staff.index', ['shop' => $shop->code]))
+            ->assertRedirect(route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'advance']))
             ->assertSessionHas('warning');
 
         $this->assertDatabaseHas('employee_advance_requests', [
@@ -246,14 +400,158 @@ class ShopStaffMoneyFlowTest extends TestCase
             'eligible_amount' => 10000,
             'status' => 'pending',
         ]);
+        $this->assertSame(10000.00, (float) EmployeeAdvanceRequest::query()->where('status', 'pending')->firstOrFail()->rule_snapshot['already_advanced_amount']);
 
         $admin = User::factory()->create();
         $admin->assignRole('admin');
 
         $this
             ->actingAs($admin)
-            ->get(route('admin.staff.payments.index', ['payroll_month' => '2026-07']))
-            ->assertOk();
+            ->get(route('admin.staff.advance-payments.index', ['payroll_month' => '2026-07']))
+            ->assertOk()
+            ->assertSee('Advance Payments')
+            ->assertSee('Needs more');
+
+        $pendingAdvance = EmployeeAdvanceRequest::query()->where('status', 'pending')->firstOrFail();
+
+        $this
+            ->actingAs($admin)
+            ->patch(route('admin.staff.advance-requests.review', $pendingAdvance), [
+                'decision' => 'approve',
+                'approved_amount' => 5000,
+                'review_note' => 'Approved partial extra advance',
+            ])
+            ->assertRedirect(route('admin.staff.advance-payments.index', ['payroll_month' => '2026-07']))
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseHas('employee_advance_requests', [
+            'id' => $pendingAdvance->id,
+            'status' => 'approved',
+            'approved_amount' => 5000,
+        ]);
+        $this->assertSame(15000.00, (float) ShopStaffPayment::query()->where('payment_type', 'advance')->sum('amount'));
+
+        $payrollRunItem = app(PayrollService::class)
+            ->ensurePayrollRunItem($employee, Carbon::parse('2026-07-01'), Carbon::parse('2026-07-31'), $admin->id)
+            ->fresh(['payments', 'shopStaffPayments']);
+        $this->assertSame(5000.00, $payrollRunItem->remainingAmount());
+
+        Carbon::setTestNow();
+    }
+
+    public function test_linked_shop_owner_can_check_in_without_staff_assignment(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-07-21 10:00:00'));
+        $this->seed(RolePermissionSeeder::class);
+
+        $shop = $this->ownedShop();
+        $shopOwner = $this->shopOwner($shop);
+        $ownerEmployee = $shopOwner->employee()->first() ?? $this->shopEmployee([
+            'name' => 'Owner Employee',
+            'user_id' => $shopOwner->id,
+            'staff_area' => 'office',
+        ]);
+
+        $this
+            ->actingAs($shopOwner)
+            ->post(route('shop-owner.staff.attendance.store'), [
+                'employee_id' => $ownerEmployee->id,
+                'attendance_date' => '2026-07-21',
+                'shop_id' => $shop->id,
+                'status' => 'present',
+            ])
+            ->assertRedirect(route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'attendance']))
+            ->assertSessionHas('success');
+
+        $this->assertTrue(EmployeeAttendance::query()
+            ->where('employee_id', $ownerEmployee->id)
+            ->where('shop_id', $shop->id)
+            ->whereDate('attendance_date', '2026-07-21')
+            ->where('status', 'present')
+            ->where('source', 'owner')
+            ->exists());
+
+        Carbon::setTestNow(Carbon::parse('2026-07-21 11:15:00'));
+
+        $this
+            ->actingAs($shopOwner)
+            ->post(route('shop-owner.staff.attendance.store'), [
+                'employee_id' => $ownerEmployee->id,
+                'attendance_date' => '2026-07-21',
+                'shop_id' => $shop->id,
+                'status' => 'half_day',
+                'notes' => 'Updated to half day',
+            ])
+            ->assertRedirect(route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'attendance']));
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'attendance', 'date' => '2026-07-21']))
+            ->assertOk()
+            ->assertSeeText('Checked in 10:00 AM')
+            ->assertSeeText('Latest mark 11:15 AM')
+            ->assertSeeText('Changed 11:15 AM')
+            ->assertSeeText('Update Check-In');
+
+        Carbon::setTestNow();
+    }
+
+    public function test_unlinked_shop_owner_staff_page_shows_hr_linking_message(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-07-21 10:00:00'));
+        $this->seed(RolePermissionSeeder::class);
+
+        $shop = $this->ownedShop();
+        $shopOwner = $this->shopOwner($shop);
+        Employee::query()->where('user_id', $shopOwner->id)->update(['user_id' => null]);
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'attendance']))
+            ->assertOk()
+            ->assertSee('HR needs to link your user account to an employee profile before owner check-in is available.');
+
+        Carbon::setTestNow();
+    }
+
+    public function test_owned_shop_advance_tab_includes_previous_shop_staff_only(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-07-21 10:00:00'));
+        $this->seed(RolePermissionSeeder::class);
+
+        EmployeeAdvanceRule::factory()->create([
+            'minimum_present_days' => 1,
+            'advance_percent' => 50,
+            'is_active' => true,
+        ]);
+        $shop = $this->ownedShop();
+        $otherShop = $this->ownedShop(['name' => 'Other Owned Shop']);
+        $shopOwner = $this->shopOwner($shop);
+        $previousEmployee = $this->shopEmployee(['name' => 'Previous Shop Staff']);
+        $unrelatedEmployee = $this->shopEmployee(['name' => 'Unrelated Shop Staff']);
+
+        ShopEmployeeAssignment::factory()->create([
+            'shop_id' => $shop->id,
+            'employee_id' => $previousEmployee->id,
+            'assigned_by' => $shopOwner->id,
+            'effective_from' => '2026-07-01',
+            'effective_to' => '2026-07-10',
+            'status' => 'inactive',
+        ]);
+        ShopEmployeeAssignment::factory()->create([
+            'shop_id' => $otherShop->id,
+            'employee_id' => $unrelatedEmployee->id,
+            'assigned_by' => $shopOwner->id,
+            'effective_from' => '2026-07-01',
+            'status' => 'active',
+        ]);
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'advance', 'date' => '2026-07-21']))
+            ->assertOk()
+            ->assertSee('Previous Shop Staff')
+            ->assertDontSee('Unrelated Shop Staff');
 
         Carbon::setTestNow();
     }
@@ -376,11 +674,11 @@ class ShopStaffMoneyFlowTest extends TestCase
             ]))
             ->assertOk()
             ->assertSeeText('Sales Revenue')
-            ->assertSeeText('Cash Flow Forecast')
+            ->assertSeeText('Daily Receipt Balance')
             ->assertSeeText('Cost Segmentation')
             ->assertSeeText('Staff')
             ->assertSeeText('Rs. 300')
-            ->assertSeeText('Current balance');
+            ->assertSeeText('Daily Balance');
     }
 
     public function test_owned_shop_cashbook_shows_approval_on_top_cash_popup_and_sidebar_badge(): void
@@ -427,9 +725,156 @@ class ShopStaffMoneyFlowTest extends TestCase
             ->assertSeeTextInOrder(['Admin Approval', 'Income', 'Expense', 'Net'])
             ->assertSeeText('Shop Cash Movement')
             ->assertSeeText('Add shop cash')
+            ->assertSeeText('Working cash given to shop')
+            ->assertSeeText('Company view: cash out. Shop view: cash credit.')
+            ->assertDontSeeText('Cash Received from Shop - Income')
+            ->assertDontSeeText('Daily Balance Movement')
             ->assertDontSeeText('Add Shop Cash Movement')
-            ->assertSee('rounded-full bg-red-600', false)
+            ->assertSeeText('Admin Approval')
             ->assertSeeText('8');
+    }
+
+    public function test_admin_shop_cash_credit_updates_stored_daily_closing_balance(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $shop = $this->ownedShop(['code' => 'SHOP_CASH_SYNC']);
+        ShopAccountingEntry::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-07-16',
+            'status' => 'approved',
+            'opening_cash' => 0,
+            'closing_cash' => 500,
+            'created_by' => $admin->id,
+        ]);
+        $entry = ShopAccountingEntry::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-07-17',
+            'status' => 'draft',
+            'opening_cash' => 500,
+            'closing_cash' => 500,
+            'created_by' => $admin->id,
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->post(route('admin.accounting.owned-shops.credits.store', ['shop' => $shop]), [
+                'amount' => 200000,
+                'business_date' => '2026-07-17',
+                'description' => 'Shop working cash for weekend',
+            ])
+            ->assertRedirect(route('admin.accounting.owned-shops.show', [
+                'shop' => $shop->code,
+                'tab' => 'cashbook',
+                'date' => '2026-07-17',
+            ]))
+            ->assertSessionHas('success');
+
+        $entry->refresh();
+
+        $this->assertSame('500.00', $entry->opening_cash);
+        $this->assertSame('200500.00', $entry->closing_cash);
+        $this->assertDatabaseHas('shop_credits', [
+            'shop_id' => $shop->id,
+            'type' => 'in',
+            'is_petty_cash' => true,
+            'amount' => 200000,
+            'description' => 'Shop working cash for weekend',
+        ]);
+
+        $newDayShop = $this->ownedShop(['code' => 'SHOP_CASH_SYNC_NEW']);
+
+        $this
+            ->actingAs($admin)
+            ->post(route('admin.accounting.owned-shops.credits.store', ['shop' => $newDayShop]), [
+                'amount' => 1000,
+                'business_date' => '2026-07-17',
+            ])
+            ->assertSessionHas('success');
+
+        $createdEntry = ShopAccountingEntry::query()
+            ->where('shop_id', $newDayShop->id)
+            ->whereDate('business_date', '2026-07-17')
+            ->firstOrFail();
+
+        $this->assertSame('draft', $createdEntry->status);
+        $this->assertSame('0.00', $createdEntry->opening_cash);
+        $this->assertSame('1000.00', $createdEntry->closing_cash);
+    }
+
+    public function test_admin_daily_ledger_update_is_submitted_for_approval(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $shop = $this->ownedShop(['code' => 'SHOP_LEDGER_ADMIN']);
+        $category = ShopAccountingCategory::query()->create([
+            'type' => 'expense',
+            'cash_effect' => true,
+            'name' => 'Cash Purchase',
+            'is_active' => true,
+        ]);
+        $entry = ShopAccountingEntry::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-07-17',
+            'status' => 'draft',
+            'opening_cash' => 0,
+            'closing_cash' => -121223,
+            'created_by' => $admin->id,
+        ]);
+        $entry->lines()->create([
+            'shop_accounting_category_id' => $category->id,
+            'type' => 'expense',
+            'cash_effect' => true,
+            'amount' => 121223,
+            'description' => 'Large cash purchase',
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->patch(route('admin.accounting.owned-shops.entries.update', ['shop' => $shop, 'entry' => $entry]), [
+                'business_date' => '2026-07-17',
+                'status' => 'submitted',
+                'opening_cash' => 0,
+                'closing_cash' => -121223,
+                'lines' => [
+                    [
+                        'shop_accounting_category_id' => $category->id,
+                        'amount' => 121223,
+                        'description' => 'Large cash purchase',
+                    ],
+                ],
+            ])
+            ->assertRedirect(route('admin.accounting.owned-shops.show', [
+                'shop' => $shop->code,
+                'tab' => 'cashbook',
+                'approval_tab' => 'pending',
+                'date' => '2026-07-17',
+            ]));
+
+        $entry->refresh();
+
+        $this->assertSame('submitted', $entry->status);
+        $this->assertSame($admin->id, $entry->submitted_by);
+        $this->assertNotNull($entry->submitted_at);
+
+        $this
+            ->actingAs($admin)
+            ->get(route('admin.accounting.owned-shops.show', [
+                'shop' => $shop->code,
+                'tab' => 'cashbook',
+                'approval_tab' => 'pending',
+                'date' => '2026-07-17',
+                'start_date' => '2026-07-01',
+                'end_date' => '2026-07-31',
+            ]))
+            ->assertOk()
+            ->assertSeeText('Review submitted shop entry')
+            ->assertSeeText('Rs. 121,223.00')
+            ->assertSeeText('Large cash purchase');
     }
 
     public function test_approved_shop_entry_moves_to_approved_tab_and_is_read_only_for_shop_owner(): void
@@ -501,7 +946,841 @@ class ShopStaffMoneyFlowTest extends TestCase
             ->assertSeeText('This day is already approved.')
             ->assertSeeText('Approved entries are read-only')
             ->assertSeeText('Approved sales')
+            ->assertSeeText('Rs. 1,200.00')
+            ->assertDontSeeText('Not entered')
             ->assertDontSeeText('Submit Updated Ledger Day');
+    }
+
+    public function test_approved_shop_receipt_tracks_cashbook_without_posting_journal(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $shop = $this->ownedShop(['code' => 'SHOP_JOURNAL_RULE', 'name' => 'Ashirwad']);
+        $shopOwner = $this->shopOwner($shop);
+        $category = ShopAccountingCategory::query()->create([
+            'type' => 'income',
+            'cash_effect' => true,
+            'purpose' => 'sales_cash',
+            'name' => 'Sales Income - Cash',
+            'is_active' => true,
+        ]);
+        $entry = ShopAccountingEntry::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-07-18',
+            'status' => 'submitted',
+            'opening_cash' => 126555,
+            'closing_cash' => 426555,
+            'created_by' => $shopOwner->id,
+            'submitted_by' => $shopOwner->id,
+            'submitted_at' => now(),
+        ]);
+        $line = $entry->lines()->create([
+            'shop_accounting_category_id' => $category->id,
+            'type' => 'income',
+            'cash_effect' => true,
+            'amount' => 300000,
+            'description' => 'Cash sales for the day',
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->patch(route('admin.accounting.owned-shops.entries.review', ['shop' => $shop, 'entry' => $entry]), [
+                'decision' => 'approve',
+                'admin_note' => 'Approved cash sales',
+            ])
+            ->assertSessionHas('success');
+
+        $this->assertSame('approved', $entry->fresh()->status);
+        $this->assertSame('approved', $line->fresh()->review_status);
+        $this->assertSame(0, JournalEntry::query()
+            ->where('source_type', ShopAccountingEntryLine::class)
+            ->where('source_id', $line->id)
+            ->where('source_event', 'shop_accounting_line_approved')
+            ->count());
+
+        $this
+            ->actingAs($admin)
+            ->patch(route('admin.accounting.owned-shops.entries.review', ['shop' => $shop, 'entry' => $entry]), [
+                'decision' => 'approve',
+                'admin_note' => 'Approved again',
+            ])
+            ->assertSessionHas('success');
+
+        $this->assertSame(0, JournalEntry::query()
+            ->where('source_type', ShopAccountingEntryLine::class)
+            ->where('source_id', $line->id)
+            ->where('source_event', 'shop_accounting_line_approved')
+            ->count());
+    }
+
+    public function test_owned_shop_finance_payments_record_company_cash_out_and_regular_shops_use_invoice_payment_requests(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $ownedShop = $this->ownedShop(['code' => 'SHOP_FIN_PAY']);
+        $shopOwner = $this->shopOwner($ownedShop);
+        $salesCategory = ShopAccountingCategory::query()->create([
+            'type' => 'income',
+            'cash_effect' => true,
+            'purpose' => 'sales_cash',
+            'name' => 'Sales Income - Cash',
+            'is_active' => true,
+        ]);
+        $entry = ShopAccountingEntry::query()->create([
+            'shop_id' => $ownedShop->id,
+            'business_date' => '2026-07-18',
+            'status' => 'approved',
+            'opening_cash' => 0,
+            'closing_cash' => 5000,
+            'created_by' => $shopOwner->id,
+            'submitted_by' => $shopOwner->id,
+            'submitted_at' => now(),
+            'reviewed_by' => $shopOwner->id,
+            'reviewed_at' => now(),
+        ]);
+        $entry->lines()->create([
+            'shop_accounting_category_id' => $salesCategory->id,
+            'type' => 'income',
+            'cash_effect' => true,
+            'amount' => 5000,
+            'description' => 'Cash sales',
+            'review_status' => 'approved',
+        ]);
+        $order = ShopOrder::query()->create([
+            'shop_id' => $ownedShop->id,
+            'state' => 'approved',
+            'business_date' => '2026-07-18',
+            'created_by' => $shopOwner->id,
+        ]);
+        $invoice = ShopInvoice::query()->create([
+            'shop_id' => $ownedShop->id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'SINV-FIN-PAY-001',
+            'business_date' => '2026-07-18',
+            'status' => 'generated',
+            'delivery_status' => 'received_full',
+            'payment_status' => 'unpaid',
+            'subtotal' => 4000,
+            'final_total' => 4000,
+            'paid_amount' => 500,
+            'balance_amount' => 3500,
+            'generated_by' => $shopOwner->id,
+        ]);
+        $pendingOrder = ShopOrder::query()->create([
+            'shop_id' => $ownedShop->id,
+            'state' => 'approved',
+            'business_date' => '2026-07-17',
+            'created_by' => $shopOwner->id,
+        ]);
+        ShopInvoice::query()->create([
+            'shop_id' => $ownedShop->id,
+            'shop_order_id' => $pendingOrder->id,
+            'invoice_number' => 'SINV-FIN-PENDING',
+            'business_date' => '2026-07-17',
+            'status' => 'delivery_review',
+            'delivery_status' => 'received_with_discrepancy',
+            'payment_status' => 'unpaid',
+            'subtotal' => 600,
+            'final_total' => 600,
+            'paid_amount' => 0,
+            'balance_amount' => 600,
+            'generated_by' => $shopOwner->id,
+        ]);
+
+        $this->assertSame(1000.00, app(OwnedShopAccountingService::class)->closingBalanceForDate($ownedShop, Carbon::parse('2026-07-18')));
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.finance.index', ['tab' => 'payments']))
+            ->assertOk()
+            ->assertSeeText('Payments')
+            ->assertSeeText('Payment To Company')
+            ->assertSeeText('Rs. 1,000.00')
+            ->assertSeeText('1 bills pending approval')
+            ->assertSeeText('Rs. 600.00');
+
+        $this
+            ->actingAs($shopOwner)
+            ->post(route('shop-owner.finance.payments.store'), [
+                'amount' => 700,
+                'business_date' => '2026-07-18',
+                'description' => 'Cash paid to office',
+            ])
+            ->assertRedirect(route('shop-owner.finance.index', ['tab' => 'payments']))
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseHas('shop_credits', [
+            'shop_id' => $ownedShop->id,
+            'type' => 'out',
+            'amount' => 700,
+            'description' => 'Cash paid to office',
+            'business_date' => '2026-07-18 00:00:00',
+            'status' => 'pending',
+        ]);
+
+        $companyPayment = ShopCredit::query()
+            ->where('shop_id', $ownedShop->id)
+            ->where('type', 'out')
+            ->firstOrFail();
+
+        $this->assertSame(1000.00, app(OwnedShopAccountingService::class)->closingBalanceForDate($ownedShop, Carbon::parse('2026-07-18')));
+        $this->assertSame(0, ShopInvoicePaymentRequest::query()->count());
+        $this->assertSame(0, JournalEntry::query()->where('source_type', ShopInvoice::class)->count());
+
+        $this
+            ->actingAs($admin)
+            ->get(route('admin.accounting.owned-shops.show', [
+                'shop' => $ownedShop->code,
+                'tab' => 'cashbook',
+                'date' => '2026-07-18',
+            ]))
+            ->assertOk()
+            ->assertSeeText('Approve payments to company')
+            ->assertSeeText('Cash paid to office')
+            ->assertSeeText('Pending Approval');
+
+        $this
+            ->actingAs($admin)
+            ->patch(route('admin.accounting.owned-shops.company-payments.review', ['shop' => $ownedShop, 'credit' => $companyPayment]), [
+                'decision' => 'approve',
+                'admin_note' => 'Cash received',
+            ])
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseHas('shop_credits', [
+            'id' => $companyPayment->id,
+            'status' => 'approved',
+            'admin_note' => 'Cash received',
+            'reviewed_by' => $admin->id,
+        ]);
+        $this->assertSame(300.00, app(OwnedShopAccountingService::class)->closingBalanceForDate($ownedShop, Carbon::parse('2026-07-18')));
+
+        $regularShop = Shop::factory()->create([
+            'accounting_enabled' => false,
+            'accounting_mode' => 'regular',
+        ]);
+        $regularShopOwner = User::factory()->create(['shop_id' => $regularShop->id]);
+        $regularShopOwner->assignRole('shop');
+        $regularInvoice = ShopInvoice::factory()->create([
+            'shop_id' => $regularShop->id,
+            'business_date' => '2026-07-18',
+            'subtotal' => 900,
+            'final_total' => 900,
+            'paid_amount' => 0,
+            'balance_amount' => 900,
+            'payment_status' => 'unpaid',
+        ]);
+
+        $this
+            ->actingAs($regularShopOwner)
+            ->get(route('shop-owner.finance.index', ['tab' => 'payments']))
+            ->assertOk()
+            ->assertSeeText('Submit bill payment for approval')
+            ->assertSeeText($regularInvoice->invoice_number);
+
+        $this
+            ->actingAs($regularShopOwner)
+            ->post(route('shop-owner.accounting.payment-requests.store'), [
+                'invoice_id' => $regularInvoice->id,
+                'amount_mode' => 'custom',
+                'amount' => 200,
+                'shop_note' => 'Cash paid at office',
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseHas('shop_invoice_payment_requests', [
+            'shop_invoice_id' => $regularInvoice->id,
+            'shop_id' => $regularShop->id,
+            'requested_amount' => 200,
+            'status' => 'pending',
+            'shop_note' => 'Cash paid at office',
+        ]);
+        $this->assertSame(0, JournalEntry::query()->where('source_type', ShopInvoice::class)->where('source_id', $regularInvoice->id)->count());
+
+        $paymentRequest = ShopInvoicePaymentRequest::query()
+            ->where('shop_invoice_id', $regularInvoice->id)
+            ->firstOrFail();
+
+        $this
+            ->actingAs($admin)
+            ->patch(route('admin.accounting.shop-invoice-payment-requests.review', $paymentRequest), [
+                'decision' => 'approve',
+                'admin_note' => 'Verified cash received',
+            ])
+            ->assertSessionHas('success');
+
+        $regularInvoice->refresh();
+
+        $this->assertSame('paid', $regularInvoice->payment_status);
+        $this->assertSame('200.00', $regularInvoice->paid_amount);
+        $this->assertSame('0.00', $regularInvoice->balance_amount);
+        $this->assertSame(1, JournalEntry::query()->where('source_type', ShopInvoice::class)->where('source_id', $regularInvoice->id)->count());
+    }
+
+    public function test_regular_shop_overpayment_allocates_multiple_invoices_and_keeps_credit_after_accounting_approval(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+
+        $shop = Shop::factory()->create([
+            'accounting_enabled' => false,
+            'accounting_mode' => 'regular',
+        ]);
+        $shopOwner = User::factory()->create(['shop_id' => $shop->id]);
+        $shopOwner->assignRole('shop');
+        $product = Product::factory()->create(['base_price' => 100]);
+
+        $firstInvoice = $this->regularShopInvoiceWithOneLine($shop, $shopOwner, $product, 'SINV-OVERPAY-001', '2026-07-16', 300);
+        $secondInvoice = $this->regularShopInvoiceWithOneLine($shop, $shopOwner, $product, 'SINV-OVERPAY-002', '2026-07-17', 500);
+
+        $this
+            ->actingAs($shopOwner)
+            ->post(route('shop-owner.accounting.payment-requests.store'), [
+                'amount_mode' => 'custom',
+                'amount' => 1000,
+                'shop_note' => 'Paid extra for next bill',
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $paymentRequest = ShopInvoicePaymentRequest::query()
+            ->where('shop_id', $shop->id)
+            ->where('status', 'pending')
+            ->firstOrFail();
+
+        $this->assertSame('1000.00', $paymentRequest->requested_amount);
+        $this->assertSame(0, JournalEntry::query()->where('source_type', ShopInvoice::class)->where('source_id', $firstInvoice->id)->count());
+
+        $this
+            ->actingAs($admin)
+            ->patch(route('admin.accounting.shop-invoice-payment-requests.review', $paymentRequest), [
+                'decision' => 'approve',
+                'admin_note' => 'Cash verified',
+            ])
+            ->assertSessionHas('success');
+
+        $paymentRequest->refresh()->load('allocations');
+        $firstInvoice->refresh();
+        $secondInvoice->refresh();
+
+        $this->assertSame('paid', $firstInvoice->payment_status);
+        $this->assertSame('300.00', $firstInvoice->paid_amount);
+        $this->assertSame('0.00', $firstInvoice->balance_amount);
+        $this->assertSame('paid', $secondInvoice->payment_status);
+        $this->assertSame('500.00', $secondInvoice->paid_amount);
+        $this->assertSame('0.00', $secondInvoice->balance_amount);
+        $this->assertSame('800.00', $paymentRequest->applied_amount);
+        $this->assertSame('200.00', $paymentRequest->credit_amount);
+        $this->assertSame(200.00, $paymentRequest->remainingCreditAmount());
+        $this->assertCount(2, $paymentRequest->allocations);
+
+        $this->assertDatabaseHas('journal_entries', [
+            'source_type' => ShopInvoice::class,
+            'source_id' => $firstInvoice->id,
+            'source_event' => 'shop-payment-request:'.$paymentRequest->id,
+        ]);
+        $this->assertDatabaseHas('journal_transactions', [
+            'amount' => '1000.00',
+            'type' => 'debit',
+        ]);
+    }
+
+    public function test_admin_can_manage_owned_shop_categories_but_cannot_delete_used_category(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $shop = $this->ownedShop(['code' => 'SHOP_CRUD_CAT']);
+        $shopOwner = $this->shopOwner($shop);
+
+        $this
+            ->actingAs($admin)
+            ->post(route('admin.accounting.owned-shops.categories.store', $shop), [
+                'scope' => 'shop',
+                'type' => 'expense',
+                'purpose' => 'custom',
+                'name' => 'Packing Expense',
+                'cash_effect' => '1',
+                'is_active' => '1',
+            ])
+            ->assertRedirect(route('admin.accounting.owned-shops.categories.index', ['shop' => $shop->code]))
+            ->assertSessionHas('success');
+
+        $category = ShopAccountingCategory::query()
+            ->where('shop_id', $shop->id)
+            ->where('name', 'Packing Expense')
+            ->firstOrFail();
+
+        $this
+            ->actingAs($admin)
+            ->patch(route('admin.accounting.owned-shops.categories.update', ['shop' => $shop, 'category' => $category]), [
+                'scope' => 'shop',
+                'type' => 'expense',
+                'purpose' => 'staff_salary',
+                'name' => 'Staff Food',
+                'is_active' => '1',
+            ])
+            ->assertRedirect(route('admin.accounting.owned-shops.categories.index', ['shop' => $shop->code]))
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseHas('shop_accounting_categories', [
+            'id' => $category->id,
+            'name' => 'Staff Food',
+            'purpose' => 'staff_salary',
+            'cash_effect' => false,
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->delete(route('admin.accounting.owned-shops.categories.destroy', ['shop' => $shop, 'category' => $category]))
+            ->assertRedirect(route('admin.accounting.owned-shops.categories.index', ['shop' => $shop->code]))
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseMissing('shop_accounting_categories', [
+            'id' => $category->id,
+        ]);
+
+        $usedCategory = ShopAccountingCategory::query()->create([
+            'shop_id' => $shop->id,
+            'type' => 'income',
+            'cash_effect' => true,
+            'purpose' => 'custom',
+            'name' => 'Used Sales Category',
+            'is_active' => true,
+        ]);
+        $entry = ShopAccountingEntry::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-07-18',
+            'status' => 'approved',
+            'opening_cash' => 0,
+            'closing_cash' => 100,
+            'created_by' => $shopOwner->id,
+            'submitted_by' => $shopOwner->id,
+            'submitted_at' => now(),
+            'reviewed_by' => $admin->id,
+            'reviewed_at' => now(),
+        ]);
+        $entry->lines()->create([
+            'shop_accounting_category_id' => $usedCategory->id,
+            'type' => 'income',
+            'cash_effect' => true,
+            'amount' => 100,
+            'description' => 'Already used',
+            'review_status' => 'approved',
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->delete(route('admin.accounting.owned-shops.categories.destroy', ['shop' => $shop, 'category' => $usedCategory]))
+            ->assertRedirect()
+            ->assertSessionHasErrors('category');
+
+        $this->assertDatabaseHas('shop_accounting_categories', [
+            'id' => $usedCategory->id,
+        ]);
+    }
+
+    public function test_cashbook_cards_use_day_level_totals_when_multiple_entries_and_company_payments_exist(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $shop = $this->ownedShop(['code' => 'SHOP_DAY_TOTAL']);
+        $shopOwner = $this->shopOwner($shop);
+        $incomeCategory = ShopAccountingCategory::query()->create([
+            'type' => 'income',
+            'cash_effect' => true,
+            'purpose' => 'sales_cash',
+            'name' => 'Sales Income - Cash',
+            'is_active' => true,
+        ]);
+        $expenseCategory = ShopAccountingCategory::query()->create([
+            'type' => 'expense',
+            'cash_effect' => true,
+            'name' => 'Cash Purchase',
+            'is_active' => true,
+        ]);
+        $firstEntry = ShopAccountingEntry::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-07-18',
+            'status' => 'approved',
+            'opening_cash' => 0,
+            'closing_cash' => 9055,
+            'created_by' => $shopOwner->id,
+            'submitted_by' => $shopOwner->id,
+            'submitted_at' => now(),
+            'reviewed_by' => $shopOwner->id,
+            'reviewed_at' => now(),
+        ]);
+        $firstEntry->lines()->create([
+            'shop_accounting_category_id' => $incomeCategory->id,
+            'type' => 'income',
+            'cash_effect' => true,
+            'amount' => 51555,
+            'description' => 'Cash sales morning',
+            'review_status' => 'approved',
+        ]);
+        $firstEntry->lines()->create([
+            'shop_accounting_category_id' => $expenseCategory->id,
+            'type' => 'expense',
+            'cash_effect' => true,
+            'amount' => 9500,
+            'description' => 'Manual cash purchase',
+            'review_status' => 'approved',
+        ]);
+        $secondEntry = ShopAccountingEntry::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-07-18',
+            'status' => 'approved',
+            'opening_cash' => 0,
+            'closing_cash' => -21889,
+            'created_by' => $shopOwner->id,
+            'submitted_by' => $shopOwner->id,
+            'submitted_at' => now(),
+            'reviewed_by' => $shopOwner->id,
+            'reviewed_at' => now(),
+        ]);
+        $secondEntry->lines()->create([
+            'shop_accounting_category_id' => $incomeCategory->id,
+            'type' => 'income',
+            'cash_effect' => true,
+            'amount' => 11111,
+            'description' => 'Cash sales evening',
+            'review_status' => 'approved',
+        ]);
+        ShopCredit::query()->create([
+            'shop_id' => $shop->id,
+            'type' => 'in',
+            'is_petty_cash' => true,
+            'amount' => 5000,
+            'description' => 'Shop working cash given to shop',
+            'created_by' => $shopOwner->id,
+            'business_date' => '2026-07-18',
+            'status' => 'approved',
+        ]);
+        ShopCredit::query()->create([
+            'shop_id' => $shop->id,
+            'type' => 'out',
+            'is_petty_cash' => true,
+            'amount' => 30000,
+            'description' => 'Cash paid to company',
+            'created_by' => $shopOwner->id,
+            'business_date' => '2026-07-18',
+            'status' => 'approved',
+        ]);
+        ShopCredit::query()->create([
+            'shop_id' => $shop->id,
+            'type' => 'out',
+            'is_petty_cash' => true,
+            'amount' => 8000,
+            'description' => 'Cash paid to company',
+            'created_by' => $shopOwner->id,
+            'business_date' => '2026-07-18',
+            'status' => 'approved',
+        ]);
+
+        $this->assertSame(20166.00, app(OwnedShopAccountingService::class)->closingBalanceForDate($shop, Carbon::parse('2026-07-18')));
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.accounting.index', [
+                'tab' => 'cashbook',
+                'ledger_status' => 'approved',
+                'date' => '2026-07-18',
+            ]))
+            ->assertOk()
+            ->assertSeeText('Cash Given To Shop')
+            ->assertSeeText('Payment To Company')
+            ->assertSeeText('Rs. 62,666.00')
+            ->assertSeeText('Rs. 5,000.00')
+            ->assertSeeText('Rs. 38,000.00')
+            ->assertSeeText('Rs. 9,500.00')
+            ->assertSeeText('Rs. 20,166.00')
+            ->assertDontSeeText('Rs. -21,889.00');
+    }
+
+    public function test_shop_owner_accounting_history_shows_all_money_transactions_and_combined_report(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $shop = $this->ownedShop(['code' => 'SHOP_HISTORY']);
+        $shopOwner = $this->shopOwner($shop);
+        $order = ShopOrder::query()->create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => '2026-07-18',
+            'created_by' => $shopOwner->id,
+        ]);
+        $invoice = ShopInvoice::query()->create([
+            'shop_id' => $shop->id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'SINV-HISTORY-001',
+            'business_date' => '2026-07-18',
+            'status' => 'generated',
+            'delivery_status' => 'received_full',
+            'payment_status' => 'partially_paid',
+            'subtotal' => 3000,
+            'final_total' => 3000,
+            'paid_amount' => 1200,
+            'balance_amount' => 1800,
+            'generated_by' => $shopOwner->id,
+        ]);
+        ShopInvoicePaymentRequest::query()->create([
+            'shop_invoice_id' => $invoice->id,
+            'shop_id' => $shop->id,
+            'requested_by' => $shopOwner->id,
+            'request_type' => 'custom',
+            'requested_amount' => 1200,
+            'approved_amount' => 1200,
+            'status' => 'approved',
+            'reviewed_by' => $shopOwner->id,
+            'reviewed_at' => '2026-07-18 10:00:00',
+        ]);
+        ShopCredit::query()->create([
+            'shop_id' => $shop->id,
+            'type' => 'in',
+            'is_petty_cash' => true,
+            'amount' => 500,
+            'description' => 'Working cash given to shop',
+            'created_by' => $shopOwner->id,
+            'business_date' => '2026-07-18',
+        ]);
+        $incomeCategory = ShopAccountingCategory::query()->create([
+            'type' => 'income',
+            'cash_effect' => true,
+            'purpose' => 'sales_cash',
+            'name' => 'Sales Income - Cash',
+            'is_active' => true,
+        ]);
+        $expenseCategory = ShopAccountingCategory::query()->create([
+            'type' => 'expense',
+            'cash_effect' => true,
+            'name' => 'Cash Purchase',
+            'is_active' => true,
+        ]);
+        $entry = ShopAccountingEntry::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-07-18',
+            'status' => 'approved',
+            'opening_cash' => 0,
+            'closing_cash' => 1250,
+            'created_by' => $shopOwner->id,
+            'submitted_by' => $shopOwner->id,
+            'submitted_at' => now(),
+            'reviewed_by' => $shopOwner->id,
+            'reviewed_at' => now(),
+        ]);
+        $entry->lines()->create([
+            'shop_accounting_category_id' => $incomeCategory->id,
+            'type' => 'income',
+            'cash_effect' => true,
+            'amount' => 1000,
+            'description' => 'Cash sales',
+            'review_status' => 'approved',
+        ]);
+        $entry->lines()->create([
+            'shop_accounting_category_id' => $expenseCategory->id,
+            'type' => 'expense',
+            'cash_effect' => true,
+            'amount' => 250,
+            'description' => 'Vegetable cash purchase',
+            'review_status' => 'approved',
+        ]);
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.accounting.history', ['tab' => 'bills']))
+            ->assertOk()
+            ->assertSeeText('Shop Money Report')
+            ->assertSeeText('Cash bills and cashbook together')
+            ->assertSeeText('Money in and out to shop')
+            ->assertSeeText('Cash Bills')
+            ->assertSeeText('Rs. 3,000.00')
+            ->assertSeeText('Bill Paid')
+            ->assertSeeText('Rs. 1,200.00')
+            ->assertSeeText('Shop Cash In')
+            ->assertSeeText('Rs. 500.00')
+            ->assertSeeText('Cashbook In')
+            ->assertSeeText('Rs. 1,000.00')
+            ->assertSeeText('Cashbook Out')
+            ->assertSeeText('Rs. 250.00')
+            ->assertSeeText('Cash Bill')
+            ->assertSeeText('SINV-HISTORY-001')
+            ->assertSeeText('Bill Payment')
+            ->assertSeeText('Shop Cash Credit')
+            ->assertSeeText('Sales Income - Cash')
+            ->assertSeeText('Cash Purchase');
+    }
+
+    public function test_shop_owner_daily_report_shows_daily_opening_closing_and_net_difference(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-07-18 09:00:00'));
+        $this->seed(RolePermissionSeeder::class);
+
+        $shop = $this->ownedShop(['code' => 'SHOP_DAILY_REPORT']);
+        $shopOwner = $this->shopOwner($shop);
+        ShopAccountingEntry::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-07-13',
+            'status' => 'approved',
+            'opening_cash' => 1000,
+            'closing_cash' => 1450,
+            'created_by' => $shopOwner->id,
+            'submitted_by' => $shopOwner->id,
+            'submitted_at' => now(),
+            'reviewed_by' => $shopOwner->id,
+            'reviewed_at' => now(),
+        ]);
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.accounting.daily-report', ['month' => '2026-07', 'daily_page' => 2]))
+            ->assertOk()
+            ->assertSeeText('Daily Report')
+            ->assertSeeText('Today')
+            ->assertSeeText('13 Jul 2026')
+            ->assertSeeText('13')
+            ->assertSeeText('Opening Balance')
+            ->assertSeeText('Closing Balance')
+            ->assertSeeText('Net Difference')
+            ->assertSeeText('Rs. 1,000.00')
+            ->assertSeeText('Rs. 1,450.00')
+            ->assertSeeText('+ Rs. 450.00');
+    }
+
+    public function test_cashbook_and_daily_report_are_only_visible_and_accessible_for_owned_shops(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $regularShop = Shop::factory()->create([
+            'accounting_enabled' => false,
+            'accounting_mode' => 'regular',
+        ]);
+        $regularShopOwner = User::factory()->create(['shop_id' => $regularShop->id]);
+        $regularShopOwner->assignRole('shop');
+
+        $this
+            ->actingAs($regularShopOwner)
+            ->get(route('shop-owner.accounting.index', ['tab' => 'bills']))
+            ->assertOk()
+            ->assertSeeText('Bills')
+            ->assertDontSeeText('Cashbook')
+            ->assertDontSeeText('Daily Report');
+
+        $this
+            ->actingAs($regularShopOwner)
+            ->get(route('shop-owner.accounting.index', ['tab' => 'cashbook']))
+            ->assertNotFound();
+
+        $this
+            ->actingAs($regularShopOwner)
+            ->get(route('shop-owner.accounting.daily-report'))
+            ->assertNotFound();
+
+        $ownedShop = $this->ownedShop(['code' => 'SHOP_OWNED_NAV']);
+        $ownedShopOwner = $this->shopOwner($ownedShop);
+
+        $this
+            ->actingAs($ownedShopOwner)
+            ->get(route('shop-owner.accounting.index', ['tab' => 'bills']))
+            ->assertOk()
+            ->assertSeeText('Cashbook')
+            ->assertSeeText('Daily Report');
+    }
+
+    public function test_shop_owner_can_add_additional_entry_after_day_is_approved(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $shop = $this->ownedShop(['code' => 'SHOP_APPROVED_EXTRA']);
+        $shopOwner = $this->shopOwner($shop);
+        $incomeCategory = ShopAccountingCategory::query()->create([
+            'type' => 'income',
+            'cash_effect' => true,
+            'name' => 'Sales income',
+            'is_active' => true,
+        ]);
+        $expenseCategory = ShopAccountingCategory::query()->create([
+            'type' => 'expense',
+            'cash_effect' => true,
+            'name' => 'Cash Purchase',
+            'is_active' => true,
+        ]);
+        $approvedEntry = ShopAccountingEntry::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-07-17',
+            'status' => 'approved',
+            'opening_cash' => 0,
+            'closing_cash' => 1200,
+            'created_by' => $shopOwner->id,
+            'submitted_by' => $shopOwner->id,
+            'submitted_at' => now(),
+            'reviewed_by' => $shopOwner->id,
+            'reviewed_at' => now(),
+        ]);
+        $approvedEntry->lines()->create([
+            'shop_accounting_category_id' => $incomeCategory->id,
+            'type' => 'income',
+            'cash_effect' => true,
+            'amount' => 1200,
+            'description' => 'Approved sales',
+            'review_status' => 'approved',
+        ]);
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.accounting.index', [
+                'tab' => 'cashbook',
+                'ledger_status' => 'approved',
+                'date' => '2026-07-17',
+            ]))
+            ->assertOk()
+            ->assertSeeText('Add New Entry')
+            ->assertSeeText('Add additional income or expense')
+            ->assertSeeText('Entry Type')
+            ->assertSeeText('Income')
+            ->assertSeeText('Expense');
+
+        $this
+            ->actingAs($shopOwner)
+            ->post(route('shop-owner.accounting.entries.store'), [
+                'business_date' => '2026-07-17',
+                'submission_action' => 'submit',
+                'create_adjustment' => '1',
+                'notes' => 'Missed cash purchase after approval',
+                'lines' => [
+                    [
+                        'shop_accounting_category_id' => $expenseCategory->id,
+                        'amount' => 200,
+                        'description' => 'Extra cash purchase',
+                    ],
+                ],
+            ])
+            ->assertRedirect(route('shop-owner.accounting.index', [
+                'tab' => 'cashbook',
+                'ledger_status' => 'submitted',
+                'date' => '2026-07-17',
+            ]))
+            ->assertSessionHas('success');
+
+        $this->assertSame('approved', $approvedEntry->fresh()->status);
+        $this->assertSame(2, ShopAccountingEntry::query()->where('shop_id', $shop->id)->count());
+
+        $additionalEntry = ShopAccountingEntry::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', '2026-07-17')
+            ->where('status', 'submitted')
+            ->firstOrFail();
+
+        $this->assertSame('submitted', $additionalEntry->status);
+        $this->assertSame('Extra cash purchase', $additionalEntry->lines()->first()?->description);
     }
 
     /**
@@ -526,6 +1805,51 @@ class ShopStaffMoneyFlowTest extends TestCase
         ]);
 
         return $user;
+    }
+
+    private function regularShopInvoiceWithOneLine(Shop $shop, User $shopOwner, Product $product, string $invoiceNumber, string $businessDate, float $amount): ShopInvoice
+    {
+        $order = ShopOrder::query()->create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'delivery_status' => 'delivered',
+            'payment_status' => 'unpaid',
+            'business_date' => $businessDate,
+            'created_by' => $shopOwner->id,
+            'is_delivered' => true,
+        ]);
+
+        $invoice = ShopInvoice::query()->create([
+            'shop_id' => $shop->id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => $invoiceNumber,
+            'business_date' => $businessDate,
+            'status' => 'payment_pending',
+            'delivery_status' => 'received_full',
+            'payment_status' => 'unpaid',
+            'subtotal' => $amount,
+            'shortage_total' => 0,
+            'discount_total' => 0,
+            'final_total' => $amount,
+            'paid_amount' => 0,
+            'balance_amount' => $amount,
+            'generated_by' => $shopOwner->id,
+        ]);
+
+        $invoice->items()->create([
+            'product_id' => $product->id,
+            'product_name' => $product->name,
+            'unit' => $product->unit,
+            'approved_qty' => 1,
+            'delivered_qty' => 1,
+            'shortage_qty' => 0,
+            'unit_price' => $amount,
+            'line_subtotal' => $amount,
+            'shortage_amount' => 0,
+            'final_line_total' => $amount,
+        ]);
+
+        return $invoice;
     }
 
     /**

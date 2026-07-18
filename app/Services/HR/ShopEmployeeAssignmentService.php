@@ -67,4 +67,16 @@ class ShopEmployeeAssignmentService
             })
             ->exists();
     }
+
+    public function hasWorkedAtShopOnOrBefore(Employee $employee, Shop $shop, Carbon $date): bool
+    {
+        return ShopEmployeeAssignment::query()
+            ->where('employee_id', $employee->id)
+            ->where('shop_id', $shop->id)
+            ->where(function ($query) use ($date): void {
+                $query->whereNull('effective_from')
+                    ->orWhereDate('effective_from', '<=', $date->toDateString());
+            })
+            ->exists();
+    }
 }

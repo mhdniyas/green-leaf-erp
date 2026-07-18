@@ -18,7 +18,7 @@ class DatabaseSeeder extends Seeder
             ProductSeeder::class,
             WarehouseSeeder::class,
             ShopAccountingCategorySeeder::class,
-            WarehouseWorkflowSeeder::class,
+            EssentialUserSeeder::class,
             AdminOwnPurchasePurchaserSeeder::class,
         ]);
     }

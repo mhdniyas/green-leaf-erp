@@ -27,6 +27,7 @@
     $canViewStaffAttendance = \App\Support\StaffAccess::canViewAttendance($currentUser);
     $canViewStaffLeaves = \App\Support\StaffAccess::canViewLeaves($currentUser);
     $canViewStaffPayroll = \App\Support\StaffAccess::canViewPayroll($currentUser);
+    $canViewStaffAdvancePayments = \App\Support\StaffAccess::canViewAdvancePayments($currentUser);
     $canViewStaffCategories = \App\Support\StaffAccess::canViewCategories($currentUser);
     $canAccessAdminOverview = $currentUser &&
         ($currentUser->hasRole('admin') ||
@@ -50,6 +51,13 @@
             'href' => route('admin.staff.employees.index', ['date' => $navDate]),
             'active' => request()->routeIs('admin.staff.employees.index') || request()->routeIs('admin.staff.show'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a8.97 8.97 0 0 0 3.74-1.04 4.5 4.5 0 0 0-7.48-2.23m3.74 3.27v.28A10.94 10.94 0 0 1 12 21c-2.33 0-4.5-.73-6.28-1.98v-.29m12.56 0a5.97 5.97 0 0 0-12.56 0M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 2.25a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg>',
+        ];
+
+        $sidebarItems[] = [
+            'label' => 'Assign Employees',
+            'href' => route('admin.staff.assignments.index', ['date' => $navDate]),
+            'active' => request()->routeIs('admin.staff.assignments.*'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.25a8.25 8.25 0 0 1 15 0m-4.5-7.5h6m-3-3v6" /></svg>',
         ];
     }
 
@@ -87,6 +95,15 @@
         ];
     }
 
+    if ($canViewStaffAdvancePayments) {
+        $sidebarItems[] = [
+            'label' => 'Advance Payments',
+            'href' => route('admin.staff.advance-payments.index', ['payroll_month' => today()->format('Y-m')]),
+            'active' => request()->routeIs('admin.staff.advance-payments.*'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v18m4.5-13.5h-6.75a2.25 2.25 0 0 0 0 4.5h4.5a2.25 2.25 0 0 1 0 4.5H6.75M18 6.75 20.25 4.5M18 17.25l2.25 2.25" /></svg>',
+        ];
+    }
+
     if ($canViewStaffCategories) {
         $sidebarItems[] = [
             'label' => 'Categories',
@@ -104,6 +121,7 @@
 
     if ($canViewStaffEmployees) {
         $mobileItems[] = ['label' => 'Staff', 'href' => route('admin.staff.employees.index', ['date' => $navDate]), 'active' => request()->routeIs('admin.staff.employees.index') || request()->routeIs('admin.staff.show')];
+        $mobileItems[] = ['label' => 'Assign', 'href' => route('admin.staff.assignments.index', ['date' => $navDate]), 'active' => request()->routeIs('admin.staff.assignments.*')];
     }
 
     if ($canViewStaffAttendance) {
@@ -119,11 +137,15 @@
         $mobileItems[] = ['label' => 'Pay', 'href' => route('admin.staff.payments.index', ['date' => $navDate]), 'active' => request()->routeIs('admin.staff.payments.*')];
     }
 
+    if ($canViewStaffAdvancePayments) {
+        $mobileItems[] = ['label' => 'Advance', 'href' => route('admin.staff.advance-payments.index', ['payroll_month' => today()->format('Y-m')]), 'active' => request()->routeIs('admin.staff.advance-payments.*')];
+    }
+
     $mobileItems = array_slice($mobileItems, 0, 5);
 @endphp
 
-<div class="min-h-screen lg:flex">
-    <aside id="staff-sidebar" class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-slate-200 bg-white transition-[width,transform] duration-300 lg:translate-x-0 lg:w-72">
+<div id="staff-layout-shell" class="min-h-screen lg:flex" data-sidebar-state="expanded">
+    <aside id="staff-sidebar" class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-slate-200 bg-slate-100 transition-[width,transform] duration-300 lg:translate-x-0 lg:w-72">
         <div class="border-b border-slate-200 px-5 py-5">
             <div class="flex items-center gap-3">
                 <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-500 text-white shadow-sm">
@@ -131,7 +153,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a8.97 8.97 0 0 0 3.74-1.04 4.5 4.5 0 0 0-7.48-2.23m3.74 3.27v.28A10.94 10.94 0 0 1 12 21c-2.33 0-4.5-.73-6.28-1.98v-.29m12.56 0a5.97 5.97 0 0 0-12.56 0M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 2.25a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
                     </svg>
                 </div>
-                <div class="min-w-0" data-sidebar-label>
+                <div class="min-w-0" data-staff-sidebar-label>
                     <p class="truncate text-base font-black text-slate-950">Staff Management</p>
                     <p class="mt-1 text-[11px] font-black uppercase tracking-[0.2em] text-cyan-700">Admin Desk</p>
                 </div>
@@ -143,15 +165,15 @@
             </div>
 
             @if ($canAccessAdminOverview)
-                <a href="{{ route('admin.overview') }}" class="mt-5 flex items-center justify-between rounded-[1.35rem] bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800" data-sidebar-link>
-                    <span data-sidebar-label>Admin Panel</span>
+                <a href="{{ route('admin.overview') }}" class="mt-5 flex items-center justify-between rounded-[1.35rem] bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800">
+                    <span data-staff-sidebar-label>Admin Panel</span>
                     <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5H19.5V10.5M10.5 13.5 19.5 4.5M18 13.5V19.5H4.5V6H10.5" />
                     </svg>
                 </a>
             @endif
 
-            <div class="mt-4 rounded-[1.35rem] border border-slate-200 bg-slate-50 px-4 py-3" data-sidebar-full-only>
+            <div class="mt-4 rounded-[1.35rem] border border-slate-200 bg-slate-50 px-4 py-3" data-staff-sidebar-label>
                 <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Signed In</p>
                 <p class="mt-2 truncate text-sm font-black text-slate-950">{{ $currentUser?->name }}</p>
                 <p class="mt-1 truncate text-xs font-semibold text-slate-500">{{ $currentUser?->email }}</p>
@@ -160,21 +182,18 @@
 
         <nav class="flex-1 space-y-2 overflow-y-auto px-4 py-5">
             @foreach($sidebarItems as $item)
-                <a href="{{ $item['href'] }}" class="flex items-center gap-3 rounded-[1.2rem] px-4 py-3 text-sm font-black transition {{ $item['active'] ? 'bg-cyan-50 text-cyan-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}" data-sidebar-link>
-                    <span class="{{ $item['active'] ? 'text-cyan-700' : 'text-slate-400' }}">{!! $item['icon'] !!}</span>
-                    <span data-sidebar-label>{{ $item['label'] }}</span>
-                </a>
+                <x-sidebar-link :item="$item" label-attribute="data-staff-sidebar-label" />
             @endforeach
         </nav>
 
         <div class="border-t border-slate-200 px-4 py-4">
             <form method="POST" action="{{ route('logout') }}">
                 @csrf
-                <button type="submit" class="flex w-full items-center justify-center gap-3 rounded-[1.2rem] border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-100" data-sidebar-link>
+                <button type="submit" class="flex w-full items-center justify-center gap-3 rounded-[1.2rem] border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-100">
                     <svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6A2.25 2.25 0 0 0 5.25 5.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
                     </svg>
-                    <span data-sidebar-label>Sign Out</span>
+                    <span data-staff-sidebar-label>Sign Out</span>
                 </button>
             </form>
         </div>
@@ -252,81 +271,17 @@
 
 @include('components.app-dialogs')
 
-<script>
-    (() => {
-        const sidebar = document.getElementById('staff-sidebar');
-        const overlay = document.getElementById('staff-sidebar-overlay');
-        const openButton = document.getElementById('staff-sidebar-open');
-        const closeButton = document.getElementById('staff-sidebar-close');
-        const desktopToggleButton = document.getElementById('staff-sidebar-desktop-toggle');
-        const desktopToggleIcon = document.getElementById('staff-sidebar-desktop-toggle-icon');
-        const contentShell = document.getElementById('staff-content-shell');
-        const labelTargets = document.querySelectorAll('[data-sidebar-label]');
-        const fullOnlyTargets = document.querySelectorAll('[data-sidebar-full-only]');
-        const linkTargets = document.querySelectorAll('[data-sidebar-link]');
-        const desktopQuery = window.matchMedia('(min-width: 1024px)');
-
-        if (!sidebar || !overlay || !openButton || !closeButton || !desktopToggleButton || !desktopToggleIcon || !contentShell) {
-            return;
-        }
-
-        const collapsedStorageKey = 'staff_sidebar_collapsed';
-
-        const openSidebar = () => {
-            sidebar.classList.remove('-translate-x-full');
-            overlay.classList.remove('hidden');
-        };
-
-        const closeSidebar = () => {
-            sidebar.classList.add('-translate-x-full');
-            overlay.classList.add('hidden');
-        };
-
-        const setDesktopSidebarState = (collapsed) => {
-            const isDesktop = desktopQuery.matches;
-            const shouldCollapse = isDesktop && collapsed;
-
-            sidebar.classList.toggle('lg:w-24', shouldCollapse);
-            sidebar.classList.toggle('lg:w-72', !shouldCollapse);
-            contentShell.classList.toggle('lg:pl-24', shouldCollapse);
-            contentShell.classList.toggle('lg:pl-72', !shouldCollapse);
-
-            labelTargets.forEach((element) => {
-                element.classList.toggle('hidden', shouldCollapse);
-            });
-
-            fullOnlyTargets.forEach((element) => {
-                element.classList.toggle('hidden', shouldCollapse);
-            });
-
-            linkTargets.forEach((element) => {
-                element.classList.toggle('justify-center', shouldCollapse);
-            });
-
-            desktopToggleButton.setAttribute('title', shouldCollapse ? 'Expand Sidebar' : 'Collapse Sidebar');
-            desktopToggleIcon.innerHTML = shouldCollapse
-                ? '<path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5 15.75 12l-7.5 7.5" />'
-                : '<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />';
-        };
-
-        const applyDesktopPreference = () => {
-            setDesktopSidebarState(localStorage.getItem(collapsedStorageKey) === '1');
-        };
-
-        openButton.addEventListener('click', openSidebar);
-        closeButton.addEventListener('click', closeSidebar);
-        overlay.addEventListener('click', closeSidebar);
-        desktopToggleButton.addEventListener('click', () => {
-            const nextState = localStorage.getItem(collapsedStorageKey) !== '1';
-
-            localStorage.setItem(collapsedStorageKey, nextState ? '1' : '0');
-            setDesktopSidebarState(nextState);
-        });
-        desktopQuery.addEventListener('change', applyDesktopPreference);
-
-        applyDesktopPreference();
-    })();
-</script>
+<x-sidebar-state-script
+    storage-key="staff-sidebar-state"
+    shell-id="staff-layout-shell"
+    sidebar-id="staff-sidebar"
+    main-id="staff-content-shell"
+    overlay-id="staff-sidebar-overlay"
+    open-button-id="staff-sidebar-open"
+    close-button-id="staff-sidebar-close"
+    toggle-button-id="staff-sidebar-desktop-toggle"
+    label-selector="[data-staff-sidebar-label]"
+/>
 @stack('scripts')
 </body>
 </html>

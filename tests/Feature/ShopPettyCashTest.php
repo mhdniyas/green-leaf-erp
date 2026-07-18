@@ -12,14 +12,42 @@ use App\Models\ShopPettyCashExpense;
 use App\Models\User;
 use App\Services\Finance\AdminFinancePillarService;
 use App\Services\Finance\OwnedShopAccountingService;
+use Database\Seeders\RolePermissionSeeder;
+use Database\Seeders\ShopAccountingCategorySeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Carbon;
-use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class ShopPettyCashTest extends TestCase
 {
     use LazilyRefreshDatabase;
+
+    public function test_default_daily_receipt_categories_include_shop_cash_and_staff_purposes(): void
+    {
+        $this->seed(ShopAccountingCategorySeeder::class);
+
+        $this->assertDatabaseHas('shop_accounting_categories', [
+            'shop_id' => null,
+            'type' => 'income',
+            'name' => 'Shop Cash Credit',
+            'cash_effect' => true,
+            'purpose' => 'shop_cash_credit',
+        ]);
+        $this->assertDatabaseHas('shop_accounting_categories', [
+            'shop_id' => null,
+            'type' => 'expense',
+            'name' => 'Staff Salary',
+            'cash_effect' => true,
+            'purpose' => 'staff_salary',
+        ]);
+        $this->assertDatabaseHas('shop_accounting_categories', [
+            'shop_id' => null,
+            'type' => 'expense',
+            'name' => 'Staff Salary Advance',
+            'cash_effect' => true,
+            'purpose' => 'staff_advance',
+        ]);
+    }
 
     public function test_manual_petty_cash_expense_can_update_previous_days(): void
     {
@@ -73,7 +101,7 @@ class ShopPettyCashTest extends TestCase
         $shopUser = User::factory()->create();
         $service = app(OwnedShopAccountingService::class);
 
-        ShopCredit::factory()->create([
+        $credit = ShopCredit::factory()->create([
             'shop_id' => $shop->id,
             'type' => 'in',
             'is_petty_cash' => true,
@@ -81,7 +109,7 @@ class ShopPettyCashTest extends TestCase
             'created_by' => $admin->id,
             'business_date' => '2026-07-15',
         ]);
-        ShopCredit::factory()->create([
+        $credit = ShopCredit::factory()->create([
             'shop_id' => $shop->id,
             'type' => 'in',
             'is_petty_cash' => false,
@@ -138,15 +166,24 @@ class ShopPettyCashTest extends TestCase
         ]);
         $admin = User::factory()->create(['name' => 'Shabeer']);
 
-        ShopCredit::factory()->create([
+        $credit = ShopCredit::factory()->create([
             'shop_id' => $shop->id,
             'type' => 'in',
             'is_petty_cash' => true,
             'amount' => 1000,
-            'description' => 'Petty cash sent to shop',
+            'description' => 'Shop cash sent to shop',
             'created_by' => $admin->id,
             'business_date' => '2026-07-15',
         ]);
+
+        $this->assertSame('Given to Shop', $credit->accountingLabel());
+        $this->assertSame(-1000.00, $credit->signedAccountingAmount());
+        $this->assertSame('Shop Cash Credit', $credit->shopCashLabel());
+        $this->assertSame(1000.00, $credit->shopSignedAmount());
+        $this->assertSame(
+            1000.00,
+            app(OwnedShopAccountingService::class)->previousClosingBalance($shop, Carbon::parse('2026-07-16')),
+        );
 
         $report = app(AdminFinancePillarService::class)->cashFlowReport(Carbon::parse('2026-07-15'));
         $pettyCashRows = $report['journal_rows']->where('source', 'owned_shop_petty_cash')->values();
@@ -158,9 +195,9 @@ class ShopPettyCashTest extends TestCase
         $this->assertSame('2026-07-15', $pettyCashRows->first()['date']);
         $this->assertSame(1000.00, $pettyCashRows->first()['amount']);
         $this->assertSame('OUT', $pettyCashRows->first()['direction']);
-        $this->assertSame('Petty Cash Credit - Ashirwad', $pettyCashRows->first()['journal']);
-        $this->assertSame('Petty Cash Credit', $pettyCashRows->first()['category']);
-        $this->assertSame('Petty cash sent to shop', $pettyCashRows->first()['remarks']);
+        $this->assertSame('Shop Cash Credit - Ashirwad', $pettyCashRows->first()['journal']);
+        $this->assertSame('Shop Cash Credit', $pettyCashRows->first()['category']);
+        $this->assertSame('Shop cash sent to shop', $pettyCashRows->first()['remarks']);
 
         $nextMonthReport = app(AdminFinancePillarService::class)->cashFlowReport(Carbon::parse('2026-08-01'));
 
@@ -193,29 +230,44 @@ class ShopPettyCashTest extends TestCase
         $this->assertSame(550.00, $rows->firstWhere('date', '2026-07-15')['expense']);
     }
 
-    public function test_shop_owner_cannot_update_future_petty_cash_date(): void
+    public function test_shop_owner_cannot_submit_future_daily_shop_receipt(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-07-15 12:00:00'));
 
-        Role::findOrCreate('shop');
+        $this->seed(RolePermissionSeeder::class);
         $shop = Shop::factory()->create([
             'accounting_enabled' => true,
             'accounting_mode' => 'owned',
         ]);
         $user = User::factory()->create(['shop_id' => $shop->id]);
         $user->assignRole('shop');
+        $category = ShopAccountingCategory::query()->create([
+            'type' => 'income',
+            'cash_effect' => true,
+            'name' => 'Cash Sales',
+            'is_active' => true,
+        ]);
 
         $response = $this
             ->actingAs($user)
             ->from(route('shop-owner.accounting.index', ['tab' => 'cashbook']))
-            ->post(route('shop-owner.accounting.petty-cash-expenses.store'), [
+            ->post(route('shop-owner.accounting.entries.store'), [
                 'business_date' => '2026-07-16',
-                'amount' => 500,
+                'submission_action' => 'submit',
+                'opening_cash' => 0,
+                'closing_cash' => 500,
+                'lines' => [
+                    [
+                        'shop_accounting_category_id' => $category->id,
+                        'amount' => 500,
+                        'description' => 'Future cash sale',
+                    ],
+                ],
             ]);
 
         $response->assertRedirect(route('shop-owner.accounting.index', ['tab' => 'cashbook']));
         $response->assertSessionHasErrors('business_date');
-        $this->assertDatabaseMissing('shop_petty_cash_expenses', [
+        $this->assertDatabaseMissing('shop_accounting_entries', [
             'shop_id' => $shop->id,
             'business_date' => '2026-07-16',
         ]);

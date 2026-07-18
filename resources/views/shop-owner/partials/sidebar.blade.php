@@ -3,78 +3,107 @@
     $authorizedShops = $activeShopResolver->authorizedShops(auth()->user());
     $activeShop = $authorizedShops->isNotEmpty() ? $activeShopResolver->resolve(request()) : auth()->user()?->shop;
     $hasOwnedShopStaffAccess = auth()->user()?->ownedShopAssignments()->exists() ?? false;
+    $hasOwnedAccountingAccess = $activeShop?->isOwnedAccountingEnabled() ?? false;
+    $accountingChildren = [
+        [
+            'label' => 'Bills',
+            'href' => route('shop-owner.accounting.index', ['tab' => 'bills']),
+            'active' => request()->routeIs('shop-owner.accounting.index') && request()->query('tab', 'bills') === 'bills',
+        ],
+    ];
+
+    if ($hasOwnedAccountingAccess) {
+        $accountingChildren[] = [
+            'label' => 'Cashbook',
+            'href' => route('shop-owner.accounting.index', ['tab' => 'cashbook']),
+            'active' => request()->routeIs('shop-owner.accounting.index') && request()->query('tab', 'bills') === 'cashbook',
+        ];
+        $accountingChildren[] = [
+            'label' => 'Daily Report',
+            'href' => route('shop-owner.accounting.daily-report'),
+            'active' => request()->routeIs('shop-owner.accounting.daily-report'),
+        ];
+    }
+
+    $accountingChildren[] = [
+        'label' => 'History',
+        'href' => route('shop-owner.accounting.history', ['tab' => 'bills']),
+        'active' => request()->routeIs('shop-owner.accounting.history'),
+    ];
+    $financeChildren = [
+        [
+            'label' => 'Invoices',
+            'href' => route('shop-owner.finance.index', ['tab' => 'invoices']),
+            'active' => request()->routeIs('shop-owner.finance.index') && request()->query('tab', 'invoices') === 'invoices',
+        ],
+    ];
+
+    if ($hasOwnedAccountingAccess) {
+        $financeChildren[] = [
+            'label' => 'Payments',
+            'href' => route('shop-owner.finance.index', ['tab' => 'payments']),
+            'active' => request()->routeIs('shop-owner.finance.index') && request()->query('tab') === 'payments',
+        ];
+    }
+
     $shopOwnerNavItems = [
-        ['label' => 'Dashboard', 'route' => 'shop-owner.dashboard'],
-        ['label' => 'Cart', 'route' => 'shop-owner.orders.index'],
-        ['label' => 'Deliveries', 'route' => 'shop-owner.deliveries.index'],
-        ['label' => 'Accounting', 'route' => 'shop-owner.accounting.index'],
-        ['label' => 'Finance', 'route' => 'shop-owner.finance.index'],
-        ['label' => 'Approval History', 'route' => 'shop-owner.orders.history'],
+        [
+            'label' => 'Dashboard',
+            'route' => 'shop-owner.dashboard',
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75h7.5v7.5h-7.5v-7.5Zm9 0h7.5v7.5h-7.5v-7.5Zm-9 9h7.5v7.5h-7.5v-7.5Zm9 3h7.5v4.5h-7.5v-4.5Z" /></svg>',
+        ],
+        [
+            'label' => 'Cart',
+            'route' => 'shop-owner.orders.index',
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272" /></svg>',
+        ],
+        [
+            'label' => 'Deliveries',
+            'route' => 'shop-owner.deliveries.index',
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h7.5m3 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h1.5V9.75a1.5 1.5 0 0 0-1.5-1.5h-3L14.25 5.25H5.25v13.5h0" /></svg>',
+        ],
+        [
+            'label' => 'Accounting',
+            'route' => 'shop-owner.accounting.index',
+            'href' => route('shop-owner.accounting.index', ['tab' => 'bills']),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m0 0c-2.21 0-4-1.343-4-3s1.79-3 4-3 4-1.343 4-3-1.79-3-4-3m0 12c2.21 0 4-1.343 4-3" /></svg>',
+            'children' => $accountingChildren,
+        ],
+        [
+            'label' => 'Finance',
+            'route' => 'shop-owner.finance.index',
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5m-18 3.75h16.5m-14.25 5.25h4.5m-6.75 2.25h16.5A2.25 2.25 0 0 0 22.5 17.25V6.75A2.25 2.25 0 0 0 20.25 4.5H3.75A2.25 2.25 0 0 0 1.5 6.75v10.5A2.25 2.25 0 0 0 3.75 19.5Z" /></svg>',
+            'children' => $financeChildren,
+        ],
+        [
+            'label' => 'Approval History',
+            'route' => 'shop-owner.orders.history',
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2m5-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>',
+        ],
     ];
 
     if ($hasOwnedShopStaffAccess) {
-        $shopOwnerNavItems[] = ['label' => 'Staff', 'route' => 'shop-owner.staff.index'];
+        $shopOwnerNavItems[] = [
+            'label' => 'Staff',
+            'route' => 'shop-owner.staff.index',
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a8.97 8.97 0 0 0 3.74-1.04 4.5 4.5 0 0 0-7.48-2.23m3.74 3.27v.28A10.94 10.94 0 0 1 12 21c-2.33 0-4.5-.73-6.28-1.98v-.29m12.56 0a5.97 5.97 0 0 0-12.56 0M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>',
+        ];
     }
 @endphp
 
-<aside class="hidden border-r border-slate-200 bg-white text-slate-900 shadow-sm lg:fixed lg:inset-y-0 lg:flex lg:w-72 lg:flex-col">
+<aside id="shop-owner-sidebar" class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-slate-200 bg-slate-100 text-slate-900 shadow-sm transition-transform duration-300 lg:translate-x-0">
     <div class="border-b border-slate-200 px-6 py-6">
-        <p class="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">Shop Owner Portal</p>
-        <h1 class="mt-2 text-xl font-black text-slate-950">{{ $activeShop?->name ?? 'Green Leaf Traders' }}</h1>
-        <p class="mt-1 text-sm font-semibold text-slate-500">Orders, deliveries, finance, and staff.</p>
-    </div>
-
-    <nav class="flex-1 space-y-2 px-4 py-6">
-        @foreach ($shopOwnerNavItems as $item)
-            <a
-                href="{{ route($item['route']) }}"
-                @class([
-                    'block rounded-2xl px-4 py-3 text-sm font-bold transition',
-                    'bg-emerald-50 text-emerald-800 shadow-sm' => request()->routeIs($item['route'])
-                        || ($item['route'] === 'shop-owner.orders.index' && request()->routeIs('shop-owner.orders.create', 'shop-owner.orders.show'))
-                        || ($item['route'] === 'shop-owner.accounting.index' && request()->routeIs('shop-owner.accounting.*')),
-                    'text-slate-600 hover:bg-slate-100 hover:text-slate-950' => ! (
-                        request()->routeIs($item['route'])
-                        || ($item['route'] === 'shop-owner.orders.index' && request()->routeIs('shop-owner.orders.create', 'shop-owner.orders.show'))
-                        || ($item['route'] === 'shop-owner.accounting.index' && request()->routeIs('shop-owner.accounting.*'))
-                    ),
-                ])
-            >
-                {{ $item['label'] }}
-            </a>
-        @endforeach
-    </nav>
-
-    <div class="border-t border-slate-200 px-4 py-4">
-        <form method="POST" action="{{ route('logout') }}">
-            @csrf
-            <button type="submit" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950">
-                Sign Out
-            </button>
-        </form>
-    </div>
-</aside>
-
-<div id="shop-owner-mobile-sidebar" class="fixed inset-0 z-50 hidden lg:hidden">
-    <button
-        type="button"
-        id="shop-owner-mobile-sidebar-overlay"
-        class="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
-        aria-label="Close shop owner sidebar"
-    ></button>
-
-    <aside class="relative flex h-full w-[18.5rem] max-w-[85vw] flex-col border-r border-slate-200 bg-white text-slate-900 shadow-[0_24px_80px_rgba(15,23,42,0.18)]">
-        <div class="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-5">
+        <div class="flex items-start justify-between gap-4">
             <div class="min-w-0">
-                <p class="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-700">Shop Owner Portal</p>
-                <h2 class="mt-2 truncate text-lg font-black text-slate-950">{{ $activeShop?->name ?? 'Green Leaf Traders' }}</h2>
-                <p class="mt-1 text-xs font-semibold text-slate-500">Orders, deliveries, finance, and staff.</p>
+                <p class="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">Shop Owner Portal</p>
+                <h1 class="mt-2 truncate text-xl font-black text-slate-950">{{ $activeShop?->name ?? 'Green Leaf Traders' }}</h1>
+                <p class="mt-1 text-sm font-semibold text-slate-500">Orders, deliveries, finance, and staff.</p>
             </div>
 
             <button
                 type="button"
                 id="shop-owner-mobile-sidebar-close"
-                class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 lg:hidden"
                 aria-label="Close shop owner sidebar"
             >
                 <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
@@ -82,35 +111,41 @@
                 </svg>
             </button>
         </div>
+    </div>
 
-        <nav class="flex-1 space-y-2 overflow-y-auto px-4 py-5">
-            @foreach ($shopOwnerNavItems as $item)
-                @php
-                    $isActive = request()->routeIs($item['route'])
-                        || ($item['route'] === 'shop-owner.orders.index' && request()->routeIs('shop-owner.orders.create', 'shop-owner.orders.show'))
-                        || ($item['route'] === 'shop-owner.accounting.index' && request()->routeIs('shop-owner.accounting.*'));
-                @endphp
+    <nav class="flex-1 space-y-2 overflow-y-auto px-4 py-6">
+        @foreach ($shopOwnerNavItems as $item)
+            @php
+                $isActive = request()->routeIs($item['route'])
+                    || ($item['route'] === 'shop-owner.orders.index' && request()->routeIs('shop-owner.orders.create', 'shop-owner.orders.show'))
+                    || ($item['route'] === 'shop-owner.accounting.index' && request()->routeIs('shop-owner.accounting.*'));
 
-                <a
-                    href="{{ route($item['route']) }}"
-                    @class([
-                        'block rounded-2xl px-4 py-3.5 text-sm font-black transition',
-                        'bg-emerald-50 text-emerald-800 shadow-sm' => $isActive,
-                        'text-slate-600 hover:bg-slate-100 hover:text-slate-950' => ! $isActive,
-                    ])
-                >
-                    {{ $item['label'] }}
-                </a>
-            @endforeach
-        </nav>
+                $sidebarItem = [
+                    'label' => $item['label'],
+                    'href' => $item['href'] ?? route($item['route']),
+                    'active' => $isActive,
+                    'icon' => $item['icon'],
+                    'children' => $item['children'] ?? [],
+                ];
+            @endphp
 
-        <div class="border-t border-slate-200 px-4 py-4">
-            <form method="POST" action="{{ route('logout') }}">
-                @csrf
-                <button type="submit" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-black text-slate-700 transition hover:bg-slate-100 hover:text-slate-950">
-                    Sign Out
-                </button>
-            </form>
-        </div>
-    </aside>
-</div>
+            <x-sidebar-link :item="$sidebarItem" />
+        @endforeach
+    </nav>
+
+    <div class="border-t border-slate-200 px-4 py-4">
+        <form method="POST" action="{{ route('logout') }}">
+            @csrf
+            <button type="submit" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-black text-slate-700 transition hover:bg-slate-50 hover:text-slate-950">
+                Sign Out
+            </button>
+        </form>
+    </div>
+</aside>
+
+<button
+    type="button"
+    id="shop-owner-mobile-sidebar-overlay"
+    class="fixed inset-0 z-40 hidden bg-slate-950/45 lg:hidden"
+    aria-label="Close shop owner sidebar"
+></button>

@@ -131,6 +131,10 @@ class PurchaseOrderController extends Controller
 
     public function updateItems(Request $request, PurchaseOrder $order): RedirectResponse
     {
+        if ($order->hasFinalLockedShopInvoices()) {
+            return redirect()->back()->with('error', 'This purchase order is linked to a finalized shop invoice. Create an adjustment instead of changing the original order.');
+        }
+
         Gate::authorize('updateItems', $order);
 
         if (in_array($order->status->value, ['received', 'closed'])) {

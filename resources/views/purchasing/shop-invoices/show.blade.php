@@ -77,14 +77,14 @@
         </section>
 
         @if (($invoice->delivery_status === 'awaiting_review' || $invoice->order?->delivery_status === 'pending_approval') && (auth()->user()->hasRole('purchase') || auth()->user()->hasRole('admin')))
-            <section class="rounded-3xl border border-amber-200 bg-white shadow-sm">
-                <div class="flex flex-col gap-3 border-b border-amber-100 bg-amber-50/70 px-5 py-5 lg:flex-row lg:items-start lg:justify-between">
+            <section class="overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-sm">
+                <div class="flex flex-col gap-3 border-b border-amber-100 bg-amber-50/70 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
-                        <p class="text-xs font-black uppercase tracking-[0.18em] text-amber-700">Delivery Review</p>
-                        <h2 class="mt-1 text-xl font-black text-slate-950">Admin Approval Required</h2>
-                        <p class="mt-2 text-sm text-slate-700">Review each line in table form, approve the final received quantity, or send the delivery back for correction.</p>
+                        <p class="text-[11px] font-black uppercase tracking-[0.16em] text-amber-700">Delivery Review</p>
+                        <h2 class="mt-1 text-lg font-black text-slate-950">Admin Approval Required</h2>
+                        <p class="mt-1 text-sm font-semibold text-slate-600">Confirm delivered quantity, add short item notes only where needed, then approve or request correction.</p>
                     </div>
-                    <span class="rounded-full bg-white px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-amber-700">
+                    <span class="w-fit rounded-full border border-amber-200 bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-amber-700">
                         Finance impact pending
                     </span>
                 </div>
@@ -96,15 +96,15 @@
 
                 <div class="overflow-x-auto">
                     <table class="min-w-full text-left text-sm">
-                        <thead class="border-b border-amber-100 bg-amber-50/40 text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
+                        <thead class="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
                             <tr>
-                                <th class="px-5 py-4">Product</th>
-                                <th class="px-4 py-4 text-right">Approved</th>
-                                <th class="px-4 py-4 text-right">Reported Received</th>
-                                <th class="px-4 py-4 text-right">Reported Short</th>
-                                <th class="px-4 py-4 text-right">Invoice Impact</th>
-                                <th class="px-4 py-4">Approved Delivered Qty</th>
-                                <th class="px-5 py-4">Manager Item Note</th>
+                                <th class="px-4 py-3">Product</th>
+                                <th class="px-3 py-3 text-right">Approved</th>
+                                <th class="px-3 py-3 text-right">Received</th>
+                                <th class="px-3 py-3 text-right">Short</th>
+                                <th class="px-3 py-3 text-right">Impact</th>
+                                <th class="px-3 py-3">Final Qty</th>
+                                <th class="px-4 py-3">Manager Note</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
@@ -115,19 +115,19 @@
                                     $approvedDeliveredQty = old("approved_delivered_qty.{$item->shop_order_item_id}", number_format($reportedDeliveredQty, 2, '.', ''));
                                     $reportedShortageAmount = round($reportedShortageQty * (float) $item->unit_price, 2);
                                 @endphp
-                                <tr class="align-top">
-                                    <td class="px-5 py-4">
-                                        <p class="font-black text-slate-950">{{ $item->product_name }}</p>
-                                        <p class="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{{ strtoupper($item->unit) }}</p>
+                                <tr class="align-middle hover:bg-slate-50/70">
+                                    <td class="px-4 py-2.5">
+                                        <p class="whitespace-nowrap font-black text-slate-950">{{ $item->product_name }}</p>
+                                        <p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">{{ strtoupper($item->unit) }}</p>
                                         @if ($item->orderItem?->notes)
-                                            <p class="mt-2 text-xs text-slate-500">Existing note: {{ $item->orderItem->notes }}</p>
+                                            <p class="mt-1 max-w-[14rem] truncate text-xs text-slate-500">Existing: {{ $item->orderItem->notes }}</p>
                                         @endif
                                     </td>
-                                    <td class="px-4 py-4 text-right font-semibold text-slate-900">{{ number_format((float) $item->approved_qty, 2) }}</td>
-                                    <td class="px-4 py-4 text-right font-semibold text-slate-900">{{ number_format($reportedDeliveredQty, 2) }}</td>
-                                    <td class="px-4 py-4 text-right font-black {{ $reportedShortageQty > 0 ? 'text-amber-700' : 'text-emerald-700' }}">{{ number_format($reportedShortageQty, 2) }}</td>
-                                    <td class="px-4 py-4 text-right font-black {{ $reportedShortageAmount > 0 ? 'text-rose-600' : 'text-slate-900' }}">Rs. {{ number_format($reportedShortageAmount, 2) }}</td>
-                                    <td class="px-4 py-4">
+                                    <td class="px-3 py-2.5 text-right font-semibold text-slate-900">{{ number_format((float) $item->approved_qty, 2) }}</td>
+                                    <td class="px-3 py-2.5 text-right font-semibold text-slate-900">{{ number_format($reportedDeliveredQty, 2) }}</td>
+                                    <td class="px-3 py-2.5 text-right font-black {{ $reportedShortageQty > 0 ? 'text-amber-700' : 'text-emerald-700' }}">{{ number_format($reportedShortageQty, 2) }}</td>
+                                    <td class="px-3 py-2.5 text-right font-black {{ $reportedShortageAmount > 0 ? 'text-rose-600' : 'text-slate-900' }}">Rs. {{ number_format($reportedShortageAmount, 2) }}</td>
+                                    <td class="px-3 py-2.5">
                                         <input
                                             form="delivery-discrepancy-approve-form"
                                             type="number"
@@ -136,20 +136,20 @@
                                             max="{{ number_format((float) $item->approved_qty, 2, '.', '') }}"
                                             name="approved_delivered_qty[{{ $item->shop_order_item_id }}]"
                                             value="{{ $approvedDeliveredQty }}"
-                                            class="w-full min-w-[140px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900"
+                                            class="h-9 w-24 rounded-xl border border-slate-200 bg-white px-3 text-right text-sm font-black text-slate-900 focus:border-amber-400 focus:outline-none"
                                         >
                                         @error("approved_delivered_qty.{$item->shop_order_item_id}")
                                             <span class="mt-1 block text-xs font-semibold text-rose-600">{{ $message }}</span>
                                         @enderror
                                     </td>
-                                    <td class="px-5 py-4">
-                                        <textarea
+                                    <td class="px-4 py-2.5">
+                                        <input
                                             form="delivery-discrepancy-approve-form"
                                             name="item_review_notes[{{ $item->shop_order_item_id }}]"
-                                            rows="3"
-                                            class="w-full min-w-[260px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                                            placeholder="Example: Reported shortage confirmed after recount."
-                                        >{{ old("item_review_notes.{$item->shop_order_item_id}") }}</textarea>
+                                            value="{{ old("item_review_notes.{$item->shop_order_item_id}") }}"
+                                            class="h-9 w-72 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 focus:border-amber-400 focus:outline-none"
+                                            placeholder="Short note if correction is needed"
+                                        >
                                         @error("item_review_notes.{$item->shop_order_item_id}")
                                             <span class="mt-1 block text-xs font-semibold text-rose-600">{{ $message }}</span>
                                         @enderror
@@ -160,22 +160,26 @@
                     </table>
                 </div>
 
-                <div class="space-y-4 border-t border-slate-100 px-5 py-5">
-                    <label class="block">
-                        <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Approval Note</span>
-                        <textarea form="delivery-discrepancy-approve-form" name="review_note" rows="4" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" placeholder="Optional note for approval">{{ old('review_note') }}</textarea>
-                    </label>
+                <div class="border-t border-slate-200 bg-slate-50/80 px-4 py-4">
+                    <div class="grid gap-4 lg:grid-cols-2">
+                        <div class="rounded-2xl border border-emerald-200 bg-white p-4">
+                            <label class="block">
+                                <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">Approval Note</span>
+                                <textarea form="delivery-discrepancy-approve-form" name="review_note" rows="2" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 focus:border-emerald-400 focus:outline-none" placeholder="Optional note for approval">{{ old('review_note') }}</textarea>
+                            </label>
+                            <button form="delivery-discrepancy-approve-form" type="submit" class="mt-3 inline-flex h-10 w-full items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-black text-white hover:bg-emerald-700 sm:w-auto">
+                                Approve Delivery Review
+                            </button>
+                        </div>
 
-                    <div class="flex flex-col gap-3 sm:flex-row">
-                        <button form="delivery-discrepancy-approve-form" type="submit" class="inline-flex h-11 items-center justify-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white hover:bg-emerald-700">
-                            Approve Delivery Review
-                        </button>
-
-                        <form method="POST" action="{{ route('requisitions.delivery.reject', $invoice->order?->order_number) }}" class="flex-1 space-y-3">
+                        <form method="POST" action="{{ route('requisitions.delivery.reject', $invoice->order?->order_number) }}" class="rounded-2xl border border-rose-200 bg-white p-4">
                             @csrf
                             <input type="hidden" name="invoice_number" value="{{ $invoice->invoice_number }}">
-                            <textarea name="review_note" rows="3" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" placeholder="Tell the shop owner what to correct">{{ old('review_note') }}</textarea>
-                            <button type="submit" class="inline-flex h-11 items-center justify-center rounded-2xl bg-rose-600 px-5 text-sm font-black text-white hover:bg-rose-700">
+                            <label class="block">
+                                <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.14em] text-rose-700">Correction Note</span>
+                                <textarea name="review_note" rows="2" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 focus:border-rose-400 focus:outline-none" placeholder="Tell the shop owner what to correct">{{ old('review_note') }}</textarea>
+                            </label>
+                            <button type="submit" class="mt-3 inline-flex h-10 w-full items-center justify-center rounded-xl bg-rose-600 px-4 text-sm font-black text-white hover:bg-rose-700 sm:w-auto">
                                 Request Delivery Correction
                             </button>
                         </form>
@@ -266,23 +270,9 @@
                                             @endif
                                         </td>
                                         <td class="px-5 py-4">
-                                            @if ($paymentRequest->status === 'pending')
-                                                <form method="POST" action="{{ route('purchasing.shop-invoices.payment-requests.review', $paymentRequest) }}" class="space-y-3">
-                                                    @csrf
-                                                    @method('PATCH')
-                                                    <textarea name="admin_note" rows="3" class="w-full min-w-[240px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900" placeholder="Admin note"></textarea>
-                                                    <div class="flex flex-col gap-3 sm:flex-row">
-                                                        <button type="submit" name="decision" value="approve" class="inline-flex h-11 items-center justify-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white hover:bg-emerald-700">
-                                                            Approve Request
-                                                        </button>
-                                                        <button type="submit" name="decision" value="reject" class="inline-flex h-11 items-center justify-center rounded-2xl bg-rose-600 px-5 text-sm font-black text-white hover:bg-rose-700">
-                                                            Reject
-                                                        </button>
-                                                    </div>
-                                                </form>
-                                            @else
-                                                <span class="text-sm font-semibold text-slate-500">No action pending</span>
-                                            @endif
+                                            <span class="text-sm font-semibold text-slate-500">
+                                                {{ $paymentRequest->status === 'pending' ? 'Waiting for accounting approval' : 'No action pending' }}
+                                            </span>
                                         </td>
                                     </tr>
                                 @endforeach
@@ -297,62 +287,28 @@
                     $pendingBalanceAmount = max(0, round((float) $invoice->final_total - (float) $invoice->paid_amount, 2));
                 @endphp
                 <div class="border-b border-slate-100 px-5 py-4">
-                    <h2 class="text-lg font-black text-slate-950">Payment Approval</h2>
-                    <p class="mt-1 text-sm text-slate-600">Update the final discount, paid amount, and payment note in one full-width row.</p>
+                    <h2 class="text-lg font-black text-slate-950">Payment Status</h2>
+                    <p class="mt-1 text-sm text-slate-600">Purchasing can review the invoice. Payment approval and journal impact are handled by Admin Accounting.</p>
                 </div>
-                <form method="POST" action="{{ route('purchasing.shop-invoices.payment-approval', $invoice) }}" class="space-y-4 px-5 py-5">
-                    @csrf
-                    @method('PATCH')
-                    <div class="flex flex-wrap gap-3">
-                        <button
-                            type="button"
-                            class="inline-flex h-10 items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-emerald-700 hover:bg-emerald-100"
-                            onclick="document.getElementById('payment-approval-paid-amount').value='{{ number_format((float) $invoice->final_total, 2, '.', '') }}'"
-                        >
-                            Paid Full
-                        </button>
-                        <button
-                            type="button"
-                            class="inline-flex h-10 items-center justify-center rounded-2xl border border-amber-200 bg-amber-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-amber-700 hover:bg-amber-100"
-                            onclick="document.getElementById('payment-approval-paid-amount').value='{{ number_format((float) $invoice->paid_amount, 2, '.', '') }}'"
-                        >
-                            Pending Balance
-                        </button>
-                        <span class="inline-flex h-10 items-center rounded-2xl bg-slate-100 px-4 text-xs font-black uppercase tracking-[0.16em] text-slate-600">
-                            Pending now: Rs. {{ number_format($pendingBalanceAmount, 2) }}
-                        </span>
+                <div class="px-5 py-5">
+                    <div class="grid gap-3 sm:grid-cols-3">
+                        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Paid</p>
+                            <p class="mt-2 text-lg font-black text-emerald-700">Rs. {{ number_format((float) $invoice->paid_amount, 2) }}</p>
+                        </div>
+                        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Balance</p>
+                            <p class="mt-2 text-lg font-black {{ $pendingBalanceAmount > 0 ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format($pendingBalanceAmount, 2) }}</p>
+                        </div>
+                        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Status</p>
+                            <p class="mt-2 text-lg font-black text-slate-950">{{ ucfirst(str_replace('_', ' ', (string) $invoice->payment_status)) }}</p>
+                        </div>
                     </div>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full text-left text-sm">
-                            <thead class="border-b border-slate-100 bg-slate-50 text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
-                                <tr>
-                                    <th class="px-4 py-4">Discount</th>
-                                    <th class="px-4 py-4">Paid Amount</th>
-                                    <th class="px-4 py-4">Payment Note</th>
-                                    <th class="px-4 py-4">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr class="align-top">
-                                    <td class="px-4 py-4">
-                                        <input type="number" step="0.01" min="0" name="discount_total" value="{{ old('discount_total', number_format((float) $invoice->discount_total, 2, '.', '')) }}" class="w-full min-w-[160px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900">
-                                    </td>
-                                    <td class="px-4 py-4">
-                                        <input id="payment-approval-paid-amount" type="number" step="0.01" min="0" name="paid_amount" value="{{ old('paid_amount', number_format((float) $invoice->paid_amount, 2, '.', '')) }}" class="w-full min-w-[160px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900">
-                                    </td>
-                                    <td class="px-4 py-4">
-                                        <textarea name="payment_note" rows="4" class="w-full min-w-[320px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900">{{ old('payment_note', $invoice->payment_note) }}</textarea>
-                                    </td>
-                                    <td class="px-4 py-4">
-                                        <button type="submit" class="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white hover:bg-slate-800">
-                                            Save Payment Approval
-                                        </button>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </form>
+                    @if ($invoice->payment_note)
+                        <p class="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-600">{{ $invoice->payment_note }}</p>
+                    @endif
+                </div>
             </section>
         @endif
 

@@ -52,12 +52,12 @@ class SalesInvoice extends Model
     // Relationships
     public function salesOrder(): BelongsTo
     {
-        return $this->belongsTo(SalesOrder::class);
+        return $this->belongsTo(SalesOrder::class)->withTrashed();
     }
 
     public function customer(): BelongsTo
     {
-        return $this->belongsTo(Customer::class);
+        return $this->belongsTo(Customer::class)->withTrashed();
     }
 
     public function createdBy(): BelongsTo

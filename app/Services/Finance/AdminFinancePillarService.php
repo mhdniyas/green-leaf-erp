@@ -489,6 +489,7 @@ class AdminFinancePillarService
     private function pettyCashCreditsForPeriod(Carbon $startDate, Carbon $endDate): Collection
     {
         return ShopCredit::query()
+            ->approved()
             ->with(['shop', 'creator'])
             ->where('is_petty_cash', true)
             ->whereDate('business_date', '>=', $startDate)
@@ -544,7 +545,7 @@ class AdminFinancePillarService
         return $credits->map(function (ShopCredit $credit): array {
             $isCreditToShop = $credit->type === 'in';
             $shopName = (string) ($credit->shop?->name ?? 'Unknown shop');
-            $category = $isCreditToShop ? 'Petty Cash Credit' : 'Petty Cash Return';
+            $category = $isCreditToShop ? 'Shop Cash Credit' : 'Shop Cash Return';
 
             return [
                 'date' => $credit->business_date?->toDateString() ?? $credit->created_at?->toDateString(),
@@ -574,6 +575,7 @@ class AdminFinancePillarService
         ), 2);
 
         $pettyCashOpeningBalance = round((float) ShopCredit::query()
+            ->approved()
             ->where('is_petty_cash', true)
             ->whereDate('business_date', '<', $startDate)
             ->get()

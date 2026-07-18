@@ -109,10 +109,12 @@ class AdminOwnPurchasePurchaserSeederTest extends TestCase
             'is_active' => true,
         ]);
 
+        $businessDate = today()->toDateString();
+
         $response = $this
             ->actingAs($admin)
             ->post(route('admin.accounting.purchasers.direct-purchase.store'), [
-                'business_date' => '2026-07-15',
+                'business_date' => $businessDate,
                 'items' => [
                     $product->sku => 12.5,
                 ],
@@ -123,7 +125,7 @@ class AdminOwnPurchasePurchaserSeederTest extends TestCase
             ->where('order_source', 'admin_direct_purchase')
             ->firstOrFail();
 
-        $response->assertRedirect(route('purchaser.vendors', ['date' => '2026-07-15']));
+        $response->assertRedirect(route('purchaser.vendors', ['date' => $businessDate]));
         $this->assertNull($order->shop_id);
         $this->assertSame('approved', $order->state);
         $this->assertTrue($order->isAdminDirectPurchase());
@@ -132,7 +134,7 @@ class AdminOwnPurchasePurchaserSeederTest extends TestCase
         $this->assertSame(12.5, (float) $order->items->first()->approved_qty);
 
         $this
-            ->get(route('purchaser.daily', ['date' => '2026-07-15']))
+            ->get(route('purchaser.daily', ['date' => $businessDate]))
             ->assertOk()
             ->assertSee('Tomato')
             ->assertSee('Green Leaf Direct Purchase');

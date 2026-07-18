@@ -7,11 +7,13 @@ namespace App\Services\ShopInvoices;
 use App\Enums\Inventory\ProductGrade;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoiceItem;
+use App\Models\ShopInvoicePaymentAllocation;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Services\Finance\JournalService;
 use App\Services\Pricing\PriceBoardService;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -41,6 +43,10 @@ class ShopInvoiceService
             $invoice = ShopInvoice::query()->firstOrNew([
                 'shop_order_id' => $order->id,
             ]);
+
+            if ($invoice->exists && $invoice->isFinalLocked()) {
+                return $invoice->fresh('items');
+            }
 
             $invoice->fill([
                 'shop_id' => $order->shop_id,
@@ -106,6 +112,12 @@ class ShopInvoiceService
     public function applyDeliveryCheckin(ShopOrder $order, array $deliveredQtys, int $userId, ?string $deliveryNote = null): ShopInvoice
     {
         $invoice = $this->synchronizeOrderInvoice($order, $userId);
+
+        if ($invoice->isFinalLocked()) {
+            throw ValidationException::withMessages([
+                'invoice' => 'This shop invoice is finalized. Create an adjustment instead of changing the original delivery.',
+            ]);
+        }
 
         return DB::transaction(function () use ($order, $invoice, $deliveredQtys, $userId, $deliveryNote): ShopInvoice {
             $hasDiscrepancy = false;
@@ -247,30 +259,33 @@ class ShopInvoiceService
     {
         return DB::transaction(function () use ($invoice, $payload, $userId): ShopInvoicePaymentRequest {
             $invoice->refresh();
+            $pendingInvoices = $this->pendingInvoicesForShop((int) $invoice->shop_id);
+            $totalShopDue = round($pendingInvoices->sum(fn (ShopInvoice $pendingInvoice): float => (float) $pendingInvoice->balance_amount), 2);
 
-            if ((float) $invoice->balance_amount <= 0.0) {
+            if ($totalShopDue <= 0.0) {
                 throw ValidationException::withMessages([
-                    'invoice_id' => 'This bill is already settled.',
+                    'invoice_id' => 'This shop has no pending bills to pay.',
                 ]);
             }
 
-            $existingPendingRequest = $invoice->paymentRequests()
+            $existingPendingRequest = ShopInvoicePaymentRequest::query()
+                ->where('shop_id', $invoice->shop_id)
                 ->where('status', 'pending')
                 ->first();
 
             if ($existingPendingRequest instanceof ShopInvoicePaymentRequest) {
                 throw ValidationException::withMessages([
-                    'invoice_id' => 'A payment request for this bill is already waiting for approval.',
+                    'invoice_id' => 'A payment request for this shop is already waiting for approval.',
                 ]);
             }
 
             $requestedAmount = $payload['amount_mode'] === 'balance_due'
-                ? round((float) $invoice->balance_amount, 2)
+                ? $totalShopDue
                 : round((float) ($payload['amount'] ?? 0), 2);
 
-            if ($requestedAmount <= 0.0 || $requestedAmount > (float) $invoice->balance_amount) {
+            if ($requestedAmount <= 0.0) {
                 throw ValidationException::withMessages([
-                    'amount' => 'Requested amount must be greater than zero and not more than the current bill due.',
+                    'amount' => 'Requested amount must be greater than zero.',
                 ]);
             }
 
@@ -280,6 +295,8 @@ class ShopInvoiceService
                 'requested_by' => $userId,
                 'request_type' => $payload['amount_mode'],
                 'requested_amount' => $requestedAmount,
+                'applied_amount' => 0,
+                'credit_amount' => 0,
                 'status' => 'pending',
                 'shop_note' => filled($payload['shop_note'] ?? null) ? trim((string) $payload['shop_note']) : null,
             ]);
@@ -289,7 +306,7 @@ class ShopInvoiceService
     public function reviewPaymentRequest(ShopInvoicePaymentRequest $paymentRequest, string $decision, int $userId, ?string $adminNote = null): ShopInvoicePaymentRequest
     {
         return DB::transaction(function () use ($paymentRequest, $decision, $userId, $adminNote): ShopInvoicePaymentRequest {
-            $paymentRequest->loadMissing('invoice');
+            $paymentRequest->loadMissing('invoice', 'allocations');
 
             if ($paymentRequest->status !== 'pending') {
                 throw ValidationException::withMessages([
@@ -306,30 +323,22 @@ class ShopInvoiceService
                     ]);
                 }
 
-                $invoice->refresh();
                 $approvedAmount = round((float) $paymentRequest->requested_amount, 2);
+                $appliedAmount = $this->allocateShopPaymentToPendingInvoices($paymentRequest, $approvedAmount, $userId, $adminNote);
+                $creditAmount = round(max(0, $approvedAmount - $appliedAmount), 2);
 
-                if ($approvedAmount > (float) $invoice->balance_amount) {
-                    throw ValidationException::withMessages([
-                        'decision' => 'The requested amount is higher than the current unpaid balance.',
-                    ]);
-                }
-
-                $noteParts = array_filter([
-                    (string) $invoice->payment_note,
-                    'Shop payment approved: Rs. '.number_format($approvedAmount, 2),
-                    filled($adminNote) ? trim((string) $adminNote) : null,
-                ]);
-
-                $this->approvePayment($invoice, [
-                    'discount_total' => (float) $invoice->discount_total,
-                    'paid_amount' => round((float) $invoice->paid_amount + $approvedAmount, 2),
-                    'payment_note' => implode("\n", $noteParts),
-                ], $userId);
+                $this->journalService->recordShopInvoicePayment(
+                    $invoice,
+                    $approvedAmount,
+                    $userId,
+                    'shop-payment-request:'.$paymentRequest->id,
+                );
 
                 $paymentRequest->update([
                     'status' => 'approved',
                     'approved_amount' => $approvedAmount,
+                    'applied_amount' => $appliedAmount,
+                    'credit_amount' => $creditAmount,
                     'admin_note' => filled($adminNote) ? trim((string) $adminNote) : null,
                     'reviewed_by' => $userId,
                     'reviewed_at' => now(),
@@ -338,14 +347,66 @@ class ShopInvoiceService
                 $paymentRequest->update([
                     'status' => 'rejected',
                     'approved_amount' => null,
+                    'applied_amount' => 0,
+                    'credit_amount' => 0,
                     'admin_note' => filled($adminNote) ? trim((string) $adminNote) : null,
                     'reviewed_by' => $userId,
                     'reviewed_at' => now(),
                 ]);
             }
 
-            return $paymentRequest->fresh(['invoice', 'requestedBy', 'reviewedBy']);
+            return $paymentRequest->fresh(['invoice', 'requestedBy', 'reviewedBy', 'allocations.invoice']);
         });
+    }
+
+    /**
+     * @return array{total_due: float, applied_amount: float, credit_amount: float, invoices: array<int, array{invoice: ShopInvoice, amount: float}>}
+     */
+    public function allocationPreviewForShopPayment(ShopInvoicePaymentRequest $paymentRequest): array
+    {
+        $pendingInvoices = $this->pendingInvoicesForShop((int) $paymentRequest->shop_id);
+        $remainingAmount = round((float) $paymentRequest->requested_amount, 2);
+        $invoices = [];
+
+        foreach ($pendingInvoices as $invoice) {
+            if ($remainingAmount <= 0.0) {
+                break;
+            }
+
+            $allocationAmount = round(min($remainingAmount, (float) $invoice->balance_amount), 2);
+
+            if ($allocationAmount <= 0.0) {
+                continue;
+            }
+
+            $invoices[] = [
+                'invoice' => $invoice,
+                'amount' => $allocationAmount,
+            ];
+            $remainingAmount = round($remainingAmount - $allocationAmount, 2);
+        }
+
+        $appliedAmount = round(collect($invoices)->sum(fn (array $row): float => (float) $row['amount']), 2);
+
+        return [
+            'total_due' => round($pendingInvoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->balance_amount), 2),
+            'applied_amount' => $appliedAmount,
+            'credit_amount' => round(max(0, (float) $paymentRequest->requested_amount - $appliedAmount), 2),
+            'invoices' => $invoices,
+        ];
+    }
+
+    public function availableShopCredit(int $shopId): float
+    {
+        $approvedPaymentRequests = ShopInvoicePaymentRequest::query()
+            ->where('shop_id', $shopId)
+            ->where('status', 'approved')
+            ->with('allocations')
+            ->get();
+
+        return round($approvedPaymentRequests->sum(
+            fn (ShopInvoicePaymentRequest $paymentRequest): float => $paymentRequest->remainingCreditAmount()
+        ), 2);
     }
 
     /**
@@ -355,6 +416,13 @@ class ShopInvoiceService
     {
         return DB::transaction(function () use ($invoice, $payload, $userId): ShopInvoicePaymentRequest {
             $invoice->refresh();
+
+            if (array_key_exists('discount_total', $payload)) {
+                $invoice->update([
+                    'discount_total' => round((float) ($payload['discount_total'] ?? $invoice->discount_total), 2),
+                ]);
+                $invoice = $this->recalculate($invoice->fresh('items'));
+            }
 
             $currentPaidAmount = round((float) $invoice->paid_amount, 2);
             $paidAmount = round((float) $payload['paid_amount'], 2);
@@ -367,37 +435,50 @@ class ShopInvoiceService
                 ]);
             }
 
-            $noteParts = array_filter([
-                (string) $invoice->payment_note,
-                'Admin payment received: Rs. '.number_format($approvedAmount, 2),
-                $adminNote,
-            ]);
-
-            $updatedInvoice = $this->approvePayment($invoice, [
-                'discount_total' => (float) ($payload['discount_total'] ?? $invoice->discount_total),
-                'paid_amount' => $paidAmount,
-                'payment_note' => implode("\n", $noteParts),
-            ], $userId);
-
-            return ShopInvoicePaymentRequest::query()->create([
-                'shop_invoice_id' => $updatedInvoice->id,
-                'shop_id' => $updatedInvoice->shop_id,
+            $paymentRequest = ShopInvoicePaymentRequest::query()->create([
+                'shop_invoice_id' => $invoice->id,
+                'shop_id' => $invoice->shop_id,
                 'requested_by' => $userId,
                 'request_type' => 'admin_manual',
                 'requested_amount' => $approvedAmount,
                 'approved_amount' => $approvedAmount,
+                'applied_amount' => 0,
+                'credit_amount' => 0,
                 'status' => 'approved',
                 'shop_note' => 'Admin recorded payment received.',
                 'admin_note' => $adminNote,
                 'reviewed_by' => $userId,
                 'reviewed_at' => now(),
-            ])->fresh(['invoice', 'requestedBy', 'reviewedBy']);
+            ]);
+
+            $appliedAmount = $this->allocateShopPaymentToPendingInvoices($paymentRequest, $approvedAmount, $userId, $adminNote);
+            $creditAmount = round(max(0, $approvedAmount - $appliedAmount), 2);
+
+            $this->journalService->recordShopInvoicePayment(
+                $invoice,
+                $approvedAmount,
+                $userId,
+                'admin-shop-payment:'.$paymentRequest->id,
+            );
+
+            $paymentRequest->update([
+                'applied_amount' => $appliedAmount,
+                'credit_amount' => $creditAmount,
+            ]);
+
+            return $paymentRequest->fresh(['invoice', 'requestedBy', 'reviewedBy', 'allocations.invoice']);
         });
     }
 
     public function repriceInvoice(ShopInvoice $invoice, int $userId, ?string $reason = null): ShopInvoice
     {
         $invoice->loadMissing(['shop.priceGroup', 'items.product', 'order']);
+
+        if ($invoice->isFinalLocked()) {
+            throw ValidationException::withMessages([
+                'invoice' => 'This shop invoice is finalized. Create a price adjustment instead of repricing the original invoice.',
+            ]);
+        }
 
         return DB::transaction(function () use ($invoice, $userId, $reason): ShopInvoice {
             foreach ($invoice->items as $invoiceItem) {
@@ -445,7 +526,91 @@ class ShopInvoiceService
             ->with(['shop.priceGroup', 'items.product', 'order'])
             ->whereDate('business_date', $businessDate)
             ->get()
+            ->reject(fn (ShopInvoice $invoice): bool => $invoice->isFinalLocked())
             ->each(fn (ShopInvoice $invoice) => $this->repriceInvoice($invoice, $userId, $reason));
+    }
+
+    private function allocateShopPaymentToPendingInvoices(ShopInvoicePaymentRequest $paymentRequest, float $paymentAmount, int $userId, ?string $adminNote = null): float
+    {
+        $remainingAmount = round($paymentAmount, 2);
+        $appliedAmount = 0.0;
+
+        foreach ($this->pendingInvoicesForShop((int) $paymentRequest->shop_id) as $invoice) {
+            if ($remainingAmount <= 0.0) {
+                break;
+            }
+
+            $allocationAmount = round(min($remainingAmount, (float) $invoice->balance_amount), 2);
+
+            if ($allocationAmount <= 0.0) {
+                continue;
+            }
+
+            $this->applyInvoicePaymentWithoutJournal($invoice, $allocationAmount, $userId, $adminNote);
+
+            ShopInvoicePaymentAllocation::query()->create([
+                'payment_request_id' => $paymentRequest->id,
+                'shop_invoice_id' => $invoice->id,
+                'shop_id' => $invoice->shop_id,
+                'amount' => $allocationAmount,
+                'created_by' => $userId,
+            ]);
+
+            $appliedAmount = round($appliedAmount + $allocationAmount, 2);
+            $remainingAmount = round($remainingAmount - $allocationAmount, 2);
+        }
+
+        return $appliedAmount;
+    }
+
+    private function applyInvoicePaymentWithoutJournal(ShopInvoice $invoice, float $amount, int $userId, ?string $adminNote = null): ShopInvoice
+    {
+        $invoice->refresh();
+        $appliedAmount = round(min($amount, (float) $invoice->balance_amount), 2);
+
+        if ($appliedAmount <= 0.0) {
+            return $invoice;
+        }
+
+        $noteParts = array_filter([
+            (string) $invoice->payment_note,
+            'Shop payment allocated: Rs. '.number_format($appliedAmount, 2),
+            filled($adminNote) ? trim((string) $adminNote) : null,
+        ]);
+
+        $invoice->update([
+            'paid_amount' => round((float) $invoice->paid_amount + $appliedAmount, 2),
+            'payment_note' => implode("\n", $noteParts),
+            'payment_approved_by' => $userId,
+            'payment_approved_at' => now(),
+        ]);
+
+        $invoice = $this->recalculate($invoice->fresh('items'));
+
+        if ($invoice->order) {
+            $invoice->order->update([
+                'cash_collected' => $invoice->paid_amount,
+                'cash_discrepancy' => round((float) $invoice->final_total - (float) $invoice->paid_amount, 2),
+                'payment_status' => $invoice->payment_status,
+                'balance_amount' => $invoice->balance_amount,
+            ]);
+        }
+
+        return $invoice;
+    }
+
+    /**
+     * @return Collection<int, ShopInvoice>
+     */
+    private function pendingInvoicesForShop(int $shopId): Collection
+    {
+        return ShopInvoice::query()
+            ->where('shop_id', $shopId)
+            ->where('balance_amount', '>', 0)
+            ->with(['order'])
+            ->oldest('business_date')
+            ->oldest('id')
+            ->get();
     }
 
     public function recalculate(ShopInvoice $invoice): ShopInvoice

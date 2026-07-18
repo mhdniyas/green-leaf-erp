@@ -1,14 +1,30 @@
-<div class="grid gap-4 md:grid-cols-3">
-    <div class="rounded-[2rem] border border-slate-200 bg-white px-5 py-5 shadow-sm">
-        <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Paid Amount</p>
-        <p class="mt-3 text-3xl font-black text-emerald-700">Rs. {{ number_format((float) $paidAmount, 2) }}</p>
+@php
+    $isOwnedAccountingShop = $isOwnedAccountingShop ?? false;
+@endphp
+
+<div class="grid grid-cols-2 gap-3 {{ $isOwnedAccountingShop ? 'lg:grid-cols-5' : 'lg:grid-cols-3' }}">
+    @if ($isOwnedAccountingShop)
+        <div class="rounded-[1.35rem] border border-slate-200 bg-white px-4 py-4 shadow-sm">
+            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Bill Total</p>
+            <p class="mt-2 whitespace-nowrap text-lg font-black text-slate-950 sm:text-xl">Rs. {{ number_format((float) $totalBilled, 2) }}</p>
+        </div>
+    @endif
+    <div class="rounded-[1.35rem] border border-slate-200 bg-white px-4 py-4 shadow-sm">
+        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Paid</p>
+        <p class="mt-2 whitespace-nowrap text-lg font-black text-emerald-700 sm:text-xl">Rs. {{ number_format((float) $paidAmount, 2) }}</p>
     </div>
-    <div class="rounded-[2rem] border border-slate-200 bg-white px-5 py-5 shadow-sm">
-        <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Outstanding Balance</p>
-        <p class="mt-3 text-3xl font-black text-red-600">Rs. {{ number_format((float) $outstandingBalance, 2) }}</p>
+    <div class="rounded-[1.35rem] border border-slate-200 bg-white px-4 py-4 shadow-sm">
+        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Balance</p>
+        <p class="mt-2 whitespace-nowrap text-lg font-black text-red-600 sm:text-xl">Rs. {{ number_format((float) $outstandingBalance, 2) }}</p>
     </div>
-    <div class="rounded-[2rem] border border-slate-200 bg-white px-5 py-5 shadow-sm">
-        <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Delivery Deductions</p>
-        <p class="mt-3 text-3xl font-black text-amber-600">Rs. {{ number_format((float) $shortageValue, 2) }}</p>
+    @if ($isOwnedAccountingShop)
+        <div class="rounded-[1.35rem] border border-slate-200 bg-white px-4 py-4 shadow-sm">
+            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Paid To Company</p>
+            <p class="mt-2 whitespace-nowrap text-lg font-black text-amber-700 sm:text-xl">Rs. {{ number_format((float) $pendingPaymentAmount, 2) }}</p>
+        </div>
+    @endif
+    <div class="rounded-[1.35rem] border border-slate-200 bg-white px-4 py-4 shadow-sm {{ $isOwnedAccountingShop ? 'col-span-2 lg:col-span-1' : '' }}">
+        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Deductions</p>
+        <p class="mt-2 whitespace-nowrap text-lg font-black text-amber-600 sm:text-xl">Rs. {{ number_format((float) $shortageValue, 2) }}</p>
     </div>
 </div>

@@ -1,4 +1,4 @@
-@props(['href', 'icon' => null, 'active' => false, 'disabled' => false, 'sub' => false])
+@props(['href', 'icon' => null, 'active' => false, 'disabled' => false, 'sub' => false, 'badge' => null, 'badgeTone' => 'success'])
 
 @php
     $icons = [
@@ -17,15 +17,21 @@
         'document-currency-dollar' => 'M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m3.75 9v7.5m2.25-6.466a9.016 9.016 0 0 0-3.461-.203c-.536.072-.974.478-1.021 1.017a4.559 4.559 0 0 0-.018.402c0 .464.336.844.775.994l2.95 1.012c.44.15.775.53.775.994 0 .136-.006.27-.018.402-.047.539-.485.945-1.021 1.017a9.077 9.077 0 0 1-3.461-.203M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z',
     ];
     $path = $icons[$icon] ?? '';
+    $badgeClasses = [
+        'success' => 'bg-emerald-100 text-emerald-800 ring-emerald-200',
+        'warning' => 'bg-orange-100 text-orange-800 ring-orange-200',
+        'danger' => 'bg-rose-100 text-rose-800 ring-rose-200',
+        'neutral' => 'bg-slate-100 text-slate-700 ring-slate-200',
+    ][$badgeTone] ?? 'bg-emerald-100 text-emerald-800 ring-emerald-200';
 @endphp
 
 <a
     {{ $attributes->class([
-        'group flex items-center gap-3 rounded-2xl px-4 transition-all',
-        'py-2 text-xs font-bold tracking-[0.08em] uppercase' => $sub,
-        'py-3 text-sm font-bold' => !$sub,
-        'bg-cyan-50 text-cyan-800 shadow-sm' => $active,
-        'text-slate-600 hover:bg-slate-100 hover:text-slate-950' => !$active && !$disabled,
+        'group flex min-h-12 items-center gap-3 rounded-2xl px-4 transition-all',
+        'py-2.5 text-xs font-black' => $sub,
+        'py-3 text-sm font-black' => !$sub,
+        'bg-white text-slate-950 shadow-[0_10px_24px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/80' => $active,
+        'text-slate-500 hover:bg-white/70 hover:text-slate-950 hover:shadow-sm' => !$active && !$disabled,
         'pointer-events-none cursor-not-allowed text-slate-300' => $disabled,
     ]) }}
     href="{{ $disabled ? '#' : $href }}"
@@ -36,7 +42,12 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="{{ $path }}" />
         </svg>
     @elseif($sub)
-        <div class="ml-1.5 mr-1 h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-60 transition-opacity group-hover:opacity-100"></div>
+        <div class="ml-1.5 mr-1 h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-50 transition-opacity group-hover:opacity-100"></div>
     @endif
-    {{ $slot }}
+    <span class="min-w-0 flex-1 truncate">{{ $slot }}</span>
+    @if (filled($badge) && (int) $badge > 0)
+        <span class="ml-auto inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full px-2 text-xs font-black ring-1 {{ $badgeClasses }}">
+            {{ $badge }}
+        </span>
+    @endif
 </a>

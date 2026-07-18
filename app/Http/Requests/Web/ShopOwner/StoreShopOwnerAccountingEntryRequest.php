@@ -40,13 +40,14 @@ class StoreShopOwnerAccountingEntryRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'business_date' => ['required', 'date'],
+            'business_date' => ['required', Rule::date()->todayOrBefore()],
             'submission_action' => ['required', 'string', Rule::in(['save_draft', 'submit'])],
-            'opening_cash' => ['nullable', 'numeric', 'min:0'],
-            'closing_cash' => ['nullable', 'numeric', 'min:0'],
+            'create_adjustment' => ['nullable', 'boolean'],
+            'opening_cash' => ['nullable', 'numeric'],
+            'closing_cash' => ['nullable', 'numeric'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'shop_reply_note' => ['nullable', 'string', 'max:2000'],
-            'lines' => ['required', 'array', 'min:1'],
+            'lines' => ['nullable', 'array'],
             'lines.*.shop_accounting_category_id' => ['required', 'integer', 'exists:shop_accounting_categories,id'],
             'lines.*.amount' => ['required', 'numeric', 'gt:0'],
             'lines.*.description' => ['nullable', 'string', 'max:255'],
@@ -85,6 +86,12 @@ class StoreShopOwnerAccountingEntryRequest extends FormRequest
         return [
             function (Validator $validator): void {
                 $lines = $this->validatedLines();
+                $submissionAction = (string) $this->input('submission_action');
+
+                if ($submissionAction === 'submit' && $lines === []) {
+                    $validator->errors()->add('lines', 'Add at least one credit, debit, or non-cash line before submitting.');
+                }
+
                 if ($lines === []) {
                     return;
                 }

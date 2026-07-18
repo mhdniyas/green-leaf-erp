@@ -1,4 +1,4 @@
-<x-layouts.app title="Sort Sheet">
+<x-layouts.admin title="Sort Sheet">
     @php
         $user = auth()->user();
         $canGenerate = $user->can('sort.sheet.generate');
@@ -309,4 +309,4 @@
         </div>
         @endif
     </div>
-</x-layouts.app>
+</x-layouts.admin>

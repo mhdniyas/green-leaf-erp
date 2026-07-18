@@ -6,6 +6,7 @@
                 <p class="text-sm font-semibold text-slate-500">CRUD all staff records and switch quickly between category tabs.</p>
             </div>
             <div class="flex flex-wrap items-start gap-3">
+                <a href="{{ route('admin.staff.assignments.index', ['date' => $selectedDate->format('Y-m-d')]) }}" class="rounded-xl bg-slate-950 px-4 py-2 text-sm font-bold text-white">Assign Employees</a>
                 <details class="max-w-md rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
                     <summary class="cursor-pointer list-none text-sm font-black text-slate-700">What Re-Sync Linked Users does</summary>
                     <div class="mt-3 space-y-2 text-sm font-semibold text-slate-500">
@@ -119,44 +120,6 @@
             </div>
 
             <div class="mt-4">{{ $employees->withQueryString()->links() }}</div>
-        </section>
-
-        <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 class="text-xl font-black text-slate-950">Assign Employees to Shop</h2>
-            <form method="POST" action="{{ route('admin.staff.shop-assignments.store') }}" class="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                @csrf
-                <select name="employee_id" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
-                    <option value="">Employee</option>
-                    @foreach($employees as $employee)
-                        <option value="{{ $employee->id }}">{{ $employee->name }} · {{ $employee->employee_code }}</option>
-                    @endforeach
-                </select>
-                <select name="shop_id" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
-                    <option value="">Shop</option>
-                    @foreach($shops as $shop)
-                        <option value="{{ $shop->id }}">{{ $shop->name }}</option>
-                    @endforeach
-                </select>
-                <input type="date" name="effective_from" value="{{ $selectedDate->format('Y-m-d') }}" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
-                <input type="text" name="notes" placeholder="Note" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
-                <button type="submit" class="rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white">Assign</button>
-            </form>
-
-            <div class="mt-5 grid gap-3 md:grid-cols-2">
-                @forelse($activeAssignments as $assignment)
-                    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div class="flex items-start justify-between gap-3">
-                            <div>
-                                <p class="font-black text-slate-950">{{ $assignment->employee?->name }}</p>
-                                <p class="text-xs font-semibold text-slate-500">{{ $assignment->shop?->name }} · from {{ $assignment->effective_from?->format('d M Y') ?? 'not set' }}</p>
-                            </div>
-                            <span class="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase text-emerald-700">{{ $assignment->status }}</span>
-                        </div>
-                    </div>
-                @empty
-                    <p class="text-sm font-semibold text-slate-500">No active shop assignments yet.</p>
-                @endforelse
-            </div>
         </section>
 
         <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">

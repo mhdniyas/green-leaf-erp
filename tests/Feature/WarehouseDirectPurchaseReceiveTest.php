@@ -10,8 +10,8 @@ use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Models\User;
 use App\Models\Warehouse;
+use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
-use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
@@ -24,12 +24,12 @@ class WarehouseDirectPurchaseReceiveTest extends TestCase
         parent::setUp();
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
+        $this->seed(RolePermissionSeeder::class);
     }
 
     public function test_warehouse_receiver_can_receive_admin_direct_purchase_from_pending_tab(): void
     {
         $warehouseReceiver = User::factory()->create();
-        Role::findOrCreate('warehouse_receiver', 'web');
         $warehouseReceiver->assignRole('warehouse_receiver');
 
         $warehouse = Warehouse::query()->create([

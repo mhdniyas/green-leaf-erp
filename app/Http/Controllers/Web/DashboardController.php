@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web;
 
 use App\Enums\Purchasing\POStatus;
-use App\Enums\Sales\SOStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\GoodsReceived;
@@ -14,7 +13,6 @@ use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\SalesInvoice;
-use App\Models\SalesOrder;
 use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
@@ -96,13 +94,9 @@ class DashboardController extends Controller
 
         // Stats visible to sales roles
         $salesStats = null;
-        if ($user->can('sales.order.view')) {
+        if ($user->can('sales.customer.view') || $user->can('sales.invoice.view')) {
             $salesStats = [
                 'active_customers' => Customer::where('is_active', true)->count(),
-                'pending_sos' => SalesOrder::whereIn('status', [
-                    SOStatus::Draft,
-                    SOStatus::Confirmed,
-                ])->count(),
                 'monthly_sales' => (float) SalesInvoice::whereYear('created_at', today()->year)
                     ->whereMonth('created_at', today()->month)
                     ->sum('amount'),

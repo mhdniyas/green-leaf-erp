@@ -22,6 +22,7 @@
 @php
     $currentUser = auth()->user();
     $navDate = request('date', app(\App\Services\Purchasing\PurchaserBusinessDayService::class)->operationalDate()->toDateString());
+    $notificationCounts = app(\App\Services\DashboardNotificationService::class)->counts(\Illuminate\Support\Carbon::parse($navDate));
     $sidebarSections = [];
 
     $workspaceItems = [];
@@ -32,6 +33,8 @@
             'href' => route('admin.accounting.index', ['date' => $navDate]),
             'active' => request()->routeIs('admin.accounting.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m0 0c-2.21 0-4-1.343-4-3s1.79-3 4-3 4-1.343 4-3-1.79-3-4-3m0 12c2.21 0 4-1.343 4-3" /></svg>',
+            'badge' => $notificationCounts['accounting_total'],
+            'badge_tone' => 'danger',
         ];
     }
 
@@ -48,6 +51,8 @@
             'href' => route('purchasing.dashboard'),
             'active' => request()->routeIs('purchasing.*') || request()->routeIs('requisitions.board') || request()->routeIs('requisitions.approved_board'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 0 1 1.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 0 1 1.5 0z" /></svg>',
+            'badge' => $notificationCounts['purchasing_total'],
+            'badge_tone' => 'warning',
         ];
     }
 
@@ -89,15 +94,6 @@
             'href' => route('sales.customers.index'),
             'active' => request()->routeIs('sales.customers.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg>',
-        ];
-    }
-
-    if ($currentUser?->can('sales.order.view')) {
-        $salesItems[] = [
-            'label' => 'Sales Orders',
-            'href' => route('sales.orders.index'),
-            'active' => request()->routeIs('sales.orders.*'),
-            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3h16.5A2.25 2.25 0 0 1 22.5 5.25v13.5A2.25 2.25 0 0 1 20.25 21H3.75A2.25 2.25 0 0 1 1.5 18.75V5.25A2.25 2.25 0 0 1 3.75 3Zm3.75 4.5h9m-9 4.5h6" /></svg>',
         ];
     }
 
@@ -192,7 +188,7 @@
 @endphp
 
 <div id="admin-layout-shell" class="min-h-screen lg:flex" data-sidebar-state="expanded">
-    <aside id="admin-sidebar" class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-slate-200 bg-white transition-[width,transform] duration-300 lg:translate-x-0">
+    <aside id="admin-sidebar" class="fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-slate-200 bg-slate-100 transition-[width,transform] duration-300 lg:translate-x-0">
         <div class="border-b border-slate-200 px-5 py-5">
             <div class="flex items-center gap-3">
                 <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-sm">
@@ -228,10 +224,7 @@
                 <div class="space-y-2">
                     <p data-admin-sidebar-label class="px-3 text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">{{ $section['label'] }}</p>
                     @foreach ($section['items'] as $item)
-                        <a href="{{ $item['href'] }}" title="{{ $item['label'] }}" class="flex items-center gap-3 rounded-[1.2rem] px-4 py-3 text-sm font-black transition {{ $item['active'] ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}">
-                            <span class="{{ $item['active'] ? 'text-white' : 'text-slate-400' }}">{!! $item['icon'] !!}</span>
-                            <span data-admin-sidebar-label>{{ $item['label'] }}</span>
-                        </a>
+                        <x-sidebar-link :item="$item" label-attribute="data-admin-sidebar-label" />
                     @endforeach
                 </div>
             @endforeach
@@ -327,96 +320,17 @@
 
 @include('components.app-dialogs')
 
-<script>
-    (() => {
-        const storageKey = 'admin-sidebar-state';
-        const shell = document.getElementById('admin-layout-shell');
-        const sidebar = document.getElementById('admin-sidebar');
-        const main = document.getElementById('admin-main');
-        const overlay = document.getElementById('admin-sidebar-overlay');
-        const openButton = document.getElementById('admin-sidebar-open');
-        const closeButton = document.getElementById('admin-sidebar-close');
-        const collapseButton = document.getElementById('admin-sidebar-collapse');
-        const toggleButton = document.getElementById('admin-sidebar-toggle');
-        const labels = document.querySelectorAll('[data-admin-sidebar-label]');
-
-        if (!shell || !sidebar || !main || !overlay || !openButton || !closeButton) {
-            return;
-        }
-
-        const syncDesktopState = (state) => {
-            const isCollapsed = state === 'collapsed';
-            shell.dataset.sidebarState = state;
-
-            if (window.innerWidth >= 1024) {
-                sidebar.classList.toggle('lg:w-72', !isCollapsed);
-                sidebar.classList.toggle('lg:w-24', isCollapsed);
-                main.classList.toggle('lg:pl-72', !isCollapsed);
-                main.classList.toggle('lg:pl-24', isCollapsed);
-                labels.forEach((label) => {
-                    label.classList.toggle('hidden', isCollapsed);
-                });
-            } else {
-                sidebar.classList.remove('lg:w-24');
-                sidebar.classList.add('lg:w-72');
-                main.classList.remove('lg:pl-24');
-                main.classList.add('lg:pl-72');
-                labels.forEach((label) => {
-                    label.classList.remove('hidden');
-                });
-            }
-        };
-
-        const setDesktopState = (state) => {
-            localStorage.setItem(storageKey, state);
-            syncDesktopState(state);
-        };
-
-        const openSidebar = () => {
-            sidebar.classList.remove('-translate-x-full');
-            overlay.classList.remove('hidden');
-        };
-
-        const closeSidebar = () => {
-            sidebar.classList.add('-translate-x-full');
-            overlay.classList.add('hidden');
-        };
-
-        openButton.addEventListener('click', openSidebar);
-        closeButton.addEventListener('click', closeSidebar);
-        overlay.addEventListener('click', closeSidebar);
-
-        const toggleDesktopSidebar = () => {
-            if (window.innerWidth < 1024) {
-                openSidebar();
-
-                return;
-            }
-
-            const nextState = shell.dataset.sidebarState === 'collapsed' ? 'expanded' : 'collapsed';
-            setDesktopState(nextState);
-        };
-
-        collapseButton?.addEventListener('click', toggleDesktopSidebar);
-        toggleButton?.addEventListener('click', toggleDesktopSidebar);
-
-        window.addEventListener('resize', () => {
-            syncDesktopState(localStorage.getItem(storageKey) === 'collapsed' ? 'collapsed' : 'expanded');
-
-            if (window.innerWidth >= 1024) {
-                overlay.classList.add('hidden');
-                sidebar.classList.remove('-translate-x-full');
-            } else {
-                sidebar.classList.add('-translate-x-full');
-            }
-        });
-
-        syncDesktopState(localStorage.getItem(storageKey) === 'collapsed' ? 'collapsed' : 'expanded');
-
-        if (window.innerWidth >= 1024) {
-            sidebar.classList.remove('-translate-x-full');
-        }
-    })();
-</script>
+<x-sidebar-state-script
+    storage-key="admin-sidebar-state"
+    shell-id="admin-layout-shell"
+    sidebar-id="admin-sidebar"
+    main-id="admin-main"
+    overlay-id="admin-sidebar-overlay"
+    open-button-id="admin-sidebar-open"
+    close-button-id="admin-sidebar-close"
+    collapse-button-id="admin-sidebar-collapse"
+    toggle-button-id="admin-sidebar-toggle"
+    label-selector="[data-admin-sidebar-label]"
+/>
 </body>
 </html>

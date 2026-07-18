@@ -8,6 +8,7 @@ use Database\Factories\ShopInvoicePaymentRequestFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ShopInvoicePaymentRequest extends Model
 {
@@ -21,6 +22,8 @@ class ShopInvoicePaymentRequest extends Model
         'request_type',
         'requested_amount',
         'approved_amount',
+        'applied_amount',
+        'credit_amount',
         'status',
         'shop_note',
         'admin_note',
@@ -33,6 +36,8 @@ class ShopInvoicePaymentRequest extends Model
         return [
             'requested_amount' => 'decimal:2',
             'approved_amount' => 'decimal:2',
+            'applied_amount' => 'decimal:2',
+            'credit_amount' => 'decimal:2',
             'reviewed_at' => 'datetime',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
@@ -57,6 +62,29 @@ class ShopInvoicePaymentRequest extends Model
     public function reviewedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    public function allocations(): HasMany
+    {
+        return $this->hasMany(ShopInvoicePaymentAllocation::class, 'payment_request_id');
+    }
+
+    public function allocatedAmount(): float
+    {
+        $allocations = $this->relationLoaded('allocations')
+            ? $this->allocations
+            : $this->allocations()->get(['amount']);
+
+        return round((float) $allocations->sum(fn (ShopInvoicePaymentAllocation $allocation): float => (float) $allocation->amount), 2);
+    }
+
+    public function remainingCreditAmount(): float
+    {
+        if ($this->status !== 'approved') {
+            return 0.0;
+        }
+
+        return round(max(0, (float) $this->requested_amount - $this->allocatedAmount()), 2);
     }
 
     public function statusLabel(): string

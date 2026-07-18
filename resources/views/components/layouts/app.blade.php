@@ -290,7 +290,7 @@
     {{-- ── Sidebar ─────────────────────────────────────────────── --}}
     <aside
         id="sidebar"
-        class="fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-slate-200 bg-white text-slate-900 shadow-sm transition-transform duration-300 lg:translate-x-0 -translate-x-full"
+        class="fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-slate-200 bg-slate-100 text-slate-900 shadow-sm transition-transform duration-300 lg:translate-x-0 -translate-x-full"
         aria-label="Sidebar navigation"
     >
         {{-- Logo --}}
@@ -336,7 +336,7 @@
                 <div class="sidebar-group space-y-1">
                     <button
                         type="button"
-                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isAdminPurchaseFlowActive ? 'bg-cyan-50 text-cyan-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}"
+                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isAdminPurchaseFlowActive ? 'bg-white text-slate-950 shadow-[0_10px_24px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/80' : 'text-slate-500 hover:bg-white/70 hover:text-slate-950 hover:shadow-sm' }}"
                         aria-expanded="{{ $isAdminPurchaseFlowActive ? 'true' : 'false' }}"
                     >
                         <span class="flex items-center gap-3">
@@ -349,7 +349,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
                     </button>
-                    <div class="sidebar-group-items space-y-1 pl-3 pr-1 transition-all duration-200 {{ $isAdminPurchaseFlowActive ? '' : 'hidden' }}">
+                    <div class="sidebar-group-items ml-6 space-y-1 border-l border-slate-200 py-1 pl-4 pr-1 transition-all duration-200 {{ $isAdminPurchaseFlowActive ? '' : 'hidden' }}">
                         <x-nav-item href="{{ route('admin.accounting.index', ['date' => $navDate]) }}" :active="request()->routeIs('admin.accounting.index')" :sub="true">
                             Accounting
                         </x-nav-item>
@@ -431,7 +431,7 @@
                 <div class="sidebar-group space-y-1">
                     <button
                         type="button"
-                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isWarehouseReceiverActive ? 'bg-cyan-50 text-cyan-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}"
+                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isWarehouseReceiverActive ? 'bg-white text-slate-950 shadow-[0_10px_24px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/80' : 'text-slate-500 hover:bg-white/70 hover:text-slate-950 hover:shadow-sm' }}"
                         aria-expanded="{{ $isWarehouseReceiverActive ? 'true' : 'false' }}"
                     >
                         <span class="flex items-center gap-3">
@@ -444,14 +444,14 @@
                             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
                     </button>
-                    <div class="sidebar-group-items space-y-1 pl-3 pr-1 transition-all duration-200 {{ $isWarehouseReceiverActive ? '' : 'hidden' }}">
-                        <x-nav-item href="{{ route('warehouse.receiver.checklist', ['tab' => 'pending']) }}" :active="request()->routeIs('warehouse.receiver.receive-grn') || (request()->routeIs('warehouse.receiver.checklist') && request()->query('tab', 'pending') === 'pending')" :sub="true">
+                    <div class="sidebar-group-items ml-6 space-y-1 border-l border-slate-200 py-1 pl-4 pr-1 transition-all duration-200 {{ $isWarehouseReceiverActive ? '' : 'hidden' }}">
+                        <x-nav-item href="{{ route('warehouse.receiver.checklist', ['tab' => 'pending']) }}" :active="request()->routeIs('warehouse.receiver.receive-grn') || (request()->routeIs('warehouse.receiver.checklist') && request()->query('tab', 'pending') === 'pending')" :sub="true" :badge="$wrPendingCount" badge-tone="warning">
                             Receive
                         </x-nav-item>
-                        <x-nav-item href="{{ route('warehouse.receiver.checklist', ['tab' => 'inventory']) }}" :active="request()->routeIs('warehouse.receiver.checklist') && request()->query('tab') === 'inventory'" :sub="true">
+                        <x-nav-item href="{{ route('warehouse.receiver.checklist', ['tab' => 'inventory']) }}" :active="request()->routeIs('warehouse.receiver.checklist') && request()->query('tab') === 'inventory'" :sub="true" :badge="$wrStockCount" badge-tone="success">
                             Inventory
                         </x-nav-item>
-                        <x-nav-item href="{{ route('warehouse.loadout.index') }}" :active="request()->routeIs('warehouse.loadout.*')" :sub="true">
+                        <x-nav-item href="{{ route('warehouse.loadout.index') }}" :active="request()->routeIs('warehouse.loadout.*')" :sub="true" :badge="$wrLoadoutCount" badge-tone="success">
                             Loadout
                         </x-nav-item>
                         <x-nav-item href="{{ route('sort-sheet.index') }}" :active="request()->routeIs('sort-sheet.*')" :sub="true">
@@ -501,7 +501,6 @@
                 {{-- Sales Group --}}
                 @if(
                     auth()->user()->can('sales.customer.view') ||
-                    auth()->user()->can('sales.order.view') ||
                     auth()->user()->can('sales.invoice.view')
                 )
                 @php
@@ -510,7 +509,7 @@
                 <div class="sidebar-group space-y-1">
                     <button
                         type="button"
-                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isSalesActive ? 'bg-cyan-50 text-cyan-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}"
+                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isSalesActive ? 'bg-white text-slate-950 shadow-[0_10px_24px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/80' : 'text-slate-500 hover:bg-white/70 hover:text-slate-950 hover:shadow-sm' }}"
                         aria-expanded="{{ $isSalesActive ? 'true' : 'false' }}"
                     >
                         <span class="flex items-center gap-3">
@@ -523,15 +522,10 @@
                             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
                     </button>
-                    <div class="sidebar-group-items space-y-1 pl-3 pr-1 transition-all duration-200 {{ $isSalesActive ? '' : 'hidden' }}">
+                    <div class="sidebar-group-items ml-6 space-y-1 border-l border-slate-200 py-1 pl-4 pr-1 transition-all duration-200 {{ $isSalesActive ? '' : 'hidden' }}">
                         @can('sales.customer.view')
                         <x-nav-item href="{{ route('sales.customers.index') }}" :active="request()->routeIs('sales.customers.*')" :sub="true">
                             Customers
-                        </x-nav-item>
-                        @endcan
-                        @can('sales.order.view')
-                        <x-nav-item href="{{ route('sales.orders.index') }}" :active="request()->routeIs('sales.orders.*')" :sub="true">
-                            Sales Orders
                         </x-nav-item>
                         @endcan
                         @can('sales.invoice.view')
@@ -556,7 +550,7 @@
                 <div class="sidebar-group space-y-1">
                     <button
                         type="button"
-                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isAdminActive ? 'bg-cyan-50 text-cyan-800' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950' }}"
+                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isAdminActive ? 'bg-white text-slate-950 shadow-[0_10px_24px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/80' : 'text-slate-500 hover:bg-white/70 hover:text-slate-950 hover:shadow-sm' }}"
                         aria-expanded="{{ $isAdminActive ? 'true' : 'false' }}"
                     >
                         <span class="flex items-center gap-3">
@@ -569,7 +563,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
                     </button>
-                    <div class="sidebar-group-items space-y-1 pl-3 pr-1 transition-all duration-200 {{ $isAdminActive ? '' : 'hidden' }}">
+                    <div class="sidebar-group-items ml-6 space-y-1 border-l border-slate-200 py-1 pl-4 pr-1 transition-all duration-200 {{ $isAdminActive ? '' : 'hidden' }}">
                         @can('admin.user.view')
                         <x-nav-item href="{{ route('admin.overview') }}" :active="request()->routeIs('admin.overview')" :sub="true">
                             Admin Overview

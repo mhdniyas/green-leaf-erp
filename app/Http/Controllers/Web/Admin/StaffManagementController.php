@@ -140,12 +140,6 @@ class StaffManagementController extends Controller
                 $selectedCategory?->code,
                 $search !== '' ? $search : null,
             ),
-            'activeAssignments' => ShopEmployeeAssignment::query()
-                ->with(['employee', 'shop', 'assignedBy'])
-                ->where('status', 'active')
-                ->latest('effective_from')
-                ->limit(12)
-                ->get(),
             'categories' => $categories,
             'categoryTabs' => $categories->map(fn (EmployeeCategory $category): array => [
                 'code' => $category->code,
@@ -155,6 +149,54 @@ class StaffManagementController extends Controller
             'selectedCategory' => $selectedCategory,
             'shops' => $ownedShops,
             'users' => User::query()->with('roles')->orderBy('name')->get(),
+        ]);
+    }
+
+    public function assignmentsIndex(Request $request): View
+    {
+        Gate::authorize('viewAny', Employee::class);
+
+        $selectedDate = Carbon::parse($request->input('date', today()->toDateString()));
+        $shops = Shop::query()
+            ->ownedForStaff()
+            ->with([
+                'ownerAssignments.user.roles',
+                'assignedEmployees' => fn ($query) => $query
+                    ->with('category')
+                    ->wherePivot('status', 'active')
+                    ->orderBy('name'),
+            ])
+            ->withCount([
+                'employeeAttendances as today_present_count' => fn ($query) => $query
+                    ->whereDate('attendance_date', $selectedDate->toDateString())
+                    ->where('status', 'present'),
+                'employeeAttendances as today_half_day_count' => fn ($query) => $query
+                    ->whereDate('attendance_date', $selectedDate->toDateString())
+                    ->where('status', 'half_day'),
+                'employeeAttendances as today_absent_count' => fn ($query) => $query
+                    ->whereDate('attendance_date', $selectedDate->toDateString())
+                    ->where('status', 'absent'),
+                'employeeAttendances as today_leave_count' => fn ($query) => $query
+                    ->whereDate('attendance_date', $selectedDate->toDateString())
+                    ->where('status', 'leave'),
+            ])
+            ->orderBy('name')
+            ->get();
+
+        return view('admin.staff.assignments', [
+            'selectedDate' => $selectedDate,
+            'shops' => $shops,
+            'employeesForAssignment' => Employee::query()
+                ->with(['category', 'defaultShop'])
+                ->where('employment_status', 'active')
+                ->orderBy('name')
+                ->get(),
+            'activeAssignments' => ShopEmployeeAssignment::query()
+                ->with(['employee.category', 'shop.ownerAssignments.user', 'assignedBy'])
+                ->where('status', 'active')
+                ->latest('effective_from')
+                ->limit(20)
+                ->get(),
         ]);
     }
 
@@ -277,7 +319,7 @@ class StaffManagementController extends Controller
             $request->validated('notes'),
         );
 
-        return redirect()->route('admin.staff.employees.index')
+        return redirect()->route('admin.staff.assignments.index')
             ->with('success', 'Employee assigned to '.$shop->name.'.');
     }
 
@@ -751,11 +793,6 @@ class StaffManagementController extends Controller
             'payrollRun' => $payrollRun,
             'payments' => $payments,
             'shopStaffPayments' => $shopStaffPayments,
-            'advanceRequests' => EmployeeAdvanceRequest::query()
-                ->with(['employee', 'shop', 'requestedBy', 'reviewedBy', 'shopStaffPayment'])
-                ->whereDate('payroll_month', $selectedPayrollMonth->toDateString())
-                ->latest('id')
-                ->get(),
             'contractPayments' => ContractWorkerPayment::query()
                 ->with(['shop', 'paidBy'])
                 ->whereDate('paid_on', '>=', $selectedPayrollMonth->toDateString())
@@ -764,6 +801,51 @@ class StaffManagementController extends Controller
                 ->latest('id')
                 ->get(),
             'shops' => Shop::query()->ownedForStaff()->orderBy('name')->get(),
+        ]);
+    }
+
+    public function advancePaymentsIndex(Request $request): View
+    {
+        Gate::authorize('viewAny', PayrollRun::class);
+
+        $payrollMonth = $request->string('payroll_month')->toString();
+
+        if ($payrollMonth === '' && $request->filled('date')) {
+            $payrollMonth = Carbon::parse($request->string('date')->toString())->format('Y-m');
+        }
+
+        $selectedPayrollMonth = $this->resolvePayrollMonth($payrollMonth);
+        $status = $request->string('status', 'all')->toString();
+        $shopId = $request->integer('shop_id');
+        $employeeId = $request->integer('employee_id');
+
+        $advanceRequests = EmployeeAdvanceRequest::query()
+            ->with(['employee.category', 'shop', 'requestedBy', 'reviewedBy', 'shopStaffPayment.paidBy'])
+            ->whereDate('payroll_month', $selectedPayrollMonth->toDateString())
+            ->when(in_array($status, ['pending', 'approved', 'rejected'], true), fn (Builder $query) => $query->where('status', $status))
+            ->when($shopId > 0, fn (Builder $query) => $query->where('shop_id', $shopId))
+            ->when($employeeId > 0, fn (Builder $query) => $query->where('employee_id', $employeeId))
+            ->latest('id')
+            ->get();
+
+        return view('admin.staff.advance-payments', [
+            'selectedPayrollMonth' => $selectedPayrollMonth,
+            'advanceRequests' => $advanceRequests,
+            'summary' => [
+                'pending_count' => $advanceRequests->where('status', 'pending')->count(),
+                'approved_amount' => round((float) $advanceRequests->where('status', 'approved')->sum('approved_amount'), 2),
+                'requested_amount' => round((float) $advanceRequests->sum('requested_amount'), 2),
+                'paid_amount' => round((float) $advanceRequests->where('status', 'approved')->sum(fn (EmployeeAdvanceRequest $advanceRequest): float => (float) ($advanceRequest->shopStaffPayment?->amount ?? 0)), 2),
+            ],
+            'status' => in_array($status, ['pending', 'approved', 'rejected'], true) ? $status : 'all',
+            'selectedShopId' => $shopId,
+            'selectedEmployeeId' => $employeeId,
+            'shops' => Shop::query()->ownedForStaff()->orderBy('name')->get(),
+            'employees' => Employee::query()
+                ->where('staff_area', 'shop')
+                ->where('employment_status', 'active')
+                ->orderBy('name')
+                ->get(),
         ]);
     }
 
@@ -830,7 +912,7 @@ class StaffManagementController extends Controller
             $request->validated('review_note'),
         );
 
-        return redirect()->route('admin.staff.payments.index', [
+        return redirect()->route('admin.staff.advance-payments.index', [
             'payroll_month' => $reviewedAdvance->payroll_month->format('Y-m'),
         ])->with(
             $reviewedAdvance->status === 'approved' ? 'success' : 'warning',

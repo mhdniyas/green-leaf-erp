@@ -188,6 +188,28 @@ class ShopOrder extends Model
         return $this->hasOne(ShopInvoice::class);
     }
 
+    public function isFinanciallyLocked(): bool
+    {
+        if ($this->relationLoaded('invoice') && $this->invoice instanceof ShopInvoice) {
+            if ($this->invoice->isFinalLocked()) {
+                return true;
+            }
+        } elseif ($this->invoice()->where(function ($query): void {
+            $query
+                ->whereIn('delivery_status', ['received_full', 'approved_after_discrepancy'])
+                ->orWhereIn('status', ['finalized', 'payment_pending', 'paid'])
+                ->orWhereIn('payment_status', ['partially_paid', 'paid'])
+                ->orWhereNotNull('payment_approved_at')
+                ->orWhere('paid_amount', '>', 0);
+        })->exists()) {
+            return true;
+        }
+
+        return $this->delivery_review_status === 'approved'
+            || in_array($this->delivery_status, ['delivered', 'partially_delivered'], true)
+            || $this->is_delivered;
+    }
+
     public function nextRevisionNumber(): int
     {
         return max(1, (int) $this->latest_revision_no) + 1;

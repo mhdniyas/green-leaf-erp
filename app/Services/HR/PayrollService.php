@@ -74,18 +74,21 @@ class PayrollService
     public function ensurePayrollRunItem(Employee $employee, Carbon $periodStart, Carbon $periodEnd, int $userId): PayrollRunItem
     {
         return DB::transaction(function () use ($employee, $periodStart, $periodEnd, $userId): PayrollRunItem {
-            $payrollRun = PayrollRun::query()->firstOrCreate(
-                [
+            $payrollRun = PayrollRun::query()
+                ->whereDate('period_start', $periodStart->toDateString())
+                ->whereDate('period_end', $periodEnd->toDateString())
+                ->first();
+
+            if ($payrollRun === null) {
+                $payrollRun = PayrollRun::query()->create([
                     'period_start' => $periodStart->toDateString(),
                     'period_end' => $periodEnd->toDateString(),
-                ],
-                [
                     'status' => 'draft',
                     'generated_by' => $userId,
                     'gross_amount' => 0,
                     'net_amount' => 0,
-                ],
-            );
+                ]);
+            }
 
             $payrollRunItem = PayrollRunItem::query()->firstOrNew([
                 'payroll_run_id' => $payrollRun->id,

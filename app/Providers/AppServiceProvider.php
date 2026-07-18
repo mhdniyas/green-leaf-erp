@@ -19,8 +19,11 @@ use App\Policies\SalesInvoicePolicy;
 use App\Policies\SalesOrderPolicy;
 use App\Policies\SupplierPolicy;
 use App\Policies\UserPolicy;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Str;
 use Spatie\Activitylog\Models\Activity;
 
 class AppServiceProvider extends ServiceProvider
@@ -46,6 +49,16 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(SalesOrder::class, SalesOrderPolicy::class);
         Gate::policy(SalesInvoice::class, SalesInvoicePolicy::class);
         Gate::policy(User::class, UserPolicy::class);
+
+        RateLimiter::for('login', function ($request) {
+            $email = Str::lower((string) $request->input('email'));
+
+            return Limit::perMinute(5)->by($email.'|'.$request->ip());
+        });
+
+        RateLimiter::for('public-form', function ($request) {
+            return Limit::perMinute(10)->by($request->ip());
+        });
 
         User::observe(UserObserver::class);
 

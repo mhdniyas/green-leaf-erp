@@ -22,7 +22,7 @@ class EmployeeAdvanceService
     ) {}
 
     /**
-     * @return array{rule: EmployeeAdvanceRule, present_days: float, earned_amount: float, eligible_amount: float}
+     * @return array{rule: EmployeeAdvanceRule, present_days: float, earned_amount: float, eligible_amount: float, already_advanced_amount: float, available_amount: float}
      */
     public function eligibility(Employee $employee, Carbon $month): array
     {
@@ -39,12 +39,16 @@ class EmployeeAdvanceService
         $eligibleAmount = $presentDays >= (float) $rule->minimum_present_days
             ? round($earnedAmount * ((float) $rule->advance_percent / 100), 2)
             : 0.0;
+        $alreadyAdvancedAmount = $this->approvedAdvanceAmount($employee, $monthStart);
+        $availableAmount = round(max(0, $eligibleAmount - $alreadyAdvancedAmount), 2);
 
         return [
             'rule' => $rule,
             'present_days' => $presentDays,
             'earned_amount' => $earnedAmount,
             'eligible_amount' => $eligibleAmount,
+            'already_advanced_amount' => $alreadyAdvancedAmount,
+            'available_amount' => $availableAmount,
         ];
     }
 
@@ -58,6 +62,12 @@ class EmployeeAdvanceService
             $paidOn->copy()->endOfMonth(),
             (int) $actor->id,
         );
+
+        if ($amount > $payrollRunItem->remainingAmount()) {
+            throw ValidationException::withMessages([
+                'amount' => 'The salary payment cannot be more than the remaining salary.',
+            ]);
+        }
 
         return ShopStaffPayment::query()->create([
             'payroll_run_id' => $payrollRunItem->payroll_run_id,
@@ -76,16 +86,17 @@ class EmployeeAdvanceService
 
     public function requestOrPayAdvance(Employee $employee, Shop $shop, float $amount, string $fundSource, Carbon $requestedOn, User $actor, ?string $note = null): EmployeeAdvanceRequest
     {
-        $this->ensureShopEmployee($employee, $shop, $requestedOn);
+        $this->ensureShopAdvanceEmployee($employee, $shop, $requestedOn);
 
         $month = $requestedOn->copy()->startOfMonth();
         $eligibility = $this->eligibility($employee, $month);
         /** @var EmployeeAdvanceRule $rule */
         $rule = $eligibility['rule'];
         $eligibleAmount = (float) $eligibility['eligible_amount'];
-        $status = $amount <= $eligibleAmount ? 'approved' : 'pending';
+        $availableAmount = (float) $eligibility['available_amount'];
+        $status = $amount <= $availableAmount ? 'approved' : 'pending';
 
-        return DB::transaction(function () use ($employee, $shop, $amount, $fundSource, $requestedOn, $actor, $note, $rule, $eligibility, $eligibleAmount, $status, $month): EmployeeAdvanceRequest {
+        return DB::transaction(function () use ($employee, $shop, $amount, $fundSource, $requestedOn, $actor, $note, $rule, $eligibility, $eligibleAmount, $availableAmount, $status, $month): EmployeeAdvanceRequest {
             $advanceRequest = EmployeeAdvanceRequest::query()->create([
                 'employee_id' => $employee->id,
                 'shop_id' => $shop->id,
@@ -104,6 +115,8 @@ class EmployeeAdvanceService
                     'present_days' => $eligibility['present_days'],
                     'earned_amount' => $eligibility['earned_amount'],
                     'eligible_amount' => $eligibleAmount,
+                    'already_advanced_amount' => $eligibility['already_advanced_amount'],
+                    'available_amount' => $availableAmount,
                 ],
                 'request_note' => $note,
                 'reviewed_by' => $status === 'approved' ? $actor->id : null,
@@ -188,5 +201,23 @@ class EmployeeAdvanceService
                 'employee_id' => 'This employee is not assigned to the selected shop for this date.',
             ]);
         }
+    }
+
+    private function ensureShopAdvanceEmployee(Employee $employee, Shop $shop, Carbon $date): void
+    {
+        if (! $this->assignmentService->hasWorkedAtShopOnOrBefore($employee, $shop, $date)) {
+            throw ValidationException::withMessages([
+                'employee_id' => 'This employee has not worked in the selected shop before this advance date.',
+            ]);
+        }
+    }
+
+    private function approvedAdvanceAmount(Employee $employee, Carbon $monthStart): float
+    {
+        return round((float) EmployeeAdvanceRequest::query()
+            ->where('employee_id', $employee->id)
+            ->whereDate('payroll_month', $monthStart->toDateString())
+            ->where('status', 'approved')
+            ->sum('approved_amount'), 2);
     }
 }
