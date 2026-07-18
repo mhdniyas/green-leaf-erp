@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Web\Sales;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreCustomerRequest extends FormRequest
 {
@@ -16,7 +17,7 @@ class StoreCustomerRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'min:2', 'max:255', 'unique:customers,name'],
+            'name' => ['required', 'string', 'min:2', 'max:255', Rule::unique('customers', 'name')],
             'type' => ['required', 'string', 'in:Retailer,Wholesaler,Restaurant,Supermarket'],
             'contact' => ['required', 'string', 'max:255'],
             'email' => ['nullable', 'email', 'max:255'],

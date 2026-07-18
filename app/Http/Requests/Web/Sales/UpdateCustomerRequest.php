@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Web\Sales;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class UpdateCustomerRequest extends FormRequest
 {
@@ -18,7 +19,7 @@ class UpdateCustomerRequest extends FormRequest
         $customerId = $this->route('customer')?->id;
 
         return [
-            'name' => ['required', 'string', 'min:2', 'max:255', "unique:customers,name,{$customerId}"],
+            'name' => ['required', 'string', 'min:2', 'max:255', Rule::unique('customers', 'name')->ignore($customerId)],
             'type' => ['required', 'string', 'in:Retailer,Wholesaler,Restaurant,Supermarket'],
             'contact' => ['required', 'string', 'max:255'],
             'email' => ['nullable', 'email', 'max:255'],

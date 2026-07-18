@@ -31,6 +31,6 @@ class CustomerPolicy
 
     public function delete(User $user, Customer $customer): bool
     {
-        return $user->can('sales.customer.update');
+        return $user->can('sales.customer.delete');
     }
 }

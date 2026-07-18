@@ -42,6 +42,7 @@ class RolePermissionSeeder extends Seeder
             'sales.customer.view',
             'sales.customer.create',
             'sales.customer.update',
+            'sales.customer.delete',
             'sales.order.view',
             'sales.order.create',
             'sales.order.confirm',

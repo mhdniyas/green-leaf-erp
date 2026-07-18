@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Models\Customer;
 use App\Models\SalesInvoice;
 use App\Models\User;
+use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\ViewErrorBag;
 use Spatie\Permission\Models\Permission;
@@ -81,12 +83,80 @@ class SalesSurfaceTest extends TestCase
             ->assertSee($invoice->salesOrder->so_number);
     }
 
+    public function test_admin_can_create_update_and_delete_external_customers(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+
+        $this
+            ->actingAs($admin)
+            ->get(route('sales.customers.index'))
+            ->assertOk()
+            ->assertSee('Add External Customer');
+
+        $this
+            ->post(route('sales.customers.store'), [
+                'name' => 'Hotel Fresh',
+                'type' => 'Restaurant',
+                'contact' => 'Manager 9876543210',
+                'email' => 'hotel@example.com',
+                'address' => 'Main Road',
+                'payment_terms' => 'Net 7',
+                'credit_limit' => 25000,
+                'is_active' => 1,
+            ])
+            ->assertRedirect(route('sales.customers.index'));
+
+        $this->assertDatabaseHas('customers', [
+            'name' => 'Hotel Fresh',
+            'type' => 'Restaurant',
+            'payment_terms' => 'Net 7',
+        ]);
+
+        $customer = Customer::query()->where('name', 'Hotel Fresh')->firstOrFail();
+
+        $this
+            ->get(route('sales.customers.edit', $customer))
+            ->assertOk()
+            ->assertSee('Edit Customer');
+
+        $this
+            ->put(route('sales.customers.update', $customer), [
+                'name' => 'Hotel Fresh Updated',
+                'type' => 'Supermarket',
+                'contact' => 'Owner 9876543211',
+                'email' => 'updated@example.com',
+                'address' => 'Market Road',
+                'payment_terms' => 'Net 15',
+                'credit_limit' => 50000,
+                'is_active' => 1,
+            ])
+            ->assertRedirect(route('sales.customers.index'));
+
+        $this->assertDatabaseHas('customers', [
+            'id' => $customer->id,
+            'name' => 'Hotel Fresh Updated',
+            'type' => 'Supermarket',
+        ]);
+
+        $this
+            ->delete(route('sales.customers.destroy', $customer))
+            ->assertRedirect(route('sales.customers.index'));
+
+        $this->assertSoftDeleted('customers', [
+            'id' => $customer->id,
+        ]);
+    }
+
     private function salesAdmin(): User
     {
         foreach ([
             'sales.customer.view',
             'sales.customer.create',
             'sales.customer.update',
+            'sales.customer.delete',
             'sales.invoice.view',
             'sales.invoice.create',
         ] as $permission) {
@@ -98,6 +168,7 @@ class SalesSurfaceTest extends TestCase
             'sales.customer.view',
             'sales.customer.create',
             'sales.customer.update',
+            'sales.customer.delete',
             'sales.invoice.view',
             'sales.invoice.create',
         ]);
