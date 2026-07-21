@@ -268,6 +268,90 @@ class SidebarLayoutRefreshTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_owned_shop_owner_dashboard_shows_owned_money_flow(): void
+    {
+        $shopOwner = $this->shopOwnerUser([
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+        $order = ShopOrder::query()->create([
+            'shop_id' => $shopOwner->shop_id,
+            'business_date' => today()->toDateString(),
+            'state' => 'approved',
+            'delivery_status' => 'in_transit',
+            'is_allocation_completed' => true,
+            'created_by' => $shopOwner->id,
+        ]);
+        ShopInvoice::query()->create([
+            'shop_id' => $shopOwner->shop_id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'SINV-DASH-OWNED',
+            'business_date' => today()->toDateString(),
+            'status' => 'finalized',
+            'delivery_status' => 'received_full',
+            'payment_status' => 'unpaid',
+            'subtotal' => 500,
+            'shortage_total' => 0,
+            'discount_total' => 0,
+            'final_total' => 500,
+            'paid_amount' => 0,
+            'balance_amount' => 500,
+            'generated_by' => $shopOwner->id,
+        ]);
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.dashboard'))
+            ->assertOk()
+            ->assertSee('Owned shop money flow')
+            ->assertSee('Approved Debit')
+            ->assertSee('Today Closing')
+            ->assertSee('Rs. 500.00')
+            ->assertSee('Open Cashbook');
+    }
+
+    public function test_regular_shop_owner_dashboard_shows_bill_collection(): void
+    {
+        $shopOwner = $this->shopOwnerUser([
+            'accounting_enabled' => false,
+            'accounting_mode' => 'regular',
+        ]);
+        $order = ShopOrder::query()->create([
+            'shop_id' => $shopOwner->shop_id,
+            'business_date' => today()->toDateString(),
+            'state' => 'approved',
+            'delivery_status' => 'in_transit',
+            'is_allocation_completed' => true,
+            'created_by' => $shopOwner->id,
+        ]);
+        ShopInvoice::query()->create([
+            'shop_id' => $shopOwner->shop_id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'SINV-DASH-REGULAR',
+            'business_date' => today()->toDateString(),
+            'status' => 'generated',
+            'delivery_status' => 'pending',
+            'payment_status' => 'unpaid',
+            'subtotal' => 750,
+            'shortage_total' => 0,
+            'discount_total' => 0,
+            'final_total' => 750,
+            'paid_amount' => 0,
+            'balance_amount' => 750,
+            'generated_by' => $shopOwner->id,
+        ]);
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.dashboard'))
+            ->assertOk()
+            ->assertSee('Shop bill collection')
+            ->assertSee('Unpaid Bills')
+            ->assertSee('Outstanding')
+            ->assertSee('Rs. 750.00')
+            ->assertSee('Open Bills');
+    }
+
     private function adminUser(): User
     {
         foreach (['admin', 'shop', 'purchase', 'purchaser', 'warehouse_receiver'] as $role) {

@@ -827,34 +827,78 @@ class ShopOwnerController extends Controller
      */
     private function buildDashboardData(Shop $shop): array
     {
+        $businessDate = today();
+        $isOwnedAccountingShop = $shop->isOwnedAccountingEnabled();
         $recentOrders = $this->shopOrdersQuery($shop)->latest('business_date')->limit(8)->get();
         $deliveredOrders = $recentOrders->where('is_delivered', true);
+        $allInvoices = ShopInvoice::query()
+            ->where('shop_id', $shop->id)
+            ->get();
+        $todayInvoices = ShopInvoice::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', $businessDate->toDateString())
+            ->with(['order', 'items.product'])
+            ->latest('id')
+            ->get();
         $recentInvoices = ShopInvoice::query()
             ->where('shop_id', $shop->id)
-            ->with('order')
+            ->with(['order', 'items.product'])
             ->latest('business_date')
+            ->latest('id')
             ->limit(8)
             ->get();
         $pendingDeliveries = $recentOrders->filter(
             fn (ShopOrder $order): bool => $order->is_allocation_completed && ! $order->is_delivered
         );
+        $todayBillingSummary = $this->billingSummary($todayInvoices);
+        $billingSummary = $this->billingSummary($allInvoices);
+        $receiptSummary = $isOwnedAccountingShop
+            ? $this->ownedShopAccountingService->receiptSummaryForDate($shop, $businessDate)
+            : $this->ownedShopAccountingService->receiptSummary(null);
+        $pendingBillApprovalSummary = $isOwnedAccountingShop
+            ? $this->ownedShopAccountingService->pendingDeliveryBillApprovalSummary($shop)
+            : ['count' => 0, 'amount' => 0.0];
+        $latestBalanceDate = $isOwnedAccountingShop ? $this->latestShopBalanceDate($shop) : $businessDate;
+        $latestClosingBalance = $isOwnedAccountingShop
+            ? $this->ownedShopAccountingService->closingBalanceForDate($shop, $latestBalanceDate)
+            : 0.0;
 
         return [
+            'shop' => $shop,
+            'isOwnedAccountingShop' => $isOwnedAccountingShop,
+            'businessDate' => $businessDate,
             'stats' => [
                 'pending_approval_count' => $recentOrders->whereIn('state', ['submitted', 'update_requested'])->count(),
                 'pending_delivery_count' => $pendingDeliveries->count(),
                 'delivered_orders_count' => $deliveredOrders->count(),
-                'outstanding_balance' => (float) $recentInvoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->balance_amount),
+                'outstanding_balance' => (float) $billingSummary['total_balance'],
+                'today_bill_total' => (float) $todayBillingSummary['total_billed'],
+                'today_bill_count' => $todayInvoices->count(),
+                'today_approved_bill_debit' => (float) $receiptSummary['approved_delivery_bill'],
+                'today_closing_balance' => (float) ($receiptSummary['entered_closing'] ?? $receiptSummary['expected_closing']),
+                'pending_bill_approval_count' => $isOwnedAccountingShop
+                    ? $pendingBillApprovalSummary['count']
+                    : $billingSummary['open_bills'],
+                'pending_bill_approval_amount' => $isOwnedAccountingShop
+                    ? $pendingBillApprovalSummary['amount']
+                    : $billingSummary['total_balance'],
             ],
             'todayOrder' => $this->todayOrder($shop),
             'tomorrowOrder' => $this->tomorrowOrder($shop),
             'pendingDeliveries' => $pendingDeliveries,
             'recentOrders' => $recentOrders,
             'recentInvoices' => $recentInvoices,
+            'todayInvoices' => $todayInvoices,
             'financeSummary' => [
-                'paid_amount' => (float) $recentInvoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->paid_amount),
-                'shortage_value' => (float) $recentInvoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->shortage_total),
-                'outstanding_balance' => (float) $recentInvoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->balance_amount),
+                'paid_amount' => (float) $billingSummary['total_paid'],
+                'shortage_value' => (float) $allInvoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->shortage_total),
+                'outstanding_balance' => (float) $billingSummary['total_balance'],
+                'today_bill_total' => (float) $todayBillingSummary['total_billed'],
+                'today_approved_bill_debit' => (float) $receiptSummary['approved_delivery_bill'],
+                'today_closing_balance' => (float) ($receiptSummary['entered_closing'] ?? $receiptSummary['expected_closing']),
+                'pending_bill_approval_amount' => (float) $pendingBillApprovalSummary['amount'],
+                'pending_bill_approval_count' => (int) $pendingBillApprovalSummary['count'],
+                'latest_balance_date' => $latestBalanceDate,
             ],
         ];
     }

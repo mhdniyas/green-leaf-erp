@@ -6,18 +6,26 @@
 @php($breadcrumbs = [['label' => 'Dashboard']])
 
 @section('page_actions')
-    @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.create'), 'label' => 'Open Marketplace', 'classes' => 'bg-emerald-600 text-white'])
+    <div class="flex flex-wrap gap-2">
+        @include('shop-owner.components.action-button', ['href' => route('shop-owner.accounting.index', ['tab' => $isOwnedAccountingShop ? 'cashbook' : 'bills']), 'label' => $isOwnedAccountingShop ? 'Open Cashbook' : 'Open Bills', 'classes' => 'border border-slate-200 bg-white text-slate-800'])
+        @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.create'), 'label' => 'Open Marketplace', 'classes' => 'bg-emerald-600 text-white'])
+    </div>
 @endsection
 
 @section('content')
     <div class="space-y-6">
-        @include('shop-owner.dashboard.partials.stats-cards', ['stats' => $stats])
+        @include('shop-owner.dashboard.partials.stats-cards', ['stats' => $stats, 'isOwnedAccountingShop' => $isOwnedAccountingShop])
 
         <div class="grid gap-6 xl:grid-cols-[1.3fr_1fr]">
             @include('shop-owner.dashboard.partials.today-orders', ['todayOrder' => $todayOrder, 'tomorrowOrder' => $tomorrowOrder])
             @include('shop-owner.dashboard.partials.pending-deliveries', ['pendingDeliveries' => $pendingDeliveries])
         </div>
 
-        @include('shop-owner.dashboard.partials.finance-summary', ['financeSummary' => $financeSummary, 'recentOrders' => $recentOrders])
+        @include('shop-owner.dashboard.partials.finance-summary', [
+            'financeSummary' => $financeSummary,
+            'recentInvoices' => $recentInvoices,
+            'businessDate' => $businessDate,
+            'isOwnedAccountingShop' => $isOwnedAccountingShop,
+        ])
     </div>
 @endsection
