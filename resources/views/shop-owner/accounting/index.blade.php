@@ -207,58 +207,71 @@
             </section>
 
             @if ($tab === 'cashbook')
-            <section class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-                <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Daily Shop Receipt</p>
-                        <h3 class="mt-2 text-lg font-black text-slate-950">Opening + credit - debit = closing</h3>
+            <section class="overflow-hidden rounded-[1.6rem] border border-emerald-200 bg-[#dcffd6] p-4 text-slate-950 shadow-sm sm:p-5">
+                <div class="font-mono">
+                    <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <p class="text-base font-black leading-tight sm:text-lg">Daily Shop Receipt</p>
+                            <p class="mt-1 text-sm font-bold leading-tight text-slate-800">Opening + credit - debit = closing</p>
+                        </div>
+                        <p class="text-sm font-bold text-slate-700">{{ $selectedDate->format('d/m/Y') }}</p>
                     </div>
+
+                    <div class="my-4 border-t border-dashed border-emerald-900/50"></div>
+
+                    <div class="space-y-2 text-sm sm:text-base">
+                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
+                            <p class="font-bold">Total Income</p>
+                            <p class="font-black tabular-nums">Rs. {{ number_format($receiptSummary['total_income'], 2) }}</p>
+                        </div>
+                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
+                            <p class="font-bold">Opening</p>
+                            <p class="font-black tabular-nums">Rs. {{ number_format($receiptSummary['opening_balance'], 2) }}</p>
+                        </div>
+                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
+                            <p class="font-bold text-emerald-900">Cash Sales</p>
+                            <p class="font-black text-emerald-900 tabular-nums">Rs. {{ number_format($receiptSummary['cash_credit'], 2) }}</p>
+                        </div>
+                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
+                            <p class="font-bold text-emerald-900">Cash Given</p>
+                            <p class="font-black text-emerald-900 tabular-nums">Rs. {{ number_format($receiptSummary['cash_given_to_shop'], 2) }}</p>
+                        </div>
+                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
+                            <p class="font-bold text-cyan-900">Online Payment</p>
+                            <p class="font-black text-cyan-900 tabular-nums">Rs. {{ number_format($receiptSummary['non_cash_income'], 2) }}</p>
+                        </div>
+                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
+                            <p class="font-bold text-amber-900">Paid Company</p>
+                            <p class="font-black text-amber-900 tabular-nums">Rs. {{ number_format($receiptSummary['payment_to_company'], 2) }}</p>
+                        </div>
+                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
+                            <p class="font-bold text-rose-900">Cash Debit</p>
+                            <p class="font-black text-rose-900 tabular-nums">Rs. {{ number_format($receiptSummary['cash_debit'], 2) }}</p>
+                        </div>
+                    </div>
+
+                    <div class="my-4 border-t border-dashed border-emerald-900/50"></div>
+
+                    <div class="space-y-2 text-sm sm:text-base">
+                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
+                            <p class="font-bold">Expected</p>
+                            <p class="font-black tabular-nums">Rs. {{ number_format($receiptSummary['expected_closing'], 2) }}</p>
+                        </div>
+                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
+                            <p class="font-bold">Closing</p>
+                            <p data-cashbook-closing-display class="font-black tabular-nums {{ $calculatedClosingTone === 'rose' ? 'text-rose-900' : 'text-emerald-900' }}">Rs. {{ number_format($calculatedClosing, 2) }}</p>
+                        </div>
+                    </div>
+
                     @if ($receiptSummary['owner_funded'] > 0)
-                        <p class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-black text-rose-700">
+                        <div class="mt-4 rounded-xl border border-rose-300 bg-white/50 px-3 py-2 text-sm font-black text-rose-900">
                             Owner funded Rs. {{ number_format($receiptSummary['owner_funded'], 2) }}
-                        </p>
+                        </div>
                     @endif
                 </div>
 
-                <div class="mt-5 grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-4 xl:grid-cols-8">
-                    <div class="min-w-0 rounded-[1.1rem] border border-slate-200 bg-slate-50 p-3">
-                        <p class="text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[9px]">Opening</p>
-                        <p class="mt-2 truncate text-[13px] font-black leading-none text-slate-950 tabular-nums sm:text-base">Rs. {{ number_format($receiptSummary['opening_balance'], 2) }}</p>
-                    </div>
-                    <div class="min-w-0 rounded-[1.1rem] border border-emerald-200 bg-emerald-50 p-3">
-                        <p class="text-[8px] font-black uppercase tracking-[0.1em] text-emerald-700 sm:text-[9px]">Cash Sales</p>
-                        <p class="mt-2 truncate text-[13px] font-black leading-none text-emerald-800 tabular-nums sm:text-base">Rs. {{ number_format($receiptSummary['cash_credit'], 2) }}</p>
-                    </div>
-                    <div class="min-w-0 rounded-[1.1rem] border border-emerald-200 bg-emerald-50 p-3">
-                        <p class="text-[8px] font-black uppercase tracking-[0.1em] text-emerald-700 sm:text-[9px]">Cash Given</p>
-                        <p class="mt-2 truncate text-[13px] font-black leading-none text-emerald-800 tabular-nums sm:text-base">Rs. {{ number_format($receiptSummary['cash_given_to_shop'], 2) }}</p>
-                    </div>
-                    <div class="min-w-0 rounded-[1.1rem] border border-cyan-200 bg-cyan-50 p-3">
-                        <p class="text-[8px] font-black uppercase tracking-[0.1em] text-cyan-700 sm:text-[9px]">Online Payment</p>
-                        <p class="mt-2 truncate text-[13px] font-black leading-none text-cyan-800 tabular-nums sm:text-base">Rs. {{ number_format($receiptSummary['non_cash_income'], 2) }}</p>
-                    </div>
-                    <div class="min-w-0 rounded-[1.1rem] border border-amber-200 bg-amber-50 p-3">
-                        <p class="text-[8px] font-black uppercase tracking-[0.1em] text-amber-700 sm:text-[9px]">Paid Company</p>
-                        <p class="mt-2 truncate text-[13px] font-black leading-none text-amber-800 tabular-nums sm:text-base">Rs. {{ number_format($receiptSummary['payment_to_company'], 2) }}</p>
-                    </div>
-                    <div class="min-w-0 rounded-[1.1rem] border border-rose-200 bg-rose-50 p-3">
-                        <p class="text-[8px] font-black uppercase tracking-[0.1em] text-rose-700 sm:text-[9px]">Cash Debit</p>
-                        <p class="mt-2 truncate text-[13px] font-black leading-none text-rose-800 tabular-nums sm:text-base">Rs. {{ number_format($receiptSummary['cash_debit'], 2) }}</p>
-                    </div>
-                    <div class="min-w-0 rounded-[1.1rem] border border-slate-200 bg-slate-50 p-3">
-                        <p class="text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[9px]">Expected</p>
-                        <p class="mt-2 truncate text-[13px] font-black leading-none text-slate-950 tabular-nums sm:text-base">Rs. {{ number_format($receiptSummary['expected_closing'], 2) }}</p>
-                    </div>
-                    <div class="min-w-0 rounded-[1.1rem] border {{ $calculatedClosingTone === 'rose' ? 'border-rose-200 bg-rose-50' : 'border-emerald-200 bg-emerald-50' }} p-3">
-                        <p class="text-[8px] font-black uppercase tracking-[0.1em] {{ $calculatedClosingTone === 'rose' ? 'text-rose-700' : 'text-emerald-700' }} sm:text-[9px]">Closing</p>
-                        <p data-cashbook-closing-display class="mt-2 truncate text-[13px] font-black leading-none tabular-nums {{ $calculatedClosingTone === 'rose' ? 'text-rose-800' : 'text-emerald-800' }} sm:text-base">
-                            Rs. {{ number_format($calculatedClosing, 2) }}
-                        </p>
-                    </div>
-                </div>
-
                 @if ($receiptSummary['difference'] !== null && abs((float) $receiptSummary['difference']) > 0.009)
-                    <div class="mt-4 rounded-[1.35rem] border border-amber-200 bg-amber-50 px-4 py-4">
+                    <div class="mt-4 rounded-[1.35rem] border border-amber-300 bg-amber-50 px-4 py-4">
                         <p class="text-sm font-black text-amber-900">Difference: Rs. {{ number_format((float) $receiptSummary['difference'], 2) }}</p>
                         <p class="mt-1 text-sm font-semibold text-amber-800">Entered closing does not match calculated closing. Add a note before submitting if this is expected.</p>
                     </div>
