@@ -186,21 +186,13 @@
                         <h2 class="mt-1 text-lg font-black text-slate-950">Daily Shop Receipt</h2>
                     </div>
 
-                    <form method="GET" action="{{ route('shop-owner.accounting.index') }}" class="grid gap-2 rounded-[1.25rem] border border-slate-200 bg-slate-50 p-2 sm:grid-cols-5">
+                    <form method="GET" action="{{ route('shop-owner.accounting.index') }}" class="grid gap-2 rounded-[1.25rem] border border-slate-200 bg-slate-50 p-2 sm:grid-cols-3">
                         <input type="hidden" name="tab" value="{{ $tab }}">
                         <label class="rounded-2xl bg-white px-4 py-2 text-slate-900 shadow-sm">
                             <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Business Date</span>
                             <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
                         </label>
-                        <label class="rounded-2xl bg-white px-4 py-2 text-slate-900 shadow-sm">
-                            <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">From Optional</span>
-                            <input type="date" name="start_date" value="{{ request('start_date') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
-                        </label>
-                        <label class="rounded-2xl bg-white px-4 py-2 text-slate-900 shadow-sm">
-                            <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">To Optional</span>
-                            <input type="date" name="end_date" value="{{ request('end_date') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
-                        </label>
-                        <button type="submit" class="inline-flex h-14 items-center justify-center rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">Update Ledger</button>
+                        <button type="submit" class="inline-flex h-14 items-center justify-center rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">Update Receipt</button>
                         <a href="{{ route('shop-owner.accounting.index', ['tab' => $tab, 'date' => today()->toDateString()]) }}" class="inline-flex h-14 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-800 transition hover:bg-slate-50">Today</a>
                     </form>
                 </div>
@@ -308,6 +300,25 @@
                         <a href="{{ route('shop-owner.accounting.history', ['tab' => 'cashbook']) }}" class="text-sm font-black text-emerald-700">Open full history</a>
                     </div>
                 </div>
+
+                <form method="GET" action="{{ route('shop-owner.accounting.index') }}" class="mt-4 grid gap-2 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-2 sm:grid-cols-4">
+                    <input type="hidden" name="tab" value="cashbook">
+                    <input type="hidden" name="date" value="{{ $selectedDate->format('Y-m-d') }}">
+                    <input type="hidden" name="ledger_status" value="{{ $ledgerStatusTab }}">
+                    @if ($ledgerSourceFilter === 'greenleaf_direct')
+                        <input type="hidden" name="ledger_source" value="greenleaf_direct">
+                    @endif
+                    <label class="rounded-2xl bg-white px-4 py-2 text-slate-900 shadow-sm">
+                        <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">From</span>
+                        <input type="date" name="start_date" value="{{ request('start_date') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
+                    </label>
+                    <label class="rounded-2xl bg-white px-4 py-2 text-slate-900 shadow-sm">
+                        <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">To</span>
+                        <input type="date" name="end_date" value="{{ request('end_date') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
+                    </label>
+                    <button type="submit" class="inline-flex h-14 items-center justify-center rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">Filter Table</button>
+                    <a href="{{ route('shop-owner.accounting.index', ['tab' => 'cashbook', 'ledger_status' => $ledgerStatusTab, 'date' => $selectedDate->format('Y-m-d')]) }}" class="inline-flex h-14 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-800 transition hover:bg-slate-50">Clear</a>
+                </form>
 
                 <div class="mt-4">
                     @foreach ($ledgerStatusTabs as $statusKey => $statusLabel)
