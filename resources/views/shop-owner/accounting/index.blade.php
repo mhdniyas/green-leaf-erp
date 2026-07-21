@@ -42,96 +42,159 @@
         @include('shop-owner.accounting.partials.tabs', ['shop' => $shop, 'tab' => $tab])
 
         @if ($tab === 'bills')
-            <section class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-                <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            @php
+                $approvedBillInvoices = $selectedBillInvoices->filter(
+                    fn (\App\Models\ShopInvoice $invoice): bool => in_array((string) $invoice->delivery_status, ['received_full', 'approved_after_discrepancy'], true)
+                        || in_array((string) $invoice->status, ['finalized', 'payment_pending', 'paid'], true)
+                        || in_array((string) $invoice->payment_status, ['partially_paid', 'paid'], true)
+                );
+                $approvedBillDebitTotal = round((float) $approvedBillInvoices->sum('final_total'), 2);
+                $dailyBillLines = $selectedBillInvoices
+                    ->flatMap(fn (\App\Models\ShopInvoice $invoice) => $invoice->items->map(fn ($item) => [
+                        'invoice_number' => $invoice->invoice_number,
+                        'product_name' => $item->product_name ?: ($item->product?->name ?? 'Unknown Product'),
+                        'unit' => $item->unit,
+                        'approved_qty' => (float) $item->approved_qty,
+                        'unit_price' => (float) $item->unit_price,
+                        'line_total' => (float) $item->final_line_total,
+                    ]))
+                    ->values();
+            @endphp
+
+            <section class="rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div>
-                        <p class="text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">Daily Delivery Bills</p>
-                        <h2 class="mt-2 text-xl font-black text-slate-950">Bills and balance to be paid</h2>
-                        <p class="mt-2 text-sm font-semibold text-slate-600">Each delivered bill shows the final amount, paid amount, and pending balance. Request full due or send a custom payment amount for approval.</p>
+                        <p class="text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">{{ $shop->isOwnedAccountingEnabled() ? 'Owned Shop' : 'Shop Bill' }}</p>
+                        <h2 class="mt-1 text-lg font-black text-slate-950">Daily Delivery Bill</h2>
                     </div>
-                    <p class="rounded-full bg-slate-100 px-4 py-2 text-xs font-black uppercase tracking-[0.18em] text-slate-700">
-                        {{ $billingSummary['open_bills'] }} open bill{{ $billingSummary['open_bills'] === 1 ? '' : 's' }}
-                    </p>
+
+                    <form method="GET" action="{{ route('shop-owner.accounting.index') }}" class="grid gap-2 rounded-[1.25rem] border border-slate-200 bg-slate-50 p-2 sm:grid-cols-3">
+                        <input type="hidden" name="tab" value="bills">
+                        <label class="rounded-2xl bg-white px-4 py-2 text-slate-900 shadow-sm">
+                            <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Bill Date</span>
+                            <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
+                        </label>
+                        <button type="submit" class="inline-flex h-14 items-center justify-center rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">Show Bill</button>
+                        <a href="{{ route('shop-owner.accounting.index', ['tab' => 'bills', 'date' => today()->toDateString()]) }}" class="inline-flex h-14 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-800 transition hover:bg-slate-50">Today</a>
+                    </form>
                 </div>
             </section>
 
-            <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <div class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Total Billed</p>
-                    <p class="mt-2 text-3xl font-black text-slate-950">Rs. {{ number_format($billingSummary['total_billed'], 2) }}</p>
+            <section class="overflow-hidden rounded-[1.6rem] border border-emerald-200 bg-[#dcffd6] p-4 text-slate-950 shadow-sm sm:p-5">
+                <div class="font-mono">
+                    <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <p class="text-base font-black leading-tight sm:text-lg">Green Leaf Traders - Delivery Bill</p>
+                            <p class="mt-1 text-sm font-bold leading-tight text-slate-800">{{ $shop->name }} | {{ $selectedDate->format('d/m/Y') }}</p>
+                        </div>
+                        <p class="text-sm font-bold text-slate-700">{{ $selectedBillInvoices->count() }} bill{{ $selectedBillInvoices->count() === 1 ? '' : 's' }}</p>
+                    </div>
+
+                    <div class="my-4 border-t border-dashed border-emerald-900/50"></div>
+
+                    @if ($dailyBillLines->isEmpty())
+                        <div class="rounded-xl border border-emerald-300 bg-white/50 p-4 text-center">
+                            <p class="text-sm font-black text-slate-800">No delivery bill for this date.</p>
+                        </div>
+                    @else
+                        <div class="hidden overflow-hidden rounded-xl border border-emerald-900/20 bg-white/30 sm:block">
+                            <table class="min-w-full text-left text-sm">
+                                <thead class="border-b border-emerald-900/20 text-[11px] font-black uppercase tracking-[0.16em] text-slate-700">
+                                    <tr>
+                                        <th class="px-3 py-3">Item</th>
+                                        <th class="px-3 py-3 text-right">Qty</th>
+                                        <th class="px-3 py-3 text-right">Rate</th>
+                                        <th class="px-3 py-3 text-right">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-emerald-900/10">
+                                    @foreach ($dailyBillLines as $line)
+                                        <tr>
+                                            <td class="px-3 py-3 font-bold">
+                                                {{ $line['product_name'] }}
+                                                <span class="block text-[11px] font-bold text-slate-600">{{ $line['invoice_number'] }}</span>
+                                            </td>
+                                            <td class="px-3 py-3 text-right font-black tabular-nums">{{ number_format($line['approved_qty'], 2) }} {{ $line['unit'] }}</td>
+                                            <td class="px-3 py-3 text-right font-black tabular-nums">{{ number_format($line['unit_price'], 2) }}</td>
+                                            <td class="px-3 py-3 text-right font-black tabular-nums">{{ number_format($line['line_total'], 2) }}</td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="space-y-3 sm:hidden">
+                            @foreach ($dailyBillLines as $line)
+                                <div class="rounded-xl border border-emerald-900/20 bg-white/30 p-3">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div>
+                                            <p class="text-sm font-black">{{ $line['product_name'] }}</p>
+                                            <p class="mt-1 text-xs font-bold text-slate-600">{{ $line['invoice_number'] }}</p>
+                                        </div>
+                                        <p class="text-right text-sm font-black tabular-nums">Rs. {{ number_format($line['line_total'], 2) }}</p>
+                                    </div>
+                                    <p class="mt-2 text-xs font-bold text-slate-700">{{ number_format($line['approved_qty'], 2) }} {{ $line['unit'] }} x Rs. {{ number_format($line['unit_price'], 2) }}</p>
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
+
+                    <div class="my-4 border-t border-dashed border-emerald-900/50"></div>
+
+                    <div class="space-y-2 text-sm sm:text-base">
+                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
+                            <p class="font-bold">Bill Total</p>
+                            <p class="font-black tabular-nums">Rs. {{ number_format($dailyBillingSummary['total_billed'], 2) }}</p>
+                        </div>
+                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
+                            <p class="font-bold">{{ $shop->isOwnedAccountingEnabled() ? 'Approved Debit To Shop' : 'Paid' }}</p>
+                            <p class="font-black tabular-nums {{ $shop->isOwnedAccountingEnabled() ? 'text-rose-900' : 'text-emerald-900' }}">
+                                Rs. {{ number_format($shop->isOwnedAccountingEnabled() ? $approvedBillDebitTotal : $dailyBillingSummary['total_paid'], 2) }}
+                            </p>
+                        </div>
+                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
+                            <p class="font-bold">{{ $shop->isOwnedAccountingEnabled() ? 'Pending Approval' : 'Balance' }}</p>
+                            <p class="font-black tabular-nums {{ $shop->isOwnedAccountingEnabled() ? 'text-amber-900' : 'text-rose-900' }}">
+                                Rs. {{ number_format($shop->isOwnedAccountingEnabled() ? max(0, $dailyBillingSummary['total_billed'] - $approvedBillDebitTotal) : $dailyBillingSummary['total_balance'], 2) }}
+                            </p>
+                        </div>
+                    </div>
                 </div>
-                <div class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Paid</p>
-                    <p class="mt-2 text-3xl font-black text-emerald-700">Rs. {{ number_format($billingSummary['total_paid'], 2) }}</p>
-                </div>
-                <div class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Balance</p>
-                    <p class="mt-2 text-3xl font-black text-rose-700">Rs. {{ number_format($billingSummary['total_balance'], 2) }}</p>
-                </div>
-                <div class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Requests</p>
-                    <p class="mt-2 text-3xl font-black text-slate-950">{{ $paymentRequests->total() }}</p>
+
+                <div class="mt-4 rounded-xl border border-emerald-300 bg-white/50 p-3">
+                    @if ($shop->isOwnedAccountingEnabled())
+                        <p class="text-sm font-black text-slate-900">Approved bills are posted as shop debit for this bill date.</p>
+                        <p class="mt-1 text-sm font-semibold text-slate-700">Company payment is handled from Finance > Payments. Bills do not create duplicate manual expenses.</p>
+                    @else
+                        <p class="text-sm font-black text-slate-900">Regular shop bills stay as customer receivable until payment is approved.</p>
+                        <p class="mt-1 text-sm font-semibold text-slate-700">Submit bill payment from Finance > Payments.</p>
+                    @endif
                 </div>
             </section>
 
-            <section class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-                <div class="flex items-center justify-between gap-3">
+            <section class="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Current Bills</p>
-                        <h3 class="mt-2 text-lg font-black text-slate-950">Daily bill table</h3>
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">All Bills</p>
+                        <h3 class="mt-2 text-lg font-black text-slate-950">Recent bill history</h3>
                     </div>
-                    <a href="{{ route('shop-owner.accounting.history', ['tab' => 'bills']) }}" class="text-sm font-black text-emerald-700">Full history</a>
+                    <div class="flex flex-wrap gap-2">
+                        <a href="{{ route('shop-owner.finance.index', ['tab' => 'payments']) }}" class="inline-flex h-10 items-center rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">Open Payments</a>
+                        <a href="{{ route('shop-owner.accounting.history', ['tab' => 'bills']) }}" class="inline-flex h-10 items-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-800 transition hover:bg-slate-50">Full History</a>
+                    </div>
                 </div>
 
-                <div class="mt-5 space-y-4">
+                <div class="mt-5 space-y-3">
                     @forelse ($invoices as $invoice)
-                        @php
-                            $latestRequest = $invoice->paymentRequests->first();
-                            $hasPendingRequest = $latestRequest && $latestRequest->status === 'pending';
-                        @endphp
-                        <article class="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-4">
-                            <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                        <a href="{{ route('shop-owner.finance.show', $invoice) }}" class="block rounded-[1.35rem] border border-slate-200 bg-slate-50 p-4 transition hover:border-emerald-200 hover:bg-emerald-50/40">
+                            <div class="flex items-start justify-between gap-3">
                                 <div>
-                                    <p class="text-xs font-black uppercase tracking-[0.18em] text-cyan-700">{{ $invoice->invoice_number }}</p>
-                                    <h4 class="mt-2 text-lg font-black text-slate-950">{{ $invoice->business_date->format('d M Y') }}</h4>
-                                    <div class="mt-3 flex flex-wrap gap-2">
-                                        @include('shop-owner.components.status-badge', ['label' => str($invoice->payment_status)->replace('_', ' ')->title(), 'tone' => (float) $invoice->balance_amount > 0 ? 'warning' : 'success'])
-                                        @if ($latestRequest)
-                                            @include('shop-owner.components.status-badge', ['label' => $latestRequest->statusLabel(), 'tone' => $latestRequest->statusTone()])
-                                        @endif
-                                    </div>
-                                    <div class="mt-4 grid gap-3 sm:grid-cols-3">
-                                        <div>
-                                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Bill</p>
-                                            <p class="mt-1 text-sm font-black text-slate-950">Rs. {{ number_format((float) $invoice->final_total, 2) }}</p>
-                                        </div>
-                                        <div>
-                                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Paid</p>
-                                            <p class="mt-1 text-sm font-black text-emerald-700">Rs. {{ number_format((float) $invoice->paid_amount, 2) }}</p>
-                                        </div>
-                                        <div>
-                                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Due</p>
-                                            <p class="mt-1 text-sm font-black text-rose-700">Rs. {{ number_format((float) $invoice->balance_amount, 2) }}</p>
-                                        </div>
-                                    </div>
+                                    <p class="text-sm font-black text-slate-950">{{ $invoice->invoice_number }}</p>
+                                    <p class="mt-1 text-xs font-semibold text-slate-500">{{ $invoice->business_date?->format('d M Y') }} | {{ $invoice->items->count() }} item{{ $invoice->items->count() === 1 ? '' : 's' }}</p>
                                 </div>
-
-                                <div class="w-full max-w-xl rounded-[1.5rem] border border-slate-200 bg-white p-4">
-                                    @if ((float) $invoice->balance_amount <= 0)
-                                        <p class="text-sm font-black text-emerald-700">This bill is already fully settled.</p>
-                                    @elseif (! $shop->isOwnedAccountingEnabled())
-                                        <p class="text-sm font-black text-slate-800">Submit payment from Finance > Payments.</p>
-                                        <p class="mt-2 text-sm font-semibold text-slate-600">Accounting approval updates this bill and posts the journal entry.</p>
-                                        <a href="{{ route('shop-owner.finance.index', ['tab' => 'payments']) }}" class="mt-3 inline-flex h-10 items-center rounded-2xl bg-emerald-600 px-4 text-sm font-black text-white transition hover:bg-emerald-500">
-                                            Open Payments
-                                        </a>
-                                    @else
-                                        <p class="text-sm font-black text-cyan-800">Approved bills are included automatically in Cash Debit.</p>
-                                        <p class="mt-2 text-sm font-semibold text-slate-600">Pay the company from Finance > Payments after checking the latest closing balance.</p>
-                                    @endif
-                                </div>
+                                <p class="whitespace-nowrap text-right text-sm font-black text-slate-950">Rs. {{ number_format((float) $invoice->final_total, 2) }}</p>
                             </div>
-                        </article>
+                        </a>
                     @empty
                         @include('shop-owner.components.empty-state', ['title' => 'No delivery bills yet', 'description' => 'Bills will appear here after delivery invoices are generated.'])
                     @endforelse
@@ -140,43 +203,6 @@
                 @if ($invoices->hasPages())
                     <div class="mt-5">{{ $invoices->withQueryString()->links() }}</div>
                 @endif
-            </section>
-
-            <section class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-                <div class="flex items-center justify-between gap-3">
-                    <div>
-                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Payment Requests</p>
-                        <h3 class="mt-2 text-lg font-black text-slate-950">Latest approval updates</h3>
-                    </div>
-                </div>
-
-                <div class="mt-5 space-y-3">
-                    @forelse ($paymentRequests as $paymentRequest)
-                        <article class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
-                            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                <div>
-                                    <p class="text-sm font-black text-slate-950">{{ $paymentRequest->invoice?->invoice_number }}</p>
-                                    <p class="mt-1 text-sm font-semibold text-slate-600">
-                                        {{ $paymentRequest->request_type === 'admin_manual' ? 'Admin recorded paid' : 'Requested' }}
-                                        Rs. {{ number_format((float) $paymentRequest->requested_amount, 2) }}
-                                    </p>
-                                    @if ($paymentRequest->shop_note)
-                                        <p class="mt-2 text-sm font-semibold text-slate-600">{{ $paymentRequest->shop_note }}</p>
-                                    @endif
-                                    @if ($paymentRequest->admin_note)
-                                        <p class="mt-2 text-sm font-semibold text-slate-700">Admin: {{ $paymentRequest->admin_note }}</p>
-                                    @endif
-                                </div>
-                                <div class="flex flex-col items-start gap-2 sm:items-end">
-                                    @include('shop-owner.components.status-badge', ['label' => $paymentRequest->statusLabel(), 'tone' => $paymentRequest->statusTone()])
-                                    <p class="text-xs font-semibold text-slate-500">{{ $paymentRequest->created_at?->format('d M Y h:i A') }}</p>
-                                </div>
-                            </div>
-                        </article>
-                    @empty
-                        @include('shop-owner.components.empty-state', ['title' => 'No payment requests yet', 'description' => 'Send a payment request from any unpaid bill to start the approval flow.'])
-                    @endforelse
-                </div>
             </section>
         @else
             <section class="rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">

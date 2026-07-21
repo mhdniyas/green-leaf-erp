@@ -215,7 +215,7 @@ class SidebarLayoutRefreshTest extends TestCase
             ->assertSee('Create cashbook entry', false)
             ->assertSee('Online Payment')
             ->assertDontSee('id="cashbook-open-modal"', false)
-            ->assertDontSee('Daily Delivery Bills');
+            ->assertDontSee('Daily Delivery Bill');
     }
 
     public function test_owned_shop_owner_can_open_accounting_create_tab(): void
@@ -246,7 +246,7 @@ class SidebarLayoutRefreshTest extends TestCase
             ->actingAs($shopOwner)
             ->get(route('shop-owner.accounting.index'))
             ->assertOk()
-            ->assertSee('Daily Delivery Bills')
+            ->assertSee('Daily Delivery Bill')
             ->assertDontSee('Daily Shop Receipt');
     }
 

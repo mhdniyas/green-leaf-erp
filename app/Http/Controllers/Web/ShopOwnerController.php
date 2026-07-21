@@ -232,10 +232,16 @@ class ShopOwnerController extends Controller
         [$startDate, $endDate] = $this->dateRangeFromRequest($request, $selectedDate);
         $invoices = ShopInvoice::query()
             ->where('shop_id', $shop->id)
-            ->with(['order', 'paymentRequests' => fn ($query) => $query->latest('id')])
+            ->with(['order', 'items.product', 'paymentRequests' => fn ($query) => $query->latest('id')])
             ->latest('business_date')
             ->latest('id')
             ->paginate(10, ['*'], 'bills_page');
+        $selectedBillInvoices = ShopInvoice::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', $selectedDate->toDateString())
+            ->with(['order', 'items.product', 'paymentRequests' => fn ($query) => $query->latest('id')])
+            ->latest('id')
+            ->get();
         $paymentRequests = ShopInvoicePaymentRequest::query()
             ->where('shop_id', $shop->id)
             ->with(['invoice', 'requestedBy', 'reviewedBy'])
@@ -244,6 +250,7 @@ class ShopOwnerController extends Controller
         $billingSummary = $this->billingSummary(
             ShopInvoice::query()->where('shop_id', $shop->id)->get()
         );
+        $dailyBillingSummary = $this->billingSummary($selectedBillInvoices);
 
         $entry = null;
         $availableCategories = collect();
@@ -410,7 +417,9 @@ class ShopOwnerController extends Controller
             'startDate' => $startDate,
             'endDate' => $endDate,
             'billingSummary' => $billingSummary,
+            'dailyBillingSummary' => $dailyBillingSummary,
             'invoices' => $invoices,
+            'selectedBillInvoices' => $selectedBillInvoices,
             'paymentRequests' => $paymentRequests,
             'entry' => $entry,
             'availableCategories' => $availableCategories,
