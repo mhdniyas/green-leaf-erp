@@ -2,7 +2,7 @@
 
 @section('title', 'Accounting')
 @section('page_title', 'Shop Accounting')
-@section('page_description', 'Track delivery bills, request payment approvals, and for owned shops keep a daily ledger with sales modes, warehouse invoice expenses, and manual spend in one workflow.')
+@section('page_description', 'Daily ledger and bill payments.')
 @php
     $breadcrumbs = [['label' => 'Accounting']];
 @endphp
@@ -179,15 +179,14 @@
                 </div>
             </section>
         @else
-            <section class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-                <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <section class="rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                         <p class="text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">{{ strtoupper($shop->accounting_mode) }} Shop</p>
-                        <h2 class="mt-2 text-xl font-black text-slate-950">Daily Shop Receipt</h2>
-                        <p class="mt-2 text-sm font-semibold text-slate-600">Record the day like a bill book: opening balance, cash credits, cash debits, online payments, and closing balance.</p>
+                        <h2 class="mt-1 text-lg font-black text-slate-950">Daily Shop Receipt</h2>
                     </div>
 
-                    <form method="GET" action="{{ route('shop-owner.accounting.index') }}" class="grid gap-2 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-2 sm:grid-cols-5">
+                    <form method="GET" action="{{ route('shop-owner.accounting.index') }}" class="grid gap-2 rounded-[1.25rem] border border-slate-200 bg-slate-50 p-2 sm:grid-cols-5">
                         <input type="hidden" name="tab" value="{{ $tab }}">
                         <label class="rounded-2xl bg-white px-4 py-2 text-slate-900 shadow-sm">
                             <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Business Date</span>
@@ -208,101 +207,6 @@
             </section>
 
             @if ($tab === 'cashbook')
-            @php
-                $ledgerStatusTabs = [
-                    'draft' => 'Draft / Today',
-                    'submitted' => 'Submitted',
-                    'approved' => 'Approved',
-                    'recheck' => 'Recheck Required',
-                ];
-            @endphp
-            <section id="shop-owner-ledger-status-tabs" class="rounded-[2rem] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
-                <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                    <div class="flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1">
-                    @foreach ($ledgerStatusTabs as $statusKey => $statusLabel)
-                        <button type="button" data-ledger-status-trigger="{{ $statusKey }}" aria-selected="{{ $ledgerStatusTab === $statusKey ? 'true' : 'false' }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerStatusTab === $statusKey ? 'bg-slate-950 text-white' : 'text-slate-700 hover:bg-white' }}">
-                            {{ $statusLabel }}
-                        </button>
-                    @endforeach
-                    </div>
-
-                    <div class="flex flex-wrap items-center gap-2">
-                        <div class="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
-                            <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'ledger_status' => $ledgerStatusTab, 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date')])) }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerSourceFilter === 'all' ? 'bg-slate-950 text-white' : 'text-slate-700 hover:bg-white' }}">
-                                All
-                            </a>
-                            <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'ledger_status' => $ledgerStatusTab, 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date'), 'ledger_source' => 'greenleaf_direct'])) }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerSourceFilter === 'greenleaf_direct' ? 'bg-cyan-600 text-white' : 'text-cyan-700 hover:bg-white' }}">
-                                GreenLeaf Direct
-                            </a>
-                        </div>
-                        <a href="{{ route('shop-owner.accounting.history', ['tab' => 'cashbook']) }}" class="text-sm font-black text-emerald-700">Open full history</a>
-                    </div>
-                </div>
-
-                <div class="mt-4">
-                    @foreach ($ledgerStatusTabs as $statusKey => $statusLabel)
-                        @php $statusLedgerEntries = $ledgerEntriesByStatus->get($statusKey, collect()); @endphp
-                        <div data-ledger-status-panel="{{ $statusKey }}" @class(['space-y-3', 'hidden' => $ledgerStatusTab !== $statusKey])>
-                            <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-                                <div>
-                                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Ledger Status</p>
-                                    <h3 class="mt-1 text-lg font-black text-slate-950">{{ $statusLabel }}</h3>
-                                </div>
-                                <p class="text-xs font-black uppercase tracking-[0.14em] text-slate-400">{{ $statusLedgerEntries->count() }} day{{ $statusLedgerEntries->count() === 1 ? '' : 's' }}</p>
-                            </div>
-
-                            <div class="overflow-x-auto rounded-[1.5rem] border border-slate-200">
-                                <table class="min-w-full text-left">
-                                    <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
-                                        <tr>
-                                            <th class="px-4 py-3">Date</th>
-                                            <th class="px-4 py-3">Status</th>
-                                            <th class="px-4 py-3 text-right">Income</th>
-                                            <th class="px-4 py-3 text-right">Cash Given</th>
-                                            <th class="px-4 py-3 text-right">Paid Company</th>
-                                            <th class="px-4 py-3 text-right">Manual Expense</th>
-                                            <th class="px-4 py-3 text-right">Warehouse Invoice</th>
-                                            <th class="px-4 py-3 text-right">Closing</th>
-                                            <th class="px-4 py-3 text-right">Items</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-slate-100 text-sm">
-                                        @forelse ($statusLedgerEntries as $ledgerDay)
-                                            <tr class="transition hover:bg-slate-50">
-                                                <td class="px-4 py-3">
-                                                    <a href="{{ route('shop-owner.accounting.index', ['tab' => 'cashbook', 'ledger_status' => $statusKey, 'date' => $ledgerDay['date'], 'start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}" class="font-black text-slate-950">
-                                                        {{ \Illuminate\Support\Carbon::parse($ledgerDay['date'])->format('d M Y') }}
-                                                    </a>
-                                                </td>
-                                                <td class="px-4 py-3">
-                                                    @include('shop-owner.components.status-badge', ['label' => $ledgerDay['status_label'], 'tone' => $ledgerDay['status_tone']])
-                                                </td>
-                                                <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($ledgerDay['income'], 2) }}</td>
-                                                <td class="px-4 py-3 text-right font-black text-emerald-700">Rs. {{ number_format($ledgerDay['cash_given_to_shop'], 2) }}</td>
-                                                <td class="px-4 py-3 text-right font-black text-amber-700">Rs. {{ number_format($ledgerDay['payment_to_company'], 2) }}</td>
-                                                <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($ledgerDay['manual_expense'], 2) }}</td>
-                                                <td class="px-4 py-3 text-right">
-                                                    @if ($ledgerDay['warehouse_expense'] > 0)
-                                                        <span class="mb-1 inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">GreenLeaf Direct</span>
-                                                    @endif
-                                                    <p class="font-black text-rose-700">Rs. {{ number_format($ledgerDay['warehouse_expense'], 2) }}</p>
-                                                </td>
-                                                <td class="px-4 py-3 text-right font-black {{ $ledgerDay['closing'] >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format($ledgerDay['closing'], 2) }}</td>
-                                                <td class="px-4 py-3 text-right font-black text-slate-950">{{ $ledgerDay['items'] }}</td>
-                                            </tr>
-                                        @empty
-                                            <tr>
-                                                <td colspan="9" class="px-4 py-8 text-center font-bold text-slate-500">No {{ strtolower($statusLabel) }} ledger days found.</td>
-                                            </tr>
-                                        @endforelse
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    @endforeach
-                </div>
-            </section>
-
             <section class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
                 <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
@@ -359,6 +263,139 @@
                         <p class="mt-1 text-sm font-semibold text-amber-800">Entered closing does not match calculated closing. Add a note before submitting if this is expected.</p>
                     </div>
                 @endif
+            </section>
+
+            @php
+                $ledgerStatusTabs = [
+                    'draft' => 'Draft / Today',
+                    'submitted' => 'Submitted',
+                    'approved' => 'Approved',
+                    'recheck' => 'Recheck Required',
+                ];
+            @endphp
+            <section id="shop-owner-ledger-status-tabs" class="rounded-[2rem] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+                <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                    <div class="flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1">
+                    @foreach ($ledgerStatusTabs as $statusKey => $statusLabel)
+                        <button type="button" data-ledger-status-trigger="{{ $statusKey }}" aria-selected="{{ $ledgerStatusTab === $statusKey ? 'true' : 'false' }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerStatusTab === $statusKey ? 'bg-slate-950 text-white' : 'text-slate-700 hover:bg-white' }}">
+                            {{ $statusLabel }}
+                        </button>
+                    @endforeach
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2">
+                        <div class="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+                            <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'ledger_status' => $ledgerStatusTab, 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date')])) }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerSourceFilter === 'all' ? 'bg-slate-950 text-white' : 'text-slate-700 hover:bg-white' }}">
+                                All
+                            </a>
+                            <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'ledger_status' => $ledgerStatusTab, 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date'), 'ledger_source' => 'greenleaf_direct'])) }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerSourceFilter === 'greenleaf_direct' ? 'bg-cyan-600 text-white' : 'text-cyan-700 hover:bg-white' }}">
+                                GreenLeaf Direct
+                            </a>
+                        </div>
+                        <a href="{{ route('shop-owner.accounting.history', ['tab' => 'cashbook']) }}" class="text-sm font-black text-emerald-700">Open full history</a>
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    @foreach ($ledgerStatusTabs as $statusKey => $statusLabel)
+                        @php $statusLedgerEntries = $ledgerEntriesByStatus->get($statusKey, collect()); @endphp
+                        <div data-ledger-status-panel="{{ $statusKey }}" @class(['space-y-3', 'hidden' => $ledgerStatusTab !== $statusKey])>
+                            <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                                <div>
+                                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Ledger Status</p>
+                                    <h3 class="mt-1 text-lg font-black text-slate-950">{{ $statusLabel }}</h3>
+                                </div>
+                                <p class="text-xs font-black uppercase tracking-[0.14em] text-slate-400">{{ $statusLedgerEntries->count() }} day{{ $statusLedgerEntries->count() === 1 ? '' : 's' }}</p>
+                            </div>
+
+                            <div class="space-y-3 md:hidden">
+                                @forelse ($statusLedgerEntries as $ledgerDay)
+                                    <a href="{{ route('shop-owner.accounting.index', ['tab' => 'cashbook', 'ledger_status' => $statusKey, 'date' => $ledgerDay['date'], 'start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}" class="block rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div>
+                                                <p class="text-sm font-black text-slate-950">{{ \Illuminate\Support\Carbon::parse($ledgerDay['date'])->format('d M Y') }}</p>
+                                                <div class="mt-2">
+                                                    @include('shop-owner.components.status-badge', ['label' => $ledgerDay['status_label'], 'tone' => $ledgerDay['status_tone']])
+                                                </div>
+                                            </div>
+                                            <p class="text-right text-sm font-black {{ $ledgerDay['closing'] >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format($ledgerDay['closing'], 2) }}</p>
+                                        </div>
+                                        <div class="mt-4 grid grid-cols-2 gap-2 text-xs">
+                                            <div class="rounded-xl bg-slate-50 p-3">
+                                                <p class="font-black uppercase tracking-[0.12em] text-slate-400">Income</p>
+                                                <p class="mt-1 font-black text-slate-950">Rs. {{ number_format($ledgerDay['income'], 2) }}</p>
+                                            </div>
+                                            <div class="rounded-xl bg-emerald-50 p-3">
+                                                <p class="font-black uppercase tracking-[0.12em] text-emerald-700">Cash Given</p>
+                                                <p class="mt-1 font-black text-emerald-800">Rs. {{ number_format($ledgerDay['cash_given_to_shop'], 2) }}</p>
+                                            </div>
+                                            <div class="rounded-xl bg-amber-50 p-3">
+                                                <p class="font-black uppercase tracking-[0.12em] text-amber-700">Paid Company</p>
+                                                <p class="mt-1 font-black text-amber-800">Rs. {{ number_format($ledgerDay['payment_to_company'], 2) }}</p>
+                                            </div>
+                                            <div class="rounded-xl bg-rose-50 p-3">
+                                                <p class="font-black uppercase tracking-[0.12em] text-rose-700">Cash Debit</p>
+                                                <p class="mt-1 font-black text-rose-800">Rs. {{ number_format($ledgerDay['warehouse_expense'] + $ledgerDay['manual_expense'], 2) }}</p>
+                                            </div>
+                                        </div>
+                                    </a>
+                                @empty
+                                    <div class="rounded-[1.35rem] border border-slate-200 bg-white p-5 text-center">
+                                        <p class="font-bold text-slate-500">No {{ strtolower($statusLabel) }} ledger days found.</p>
+                                    </div>
+                                @endforelse
+                            </div>
+
+                            <div class="hidden overflow-x-auto rounded-[1.5rem] border border-slate-200 md:block">
+                                <table class="min-w-[58rem] text-left">
+                                    <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                                        <tr>
+                                            <th class="px-4 py-3">Date</th>
+                                            <th class="px-4 py-3">Status</th>
+                                            <th class="px-4 py-3 text-right">Income</th>
+                                            <th class="px-4 py-3 text-right">Cash Given</th>
+                                            <th class="px-4 py-3 text-right">Paid Company</th>
+                                            <th class="px-4 py-3 text-right">Manual Expense</th>
+                                            <th class="px-4 py-3 text-right">Warehouse Invoice</th>
+                                            <th class="px-4 py-3 text-right">Closing</th>
+                                            <th class="px-4 py-3 text-right">Items</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100 text-sm">
+                                        @forelse ($statusLedgerEntries as $ledgerDay)
+                                            <tr class="transition hover:bg-slate-50">
+                                                <td class="px-4 py-3">
+                                                    <a href="{{ route('shop-owner.accounting.index', ['tab' => 'cashbook', 'ledger_status' => $statusKey, 'date' => $ledgerDay['date'], 'start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}" class="font-black text-slate-950">
+                                                        {{ \Illuminate\Support\Carbon::parse($ledgerDay['date'])->format('d M Y') }}
+                                                    </a>
+                                                </td>
+                                                <td class="px-4 py-3">
+                                                    @include('shop-owner.components.status-badge', ['label' => $ledgerDay['status_label'], 'tone' => $ledgerDay['status_tone']])
+                                                </td>
+                                                <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($ledgerDay['income'], 2) }}</td>
+                                                <td class="px-4 py-3 text-right font-black text-emerald-700">Rs. {{ number_format($ledgerDay['cash_given_to_shop'], 2) }}</td>
+                                                <td class="px-4 py-3 text-right font-black text-amber-700">Rs. {{ number_format($ledgerDay['payment_to_company'], 2) }}</td>
+                                                <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($ledgerDay['manual_expense'], 2) }}</td>
+                                                <td class="px-4 py-3 text-right">
+                                                    @if ($ledgerDay['warehouse_expense'] > 0)
+                                                        <span class="mb-1 inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">GreenLeaf Direct</span>
+                                                    @endif
+                                                    <p class="font-black text-rose-700">Rs. {{ number_format($ledgerDay['warehouse_expense'], 2) }}</p>
+                                                </td>
+                                                <td class="px-4 py-3 text-right font-black {{ $ledgerDay['closing'] >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format($ledgerDay['closing'], 2) }}</td>
+                                                <td class="px-4 py-3 text-right font-black text-slate-950">{{ $ledgerDay['items'] }}</td>
+                                            </tr>
+                                        @empty
+                                            <tr>
+                                                <td colspan="9" class="px-4 py-8 text-center font-bold text-slate-500">No {{ strtolower($statusLabel) }} ledger days found.</td>
+                                            </tr>
+                                        @endforelse
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
             </section>
 
             <a href="{{ route('shop-owner.accounting.index', ['tab' => 'create', 'date' => $selectedDate->format('Y-m-d'), 'open' => 'line']) }}" aria-label="Create cashbook entry" class="fixed bottom-24 left-4 z-40 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-xl shadow-emerald-900/20 transition hover:bg-emerald-500 lg:bottom-8 lg:left-8">
