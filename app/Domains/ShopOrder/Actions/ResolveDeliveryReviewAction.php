@@ -11,6 +11,7 @@ use App\Enums\Inventory\WastageReason;
 use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
 use App\Models\StockMovement;
+use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Inventory\WastageService;
 use App\Services\ShopInvoices\ShopInvoiceIntegrityValidator;
@@ -26,6 +27,7 @@ class ResolveDeliveryReviewAction
         private readonly StockLedgerService $stockLedgerService,
         private readonly WastageService $wastageService,
         private readonly ShopInvoiceIntegrityValidator $shopInvoiceIntegrityValidator,
+        private readonly OwnedShopAccountingService $ownedShopAccountingService,
     ) {}
 
     /**
@@ -224,6 +226,16 @@ class ResolveDeliveryReviewAction
                 'payment_status' => $invoice->payment_status,
                 'cash_discrepancy' => round((float) $invoice->final_total - (float) $lockedOrder->cash_collected, 2),
             ]);
+
+            $invoice->loadMissing('shop');
+
+            if ($invoice->shop?->isOwnedAccountingEnabled() && $invoice->business_date) {
+                $this->ownedShopAccountingService->syncStoredClosingBalancesFromDate(
+                    $invoice->shop,
+                    $invoice->business_date,
+                    $userId,
+                );
+            }
 
             return $lockedOrder->fresh(['items.product', 'invoice.items']);
         });

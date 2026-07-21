@@ -1802,6 +1802,80 @@ class ShopStaffMoneyFlowTest extends TestCase
         $this->assertSame('Extra cash purchase', $additionalEntry->lines()->first()?->description);
     }
 
+    public function test_owned_shop_approved_old_delivery_bill_recalculates_future_opening_balance(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $shop = $this->ownedShop(['code' => 'SHOP_OLD_BILL']);
+        $shopOwner = $this->shopOwner($shop);
+        $salesCategory = ShopAccountingCategory::query()->create([
+            'type' => 'income',
+            'cash_effect' => true,
+            'purpose' => 'sales_cash',
+            'name' => 'Sales Income - Cash',
+            'is_active' => true,
+        ]);
+        $todayEntry = ShopAccountingEntry::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-07-21',
+            'status' => 'draft',
+            'opening_cash' => 0,
+            'closing_cash' => 100,
+            'created_by' => $shopOwner->id,
+        ]);
+        $todayEntry->lines()->create([
+            'shop_accounting_category_id' => $salesCategory->id,
+            'type' => 'income',
+            'cash_effect' => true,
+            'amount' => 100,
+            'description' => 'Cash sales',
+        ]);
+        $order = ShopOrder::query()->create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => '2026-07-20',
+            'created_by' => $shopOwner->id,
+        ]);
+        $invoice = ShopInvoice::query()->create([
+            'shop_id' => $shop->id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'SINV-OLD-BILL-001',
+            'business_date' => '2026-07-20',
+            'status' => 'delivery_review',
+            'delivery_status' => 'awaiting_review',
+            'payment_status' => 'unpaid',
+            'subtotal' => 338,
+            'shortage_total' => 0,
+            'discount_total' => 0,
+            'final_total' => 338,
+            'paid_amount' => 0,
+            'balance_amount' => 338,
+            'generated_by' => $shopOwner->id,
+        ]);
+        $service = app(OwnedShopAccountingService::class);
+
+        $this->assertSame(0.0, $service->previousClosingBalance($shop, Carbon::parse('2026-07-21')));
+
+        $invoice->update([
+            'status' => 'payment_pending',
+            'delivery_status' => 'received_full',
+        ]);
+        $service->syncStoredClosingBalancesFromDate($shop, Carbon::parse('2026-07-20'), $shopOwner->id, Carbon::parse('2026-07-21'));
+
+        $yesterdayEntry = ShopAccountingEntry::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', '2026-07-20')
+            ->firstOrFail();
+        $todayEntry->refresh();
+
+        $this->assertSame('0.00', $yesterdayEntry->opening_cash);
+        $this->assertSame('-338.00', $yesterdayEntry->closing_cash);
+        $this->assertSame('-338.00', $todayEntry->opening_cash);
+        $this->assertSame('-238.00', $todayEntry->closing_cash);
+        $this->assertSame(338.0, $service->receiptSummaryForDate($shop, Carbon::parse('2026-07-20'))['cash_debit']);
+        $this->assertSame(-338.0, $service->receiptSummaryForDate($shop, Carbon::parse('2026-07-21'))['opening_balance']);
+    }
+
     /**
      * @param  array<string, mixed>  $attributes
      */

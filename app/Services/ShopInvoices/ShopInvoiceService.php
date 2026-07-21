@@ -11,6 +11,7 @@ use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Services\Finance\JournalService;
+use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Pricing\ApprovedDailyPriceResolver;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +22,7 @@ class ShopInvoiceService
     public function __construct(
         private readonly ApprovedDailyPriceResolver $approvedDailyPriceResolver,
         private readonly JournalService $journalService,
+        private readonly OwnedShopAccountingService $ownedShopAccountingService,
     ) {}
 
     public function generateForBusinessDate(string $businessDate, int $userId): void
@@ -170,6 +172,10 @@ class ShopInvoiceService
                 'payment_status' => $invoice->payment_status,
             ]);
 
+            if (! $hasDiscrepancy) {
+                $this->syncOwnedShopBalanceForInvoice($invoice, $userId);
+            }
+
             return $invoice;
         });
     }
@@ -200,6 +206,8 @@ class ShopInvoiceService
             'balance_amount' => $invoice->balance_amount,
             'total_shortage_value' => $invoice->shortage_total,
         ]);
+
+        $this->syncOwnedShopBalanceForInvoice($invoice, $userId);
 
         return $invoice;
     }
@@ -692,5 +700,20 @@ class ShopInvoiceService
         $price = $this->approvedDailyPriceResolver->resolve($product, $order->shop, $order->business_date);
 
         return round((float) $price['price'], 2);
+    }
+
+    private function syncOwnedShopBalanceForInvoice(ShopInvoice $invoice, int $userId): void
+    {
+        $invoice->loadMissing('shop');
+
+        if (! $invoice->shop?->isOwnedAccountingEnabled() || ! $invoice->business_date) {
+            return;
+        }
+
+        $this->ownedShopAccountingService->syncStoredClosingBalancesFromDate(
+            $invoice->shop,
+            $invoice->business_date,
+            $userId,
+        );
     }
 }

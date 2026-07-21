@@ -270,7 +270,10 @@ class OwnedShopAccountingService
             ->where('shop_id', $shop->id)
             ->whereDate('business_date', '<', $businessDate->toDateString())
             ->max('business_date');
-        $previousDate = collect([$previousEntryDate, $previousShopCashDate])
+        $previousDeliveryBillDate = $this->approvedDeliveryBillQuery($shop)
+            ->whereDate('business_date', '<', $businessDate->toDateString())
+            ->max('business_date');
+        $previousDate = collect([$previousEntryDate, $previousShopCashDate, $previousDeliveryBillDate])
             ->filter()
             ->map(fn (string $date): string => Carbon::parse($date)->toDateString())
             ->sort()
@@ -348,7 +351,7 @@ class OwnedShopAccountingService
                     'status' => 'draft',
                     'opening_cash' => $openingBalance,
                     'closing_cash' => $runningClosing,
-                    'notes' => 'Auto-created when shop working cash was added.',
+                    'notes' => 'Auto-created to keep shop running balance in sync.',
                     'created_by' => $userId,
                 ]);
             }
@@ -376,6 +379,35 @@ class OwnedShopAccountingService
 
             return $latestEntry->fresh(['lines.category', 'shop', 'createdBy', 'updatedBy', 'submittedBy', 'reviewedBy']);
         });
+    }
+
+    public function syncStoredClosingBalancesFromDate(Shop $shop, Carbon $businessDate, int $userId, ?Carbon $throughDate = null): void
+    {
+        if (! $shop->isOwnedAccountingEnabled()) {
+            return;
+        }
+
+        $startDate = $businessDate->copy()->startOfDay();
+        $endDate = ($throughDate ?? $this->latestRunningBalanceActivityDate($shop, $startDate))
+            ->copy()
+            ->startOfDay();
+
+        if ($endDate->lt($startDate)) {
+            $endDate = $startDate->copy();
+        }
+
+        $activityDates = $this->runningBalanceActivityDates($shop, $startDate, $endDate);
+
+        if ($activityDates->isEmpty()) {
+            $activityDates = collect([$startDate->toDateString()]);
+        }
+
+        $activityDates
+            ->sort()
+            ->values()
+            ->each(function (string $activityDate) use ($shop, $userId): void {
+                $this->syncStoredClosingBalanceForDate($shop, Carbon::parse($activityDate), $userId);
+            });
     }
 
     /**
@@ -550,6 +582,56 @@ class OwnedShopAccountingService
         return round((float) $this->approvedDeliveryBillQuery($shop)
             ->whereDate('business_date', $businessDate->toDateString())
             ->sum('final_total'), 2);
+    }
+
+    private function latestRunningBalanceActivityDate(Shop $shop, Carbon $startDate): Carbon
+    {
+        $latestEntryDate = ShopAccountingEntry::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', '>=', $startDate->toDateString())
+            ->max('business_date');
+        $latestShopCashDate = ShopCredit::query()
+            ->approved()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', '>=', $startDate->toDateString())
+            ->max('business_date');
+        $latestDeliveryBillDate = $this->approvedDeliveryBillQuery($shop)
+            ->whereDate('business_date', '>=', $startDate->toDateString())
+            ->max('business_date');
+        $latestDate = collect([$latestEntryDate, $latestShopCashDate, $latestDeliveryBillDate, today()->toDateString()])
+            ->filter()
+            ->map(fn (string $date): string => Carbon::parse($date)->toDateString())
+            ->sort()
+            ->last();
+
+        return Carbon::parse($latestDate ?? $startDate->toDateString());
+    }
+
+    /**
+     * @return Collection<int, string>
+     */
+    private function runningBalanceActivityDates(Shop $shop, Carbon $startDate, Carbon $endDate): Collection
+    {
+        return ShopAccountingEntry::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', '>=', $startDate->toDateString())
+            ->whereDate('business_date', '<=', $endDate->toDateString())
+            ->pluck('business_date')
+            ->map(fn ($businessDate): string => Carbon::parse($businessDate)->toDateString())
+            ->merge(ShopCredit::query()
+                ->approved()
+                ->where('shop_id', $shop->id)
+                ->whereDate('business_date', '>=', $startDate->toDateString())
+                ->whereDate('business_date', '<=', $endDate->toDateString())
+                ->pluck('business_date')
+                ->map(fn ($businessDate): string => Carbon::parse($businessDate)->toDateString()))
+            ->merge($this->approvedDeliveryBillQuery($shop)
+                ->whereDate('business_date', '>=', $startDate->toDateString())
+                ->whereDate('business_date', '<=', $endDate->toDateString())
+                ->pluck('business_date')
+                ->map(fn ($businessDate): string => Carbon::parse($businessDate)->toDateString()))
+            ->unique()
+            ->values();
     }
 
     /**
