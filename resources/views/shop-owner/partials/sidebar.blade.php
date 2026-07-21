@@ -8,7 +8,7 @@
         [
             'label' => 'Bills',
             'href' => route('shop-owner.accounting.index', ['tab' => 'bills']),
-            'active' => request()->routeIs('shop-owner.accounting.index') && request()->query('tab', 'bills') === 'bills',
+            'active' => request()->routeIs('shop-owner.accounting.index') && request()->query('tab', $hasOwnedAccountingAccess ? 'cashbook' : 'bills') === 'bills',
         ],
     ];
 
@@ -16,7 +16,12 @@
         $accountingChildren[] = [
             'label' => 'Cashbook',
             'href' => route('shop-owner.accounting.index', ['tab' => 'cashbook']),
-            'active' => request()->routeIs('shop-owner.accounting.index') && request()->query('tab', 'bills') === 'cashbook',
+            'active' => request()->routeIs('shop-owner.accounting.index') && request()->query('tab', 'cashbook') === 'cashbook',
+        ];
+        $accountingChildren[] = [
+            'label' => 'Create',
+            'href' => route('shop-owner.accounting.index', ['tab' => 'create']),
+            'active' => request()->routeIs('shop-owner.accounting.index') && request()->query('tab') === 'create',
         ];
         $accountingChildren[] = [
             'label' => 'Daily Report',
@@ -65,7 +70,7 @@
         [
             'label' => 'Accounting',
             'route' => 'shop-owner.accounting.index',
-            'href' => route('shop-owner.accounting.index', ['tab' => 'bills']),
+            'href' => route('shop-owner.accounting.index', ['tab' => $hasOwnedAccountingAccess ? 'cashbook' : 'bills']),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m0 0c-2.21 0-4-1.343-4-3s1.79-3 4-3 4-1.343 4-3-1.79-3-4-3m0 12c2.21 0 4-1.343 4-3" /></svg>',
             'children' => $accountingChildren,
         ],

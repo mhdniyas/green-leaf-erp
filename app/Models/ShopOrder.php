@@ -164,6 +164,14 @@ class ShopOrder extends Model
     }
 
     /**
+     * @return HasMany<ShopOrderChangeRequest, $this>
+     */
+    public function changeRequests(): HasMany
+    {
+        return $this->hasMany(ShopOrderChangeRequest::class);
+    }
+
+    /**
      * @return HasOne<ShopOrderRevision, $this>
      */
     public function latestPendingRevision(): HasOne

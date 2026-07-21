@@ -20,7 +20,7 @@
             </div>
         </section>
 
-        <form action="{{ route('purchaser.carts.bulk-store') }}" method="POST" class="space-y-4 pb-24 sm:pb-28">
+        <form action="{{ route('purchaser.carts.bulk-store') }}" method="POST" id="bulk-buy-details-form" class="space-y-4 pb-24 sm:pb-28">
             @csrf
             <input type="hidden" name="business_date" value="{{ $date }}">
 
@@ -63,7 +63,7 @@
                     <div class="product-row rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:rounded-[2rem] lg:p-5" data-product-id="{{ $summary['product_id'] }}">
                         {{-- Hidden inputs for form submission --}}
                         <input type="hidden" name="items[{{ $summary['product_id'] }}][quantity]" id="submit-qty-{{ $summary['product_id'] }}" value="{{ number_format($defaultQty, 2, '.', '') }}">
-                        <input type="hidden" name="items[{{ $summary['product_id'] }}][unit_price]" id="submit-price-{{ $summary['product_id'] }}" value="0.00">
+                        <input type="hidden" name="items[{{ $summary['product_id'] }}][unit_price]" id="submit-price-{{ $summary['product_id'] }}" value="">
                         <input type="hidden" id="basis-{{ $summary['product_id'] }}" value="kg">
                         <input type="hidden" id="unit-{{ $summary['product_id'] }}" value="{{ $summary['unit'] }}">
 
@@ -119,10 +119,10 @@
                                         <label class="block text-[10px] font-black uppercase tracking-wider text-slate-400">Price (Per {{ $summary['unit'] }})</label>
                                         <input type="number" 
                                                step="0.01" 
-                                               min="0" 
+                                               min="0.01" 
                                                id="price-kg-{{ $summary['product_id'] }}"
                                                value="" 
-                                               placeholder="0.00" 
+                                               placeholder="Enter price" 
                                                class="price-input-kg w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
                                     </div>
                                 </div>
@@ -155,10 +155,10 @@
                                             <label class="block text-[10px] font-black uppercase tracking-wider text-slate-400">Price/Box</label>
                                             <input type="number" 
                                                    step="0.01" 
-                                                   min="0" 
+                                                   min="0.01" 
                                                    id="price-box-{{ $summary['product_id'] }}"
                                                    value="" 
-                                                   placeholder="0.00" 
+                                                   placeholder="Enter price" 
                                                    class="price-input-box w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
                                         </div>
                                     </div>
@@ -386,6 +386,31 @@
 
             calculateGrandTotal();
             updateBulkPriceHints(document.querySelector('.custom-select-input')?.value || '');
+
+            document.getElementById('bulk-buy-details-form')?.addEventListener('submit', (event) => {
+                calculateGrandTotal();
+
+                for (const row of document.querySelectorAll('.product-row')) {
+                    const productId = row.getAttribute('data-product-id');
+                    const basis = document.getElementById(`basis-${productId}`)?.value || 'kg';
+                    const priceInput = basis === 'box'
+                        ? document.getElementById(`price-box-${productId}`)
+                        : document.getElementById(`price-kg-${productId}`);
+                    const price = Number(priceInput?.value || 0);
+
+                    if (!Number.isFinite(price) || price <= 0) {
+                        event.preventDefault();
+                        priceInput?.focus();
+                        window.showAppAlert?.('Enter a price greater than zero for every selected product.');
+
+                        if (!window.showAppAlert) {
+                            alert('Enter a price greater than zero for every selected product.');
+                        }
+
+                        return;
+                    }
+                }
+            });
         });
     </script>
 </x-layouts.app>

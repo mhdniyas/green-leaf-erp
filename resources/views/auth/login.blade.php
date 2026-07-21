@@ -167,21 +167,62 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
                             </svg>
                         </button>
+                    </form>
 
-                        <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+                    @if (($demoUsers ?? collect())->isNotEmpty())
+                        <div class="mt-5 rounded-[1.5rem] border border-emerald-200 bg-emerald-50 p-4">
+                            <div class="flex items-start justify-between gap-3">
+                                <div>
+                                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-700">Demo Login</p>
+                                    <p class="mt-2 text-sm leading-6 text-emerald-950">
+                                        One-click access for local testing. These buttons are hidden in production.
+                                    </p>
+                                </div>
+                                <span class="rounded-full bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">
+                                    {{ $demoUsers->count() }} users
+                                </span>
+                            </div>
+
+                            <div class="mt-4 grid gap-2">
+                                @foreach ($demoUsers as $demoUser)
+                                    <form method="POST" action="{{ route('login.demo', $demoUser) }}">
+                                        @csrf
+                                        <button
+                                            type="submit"
+                                            class="flex w-full items-center justify-between gap-3 rounded-2xl border border-emerald-100 bg-white px-4 py-3 text-left transition hover:border-emerald-300 hover:bg-emerald-100/60 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                                        >
+                                            <span class="min-w-0">
+                                                <span class="block truncate text-sm font-black text-slate-950">{{ $demoUser->name }}</span>
+                                                <span class="mt-0.5 block truncate text-xs font-semibold text-slate-500">{{ $demoUser->email }}</span>
+                                                @if ($demoUser->shop)
+                                                    <span class="mt-0.5 block truncate text-[11px] font-bold text-emerald-700">{{ $demoUser->shop->name }}</span>
+                                                @endif
+                                            </span>
+                                            <span class="flex shrink-0 flex-col items-end gap-1">
+                                                @foreach ($demoUser->roles->pluck('name')->take(2) as $roleName)
+                                                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-600">{{ str_replace('_', ' ', $roleName) }}</span>
+                                                @endforeach
+                                            </span>
+                                        </button>
+                                    </form>
+                                @endforeach
+                            </div>
+                        </div>
+                    @else
+                        <div class="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
                             <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Access Notice</p>
                             <p class="mt-2 text-sm leading-6 text-slate-600">
-                                Test credentials are no longer displayed on this page. Use the assigned shop-owner or staff account details provided separately.
+                                Test credentials are not displayed on this page. Use the assigned shop-owner or staff account details provided separately.
                             </p>
                         </div>
+                    @endif
 
-                        <a
-                            href="{{ route('shop-owner.register') }}"
-                            class="flex w-full items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 px-6 py-3 text-sm font-black text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:ring-offset-2"
-                        >
-                            New shop owner? Register here
-                        </a>
-                    </form>
+                    <a
+                        href="{{ route('shop-owner.register') }}"
+                        class="mt-5 flex w-full items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 px-6 py-3 text-sm font-black text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:ring-offset-2"
+                    >
+                        New shop owner? Register here
+                    </a>
                 </div>
             </aside>
         </div>

@@ -184,11 +184,11 @@
                     <div>
                         <p class="text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">{{ strtoupper($shop->accounting_mode) }} Shop</p>
                         <h2 class="mt-2 text-xl font-black text-slate-950">Daily Shop Receipt</h2>
-                        <p class="mt-2 text-sm font-semibold text-slate-600">Record the day like a bill book: opening balance, cash credits, cash debits, non-cash income, and closing balance.</p>
+                        <p class="mt-2 text-sm font-semibold text-slate-600">Record the day like a bill book: opening balance, cash credits, cash debits, online payments, and closing balance.</p>
                     </div>
 
                     <form method="GET" action="{{ route('shop-owner.accounting.index') }}" class="grid gap-2 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-2 sm:grid-cols-5">
-                        <input type="hidden" name="tab" value="cashbook">
+                        <input type="hidden" name="tab" value="{{ $tab }}">
                         <label class="rounded-2xl bg-white px-4 py-2 text-slate-900 shadow-sm">
                             <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Business Date</span>
                             <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
@@ -202,58 +202,12 @@
                             <input type="date" name="end_date" value="{{ request('end_date') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
                         </label>
                         <button type="submit" class="inline-flex h-14 items-center justify-center rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">Update Ledger</button>
-                        <a href="{{ route('shop-owner.accounting.index', ['tab' => 'cashbook', 'date' => today()->toDateString()]) }}" class="inline-flex h-14 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-800 transition hover:bg-slate-50">Today</a>
+                        <a href="{{ route('shop-owner.accounting.index', ['tab' => $tab, 'date' => today()->toDateString()]) }}" class="inline-flex h-14 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-800 transition hover:bg-slate-50">Today</a>
                     </form>
                 </div>
             </section>
 
-            <section class="grid grid-cols-3 gap-2 sm:gap-3 xl:grid-cols-3">
-                <div class="min-w-0 rounded-[1.1rem] border border-slate-200 bg-white p-3 shadow-sm">
-                    <p class="text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[9px]">Total Income</p>
-                    <p class="mt-2 truncate text-[13px] font-black leading-none text-slate-950 tabular-nums sm:text-base">Rs. {{ number_format($incomeTotal, 2) }}</p>
-                </div>
-                <div class="min-w-0 rounded-[1.1rem] border border-slate-200 bg-white p-3 shadow-sm">
-                    <p class="text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[9px]">Cash Sales</p>
-                    <p class="mt-2 truncate text-[13px] font-black leading-none text-emerald-700 tabular-nums sm:text-base">Rs. {{ number_format($receiptSummary['cash_credit'], 2) }}</p>
-                </div>
-                <div class="min-w-0 rounded-[1.1rem] border border-emerald-200 bg-emerald-50 p-3 shadow-sm">
-                    <p class="text-[8px] font-black uppercase tracking-[0.1em] text-emerald-700 sm:text-[9px]">Cash Given To Shop</p>
-                    <p class="mt-2 truncate text-[13px] font-black leading-none text-emerald-800 tabular-nums sm:text-base">Rs. {{ number_format($receiptSummary['cash_given_to_shop'], 2) }}</p>
-                </div>
-                <div class="min-w-0 rounded-[1.1rem] border border-slate-200 bg-white p-3 shadow-sm">
-                    <p class="text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[9px]">Non-Cash</p>
-                    <p class="mt-2 truncate text-[13px] font-black leading-none text-cyan-700 tabular-nums sm:text-base">Rs. {{ number_format($receiptSummary['non_cash_income'], 2) }}</p>
-                </div>
-                <div class="min-w-0 rounded-[1.1rem] border border-amber-200 bg-amber-50 p-3 shadow-sm">
-                    <p class="text-[8px] font-black uppercase tracking-[0.1em] text-amber-700 sm:text-[9px]">Payment To Company</p>
-                    <p class="mt-2 truncate text-[13px] font-black leading-none text-amber-800 tabular-nums sm:text-base">Rs. {{ number_format($receiptSummary['payment_to_company'], 2) }}</p>
-                </div>
-                <div class="min-w-0 rounded-[1.1rem] border border-slate-200 bg-white p-3 shadow-sm">
-                    <p class="text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[9px]">Cash Debit</p>
-                    <p class="mt-2 truncate text-[13px] font-black leading-none text-rose-700 tabular-nums sm:text-base">Rs. {{ number_format($receiptSummary['cash_debit'], 2) }}</p>
-                </div>
-                <div class="min-w-0 rounded-[1.1rem] border border-slate-200 bg-white p-3 shadow-sm">
-                    <p class="text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[9px]">Expected</p>
-                    <p class="mt-2 truncate text-[13px] font-black leading-none text-slate-950 tabular-nums sm:text-base">Rs. {{ number_format($receiptSummary['expected_closing'], 2) }}</p>
-                </div>
-                <div class="min-w-0 rounded-[1.1rem] border {{ $calculatedClosingTone === 'rose' ? 'border-rose-200 bg-rose-50' : 'border-emerald-200 bg-emerald-50' }} p-3 shadow-sm">
-                    <p class="text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[9px]">Closing</p>
-                    <p data-cashbook-closing-display class="mt-2 truncate text-[13px] font-black leading-none tabular-nums {{ $calculatedClosingTone === 'rose' ? 'text-rose-700' : 'text-emerald-700' }} sm:text-base">
-                        Rs. {{ number_format($calculatedClosing, 2) }}
-                    </p>
-                </div>
-                <div class="min-w-0 rounded-[1.1rem] border border-slate-200 bg-white p-3 shadow-sm">
-                    <p class="text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[9px]">Status</p>
-                    <div class="mt-2">
-                        @if ($hasEntry)
-                            @include('shop-owner.components.status-badge', ['label' => $entry->statusLabel(), 'tone' => $entry->statusTone()])
-                        @else
-                            @include('shop-owner.components.status-badge', ['label' => 'No Entry', 'tone' => 'neutral'])
-                        @endif
-                    </div>
-                </div>
-            </section>
-
+            @if ($tab === 'cashbook')
             @php
                 $ledgerStatusTabs = [
                     'draft' => 'Draft / Today',
@@ -362,7 +316,7 @@
                     @endif
                 </div>
 
-                <div class="mt-5 grid grid-cols-3 gap-2 sm:gap-3 xl:grid-cols-8">
+                <div class="mt-5 grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-4 xl:grid-cols-8">
                     <div class="min-w-0 rounded-[1.1rem] border border-slate-200 bg-slate-50 p-3">
                         <p class="text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[9px]">Opening</p>
                         <p class="mt-2 truncate text-[13px] font-black leading-none text-slate-950 tabular-nums sm:text-base">Rs. {{ number_format($receiptSummary['opening_balance'], 2) }}</p>
@@ -376,7 +330,7 @@
                         <p class="mt-2 truncate text-[13px] font-black leading-none text-emerald-800 tabular-nums sm:text-base">Rs. {{ number_format($receiptSummary['cash_given_to_shop'], 2) }}</p>
                     </div>
                     <div class="min-w-0 rounded-[1.1rem] border border-cyan-200 bg-cyan-50 p-3">
-                        <p class="text-[8px] font-black uppercase tracking-[0.1em] text-cyan-700 sm:text-[9px]">Non-Cash</p>
+                        <p class="text-[8px] font-black uppercase tracking-[0.1em] text-cyan-700 sm:text-[9px]">Online Payment</p>
                         <p class="mt-2 truncate text-[13px] font-black leading-none text-cyan-800 tabular-nums sm:text-base">Rs. {{ number_format($receiptSummary['non_cash_income'], 2) }}</p>
                     </div>
                     <div class="min-w-0 rounded-[1.1rem] border border-amber-200 bg-amber-50 p-3">
@@ -407,6 +361,16 @@
                 @endif
             </section>
 
+            <a href="{{ route('shop-owner.accounting.index', ['tab' => 'create', 'date' => $selectedDate->format('Y-m-d'), 'open' => 'line']) }}" aria-label="Create cashbook entry" class="fixed bottom-24 left-4 z-40 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-xl shadow-emerald-900/20 transition hover:bg-emerald-500 lg:bottom-8 lg:left-8">
+                <svg class="h-7 w-7" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M5 12h14" />
+                    <path d="M12 5v14" />
+                </svg>
+            </a>
+
+            @endif
+
+            @if ($tab === 'create')
             @if ($hasEntry && ($entry->admin_note || $entry->shop_reply_note))
                 <section class="grid gap-4 lg:grid-cols-2">
                     @if ($entry->admin_note)
@@ -461,7 +425,7 @@
                 </section>
             @endif
 
-            <section class="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
+            <section class="space-y-6">
                 <article class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
                     @if ($hasEntry && $entry->status === 'approved')
                         <div class="mb-5 rounded-[1.5rem] border border-cyan-200 bg-cyan-50 px-4 py-4">
@@ -605,83 +569,6 @@
                     @endif
                 </article>
 
-                <article class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-                    <div class="flex items-center justify-between gap-3">
-                        <div>
-                            <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Recent Days</p>
-                            <h3 class="mt-2 text-lg font-black text-slate-950">History snapshot</h3>
-                        </div>
-                        <a href="{{ route('shop-owner.accounting.history', ['tab' => 'cashbook']) }}" class="text-sm font-black text-emerald-700">Open</a>
-                    </div>
-
-                    <div class="mt-5 space-y-3">
-                        @forelse ($recentEntries as $recentEntry)
-                            @php
-                                $recentIncome = (float) $recentEntry->lines->where('type', 'income')->sum('amount');
-                                $recentExpense = (float) $recentEntry->lines->where('type', 'expense')->sum('amount');
-                            @endphp
-                            <a href="{{ route('shop-owner.accounting.index', ['tab' => 'cashbook', 'date' => $recentEntry->business_date->format('Y-m-d')]) }}" class="block rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 transition hover:border-emerald-200 hover:bg-emerald-50">
-                                <div class="flex items-start justify-between gap-3">
-                                    <div>
-                                        <p class="text-sm font-black text-slate-950">{{ $recentEntry->business_date->format('d M Y') }}</p>
-                                        <div class="mt-2">
-                                            @include('shop-owner.components.status-badge', ['label' => $recentEntry->statusLabel(), 'tone' => $recentEntry->statusTone()])
-                                        </div>
-                                    </div>
-                                    <p class="text-sm font-black text-slate-950">Rs. {{ number_format($recentIncome - $recentExpense, 2) }}</p>
-                                </div>
-                                @if ($recentEntry->admin_note)
-                                    <p class="mt-3 line-clamp-2 text-sm font-semibold text-slate-600">{{ $recentEntry->admin_note }}</p>
-                                @endif
-                            </a>
-                        @empty
-                            @include('shop-owner.components.empty-state', ['title' => 'No cashbook history yet', 'description' => 'Save the first daily accounting sheet to start the approval flow.'])
-                        @endforelse
-                    </div>
-                </article>
-            </section>
-
-            <section class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-                <div class="flex items-center justify-between gap-3">
-                    <div>
-                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Shop Cash Credit</p>
-                        <h3 class="mt-2 text-lg font-black text-slate-950">Working cash received from company</h3>
-                    </div>
-                    <p class="text-sm font-black text-emerald-700">Latest {{ $shopCredits->count() }}</p>
-                </div>
-
-                <div class="mt-5 overflow-x-auto rounded-[1.5rem] border border-slate-200">
-                    <table class="min-w-full text-left text-sm">
-                        <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
-                            <tr>
-                                <th class="px-4 py-3">Date</th>
-                                <th class="px-4 py-3">Type</th>
-                                <th class="px-4 py-3">Description</th>
-                                <th class="px-4 py-3 text-right">Shop Cash Amount</th>
-                                <th class="px-4 py-3 text-right">Added By</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-100">
-                            @forelse ($shopCredits as $credit)
-                                <tr>
-                                    <td class="px-4 py-3 font-black text-slate-950">{{ $credit->business_date->format('d M Y') }}</td>
-                                    <td class="px-4 py-3">
-                                        <span class="inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] {{ $credit->isShopCashIn() ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700' }}">
-                                            {{ $credit->shopCashLabel() }}
-                                        </span>
-                                    </td>
-                                    <td class="px-4 py-3 font-semibold text-slate-600">{{ $credit->description }}</td>
-                                    <td class="px-4 py-3 text-right font-black {{ $credit->isShopCashIn() ? 'text-emerald-700' : 'text-rose-700' }}">{{ $credit->shopSignedAmount() >= 0 ? '+' : '-' }} Rs. {{ number_format(abs($credit->shopSignedAmount()), 2) }}</td>
-                                    <td class="px-4 py-3 text-right font-semibold text-slate-500">{{ $credit->creator?->name ?? 'System' }}</td>
-                                </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="5" class="px-4 py-8 text-center font-bold text-slate-500">No admin cash movements have been added yet.</td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
             </section>
 
             @if ($canEdit)
@@ -818,10 +705,11 @@
                 </div>
             @endif
         @endif
+        @endif
     </div>
 @endsection
 
-@if ($tab === 'cashbook')
+@if (in_array($tab, ['cashbook', 'create'], true))
     @push('scripts')
     <script>
         (() => {
@@ -957,10 +845,10 @@
                 }
 
                 if (meta.type === 'income') {
-                    return meta.cash_effect ? 'Cash Sales' : 'Non-Cash Income';
+                    return meta.cash_effect ? 'Cash Sales' : 'Online Payment';
                 }
 
-                return meta.cash_effect ? 'Cash Debit' : 'Non-Cash Debit';
+                return meta.cash_effect ? 'Cash Debit' : 'Online Payment Debit';
             };
             const formatMoney = (amount) => `Rs. ${Number(amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
             const renderClosingPreview = () => {
@@ -1250,6 +1138,10 @@
             setTypeValue('income', 'Income');
             fillCategoryOptions('income');
             renderList();
+
+            if (new URLSearchParams(window.location.search).get('open') === 'line') {
+                window.requestAnimationFrame(() => openModal());
+            }
         })();
     </script>
     @endpush

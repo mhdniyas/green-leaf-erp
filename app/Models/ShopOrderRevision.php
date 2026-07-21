@@ -89,6 +89,14 @@ class ShopOrderRevision extends Model
     }
 
     /**
+     * @return HasMany<ShopOrderChangeRequest, $this>
+     */
+    public function changeRequests(): HasMany
+    {
+        return $this->hasMany(ShopOrderChangeRequest::class);
+    }
+
+    /**
      * @return BelongsTo<User, $this>
      */
     public function requestedBy(): BelongsTo

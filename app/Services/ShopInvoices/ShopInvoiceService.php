@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\ShopInvoices;
 
-use App\Enums\Inventory\ProductGrade;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoiceItem;
 use App\Models\ShopInvoicePaymentAllocation;
@@ -12,7 +11,7 @@ use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Services\Finance\JournalService;
-use App\Services\Pricing\PriceBoardService;
+use App\Services\Pricing\ApprovedDailyPriceResolver;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -20,7 +19,7 @@ use Illuminate\Validation\ValidationException;
 class ShopInvoiceService
 {
     public function __construct(
-        private readonly PriceBoardService $priceBoardService,
+        private readonly ApprovedDailyPriceResolver $approvedDailyPriceResolver,
         private readonly JournalService $journalService,
     ) {}
 
@@ -488,7 +487,7 @@ class ShopInvoiceService
                     continue;
                 }
 
-                $price = $this->priceBoardService->sellingPriceFor($product, $invoice->shop, ProductGrade::GradeA);
+                $price = $this->approvedDailyPriceResolver->resolve($product, $invoice->shop, $invoice->business_date);
                 $unitPrice = round((float) $price['price'], 2);
                 $lineSubtotal = round((float) $invoiceItem->approved_qty * $unitPrice, 2);
                 $shortageAmount = round((float) $invoiceItem->shortage_qty * $unitPrice, 2);
@@ -675,18 +674,22 @@ class ShopInvoiceService
 
     private function unitPriceForOrderItem(ShopOrder $order, ShopOrderItem $orderItem): float
     {
-        if ((float) $orderItem->locked_selling_price > 0) {
-            return round((float) $orderItem->locked_selling_price, 2);
-        }
-
         /** @var Product|null $product */
         $product = $orderItem->product;
 
         if (! $product) {
-            return 0.00;
+            throw ValidationException::withMessages([
+                'prices' => 'Invoice generation failed because an order item is not linked to a valid product.',
+            ]);
         }
 
-        $price = $this->priceBoardService->sellingPriceFor($product, $order->shop, ProductGrade::GradeA);
+        if (! $order->shop) {
+            throw ValidationException::withMessages([
+                'prices' => 'Invoice generation failed because the order is not linked to a valid shop.',
+            ]);
+        }
+
+        $price = $this->approvedDailyPriceResolver->resolve($product, $order->shop, $order->business_date);
 
         return round((float) $price['price'], 2);
     }

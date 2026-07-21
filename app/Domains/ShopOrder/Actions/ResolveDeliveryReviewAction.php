@@ -13,6 +13,7 @@ use App\Models\ShopOrder;
 use App\Models\StockMovement;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Inventory\WastageService;
+use App\Services\ShopInvoices\ShopInvoiceIntegrityValidator;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +25,7 @@ class ResolveDeliveryReviewAction
         private readonly ShopInvoiceService $shopInvoiceService,
         private readonly StockLedgerService $stockLedgerService,
         private readonly WastageService $wastageService,
+        private readonly ShopInvoiceIntegrityValidator $shopInvoiceIntegrityValidator,
     ) {}
 
     /**
@@ -44,7 +46,15 @@ class ResolveDeliveryReviewAction
 
             $this->assertCurrentState($lockedOrder, ['in_transit'], ['not_started', 'correction_requested']);
 
-            $invoice = $lockedOrder->invoice ?? $this->shopInvoiceService->synchronizeOrderInvoice($lockedOrder, $userId);
+            $invoice = $lockedOrder->invoice;
+
+            if (! $invoice instanceof ShopInvoice) {
+                throw ValidationException::withMessages([
+                    'invoice' => 'Delivery verification is disabled until the approved daily invoice is generated.',
+                ]);
+            }
+
+            $this->shopInvoiceIntegrityValidator->assertMatchesApprovedDailyPrices($invoice);
 
             foreach ($lockedOrder->items as $item) {
                 $expectedQty = $item->loaded_qty !== null
@@ -126,9 +136,16 @@ class ResolveDeliveryReviewAction
 
             $this->assertCurrentState($lockedOrder, ['pending_approval'], ['pending']);
 
-            $invoice = $lockedOrder->invoice ?? $this->shopInvoiceService->synchronizeOrderInvoice($lockedOrder, $userId);
-            /** @var ShopInvoice $invoice */
+            $invoice = $lockedOrder->invoice;
+
+            if (! $invoice instanceof ShopInvoice) {
+                throw ValidationException::withMessages([
+                    'invoice' => 'Delivery approval is disabled until the approved daily invoice is generated.',
+                ]);
+            }
+
             $invoice = ShopInvoice::query()->with('items')->lockForUpdate()->findOrFail($invoice->id);
+            $this->shopInvoiceIntegrityValidator->assertMatchesApprovedDailyPrices($invoice);
             $invoiceItemsByOrderItemId = $invoice->items->keyBy(fn ($invoiceItem) => (int) $invoiceItem->shop_order_item_id);
 
             $hasShortage = false;

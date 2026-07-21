@@ -43,7 +43,7 @@ class SubmitPurchaserCartRequest extends FormRequest
             'payment_details' => ['nullable', 'string', 'max:1000'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
+            'items.*.unit_price' => ['required', 'numeric', 'min:0.01'],
         ];
     }
 }

@@ -1,9 +1,12 @@
 @php
     $isPendingApproval = $order->delivery_status === 'pending_approval';
-    $isEditable = $order->is_allocation_completed && ! $order->is_delivered && ! $isPendingApproval;
+    $deliveryEligibility = $deliveryEligibility ?? ['allowed' => true, 'message' => null];
+    $isEditable = $order->is_allocation_completed && ! $order->is_delivered && ! $isPendingApproval && $deliveryEligibility['allowed'];
     $sortedItems = $order->items->sortBy(
         fn ($item) => \App\Models\Product::sortableSku((string) ($item->product?->sku ?? ''))
     );
+    $invoice = $order->invoice;
+    $invoiceItemsByOrderItemId = $invoice?->items?->keyBy('shop_order_item_id') ?? collect();
 @endphp
 
 <section class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
@@ -25,6 +28,66 @@
             <p class="text-xs font-black uppercase tracking-[0.16em] text-amber-700">Waiting For Admin Review</p>
             <p class="mt-2 text-sm leading-6 text-amber-900">Your reported quantities were submitted successfully. Final received quantities and invoice totals will update only after admin approval or a correction request.</p>
         </div>
+    @elseif (! $deliveryEligibility['allowed'])
+        <div class="mt-4 rounded-3xl border border-amber-200 bg-amber-50 p-4">
+            <p class="text-xs font-black uppercase tracking-[0.16em] text-amber-700">Verification Disabled</p>
+            <p class="mt-2 text-sm leading-6 text-amber-900">{{ $deliveryEligibility['message'] }}</p>
+        </div>
+    @endif
+
+    @if ($invoice)
+        <div class="mt-4 rounded-[1.75rem] border border-emerald-200 bg-emerald-50 p-4">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-700">Approved Invoice Pricing</p>
+                    <p class="mt-1 text-sm font-bold text-emerald-950">{{ $invoice->invoice_number }} · {{ $order->business_date?->format('d/m/Y') }}</p>
+                </div>
+                <div class="rounded-2xl bg-white px-4 py-2 text-right">
+                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Net Total</p>
+                    <p class="mt-1 text-lg font-black tabular-nums text-slate-950">Rs. {{ number_format((float) $invoice->final_total, 2) }}</p>
+                </div>
+            </div>
+
+            <div class="mt-4 overflow-hidden rounded-2xl border border-emerald-100 bg-white">
+                <div class="grid grid-cols-[minmax(0,1fr)_4.5rem_5rem_6rem] gap-2 border-b border-emerald-100 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
+                    <span>Item</span>
+                    <span class="text-right">Qty</span>
+                    <span class="text-right">Rate</span>
+                    <span class="text-right">Total</span>
+                </div>
+                <div class="divide-y divide-emerald-50">
+                    @foreach ($sortedItems as $item)
+                        @php
+                            $invoiceItem = $invoiceItemsByOrderItemId->get($item->id);
+                            $approvedQty = (float) ($invoiceItem?->approved_qty ?? $item->approved_qty ?? 0.00);
+                            $unitRate = (float) ($invoiceItem?->unit_price ?? 0.00);
+                            $lineTotal = (float) ($invoiceItem?->line_subtotal ?? ($approvedQty * $unitRate));
+                        @endphp
+                        <div class="grid grid-cols-[minmax(0,1fr)_4.5rem_5rem_6rem] gap-2 px-3 py-3 text-sm">
+                            <div class="min-w-0">
+                                <p class="truncate font-black text-slate-950">{{ $item->product->name }}</p>
+                                <p class="mt-0.5 truncate text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">{{ $item->product->sku }}</p>
+                            </div>
+                            <p class="self-center text-right font-bold tabular-nums text-slate-700">{{ number_format($approvedQty, 2) }}</p>
+                            <p class="self-center text-right font-bold tabular-nums text-slate-950">Rs. {{ number_format($unitRate, 2) }}</p>
+                            <p class="self-center text-right font-black tabular-nums text-slate-950">Rs. {{ number_format($lineTotal, 2) }}</p>
+                        </div>
+                    @endforeach
+                </div>
+                <div class="border-t border-emerald-100 bg-emerald-50/70 px-3 py-3">
+                    <div class="ml-auto grid max-w-xs grid-cols-2 gap-2 text-sm">
+                        <span class="font-bold text-slate-600">Total</span>
+                        <span class="text-right font-black tabular-nums text-slate-950">Rs. {{ number_format((float) $invoice->subtotal, 2) }}</span>
+                        @if ((float) $invoice->discount_total > 0)
+                            <span class="font-bold text-slate-600">Discount</span>
+                            <span class="text-right font-black tabular-nums text-slate-950">Rs. {{ number_format((float) $invoice->discount_total, 2) }}</span>
+                        @endif
+                        <span class="font-black text-slate-950">Net Total</span>
+                        <span class="text-right font-black tabular-nums text-slate-950">Rs. {{ number_format((float) $invoice->final_total, 2) }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     @endif
 
     @if ($isEditable)
@@ -35,6 +98,9 @@
                 @foreach ($sortedItems as $item)
                     @php
                         $approvedQty = (float) ($item->approved_qty ?? 0.00);
+                        $invoiceItem = $invoiceItemsByOrderItemId->get($item->id);
+                        $unitRate = (float) ($invoiceItem?->unit_price ?? 0.00);
+                        $lineTotal = (float) ($invoiceItem?->line_subtotal ?? ($approvedQty * $unitRate));
                     @endphp
                     <article
                         class="shop-item-row rounded-[1.75rem] border border-slate-200 bg-slate-50 p-4"
@@ -58,10 +124,18 @@
                             </div>
                         </div>
 
-                        <div class="mt-4 grid grid-cols-2 gap-3">
+                        <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                             <div class="rounded-2xl bg-white p-3">
                                 <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Approved</p>
                                 <p class="mt-1 text-lg font-black text-slate-950">{{ number_format($approvedQty, 2) }} {{ $item->unit }}</p>
+                            </div>
+                            <div class="rounded-2xl bg-white p-3">
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Rate</p>
+                                <p class="mt-1 text-lg font-black tabular-nums text-slate-950">Rs. {{ number_format($unitRate, 2) }}</p>
+                            </div>
+                            <div class="rounded-2xl bg-white p-3">
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Total</p>
+                                <p class="mt-1 text-lg font-black tabular-nums text-slate-950">Rs. {{ number_format($lineTotal, 2) }}</p>
                             </div>
                             <div class="rounded-2xl bg-white p-3">
                                 <label class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Delivered</label>
@@ -108,6 +182,12 @@
     @else
         <div class="mt-5 space-y-3">
             @foreach ($sortedItems as $item)
+                @php
+                    $approvedQty = (float) ($item->approved_qty ?? 0);
+                    $invoiceItem = $invoiceItemsByOrderItemId->get($item->id);
+                    $unitRate = (float) ($invoiceItem?->unit_price ?? 0.00);
+                    $lineTotal = (float) ($invoiceItem?->line_subtotal ?? ($approvedQty * $unitRate));
+                @endphp
                 <article class="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-4">
                     <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
@@ -118,10 +198,18 @@
                             @include('shop-owner.components.status-badge', ['label' => $item->warehouseWorkflowLabel(), 'tone' => $item->warehouseWorkflowTone()])
                         </div>
                     </div>
-                    <div class="mt-4 grid grid-cols-2 gap-3">
+                    <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                         <div class="rounded-2xl bg-white p-3">
                             <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Approved</p>
-                            <p class="mt-1 text-sm font-black text-slate-950">{{ number_format((float) ($item->approved_qty ?? 0), 2) }} {{ $item->unit }}</p>
+                            <p class="mt-1 text-sm font-black text-slate-950">{{ number_format($approvedQty, 2) }} {{ $item->unit }}</p>
+                        </div>
+                        <div class="rounded-2xl bg-white p-3">
+                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Rate</p>
+                            <p class="mt-1 text-sm font-black tabular-nums text-slate-950">Rs. {{ number_format($unitRate, 2) }}</p>
+                        </div>
+                        <div class="rounded-2xl bg-white p-3">
+                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Total</p>
+                            <p class="mt-1 text-sm font-black tabular-nums text-slate-950">Rs. {{ number_format($lineTotal, 2) }}</p>
                         </div>
                         <div class="rounded-2xl bg-white p-3">
                             <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">{{ $isPendingApproval ? 'Reported Received' : 'Received' }}</p>

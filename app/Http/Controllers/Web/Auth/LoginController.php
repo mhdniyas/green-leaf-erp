@@ -6,8 +6,10 @@ namespace App\Http\Controllers\Web\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Auth\LoginRequest;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
 
@@ -22,7 +24,22 @@ class LoginController extends Controller
             return redirect()->route('dashboard');
         }
 
-        return view('auth.login');
+        return view('auth.login', [
+            'demoUsers' => $this->demoUsers(),
+        ]);
+    }
+
+    public function demoIndex(): View|RedirectResponse
+    {
+        abort_if(app()->isProduction(), 404);
+
+        if (Auth::check()) {
+            return redirect()->route('dashboard');
+        }
+
+        return view('auth.demo-login', [
+            'demoUsers' => $this->demoUsers(),
+        ]);
     }
 
     /**
@@ -57,6 +74,20 @@ class LoginController extends Controller
             ->withErrors(['email' => 'These credentials do not match our records.']);
     }
 
+    public function demo(Request $request, User $user): RedirectResponse
+    {
+        abort_if(app()->isProduction(), 404);
+
+        if ($user->isPendingRegistration()) {
+            return back()->withErrors(['email' => 'This demo user is pending admin approval.']);
+        }
+
+        Auth::login($user);
+        $request->session()->regenerate();
+
+        return redirect()->intended(route('dashboard'));
+    }
+
     /**
      * Log the user out of the application.
      */
@@ -68,5 +99,21 @@ class LoginController extends Controller
         $request->session()->regenerateToken();
 
         return redirect()->route('login');
+    }
+
+    /**
+     * @return Collection<int, User>
+     */
+    private function demoUsers(): Collection
+    {
+        if (app()->isProduction()) {
+            return collect();
+        }
+
+        return User::query()
+            ->with(['roles', 'shop'])
+            ->orderByRaw("CASE WHEN email LIKE '%@greenleaf.com' THEN 0 ELSE 1 END")
+            ->orderBy('name')
+            ->get();
     }
 }

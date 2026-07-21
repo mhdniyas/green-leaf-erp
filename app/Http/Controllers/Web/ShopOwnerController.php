@@ -22,6 +22,7 @@ use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\ShopInvoices\ShopInvoiceService;
+use App\Services\ShopOrders\DeliveryVerificationEligibility;
 use App\Support\ShopOwner\ActiveShopResolver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -39,6 +40,7 @@ class ShopOwnerController extends Controller
         private readonly PurchaserBusinessDayService $businessDayService,
         private readonly ShopInvoiceService $shopInvoiceService,
         private readonly ActiveShopResolver $activeShopResolver,
+        private readonly DeliveryVerificationEligibility $deliveryVerificationEligibility,
     ) {}
 
     public function dashboard(Request $request): View
@@ -117,8 +119,12 @@ class ShopOwnerController extends Controller
             ])
             ->firstOrFail();
 
+        $this->ensureDeliveryInvoiceExists($order, (int) $request->user()->id);
+        $order->load(['invoice.paymentRequests.requestedBy', 'invoice.paymentRequests.reviewedBy', 'invoice.shop', 'invoice.items.product']);
+
         return view('shop-owner.deliveries.show', [
             'order' => $order,
+            'deliveryEligibility' => $this->deliveryVerificationEligibility->forOrder($order),
         ]);
     }
 
@@ -207,7 +213,8 @@ class ShopOwnerController extends Controller
     public function accountingIndex(Request $request): View
     {
         $shop = $this->currentShop($request);
-        $tab = $this->normalizeAccountingTab($shop, (string) $request->input('tab', 'bills'));
+        $defaultTab = $shop->isOwnedAccountingEnabled() ? 'cashbook' : 'bills';
+        $tab = $this->normalizeAccountingTab($shop, (string) $request->input('tab', $defaultTab));
         $selectedDate = Carbon::parse($request->input('date', today()->toDateString()));
         $ledgerDateFilterActive = $request->filled('start_date') || $request->filled('end_date');
         $ledgerSourceFilter = in_array($request->input('ledger_source'), ['greenleaf_direct'], true)
@@ -994,6 +1001,20 @@ class ShopOwnerController extends Controller
         return $this->activeShopResolver->resolve($request);
     }
 
+    private function ensureDeliveryInvoiceExists(ShopOrder $order, int $userId): void
+    {
+        if ($order->invoice || $order->delivery_status !== 'in_transit' || ! $order->is_allocation_completed) {
+            return;
+        }
+
+        try {
+            $this->shopInvoiceService->synchronizeOrderInvoice($order, $userId);
+            $order->unsetRelation('invoice');
+        } catch (ValidationException) {
+            return;
+        }
+    }
+
     private function ownedAccountingShop(Request $request): Shop
     {
         $shop = $this->currentShop($request);
@@ -1005,10 +1026,10 @@ class ShopOwnerController extends Controller
 
     private function normalizeAccountingTab(Shop $shop, string $tab): string
     {
-        if ($tab === 'cashbook') {
+        if (in_array($tab, ['cashbook', 'create'], true)) {
             abort_unless($shop->isOwnedAccountingEnabled(), 404);
 
-            return 'cashbook';
+            return $tab;
         }
 
         return 'bills';

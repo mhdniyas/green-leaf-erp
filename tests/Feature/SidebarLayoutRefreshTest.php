@@ -199,6 +199,75 @@ class SidebarLayoutRefreshTest extends TestCase
             ->assertSee('Payments to company waiting for accounting approval.');
     }
 
+    public function test_owned_shop_owner_accounting_defaults_to_cashbook(): void
+    {
+        $shopOwner = $this->shopOwnerUser([
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.accounting.index'))
+            ->assertOk()
+            ->assertSee('Daily Shop Receipt')
+            ->assertSee('Cashbook')
+            ->assertSee('Create cashbook entry', false)
+            ->assertSee('Online Payment')
+            ->assertDontSee('id="cashbook-open-modal"', false)
+            ->assertDontSee('Daily Delivery Bills');
+    }
+
+    public function test_owned_shop_owner_can_open_accounting_create_tab(): void
+    {
+        $shopOwner = $this->shopOwnerUser([
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.accounting.index', ['tab' => 'create']))
+            ->assertOk()
+            ->assertSee('Create')
+            ->assertSee('Add Credit / Debit')
+            ->assertSee('Submit To Admin Approval')
+            ->assertDontSee('Ledger Status');
+    }
+
+    public function test_regular_shop_owner_accounting_defaults_to_bills(): void
+    {
+        $shopOwner = $this->shopOwnerUser([
+            'accounting_enabled' => false,
+            'accounting_mode' => 'regular',
+        ]);
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.accounting.index'))
+            ->assertOk()
+            ->assertSee('Daily Delivery Bills')
+            ->assertDontSee('Daily Shop Receipt');
+    }
+
+    public function test_regular_shop_owner_cannot_open_owned_accounting_tabs(): void
+    {
+        $shopOwner = $this->shopOwnerUser([
+            'accounting_enabled' => false,
+            'accounting_mode' => 'regular',
+        ]);
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.accounting.index', ['tab' => 'cashbook']))
+            ->assertNotFound();
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.accounting.index', ['tab' => 'create']))
+            ->assertNotFound();
+    }
+
     private function adminUser(): User
     {
         foreach (['admin', 'shop', 'purchase', 'purchaser', 'warehouse_receiver'] as $role) {
@@ -235,6 +304,24 @@ class SidebarLayoutRefreshTest extends TestCase
             'email' => 'admin@greenleaf.com',
         ]);
         $user->assignRole($adminRole);
+
+        return $user;
+    }
+
+    /**
+     * @param  array<string, mixed>  $shopAttributes
+     */
+    private function shopOwnerUser(array $shopAttributes = []): User
+    {
+        $permission = Permission::findOrCreate('sales.order.create', 'web');
+        $shopRole = Role::findOrCreate('shop', 'web');
+        $shopRole->givePermissionTo($permission);
+
+        $shop = Shop::factory()->create($shopAttributes);
+        $user = User::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+        $user->assignRole($shopRole);
 
         return $user;
     }

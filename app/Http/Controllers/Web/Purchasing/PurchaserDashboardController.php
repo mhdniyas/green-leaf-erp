@@ -954,7 +954,7 @@ class PurchaserDashboardController extends Controller
             'cart_id' => ['nullable', 'integer'],
             'items' => ['required', 'array'],
             'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
-            'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
+            'items.*.unit_price' => ['required', 'numeric', 'min:0.01'],
         ]);
 
         $date = Carbon::parse($validated['business_date']);
@@ -996,7 +996,7 @@ class PurchaserDashboardController extends Controller
 
             $remainingApproved = $this->remainingApprovedQuantityForProduct($date, $productId, (int) $cart->id);
             $quantity = (float) $itemData['quantity'];
-            $unitPrice = (float) ($itemData['unit_price'] ?? 0);
+            $unitPrice = (float) $itemData['unit_price'];
 
             $existingItem = $cart->items()->where('product_id', $productId)->first();
             $newQuantity = $existingItem instanceof PurchaserCartItem
@@ -1088,7 +1088,7 @@ class PurchaserDashboardController extends Controller
 
         $product = Product::query()->with('category')->findOrFail($request->integer('product_id'));
         $quantity = (float) $request->validated('quantity');
-        $unitPrice = (float) $request->input('unit_price', 0);
+        $unitPrice = (float) $request->validated('unit_price');
         $cartHasItems = $cart->items()->exists();
         $purchaseSource = $this->resolveCartPurchaseSource(
             currentSource: $cartHasItems ? (string) ($cart->purchase_source ?? 'shop_order') : '',
@@ -1148,12 +1148,12 @@ class PurchaserDashboardController extends Controller
 
         $validated = $request->validate([
             'quantity' => ['required', 'numeric', 'min:0.01'],
-            'unit_price' => ['nullable', 'numeric', 'min:0'],
+            'unit_price' => ['required', 'numeric', 'min:0.01'],
             'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $quantity = (float) $validated['quantity'];
-        $unitPrice = (float) ($validated['unit_price'] ?? 0);
+        $unitPrice = (float) $validated['unit_price'];
         $remainingApproved = $this->remainingApprovedQuantityForProduct($cart->business_date, (int) $item->product_id, (int) $cart->id);
 
         $item->update([
@@ -1181,7 +1181,7 @@ class PurchaserDashboardController extends Controller
         $validated = $request->validate([
             'items' => ['required', 'array', 'min:1'],
             'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
-            'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
+            'items.*.unit_price' => ['required', 'numeric', 'min:0.01'],
             'items.*.notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
@@ -1194,7 +1194,7 @@ class PurchaserDashboardController extends Controller
                 }
 
                 $quantity = (float) $itemInput['quantity'];
-                $unitPrice = (float) ($itemInput['unit_price'] ?? 0);
+                $unitPrice = (float) $itemInput['unit_price'];
                 $remainingApproved = $this->remainingApprovedQuantityForProduct($cart->business_date, (int) $cartItem->product_id, (int) $cart->id);
 
                 $cartItem->update([

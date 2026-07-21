@@ -731,7 +731,7 @@ class ShopStaffMoneyFlowTest extends TestCase
             ->assertDontSeeText('Daily Balance Movement')
             ->assertDontSeeText('Add Shop Cash Movement')
             ->assertSeeText('Admin Approval')
-            ->assertSeeText('8');
+            ->assertSeeText('7');
     }
 
     public function test_admin_shop_cash_credit_updates_stored_daily_closing_balance(): void
@@ -943,12 +943,20 @@ class ShopStaffMoneyFlowTest extends TestCase
                 'date' => '2026-07-17',
             ]))
             ->assertOk()
-            ->assertSeeText('This day is already approved.')
-            ->assertSeeText('Approved entries are read-only')
             ->assertSeeText('Approved sales')
             ->assertSeeText('Rs. 1,200.00')
             ->assertDontSeeText('Not entered')
             ->assertDontSeeText('Submit Updated Ledger Day');
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.accounting.index', [
+                'tab' => 'create',
+                'date' => '2026-07-17',
+            ]))
+            ->assertOk()
+            ->assertSeeText('This day is already approved.')
+            ->assertSeeText('Approved entries are read-only');
     }
 
     public function test_approved_shop_receipt_tracks_cashbook_without_posting_journal(): void
@@ -1496,8 +1504,8 @@ class ShopStaffMoneyFlowTest extends TestCase
                 'date' => '2026-07-18',
             ]))
             ->assertOk()
-            ->assertSeeText('Cash Given To Shop')
-            ->assertSeeText('Payment To Company')
+            ->assertSeeText('Cash Given')
+            ->assertSeeText('Paid Company')
             ->assertSeeText('Rs. 62,666.00')
             ->assertSeeText('Rs. 5,000.00')
             ->assertSeeText('Rs. 38,000.00')
@@ -1739,6 +1747,17 @@ class ShopStaffMoneyFlowTest extends TestCase
             ->get(route('shop-owner.accounting.index', [
                 'tab' => 'cashbook',
                 'ledger_status' => 'approved',
+                'date' => '2026-07-17',
+            ]))
+            ->assertOk()
+            ->assertSee('Create cashbook entry', false)
+            ->assertDontSeeText('Add New Entry')
+            ->assertDontSeeText('Add additional income or expense');
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.accounting.index', [
+                'tab' => 'create',
                 'date' => '2026-07-17',
             ]))
             ->assertOk()

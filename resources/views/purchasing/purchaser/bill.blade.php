@@ -40,7 +40,7 @@
                                             @php
                                                 $vendorPriceHint = $vendorPriceHints[$item->product_id] ?? 0;
                                             @endphp
-                                            <input id="price-{{ $item->id }}" type="number" step="0.01" min="0" name="items[{{ $item->id }}][unit_price]" value="{{ old("items.{$item->id}.unit_price", number_format((float) $item->unit_price, 2, '.', '')) }}" class="bill-price h-7 w-14 text-center text-[10px] font-semibold border border-slate-200 rounded-md bg-white focus:outline-none shrink-0" data-quantity="{{ number_format((float) $item->quantity, 3, '.', '') }}">
+                                            <input id="price-{{ $item->id }}" type="number" step="0.01" min="0.01" name="items[{{ $item->id }}][unit_price]" value="{{ old("items.{$item->id}.unit_price", number_format((float) $item->unit_price, 2, '.', '')) }}" class="bill-price h-7 w-14 text-center text-[10px] font-semibold border border-slate-200 rounded-md bg-white focus:outline-none shrink-0" data-quantity="{{ number_format((float) $item->quantity, 3, '.', '') }}">
                                             @if ($vendorPriceHint > 0)
                                                 <span class="text-[8px] font-bold text-amber-700">Prev ₹{{ number_format((float) $vendorPriceHint, 2) }}</span>
                                             @endif

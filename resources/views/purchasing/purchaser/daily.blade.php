@@ -199,7 +199,7 @@
                         @endif
                         <div class="grid grid-cols-2 gap-2">
                             <input type="number" step="0.5" min="0.5" name="quantity" value="1" class="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
-                            <input type="number" step="0.01" min="0" name="unit_price" value="0" class="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none" placeholder="Price">
+                            <input type="number" step="0.01" min="0.01" name="unit_price" value="" class="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none" placeholder="Price">
                         </div>
                         <button type="submit" class="flex h-9 w-full items-center justify-center rounded-lg bg-slate-950 px-4 text-xs font-black text-white">
                             + Buy Other Product
@@ -394,9 +394,9 @@
                 {{-- Price input --}}
                 <div class="space-y-1">
                     <label for="add-to-cart-price" class="block text-[9px] font-black uppercase tracking-wider text-slate-500">
-                        <span id="add-to-cart-price-label">Price (Per kg)</span> <span class="text-slate-400 font-normal">(Optional)</span>
+                        <span id="add-to-cart-price-label">Price (Per kg)</span>
                     </label>
-                    <input type="number" step="0.01" min="0" id="add-to-cart-price" name="unit_price" class="w-full h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-955 focus:border-teal-500 focus:bg-white focus:outline-none" placeholder="0.00">
+                    <input type="number" step="0.01" min="0.01" id="add-to-cart-price" name="unit_price" class="w-full h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-bold text-slate-955 focus:border-teal-500 focus:bg-white focus:outline-none" placeholder="Price">
                 </div>
 
                 {{-- Calculated Total --}}

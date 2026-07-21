@@ -55,9 +55,11 @@ Route::post('/enquiries', [WebsiteEnquiryController::class, 'store'])->middlewar
 // Guest routes (unauthenticated only)
 Route::middleware('guest')->group(function () {
     Route::get('/login', [LoginController::class, 'show'])->name('login');
+    Route::get('/login/demo', [LoginController::class, 'demoIndex'])->name('login.demo.index');
     Route::get('/shop-owner/register', [ShopOwnerRegistrationController::class, 'create'])->name('shop-owner.register');
     Route::post('/shop-owner/register', [ShopOwnerRegistrationController::class, 'store'])->middleware('throttle:public-form')->name('shop-owner.register.store');
     Route::post('/login', [LoginController::class, 'store'])->middleware('throttle:login')->name('login.submit');
+    Route::post('/login/demo/{user}', [LoginController::class, 'demo'])->middleware('throttle:login')->name('login.demo');
 });
 
 // Stub: password reset (required by blade for the link to work)

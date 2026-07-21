@@ -138,7 +138,7 @@
                                             </div>
                                             <div class="flex flex-col gap-0.5">
                                                 <span class="text-[8px] font-black uppercase tracking-wider text-slate-400">Per {{ $item->product->unit }}</span>
-                                                <input type="number" step="0.01" min="0" name="items[{{ $item->id }}][unit_price]" id="price-{{ $item->id }}" value="{{ number_format((float) $item->unit_price, 2, '.', '') }}" oninput="updateCartItemTotal({{ $item->id }})" class="h-8 w-16 rounded-lg border border-slate-200 bg-white text-center text-[10px] font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
+                                                <input type="number" step="0.01" min="0.01" name="items[{{ $item->id }}][unit_price]" id="price-{{ $item->id }}" value="{{ number_format((float) $item->unit_price, 2, '.', '') }}" oninput="updateCartItemTotal({{ $item->id }})" class="h-8 w-16 rounded-lg border border-slate-200 bg-white text-center text-[10px] font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
                                                 @if ($vendorPriceHint > 0)
                                                     <span class="text-[8px] font-bold text-amber-700">Prev ₹{{ number_format((float) $vendorPriceHint, 2) }}</span>
                                                 @endif

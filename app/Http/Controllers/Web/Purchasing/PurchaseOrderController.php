@@ -149,7 +149,7 @@ class PurchaseOrderController extends Controller
             'items.*.packet_qty' => ['nullable', 'numeric', 'min:0'],
             'items.*.weight_per_packet' => ['nullable', 'numeric', 'min:0'],
             'items.*.actual_weight' => ['nullable', 'numeric', 'min:0'],
-            'items.*.unit_price' => ['required', 'numeric', 'min:0'],
+            'items.*.unit_price' => ['required', 'numeric', 'min:0.0001'],
             'items.*.price_basis' => ['required', 'string', 'in:per_kg,per_unit'],
             'items.*.quantity' => ['required', 'numeric', 'min:0'],
         ]);

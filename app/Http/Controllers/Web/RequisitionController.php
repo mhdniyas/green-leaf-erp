@@ -26,8 +26,10 @@ use App\Notifications\PurchasingOrderSubmittedNotification;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
+use App\Services\Requisition\ShopOrderChangeRequestRecorder;
 use App\Services\Requisition\ShopOrderRevisionService;
 use App\Services\ShopInvoices\ShopInvoiceService;
+use App\Services\ShopOrders\DeliveryVerificationEligibility;
 use App\Support\ShopOwner\ActiveShopResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -46,9 +48,11 @@ class RequisitionController extends Controller
         private readonly PriceBoardService $priceBoardService,
         private readonly PurchaserBusinessDayService $businessDayService,
         private readonly ShopOrderRevisionService $shopOrderRevisionService,
+        private readonly ShopOrderChangeRequestRecorder $shopOrderChangeRequestRecorder,
         private readonly ShopInvoiceService $shopInvoiceService,
         private readonly ActiveShopResolver $activeShopResolver,
         private readonly ResolveDeliveryReviewAction $resolveDeliveryReviewAction,
+        private readonly DeliveryVerificationEligibility $deliveryVerificationEligibility,
     ) {}
 
     /**
@@ -105,6 +109,14 @@ class RequisitionController extends Controller
             ]);
 
             $this->syncShopOrderItems($shopOrder, $items);
+
+            if ($isLate) {
+                $this->shopOrderChangeRequestRecorder->recordLateSubmission(
+                    $shopOrder,
+                    $user,
+                    'Shop owner submitted this order after cutoff.'
+                );
+            }
 
             if ($autoApproveOrder) {
                 $shopOrder->items()->update([
@@ -364,12 +376,18 @@ class RequisitionController extends Controller
         if ($order->state === 'approved') {
             try {
                 $revision = DB::transaction(function () use ($order, $items, $reason, $request) {
-                    return $this->shopOrderRevisionService->createApprovedOrderRevision(
+                    $revision = $this->shopOrderRevisionService->createApprovedOrderRevision(
                         $order,
                         $items,
                         $request->user(),
                         $reason
                     );
+
+                    if ($revision) {
+                        $this->shopOrderChangeRequestRecorder->recordApprovedOrderRevision($revision);
+                    }
+
+                    return $revision;
                 });
             } catch (ValidationException $exception) {
                 return redirect()->route('shop-owner.orders.show', $orderNumber)
@@ -396,7 +414,8 @@ class RequisitionController extends Controller
                 ));
         }
 
-        DB::transaction(function () use ($order, $items, $reason): void {
+        DB::transaction(function () use ($order, $items, $reason, $request): void {
+            $this->shopOrderChangeRequestRecorder->recordSubmittedOrderUpdate($order, $items, $request->user(), $reason);
             $this->syncShopOrderItems($order, $items);
 
             $order->update([
@@ -538,6 +557,13 @@ class RequisitionController extends Controller
             'reviewed_by' => $request->user()->id,
             'reviewed_at' => now(),
         ]);
+        $this->shopOrderChangeRequestRecorder->markLatestPending(
+            $order,
+            'late_submission',
+            'approved',
+            $request->user(),
+            'Late requisition request accepted.'
+        );
 
         return redirect()->back()->with('success', 'Late requisition request accepted.');
     }
@@ -554,6 +580,13 @@ class RequisitionController extends Controller
 
         DB::transaction(function () use ($order, $approvedQtys, $managerNote, $request): void {
             $this->applyRejectedReviewOutcome($order, $approvedQtys, $managerNote, $request->user()->id);
+            $this->shopOrderChangeRequestRecorder->markLatestPending(
+                $order,
+                'late_submission',
+                'rejected',
+                $request->user(),
+                $managerNote
+            );
         });
 
         return redirect()->back()->with('success', 'Late requisition request rejected.');
@@ -584,9 +617,25 @@ class RequisitionController extends Controller
                 );
 
                 if ($revision && $revision->status === 'blocked') {
+                    $this->shopOrderChangeRequestRecorder->markRevisionRequest(
+                        $revision,
+                        'blocked',
+                        $request->user(),
+                        $managerNote
+                    );
+
                     throw ValidationException::withMessages([
                         'purchase_orders' => 'This revision cannot be applied because the linked purchasing or shop invoice workflow is already locked.',
                     ]);
+                }
+
+                if ($revision) {
+                    $this->shopOrderChangeRequestRecorder->markRevisionRequest(
+                        $revision,
+                        $revision->status === 'applied' ? 'approved' : $revision->status,
+                        $request->user(),
+                        $managerNote
+                    );
                 }
 
                 $order->update([
@@ -620,6 +669,12 @@ class RequisitionController extends Controller
                     'reviewed_at' => now(),
                     'manager_note' => $managerNote,
                 ]);
+                $this->shopOrderChangeRequestRecorder->markRevisionRequest(
+                    $revision,
+                    'rejected',
+                    $request->user(),
+                    $managerNote
+                );
             }
             $order->update([
                 'state' => 'approved',
@@ -1610,6 +1665,18 @@ class RequisitionController extends Controller
                 ->with('error', 'This order has already been checked-in and marked as delivered.');
         }
 
+        $this->ensureDeliveryInvoiceExists($order, (int) $request->user()->id);
+        $order->load(['invoice.items.product', 'invoice.shop.priceGroup']);
+
+        $deliveryEligibility = $this->deliveryVerificationEligibility->forOrder($order);
+
+        if (! $deliveryEligibility['allowed']) {
+            return redirect()->route(
+                $request->user()->hasRole('shop') ? 'shop-owner.deliveries.show' : 'requisitions.show',
+                $orderNumber
+            )->with('error', $deliveryEligibility['message']);
+        }
+
         $request->validate([
             'delivered_qty' => ['required', 'array'],
             'delivered_qty.*' => ['required', 'numeric', 'min:0'],
@@ -2230,5 +2297,19 @@ class RequisitionController extends Controller
         $activeShop = $this->activeShopResolver->resolve($request);
 
         abort_unless($order->shop_id === $activeShop->id, 403, 'Unauthorized access to shop order.');
+    }
+
+    private function ensureDeliveryInvoiceExists(ShopOrder $order, int $userId): void
+    {
+        if ($order->invoice || $order->delivery_status !== 'in_transit' || ! $order->is_allocation_completed) {
+            return;
+        }
+
+        try {
+            $this->shopInvoiceService->synchronizeOrderInvoice($order, $userId);
+            $order->unsetRelation('invoice');
+        } catch (ValidationException) {
+            return;
+        }
     }
 }
