@@ -474,7 +474,11 @@ class AdminFinancePillarService
                     ->orWhere('source_type', '!=', PurchaseInvoice::class)
                     ->orWhere(function (Builder $query): void {
                         $query->where('source_type', PurchaseInvoice::class)
-                            ->where('source_event', 'like', 'green_leaf_direct_purchase_payment:%');
+                            ->where(function (Builder $eventQuery): void {
+                                $eventQuery
+                                    ->where('source_event', 'like', 'green_leaf_direct_purchase_payment:%')
+                                    ->orWhere('source_event', 'like', 'company_vendor_credit_payment:%');
+                            });
                     });
             })
             ->whereHas('transactions.account', fn (Builder $query): Builder => $query->whereIn('code', self::CASH_FLOW_ACCOUNT_CODES))
@@ -490,7 +494,7 @@ class AdminFinancePillarService
     {
         return ShopCredit::query()
             ->approved()
-            ->with(['shop', 'creator'])
+            ->with(['shop', 'creator', 'cashMovementCategory'])
             ->where('is_petty_cash', true)
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
@@ -545,7 +549,8 @@ class AdminFinancePillarService
         return $credits->map(function (ShopCredit $credit): array {
             $isCreditToShop = $credit->type === 'in';
             $shopName = (string) ($credit->shop?->name ?? 'Unknown shop');
-            $category = $isCreditToShop ? 'Shop Cash Credit' : 'Shop Cash Return';
+            $category = $credit->cashMovementCategory?->name
+                ?? ($isCreditToShop ? 'Shop Cash Credit' : 'Shop Cash Return');
 
             return [
                 'date' => $credit->business_date?->toDateString() ?? $credit->created_at?->toDateString(),
@@ -601,6 +606,10 @@ class AdminFinancePillarService
             return 'Green Leaf Direct Purchase';
         }
 
+        if ($entry->source_type === PurchaseInvoice::class && str_starts_with((string) $entry->source_event, 'company_vendor_credit_payment:')) {
+            return 'Company Vendor Credit Payment';
+        }
+
         if ($entry->source_event === 'payroll_payment') {
             return 'Staff Salary';
         }
@@ -614,7 +623,11 @@ class AdminFinancePillarService
             ShopInvoice::class => 'daily_sales',
             PayrollPayment::class => 'payroll',
             PurchaserCredit::class => 'purchaser',
-            PurchaseInvoice::class => str_starts_with((string) $entry->source_event, 'green_leaf_direct_purchase_payment:') ? 'green_leaf_direct_purchase' : 'journal',
+            PurchaseInvoice::class => match (true) {
+                str_starts_with((string) $entry->source_event, 'green_leaf_direct_purchase_payment:') => 'green_leaf_direct_purchase',
+                str_starts_with((string) $entry->source_event, 'company_vendor_credit_payment:') => 'vendor_credit_company_payment',
+                default => 'journal',
+            },
             default => 'journal',
         };
     }

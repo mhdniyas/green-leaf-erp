@@ -44,7 +44,7 @@
                 <p class="mt-2 text-2xl font-black text-emerald-900">Rs. {{ number_format($summary['approved_amount'], 2) }}</p>
             </article>
             <article class="rounded-2xl border border-cyan-200 bg-cyan-50 p-4 shadow-sm">
-                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-700">Paid From Shops</p>
+                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-700">Posted To Cashbook</p>
                 <p class="mt-2 text-2xl font-black text-cyan-900">Rs. {{ number_format($summary['paid_amount'], 2) }}</p>
             </article>
         </section>
@@ -112,7 +112,7 @@
                                 · approved Rs. {{ number_format((float) $advanceRequest->approved_amount, 2) }}
                             @endif
                             @if($advanceRequest->shopStaffPayment)
-                                · paid from {{ str($advanceRequest->shopStaffPayment->fund_source)->replace('_', ' ')->headline() }}
+                                · {{ $advanceRequest->shopStaffPayment->cashbookLine ? 'posted to shop cashbook' : 'cashbook posting pending' }}
                             @endif
                             @if($advanceRequest->review_note)
                                 · {{ $advanceRequest->review_note }}

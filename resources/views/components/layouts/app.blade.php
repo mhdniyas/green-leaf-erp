@@ -276,8 +276,8 @@
         ],
         [
             'label' => 'Sort',
-            'route' => 'sort-sheet.index',
-            'active' => request()->routeIs('sort-sheet.*'),
+            'route' => 'warehouse.receiver.sort-sheet.index',
+            'active' => request()->routeIs('warehouse.receiver.sort-sheet.*'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5m-16.5 5.25h16.5m-16.5 5.25h16.5" /></svg>',
             'type' => 'link',
         ],
@@ -426,7 +426,7 @@
                 </div>
             @elseif(auth()->user()->hasRole('warehouse_receiver'))
                 @php
-                    $isWarehouseReceiverActive = request()->routeIs('warehouse.receiver.*') || request()->routeIs('warehouse.loadout.*') || request()->routeIs('sort-sheet.*');
+                    $isWarehouseReceiverActive = request()->routeIs('warehouse.receiver.*') || request()->routeIs('warehouse.loadout.*');
                 @endphp
                 <div class="sidebar-group space-y-1">
                     <button
@@ -454,7 +454,7 @@
                         <x-nav-item href="{{ route('warehouse.loadout.index') }}" :active="request()->routeIs('warehouse.loadout.*')" :sub="true" :badge="$wrLoadoutCount" badge-tone="success">
                             Loadout
                         </x-nav-item>
-                        <x-nav-item href="{{ route('sort-sheet.index') }}" :active="request()->routeIs('sort-sheet.*')" :sub="true">
+                        <x-nav-item href="{{ route('warehouse.receiver.sort-sheet.index') }}" :active="request()->routeIs('warehouse.receiver.sort-sheet.*')" :sub="true">
                             Sort Sheet
                         </x-nav-item>
                     </div>

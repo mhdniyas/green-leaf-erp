@@ -21,6 +21,7 @@ class ShopCredit extends Model
         'shop_id',
         'type',
         'is_petty_cash',
+        'shop_cash_movement_category_id',
         'amount',
         'description',
         'admin_note',
@@ -41,6 +42,15 @@ class ShopCredit extends Model
         ];
     }
 
+    protected static function booted(): void
+    {
+        static::creating(function (ShopCredit $credit): void {
+            if ($credit->is_petty_cash && blank($credit->shop_cash_movement_category_id)) {
+                $credit->shop_cash_movement_category_id = ShopCashMovementCategory::defaultCategory()->id;
+            }
+        });
+    }
+
     public function shop(): BelongsTo
     {
         return $this->belongsTo(Shop::class);
@@ -54,6 +64,11 @@ class ShopCredit extends Model
     public function reviewedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    public function cashMovementCategory(): BelongsTo
+    {
+        return $this->belongsTo(ShopCashMovementCategory::class, 'shop_cash_movement_category_id');
     }
 
     #[Scope]
@@ -87,6 +102,10 @@ class ShopCredit extends Model
 
     public function accountingCategory(): string
     {
+        if ($this->is_petty_cash && $this->cashMovementCategory) {
+            return $this->cashMovementCategory->name;
+        }
+
         return $this->isAccountingOut() ? 'Cash Given to Shop' : 'Cash Received from Shop';
     }
 

@@ -9,6 +9,13 @@ use Illuminate\Validation\Rule;
 
 class StoreEmployeeAdvanceRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        $this->merge([
+            'fund_source' => $this->input('fund_source', 'petty_cash'),
+        ]);
+    }
+
     public function authorize(): bool
     {
         return $this->user()?->hasRole('shop') && $this->user()?->can('hr.attendance.mark-owned-shop');

@@ -17,6 +17,13 @@
             </div>
         </section>
 
+        @if ($cart->supplier && ! $cart->supplier->credit_approved && ! $cart->supplier->credit_approval_requested_at)
+            <form id="bill-credit-request-form" action="{{ route('purchasing.suppliers.credit-request', $cart->supplier) }}" method="POST" class="hidden">
+                @csrf
+                <input type="hidden" name="credit_approval_note" value="Requested from purchaser bill {{ $cart->cart_number }} for {{ \Illuminate\Support\Carbon::parse($date)->format('d M Y') }}.">
+            </form>
+        @endif
+
         <form action="{{ route('purchaser.carts.submit') }}" method="POST" class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
             @csrf
             <input type="hidden" name="business_date" value="{{ $date }}">
@@ -92,12 +99,28 @@
                                 @endforeach
                             </div>
                             @if ($cart->supplier && ! $cart->supplier->credit_approved)
-                                <p class="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] font-semibold text-amber-800">Credit is blocked for this supplier until approval.</p>
+                                <div class="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2">
+                                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                        <p class="text-[10px] font-semibold text-amber-800">
+                                            @if ($cart->supplier->credit_approval_requested_at)
+                                                Credit request pending since {{ $cart->supplier->credit_approval_requested_at->format('d M Y h:i A') }}.
+                                            @else
+                                                Credit is blocked for this supplier until approval.
+                                            @endif
+                                        </p>
+                                        @if (! $cart->supplier->credit_approval_requested_at)
+                                            <button type="submit" form="bill-credit-request-form" class="inline-flex h-7 shrink-0 items-center justify-center rounded-md border border-amber-300 bg-white px-2.5 text-[9px] font-black uppercase tracking-[0.08em] text-amber-800 hover:bg-amber-100">
+                                                Request Credit
+                                            </button>
+                                        @endif
+                                    </div>
+                                </div>
                             @endif
                         </div>
                         <div>
                             <label for="paid_amount" class="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">Amount Paid Now</label>
                             <input id="paid_amount" type="number" step="0.01" min="0" name="paid_amount" value="{{ old('paid_amount', number_format((float) $cart->paid_amount, 2, '.', '')) }}" class="mt-1 h-8 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
+                            <p id="credit-payment-note" class="mt-1 hidden text-[10px] font-semibold text-amber-700">Supplier credit keeps paid amount at zero until purchaser or company settles it.</p>
                         </div>
                         <div>
                             <label for="payment_note" class="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">Payment Note</label>
@@ -127,6 +150,9 @@
             const subtotalNode = document.getElementById('bill-subtotal');
             const totalNode = document.getElementById('bill-total');
             const discountNode = document.getElementById('discount_amount');
+            const paidNode = document.getElementById('paid_amount');
+            const creditNoteNode = document.getElementById('credit-payment-note');
+            const paymentMethodNodes = Array.from(document.querySelectorAll('input[name="payment_method"]'));
 
             if (! priceInputs.length || ! subtotalNode || ! totalNode || ! discountNode) {
                 return;
@@ -157,6 +183,24 @@
 
             priceInputs.forEach((input) => input.addEventListener('input', recalculate));
             discountNode.addEventListener('input', recalculate);
+            paymentMethodNodes.forEach((input) => {
+                input.addEventListener('change', () => {
+                    const method = paymentMethodNodes.find((node) => node.checked)?.value ?? 'Cash';
+                    const isCredit = method === 'Credit';
+
+                    if (paidNode instanceof HTMLInputElement) {
+                        if (isCredit) {
+                            paidNode.value = '0.00';
+                        }
+
+                        paidNode.readOnly = isCredit;
+                        paidNode.classList.toggle('bg-amber-50', isCredit);
+                    }
+
+                    creditNoteNode?.classList.toggle('hidden', ! isCredit);
+                });
+            });
+            paymentMethodNodes.find((node) => node.checked)?.dispatchEvent(new Event('change'));
             recalculate();
         })();
     </script>

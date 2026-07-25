@@ -8,6 +8,7 @@ use Database\Factories\ShopStaffPaymentFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class ShopStaffPayment extends Model
 {
@@ -71,5 +72,11 @@ class ShopStaffPayment extends Model
     public function paidBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'paid_by');
+    }
+
+    public function cashbookLine(): HasOne
+    {
+        return $this->hasOne(ShopAccountingEntryLine::class, 'source_id')
+            ->where('source_type', self::class);
     }
 }

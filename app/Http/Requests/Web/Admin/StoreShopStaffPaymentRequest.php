@@ -10,6 +10,13 @@ use Illuminate\Validation\Rule;
 
 class StoreShopStaffPaymentRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        $this->merge([
+            'fund_source' => $this->input('fund_source', 'petty_cash'),
+        ]);
+    }
+
     public function authorize(): bool
     {
         return $this->user()?->can('create', PayrollRun::class) ?? false;

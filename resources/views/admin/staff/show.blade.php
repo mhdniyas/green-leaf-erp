@@ -135,7 +135,10 @@
                                 <tr>
                                     <td class="px-3 py-3 font-bold text-slate-900">{{ $payment->paid_on->format('d M Y') }}</td>
                                     <td class="px-3 py-3 font-semibold text-slate-600">{{ $payment->shop?->name }}</td>
-                                    <td class="px-3 py-3 capitalize">{{ $payment->payment_type }} / {{ str($payment->fund_source)->replace('_', ' ')->headline() }}</td>
+                                    <td class="px-3 py-3 capitalize">
+                                        {{ $payment->payment_type }}
+                                        / {{ $payment->cashbookLine ? 'cashbook posted' : 'cashbook pending' }}
+                                    </td>
                                     <td class="px-3 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $payment->amount, 2) }}</td>
                                 </tr>
                             @empty
@@ -156,7 +159,10 @@
                             <div class="flex items-start justify-between gap-3">
                                 <div>
                                     <p class="text-sm font-black text-slate-900">{{ $advanceRequest->shop?->name }}</p>
-                                    <p class="text-xs font-semibold text-slate-500">{{ $advanceRequest->requested_on->format('d M Y') }} · {{ str($advanceRequest->fund_source)->replace('_', ' ')->headline() }}</p>
+                                    <p class="text-xs font-semibold text-slate-500">
+                                        {{ $advanceRequest->requested_on->format('d M Y') }}
+                                        · {{ $advanceRequest->shopStaffPayment?->cashbookLine ? 'cashbook posted' : 'cashbook pending' }}
+                                    </p>
                                 </div>
                                 <span class="rounded-full border px-2 py-1 text-[10px] font-black uppercase {{ $advanceRequest->status === 'approved' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($advanceRequest->status === 'rejected' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-amber-200 bg-amber-50 text-amber-700') }}">{{ $advanceRequest->status }}</span>
                             </div>

@@ -7,9 +7,11 @@ namespace App\Services\HR;
 use App\Models\Employee;
 use App\Models\EmployeeAdvanceRequest;
 use App\Models\EmployeeAdvanceRule;
+use App\Models\PayrollRunItem;
 use App\Models\Shop;
 use App\Models\ShopStaffPayment;
 use App\Models\User;
+use App\Services\Finance\OwnedShopAccountingService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -19,6 +21,7 @@ class EmployeeAdvanceService
     public function __construct(
         private readonly PayrollService $payrollService,
         private readonly ShopEmployeeAssignmentService $assignmentService,
+        private readonly OwnedShopAccountingService $ownedShopAccountingService,
     ) {}
 
     /**
@@ -69,19 +72,56 @@ class EmployeeAdvanceService
             ]);
         }
 
-        return ShopStaffPayment::query()->create([
-            'payroll_run_id' => $payrollRunItem->payroll_run_id,
-            'payroll_run_item_id' => $payrollRunItem->id,
-            'employee_id' => $employee->id,
-            'shop_id' => $shop->id,
-            'paid_by' => $actor->id,
-            'paid_on' => $paidOn->toDateString(),
-            'amount' => round($amount, 2),
-            'payment_type' => 'salary',
-            'fund_source' => $fundSource,
-            'status' => 'paid',
-            'notes' => $notes,
-        ])->fresh(['employee', 'shop', 'payrollRunItem']);
+        return DB::transaction(function () use ($payrollRunItem, $employee, $shop, $amount, $fundSource, $paidOn, $actor, $notes): ShopStaffPayment {
+            $payment = ShopStaffPayment::query()->create([
+                'payroll_run_id' => $payrollRunItem->payroll_run_id,
+                'payroll_run_item_id' => $payrollRunItem->id,
+                'employee_id' => $employee->id,
+                'shop_id' => $shop->id,
+                'paid_by' => $actor->id,
+                'paid_on' => $paidOn->toDateString(),
+                'amount' => round($amount, 2),
+                'payment_type' => 'salary',
+                'fund_source' => $fundSource,
+                'status' => 'paid',
+                'notes' => $notes,
+            ]);
+
+            $this->ownedShopAccountingService->postShopStaffPaymentToCashbook($payment, (int) $actor->id);
+
+            return $payment->fresh(['employee', 'shop', 'payrollRunItem', 'cashbookLine.entry']);
+        });
+    }
+
+    public function recordManualShopStaffPayment(PayrollRunItem $payrollRunItem, Shop $shop, float $amount, string $paymentType, string $fundSource, Carbon $paidOn, User $actor, ?string $notes = null): ShopStaffPayment
+    {
+        $payrollRunItem->loadMissing(['employee', 'shopStaffPayments', 'payments']);
+
+        if ($paymentType === 'salary' && $amount > $payrollRunItem->remainingAmount()) {
+            throw ValidationException::withMessages([
+                'amount' => 'The shop salary payment cannot be more than the remaining salary.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($payrollRunItem, $shop, $amount, $paymentType, $fundSource, $paidOn, $actor, $notes): ShopStaffPayment {
+            $payment = ShopStaffPayment::query()->create([
+                'payroll_run_id' => $payrollRunItem->payroll_run_id,
+                'payroll_run_item_id' => $payrollRunItem->id,
+                'employee_id' => $payrollRunItem->employee_id,
+                'shop_id' => $shop->id,
+                'paid_by' => $actor->id,
+                'paid_on' => $paidOn->toDateString(),
+                'amount' => round($amount, 2),
+                'payment_type' => $paymentType,
+                'fund_source' => $fundSource,
+                'status' => 'paid',
+                'notes' => $notes,
+            ]);
+
+            $this->ownedShopAccountingService->postShopStaffPaymentToCashbook($payment, (int) $actor->id);
+
+            return $payment->fresh(['employee', 'shop', 'payrollRunItem', 'cashbookLine.entry']);
+        });
     }
 
     public function requestOrPayAdvance(Employee $employee, Shop $shop, float $amount, string $fundSource, Carbon $requestedOn, User $actor, ?string $note = null): EmployeeAdvanceRequest
@@ -178,7 +218,7 @@ class EmployeeAdvanceService
             (int) $actor->id,
         );
 
-        return ShopStaffPayment::query()->create([
+        $payment = ShopStaffPayment::query()->create([
             'payroll_run_id' => $payrollRunItem->payroll_run_id,
             'payroll_run_item_id' => $payrollRunItem->id,
             'employee_id' => $advanceRequest->employee_id,
@@ -191,7 +231,11 @@ class EmployeeAdvanceService
             'fund_source' => $advanceRequest->fund_source,
             'status' => 'paid',
             'notes' => $advanceRequest->request_note,
-        ])->fresh(['employee', 'shop', 'advanceRequest']);
+        ]);
+
+        $this->ownedShopAccountingService->postShopStaffPaymentToCashbook($payment, (int) $actor->id);
+
+        return $payment->fresh(['employee', 'shop', 'advanceRequest', 'cashbookLine.entry']);
     }
 
     private function ensureShopEmployee(Employee $employee, Shop $shop, Carbon $date): void

@@ -54,6 +54,10 @@
             </tbody>
         </table>
     </div>
+
+    @if ($deliveries instanceof \Illuminate\Contracts\Pagination\Paginator)
+        <div class="mt-5">{{ $deliveries->links() }}</div>
+    @endif
 @else
     @include('shop-owner.components.empty-state', ['title' => 'No deliveries yet', 'description' => 'Allocated or delivered orders will appear here.'])
 @endif

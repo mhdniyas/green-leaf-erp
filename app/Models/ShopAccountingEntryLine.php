@@ -18,6 +18,9 @@ class ShopAccountingEntryLine extends Model
         'description',
         'review_status',
         'review_note',
+        'source_type',
+        'source_id',
+        'source_event',
     ];
 
     protected $casts = [

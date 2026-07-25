@@ -7,7 +7,10 @@
     $breadcrumbs = [['label' => 'Accounting', 'url' => route('shop-owner.accounting.index', ['tab' => 'cashbook'])], ['label' => 'Daily Report']];
     $previousMonth = $month->copy()->subMonth();
     $nextMonth = $month->copy()->addMonth();
-    $displayDate = $dailyRows->getCollection()->first()['date'] ?? $month;
+    $todayRow = $dailyRows->getCollection()->first(
+        fn (array $row): bool => $row['date']->isSameDay(today())
+    );
+    $displayDate = $todayRow['date'] ?? $dailyRows->getCollection()->first()['date'] ?? $month;
     $todayPage = (int) ceil(today()->day / $dailyRows->perPage());
 @endphp
 

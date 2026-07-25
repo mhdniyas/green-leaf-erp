@@ -15,6 +15,13 @@
     <div class="space-y-6">
         @include('shop-owner.orders.partials.order-tabs')
 
+        @include('shop-owner.partials.date-range-filter', [
+            'action' => route('shop-owner.orders.index'),
+            'startDate' => $filterStartDate,
+            'endDate' => $filterEndDate,
+            'clearUrl' => route('shop-owner.orders.index'),
+        ])
+
         <section class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
             <div class="flex items-center justify-between gap-4">
                 <div>

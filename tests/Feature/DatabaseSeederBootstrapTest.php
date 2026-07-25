@@ -5,13 +5,18 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\Category;
+use App\Models\EmployeeAdvanceRule;
 use App\Models\Product;
 use App\Models\ShopAccountingCategory;
+use App\Models\ShopEmployeeAssignment;
+use App\Models\ShopOrder;
 use App\Models\ShopOwnerAssignment;
 use App\Models\User;
 use App\Models\Warehouse;
 use Database\Seeders\DatabaseSeeder;
+use Database\Seeders\WorkflowShopOrderSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class DatabaseSeederBootstrapTest extends TestCase
@@ -49,8 +54,11 @@ class DatabaseSeederBootstrapTest extends TestCase
         $this->assertDatabaseHas('users', ['email' => 'receiver@greenleaf.com', 'registration_status' => 'approved']);
         $this->assertDatabaseHas('shops', ['code' => 'SHOP_ASHIRWAD', 'name' => 'Ashirwad', 'status' => 'active']);
         $this->assertDatabaseHas('users', ['email' => 'shop-ashirwad@greenleaf.com', 'registration_status' => 'approved']);
+        $this->assertNotNull(User::query()->where('email', 'shop-ashirwad@greenleaf.com')->firstOrFail()->shop?->shop_price_group_id);
         $this->assertSame(14, User::role('shop')->count());
         $this->assertSame(14, ShopOwnerAssignment::query()->count());
+        $this->assertSame(42, ShopEmployeeAssignment::query()->where('status', 'active')->count());
+        $this->assertSame(10, EmployeeAdvanceRule::activeRule()->minimum_present_days);
         $this->assertGreaterThan(0, ShopAccountingCategory::query()->whereNull('shop_id')->where('is_active', true)->count());
 
         $this->assertGreaterThan(
@@ -61,5 +69,36 @@ class DatabaseSeederBootstrapTest extends TestCase
             0,
             Product::query()->whereIn('category_id', $vegCategoryIds)->where('default_warehouse_id', $vegWarehouse->id)->count(),
         );
+    }
+
+    public function test_workflow_shop_order_seeder_creates_two_submitted_orders_per_shop_for_today(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-07-25 09:00:00', 'Asia/Kolkata'));
+
+        $this->seed(DatabaseSeeder::class);
+        $this->seed(WorkflowShopOrderSeeder::class);
+
+        $shopCount = User::role('shop')->whereNotNull('shop_id')->count();
+
+        $this->assertSame($shopCount * 2, ShopOrder::query()->count());
+        $this->assertSame($shopCount * 2, ShopOrder::query()
+            ->where('order_source', 'seeded_shop_workflow')
+            ->where('state', 'submitted')
+            ->whereDate('business_date', '2026-07-25')
+            ->whereDate('submitted_at', '2026-07-24')
+            ->where('is_late', false)
+            ->count());
+        $this->assertSame($shopCount, ShopOrder::query()
+            ->select('shop_id')
+            ->selectRaw('COUNT(*) as orders_count')
+            ->groupBy('shop_id')
+            ->having('orders_count', 2)
+            ->get()
+            ->count());
+        $this->assertSame(0, ShopOrder::query()
+            ->whereHas('items', fn ($query) => $query->whereNotNull('approved_qty'))
+            ->count());
+
+        Carbon::setTestNow();
     }
 }

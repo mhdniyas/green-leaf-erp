@@ -271,7 +271,7 @@
         <div class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
             <div class="flex items-center justify-between border-b border-slate-100 pb-2">
                 <div>
-                    <h3 class="text-sm font-black text-slate-950">Payment Update</h3>
+                    <h3 class="text-sm font-black text-slate-950">Credit Settlement</h3>
                     <p id="direct-payment-title" class="mt-1 text-[11px] font-semibold text-slate-500"></p>
                 </div>
                 <button type="button" onclick="closeDirectPaymentModal()" class="text-slate-400 hover:text-slate-600">✕</button>
@@ -282,6 +282,7 @@
                 @method('PATCH')
                 <input type="hidden" name="return_to" value="suppliers">
                 <input type="hidden" name="date" value="{{ $date }}">
+                <input type="hidden" name="payment_paid_by" value="purchaser">
 
                 <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
                     <div class="flex items-center justify-between text-[11px] font-bold text-slate-600">
@@ -389,8 +390,8 @@
                 }
 
                 warningLabel.textContent = remaining > 0 || methodInput.value === 'Credit'
-                    ? 'This invoice will remain pending until the remaining balance is cleared.'
-                    : 'This payment update will settle the invoice.';
+                    ? 'This supplier credit remains pending until the balance is cleared.'
+                    : 'This purchaser payment will settle the invoice and reduce purchaser balance.';
             };
 
             discountInput.value = initialDiscount.toFixed(2);

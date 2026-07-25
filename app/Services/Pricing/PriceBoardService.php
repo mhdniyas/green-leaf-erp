@@ -17,6 +17,7 @@ use App\Models\Shop;
 use App\Models\ShopPriceGroup;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -296,7 +297,7 @@ class PriceBoardService
     }
 
     /**
-     * Create or update a pending DailyPriceApproval for tomorrow based on today's GRN cost.
+     * Create or update a pending DailyPriceApproval for the active business date based on current GRN cost.
      */
     public function createOrUpdatePendingApproval(Product $product): void
     {
@@ -309,12 +310,12 @@ class PriceBoardService
         $marginB = (float) (ShopPriceGroup::where('name', 'B')->value('default_margin_percent') ?? 12);
         $marginC = (float) (ShopPriceGroup::where('name', 'C')->value('default_margin_percent') ?? 15);
 
-        $tomorrow = Carbon::tomorrow()->startOfDay();
+        $businessDate = app(PurchaserBusinessDayService::class)->currentCalendarDate();
 
         DailyPriceApproval::updateOrCreate(
             [
                 'product_id' => $product->id,
-                'business_date' => $tomorrow,
+                'business_date' => $businessDate,
             ],
             [
                 'purchase_price' => $gradeACost,
@@ -370,7 +371,7 @@ class PriceBoardService
             return collect();
         }
 
-        $businessDate = Carbon::parse($purchaseDate)->addDay()->toDateString();
+        $businessDate = Carbon::parse($purchaseDate)->toDateString();
         $marginA = (float) ($priceGroups->firstWhere('name', 'A')?->default_margin_percent ?? 10);
         $marginB = (float) ($priceGroups->firstWhere('name', 'B')?->default_margin_percent ?? 12);
         $marginC = (float) ($priceGroups->firstWhere('name', 'C')?->default_margin_percent ?? 15);
@@ -386,7 +387,15 @@ class PriceBoardService
             ]);
 
             if ($approval->exists && $approval->status === 'approved') {
-                continue;
+                if ($this->hasValidApprovedSellingPrices($approval)) {
+                    continue;
+                }
+
+                $approval->forceFill([
+                    'status' => 'pending',
+                    'approved_by' => null,
+                    'approved_at' => null,
+                ]);
             }
 
             $approval->fill([
@@ -405,6 +414,13 @@ class PriceBoardService
             ->whereIn('product_id', array_map('intval', array_keys($products)))
             ->orderBy('product_id')
             ->get();
+    }
+
+    private function hasValidApprovedSellingPrices(DailyPriceApproval $approval): bool
+    {
+        return (float) $approval->price_a > 0
+            && (float) $approval->price_b > 0
+            && (float) $approval->price_c > 0;
     }
 
     /**

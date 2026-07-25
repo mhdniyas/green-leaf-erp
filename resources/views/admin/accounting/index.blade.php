@@ -157,7 +157,7 @@
                 <div class="flex items-center justify-between gap-3">
                     <div>
                         <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Owned Shop Accounting</p>
-                        <h3 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Settlement side panel</h3>
+                        <h3 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Cashbook control panel</h3>
                     </div>
                     @if($canManageOwnedShops)
                         <a href="{{ route('admin.accounting.owned-shops.index') }}" class="inline-flex h-10 items-center rounded-2xl border border-slate-200 px-4 text-xs font-black uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-50">
@@ -217,7 +217,7 @@
                             @endif
                         @empty
                             <div class="px-4 py-8 text-center text-sm font-bold text-slate-500">
-                                No owned or partnership shops are enabled yet.
+                                No owned shops are enabled yet.
                             </div>
                         @endforelse
                     </div>

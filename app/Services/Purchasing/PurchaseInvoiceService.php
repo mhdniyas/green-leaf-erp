@@ -77,7 +77,7 @@ class PurchaseInvoiceService
     }
 
     /**
-     * @param  array{payment_method:string, discount_amount:float, paid_amount:float, payment_note:?string, payment_details:?string}  $payload
+     * @param  array{payment_method:string, discount_amount?:float, paid_amount:float, payment_note:?string, payment_details:?string, payment_paid_by?:string, bill_number?:string}  $payload
      */
     public function updatePayment(PurchaseInvoice $invoice, array $payload): PurchaseInvoice
     {
@@ -90,9 +90,13 @@ class PurchaseInvoiceService
             $netInvoiceAmount = max(0, round($invoiceAmount - $discountAmount, 2));
             $paidAmount = min($netInvoiceAmount, max(0, round((float) $payload['paid_amount'], 2)));
             $paymentMethod = $payload['payment_method'];
+            $paymentPaidBy = $this->resolvePaymentPaidBy(
+                paymentMethod: $paymentMethod,
+                paidAmount: $paidAmount,
+                requestedPaidBy: $payload['payment_paid_by'] ?? null,
+            );
             $paymentStatus = $this->resolvePaymentStatus(
                 paymentMethod: $paymentMethod,
-                supplierCreditApproved: (bool) $invoice->supplier?->credit_approved,
                 invoiceAmount: $netInvoiceAmount,
                 paidAmount: $paidAmount,
             );
@@ -101,6 +105,7 @@ class PurchaseInvoiceService
                 : InvoiceStatus::Pending->value;
             $invoiceUpdateData = [
                 'payment_method' => $paymentMethod,
+                'payment_paid_by' => $paymentPaidBy,
                 'discount_amount' => $discountAmount,
                 'payment_status' => $paymentStatus,
                 'paid_amount' => $paidAmount,
@@ -134,7 +139,7 @@ class PurchaseInvoiceService
                 $invoice->purchaserCart->update($cartUpdateData);
             }
 
-            if ($invoice->purchaser_submitted_by) {
+            if ($paymentPaidBy === 'purchaser' && $invoice->purchaser_submitted_by) {
                 PurchaserCredit::updateOrCreate(
                     ['purchase_invoice_id' => $invoice->id, 'type' => 'out'],
                     [
@@ -145,12 +150,23 @@ class PurchaseInvoiceService
                         'business_date' => $invoice->purchaserCart?->business_date ?: today(),
                     ]
                 );
+            } else {
+                PurchaserCredit::query()
+                    ->where('purchase_invoice_id', $invoice->id)
+                    ->where('type', 'out')
+                    ->delete();
             }
 
             $updatedInvoice = $invoice->fresh(['supplier', 'purchaserCart']);
             $paidIncrease = round((float) $updatedInvoice->paid_amount - $previousPaidAmount, 2);
 
-            if ($updatedInvoice->isGreenLeafDirectPurchase() && $paidIncrease > 0) {
+            if ($paymentPaidBy === 'company' && $paidIncrease > 0) {
+                $this->journalService->recordCompanyVendorCreditPayment(
+                    invoice: $updatedInvoice,
+                    amount: $paidIncrease,
+                    userId: (int) (auth()->id() ?: $updatedInvoice->purchaser_submitted_by ?: 1)
+                );
+            } elseif ($updatedInvoice->isGreenLeafDirectPurchase() && $paidIncrease > 0) {
                 $this->journalService->recordGreenLeafDirectPurchasePayment(
                     invoice: $updatedInvoice,
                     amount: $paidIncrease,
@@ -162,10 +178,10 @@ class PurchaseInvoiceService
         });
     }
 
-    private function resolvePaymentStatus(string $paymentMethod, bool $supplierCreditApproved, float $invoiceAmount, float $paidAmount): string
+    private function resolvePaymentStatus(string $paymentMethod, float $invoiceAmount, float $paidAmount): string
     {
-        if (strcasecmp($paymentMethod, 'Credit') === 0) {
-            return $supplierCreditApproved ? 'credit_pending_approval' : 'credit_pending_approval';
+        if (strcasecmp($paymentMethod, 'Credit') === 0 && $paidAmount <= 0) {
+            return 'credit_pending_approval';
         }
 
         if ($paidAmount <= 0) {
@@ -177,5 +193,18 @@ class PurchaseInvoiceService
         }
 
         return 'paid';
+    }
+
+    private function resolvePaymentPaidBy(string $paymentMethod, float $paidAmount, ?string $requestedPaidBy): string
+    {
+        if (in_array($requestedPaidBy, ['purchaser', 'company', 'vendor_credit'], true)) {
+            return $requestedPaidBy;
+        }
+
+        if (strcasecmp($paymentMethod, 'Credit') === 0 && $paidAmount <= 0.00) {
+            return 'vendor_credit';
+        }
+
+        return 'purchaser';
     }
 }

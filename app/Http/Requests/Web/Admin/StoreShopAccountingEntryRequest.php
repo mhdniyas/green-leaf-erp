@@ -56,6 +56,7 @@ class StoreShopAccountingEntryRequest extends FormRequest
                     $exists = ShopAccountingEntry::query()
                         ->where('shop_id', $shop->id)
                         ->whereDate('business_date', $businessDate)
+                        ->where('entry_type', ShopAccountingEntry::TypeDaily)
                         ->exists();
 
                     if ($exists) {

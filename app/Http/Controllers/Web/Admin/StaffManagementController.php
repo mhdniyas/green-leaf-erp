@@ -246,7 +246,7 @@ class StaffManagementController extends Controller
                 ];
             });
         $monthlyPayrollItem = $employee->payrollItems()
-            ->with(['payrollRun', 'payments.journalEntry', 'shopStaffPayments.shop'])
+            ->with(['payrollRun', 'payments.journalEntry', 'shopStaffPayments.shop', 'shopStaffPayments.cashbookLine.entry'])
             ->whereHas('payrollRun', fn (Builder $query) => $query->whereDate('period_start', $selectedMonth->toDateString()))
             ->first();
         $recentPayrollPayments = $employee->payrollPayments()
@@ -256,13 +256,13 @@ class StaffManagementController extends Controller
             ->limit(8)
             ->get();
         $recentShopStaffPayments = $employee->shopStaffPayments()
-            ->with(['shop', 'paidBy', 'advanceRequest'])
+            ->with(['shop', 'paidBy', 'advanceRequest', 'cashbookLine.entry'])
             ->latest('paid_on')
             ->latest('id')
             ->limit(8)
             ->get();
         $employeeAdvanceRequests = $employee->advanceRequests()
-            ->with(['shop', 'requestedBy', 'reviewedBy', 'shopStaffPayment'])
+            ->with(['shop', 'requestedBy', 'reviewedBy', 'shopStaffPayment.cashbookLine.entry'])
             ->latest('id')
             ->limit(8)
             ->get();
@@ -781,7 +781,7 @@ class StaffManagementController extends Controller
             ->latest('id')
             ->get();
         $shopStaffPayments = ShopStaffPayment::query()
-            ->with(['employee', 'shop', 'paidBy', 'advanceRequest'])
+            ->with(['employee', 'shop', 'paidBy', 'advanceRequest', 'cashbookLine.entry'])
             ->whereDate('paid_on', '>=', $selectedPayrollMonth->toDateString())
             ->whereDate('paid_on', '<=', $selectedPayrollMonth->copy()->endOfMonth()->toDateString())
             ->latest('paid_on')
@@ -820,7 +820,7 @@ class StaffManagementController extends Controller
         $employeeId = $request->integer('employee_id');
 
         $advanceRequests = EmployeeAdvanceRequest::query()
-            ->with(['employee.category', 'shop', 'requestedBy', 'reviewedBy', 'shopStaffPayment.paidBy'])
+            ->with(['employee.category', 'shop', 'requestedBy', 'reviewedBy', 'shopStaffPayment.paidBy', 'shopStaffPayment.cashbookLine.entry'])
             ->whereDate('payroll_month', $selectedPayrollMonth->toDateString())
             ->when(in_array($status, ['pending', 'approved', 'rejected'], true), fn (Builder $query) => $query->where('status', $status))
             ->when($shopId > 0, fn (Builder $query) => $query->where('shop_id', $shopId))
@@ -875,31 +875,23 @@ class StaffManagementController extends Controller
         $payrollRunItem = PayrollRunItem::query()
             ->with(['payrollRun', 'employee', 'shopStaffPayments', 'payments'])
             ->findOrFail((int) $validated['payroll_run_item_id']);
+        $shop = Shop::query()->findOrFail((int) $validated['shop_id']);
         $amount = round((float) $validated['amount'], 2);
 
-        if ((string) $validated['payment_type'] === 'salary' && $amount > $payrollRunItem->remainingAmount()) {
-            throw ValidationException::withMessages([
-                'amount' => 'The shop salary payment cannot be more than the remaining salary.',
-            ]);
-        }
-
-        $payment = ShopStaffPayment::query()->create([
-            'payroll_run_id' => $payrollRunItem->payroll_run_id,
-            'payroll_run_item_id' => $payrollRunItem->id,
-            'employee_id' => $payrollRunItem->employee_id,
-            'shop_id' => (int) $validated['shop_id'],
-            'paid_by' => $request->user()->id,
-            'paid_on' => Carbon::parse((string) $validated['paid_on'])->toDateString(),
-            'amount' => $amount,
-            'payment_type' => (string) $validated['payment_type'],
-            'fund_source' => (string) $validated['fund_source'],
-            'status' => 'paid',
-            'notes' => $validated['notes'] ?? null,
-        ]);
+        $payment = $this->employeeAdvanceService->recordManualShopStaffPayment(
+            $payrollRunItem,
+            $shop,
+            $amount,
+            (string) $validated['payment_type'],
+            (string) $validated['fund_source'],
+            Carbon::parse((string) $validated['paid_on']),
+            $request->user(),
+            $validated['notes'] ?? null,
+        );
 
         return redirect()->route('admin.staff.payments.index', [
             'payroll_month' => $payment->paid_on->format('Y-m'),
-        ])->with('success', 'Shop staff payment recorded without duplicate payroll journal.');
+        ])->with('success', 'Shop staff payment recorded and posted to shop cashbook.');
     }
 
     public function reviewEmployeeAdvance(ReviewEmployeeAdvanceRequest $request, EmployeeAdvanceRequest $advanceRequest): RedirectResponse

@@ -7,18 +7,21 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class ShopOwnership extends Model
+class ShopAccountingPeriodClosure extends Model
 {
     protected $fillable = [
         'shop_id',
-        'user_id',
-        'owner_name',
-        'ownership_percent',
-        'role_label',
+        'period_start',
+        'period_end',
+        'closed_by',
+        'closed_at',
+        'notes',
     ];
 
     protected $casts = [
-        'ownership_percent' => 'decimal:2',
+        'period_start' => 'date',
+        'period_end' => 'date',
+        'closed_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -28,8 +31,8 @@ class ShopOwnership extends Model
         return $this->belongsTo(Shop::class);
     }
 
-    public function user(): BelongsTo
+    public function closedBy(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class, 'closed_by');
     }
 }

@@ -15,6 +15,14 @@
     <div class="space-y-6">
         @include('shop-owner.accounting.partials.tabs', ['shop' => $shop, 'tab' => $tab])
 
+        @include('shop-owner.partials.date-range-filter', [
+            'action' => route('shop-owner.accounting.history'),
+            'hidden' => ['tab' => $tab],
+            'startDate' => $filterStartDate,
+            'endDate' => $filterEndDate,
+            'clearUrl' => route('shop-owner.accounting.history', ['tab' => $tab]),
+        ])
+
         @php($totals = $moneyReport['totals'])
         <section class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
             <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -55,7 +63,7 @@
                     <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">All Transactions</p>
                     <h2 class="mt-1 text-xl font-black text-slate-950">Money in and out to shop</h2>
                 </div>
-                <p class="text-sm font-bold text-slate-500">{{ number_format($moneyReport['transactions']->count()) }} transaction(s)</p>
+                <p class="text-sm font-bold text-slate-500">{{ number_format($moneyReport['transactions'] instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator ? $moneyReport['transactions']->total() : $moneyReport['transactions']->count()) }} transaction(s)</p>
             </div>
 
             <div class="mt-5 overflow-x-auto rounded-[1.5rem] border border-slate-200">
@@ -107,6 +115,10 @@
                     </tbody>
                 </table>
             </div>
+
+            @if ($moneyReport['transactions'] instanceof \Illuminate\Contracts\Pagination\Paginator && $moneyReport['transactions']->hasPages())
+                <div class="mt-5">{{ $moneyReport['transactions']->links() }}</div>
+            @endif
         </section>
 
         @if ($tab === 'bills')

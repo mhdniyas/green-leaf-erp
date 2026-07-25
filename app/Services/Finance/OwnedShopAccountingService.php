@@ -8,7 +8,7 @@ use App\Models\Shop;
 use App\Models\ShopAccountingCategory;
 use App\Models\ShopAccountingEntry;
 use App\Models\ShopAccountingEntryLine;
-use App\Models\ShopAccountingInvoice;
+use App\Models\ShopAccountingPeriodClosure;
 use App\Models\ShopCredit;
 use App\Models\ShopInvoice;
 use App\Models\ShopPettyCashExpense;
@@ -18,6 +18,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
 
 class OwnedShopAccountingService
 {
@@ -28,8 +29,7 @@ class OwnedShopAccountingService
     {
         return Shop::query()
             ->where('accounting_enabled', true)
-            ->whereIn('accounting_mode', ['owned', 'partnership'])
-            ->with(['ownerships.user'])
+            ->where('accounting_mode', 'owned')
             ->orderBy('name')
             ->get();
     }
@@ -37,28 +37,6 @@ class OwnedShopAccountingService
     public function isEligibleShop(Shop $shop): bool
     {
         return $shop->isOwnedAccountingEnabled();
-    }
-
-    public function ownershipPercentageTotal(Shop $shop): float
-    {
-        return round((float) $shop->ownerships()->sum('ownership_percent'), 2);
-    }
-
-    /**
-     * @param  array<int, array{user_id?: int|null, owner_name: string, ownership_percent: float|int|string, role_label?: string|null}>  $ownerships
-     */
-    public function replaceOwnerships(Shop $shop, array $ownerships): void
-    {
-        $shop->ownerships()->delete();
-
-        foreach ($ownerships as $ownership) {
-            $shop->ownerships()->create([
-                'user_id' => $ownership['user_id'] ?? null,
-                'owner_name' => trim((string) $ownership['owner_name']),
-                'ownership_percent' => round((float) $ownership['ownership_percent'], 2),
-                'role_label' => filled($ownership['role_label'] ?? null) ? trim((string) $ownership['role_label']) : null,
-            ]);
-        }
     }
 
     /**
@@ -77,10 +55,76 @@ class OwnedShopAccountingService
             ->get();
     }
 
+    public function postShopStaffPaymentToCashbook(ShopStaffPayment $payment, int $userId): ShopAccountingEntryLine
+    {
+        $payment->loadMissing(['employee', 'shop']);
+
+        if (! $payment->shop instanceof Shop || ! $this->isEligibleShop($payment->shop)) {
+            throw new RuntimeException('Shop staff payments can only be posted to owned-shop accounting shops.');
+        }
+
+        return DB::transaction(function () use ($payment, $userId): ShopAccountingEntryLine {
+            /** @var ShopStaffPayment $payment */
+            $payment = $payment->fresh(['employee', 'shop']) ?? $payment;
+            $shop = $payment->shop;
+            $businessDate = ($payment->paid_on ?? today())->toDateString();
+
+            $periodClosed = ShopAccountingPeriodClosure::query()
+                ->where('shop_id', $shop->id)
+                ->whereDate('period_start', '<=', $businessDate)
+                ->whereDate('period_end', '>=', $businessDate)
+                ->exists();
+
+            if ($periodClosed) {
+                throw ValidationException::withMessages([
+                    'paid_on' => 'This accounting period is closed.',
+                ]);
+            }
+
+            $sourceEvent = $this->shopStaffPaymentSourceEvent($payment);
+            $category = $this->staffPaymentCategory($shop, $payment);
+            $entry = $this->entryForShopStaffPayment($shop, Carbon::parse($businessDate), $userId);
+            $description = $this->shopStaffPaymentDescription($payment);
+            $amount = round((float) $payment->amount, 2);
+
+            $line = ShopAccountingEntryLine::query()
+                ->where('source_type', ShopStaffPayment::class)
+                ->where('source_id', $payment->id)
+                ->where('source_event', $sourceEvent)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $line instanceof ShopAccountingEntryLine) {
+                $line = new ShopAccountingEntryLine([
+                    'source_type' => ShopStaffPayment::class,
+                    'source_id' => $payment->id,
+                    'source_event' => $sourceEvent,
+                ]);
+            }
+
+            $line->fill([
+                'shop_accounting_entry_id' => $entry->id,
+                'shop_accounting_category_id' => $category->id,
+                'type' => 'expense',
+                'cash_effect' => true,
+                'amount' => $amount,
+                'description' => $description,
+                'review_status' => null,
+                'review_note' => null,
+            ]);
+            $line->save();
+
+            $this->syncStoredClosingBalanceForDate($shop, Carbon::parse($businessDate), $userId);
+
+            return $line->fresh(['entry', 'category']) ?? $line;
+        });
+    }
+
     /**
      * @param  array{
      *     business_date:string,
      *     status:string,
+     *     entry_type?: string,
      *     opening_cash?: float|int|string|null,
      *     closing_cash?: float|int|string|null,
      *     notes?: string|null,
@@ -101,24 +145,29 @@ class OwnedShopAccountingService
             }
 
             $businessDate = Carbon::parse($payload['business_date'])->toDateString();
-            $periodClosed = ShopAccountingInvoice::query()
+            $periodClosed = ShopAccountingPeriodClosure::query()
                 ->where('shop_id', $shop->id)
-                ->whereIn('status', ['approved', 'paid'])
                 ->whereDate('period_start', '<=', $businessDate)
                 ->whereDate('period_end', '>=', $businessDate)
                 ->exists();
 
             if ($periodClosed) {
                 throw ValidationException::withMessages([
-                    'business_date' => 'This accounting period is closed by an approved settlement invoice.',
+                    'business_date' => 'This accounting period is closed.',
                 ]);
             }
 
             $entry ??= new ShopAccountingEntry;
+            $entryType = (string) ($payload['entry_type'] ?? $entry->entry_type ?? ShopAccountingEntry::TypeDaily);
+            $dailyEntryKey = $entryType === ShopAccountingEntry::TypeDaily
+                ? ShopAccountingEntry::dailyEntryKey($shop->id, $businessDate)
+                : null;
 
             $entry->fill([
                 'shop_id' => $shop->id,
                 'business_date' => $businessDate,
+                'entry_type' => $entryType,
+                'daily_entry_key' => $dailyEntryKey,
                 'status' => $payload['status'],
                 'opening_cash' => $payload['opening_cash'] ?? null,
                 'closing_cash' => $payload['closing_cash'] ?? null,
@@ -170,10 +219,64 @@ class OwnedShopAccountingService
         });
     }
 
+    public function closePeriod(Shop $shop, Carbon $periodStart, Carbon $periodEnd, int $userId, ?string $notes = null): ShopAccountingPeriodClosure
+    {
+        if (! $this->isEligibleShop($shop)) {
+            throw new RuntimeException('Period closing is only available for accounting-enabled owned shops.');
+        }
+
+        $periodStart = $periodStart->copy()->startOfDay();
+        $periodEnd = $periodEnd->copy()->startOfDay();
+
+        $overlappingClosureExists = ShopAccountingPeriodClosure::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('period_start', '<=', $periodEnd)
+            ->whereDate('period_end', '>=', $periodStart)
+            ->exists();
+
+        if ($overlappingClosureExists) {
+            throw new RuntimeException('The selected period overlaps an already closed period.');
+        }
+
+        $pendingEntryExists = ShopAccountingEntry::query()
+            ->where('shop_id', $shop->id)
+            ->whereIn('status', ['draft', 'submitted', 'recheck_required'])
+            ->whereDate('business_date', '>=', $periodStart)
+            ->whereDate('business_date', '<=', $periodEnd)
+            ->exists();
+
+        if ($pendingEntryExists) {
+            throw new RuntimeException('Resolve draft, pending, or recheck accounting entries before closing this period.');
+        }
+
+        return ShopAccountingPeriodClosure::query()->create([
+            'shop_id' => $shop->id,
+            'period_start' => $periodStart->toDateString(),
+            'period_end' => $periodEnd->toDateString(),
+            'closed_by' => $userId,
+            'closed_at' => now(),
+            'notes' => $notes,
+        ]);
+    }
+
+    /**
+     * @return Collection<int, ShopAccountingPeriodClosure>
+     */
+    public function recentPeriodClosures(Shop $shop, int $limit = 12): Collection
+    {
+        return ShopAccountingPeriodClosure::query()
+            ->where('shop_id', $shop->id)
+            ->with('closedBy')
+            ->latest('period_end')
+            ->limit($limit)
+            ->get();
+    }
+
     /**
      * @param  array{
      *     business_date:string,
      *     submission_action:string,
+     *     create_adjustment?: bool,
      *     opening_cash?: float|int|string|null,
      *     closing_cash?: float|int|string|null,
      *     notes?: string|null,
@@ -198,8 +301,10 @@ class OwnedShopAccountingService
         $openingCash = $this->previousClosingBalance($shop, $businessDate);
         $closingCash = $this->calculatedClosingCash($shop, $businessDate, $openingCash, $lines);
         $status = $payload['submission_action'] === 'submit' ? 'submitted' : 'draft';
+        $entryType = ($payload['create_adjustment'] ?? false) ? ShopAccountingEntry::TypeAdjustment : ShopAccountingEntry::TypeDaily;
         $entry = $this->saveEntry($shop, [
             'business_date' => $businessDate->toDateString(),
+            'entry_type' => $entryType,
             'status' => $status,
             'opening_cash' => $openingCash,
             'closing_cash' => $closingCash,
@@ -217,6 +322,41 @@ class OwnedShopAccountingService
         ])->save();
 
         return $entry->fresh(['lines.category', 'shop', 'createdBy', 'updatedBy', 'submittedBy', 'reviewedBy']);
+    }
+
+    /**
+     * @param  array<int, array{shop_accounting_category_id:int, amount: float|int|string, description?: string|null}>  $lines
+     */
+    public function hasSimilarAdjustment(Shop $shop, Carbon $businessDate, array $lines, ?int $exceptEntryId = null): bool
+    {
+        if ($lines === []) {
+            return false;
+        }
+
+        $normalizedLines = collect($lines)
+            ->map(fn (array $line): array => [
+                'category_id' => (int) $line['shop_accounting_category_id'],
+                'amount' => round((float) $line['amount'], 2),
+                'description' => trim((string) ($line['description'] ?? '')),
+            ]);
+
+        return ShopAccountingEntryLine::query()
+            ->whereHas('entry', function (Builder $query) use ($shop, $businessDate, $exceptEntryId): void {
+                $query
+                    ->where('shop_id', $shop->id)
+                    ->whereDate('business_date', $businessDate->toDateString())
+                    ->where('entry_type', ShopAccountingEntry::TypeAdjustment)
+                    ->whereIn('status', ['submitted', 'approved'])
+                    ->when($exceptEntryId !== null, fn (Builder $query) => $query->whereKeyNot($exceptEntryId));
+            })
+            ->get()
+            ->contains(function (ShopAccountingEntryLine $existingLine) use ($normalizedLines): bool {
+                return $normalizedLines->contains(function (array $line) use ($existingLine): bool {
+                    return (int) $existingLine->shop_accounting_category_id === $line['category_id']
+                        && round((float) $existingLine->amount, 2) === $line['amount']
+                        && trim((string) $existingLine->description) === $line['description'];
+                });
+            });
     }
 
     /**
@@ -348,6 +488,8 @@ class OwnedShopAccountingService
                 return ShopAccountingEntry::query()->create([
                     'shop_id' => $shop->id,
                     'business_date' => $businessDate->toDateString(),
+                    'entry_type' => ShopAccountingEntry::TypeSystem,
+                    'daily_entry_key' => null,
                     'status' => 'draft',
                     'opening_cash' => $openingBalance,
                     'closing_cash' => $runningClosing,
@@ -652,6 +794,86 @@ class OwnedShopAccountingService
         ];
     }
 
+    private function staffPaymentCategory(Shop $shop, ShopStaffPayment $payment): ShopAccountingCategory
+    {
+        $purpose = $payment->payment_type === 'advance' ? 'staff_advance' : 'staff_salary';
+        $defaultName = $payment->payment_type === 'advance' ? 'Staff Salary Advance' : 'Staff Salary';
+
+        $category = ShopAccountingCategory::query()
+            ->where('purpose', $purpose)
+            ->where('type', 'expense')
+            ->where(function ($query) use ($shop): void {
+                $query->where('shop_id', $shop->id)
+                    ->orWhereNull('shop_id');
+            })
+            ->orderByRaw('shop_id is null')
+            ->first();
+
+        if (! $category instanceof ShopAccountingCategory) {
+            $category = ShopAccountingCategory::query()->firstOrNew([
+                'shop_id' => null,
+                'purpose' => $purpose,
+            ]);
+        }
+
+        $category->fill([
+            'type' => 'expense',
+            'cash_effect' => true,
+            'name' => $category->exists ? $category->name : $defaultName,
+            'is_active' => true,
+        ]);
+        $category->save();
+
+        return $category->fresh() ?? $category;
+    }
+
+    private function entryForShopStaffPayment(Shop $shop, Carbon $businessDate, int $userId): ShopAccountingEntry
+    {
+        $entries = ShopAccountingEntry::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('business_date', $businessDate->toDateString())
+            ->orderByRaw("case when entry_type = 'daily' then 0 when entry_type = 'system' then 1 else 2 end")
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+        $entry = $entries->first(fn (ShopAccountingEntry $entry): bool => $entry->canBeEditedByShopOwner());
+
+        if ($entry instanceof ShopAccountingEntry) {
+            return $entry;
+        }
+
+        $entryType = $entries->contains(fn (ShopAccountingEntry $entry): bool => in_array($entry->status, ['approved', 'finalized'], true))
+            ? ShopAccountingEntry::TypeAdjustment
+            : ShopAccountingEntry::TypeSystem;
+
+        return ShopAccountingEntry::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => $businessDate->toDateString(),
+            'entry_type' => $entryType,
+            'daily_entry_key' => null,
+            'status' => 'submitted',
+            'opening_cash' => $this->previousClosingBalance($shop, $businessDate),
+            'closing_cash' => $this->previousClosingBalance($shop, $businessDate),
+            'notes' => 'Auto-posted shop staff payment expense.',
+            'created_by' => $userId,
+            'submitted_by' => $userId,
+            'submitted_at' => now(),
+        ]);
+    }
+
+    private function shopStaffPaymentSourceEvent(ShopStaffPayment $payment): string
+    {
+        return $payment->payment_type === 'advance' ? 'staff_advance' : 'staff_salary';
+    }
+
+    private function shopStaffPaymentDescription(ShopStaffPayment $payment): string
+    {
+        $type = $payment->payment_type === 'advance' ? 'Advance paid to' : 'Salary paid to';
+        $employeeName = $payment->employee?->name ?? 'staff employee';
+
+        return $type.' '.$employeeName;
+    }
+
     private function approvedDeliveryBillQuery(Shop $shop): Builder
     {
         return ShopInvoice::query()
@@ -774,22 +996,11 @@ class OwnedShopAccountingService
             ->with('amountChangedBy')
             ->orderBy('business_date')
             ->get();
-        $pettyPayrollPayments = ShopStaffPayment::query()
-            ->where('shop_id', $shop->id)
-            ->where('fund_source', 'petty_cash')
-            ->whereDate('paid_on', '<=', $endDate)
-            ->with('employee')
-            ->orderBy('paid_on')
-            ->orderBy('id')
-            ->get();
-
         $creditByDate = $pettyCredits->groupBy(fn (ShopCredit $credit): string => $credit->business_date?->toDateString() ?? today()->toDateString());
         $expenseByDate = $pettyExpenses->keyBy(fn (ShopPettyCashExpense $expense): string => $expense->business_date?->toDateString() ?? today()->toDateString());
-        $payrollPaymentByDate = $pettyPayrollPayments->groupBy(fn (ShopStaffPayment $payment): string => $payment->paid_on?->toDateString() ?? today()->toDateString());
 
         $allDates = $creditByDate->keys()
             ->merge($expenseByDate->keys())
-            ->merge($payrollPaymentByDate->keys())
             ->unique()
             ->sort()
             ->values();
@@ -814,10 +1025,8 @@ class OwnedShopAccountingService
                 fn (ShopCredit $credit): float => $credit->type === 'in' ? (float) $credit->amount : (float) $credit->amount * -1
             ), 2);
             $expense = $expenseByDate->get($date);
-            $payrollPayments = $payrollPaymentByDate->get($date, collect());
             $manualExpenseAmount = $expense instanceof ShopPettyCashExpense ? round((float) $expense->amount, 2) : 0.0;
-            $payrollExpenseAmount = round((float) $payrollPayments->sum('amount'), 2);
-            $expenseAmount = round($manualExpenseAmount + $payrollExpenseAmount, 2);
+            $expenseAmount = round($manualExpenseAmount, 2);
 
             $runningBalance = round($runningBalance + $adminCash - $expenseAmount, 2);
 
@@ -828,19 +1037,15 @@ class OwnedShopAccountingService
             $adminCashLabel = $dayCredits
                 ->map(fn (ShopCredit $credit): string => ($credit->creator?->name ?? 'Admin').' - Rs. '.number_format((float) $credit->amount, 2))
                 ->implode(', ');
-            $payrollPaymentLabel = $payrollPayments
-                ->map(fn (ShopStaffPayment $payment): string => str($payment->payment_type)->headline().' '.$payment->employee?->name.' - Rs. '.number_format((float) $payment->amount, 2))
-                ->implode(', ');
-
             $rows->push([
                 'date' => $date,
                 'admin_cash' => $adminCash,
                 'admin_cash_label' => $adminCashLabel,
                 'expense' => $expenseAmount,
-                'expense_source' => $payrollExpenseAmount > 0 ? 'salary' : ($expense instanceof ShopPettyCashExpense ? $expense->source : null),
+                'expense_source' => $expense instanceof ShopPettyCashExpense ? $expense->source : null,
                 'expense_updated_at' => $expense instanceof ShopPettyCashExpense ? $expense->updated_at : null,
-                'payroll_expense' => $payrollExpenseAmount,
-                'payroll_expense_label' => $payrollPaymentLabel,
+                'payroll_expense' => 0.0,
+                'payroll_expense_label' => '',
                 'amount_change_label' => $expense instanceof ShopPettyCashExpense && $expense->previous_amount !== null && $expense->amount_changed_at !== null
                     ? sprintf(
                         'Changed from Rs. %s to Rs. %s on %s by %s for %s',
@@ -925,6 +1130,7 @@ class OwnedShopAccountingService
         return ShopAccountingEntry::query()
             ->where('shop_id', $shop->id)
             ->whereDate('business_date', $date->toDateString())
+            ->where('entry_type', ShopAccountingEntry::TypeDaily)
             ->with(['lines.category', 'createdBy', 'updatedBy', 'submittedBy', 'reviewedBy'])
             ->orderByRaw("CASE status WHEN 'recheck_required' THEN 0 WHEN 'submitted' THEN 1 WHEN 'draft' THEN 2 WHEN 'approved' THEN 3 ELSE 4 END")
             ->latest('id')
@@ -935,7 +1141,6 @@ class OwnedShopAccountingService
      * @return array{
      *     eligible_shop_count:int,
      *     owned_shop_count:int,
-     *     partnership_shop_count:int,
      *     entries_today_count:int,
      *     draft_entries_count:int,
      *     pending_review_count:int,
@@ -944,7 +1149,7 @@ class OwnedShopAccountingService
      *     total_income:float,
      *     total_expense:float,
      *     net_amount:float,
-     *     invoice_count:int
+     *     closed_period_count:int
      * }
      */
     public function dashboardMetrics(Carbon $date): array
@@ -967,7 +1172,6 @@ class OwnedShopAccountingService
         return [
             'eligible_shop_count' => $eligibleShops->count(),
             'owned_shop_count' => $eligibleShops->where('accounting_mode', 'owned')->count(),
-            'partnership_shop_count' => $eligibleShops->where('accounting_mode', 'partnership')->count(),
             'entries_today_count' => (clone $entryQuery)->count(),
             'draft_entries_count' => (clone $entryQuery)->where('status', 'draft')->count(),
             'pending_review_count' => (clone $entryQuery)->where('status', 'submitted')->count(),
@@ -976,7 +1180,7 @@ class OwnedShopAccountingService
             'total_income' => $totalIncome,
             'total_expense' => $totalExpense,
             'net_amount' => round($totalIncome - $totalExpense, 2),
-            'invoice_count' => ShopAccountingInvoice::query()
+            'closed_period_count' => ShopAccountingPeriodClosure::query()
                 ->whereIn('shop_id', $eligibleShops->pluck('id'))
                 ->whereDate('created_at', $date)
                 ->count(),

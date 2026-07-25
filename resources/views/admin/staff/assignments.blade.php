@@ -145,7 +145,7 @@
             @empty
                 <div class="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center">
                     <p class="text-lg font-black text-slate-950">No owned staff shops found.</p>
-                    <p class="mt-2 text-sm font-semibold text-slate-500">Only active owned or partnership shops with accounting enabled appear here.</p>
+                    <p class="mt-2 text-sm font-semibold text-slate-500">Only active owned shops with accounting enabled appear here.</p>
                 </div>
             @endforelse
         </section>

@@ -10,9 +10,17 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ShopAccountingEntry extends Model
 {
+    public const TypeDaily = 'daily';
+
+    public const TypeAdjustment = 'adjustment';
+
+    public const TypeSystem = 'system';
+
     protected $fillable = [
         'shop_id',
         'business_date',
+        'entry_type',
+        'daily_entry_key',
         'status',
         'opening_cash',
         'closing_cash',
@@ -90,5 +98,15 @@ class ShopAccountingEntry extends Model
     public function canBeEditedByShopOwner(): bool
     {
         return in_array($this->status, ['draft', 'submitted', 'recheck_required'], true);
+    }
+
+    public static function dailyEntryKey(int $shopId, string $businessDate): string
+    {
+        return "shop:{$shopId}:date:{$businessDate}:daily";
+    }
+
+    public function isAdjustment(): bool
+    {
+        return $this->entry_type === self::TypeAdjustment;
     }
 }

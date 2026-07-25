@@ -37,7 +37,7 @@ class DailyPriceBoardController extends Controller
         $this->authorizeBoardAccess();
 
         $purchaseDate = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
-        $targetBusinessDate = Carbon::parse($purchaseDate)->addDay()->toDateString();
+        $targetBusinessDate = Carbon::parse($purchaseDate)->toDateString();
         $search = trim((string) $request->input('search', ''));
 
         $approvals = $this->priceBoardService
@@ -143,7 +143,7 @@ class DailyPriceBoardController extends Controller
         });
 
         if ($isAdmin) {
-            $targetBusinessDate = Carbon::parse($validated['date'])->addDay()->toDateString();
+            $targetBusinessDate = Carbon::parse($validated['date'])->toDateString();
             $this->shopInvoiceService->generateForBusinessDate($targetBusinessDate, (int) $user->id);
             $this->shopInvoiceService->repriceAllForBusinessDate(
                 $targetBusinessDate,

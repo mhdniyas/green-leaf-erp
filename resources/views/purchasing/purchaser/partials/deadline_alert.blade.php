@@ -6,7 +6,9 @@
             <div class="min-w-0">
                 <p class="text-[10px] font-black uppercase tracking-[0.16em] text-rose-700">Purchaser Action Required</p>
                 <p class="mt-1 text-sm font-black text-rose-900">
-                    @if (($deadlineAlert['overdue_count'] ?? 0) > 0)
+                    @if (($deadlineAlert['credit_overdue_count'] ?? 0) > 0 && ($deadlineAlert['payment_overdue_count'] ?? 0) === 0)
+                        {{ $deadlineAlert['credit_overdue_count'] }} supplier credit {{ \Illuminate\Support\Str::plural('follow-up', (int) $deadlineAlert['credit_overdue_count']) }} still need settlement before the active purchase day stays clean.
+                    @elseif (($deadlineAlert['overdue_count'] ?? 0) > 0)
                         {{ $deadlineAlert['overdue_count'] }} overdue carts from older business dates still need warehouse confirmation or payment follow-up before the active purchase day stays clean.
                     @else
                         Resolve carts before the {{ $cutoffLabel }} business-day rollover.
@@ -21,6 +23,9 @@
                     @endif
                     @if (($deadlineAlert['overdue_count'] ?? 0) > 0)
                         <span class="rounded-full bg-white px-3 py-1">Overdue: {{ $deadlineAlert['overdue_count'] }}</span>
+                    @endif
+                    @if (($deadlineAlert['credit_overdue_count'] ?? 0) > 0)
+                        <span class="rounded-full bg-white px-3 py-1">Credit pending: {{ $deadlineAlert['credit_overdue_count'] }}</span>
                     @endif
                 </div>
             </div>

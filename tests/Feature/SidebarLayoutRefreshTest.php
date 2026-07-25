@@ -101,7 +101,7 @@ class SidebarLayoutRefreshTest extends TestCase
             ->blade('<x-layouts.app title="Warehouse Layout Check"><div>Warehouse body</div></x-layouts.app>')
             ->assertSee('Warehouse Desk')
             ->assertSee('Sort Sheet')
-            ->assertSee(route('sort-sheet.index'), false)
+            ->assertSee(route('warehouse.receiver.sort-sheet.index'), false)
             ->assertSee('bg-orange-100 text-orange-800', false)
             ->assertSee('1');
     }
@@ -117,6 +117,39 @@ class SidebarLayoutRefreshTest extends TestCase
             ->assertSee('Admin Panel')
             ->assertSee('Sort Sheet')
             ->assertDontSee('Warehouse Desk');
+    }
+
+    public function test_warehouse_receiver_sort_sheet_uses_receiver_sidebar_and_generate_action(): void
+    {
+        $warehouseReceiver = User::factory()->create();
+        $warehouseReceiverRole = Role::findOrCreate('warehouse_receiver', 'web');
+
+        foreach ([
+            'warehouse.receive.view',
+            'sort.sheet.view',
+            'sort.sheet.generate',
+            'sort.sheet.export',
+        ] as $permission) {
+            Permission::findOrCreate($permission, 'web');
+        }
+
+        $warehouseReceiverRole->syncPermissions([
+            'warehouse.receive.view',
+            'sort.sheet.view',
+            'sort.sheet.generate',
+            'sort.sheet.export',
+        ]);
+        $warehouseReceiver->assignRole($warehouseReceiverRole);
+
+        $this
+            ->actingAs($warehouseReceiver)
+            ->get(route('warehouse.receiver.sort-sheet.index'))
+            ->assertOk()
+            ->assertSee('Warehouse Desk')
+            ->assertSee('Sort Sheet')
+            ->assertSee('Generate')
+            ->assertSee(route('warehouse.receiver.sort-sheet.generate'), false)
+            ->assertDontSee('Admin Panel');
     }
 
     public function test_admin_sidebar_surfaces_accounting_and_purchasing_notification_counts(): void

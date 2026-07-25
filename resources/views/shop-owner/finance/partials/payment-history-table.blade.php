@@ -60,6 +60,10 @@
             </tbody>
         </table>
     </div>
+
+    @if ($invoices instanceof \Illuminate\Contracts\Pagination\Paginator)
+        <div class="mt-5">{{ $invoices->links() }}</div>
+    @endif
 @else
     @include('shop-owner.components.empty-state', ['title' => 'No finance activity', 'description' => 'Paid and delivered orders will appear here with balances and notes.'])
 @endif

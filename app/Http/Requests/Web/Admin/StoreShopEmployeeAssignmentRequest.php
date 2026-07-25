@@ -27,7 +27,7 @@ class StoreShopEmployeeAssignmentRequest extends FormRequest
                 Rule::exists('shops', 'id')
                     ->where('status', 'active')
                     ->where('accounting_enabled', true)
-                    ->whereIn('accounting_mode', ['owned', 'partnership']),
+                    ->where('accounting_mode', 'owned'),
             ],
             'effective_from' => ['required', 'date'],
             'notes' => ['nullable', 'string', 'max:1000'],

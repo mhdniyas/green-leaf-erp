@@ -502,9 +502,17 @@
                                 @php
                                     $workflowIncome = round((float) $workflowEntry->lines->where('type', 'income')->sum('amount'), 2);
                                     $workflowExpense = round((float) $workflowEntry->lines->where('type', 'expense')->sum('amount'), 2);
+                                    $workflowEntryUrl = route('admin.accounting.owned-shops.show', [
+                                        'shop' => $shop,
+                                        'tab' => 'cashbook',
+                                        'approval_tab' => $approvalKey,
+                                        'date' => $workflowEntry->business_date->format('Y-m-d'),
+                                        'start_date' => $startDate->format('Y-m-d'),
+                                        'end_date' => $endDate->format('Y-m-d'),
+                                    ]);
                                 @endphp
-                                <a href="{{ route('admin.accounting.owned-shops.show', ['shop' => $shop, 'tab' => 'cashbook', 'approval_tab' => $approvalKey, 'date' => $workflowEntry->business_date->format('Y-m-d'), 'start_date' => $startDate->format('Y-m-d'), 'end_date' => $endDate->format('Y-m-d')]) }}" class="block rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:border-emerald-200 hover:bg-emerald-50">
-                                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:border-emerald-200 hover:bg-emerald-50">
+                                    <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
                                         <div>
                                             <div class="flex flex-wrap items-center gap-2">
                                                 <p class="text-sm font-semibold text-slate-950">{{ $workflowEntry->business_date->format('d M Y') }}</p>
@@ -517,9 +525,26 @@
                                                 <p class="mt-2 text-sm font-medium text-slate-500">{{ $workflowEntry->admin_note }}</p>
                                             @endif
                                         </div>
-                                        <p class="text-sm font-semibold text-slate-950">Rs. {{ number_format($workflowIncome - $workflowExpense, 2) }}</p>
+                                        <div class="flex flex-col gap-3 sm:flex-row sm:items-center xl:justify-end">
+                                            <p class="text-sm font-semibold text-slate-950">Rs. {{ number_format($workflowIncome - $workflowExpense, 2) }}</p>
+                                            <div class="flex flex-wrap gap-2">
+                                                <a href="{{ $workflowEntryUrl }}" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-[0.12em] text-slate-700 transition hover:border-slate-300 hover:text-slate-950">
+                                                    View
+                                                </a>
+                                                @if ($workflowEntry->status === 'submitted')
+                                                    <form method="POST" action="{{ route('admin.accounting.owned-shops.entries.review', ['shop' => $shop, 'entry' => $workflowEntry]) }}">
+                                                        @csrf
+                                                        @method('PATCH')
+                                                        <input type="hidden" name="decision" value="approve">
+                                                        <button type="submit" class="inline-flex h-10 items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-black uppercase tracking-[0.12em] text-white transition hover:bg-emerald-500">
+                                                            Approve
+                                                        </button>
+                                                    </form>
+                                                @endif
+                                            </div>
+                                        </div>
                                     </div>
-                                </a>
+                                </div>
                             @empty
                                 @unless ($selectedApprovalEntryIsVisible)
                                     <div class="rounded-2xl border border-dashed border-slate-300 p-6 text-center text-sm font-semibold text-slate-500">
@@ -645,9 +670,36 @@
                             @endphp
                             <div class="flex flex-wrap items-center justify-end gap-2">
                                 <p class="text-sm font-black {{ $shopCashTotal >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format($shopCashTotal, 2) }}</p>
+                                <button type="button" id="shop-cash-category-open-modal" class="inline-flex h-10 items-center rounded-xl border border-emerald-200 bg-white px-4 text-xs font-black text-emerald-700 transition hover:bg-emerald-50">
+                                    Add category
+                                </button>
                                 <button type="button" id="shop-cash-open-modal" class="inline-flex h-10 items-center rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white transition hover:bg-emerald-500">
                                     Add shop cash
                                 </button>
+                            </div>
+                        </div>
+                        <div class="mt-4">
+                            <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div>
+                                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Category Report</p>
+                                        <p class="mt-1 text-sm font-black text-slate-950">Shop cash by category</p>
+                                    </div>
+                                    <span class="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-600">{{ $cashMovementCategoryTotals->count() }} active</span>
+                                </div>
+                                <div class="mt-3 space-y-2">
+                                    @forelse($cashMovementCategoryTotals as $categoryTotal)
+                                        <div class="flex items-center justify-between gap-3 rounded-xl border border-slate-100 px-3 py-2">
+                                            <div>
+                                                <p class="text-sm font-black text-slate-950">{{ $categoryTotal['category'] }}</p>
+                                                <p class="text-[11px] font-bold text-slate-500">{{ $categoryTotal['count'] }} movement{{ $categoryTotal['count'] === 1 ? '' : 's' }}</p>
+                                            </div>
+                                            <p class="text-sm font-black {{ $categoryTotal['amount'] >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format((float) $categoryTotal['amount'], 2) }}</p>
+                                        </div>
+                                    @empty
+                                        <p class="rounded-xl border border-dashed border-slate-200 px-3 py-4 text-sm font-bold text-slate-500">No category movements for this period.</p>
+                                    @endforelse
+                                </div>
                             </div>
                         </div>
                         <div class="mt-4 overflow-x-auto rounded-[1rem] border border-slate-200 bg-white">
@@ -656,6 +708,7 @@
                                     <tr>
                                         <th class="px-4 py-3">Date</th>
                                         <th class="px-4 py-3">Type</th>
+                                        <th class="px-4 py-3">Category</th>
                                         <th class="px-4 py-3">Description</th>
                                         <th class="px-4 py-3 text-right">Ledger Amount</th>
                                         <th class="px-4 py-3 text-right">By</th>
@@ -670,13 +723,14 @@
                                                     {{ $credit->accountingLabel() }}
                                                 </span>
                                             </td>
+                                            <td class="px-4 py-3 font-black text-slate-950">{{ $credit->cashMovementCategory?->name ?? 'Uncategorized' }}</td>
                                             <td class="px-4 py-3 font-semibold text-slate-600">{{ $credit->description }}</td>
                                             <td class="px-4 py-3 text-right font-black {{ $credit->isAccountingOut() ? 'text-rose-700' : 'text-emerald-700' }}">{{ $credit->isAccountingOut() ? '-' : '+' }} Rs. {{ number_format((float) $credit->amount, 2) }}</td>
                                             <td class="px-4 py-3 text-right font-semibold text-slate-500">{{ $credit->creator?->name ?? 'System' }}</td>
                                         </tr>
                                     @empty
                                         <tr>
-                                            <td colspan="5" class="px-4 py-8 text-center font-bold text-slate-500">No shop cash movements added yet.</td>
+                                            <td colspan="6" class="px-4 py-8 text-center font-bold text-slate-500">No shop cash movements added yet.</td>
                                         </tr>
                                     @endforelse
                                 </tbody>
@@ -770,9 +824,6 @@
                 @endif
 
                 <div class="mt-6 flex flex-wrap items-center justify-end gap-3 border-t border-slate-100 pt-6">
-                    <button type="button" id="ownership-open-modal" class="inline-flex h-11 items-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-800 transition hover:bg-slate-50">
-                        Manage Ownership Shares
-                    </button>
                     <a href="{{ route('admin.accounting.owned-shops.categories.index', $shop) }}" class="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800">
                         Open Categories Page
                     </a>
@@ -782,34 +833,37 @@
         <section class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
             <div class="flex items-center justify-between gap-3">
                 <div>
-                    <p class="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Settlement Invoices</p>
-                    <h2 class="mt-2 text-xl font-black text-slate-950">Generated settlement invoices</h2>
+                    <p class="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Closed Periods</p>
+                    <h2 class="mt-2 text-xl font-black text-slate-950">Accounting month locks</h2>
                 </div>
             </div>
 
             <div class="mt-6 space-y-3">
-                @forelse($invoices as $invoice)
-                    <a href="{{ route('admin.accounting.owned-shops.invoices.show', ['shop' => $shop, 'invoice' => $invoice]) }}" class="flex items-center justify-between gap-3 rounded-[1.25rem] border border-slate-200 bg-slate-50 px-4 py-4 transition hover:border-cyan-200 hover:bg-cyan-50">
+                @forelse($periodClosures as $closure)
+                    <div class="flex items-center justify-between gap-3 rounded-[1.25rem] border border-slate-200 bg-slate-50 px-4 py-4">
                         <div>
-                            <p class="text-sm font-black text-slate-950">{{ $invoice->invoice_number }}</p>
-                            <p class="mt-1 text-xs font-semibold text-slate-500">{{ $invoice->period_start->format('d M Y') }} to {{ $invoice->period_end->format('d M Y') }}</p>
+                            <p class="text-sm font-black text-slate-950">{{ $closure->period_start->format('d M Y') }} to {{ $closure->period_end->format('d M Y') }}</p>
+                            <p class="mt-1 text-xs font-semibold text-slate-500">Closed {{ $closure->closed_at->format('d M Y h:i A') }} by {{ $closure->closedBy?->name ?? 'Unknown' }}</p>
+                            @if ($closure->notes)
+                                <p class="mt-2 text-xs font-semibold text-slate-600">{{ $closure->notes }}</p>
+                            @endif
                         </div>
-                        <p class="text-sm font-black text-slate-950">Rs. {{ number_format((float) $invoice->net_amount, 2) }}</p>
-                    </a>
+                        <span class="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">Closed</span>
+                    </div>
                 @empty
                     <div class="rounded-[1.25rem] border border-dashed border-slate-300 px-4 py-8 text-center text-sm font-bold text-slate-500">
-                        No settlement invoices have been generated yet.
+                        No accounting periods have been closed yet.
                     </div>
                 @endforelse
             </div>
 
-            <form method="POST" action="{{ route('admin.accounting.owned-shops.invoices.store', $shop) }}" class="mt-6 grid gap-3 border-t border-slate-100 pt-6 md:grid-cols-4">
+            <form method="POST" action="{{ route('admin.accounting.owned-shops.period-closures.store', $shop) }}" class="mt-6 grid gap-3 border-t border-slate-100 pt-6 md:grid-cols-4">
                 @csrf
                 <input type="date" name="period_start" value="{{ $selectedDate->copy()->startOfMonth()->format('Y-m-d') }}" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none">
                 <input type="date" name="period_end" value="{{ $selectedDate->copy()->endOfMonth()->format('Y-m-d') }}" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none">
-                <input type="text" name="notes" placeholder="Invoice note" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none">
+                <input type="text" name="notes" placeholder="Close note" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none">
                 <button type="submit" class="inline-flex h-12 items-center justify-center rounded-2xl bg-emerald-600 px-4 text-sm font-black text-white transition hover:bg-emerald-500">
-                    Generate Invoice
+                    Close Month
                 </button>
             </form>
         </section>
@@ -877,9 +931,11 @@
                         </button>
                     </div>
 
-                    <form method="POST" action="{{ route('admin.accounting.owned-shops.credits.store', $shop) }}" class="space-y-4 px-6 py-6">
-                        @csrf
-	                        <input type="hidden" name="type" value="in">
+                    <div class="space-y-4 px-6 py-6">
+                        <form id="shop-cash-credit-form" method="POST" action="{{ route('admin.accounting.owned-shops.credits.store', $shop) }}">
+                            @csrf
+                            <input type="hidden" name="type" value="in">
+                        </form>
 	                        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
 	                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Movement Type</p>
 	                            <p class="mt-1 text-sm font-black text-slate-950">Working cash given to shop</p>
@@ -887,63 +943,88 @@
 	                        </div>
                         <label>
                             <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Amount</span>
-                            <input type="number" step="0.01" min="0.01" name="amount" value="{{ old('amount') }}" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                            <input form="shop-cash-credit-form" type="number" step="0.01" min="0.01" name="amount" value="{{ old('amount') }}" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
                         </label>
                         <label>
                             <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Movement Date</span>
-                            <input type="date" name="business_date" value="{{ old('business_date', $selectedDate->format('Y-m-d')) }}" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                            <input form="shop-cash-credit-form" type="date" name="business_date" value="{{ old('business_date', $selectedDate->format('Y-m-d')) }}" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
                         </label>
+                        <div data-shop-cash-category-dropdown class="relative">
+                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Category</span>
+                            @php
+                                $selectedCashCategory = $cashMovementCategories->firstWhere('id', (int) old('shop_cash_movement_category_id', $defaultCashMovementCategory->id)) ?? $defaultCashMovementCategory;
+                            @endphp
+                            <input form="shop-cash-credit-form" type="hidden" name="shop_cash_movement_category_id" value="{{ old('shop_cash_movement_category_id', $selectedCashCategory->id) }}" data-shop-cash-category-input>
+                            <button type="button" data-shop-cash-category-button class="flex h-11 w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 text-left text-sm font-black text-slate-950 transition hover:bg-slate-50 focus:border-emerald-500 focus:outline-none">
+                                <span data-shop-cash-category-label>{{ $selectedCashCategory->name }}</span>
+                                <svg class="h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.4">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+                                </svg>
+                            </button>
+                            <div data-shop-cash-category-menu class="absolute left-0 right-0 top-[4.4rem] z-20 hidden overflow-hidden rounded-2xl border border-slate-200 bg-white py-2 shadow-xl">
+                                @foreach($cashMovementCategories as $category)
+                                    <button type="button" data-shop-cash-category-option data-value="{{ $category->id }}" data-label="{{ $category->name }}" class="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-black text-slate-800 transition hover:bg-emerald-50 hover:text-emerald-700">
+                                        <span>{{ $category->name }}</span>
+                                        @if($category->is_default)
+                                            <span class="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700">Default</span>
+                                        @endif
+                                    </button>
+                                @endforeach
+                            </div>
+                        </div>
 	                        <label>
                             <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Description</span>
-	                            <input type="text" name="description" value="{{ old('description') }}" placeholder="Shop working cash given to shop" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+	                            <input form="shop-cash-credit-form" type="text" name="description" value="{{ old('description') }}" placeholder="Shop working cash given to shop" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
                         </label>
                         <div class="flex justify-end gap-3 pt-2">
                             <button type="button" class="shop-cash-modal-close inline-flex h-11 items-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
                                 Cancel
                             </button>
-                            <button type="submit" class="inline-flex h-11 items-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
+                            <button form="shop-cash-credit-form" type="submit" class="inline-flex h-11 items-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
                                 Add shop cash
                             </button>
                         </div>
-                    </form>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div id="ownership-modal" class="hidden fixed inset-0 z-[70]">
-            <div class="ownership-modal-overlay absolute inset-0 bg-slate-950/50 backdrop-blur-sm"></div>
+        <div id="shop-cash-category-modal" class="hidden fixed inset-0 z-[75]">
+            <div class="shop-cash-category-modal-overlay absolute inset-0 bg-slate-950/50 backdrop-blur-sm"></div>
             <div class="relative flex min-h-full items-center justify-center p-4">
-                <div class="w-full max-w-5xl rounded-[2rem] border border-slate-200 bg-white shadow-[0_30px_80px_rgba(15,23,42,0.22)]">
+                <div class="w-full max-w-md rounded-[2rem] border border-slate-200 bg-white shadow-[0_30px_80px_rgba(15,23,42,0.22)]">
                     <div class="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
                         <div>
-                            <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Ownership</p>
-                            <h2 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Manage ownership shares</h2>
+                            <p class="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-700">Shop Cash Category</p>
+                            <h2 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Add category</h2>
+                            <p class="mt-2 text-sm font-semibold text-slate-500">Use categories to track shop cash reports separately.</p>
                         </div>
-                        <button type="button" class="ownership-modal-close inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">
+                        <button type="button" class="shop-cash-category-modal-close inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">
                             <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
                             </svg>
                         </button>
                     </div>
-                    <form method="POST" action="{{ route('admin.accounting.owned-shops.ownerships.store', $shop) }}" class="space-y-3 px-6 py-6">
+                    <form method="POST" action="{{ route('admin.accounting.owned-shops.cash-movement-categories.store', $shop) }}" class="space-y-4 px-6 py-6">
                         @csrf
-                        @for($index = 0; $index < max(3, $shop->ownerships->count()); $index++)
-                            @php $ownership = $shop->ownerships[$index] ?? null; @endphp
-                            <div class="grid gap-3 rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4 md:grid-cols-4">
-                                <input type="text" name="ownerships[{{ $index }}][owner_name]" value="{{ old("ownerships.$index.owner_name", $ownership?->owner_name) }}" placeholder="Owner / Partner name" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none">
-                                <input type="number" step="0.01" min="0" max="100" name="ownerships[{{ $index }}][ownership_percent]" value="{{ old("ownerships.$index.ownership_percent", $ownership?->ownership_percent) }}" placeholder="Share %" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none">
-                                <input type="text" name="ownerships[{{ $index }}][role_label]" value="{{ old("ownerships.$index.role_label", $ownership?->role_label) }}" placeholder="Role label" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none">
-                                <select name="ownerships[{{ $index }}][user_id]" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none">
-                                    <option value="">No linked user</option>
-                                    @foreach($shop->users as $user)
-                                        <option value="{{ $user->id }}" {{ (string) old("ownerships.$index.user_id", $ownership?->user_id) === (string) $user->id ? 'selected' : '' }}>{{ $user->name }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                        @endfor
-                        <div class="flex justify-end pt-2">
-                            <button type="submit" class="inline-flex h-11 items-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800">
-                                Save Ownership Shares
+                        <input type="hidden" name="date" value="{{ $selectedDate->format('Y-m-d') }}">
+                        <label>
+                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Category Name</span>
+                            <input type="text" name="name" value="{{ old('name') }}" placeholder="Category name" data-shop-cash-category-name class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                        </label>
+                        <label class="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                            <input type="checkbox" name="is_default" value="1" @checked(old('is_default')) class="mt-1 h-4 w-4 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500">
+                            <span>
+                                <span class="block text-sm font-black text-slate-950">Make default category</span>
+                                <span class="mt-1 block text-xs font-semibold text-slate-600">New shop cash entries will select this category first.</span>
+                            </span>
+                        </label>
+                        <div class="flex justify-end gap-3 pt-2">
+                            <button type="button" class="shop-cash-category-modal-close inline-flex h-11 items-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
+                                Cancel
+                            </button>
+                            <button type="submit" class="inline-flex h-11 items-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
+                                Add category
                             </button>
                         </div>
                     </form>
@@ -1165,8 +1246,8 @@
                     });
                 };
 
-                bindModal('ownership-open-modal', 'ownership-modal', '.ownership-modal-close', {{ $errors->has('ownerships') ? 'true' : 'false' }});
-                bindModal('shop-cash-open-modal', 'shop-cash-modal', '.shop-cash-modal-close', {{ $errors->has('type') || $errors->has('amount') || $errors->has('description') ? 'true' : 'false' }});
+                bindModal('shop-cash-open-modal', 'shop-cash-modal', '.shop-cash-modal-close', {{ $errors->has('type') || $errors->has('amount') || $errors->has('description') || $errors->has('shop_cash_movement_category_id') ? 'true' : 'false' }});
+                bindModal('shop-cash-category-open-modal', 'shop-cash-category-modal', '.shop-cash-category-modal-close', {{ $errors->has('name') || $errors->has('is_default') ? 'true' : 'false' }});
                 bindModal('daily-entry-open-modal', 'daily-entry-modal', '.daily-entry-modal-close', {{ $errors->has('lines') || $errors->has('business_date') ? 'true' : 'false' }});
                 bindModal('approve-entry-open-modal', 'approve-entry-modal', '.approve-entry-modal-close');
                 bindModal('review-details-open-modal', 'approve-entry-modal', '.approve-entry-modal-close');
@@ -1187,6 +1268,45 @@
                 const lineReviewNoteInput = document.getElementById('line-review-note-input');
                 const lineReviewNoteLabel = document.getElementById('line-review-note-label');
                 const lineReviewSubmitButton = document.getElementById('line-review-submit-button');
+                const shopCashCategoryDropdown = document.querySelector('[data-shop-cash-category-dropdown]');
+                const shopCashCategoryButton = shopCashCategoryDropdown?.querySelector('[data-shop-cash-category-button]');
+                const shopCashCategoryMenu = shopCashCategoryDropdown?.querySelector('[data-shop-cash-category-menu]');
+                const shopCashCategoryInput = shopCashCategoryDropdown?.querySelector('[data-shop-cash-category-input]');
+                const shopCashCategoryLabel = shopCashCategoryDropdown?.querySelector('[data-shop-cash-category-label]');
+                const shopCashCategoryOpenModal = document.getElementById('shop-cash-category-open-modal');
+                const shopCashCategoryNameInput = document.querySelector('[data-shop-cash-category-name]');
+
+                shopCashCategoryOpenModal?.addEventListener('click', () => {
+                    window.setTimeout(() => {
+                        if (shopCashCategoryNameInput instanceof HTMLInputElement) {
+                            shopCashCategoryNameInput.focus();
+                        }
+                    }, 50);
+                });
+
+                shopCashCategoryButton?.addEventListener('click', () => {
+                    shopCashCategoryMenu?.classList.toggle('hidden');
+                });
+
+                shopCashCategoryDropdown?.querySelectorAll('[data-shop-cash-category-option]').forEach((option) => {
+                    option.addEventListener('click', () => {
+                        if (shopCashCategoryInput instanceof HTMLInputElement) {
+                            shopCashCategoryInput.value = option.dataset.value ?? '';
+                        }
+
+                        if (shopCashCategoryLabel) {
+                            shopCashCategoryLabel.textContent = option.dataset.label ?? 'Petty Cash';
+                        }
+
+                        shopCashCategoryMenu?.classList.add('hidden');
+                    });
+                });
+
+                document.addEventListener('click', (event) => {
+                    if (!shopCashCategoryDropdown?.contains(event.target)) {
+                        shopCashCategoryMenu?.classList.add('hidden');
+                    }
+                });
 
                 approveEntryOpenModal?.addEventListener('click', () => {
                     const note = approvalNoteInput instanceof HTMLTextAreaElement ? approvalNoteInput.value.trim() : '';

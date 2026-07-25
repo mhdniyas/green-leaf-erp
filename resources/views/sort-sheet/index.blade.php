@@ -1,5 +1,8 @@
-<x-layouts.admin title="Sort Sheet">
     @php
+        $isWarehouseReceiverSortSheet = request()->routeIs('warehouse.receiver.sort-sheet.*');
+        $sortSheetLayout = $isWarehouseReceiverSortSheet ? 'layouts.app' : 'layouts.admin';
+        $sortSheetRouteBase = $isWarehouseReceiverSortSheet ? 'warehouse.receiver.sort-sheet' : 'sort-sheet';
+        $sortSheetRoute = fn (string $name, array $params = []) => route($sortSheetRouteBase.'.'.$name, $params);
         $user = auth()->user();
         $canGenerate = $user->can('sort.sheet.generate');
         $canExport = $user->can('sort.sheet.export');
@@ -12,9 +15,10 @@
         $currentPriceGroup = $filters['priceGroupId'] ?? '';
     @endphp
 
+<x-dynamic-component :component="$sortSheetLayout" title="Sort Sheet">
     <x-slot:actions>
         @if($canExport && $hasMatrix)
-        <a href="{{ route('sort-sheet.export.excel', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
+        <a href="{{ $sortSheetRoute('export.excel', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
            id="export-excel-btn"
            class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition-all shadow-md hover:shadow-lg">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
@@ -22,7 +26,7 @@
             </svg>
             Export Excel
         </a>
-        <a href="{{ route('sort-sheet.export.pdf', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
+        <a href="{{ $sortSheetRoute('export.pdf', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
            id="export-pdf-btn"
            target="_blank"
            class="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-red-700 transition-all shadow-md hover:shadow-lg">
@@ -31,7 +35,7 @@
             </svg>
             Export PDF
         </a>
-        <a href="{{ route('sort-sheet.print', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
+        <a href="{{ $sortSheetRoute('print', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
            id="print-btn"
            target="_blank"
            class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
@@ -72,7 +76,7 @@
 
         {{-- Filters --}}
         <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
-            <form method="GET" action="{{ route('sort-sheet.generate') }}" id="sort-sheet-filter-form"
+            <form method="GET" action="{{ $sortSheetRoute('generate') }}" id="sort-sheet-filter-form"
                   class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
 
                 {{-- Date --}}
@@ -149,7 +153,7 @@
                     </button>
                     @endif
                     @if($hasMatrix || $noOrders)
-                    <a href="{{ route('sort-sheet.index') }}"
+                    <a href="{{ $sortSheetRoute('index') }}"
                        class="rounded-xl border border-slate-200 px-3 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all flex items-center justify-center">
                         Reset
                     </a>
@@ -187,14 +191,14 @@
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
                     @if($canExport)
-                    <a href="{{ route('sort-sheet.export.excel', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
+                    <a href="{{ $sortSheetRoute('export.excel', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
                        class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-emerald-700 transition-all shadow-sm">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                         </svg>
                         Excel
                     </a>
-                    <a href="{{ route('sort-sheet.export.pdf', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
+                    <a href="{{ $sortSheetRoute('export.pdf', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
                        target="_blank"
                        class="inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-red-700 transition-all shadow-sm">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
@@ -202,7 +206,7 @@
                         </svg>
                         PDF
                     </a>
-                    <a href="{{ route('sort-sheet.print', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
+                    <a href="{{ $sortSheetRoute('print', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
                        target="_blank"
                        class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-[10px] font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
@@ -309,4 +313,4 @@
         </div>
         @endif
     </div>
-</x-layouts.admin>
+</x-dynamic-component>

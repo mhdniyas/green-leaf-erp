@@ -27,6 +27,14 @@
             </div>
         </section>
 
+        @include('shop-owner.partials.date-range-filter', [
+            'action' => route('shop-owner.finance.index'),
+            'hidden' => ['tab' => $activeTab],
+            'startDate' => $filterStartDate,
+            'endDate' => $filterEndDate,
+            'clearUrl' => route('shop-owner.finance.index', ['tab' => $activeTab]),
+        ])
+
         @if ($activeTab === 'payments')
             @if ($isOwnedAccountingShop)
                 @include('shop-owner.finance.partials.payments-tab', [

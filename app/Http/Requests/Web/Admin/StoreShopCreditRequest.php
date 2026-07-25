@@ -6,6 +6,7 @@ namespace App\Http\Requests\Web\Admin;
 
 use App\Support\AccountingAccess;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreShopCreditRequest extends FormRequest
 {
@@ -23,6 +24,11 @@ class StoreShopCreditRequest extends FormRequest
             'amount' => ['required', 'numeric', 'gt:0'],
             'type' => ['nullable', 'string', 'in:in'],
             'is_petty_cash' => ['nullable', 'boolean'],
+            'shop_cash_movement_category_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('shop_cash_movement_categories', 'id')->where('is_active', true),
+            ],
             'description' => ['nullable', 'string', 'max:255'],
             'business_date' => ['required', 'date'],
         ];

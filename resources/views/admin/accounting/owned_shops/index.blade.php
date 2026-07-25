@@ -11,7 +11,7 @@
                 <div>
                     <p class="text-[10px] font-black uppercase tracking-[0.26em] text-slate-400">Owned Shop Accounting</p>
                     <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-950">Eligible shops</h1>
-                    <p class="mt-3 max-w-3xl text-sm font-semibold leading-6 text-slate-600">Only owned and partnership shops with accounting enabled appear here. Keep this page as a clean control table for closing balance, ownership mode, and settlement access.</p>
+                    <p class="mt-3 max-w-3xl text-sm font-semibold leading-6 text-slate-600">Only owned shops with accounting enabled appear here. Keep this page as a clean control table for closing balance, cashbook review, and month closing.</p>
                 </div>
 
                 <div class="flex flex-wrap items-center gap-3">
@@ -34,7 +34,7 @@
             <div class="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-5 py-5 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                     <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Shop Register</p>
-                    <h2 class="mt-2 text-xl font-black text-slate-950">Owned and partnership shops table</h2>
+                    <h2 class="mt-2 text-xl font-black text-slate-950">Owned shops table</h2>
                 </div>
                 <div class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.16em] text-slate-500">
                     {{ number_format($shops->count()) }} shop(s)
@@ -137,7 +137,7 @@
                         @empty
                             <tr>
                                 <td colspan="8" class="px-4 py-12 text-center text-sm font-bold text-slate-500">
-                                    No accounting-enabled owned or partnership shops were found.
+                                    No accounting-enabled owned shops were found.
                                 </td>
                             </tr>
                         @endforelse
@@ -198,7 +198,6 @@
                                 <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Mode</span>
                                 <select name="accounting_mode" class="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900">
                                     <option value="owned" @selected(old('accounting_mode', 'owned') === 'owned')>Owned</option>
-                                    <option value="partnership" @selected(old('accounting_mode') === 'partnership')>Partnership</option>
                                 </select>
                             </label>
 

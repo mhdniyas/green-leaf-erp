@@ -33,6 +33,7 @@ class PurchaseInvoice extends Model
         'discount_amount',
         'status',
         'payment_method',
+        'payment_paid_by',
         'payment_status',
         'paid_amount',
         'payment_note',
@@ -114,6 +115,15 @@ class PurchaseInvoice extends Model
             'green_leaf_direct_purchase' => 'Green Leaf Direct Purchase',
             'mixed' => 'Green Leaf Direct Purchase + Shop Demand',
             default => $this->purchaserCart?->purchaseSourceLabel() ?? 'Shop Demand',
+        };
+    }
+
+    public function paymentPaidByLabel(): string
+    {
+        return match ($this->payment_paid_by) {
+            'company' => 'Company',
+            'vendor_credit' => 'Vendor Credit',
+            default => 'Purchaser',
         };
     }
 

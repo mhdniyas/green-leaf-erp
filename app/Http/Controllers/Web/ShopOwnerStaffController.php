@@ -21,6 +21,7 @@ use App\Models\ShopEmployeeAssignment;
 use App\Models\ShopStaffPayment;
 use App\Services\HR\AttendanceService;
 use App\Services\HR\EmployeeAdvanceService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -47,6 +48,7 @@ class ShopOwnerStaffController extends Controller
         $selectedTab = in_array($request->string('tab', 'attendance')->toString(), ['attendance', 'advance', 'salary', 'leave', 'history'], true)
             ? $request->string('tab', 'attendance')->toString()
             : 'attendance';
+        [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
         $employeeSearch = trim($request->string('employee_search')->toString());
         $ownerEmployee = $request->user()->employee()->with('category')->first();
         $attendanceRecords = EmployeeAttendance::query()
@@ -79,25 +81,37 @@ class ShopOwnerStaffController extends Controller
             'salaryOptions' => $salaryOptions,
             'attendanceRecords' => $attendanceRecords,
             'recentPayrollPayments' => ShopStaffPayment::query()
-                ->with(['employee', 'advanceRequest'])
+                ->with(['employee', 'advanceRequest', 'cashbookLine.entry'])
                 ->when($selectedShop !== null, fn ($query) => $query->where('shop_id', $selectedShop->id))
+                ->when($filterStartDate, fn ($query) => $query->whereDate('paid_on', '>=', $filterStartDate))
+                ->when($filterEndDate, fn ($query) => $query->whereDate('paid_on', '<=', $filterEndDate))
                 ->latest('paid_on')
                 ->latest('id')
-                ->limit(8)
-                ->get(),
+                ->paginate(8, ['*'], 'staff_payments_page')
+                ->withQueryString(),
             'advanceRequests' => EmployeeAdvanceRequest::query()
-                ->with(['employee', 'reviewedBy'])
+                ->with(['employee', 'reviewedBy', 'shopStaffPayment.cashbookLine.entry'])
                 ->when($selectedShop !== null, fn ($query) => $query->where('shop_id', $selectedShop->id))
+                ->when($filterStartDate, fn ($query) => $query->whereDate('requested_on', '>=', $filterStartDate))
+                ->when($filterEndDate, fn ($query) => $query->whereDate('requested_on', '<=', $filterEndDate))
                 ->latest('id')
-                ->limit(8)
-                ->get(),
+                ->paginate(8, ['*'], 'staff_advance_page')
+                ->withQueryString(),
             'searchResults' => $this->employeeSearchResults($employeeSearch, $selectedShop?->id),
+            'pendingLeaveCount' => EmployeeLeaveRequest::query()
+                ->when($selectedShop !== null, fn ($query) => $query->where('submitted_for_shop_id', $selectedShop->id))
+                ->where('status', 'pending')
+                ->count(),
             'leaveRequests' => EmployeeLeaveRequest::query()
                 ->with(['employee.category', 'submittedForShop', 'reviewedBy'])
                 ->when($selectedShop !== null, fn ($query) => $query->where('submitted_for_shop_id', $selectedShop->id))
+                ->when($filterStartDate, fn ($query) => $query->whereDate('start_date', '>=', $filterStartDate))
+                ->when($filterEndDate, fn ($query) => $query->whereDate('start_date', '<=', $filterEndDate))
                 ->latest('id')
-                ->limit(10)
-                ->get(),
+                ->paginate(8, ['*'], 'staff_leave_page')
+                ->withQueryString(),
+            'filterStartDate' => $filterStartDate,
+            'filterEndDate' => $filterEndDate,
         ]);
     }
 
@@ -157,7 +171,7 @@ class ShopOwnerStaffController extends Controller
             );
     }
 
-    public function storeAttendance(UpsertOwnedShopAttendanceRequest $request): RedirectResponse
+    public function storeAttendance(UpsertOwnedShopAttendanceRequest $request): RedirectResponse|JsonResponse
     {
         $this->ensureOwnerAccess($request);
 
@@ -175,7 +189,7 @@ class ShopOwnerStaffController extends Controller
             ? $request->string('leave_reason')->toString()
             : $request->input('notes');
 
-        $this->attendanceService->upsert(
+        $attendance = $this->attendanceService->upsert(
             $employee,
             $attendanceDate,
             $request->string('status')->toString(),
@@ -204,6 +218,23 @@ class ShopOwnerStaffController extends Controller
                     'review_note' => null,
                 ],
             );
+        }
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => 'Attendance updated for today.',
+                'attendance' => [
+                    'employee_id' => $employee->id,
+                    'status' => $attendance->status,
+                    'status_label' => $attendance->status === 'present' ? 'checked in' : str_replace('_', ' ', $attendance->status),
+                    'checked_in_at' => ($attendance->created_at ?? $attendance->marked_at)?->format('h:i A'),
+                    'latest_mark_at' => $attendance->marked_at?->format('h:i A'),
+                    'changed_at' => $attendance->updated_at?->gt(($attendance->created_at ?? $attendance->updated_at)->copy()->addSecond())
+                        ? $attendance->updated_at->format('h:i A')
+                        : null,
+                    'button_label' => 'Update Check-In',
+                ],
+            ]);
         }
 
         return redirect()->route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'attendance'])
@@ -412,5 +443,24 @@ class ShopOwnerStaffController extends Controller
                 'carry_forward_allowed' => true,
             ],
         )->id;
+    }
+
+    /**
+     * @return array{0: Carbon|null, 1: Carbon|null}
+     */
+    private function nullableDateRangeFromRequest(Request $request): array
+    {
+        $startDate = $request->filled('start_date')
+            ? Carbon::parse((string) $request->input('start_date'))->startOfDay()
+            : null;
+        $endDate = $request->filled('end_date')
+            ? Carbon::parse((string) $request->input('end_date'))->endOfDay()
+            : null;
+
+        if ($startDate && $endDate && $startDate->gt($endDate)) {
+            [$startDate, $endDate] = [$endDate->copy()->startOfDay(), $startDate->copy()->endOfDay()];
+        }
+
+        return [$startDate, $endDate];
     }
 }

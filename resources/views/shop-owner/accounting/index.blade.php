@@ -308,9 +308,9 @@
                 <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                     <div class="flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1">
                     @foreach ($ledgerStatusTabs as $statusKey => $statusLabel)
-                        <button type="button" data-ledger-status-trigger="{{ $statusKey }}" aria-selected="{{ $ledgerStatusTab === $statusKey ? 'true' : 'false' }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerStatusTab === $statusKey ? 'bg-slate-950 text-white' : 'text-slate-700 hover:bg-white' }}">
+                        <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'ledger_status' => $statusKey, 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date'), 'ledger_source' => $ledgerSourceFilter === 'greenleaf_direct' ? 'greenleaf_direct' : null])) }}" data-ledger-status-trigger="{{ $statusKey }}" aria-selected="{{ $ledgerStatusTab === $statusKey ? 'true' : 'false' }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerStatusTab === $statusKey ? 'bg-slate-950 text-white' : 'text-slate-700 hover:bg-white' }}">
                             {{ $statusLabel }}
-                        </button>
+                        </a>
                     @endforeach
                     </div>
 
@@ -355,7 +355,8 @@
                                     <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Ledger Status</p>
                                     <h3 class="mt-1 text-lg font-black text-slate-950">{{ $statusLabel }}</h3>
                                 </div>
-                                <p class="text-xs font-black uppercase tracking-[0.14em] text-slate-400">{{ $statusLedgerEntries->count() }} day{{ $statusLedgerEntries->count() === 1 ? '' : 's' }}</p>
+                                @php($ledgerDayCount = $statusLedgerEntries instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator ? $statusLedgerEntries->total() : $statusLedgerEntries->count())
+                                <p class="text-xs font-black uppercase tracking-[0.14em] text-slate-400">{{ $ledgerDayCount }} day{{ $ledgerDayCount === 1 ? '' : 's' }}</p>
                             </div>
 
                             <div class="space-y-3 md:hidden">
@@ -443,6 +444,10 @@
                                     </tbody>
                                 </table>
                             </div>
+
+                            @if ($statusLedgerEntries instanceof \Illuminate\Contracts\Pagination\Paginator && $statusLedgerEntries->hasPages())
+                                <div class="mt-5">{{ $statusLedgerEntries->links() }}</div>
+                            @endif
                         </div>
                     @endforeach
                 </div>
@@ -519,10 +524,10 @@
                             <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                 <div>
                                     <p class="text-sm font-black text-cyan-950">This day is already approved.</p>
-                                    <p class="mt-2 text-sm font-semibold text-cyan-900">Approved entries are read-only. Add any extra income or expense as a new approval request.</p>
+                                    <p class="mt-2 text-sm font-semibold text-cyan-900">Approved entries are read-only. Add any extra income or expense as an adjustment request.</p>
                                 </div>
                                 <button type="button" id="cashbook-open-adjustment-modal" class="inline-flex h-11 shrink-0 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800">
-                                    Add New Entry
+                                    Add Adjustment
                                 </button>
                             </div>
                         </div>
@@ -733,8 +738,8 @@
                         <div class="flex items-start justify-between gap-4">
                             <div>
                                 <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Approved Day</p>
-                                <h3 class="mt-2 text-xl font-black text-slate-950">Add additional income or expense</h3>
-                                <p class="mt-2 text-sm font-semibold text-slate-600">This creates a new pending approval entry for {{ $selectedDate->format('d M Y') }}.</p>
+                                <h3 class="mt-2 text-xl font-black text-slate-950">Add adjustment income or expense</h3>
+                                <p class="mt-2 text-sm font-semibold text-slate-600">This creates a separate pending adjustment for {{ $selectedDate->format('d M Y') }}. Use it only for transactions missed from the approved daily cashbook.</p>
                             </div>
                             <button type="button" id="cashbook-close-adjustment-modal" class="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-xl font-black text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">×</button>
                         </div>
@@ -770,8 +775,8 @@
                             </label>
 
                             <label class="block">
-                                <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Note</span>
-                                <textarea name="lines[0][description]" rows="3" class="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none" placeholder="Explain this additional entry"></textarea>
+                                <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Adjustment Note</span>
+                                <textarea name="lines[0][description]" rows="3" required class="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none" placeholder="Explain why this was not in the approved daily cashbook"></textarea>
                             </label>
 
                             <label class="block">
@@ -781,7 +786,7 @@
 
                             <div class="flex flex-col gap-3 sm:flex-row">
                                 <button type="submit" class="inline-flex h-11 items-center justify-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
-                                    Send To Admin Approval
+                                    Send Adjustment To Admin
                                 </button>
                                 <button type="button" id="cashbook-cancel-adjustment-modal" class="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-800 transition hover:bg-slate-50">
                                     Cancel

@@ -95,54 +95,100 @@ class RequisitionController extends Controller
         $isLate = $nowInKolkata->greaterThan($cutoff);
         $autoApproveOrder = ! $isLate && $this->businessDayService->autoApproveShopOrders();
 
-        $order = DB::transaction(function () use ($activeShop, $user, $items, $businessDate, $isLate, $cutoff, $autoApproveOrder) {
-            $shopOrder = ShopOrder::create([
-                'shop_id' => $activeShop->id,
-                'business_date' => $businessDate,
-                'state' => $autoApproveOrder ? 'approved' : 'submitted',
-                'is_late' => $isLate,
-                'submitted_at' => now(),
-                'deadline_at' => $cutoff->utc(),
-                'created_by' => $user->id,
-                'reviewed_at' => $autoApproveOrder ? now() : null,
-                'manager_note' => $autoApproveOrder ? PurchaserBusinessDayService::AUTO_APPROVE_MANAGER_NOTE : null,
-            ]);
+        try {
+            $outcome = DB::transaction(function () use ($activeShop, $user, $items, $businessDate, $isLate, $cutoff, $autoApproveOrder): array {
+                $dailyOrderKey = ShopOrder::dailyOrderKey((int) $activeShop->id, $businessDate);
+                $existingOrder = $this->existingShopOwnerOrderForDate((int) $activeShop->id, $businessDate, $dailyOrderKey);
 
-            $this->syncShopOrderItems($shopOrder, $items);
+                if ($existingOrder) {
+                    return $this->resubmitExistingShopOwnerOrder(
+                        order: $existingOrder,
+                        user: $user,
+                        items: $items,
+                        isLate: $isLate,
+                        cutoff: $cutoff,
+                        autoApproveOrder: $autoApproveOrder,
+                        dailyOrderKey: $dailyOrderKey,
+                    );
+                }
 
-            if ($isLate) {
-                $this->shopOrderChangeRequestRecorder->recordLateSubmission(
-                    $shopOrder,
-                    $user,
-                    'Shop owner submitted this order after cutoff.'
-                );
-            }
-
-            if ($autoApproveOrder) {
-                $shopOrder->items()->update([
-                    'approved_qty' => DB::raw('requested_qty'),
-                    'notes' => PurchaserBusinessDayService::AUTO_APPROVE_MANAGER_NOTE,
+                $shopOrder = ShopOrder::create([
+                    'shop_id' => $activeShop->id,
+                    'order_source' => 'shop_owner',
+                    'shop_daily_order_key' => $dailyOrderKey,
+                    'business_date' => $businessDate,
+                    'state' => $autoApproveOrder ? 'approved' : 'submitted',
+                    'is_late' => $isLate,
+                    'submitted_at' => now(),
+                    'deadline_at' => $cutoff->utc(),
+                    'created_by' => $user->id,
+                    'reviewed_at' => $autoApproveOrder ? now() : null,
+                    'manager_note' => $autoApproveOrder ? PurchaserBusinessDayService::AUTO_APPROVE_MANAGER_NOTE : null,
                 ]);
+
+                $this->syncShopOrderItems($shopOrder, $items);
+
+                if ($isLate) {
+                    $this->shopOrderChangeRequestRecorder->recordLateSubmission(
+                        $shopOrder,
+                        $user,
+                        'Shop owner submitted this order after cutoff.'
+                    );
+                }
+
+                if ($autoApproveOrder) {
+                    $shopOrder->items()->update([
+                        'approved_qty' => DB::raw('requested_qty'),
+                        'notes' => PurchaserBusinessDayService::AUTO_APPROVE_MANAGER_NOTE,
+                    ]);
+                }
+
+                return [
+                    'order' => $shopOrder->fresh(['items.product', 'shop']),
+                    'notification' => $isLate ? 'late' : ($autoApproveOrder ? null : 'submitted'),
+                    'message' => match (true) {
+                        $isLate => 'Late order request submitted successfully for manager approval.',
+                        $autoApproveOrder => 'Tomorrow order submitted and automatically approved.',
+                        default => 'Tomorrow order submitted successfully.',
+                    },
+                ];
+            });
+        } catch (ValidationException $exception) {
+            if ($request->expectsJson()) {
+                return response()->json(['error' => collect($exception->errors())->flatten()->first()], 422);
             }
 
-            return $shopOrder;
-        });
+            return redirect()->route('shop-owner.orders.create')
+                ->withErrors($exception->errors())
+                ->with('error', collect($exception->errors())->flatten()->first())
+                ->withInput();
+        }
 
-        if ($isLate) {
+        /** @var ShopOrder $order */
+        $order = $outcome['order'];
+
+        if (($outcome['blocked'] ?? false) === true) {
+            if ($request->expectsJson()) {
+                return response()->json(['error' => $outcome['message']], 422);
+            }
+
+            return redirect()->route('shop-owner.orders.show', $order->order_number)
+                ->with('error', $outcome['message']);
+        }
+
+        if (($outcome['notification'] ?? null) === 'late') {
             $this->shopOrderRevisionService->notifyPurchaseManagers(
                 new LateRequisitionSubmittedNotification($order->loadMissing('shop'))
             );
-        } elseif (! $autoApproveOrder) {
+        } elseif (($outcome['notification'] ?? null) === 'submitted') {
             $this->shopOrderRevisionService->notifyPurchaseManagers(
                 new PurchasingOrderSubmittedNotification($order->loadMissing('shop'))
             );
+        } elseif (($outcome['notification'] ?? null) === 'revision' && isset($outcome['revision'])) {
+            $this->shopOrderRevisionService->notifyPurchaseManagers(
+                new PurchasingOrderRevisionRequestedNotification($outcome['revision']->loadMissing(['shopOrder.shop', 'items']))
+            );
         }
-
-        $successMessage = match (true) {
-            $isLate => 'Late order request submitted successfully for manager approval.',
-            $autoApproveOrder => 'Tomorrow order submitted and automatically approved.',
-            default => 'Tomorrow order submitted successfully.',
-        };
 
         if ($request->expectsJson()) {
             return response()->json([
@@ -158,7 +204,144 @@ class RequisitionController extends Controller
             $user->hasRole('shop') ? 'shop-owner.orders.show' : 'requisitions.show',
             $order->order_number
         )
-            ->with('success', $successMessage);
+            ->with('success', $outcome['message']);
+    }
+
+    private function existingShopOwnerOrderForDate(int $shopId, string $businessDate, string $dailyOrderKey): ?ShopOrder
+    {
+        /** @var ShopOrder|null $keyedOrder */
+        $keyedOrder = ShopOrder::query()
+            ->where('shop_daily_order_key', $dailyOrderKey)
+            ->lockForUpdate()
+            ->first();
+
+        if ($keyedOrder) {
+            return $keyedOrder;
+        }
+
+        /** @var ShopOrder|null $legacyOrder */
+        $legacyOrder = ShopOrder::query()
+            ->where('shop_id', $shopId)
+            ->whereDate('business_date', $businessDate)
+            ->where(function ($query): void {
+                $query
+                    ->where('order_source', 'shop_owner')
+                    ->orWhereNull('order_source');
+            })
+            ->latest('id')
+            ->lockForUpdate()
+            ->first();
+
+        return $legacyOrder;
+    }
+
+    /**
+     * @param  array<int, array{product: Product, quantity: float}>  $items
+     * @return array{order: ShopOrder, notification?: string|null, message: string, blocked?: bool, revision?: mixed}
+     */
+    private function resubmitExistingShopOwnerOrder(
+        ShopOrder $order,
+        User $user,
+        array $items,
+        bool $isLate,
+        Carbon $cutoff,
+        bool $autoApproveOrder,
+        string $dailyOrderKey,
+    ): array {
+        $order->loadMissing(['items.product', 'invoice']);
+
+        if ($order->shop_daily_order_key === null) {
+            $order->forceFill([
+                'order_source' => 'shop_owner',
+                'shop_daily_order_key' => $dailyOrderKey,
+            ])->save();
+        }
+
+        if ($order->isFinanciallyLocked() || $order->is_delivered) {
+            return [
+                'order' => $order,
+                'blocked' => true,
+                'message' => 'This order is already locked. Create an adjustment request instead.',
+            ];
+        }
+
+        if ($order->state === 'approved') {
+            $revision = $this->shopOrderRevisionService->createApprovedOrderRevision(
+                $order,
+                $items,
+                $user,
+                $isLate
+                    ? 'Shop owner resubmitted this approved order after cutoff.'
+                    : 'Shop owner resubmitted this approved order.'
+            );
+
+            if (! $revision) {
+                return [
+                    'order' => $order->fresh(['items.product', 'shop']),
+                    'notification' => null,
+                    'message' => 'This order was already submitted with the same quantities.',
+                ];
+            }
+
+            $this->shopOrderChangeRequestRecorder->recordApprovedOrderRevision($revision);
+
+            return [
+                'order' => $order->fresh(['items.product', 'shop']),
+                'revision' => $revision,
+                'notification' => 'revision',
+                'message' => sprintf(
+                    'Your updated order request (Update #%d) has been submitted to the Purchase Manager.',
+                    $revision->revision_no
+                ),
+            ];
+        }
+
+        $wasRejected = $order->state === 'rejected';
+
+        if ($isLate) {
+            $this->shopOrderChangeRequestRecorder->recordSubmittedOrderUpdate(
+                $order,
+                $items,
+                $user,
+                'Shop owner resubmitted this order after cutoff.'
+            );
+        }
+
+        $this->syncShopOrderItems($order, $items);
+
+        $order->update([
+            'state' => $autoApproveOrder ? 'approved' : ($isLate ? 'update_requested' : 'submitted'),
+            'is_late' => $isLate,
+            'submitted_at' => now(),
+            'deadline_at' => $cutoff->utc(),
+            'update_reason' => $isLate ? 'Shop owner requested quantity changes after cutoff.' : null,
+            'reviewed_by' => $autoApproveOrder ? $user->id : null,
+            'reviewed_at' => $autoApproveOrder ? now() : null,
+            'manager_note' => $autoApproveOrder ? PurchaserBusinessDayService::AUTO_APPROVE_MANAGER_NOTE : null,
+            'has_pending_revision' => false,
+        ]);
+
+        if ($autoApproveOrder) {
+            $order->items()->update([
+                'approved_qty' => DB::raw('requested_qty'),
+                'notes' => PurchaserBusinessDayService::AUTO_APPROVE_MANAGER_NOTE,
+            ]);
+        } else {
+            $order->items()->update([
+                'approved_qty' => null,
+                'notes' => null,
+            ]);
+        }
+
+        return [
+            'order' => $order->fresh(['items.product', 'shop']),
+            'notification' => $isLate ? 'late' : ($wasRejected && ! $autoApproveOrder ? 'submitted' : null),
+            'message' => match (true) {
+                $isLate => 'Late order update submitted successfully for manager approval.',
+                $autoApproveOrder => 'Tomorrow order updated and automatically approved.',
+                default => 'Tomorrow order updated successfully.',
+            },
+        ];
     }
 
     public function createAdminDirectPurchase(Request $request): View

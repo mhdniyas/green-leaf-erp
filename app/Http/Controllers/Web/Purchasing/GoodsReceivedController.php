@@ -82,7 +82,7 @@ class GoodsReceivedController extends Controller
 
         $submittedProductGroups = $this->buildProductGroups($submittedGrns);
 
-        $pricingBusinessDate = Carbon::parse($date)->addDay()->toDateString();
+        $pricingBusinessDate = Carbon::parse($date)->toDateString();
         $this->priceBoardService->ensureDefaultPriceGroups();
         $pendingPriceApprovals = $this->priceBoardService
             ->ensurePendingApprovalsForPurchaseDate($date)

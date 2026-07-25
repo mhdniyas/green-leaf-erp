@@ -173,7 +173,7 @@
                         </p>
                     </div>
                     @if (auth()->user()?->hasRole('admin'))
-                        <a href="{{ route('purchasing.prices.index', ['date' => \Illuminate\Support\Carbon::parse($pricingBusinessDate)->subDay()->toDateString()]) }}" class="inline-flex items-center justify-center rounded-2xl border border-slate-200 px-5 py-3 text-sm font-black text-slate-700">
+                        <a href="{{ route('purchasing.prices.index', ['date' => \Illuminate\Support\Carbon::parse($pricingBusinessDate)->toDateString()]) }}" class="inline-flex items-center justify-center rounded-2xl border border-slate-200 px-5 py-3 text-sm font-black text-slate-700">
                             Open Price Board
                         </a>
                     @endif

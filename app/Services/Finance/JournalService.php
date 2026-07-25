@@ -244,6 +244,46 @@ class JournalService
     }
 
     /**
+     * Record company cash paid to settle vendor credit.
+     * Debit Graded Inventory (1200), Credit Cash (1010).
+     */
+    public function recordCompanyVendorCreditPayment(PurchaseInvoice $invoice, float $amount, int $userId, ?string $sourceEvent = null): JournalEntry
+    {
+        $amount = round($amount, 2);
+
+        if ($amount <= 0.00) {
+            throw new RuntimeException('Company vendor credit payment journal amount must be positive.');
+        }
+
+        $invoice->loadMissing(['purchaserCart', 'supplier']);
+
+        $inventoryAccountId = $this->getAccountIdByCode('1200');
+        $cashAccountId = $this->getAccountIdByCode('1010');
+        $paidAmountCents = (int) round((float) $invoice->paid_amount * 100);
+        $event = $sourceEvent ?? "company_vendor_credit_payment:paid-{$paidAmountCents}";
+        $businessDate = $invoice->purchaserCart?->business_date?->format('Y-m-d')
+            ?? $invoice->created_at?->format('Y-m-d')
+            ?? now()->format('Y-m-d');
+
+        $lines = [
+            ['account_id' => $inventoryAccountId, 'type' => 'debit', 'amount' => $amount],
+            ['account_id' => $cashAccountId, 'type' => 'credit', 'amount' => $amount],
+        ];
+
+        $data = new JournalEntryData(
+            entryDate: $businessDate,
+            reference: "COMPANY-VENDOR-CREDIT-PAY-{$invoice->id}-{$paidAmountCents}",
+            description: 'Company paid vendor credit invoice #'.($invoice->invoice_number ?: $invoice->id),
+            lines: $lines,
+            sourceType: PurchaseInvoice::class,
+            sourceId: $invoice->id,
+            sourceEvent: $event
+        );
+
+        return $this->createEntry($data, $userId);
+    }
+
+    /**
      * Record wastage expense entry.
      * Debit Wastage Expense (5200), Credit COGS (5100)
      */

@@ -53,10 +53,18 @@ class ShopOwnerController extends Controller
     public function ordersIndex(Request $request): View
     {
         $activeShop = $this->currentShop($request);
+        [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
 
         return view('shop-owner.orders.index', [
-            'orders' => $this->shopOrdersQuery($activeShop)->latest('business_date')->get(),
+            'orders' => $this->shopOrdersQuery($activeShop)
+                ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))
+                ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate))
+                ->latest('business_date')
+                ->paginate(12, ['*'], 'orders_page')
+                ->withQueryString(),
             'tomorrowOrder' => $this->tomorrowOrder($activeShop),
+            'filterStartDate' => $filterStartDate,
+            'filterEndDate' => $filterEndDate,
         ]);
     }
 
@@ -80,25 +88,39 @@ class ShopOwnerController extends Controller
     public function ordersHistory(Request $request): View
     {
         $activeShop = $this->currentShop($request);
+        [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
 
         return view('shop-owner.orders.history', [
-            'orders' => $this->shopOrdersQuery($activeShop)->latest('business_date')->paginate(12),
+            'orders' => $this->shopOrdersQuery($activeShop)
+                ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))
+                ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate))
+                ->latest('business_date')
+                ->paginate(12, ['*'], 'orders_page')
+                ->withQueryString(),
             'tomorrowOrder' => $this->tomorrowOrder($activeShop),
+            'filterStartDate' => $filterStartDate,
+            'filterEndDate' => $filterEndDate,
         ]);
     }
 
     public function deliveriesIndex(Request $request): View
     {
         $activeShop = $this->currentShop($request);
+        [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
 
         return view('shop-owner.deliveries.index', [
             'deliveries' => $this->shopOrdersQuery($activeShop)
+                ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))
+                ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate))
                 ->where(function ($query): void {
                     $query->where('is_allocation_completed', true)
                         ->orWhere('is_delivered', true);
                 })
                 ->latest('business_date')
-                ->get(),
+                ->paginate(12, ['*'], 'deliveries_page')
+                ->withQueryString(),
+            'filterStartDate' => $filterStartDate,
+            'filterEndDate' => $filterEndDate,
         ]);
     }
 
@@ -133,25 +155,51 @@ class ShopOwnerController extends Controller
         $activeShop = $this->currentShop($request);
         $isOwnedAccountingShop = $activeShop->isOwnedAccountingEnabled();
         $tab = (string) $request->input('tab', 'invoices');
+        [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
 
         if ($tab !== 'payments') {
             $tab = 'invoices';
         }
 
-        $invoices = ShopInvoice::query()
+        $invoiceQuery = ShopInvoice::query()
             ->where('shop_id', $activeShop->id)
+            ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))
+            ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate));
+        $invoiceTotals = (clone $invoiceQuery)
+            ->selectRaw('COALESCE(SUM(final_total), 0) as total_billed')
+            ->selectRaw('COALESCE(SUM(balance_amount), 0) as outstanding_balance')
+            ->selectRaw('COALESCE(SUM(paid_amount), 0) as paid_amount')
+            ->selectRaw('COALESCE(SUM(shortage_total), 0) as shortage_value')
+            ->first();
+        $invoices = (clone $invoiceQuery)
             ->with(['order', 'items', 'paymentRequests' => fn ($query) => $query->latest('id')])
             ->latest('business_date')
-            ->get();
+            ->latest('id')
+            ->paginate(12, ['*'], 'invoices_page')
+            ->withQueryString();
+        $payableInvoices = (clone $invoiceQuery)
+            ->where('balance_amount', '>', 0)
+            ->with(['order', 'items'])
+            ->oldest('business_date')
+            ->oldest('id')
+            ->paginate(8, ['*'], 'payable_invoices_page')
+            ->withQueryString();
+        $payableInvoiceTotal = (float) (clone $invoiceQuery)
+            ->where('balance_amount', '>', 0)
+            ->sum('balance_amount');
         $companyPayments = ShopCredit::query()
             ->where('shop_id', $activeShop->id)
             ->where('type', 'out')
+            ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))
+            ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate))
             ->with('creator')
             ->latest('id')
             ->paginate(12, ['*'], 'payments_page')
             ->withQueryString();
         $invoicePaymentRequests = ShopInvoicePaymentRequest::query()
             ->where('shop_id', $activeShop->id)
+            ->when($filterStartDate, fn ($query) => $query->whereDate('created_at', '>=', $filterStartDate))
+            ->when($filterEndDate, fn ($query) => $query->whereDate('created_at', '<=', $filterEndDate))
             ->with(['invoice', 'requestedBy', 'reviewedBy', 'allocations'])
             ->latest('id')
             ->paginate(12, ['*'], 'payment_requests_page')
@@ -172,14 +220,16 @@ class ShopOwnerController extends Controller
 
         return view('shop-owner.finance.index', [
             'invoices' => $invoices,
+            'payableInvoices' => $payableInvoices,
+            'payableInvoiceTotal' => $payableInvoiceTotal,
             'companyPayments' => $companyPayments,
             'invoicePaymentRequests' => $invoicePaymentRequests,
             'activeTab' => $tab,
             'isOwnedAccountingShop' => $isOwnedAccountingShop,
-            'totalBilled' => (float) $invoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->final_total),
-            'outstandingBalance' => (float) $invoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->balance_amount),
-            'paidAmount' => (float) $invoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->paid_amount),
-            'shortageValue' => (float) $invoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->shortage_total),
+            'totalBilled' => (float) ($invoiceTotals?->total_billed ?? 0),
+            'outstandingBalance' => (float) ($invoiceTotals?->outstanding_balance ?? 0),
+            'paidAmount' => (float) ($invoiceTotals?->paid_amount ?? 0),
+            'shortageValue' => (float) ($invoiceTotals?->shortage_value ?? 0),
             'pendingPaymentAmount' => $isOwnedAccountingShop ? $companyPaymentTotal : $pendingInvoicePaymentAmount,
             'availableInvoicePaymentCredit' => $availableInvoicePaymentCredit,
             'companyPaymentTotal' => $companyPaymentTotal,
@@ -187,6 +237,8 @@ class ShopOwnerController extends Controller
             'latestClosingBalance' => $latestClosingBalance,
             'payableToCompany' => max(0.0, round($latestClosingBalance, 2)),
             'pendingBillApprovalSummary' => $pendingBillApprovalSummary,
+            'filterStartDate' => $filterStartDate,
+            'filterEndDate' => $filterEndDate,
         ]);
     }
 
@@ -235,7 +287,8 @@ class ShopOwnerController extends Controller
             ->with(['order', 'items.product', 'paymentRequests' => fn ($query) => $query->latest('id')])
             ->latest('business_date')
             ->latest('id')
-            ->paginate(10, ['*'], 'bills_page');
+            ->paginate(10, ['*'], 'bills_page')
+            ->withQueryString();
         $selectedBillInvoices = ShopInvoice::query()
             ->where('shop_id', $shop->id)
             ->whereDate('business_date', $selectedDate->toDateString())
@@ -246,7 +299,8 @@ class ShopOwnerController extends Controller
             ->where('shop_id', $shop->id)
             ->with(['invoice', 'requestedBy', 'reviewedBy'])
             ->latest('id')
-            ->paginate(8, ['*'], 'requests_page');
+            ->paginate(8, ['*'], 'requests_page')
+            ->withQueryString();
         $billingSummary = $this->billingSummary(
             ShopInvoice::query()->where('shop_id', $shop->id)->get()
         );
@@ -313,7 +367,6 @@ class ShopOwnerController extends Controller
                         })
                         ->latest('business_date')
                         ->latest('id')
-                        ->limit(20)
                         ->get(),
                 ]);
             $deliveryExpenseByDate = ShopInvoice::query()
@@ -375,7 +428,8 @@ class ShopOwnerController extends Controller
             $selectedShopCredit = (float) ($shopCreditByDate->get($selectedDate->toDateString()) ?? 0);
             $receiptSummary = $this->ownedShopAccountingService->receiptSummaryForDate($shop, $selectedDate);
             $ledgerEntriesByStatus = $ledgerEntriesByStatus->map(
-                fn (Collection $statusEntries): Collection => $statusEntries
+                fn (Collection $statusEntries, string $statusKey): LengthAwarePaginator => $this->paginateCollection(
+                    $statusEntries
                     ->groupBy(fn (ShopAccountingEntry $ledgerEntry): string => $ledgerEntry->business_date->toDateString())
                     ->map(function (Collection $dayEntries, string $ledgerDate) use ($cashGivenToShopByDate, $deliveryExpenseByDate, $paymentToCompanyByDate, $shop): array {
                         $firstEntry = $dayEntries->first();
@@ -402,7 +456,11 @@ class ShopOwnerController extends Controller
                             'items' => $dayEntries->sum(fn (ShopAccountingEntry $ledgerEntry): int => $ledgerEntry->lines->count()),
                         ];
                     })
-                    ->values()
+                    ->values(),
+                    $request,
+                    'ledger_'.$statusKey.'_page',
+                    12,
+                )
             );
 
             $incomeTotal = (float) $receiptSummary['total_income'];
@@ -449,26 +507,36 @@ class ShopOwnerController extends Controller
     {
         $shop = $this->currentShop($request);
         $tab = $this->normalizeAccountingTab($shop, (string) $request->input('tab', 'bills'));
+        [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
         $entries = collect();
         $invoiceHistory = ShopInvoice::query()
             ->where('shop_id', $shop->id)
+            ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))
+            ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate))
             ->with(['order', 'paymentRequests' => fn ($query) => $query->latest('id')])
             ->latest('business_date')
             ->latest('id')
-            ->paginate(12, ['*'], 'bill_history_page');
+            ->paginate(12, ['*'], 'bill_history_page')
+            ->withQueryString();
         $paymentRequestHistory = ShopInvoicePaymentRequest::query()
             ->where('shop_id', $shop->id)
+            ->when($filterStartDate, fn ($query) => $query->whereDate('created_at', '>=', $filterStartDate))
+            ->when($filterEndDate, fn ($query) => $query->whereDate('created_at', '<=', $filterEndDate))
             ->with(['invoice', 'requestedBy', 'reviewedBy'])
             ->latest('id')
-            ->paginate(12, ['*'], 'payment_history_page');
-        $moneyReport = $this->shopAccountingMoneyReport($shop);
+            ->paginate(12, ['*'], 'payment_history_page')
+            ->withQueryString();
+        $moneyReport = $this->shopAccountingMoneyReport($shop, $request, $filterStartDate, $filterEndDate);
 
         if ($shop->isOwnedAccountingEnabled()) {
             $entries = ShopAccountingEntry::query()
                 ->where('shop_id', $shop->id)
+                ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))
+                ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate))
                 ->with(['lines.category', 'submittedBy', 'reviewedBy'])
                 ->latest('business_date')
-                ->paginate(12);
+                ->paginate(12, ['*'], 'entries_page')
+                ->withQueryString();
         }
 
         return view('shop-owner.accounting.history', [
@@ -478,6 +546,8 @@ class ShopOwnerController extends Controller
             'invoiceHistory' => $invoiceHistory,
             'paymentRequestHistory' => $paymentRequestHistory,
             'moneyReport' => $moneyReport,
+            'filterStartDate' => $filterStartDate,
+            'filterEndDate' => $filterEndDate,
         ]);
     }
 
@@ -489,8 +559,11 @@ class ShopOwnerController extends Controller
             ? Carbon::createFromFormat('Y-m', (string) $request->input('month'))->startOfMonth()
             : today()->startOfMonth();
         $rows = $this->shopDailyBalanceRows($shop, $month);
-        $page = max(1, $request->integer('daily_page', 1));
         $perPage = 12;
+        $defaultPage = $month->isSameMonth(today())
+            ? (int) ceil(today()->day / $perPage)
+            : 1;
+        $page = max(1, $request->integer('daily_page', $defaultPage));
         $dailyRows = new LengthAwarePaginator(
             $rows->forPage($page, $perPage)->values(),
             $rows->count(),
@@ -599,30 +672,62 @@ class ShopOwnerController extends Controller
     }
 
     /**
+     * @template TKey of array-key
+     * @template TValue
+     *
+     * @param  Collection<TKey, TValue>  $items
+     * @return LengthAwarePaginator<int, TValue>
+     */
+    private function paginateCollection(Collection $items, Request $request, string $pageName, int $perPage): LengthAwarePaginator
+    {
+        $page = max(1, $request->integer($pageName, 1));
+
+        return new LengthAwarePaginator(
+            $items->forPage($page, $perPage)->values(),
+            $items->count(),
+            $perPage,
+            $page,
+            [
+                'path' => $request->url(),
+                'pageName' => $pageName,
+                'query' => $request->query(),
+            ],
+        );
+    }
+
+    /**
      * @return array{
      *     totals: array<string, float>,
-     *     transactions: Collection<int, array{date:string, label:string, detail:string, direction:string, amount:float, status:string, source:string}>
+     *     transactions: LengthAwarePaginator<int, array{date:string, label:string, detail:string, direction:string, amount:float, status:string, source:string}>
      * }
      */
-    private function shopAccountingMoneyReport(Shop $shop): array
+    private function shopAccountingMoneyReport(Shop $shop, Request $request, ?Carbon $filterStartDate = null, ?Carbon $filterEndDate = null): array
     {
         $invoices = ShopInvoice::query()
             ->where('shop_id', $shop->id)
+            ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))
+            ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate))
             ->orderByDesc('business_date')
             ->orderByDesc('id')
             ->get();
         $paymentRequests = ShopInvoicePaymentRequest::query()
             ->where('shop_id', $shop->id)
+            ->when($filterStartDate, fn ($query) => $query->whereDate('created_at', '>=', $filterStartDate))
+            ->when($filterEndDate, fn ($query) => $query->whereDate('created_at', '<=', $filterEndDate))
             ->with('invoice')
             ->orderByDesc('id')
             ->get();
         $shopCredits = ShopCredit::query()
             ->where('shop_id', $shop->id)
+            ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))
+            ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate))
             ->orderByDesc('business_date')
             ->orderByDesc('id')
             ->get();
         $accountingEntries = ShopAccountingEntry::query()
             ->where('shop_id', $shop->id)
+            ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))
+            ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate))
             ->with(['lines.category'])
             ->orderByDesc('business_date')
             ->orderByDesc('id')
@@ -702,7 +807,7 @@ class ShopOwnerController extends Controller
                 'combined_out' => $combinedOut,
                 'combined_net' => round($combinedIn - $combinedOut, 2),
             ],
-            'transactions' => $transactions,
+            'transactions' => $this->paginateCollection($transactions, $request, 'money_report_page', 12),
         ];
     }
 
@@ -721,12 +826,19 @@ class ShopOwnerController extends Controller
             $hasApprovedEntry = ShopAccountingEntry::query()
                 ->where('shop_id', $shop->id)
                 ->whereDate('business_date', $businessDate)
+                ->where('entry_type', ShopAccountingEntry::TypeDaily)
                 ->where('status', 'approved')
                 ->exists();
 
             if (! $hasApprovedEntry) {
                 return back()->withErrors([
                     'business_date' => 'Additional entries can only be added after the day is approved.',
+                ])->withInput();
+            }
+
+            if ($this->ownedShopAccountingService->hasSimilarAdjustment($shop, $businessDate, $validated['lines'] ?? [])) {
+                return back()->withErrors([
+                    'lines' => 'A similar adjustment already exists for this date. Change the note or amount if this is a separate transaction.',
                 ])->withInput();
             }
         }
@@ -1140,6 +1252,25 @@ class ShopOwnerController extends Controller
 
         if ($startDate->gt($endDate)) {
             [$startDate, $endDate] = [$endDate, $startDate];
+        }
+
+        return [$startDate, $endDate];
+    }
+
+    /**
+     * @return array{0: Carbon|null, 1: Carbon|null}
+     */
+    private function nullableDateRangeFromRequest(Request $request): array
+    {
+        $startDate = $request->filled('start_date')
+            ? Carbon::parse((string) $request->input('start_date'))->startOfDay()
+            : null;
+        $endDate = $request->filled('end_date')
+            ? Carbon::parse((string) $request->input('end_date'))->endOfDay()
+            : null;
+
+        if ($startDate && $endDate && $startDate->gt($endDate)) {
+            [$startDate, $endDate] = [$endDate->copy()->startOfDay(), $startDate->copy()->endOfDay()];
         }
 
         return [$startDate, $endDate];

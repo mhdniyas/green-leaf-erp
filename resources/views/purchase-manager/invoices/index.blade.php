@@ -5,7 +5,116 @@
 @section('page_description', 'Track matched invoices, payment workflow, and supplier billing status from receipt to settlement.')
 
 @section('content')
-    <div class="purchase-manager-panel overflow-hidden">
+    @php
+        $tabLinks = [
+            'credit' => 'Credit Purchases',
+            'other' => 'Other Purchases',
+        ];
+    @endphp
+
+    <div class="space-y-5">
+        <section class="purchase-manager-panel p-5">
+            <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+                <div>
+                    <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Supplier Bills</p>
+                    <h2 class="mt-1 text-xl font-black text-slate-950">{{ $activeTab === 'credit' ? 'Credit Payable' : 'Other Purchases' }}</h2>
+                    <p class="mt-1 text-sm font-semibold text-slate-500">
+                        {{ $activeTab === 'credit'
+                            ? 'Credit vendor bills stay payable until company settlement posts cash out.'
+                            : 'Cash, GPay, and online purchaser-paid bills are shown for checking only.' }}
+                    </p>
+                </div>
+                <form action="{{ route('purchasing.invoices.index') }}" method="GET" class="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_160px_auto]">
+                    <input type="hidden" name="tab" value="{{ $activeTab }}">
+                    <input name="search" value="{{ $search }}" placeholder="Search supplier or bill" class="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-900 focus:bg-white focus:outline-none">
+                    <select name="payment_type" class="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-900 focus:bg-white focus:outline-none">
+                        <option value="all" @selected($paymentFilter === 'all')>All Methods</option>
+                        @if ($activeTab === 'credit')
+                            <option value="credit" @selected($paymentFilter === 'credit')>Credit</option>
+                        @else
+                            <option value="cash" @selected($paymentFilter === 'cash')>Cash</option>
+                            <option value="gpay" @selected($paymentFilter === 'gpay')>GPay</option>
+                            <option value="online" @selected($paymentFilter === 'online')>Online</option>
+                            <option value="both" @selected($paymentFilter === 'both')>Cash / GPay</option>
+                        @endif
+                    </select>
+                    <input type="date" name="date" value="{{ $date }}" class="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-900 focus:bg-white focus:outline-none">
+                    <button type="submit" class="h-11 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white">Apply</button>
+                </form>
+            </div>
+
+            <div class="mt-5 flex flex-wrap gap-2">
+                @foreach ($tabLinks as $tabKey => $tabLabel)
+                    <a href="{{ route('purchasing.invoices.index', ['tab' => $tabKey, 'date' => $date, 'search' => $search]) }}" class="inline-flex h-10 items-center rounded-2xl px-4 text-xs font-black uppercase tracking-[0.14em] {{ $activeTab === $tabKey ? 'bg-slate-950 text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50' }}">
+                        {{ $tabLabel }}
+                    </a>
+                @endforeach
+            </div>
+
+            <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div class="rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Vendors</p>
+                    <p class="mt-2 text-2xl font-black text-slate-950">{{ number_format($summary['vendor_count']) }}</p>
+                </div>
+                <div class="rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Bills</p>
+                    <p class="mt-2 text-2xl font-black text-slate-950">{{ number_format($summary['invoice_count']) }}</p>
+                </div>
+                <div class="rounded-[1.5rem] border border-slate-200 bg-white p-4">
+                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Total</p>
+                    <p class="mt-2 text-2xl font-black text-slate-950">₹{{ number_format($summary['total_amount'], 2) }}</p>
+                </div>
+                <div class="rounded-[1.5rem] border border-amber-200 bg-amber-50 p-4">
+                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">Payable</p>
+                    <p class="mt-2 text-2xl font-black text-amber-900">₹{{ number_format($summary['outstanding_amount'], 2) }}</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="purchase-manager-panel overflow-hidden">
+            @if ($activeTab === 'credit' && $canManageSuppliers)
+                <div class="border-b border-slate-100 bg-white px-5 py-4">
+                    <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                            <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Vendor Credit Requests</p>
+                            <p class="mt-1 text-sm font-semibold text-slate-600">Approve vendors for credit use here. Credit bills still stay payable until an admin pays from the company account.</p>
+                        </div>
+                        <span class="rounded-full bg-amber-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-amber-800">{{ $pendingVendorCreditRequests->count() }} pending</span>
+                    </div>
+
+                    @if ($pendingVendorCreditRequests->isNotEmpty())
+                        <div class="mt-4 grid gap-3 lg:grid-cols-2">
+                            @foreach ($pendingVendorCreditRequests as $supplier)
+                                <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div>
+                                            <p class="text-sm font-black text-slate-950">{{ $supplier->name }}</p>
+                                            <p class="mt-1 text-xs font-semibold text-amber-800">
+                                                Requested by {{ $supplier->creditApprovalRequestedBy?->name ?? 'Unknown' }}
+                                                @if ($supplier->credit_approval_requested_at)
+                                                    on {{ $supplier->credit_approval_requested_at->format('Y-m-d H:i') }}
+                                                @endif
+                                            </p>
+                                        </div>
+                                        <form method="POST" action="{{ route('purchasing.suppliers.credit-approve', $supplier) }}">
+                                            @csrf
+                                            <button type="submit" class="inline-flex h-9 items-center rounded-xl bg-emerald-600 px-3 text-[11px] font-black text-white hover:bg-emerald-500">
+                                                Accept
+                                            </button>
+                                        </form>
+                                    </div>
+                                    @if ($supplier->credit_approval_note)
+                                        <p class="mt-3 rounded-xl bg-white px-3 py-2 text-xs font-semibold leading-5 text-slate-600">{{ $supplier->credit_approval_note }}</p>
+                                    @endif
+                                </div>
+                            @endforeach
+                        </div>
+                    @else
+                        <p class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500">No vendor credit requests are pending.</p>
+                    @endif
+                </div>
+            @endif
+
         @if ($invoices->isEmpty())
             <div class="p-5">
                 <x-purchase-manager.components.empty-state
@@ -22,6 +131,7 @@
                         <tr>
                             <th class="px-5 py-4">Invoice Number</th>
                             <th class="px-5 py-4">Supplier</th>
+                            <th class="px-5 py-4">Payment</th>
                             <th class="px-5 py-4">GRN Reference</th>
                             <th class="px-5 py-4">Matched Date</th>
                             <th class="px-5 py-4 text-right">Amount</th>
@@ -39,6 +149,10 @@
                             <tr>
                                 <td class="px-5 py-4 font-mono font-bold text-cyan-700"><a href="{{ route('purchasing.invoices.show', $invoice) }}">{{ $invoice->invoice_number }}</a></td>
                                 <td class="px-5 py-4 font-semibold text-slate-950">{{ $invoice->supplier?->name ?? '—' }}</td>
+                                <td class="px-5 py-4">
+                                    <p class="text-xs font-black text-slate-950">{{ $invoice->payment_method ?: 'Pending' }}</p>
+                                    <p class="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">{{ $invoice->paymentPaidByLabel() }}</p>
+                                </td>
                                 <td class="px-5 py-4 text-slate-600">
                                     @if ($invoice->goodsReceived)
                                         <a href="{{ route('purchasing.grns.show', $invoice->goodsReceived) }}" class="font-mono text-cyan-700">{{ $invoice->goodsReceived->grn_number }}</a>
@@ -52,7 +166,22 @@
                                 <td class="px-5 py-4 text-right font-bold {{ $balance > 0 ? 'text-amber-700' : 'text-slate-950' }}">₹{{ number_format($balance, 2) }}</td>
                                 <td class="px-5 py-4 text-center"><span class="inline-flex rounded-full border px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.14em] {{ $invoice->status->color() }}">{{ $invoice->status->label() }}</span></td>
                                 <td class="px-5 py-4 text-right">
-                                    <x-purchase-manager.components.action-button :href="route('purchasing.invoices.show', $invoice)" variant="secondary">View</x-purchase-manager.components.action-button>
+                                    <div class="flex flex-col items-end gap-2">
+                                        @if ($activeTab === 'credit' && $balance > 0 && $canPayCompanyVendorCredit)
+                                            <form method="POST" action="{{ route('purchasing.invoices.update-payment', $invoice) }}">
+                                                @csrf
+                                                @method('PATCH')
+                                                <input type="hidden" name="payment_method" value="Credit">
+                                                <input type="hidden" name="payment_paid_by" value="company">
+                                                <input type="hidden" name="paid_amount" value="{{ number_format((float) $invoice->amount - (float) $invoice->discount_amount, 2, '.', '') }}">
+                                                <input type="hidden" name="payment_note" value="Company paid vendor credit.">
+                                                <button type="submit" class="inline-flex h-9 items-center justify-center rounded-xl bg-amber-600 px-3 text-[11px] font-black text-white hover:bg-amber-500">
+                                                    Pay By Company
+                                                </button>
+                                            </form>
+                                        @endif
+                                        <x-purchase-manager.components.action-button :href="route('purchasing.invoices.show', $invoice)" variant="secondary">View</x-purchase-manager.components.action-button>
+                                    </div>
                                 </td>
                             </tr>
                         @endforeach
@@ -60,5 +189,6 @@
                 </table>
             </div>
         @endif
+        </section>
     </div>
 @endsection

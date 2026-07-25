@@ -107,6 +107,7 @@
                         <div class="flex items-center justify-between"><span class="text-slate-500">PO</span><a href="{{ route('purchasing.orders.show', $invoice->goodsReceived->purchaseOrder) }}" class="font-mono font-bold text-cyan-700">{{ $invoice->goodsReceived->purchaseOrder->po_number }}</a></div>
                     @endif
                     <div class="flex items-center justify-between"><span class="text-slate-500">Payment Terms</span><span class="font-semibold text-slate-950">{{ $invoice->supplier->payment_terms }}</span></div>
+                    <div class="flex items-center justify-between"><span class="text-slate-500">Paid By</span><span class="font-semibold text-slate-950">{{ $invoice->paymentPaidByLabel() }}</span></div>
                 </div>
             </div>
         </aside>

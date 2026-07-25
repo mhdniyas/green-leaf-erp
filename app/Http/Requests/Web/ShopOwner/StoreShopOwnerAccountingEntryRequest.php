@@ -87,6 +87,7 @@ class StoreShopOwnerAccountingEntryRequest extends FormRequest
             function (Validator $validator): void {
                 $lines = $this->validatedLines();
                 $submissionAction = (string) $this->input('submission_action');
+                $isAdjustment = $this->boolean('create_adjustment');
 
                 if ($submissionAction === 'submit' && $lines === []) {
                     $validator->errors()->add('lines', 'Add at least one credit, debit, or non-cash line before submitting.');
@@ -110,6 +111,10 @@ class StoreShopOwnerAccountingEntryRequest extends FormRequest
 
                     if (str($category->name)->lower()->startsWith('other') && blank($line['description'] ?? null)) {
                         $validator->errors()->add("lines.$index.description", 'Notes are required when using Other.');
+                    }
+
+                    if ($isAdjustment && blank($line['description'] ?? null)) {
+                        $validator->errors()->add("lines.$index.description", 'Notes are required for adjustment entries.');
                     }
                 }
             },

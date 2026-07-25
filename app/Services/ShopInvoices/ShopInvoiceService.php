@@ -235,7 +235,7 @@ class ShopInvoiceService
             $invoice = $this->recalculate($invoice);
             $approvedPaymentIncrease = round((float) $invoice->paid_amount - $previousPaidAmount, 2);
 
-            if ($approvedPaymentIncrease > 0.00) {
+            if ($approvedPaymentIncrease > 0.00 && $this->shouldPostPaymentToJournal($invoice)) {
                 $paidAmountCents = (int) round((float) $invoice->paid_amount * 100);
 
                 $this->journalService->recordShopInvoicePayment(
@@ -334,12 +334,14 @@ class ShopInvoiceService
                 $appliedAmount = $this->allocateShopPaymentToPendingInvoices($paymentRequest, $approvedAmount, $userId, $adminNote);
                 $creditAmount = round(max(0, $approvedAmount - $appliedAmount), 2);
 
-                $this->journalService->recordShopInvoicePayment(
-                    $invoice,
-                    $approvedAmount,
-                    $userId,
-                    'shop-payment-request:'.$paymentRequest->id,
-                );
+                if ($this->shouldPostPaymentToJournal($invoice)) {
+                    $this->journalService->recordShopInvoicePayment(
+                        $invoice,
+                        $approvedAmount,
+                        $userId,
+                        'shop-payment-request:'.$paymentRequest->id,
+                    );
+                }
 
                 $paymentRequest->update([
                     'status' => 'approved',
@@ -461,12 +463,14 @@ class ShopInvoiceService
             $appliedAmount = $this->allocateShopPaymentToPendingInvoices($paymentRequest, $approvedAmount, $userId, $adminNote);
             $creditAmount = round(max(0, $approvedAmount - $appliedAmount), 2);
 
-            $this->journalService->recordShopInvoicePayment(
-                $invoice,
-                $approvedAmount,
-                $userId,
-                'admin-shop-payment:'.$paymentRequest->id,
-            );
+            if ($this->shouldPostPaymentToJournal($invoice)) {
+                $this->journalService->recordShopInvoicePayment(
+                    $invoice,
+                    $approvedAmount,
+                    $userId,
+                    'admin-shop-payment:'.$paymentRequest->id,
+                );
+            }
 
             $paymentRequest->update([
                 'applied_amount' => $appliedAmount,
@@ -654,6 +658,13 @@ class ShopInvoiceService
         ]);
 
         return $invoice->fresh('items');
+    }
+
+    private function shouldPostPaymentToJournal(ShopInvoice $invoice): bool
+    {
+        $invoice->loadMissing('shop');
+
+        return ! $invoice->shop?->isOwnedAccountingEnabled();
     }
 
     private function invoiceNumberFor(ShopOrder $order): string

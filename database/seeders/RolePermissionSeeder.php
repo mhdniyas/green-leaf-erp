@@ -170,6 +170,7 @@ class RolePermissionSeeder extends Seeder
                 'warehouse.checklist.view',
                 'warehouse.checklist.toggle',
                 'sort.sheet.view',
+                'sort.sheet.generate',
                 'sort.sheet.export',
             ],
 

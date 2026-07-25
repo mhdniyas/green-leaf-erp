@@ -32,8 +32,9 @@ class PurchaseInvoiceController extends Controller
         $date = $this->resolveReportDate($request);
         $search = trim($request->string('search')->toString());
         $paymentFilter = $this->resolvePaymentFilter($request->string('payment_type')->toString());
+        $activeTab = $this->resolveReportTab($request->string('tab')->toString());
 
-        $invoices = $this->buildInvoiceReportQuery($date, $search, $paymentFilter)
+        $invoices = $this->buildInvoiceReportQuery($date, $search, $paymentFilter, $activeTab)
             ->get();
 
         $vendorSections = $invoices
@@ -71,6 +72,7 @@ class PurchaseInvoiceController extends Controller
             'paid_amount' => round((float) $invoices->sum('paid_amount'), 2),
             'outstanding_amount' => round(max(0, (float) $invoices->sum('amount') - (float) $invoices->sum('paid_amount')), 2),
         ];
+        $canManageSuppliers = $request->user()->hasRole('admin') || $request->user()->hasRole('purchase') || $request->user()->can('purchasing.supplier.update');
 
         return view('purchase-manager.invoices.index', [
             'date' => $date->format('Y-m-d'),
@@ -79,7 +81,10 @@ class PurchaseInvoiceController extends Controller
             'summary' => $summary,
             'search' => $search,
             'paymentFilter' => $paymentFilter,
-            'canManageSuppliers' => $request->user()->hasRole('admin') || $request->user()->hasRole('purchase') || $request->user()->can('purchasing.supplier.update'),
+            'activeTab' => $activeTab,
+            'canManageSuppliers' => $canManageSuppliers,
+            'canPayCompanyVendorCredit' => $request->user()->hasRole('admin'),
+            'pendingVendorCreditRequests' => $this->pendingVendorCreditRequests(),
         ]);
     }
 
@@ -225,6 +230,7 @@ class PurchaseInvoiceController extends Controller
 
         $validated = $request->validate([
             'payment_method' => ['required', 'string', 'in:Cash,Online,GPay,Credit'],
+            'payment_paid_by' => ['nullable', 'string', 'in:purchaser,company,vendor_credit'],
             'paid_amount' => ['required', 'numeric', 'min:0'],
             'payment_note' => ['nullable', 'string', 'max:1000'],
             'payment_details' => ['nullable', 'string', 'max:1000'],
@@ -232,6 +238,7 @@ class PurchaseInvoiceController extends Controller
 
         $updatedInvoice = $this->service->updatePayment($invoice, [
             'payment_method' => $validated['payment_method'],
+            'payment_paid_by' => $validated['payment_paid_by'] ?? null,
             'paid_amount' => (float) $validated['paid_amount'],
             'payment_note' => $validated['payment_note'] ?? null,
             'payment_details' => $validated['payment_details'] ?? null,
@@ -241,7 +248,7 @@ class PurchaseInvoiceController extends Controller
             0,
             round(((float) $updatedInvoice->amount - (float) $updatedInvoice->discount_amount) - (float) $updatedInvoice->paid_amount, 2)
         );
-        $message = $remainingBalance > 0 || $updatedInvoice->payment_method === 'Credit'
+        $message = $remainingBalance > 0 || $updatedInvoice->payment_status === 'credit_pending_approval'
             ? 'Payment updated. Invoice is not complete yet.'
             : 'Payment completed successfully.';
 
@@ -260,7 +267,12 @@ class PurchaseInvoiceController extends Controller
             : 'all';
     }
 
-    private function buildInvoiceReportQuery(Carbon $date, string $search, string $paymentFilter): Builder
+    private function resolveReportTab(string $tab): string
+    {
+        return in_array($tab, ['credit', 'other'], true) ? $tab : 'credit';
+    }
+
+    private function buildInvoiceReportQuery(Carbon $date, string $search, string $paymentFilter, string $activeTab): Builder
     {
         $query = PurchaseInvoice::query()
             ->with([
@@ -272,9 +284,20 @@ class PurchaseInvoiceController extends Controller
 
         $this->applyDailyDateFilter($query, $date);
         $this->applySearchFilter($query, $search);
+        $this->applyReportTabFilter($query, $activeTab);
         $this->applyPaymentFilter($query, $paymentFilter);
 
         return $query->orderByDesc('created_at');
+    }
+
+    private function pendingVendorCreditRequests(): Collection
+    {
+        return Supplier::query()
+            ->with(['creditApprovalRequestedBy'])
+            ->whereNotNull('credit_approval_requested_at')
+            ->where('credit_approved', false)
+            ->latest('credit_approval_requested_at')
+            ->get();
     }
 
     private function buildVendorHistoryQuery(Supplier $supplier, Carbon $date, string $search, string $paymentFilter): Builder
@@ -342,6 +365,25 @@ class PurchaseInvoiceController extends Controller
                         ->where('cart_number', 'like', "%{$search}%")
                         ->orWhere('bill_number', 'like', "%{$search}%");
                 });
+        });
+    }
+
+    private function applyReportTabFilter(Builder $query, string $activeTab): void
+    {
+        if ($activeTab === 'credit') {
+            $query->where(function (Builder $creditQuery): void {
+                $creditQuery
+                    ->where('payment_method', 'Credit')
+                    ->orWhere('payment_status', 'credit_pending_approval');
+            });
+
+            return;
+        }
+
+        $query->where(function (Builder $otherQuery): void {
+            $otherQuery
+                ->whereNull('payment_method')
+                ->orWhereIn('payment_method', ['Cash', 'GPay', 'Online']);
         });
     }
 

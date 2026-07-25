@@ -52,11 +52,17 @@ class UpdateShopAccountingEntryRequest extends FormRequest
                     }
 
                     $entry = $this->route('entry');
+
+                    if ($entry instanceof ShopAccountingEntry && $entry->entry_type !== ShopAccountingEntry::TypeDaily) {
+                        return;
+                    }
+
                     $businessDate = Carbon::parse((string) $value)->toDateString();
 
                     $exists = ShopAccountingEntry::query()
                         ->where('shop_id', $shop->id)
                         ->whereDate('business_date', $businessDate)
+                        ->where('entry_type', ShopAccountingEntry::TypeDaily)
                         ->when($entry !== null, fn ($query) => $query->whereKeyNot($entry->id))
                         ->exists();
 

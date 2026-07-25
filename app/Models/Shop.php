@@ -83,11 +83,6 @@ class Shop extends Model
         return $this->hasMany(ShopInvoice::class);
     }
 
-    public function ownerships(): HasMany
-    {
-        return $this->hasMany(ShopOwnership::class);
-    }
-
     public function accountingCategories(): HasMany
     {
         return $this->hasMany(ShopAccountingCategory::class);
@@ -141,9 +136,9 @@ class Shop extends Model
         ]);
     }
 
-    public function accountingInvoices(): HasMany
+    public function accountingPeriodClosures(): HasMany
     {
-        return $this->hasMany(ShopAccountingInvoice::class);
+        return $this->hasMany(ShopAccountingPeriodClosure::class);
     }
 
     public function employees(): HasMany
@@ -180,12 +175,12 @@ class Shop extends Model
         $query
             ->active()
             ->where('accounting_enabled', true)
-            ->whereIn('accounting_mode', ['owned', 'partnership']);
+            ->where('accounting_mode', 'owned');
     }
 
     public function isOwnedAccountingEnabled(): bool
     {
         return (bool) $this->accounting_enabled
-            && in_array((string) $this->accounting_mode, ['owned', 'partnership'], true);
+            && (string) $this->accounting_mode === 'owned';
     }
 }

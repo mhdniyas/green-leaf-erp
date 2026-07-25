@@ -109,6 +109,6 @@ class CashFlowReportJournalTableTest extends TestCase
         $this->assertCount(1, $approvedRows);
         $this->assertSame('IN', $approvedRows->first()['direction']);
         $this->assertSame(700.00, $approvedRows->first()['amount']);
-        $this->assertSame('Shop Cash Return - Owned Shop', $approvedRows->first()['journal']);
+        $this->assertSame('Petty Cash - Owned Shop', $approvedRows->first()['journal']);
     }
 }

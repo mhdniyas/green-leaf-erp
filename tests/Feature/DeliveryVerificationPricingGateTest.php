@@ -170,6 +170,95 @@ class DeliveryVerificationPricingGateTest extends TestCase
         $this->assertSame('120.00', $invoice->items()->firstOrFail()->unit_price);
     }
 
+    public function test_admin_price_publish_generates_invoice_for_same_business_date(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $fixture = $this->createDispatchedOrderFixture();
+        $admin = User::factory()->create();
+        $admin->assignRole(Role::findByName('admin'));
+
+        $approval = DailyPriceApproval::query()->create([
+            'product_id' => $fixture['product']->id,
+            'business_date' => '2026-07-21',
+            'purchase_price' => 80,
+            'price_a' => 100,
+            'price_b' => 120,
+            'price_c' => 140,
+            'status' => 'pending',
+        ]);
+
+        $this->assertDatabaseMissing('shop_invoices', [
+            'shop_order_id' => $fixture['order']->id,
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->post(route('purchasing.prices.update'), [
+                'date' => '2026-07-21',
+                'prices' => [
+                    $approval->id => [
+                        'price_a' => 100,
+                        'price_b' => 120,
+                        'price_c' => 140,
+                    ],
+                ],
+            ])
+            ->assertRedirect(route('purchasing.prices.index', ['date' => '2026-07-21']));
+
+        $invoice = ShopInvoice::query()
+            ->where('shop_order_id', $fixture['order']->id)
+            ->firstOrFail();
+
+        $approval->refresh();
+
+        $this->assertSame('approved', $approval->status);
+        $this->assertSame($admin->id, $approval->approved_by);
+        $this->assertSame('2026-07-21', $invoice->business_date->toDateString());
+        $this->assertSame('600.00', $invoice->subtotal);
+        $this->assertSame('120.00', $invoice->items()->firstOrFail()->unit_price);
+    }
+
+    public function test_admin_price_publish_rejects_zero_category_prices(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $fixture = $this->createDispatchedOrderFixture();
+        $admin = User::factory()->create();
+        $admin->assignRole(Role::findByName('admin'));
+
+        $approval = DailyPriceApproval::query()->create([
+            'product_id' => $fixture['product']->id,
+            'business_date' => '2026-07-21',
+            'purchase_price' => 80,
+            'price_a' => 100,
+            'price_b' => 120,
+            'price_c' => 140,
+            'status' => 'pending',
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->from(route('purchasing.prices.index', ['date' => '2026-07-21']))
+            ->post(route('purchasing.prices.update'), [
+                'date' => '2026-07-21',
+                'prices' => [
+                    $approval->id => [
+                        'price_a' => 0,
+                        'price_b' => 120,
+                        'price_c' => 140,
+                    ],
+                ],
+            ])
+            ->assertRedirect(route('purchasing.prices.index', ['date' => '2026-07-21']))
+            ->assertSessionHasErrors("prices.{$approval->id}.price_a");
+
+        $approval->refresh();
+
+        $this->assertSame('pending', $approval->status);
+        $this->assertNull($approval->approved_at);
+    }
+
     /**
      * @return array{user: User, shop: Shop, product: Product, order: ShopOrder, item: ShopOrderItem}
      */

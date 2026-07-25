@@ -9,6 +9,8 @@ use App\Models\JournalEntry;
 use App\Models\Product;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaserCart;
+use App\Models\PurchaserCartItem;
+use App\Models\PurchaserCredit;
 use App\Models\ShopOrder;
 use App\Models\Supplier;
 use App\Models\User;
@@ -229,6 +231,136 @@ class AdminOwnPurchasePurchaserSeederTest extends TestCase
 
         $this->assertSame('Green Leaf Direct Purchase payment for invoice #GL-DIRECT-001', $journal->description);
         $this->assertTrue($journal->transactions->contains(fn ($transaction): bool => $transaction->account?->code === '1010' && $transaction->type === 'credit' && (float) $transaction->amount === 100.0));
+    }
+
+    public function test_credit_bill_submit_does_not_debit_purchaser_until_settlement(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $purchaser = User::query()->create([
+            'name' => 'Purchaser',
+            'email' => 'purchaser.credit@example.com',
+            'password' => Hash::make('password'),
+            'email_verified_at' => now(),
+        ]);
+        $purchaser->assignRole(Role::findByName('purchaser'));
+
+        $category = Category::factory()->create(['name' => 'Vegetables']);
+        $product = Product::factory()->create([
+            'category_id' => $category->id,
+            'name' => 'Tomato',
+            'sku' => 'TOMATO-CREDIT-001',
+            'unit' => 'kg',
+            'is_active' => true,
+        ]);
+        $supplier = Supplier::factory()->create([
+            'name' => 'Credit Vendor',
+            'credit_approved' => true,
+        ]);
+        $businessDate = today()->toDateString();
+        $cart = PurchaserCart::query()->create([
+            'user_id' => $purchaser->id,
+            'supplier_id' => $supplier->id,
+            'business_date' => $businessDate,
+            'status' => 'draft',
+            'cart_number' => PurchaserCart::generateCartNumber($businessDate),
+        ]);
+        $item = PurchaserCartItem::query()->create([
+            'purchaser_cart_id' => $cart->id,
+            'product_id' => $product->id,
+            'quantity' => 10,
+            'unit_price' => 20,
+            'line_total' => 200,
+        ]);
+
+        $this
+            ->actingAs($purchaser)
+            ->post(route('purchaser.carts.submit'), [
+                'business_date' => $businessDate,
+                'cart_id' => $cart->id,
+                'supplier_id' => $supplier->id,
+                'bill_number' => 'CREDIT-SUBMIT-001',
+                'payment_method' => 'Credit',
+                'paid_amount' => 200,
+                'discount_amount' => 0,
+                'payment_note' => null,
+                'payment_details' => null,
+                'notes' => null,
+                'items' => [
+                    $item->id => [
+                        'unit_price' => 20,
+                    ],
+                ],
+            ])
+            ->assertRedirect(route('purchaser.vendors', ['date' => $businessDate, 'tab' => 'pending']));
+
+        $invoice = PurchaseInvoice::query()->where('invoice_number', 'CREDIT-SUBMIT-001')->firstOrFail();
+
+        $this->assertSame('Credit', $invoice->payment_method);
+        $this->assertSame('vendor_credit', $invoice->payment_paid_by);
+        $this->assertSame('credit_pending_approval', $invoice->payment_status);
+        $this->assertSame(0.0, (float) $invoice->paid_amount);
+        $this->assertSame(0, PurchaserCredit::query()->where('purchase_invoice_id', $invoice->id)->count());
+    }
+
+    public function test_purchaser_settlement_of_credit_bill_debits_purchaser(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $purchaser = User::query()->create([
+            'name' => 'Purchaser',
+            'email' => 'purchaser.settlement@example.com',
+            'password' => Hash::make('password'),
+            'email_verified_at' => now(),
+        ]);
+        $purchaser->assignRole(Role::findByName('purchaser'));
+
+        $cart = PurchaserCart::query()->create([
+            'user_id' => $purchaser->id,
+            'business_date' => today()->toDateString(),
+            'status' => 'submitted',
+            'cart_number' => PurchaserCart::generateCartNumber(today()->toDateString()),
+            'payment_method' => 'Credit',
+            'payment_status' => 'credit_pending_approval',
+            'paid_amount' => 0,
+        ]);
+        $invoice = PurchaseInvoice::factory()->create([
+            'purchaser_cart_id' => $cart->id,
+            'purchaser_submitted_by' => $purchaser->id,
+            'invoice_number' => 'CREDIT-SETTLE-001',
+            'amount' => 500,
+            'discount_amount' => 0,
+            'payment_method' => 'Credit',
+            'payment_paid_by' => 'vendor_credit',
+            'payment_status' => 'credit_pending_approval',
+            'paid_amount' => 0,
+        ]);
+        $cart->update(['purchase_invoice_id' => $invoice->id]);
+
+        $this
+            ->actingAs($purchaser)
+            ->patch(route('purchaser.invoices.payment', $invoice), [
+                'return_to' => 'suppliers',
+                'date' => today()->toDateString(),
+                'payment_method' => 'Cash',
+                'payment_paid_by' => 'purchaser',
+                'discount_amount' => 0,
+                'additional_paid_amount' => 500,
+                'payment_note' => 'Purchaser settled supplier credit.',
+                'payment_details' => null,
+            ])
+            ->assertRedirect(route('purchaser.suppliers', ['date' => today()->toDateString()]));
+
+        $invoice->refresh();
+
+        $this->assertSame('purchaser', $invoice->payment_paid_by);
+        $this->assertSame('paid', $invoice->payment_status);
+        $this->assertDatabaseHas('purchaser_credits', [
+            'purchaser_id' => $purchaser->id,
+            'purchase_invoice_id' => $invoice->id,
+            'type' => 'out',
+            'amount' => '500.00',
+        ]);
     }
 
     public function test_legacy_generated_admin_purchase_users_no_longer_act_as_purchasers(): void

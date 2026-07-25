@@ -1,10 +1,7 @@
 @php
-    /** @var \Illuminate\Support\Collection<int, \App\Models\ShopInvoice> $invoices */
+    /** @var \Illuminate\Contracts\Pagination\LengthAwarePaginator<int, \App\Models\ShopInvoice> $payableInvoices */
     /** @var \Illuminate\Contracts\Pagination\LengthAwarePaginator<int, \App\Models\ShopInvoicePaymentRequest> $invoicePaymentRequests */
-    $payableInvoices = $invoices
-        ->filter(fn (\App\Models\ShopInvoice $invoice): bool => (float) $invoice->balance_amount > 0)
-        ->values();
-    $totalDue = round((float) $payableInvoices->sum(fn (\App\Models\ShopInvoice $invoice): float => (float) $invoice->balance_amount), 2);
+    $totalDue = round((float) ($payableInvoiceTotal ?? $payableInvoices->sum(fn (\App\Models\ShopInvoice $invoice): float => (float) $invoice->balance_amount)), 2);
     $availableInvoicePaymentCredit = round((float) ($availableInvoicePaymentCredit ?? 0), 2);
     $netDue = round(max(0, $totalDue - $availableInvoicePaymentCredit), 2);
 @endphp
@@ -60,6 +57,10 @@
                     <span>Rs. {{ number_format($totalDue, 2) }}</span>
                 </div>
             </div>
+
+            @if ($payableInvoices instanceof \Illuminate\Contracts\Pagination\Paginator && $payableInvoices->hasPages())
+                <div class="mt-5">{{ $payableInvoices->links() }}</div>
+            @endif
 
             <form method="POST" action="{{ route('shop-owner.accounting.payment-requests.store') }}" class="mt-5 space-y-4">
                 @csrf

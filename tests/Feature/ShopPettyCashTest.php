@@ -195,8 +195,8 @@ class ShopPettyCashTest extends TestCase
         $this->assertSame('2026-07-15', $pettyCashRows->first()['date']);
         $this->assertSame(1000.00, $pettyCashRows->first()['amount']);
         $this->assertSame('OUT', $pettyCashRows->first()['direction']);
-        $this->assertSame('Shop Cash Credit - Ashirwad', $pettyCashRows->first()['journal']);
-        $this->assertSame('Shop Cash Credit', $pettyCashRows->first()['category']);
+        $this->assertSame('Petty Cash - Ashirwad', $pettyCashRows->first()['journal']);
+        $this->assertSame('Petty Cash', $pettyCashRows->first()['category']);
         $this->assertSame('Shop cash sent to shop', $pettyCashRows->first()['remarks']);
 
         $nextMonthReport = app(AdminFinancePillarService::class)->cashFlowReport(Carbon::parse('2026-08-01'));

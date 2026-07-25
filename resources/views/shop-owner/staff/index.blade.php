@@ -58,6 +58,24 @@
             </nav>
         @endif
 
+        @if(in_array($selectedTab, ['advance', 'salary', 'leave', 'history'], true))
+            @include('shop-owner.partials.date-range-filter', [
+                'action' => route('shop-owner.staff.index'),
+                'hidden' => [
+                    'shop' => $selectedShop?->code,
+                    'date' => $selectedDate->format('Y-m-d'),
+                    'tab' => $selectedTab,
+                ],
+                'startDate' => $filterStartDate,
+                'endDate' => $filterEndDate,
+                'clearUrl' => route('shop-owner.staff.index', [
+                    'shop' => $selectedShop?->code,
+                    'date' => $selectedDate->format('Y-m-d'),
+                    'tab' => $selectedTab,
+                ]),
+            ])
+        @endif
+
         @if($errors->any())
             <div class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">{{ $errors->first() }}</div>
         @endif
@@ -68,7 +86,7 @@
                     'Quick Staff' => $employees->count(),
                     'Present Today' => $attendanceRecords->where('status', 'present')->count(),
                     'Half Day' => $attendanceRecords->where('status', 'half_day')->count(),
-                    'Pending Leaves' => $leaveRequests->where('status', 'pending')->count(),
+                    'Pending Leaves' => $pendingLeaveCount,
                 ] as $label => $value)
                     <article class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                         <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{{ $label }}</p>
@@ -109,13 +127,13 @@
                         </span>
                     </div>
                     @if($selectedDate->isToday())
-                        <form method="POST" action="{{ route('shop-owner.staff.attendance.store') }}" class="mt-4">
+                        <form method="POST" action="{{ route('shop-owner.staff.attendance.store') }}" class="mt-4" data-owned-shop-attendance-form>
                             @csrf
                             <input type="hidden" name="employee_id" value="{{ $ownerEmployee->id }}">
                             <input type="hidden" name="attendance_date" value="{{ $selectedDate->format('Y-m-d') }}">
                             <input type="hidden" name="shop_id" value="{{ $selectedShop->id }}">
                             <input type="hidden" name="status" value="present">
-                            <button type="submit" class="w-full rounded-xl bg-emerald-600 px-5 py-3 text-sm font-black text-white sm:w-auto">
+                            <button type="submit" class="w-full rounded-xl bg-emerald-600 px-5 py-3 text-sm font-black text-white sm:w-auto" data-attendance-submit>
                                 {{ $ownerAttendance ? 'Update Check-In' : 'Check In Now' }}
                             </button>
                         </form>
@@ -135,8 +153,9 @@
                     @forelse($employees as $employee)
                         @php($attendance = $attendanceRecords->get($employee->id))
                         @php($status = $attendance?->status ?? 'absent')
+                        @php($selectedStatus = $attendance?->status ?? 'present')
                         @php($wasChanged = $attendance && $attendance->created_at && $attendance->updated_at && $attendance->updated_at->gt($attendance->created_at->copy()->addSecond()))
-                        <form method="POST" action="{{ route('shop-owner.staff.attendance.store') }}" class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <form method="POST" action="{{ route('shop-owner.staff.attendance.store') }}" class="rounded-2xl border border-slate-200 bg-slate-50 p-4" data-owned-shop-attendance-form>
                             @csrf
                             <input type="hidden" name="employee_id" value="{{ $employee->id }}">
                             <input type="hidden" name="attendance_date" value="{{ $selectedDate->format('Y-m-d') }}">
@@ -145,11 +164,11 @@
                                 <div class="min-w-0">
                                     <div class="flex flex-wrap items-center gap-2">
                                         <p class="font-black text-slate-950">{{ $employee->name }}</p>
-                                        <span class="rounded-full border px-2 py-1 text-[10px] font-black uppercase {{ $statusStyles[$status] ?? 'border-slate-200 bg-slate-100 text-slate-700' }}">{{ $status === 'present' ? 'checked in' : str_replace('_', ' ', $status) }}</span>
+                                        <span class="rounded-full border px-2 py-1 text-[10px] font-black uppercase {{ $statusStyles[$status] ?? 'border-slate-200 bg-slate-100 text-slate-700' }}" data-attendance-status-badge>{{ $status === 'present' ? 'checked in' : str_replace('_', ' ', $status) }}</span>
                                     </div>
                                     <p class="text-xs font-semibold text-slate-500">{{ $employee->employee_code }} · {{ $employee->category?->name }}</p>
-                                    @if($attendance)
-                                        <div class="mt-2 flex flex-wrap gap-2 text-xs font-black text-slate-500">
+                                    <div class="{{ $attendance ? '' : 'hidden' }} mt-2 flex flex-wrap gap-2 text-xs font-black text-slate-500" data-attendance-markers>
+                                        @if($attendance)
                                             <span class="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-800">
                                                 Checked in {{ ($attendance->created_at ?? $attendance->marked_at)?->format('h:i A') }}
                                             </span>
@@ -163,19 +182,19 @@
                                                     Changed {{ $attendance->updated_at->format('h:i A') }}
                                                 </span>
                                             @endif
-                                        </div>
-                                    @endif
+                                        @endif
+                                    </div>
                                 </div>
                                 <div class="grid gap-2 sm:grid-cols-[10rem_1fr_1fr_auto]">
                                     <select name="status" class="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold">
-                                        <option value="present" @selected($status === 'present')>Full Day</option>
-                                        <option value="half_day" @selected($status === 'half_day')>Half Day</option>
-                                        <option value="leave" @selected($status === 'leave')>Leave</option>
-                                        <option value="absent" @selected($status === 'absent')>Absent</option>
+                                        <option value="present" @selected($selectedStatus === 'present')>Full Day</option>
+                                        <option value="half_day" @selected($selectedStatus === 'half_day')>Half Day</option>
+                                        <option value="leave" @selected($selectedStatus === 'leave')>Leave</option>
+                                        <option value="absent" @selected($selectedStatus === 'absent')>Absent</option>
                                     </select>
                                     <input type="text" name="leave_reason" value="{{ $status === 'leave' ? ($attendance?->notes ?? '') : '' }}" placeholder="Leave reason" class="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm">
                                     <input type="text" name="notes" value="{{ $status !== 'leave' ? ($attendance?->notes ?? '') : '' }}" placeholder="Notes" class="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm">
-                                    <button type="submit" class="h-11 rounded-xl bg-emerald-600 px-4 text-sm font-black text-white">{{ $attendance ? 'Update Check-In' : 'Check In' }}</button>
+                                    <button type="submit" class="h-11 rounded-xl bg-emerald-600 px-4 text-sm font-black text-white" data-attendance-submit>{{ $attendance ? 'Update Check-In' : 'Check In' }}</button>
                                 </div>
                             </div>
                         </form>
@@ -208,14 +227,7 @@
                         </div>
                         <input type="number" step="0.01" min="0.01" name="amount" placeholder="Advance amount" class="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" data-advance-amount required>
                         <p class="hidden rounded-xl border px-3 py-2 text-xs font-black" data-advance-decision></p>
-                        <div class="grid gap-2 sm:grid-cols-2">
-                            <label class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800">
-                                <input type="radio" name="fund_source" value="petty_cash" checked class="mr-1"> Shop cash balance
-                            </label>
-                            <label class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">
-                                <input type="radio" name="fund_source" value="sales_income" class="mr-1"> Sales
-                            </label>
-                        </div>
+                        <input type="hidden" name="fund_source" value="petty_cash">
                         <textarea name="request_note" rows="2" placeholder="Reason / note" class="rounded-xl border border-slate-200 px-3 py-2 text-sm"></textarea>
                         <button type="submit" class="h-11 rounded-xl bg-cyan-500 px-4 text-sm font-black text-slate-950">Submit Advance</button>
                     </form>
@@ -239,6 +251,9 @@
                             <p class="text-sm font-semibold text-slate-500">No advance requests yet.</p>
                         @endforelse
                     </div>
+                    @if($advanceRequests->hasPages())
+                        <div class="mt-4">{{ $advanceRequests->links() }}</div>
+                    @endif
                 </article>
             </section>
         @endif
@@ -261,14 +276,7 @@
                             Select an employee to see salary balance.
                         </div>
                         <input type="number" step="0.01" min="0.01" name="amount" placeholder="Amount" class="h-11 rounded-xl border border-slate-200 px-3 text-sm font-bold" required>
-                        <div class="grid gap-2 sm:grid-cols-2">
-                            <label class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800">
-                                <input type="radio" name="fund_source" value="petty_cash" checked class="mr-1"> Shop cash balance
-                            </label>
-                            <label class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">
-                                <input type="radio" name="fund_source" value="sales_income" class="mr-1"> Sales
-                            </label>
-                        </div>
+                        <input type="hidden" name="fund_source" value="petty_cash">
                         <input type="text" name="notes" placeholder="Note" class="h-11 rounded-xl border border-slate-200 px-3 text-sm">
                         <button type="submit" class="h-11 rounded-xl bg-emerald-600 px-4 text-sm font-black text-white">Pay Salary</button>
                     </form>
@@ -282,7 +290,10 @@
                                 <div class="flex items-start justify-between gap-2">
                                     <div>
                                         <p class="text-sm font-black text-slate-900">{{ $payment->employee?->name }}</p>
-                                        <p class="text-xs font-semibold text-slate-500">{{ str($payment->payment_type)->headline() }} · {{ str($payment->fund_source)->replace('_', ' ')->headline() }}</p>
+                                        <p class="text-xs font-semibold text-slate-500">
+                                            {{ str($payment->payment_type)->headline() }}
+                                            · {{ $payment->cashbookLine ? 'Cashbook expense posted' : 'Cashbook posting pending' }}
+                                        </p>
                                     </div>
                                     <p class="text-sm font-black text-slate-950">Rs. {{ number_format((float) $payment->amount, 2) }}</p>
                                 </div>
@@ -291,6 +302,9 @@
                             <p class="text-sm font-semibold text-slate-500">No salary or advance payments yet.</p>
                         @endforelse
                     </div>
+                    @if($recentPayrollPayments->hasPages())
+                        <div class="mt-4">{{ $recentPayrollPayments->links() }}</div>
+                    @endif
                 </article>
             </section>
         @endif
@@ -333,6 +347,9 @@
                             <p class="text-sm font-semibold text-slate-500">No leave requests yet for this owned shop.</p>
                         @endforelse
                     </div>
+                    @if($leaveRequests->hasPages())
+                        <div class="mt-4">{{ $leaveRequests->links() }}</div>
+                    @endif
                 </article>
             </section>
         @endif
@@ -356,6 +373,9 @@
                             <p class="text-sm font-semibold text-slate-500">No staff payments yet.</p>
                         @endforelse
                     </div>
+                    @if($recentPayrollPayments->hasPages())
+                        <div class="mt-4">{{ $recentPayrollPayments->links() }}</div>
+                    @endif
                 </article>
                 <article class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                     <h2 class="text-lg font-black text-slate-950">Requests</h2>
@@ -376,6 +396,16 @@
                             <p class="text-sm font-semibold text-slate-500">No requests yet.</p>
                         @endif
                     </div>
+                    @if($advanceRequests->hasPages() || $leaveRequests->hasPages())
+                        <div class="mt-4 space-y-3">
+                            @if($advanceRequests->hasPages())
+                                {{ $advanceRequests->links() }}
+                            @endif
+                            @if($leaveRequests->hasPages())
+                                {{ $leaveRequests->links() }}
+                            @endif
+                        </div>
+                    @endif
                 </article>
             </section>
         @endif

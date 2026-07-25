@@ -9,6 +9,7 @@ use App\Models\Category;
 use App\Models\Product;
 use App\Models\Shop;
 use App\Models\ShopOrder;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use Database\Seeders\RolePermissionSeeder;
@@ -20,6 +21,41 @@ use Tests\TestCase;
 class PurchaseManagerAutoApproveSettingsTest extends TestCase
 {
     use LazilyRefreshDatabase;
+
+    public function test_supplier_bills_page_shows_vendor_credit_requests_without_auto_approval_setting(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $admin = User::query()->create([
+            'name' => 'Admin User',
+            'email' => 'admin.auto.approve@example.com',
+            'password' => Hash::make('password'),
+            'email_verified_at' => now(),
+        ]);
+        $admin->assignRole(Role::findByName('admin'));
+
+        $supplier = Supplier::factory()->create([
+            'name' => 'Credit Request Vendor',
+            'credit_approved' => false,
+            'credit_approval_requested_at' => now(),
+            'credit_approval_requested_by' => $admin->id,
+            'credit_approval_note' => 'Need vendor credit for weekly purchases.',
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->get(route('purchasing.invoices.index', [
+                'date' => now()->toDateString(),
+                'tab' => 'credit',
+            ]))
+            ->assertOk()
+            ->assertSee('Vendor Credit Requests')
+            ->assertSee($supplier->name)
+            ->assertSee('Accept')
+            ->assertSee(route('purchasing.suppliers.credit-approve', $supplier), false)
+            ->assertDontSee('Approve credit bills automatically')
+            ->assertDontSee('On-time shop orders');
+    }
 
     public function test_purchase_manager_can_enable_auto_approval_and_shop_order_is_approved_immediately(): void
     {

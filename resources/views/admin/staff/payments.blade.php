@@ -212,7 +212,7 @@
         @if($payrollRun !== null)
             <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
                 <h2 class="text-xl font-black text-slate-950">Record Shop Staff Payment</h2>
-                <p class="mt-1 text-sm font-semibold text-slate-500">Use this when HR/admin decides salary or advance should be paid from a selected shop. This updates payroll paid balance and shop cash tracking, without posting another salary expense journal.</p>
+                <p class="mt-1 text-sm font-semibold text-slate-500">Use this when HR/admin decides salary or advance was taken from a shop. This updates payroll paid balance and posts the matching shop cashbook expense.</p>
                 <form method="POST" action="{{ route('admin.staff.shop-staff-payments.store') }}" class="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                     @csrf
                     <select name="payroll_run_item_id" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
@@ -231,10 +231,7 @@
                         <option value="salary">Salary</option>
                         <option value="advance">Advance</option>
                     </select>
-                    <select name="fund_source" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
-                        <option value="petty_cash">Shop cash balance</option>
-                        <option value="sales_income">Shop sales</option>
-                    </select>
+                    <input type="hidden" name="fund_source" value="petty_cash">
                     <input type="date" name="paid_on" value="{{ today()->toDateString() }}" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
                     <input type="number" step="0.01" min="0.01" name="amount" placeholder="Amount" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
                     <input type="text" name="notes" placeholder="Note" class="rounded-xl border border-slate-200 px-3 py-2 text-sm">
@@ -254,7 +251,7 @@
                             <th class="pb-3">Employee</th>
                             <th class="pb-3">Shop</th>
                             <th class="pb-3">Type</th>
-                            <th class="pb-3">Source</th>
+                            <th class="pb-3">Cashbook</th>
                             <th class="pb-3 text-right">Amount</th>
                             <th class="pb-3">Journal</th>
                         </tr>
@@ -266,9 +263,11 @@
                                 <td class="py-3 font-semibold text-slate-600">{{ $payment->employee?->name }}</td>
                                 <td class="py-3 font-semibold text-slate-600">{{ $payment->shop?->name }}</td>
                                 <td class="py-3 capitalize">{{ $payment->payment_type }}</td>
-                                <td class="py-3">{{ str($payment->fund_source)->replace('_', ' ')->headline() }}</td>
+                                <td class="py-3 font-semibold {{ $payment->cashbookLine ? 'text-emerald-700' : 'text-amber-700' }}">
+                                    {{ $payment->cashbookLine ? 'Expense posted' : 'Posting pending' }}
+                                </td>
                                 <td class="py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $payment->amount, 2) }}</td>
-                                <td class="py-3 text-sm font-black text-slate-400">No journal</td>
+                                <td class="py-3 text-sm font-black text-slate-400">Shop cashbook</td>
                             </tr>
                         @empty
                             <tr>
@@ -301,7 +300,7 @@
                                 <td class="py-3 font-semibold text-slate-600">{{ $payment->employee?->name }}</td>
                                 <td class="py-3 capitalize">
                                     {{ $payment->payment_method }}
-                                    <p class="text-xs font-semibold text-slate-500">{{ str($payment->fund_source)->replace('_', ' ')->headline() }}</p>
+                                    <p class="text-xs font-semibold text-slate-500">{{ $payment->cashbookLine ? 'Cashbook expense posted' : 'Cashbook posting pending' }}</p>
                                 </td>
                                 <td class="py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $payment->amount, 2) }}</td>
                                 <td class="py-3 text-sm font-semibold text-cyan-700">{{ $payment->journalEntry?->reference ?? 'Pending journal' }}</td>

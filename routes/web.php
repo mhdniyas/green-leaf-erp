@@ -291,6 +291,13 @@ Route::middleware('auth')->group(function () {
         Route::post('/loadout/order/{order}/dispatch', [WarehouseReceiverController::class, 'dispatchOrder'])->name('loadout.order.dispatch');
         Route::post('/loadout/order/{order}/dispatch-partial', [WarehouseReceiverController::class, 'dispatchPartialOrder'])->name('loadout.order.dispatch-partial');
         Route::post('/loadout/order/{order}/ship', [WarehouseReceiverController::class, 'shipOrder'])->name('loadout.order.ship');
+        Route::prefix('sort-sheet')->name('sort-sheet.')->middleware('can:sort.sheet.view')->group(function () {
+            Route::get('/', [SortSheetController::class, 'index'])->name('index');
+            Route::get('/generate', [SortSheetController::class, 'generate'])->name('generate');
+            Route::get('/export/excel', [SortSheetController::class, 'exportExcel'])->name('export.excel');
+            Route::get('/export/pdf', [SortSheetController::class, 'exportPdf'])->name('export.pdf');
+            Route::get('/print', [SortSheetController::class, 'print'])->name('print');
+        });
     });
 
     // ── Warehouse Loadout (PRD v2) ─────────────────────────────────────────
@@ -323,19 +330,17 @@ Route::middleware('auth')->group(function () {
             Route::get('owned-shops/{shop:code}/categories', [AdminAccountingController::class, 'ownedShopCategories'])->name('owned-shops.categories.index');
             Route::patch('owned-shops/{shop:code}/reserve-amount', [AdminAccountingController::class, 'updateReserveAmount'])->name('owned-shops.reserve-amount.update');
             Route::patch('owned-shops/{shop:code}/petty-cash-settings', [AdminAccountingController::class, 'updatePettyCashSettings'])->name('owned-shops.petty-cash-settings.update');
-            Route::post('owned-shops/{shop:code}/ownerships', [AdminAccountingController::class, 'storeOwnerships'])->name('owned-shops.ownerships.store');
             Route::post('owned-shops/{shop:code}/categories', [AdminAccountingController::class, 'storeCategory'])->name('owned-shops.categories.store');
             Route::patch('owned-shops/{shop:code}/categories/{category}', [AdminAccountingController::class, 'updateCategory'])->name('owned-shops.categories.update');
             Route::delete('owned-shops/{shop:code}/categories/{category}', [AdminAccountingController::class, 'destroyCategory'])->name('owned-shops.categories.destroy');
+            Route::post('owned-shops/{shop:code}/cash-movement-categories', [AdminAccountingController::class, 'storeCashMovementCategory'])->name('owned-shops.cash-movement-categories.store');
+            Route::patch('owned-shops/{shop:code}/cash-movement-categories/{category}', [AdminAccountingController::class, 'updateCashMovementCategory'])->name('owned-shops.cash-movement-categories.update');
             Route::post('owned-shops/{shop:code}/entries', [AdminAccountingController::class, 'storeEntry'])->name('owned-shops.entries.store');
             Route::patch('owned-shops/{shop:code}/entries/{entry}', [AdminAccountingController::class, 'updateEntry'])->name('owned-shops.entries.update');
             Route::patch('owned-shops/{shop:code}/entries/{entry}/review', [AdminAccountingController::class, 'reviewEntry'])->name('owned-shops.entries.review');
             Route::post('owned-shops/{shop:code}/credits', [AdminAccountingController::class, 'storeShopCredit'])->name('owned-shops.credits.store');
             Route::patch('owned-shops/{shop:code}/company-payments/{credit}/review', [AdminAccountingController::class, 'reviewCompanyPayment'])->name('owned-shops.company-payments.review');
-            Route::post('owned-shops/{shop:code}/invoices', [AdminAccountingController::class, 'storeInvoice'])->name('owned-shops.invoices.store');
-            Route::get('owned-shops/{shop:code}/invoices/{invoice}', [AdminAccountingController::class, 'showInvoice'])->name('owned-shops.invoices.show');
-            Route::patch('owned-shops/{shop:code}/invoices/{invoice}/approve', [AdminAccountingController::class, 'approveInvoice'])->name('owned-shops.invoices.approve');
-            Route::patch('owned-shops/{shop:code}/invoices/{invoice}/paid', [AdminAccountingController::class, 'markInvoicePaid'])->name('owned-shops.invoices.paid');
+            Route::post('owned-shops/{shop:code}/period-closures', [AdminAccountingController::class, 'closePeriod'])->name('owned-shops.period-closures.store');
             Route::patch('owned-shops/{shop:code}/daily-bills/{invoice}/payment', [AdminAccountingController::class, 'updateDailyBillPayment'])->name('owned-shops.daily-bills.payment');
             Route::patch('owned-shops/{shop:code}/payment-requests/{paymentRequest}/review', [AdminAccountingController::class, 'reviewOwnedShopPaymentRequest'])->name('owned-shops.payment-requests.review');
             Route::get('purchasers', [AdminAccountingController::class, 'purchasersIndex'])->name('purchasers.index');

@@ -20,6 +20,7 @@ class ShopOrder extends Model
         'shop_id',
         'order_number',
         'order_source',
+        'shop_daily_order_key',
         'state',
         'delivery_status',
         'delivery_review_status',
@@ -89,6 +90,8 @@ class ShopOrder extends Model
     protected static function booted(): void
     {
         static::creating(function (self $order): void {
+            $order->order_source ??= 'shop_owner';
+
             if (empty($order->order_number)) {
                 $date = Carbon::parse($order->business_date)->format('Ymd');
                 do {
@@ -97,7 +100,21 @@ class ShopOrder extends Model
                 } while (self::where('order_number', $orderNumber)->exists());
                 $order->order_number = $orderNumber;
             }
+
+            if (
+                $order->shop_daily_order_key === null
+                && $order->shop_id !== null
+                && $order->business_date !== null
+                && $order->order_source === 'shop_owner'
+            ) {
+                $order->shop_daily_order_key = self::dailyOrderKey((int) $order->shop_id, Carbon::parse($order->business_date)->toDateString());
+            }
         });
+    }
+
+    public static function dailyOrderKey(int $shopId, string $businessDate): string
+    {
+        return "shop:{$shopId}:{$businessDate}";
     }
 
     /**

@@ -1498,7 +1498,15 @@ class PurchaserDashboardController extends Controller
             $primaryDocuments = $regularDocuments ?? $addOnDocuments;
             $invoiceAmount = max(0, round($subtotalAmount - $discountAmount, 2));
             $paidAmount = min($invoiceAmount, round($paidAmountInput, 2));
+            $isCreditPurchase = strcasecmp($paymentMethod, 'Credit') === 0;
+            if ($isCreditPurchase) {
+                $paidAmount = 0.0;
+            }
             $paymentStatus = $this->resolvePaymentStatus($paymentMethod, $invoiceAmount, $paidAmount);
+            $paymentPaidBy = $isCreditPurchase ? 'vendor_credit' : 'purchaser';
+            $invoiceStatus = $paymentStatus === 'paid'
+                ? InvoiceStatus::Paid
+                : InvoiceStatus::Pending;
 
             $invoice = PurchaseInvoice::query()->create([
                 'goods_received_id' => $primaryDocuments['grn']->id,
@@ -1508,8 +1516,9 @@ class PurchaserDashboardController extends Controller
                 'invoice_number' => $request->validated('bill_number') ?: 'PENDING-BILL-'.$cart->cart_number,
                 'amount' => $invoiceAmount,
                 'discount_amount' => round($discountAmount, 2),
-                'status' => InvoiceStatus::Pending,
+                'status' => $invoiceStatus,
                 'payment_method' => $paymentMethod,
+                'payment_paid_by' => $paymentPaidBy,
                 'payment_status' => $paymentStatus,
                 'paid_amount' => $paidAmount,
                 'payment_note' => $request->validated('payment_note'),
@@ -1555,15 +1564,17 @@ class PurchaserDashboardController extends Controller
                 ])->all(),
             );
 
-            PurchaserCredit::create([
-                'purchaser_id' => $user->id,
-                'type' => 'out',
-                'amount' => $invoice->amount,
-                'description' => "Debit for invoice: {$invoice->invoice_number}",
-                'purchase_invoice_id' => $invoice->id,
-                'created_by' => $user->id,
-                'business_date' => $date,
-            ]);
+            if ($paymentPaidBy === 'purchaser') {
+                PurchaserCredit::create([
+                    'purchaser_id' => $user->id,
+                    'type' => 'out',
+                    'amount' => $invoice->amount,
+                    'description' => "Debit for invoice: {$invoice->invoice_number}",
+                    'purchase_invoice_id' => $invoice->id,
+                    'created_by' => $user->id,
+                    'business_date' => $date,
+                ]);
+            }
         });
 
         if ($request->string('return_to')->toString() === 'suppliers') {
@@ -1646,6 +1657,7 @@ class PurchaserDashboardController extends Controller
 
         $validated = $request->validate([
             'payment_method' => ['required', 'string', 'in:Cash,Online,GPay,Credit'],
+            'payment_paid_by' => ['nullable', 'string', 'in:purchaser,company,vendor_credit'],
             'discount_amount' => ['nullable', 'numeric', 'min:0'],
             'paid_amount' => ['nullable', 'numeric', 'min:0'],
             'additional_paid_amount' => ['nullable', 'numeric', 'min:0'],
@@ -1662,6 +1674,7 @@ class PurchaserDashboardController extends Controller
 
         $updatedInvoice = app(PurchaseInvoiceService::class)->updatePayment($invoice, [
             'payment_method' => $validated['payment_method'],
+            'payment_paid_by' => $validated['payment_paid_by'] ?? 'purchaser',
             'discount_amount' => (float) ($validated['discount_amount'] ?? $invoice->discount_amount ?? 0),
             'paid_amount' => $resolvedPaidAmount,
             'payment_note' => $validated['payment_note'] ?? null,
@@ -1673,7 +1686,7 @@ class PurchaserDashboardController extends Controller
             0,
             round(((float) $updatedInvoice->amount - (float) $updatedInvoice->discount_amount) - (float) $updatedInvoice->paid_amount, 2)
         );
-        $message = $remainingBalance > 0 || $updatedInvoice->payment_method === 'Credit'
+        $message = $remainingBalance > 0 || $updatedInvoice->payment_status === 'credit_pending_approval'
             ? 'Payment updated. Remaining balance or credit is still pending.'
             : 'Payment completed successfully.';
 
@@ -2193,13 +2206,15 @@ class PurchaserDashboardController extends Controller
         foreach ($lines as $line) {
             $cartItem = $line['cart_item'];
             $quantity = $line['quantity'];
+            $isPerKg = $cartItem->product->unit === 'kg';
 
             $purchaseOrderItem = $purchaseOrder->items()->create([
                 'product_id' => $cartItem->product_id,
                 'purchase_unit' => $cartItem->product->unit,
+                'packet_qty' => $isPerKg ? null : $quantity,
                 'quantity' => $quantity,
                 'unit_price' => $line['unit_price'],
-                'price_basis' => $cartItem->product->unit === 'kg' ? 'per_kg' : 'per_unit',
+                'price_basis' => $isPerKg ? 'per_kg' : 'per_unit',
             ]);
 
             $grn->items()->create([
@@ -2319,6 +2334,10 @@ class PurchaserDashboardController extends Controller
         $overdueCarts = $this->overdueCartsForUser($userId);
         $overdueBatchState = $this->relatedBatchStateForCarts($overdueCarts);
         $overdueCarts = $this->filterOverdueCartsForPurchaser($overdueCarts, $overdueBatchState);
+        $creditOverdueCount = $overdueCarts
+            ->filter(fn (PurchaserCart $cart): bool => ($cart->purchaseInvoice?->payment_method ?: $cart->payment_method) === 'Credit')
+            ->count();
+        $paymentOverdueCount = $overdueCarts->count() - $creditOverdueCount;
 
         $vendorMissingCount = $sameDayCarts
             ->filter(fn (PurchaserCart $cart): bool => $cart->status === 'draft' && $cart->items->isNotEmpty() && $cart->supplier_id === null)
@@ -2332,6 +2351,8 @@ class PurchaserDashboardController extends Controller
             'show' => $overdueCarts->isNotEmpty() || ($warningOpen && ($vendorMissingCount > 0 || $billPendingCount > 0)),
             'same_day' => $warningOpen,
             'overdue_count' => $overdueCarts->count(),
+            'credit_overdue_count' => $creditOverdueCount,
+            'payment_overdue_count' => $paymentOverdueCount,
             'vendor_missing_count' => $vendorMissingCount,
             'bill_pending_count' => $billPendingCount,
             'warehouse_pending_count' => 0,

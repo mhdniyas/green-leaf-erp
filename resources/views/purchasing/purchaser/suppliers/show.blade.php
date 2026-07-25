@@ -288,6 +288,7 @@
                 <input type="hidden" name="return_to" value="supplier_detail">
                 <input type="hidden" name="date" value="{{ $date }}">
                 <input type="hidden" name="supplier_id" value="{{ $supplier->id }}">
+                <input type="hidden" name="payment_paid_by" value="purchaser">
 
                 <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
                     <div class="flex items-center justify-between text-[11px] font-bold text-slate-600">
@@ -403,7 +404,7 @@
 
             warningNode.textContent = balance > 0
                 ? 'Payment is not done fully. Remaining balance will stay pending.'
-                : 'Full payment entered. This purchase will be marked completed.';
+                : 'Full purchaser payment entered. Purchaser balance will be reduced.';
         }
 
         document.getElementById('vendor_history_discount_amount')?.addEventListener('input', updateVendorHistoryPaymentStatus);
