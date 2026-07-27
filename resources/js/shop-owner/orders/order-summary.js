@@ -25,5 +25,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     quantityInputs.forEach((input) => input.addEventListener('input', updateTotals));
+    document.addEventListener('shop-owner-order-input-change', updateTotals);
     updateTotals();
 });

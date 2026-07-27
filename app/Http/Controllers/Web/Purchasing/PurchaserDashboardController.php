@@ -953,9 +953,29 @@ class PurchaserDashboardController extends Controller
             'product_ids.*' => ['required', 'exists:products,id'],
             'cart_id' => ['nullable', 'integer'],
             'items' => ['required', 'array'],
-            'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
-            'items.*.unit_price' => ['required', 'numeric', 'min:0.01'],
+            'items.*.quantity' => ['required', 'numeric', 'min:0'],
+            'items.*.unit_price' => ['nullable', 'numeric'],
         ]);
+
+        $selectedItems = collect($validated['items'])
+            ->filter(fn (array $item): bool => (float) ($item['quantity'] ?? 0) > 0);
+
+        if ($selectedItems->isEmpty()) {
+            return back()
+                ->withInput()
+                ->with('error', 'Enter quantity for at least one product before adding to cart.');
+        }
+
+        $missingPriceProductId = $selectedItems
+            ->filter(fn (array $item): bool => (float) ($item['unit_price'] ?? 0) <= 0)
+            ->keys()
+            ->first();
+
+        if ($missingPriceProductId !== null) {
+            return back()
+                ->withInput()
+                ->withErrors(["items.{$missingPriceProductId}.unit_price" => 'Enter a price greater than zero for selected products.']);
+        }
 
         $date = Carbon::parse($validated['business_date']);
         $user = $request->user();
@@ -987,8 +1007,7 @@ class PurchaserDashboardController extends Controller
         $addedCount = 0;
         foreach ($validated['product_ids'] as $productId) {
             $productId = (int) $productId;
-            $product = Product::query()->findOrFail($productId);
-            $itemData = $validated['items'][$productId] ?? null;
+            $itemData = $selectedItems->get((string) $productId) ?? $selectedItems->get($productId);
 
             if (! is_array($itemData)) {
                 continue;
@@ -1018,13 +1037,18 @@ class PurchaserDashboardController extends Controller
                     'line_total' => round($quantity * $unitPrice, 2),
                     'is_extra_purchase' => $quantity > $remainingApproved,
                 ]);
-                $addedCount++;
             }
+
+            $addedCount++;
         }
+
+        $productLabel = $addedCount === 1 ? 'product' : 'products';
 
         return redirect()
             ->route('purchaser.vendors', ['date' => $date->format('Y-m-d')])
-            ->with('success', "Added {$addedCount} products to vendor cart.");
+            ->with('success', "{$addedCount} {$productLabel} added to cart.")
+            ->with('cart_success_actions', true)
+            ->with('cart_success_date', $date->format('Y-m-d'));
     }
 
     public function storeCart(Request $request): RedirectResponse

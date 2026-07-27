@@ -73,7 +73,7 @@
             <div class="flex flex-col gap-4 border-t border-slate-100 pt-5 md:flex-row md:items-center md:justify-between">
                 @include('shop-owner.orders.partials.order-summary-card', ['order' => $tomorrowOrder, 'yesterdayOrder' => $yesterdayOrder, 'isDraft' => true])
                 <button type="button" data-open-cart-submit class="rounded-xl bg-amber-600 px-6 py-3 text-sm font-bold text-white shadow-sm hover:bg-amber-700 transition active:scale-95 duration-150">
-                    Open Cart
+                    Add Selected to Cart
                 </button>
             </div>
         </form>
@@ -110,7 +110,7 @@
                     'bg-amber-600 hover:bg-amber-700' => $cutoffPassed,
                     'bg-emerald-600 hover:bg-emerald-700' => ! $cutoffPassed,
                 ])>
-                    Open Cart
+                    Add Selected to Cart
                 </button>
             </div>
         </form>

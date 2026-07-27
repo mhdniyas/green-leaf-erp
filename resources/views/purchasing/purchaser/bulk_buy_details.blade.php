@@ -9,7 +9,7 @@
                     <div class="min-w-0">
                         <p class="text-[10px] font-black uppercase tracking-[0.16em] text-teal-200 sm:text-[11px] sm:tracking-[0.22em]">Purchaser Flow</p>
                         <h1 class="mt-1 text-xl font-black tracking-tight sm:mt-2 sm:text-2xl">Bulk Purchase (Step 2)</h1>
-                        <p class="mt-2 max-w-2xl text-sm font-medium text-slate-200">Enter quantities and prices for each selected product, choose a cart, and submit.</p>
+                        <p class="mt-2 max-w-2xl text-sm font-medium text-slate-200">Enter draft quantities inline, review the selected rows, then add them to cart in one request.</p>
                     </div>
                     <div class="shrink-0">
                         <span class="rounded-xl bg-white/10 px-3.5 py-2 text-sm font-bold text-white block lg:rounded-2xl">
@@ -54,23 +54,24 @@
             <div class="space-y-4">
                 @foreach ($dailySummary as $summary)
                     @php
-                        $step = $summary['unit'] === 'kg' ? '0.5' : '1';
-                        $remaining = (float) $summary['remaining_qty'] - (float) $summary['draft_qty'];
-                        $defaultQty = $remaining > 0 ? $remaining : 1.0;
+                        $step = $summary['unit'] === 'kg' ? '0.01' : '1';
+                        $rowQuantity = old("items.{$summary['product_id']}.quantity", '0');
+                        $rowPrice = old("items.{$summary['product_id']}.unit_price", '');
                     @endphp
                     <input type="hidden" name="product_ids[]" value="{{ $summary['product_id'] }}">
 
-                    <div class="product-row rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:rounded-[2rem] lg:p-5" data-product-id="{{ $summary['product_id'] }}">
+                    <div class="product-row rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition lg:rounded-[2rem] lg:p-5" data-product-id="{{ $summary['product_id'] }}" data-unit="{{ strtoupper($summary['unit']) }}">
                         {{-- Hidden inputs for form submission --}}
-                        <input type="hidden" name="items[{{ $summary['product_id'] }}][quantity]" id="submit-qty-{{ $summary['product_id'] }}" value="{{ number_format($defaultQty, 2, '.', '') }}">
-                        <input type="hidden" name="items[{{ $summary['product_id'] }}][unit_price]" id="submit-price-{{ $summary['product_id'] }}" value="">
+                        <input type="hidden" name="items[{{ $summary['product_id'] }}][quantity]" id="submit-qty-{{ $summary['product_id'] }}" value="{{ $rowQuantity }}">
+                        <input type="hidden" name="items[{{ $summary['product_id'] }}][unit_price]" id="submit-price-{{ $summary['product_id'] }}" value="{{ $rowPrice }}">
                         <input type="hidden" id="basis-{{ $summary['product_id'] }}" value="kg">
                         <input type="hidden" id="unit-{{ $summary['product_id'] }}" value="{{ $summary['unit'] }}">
 
-                        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                             {{-- Info --}}
                             <div class="min-w-0">
                                 <div class="flex flex-wrap items-center gap-2">
+                                    <span class="inline-flex h-7 min-w-7 items-center justify-center rounded-lg bg-slate-100 px-2 text-xs font-black text-slate-500">{{ str_pad((string) $loop->iteration, 2, '0', STR_PAD_LEFT) }}</span>
                                     <h3 class="min-w-0 break-words font-black text-slate-955 text-base">{{ $summary['product_name'] }}</h3>
                                     <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-600">{{ $summary['category_name'] ?: 'Other' }}</span>
                                 </div>
@@ -90,40 +91,43 @@
                                     <div class="mt-3">
                                         <div class="flex items-center gap-1 rounded-lg bg-slate-100 p-0.5 w-max">
                                             <button type="button" id="basis-kg-btn-{{ $summary['product_id'] }}" onclick="setRowBasis({{ $summary['product_id'] }}, 'kg')" class="rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all bg-white text-slate-955 shadow-xs">
-                                                Per Kg
+                                                KG
                                             </button>
                                             <button type="button" id="basis-box-btn-{{ $summary['product_id'] }}" onclick="setRowBasis({{ $summary['product_id'] }}, 'box')" class="rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all text-slate-600 hover:bg-slate-50">
-                                                Per Box
+                                                BOX
                                             </button>
                                         </div>
                                     </div>
+                                @else
+                                    <p class="mt-3 text-xs font-black text-slate-500">Unit: <span class="text-slate-900">{{ strtoupper($summary['unit']) }}</span></p>
                                 @endif
                             </div>
 
                             {{-- Inputs --}}
-                            <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+                            <div class="flex flex-col gap-3 lg:flex-row lg:items-end">
                                 {{-- Kg Inputs --}}
                                 <div id="kg-inputs-{{ $summary['product_id'] }}" class="grid grid-cols-2 gap-2 sm:w-72">
                                     {{-- Qty --}}
                                     <div class="space-y-1">
-                                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-400">Qty ({{ $summary['unit'] }})</label>
+                                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-400">Qty</label>
                                         <input type="number" 
                                                step="any" 
-                                               min="0.01" 
+                                               min="0" 
                                                id="qty-kg-{{ $summary['product_id'] }}"
-                                               value="{{ number_format($defaultQty, 2, '.', '') }}" 
-                                               class="qty-input-kg w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
+                                               value="{{ (float) $rowQuantity > 0 ? $rowQuantity : '' }}" 
+                                               placeholder="0"
+                                               class="qty-input-kg w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-right text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
                                     </div>
                                     {{-- Price --}}
                                     <div class="space-y-1">
-                                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-400">Price (Per {{ $summary['unit'] }})</label>
+                                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-400">Rate</label>
                                         <input type="number" 
                                                step="0.01" 
                                                min="0.01" 
                                                id="price-kg-{{ $summary['product_id'] }}"
-                                               value="" 
-                                               placeholder="Enter price" 
-                                               class="price-input-kg w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
+                                               value="{{ $rowPrice }}" 
+                                               placeholder="0.00" 
+                                               class="price-input-kg w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-right text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
                                     </div>
                                 </div>
 
@@ -135,10 +139,11 @@
                                             <label class="block text-[10px] font-black uppercase tracking-wider text-slate-400">Boxes</label>
                                             <input type="number" 
                                                    step="1" 
-                                                   min="1" 
+                                                   min="0" 
                                                    id="qty-box-{{ $summary['product_id'] }}"
-                                                   value="1" 
-                                                   class="qty-input-box w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
+                                                   value="" 
+                                                   placeholder="0"
+                                                   class="qty-input-box w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-right text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
                                         </div>
                                         {{-- kg/Box Conversion --}}
                                         <div class="space-y-1">
@@ -148,7 +153,7 @@
                                                    min="0.1" 
                                                    id="conv-box-{{ $summary['product_id'] }}"
                                                    value="15" 
-                                                   class="conv-input-box w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
+                                                   class="conv-input-box w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-right text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
                                         </div>
                                         {{-- Price --}}
                                         <div class="space-y-1">
@@ -158,19 +163,25 @@
                                                    min="0.01" 
                                                    id="price-box-{{ $summary['product_id'] }}"
                                                    value="" 
-                                                   placeholder="Enter price" 
-                                                   class="price-input-box w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
+                                                   placeholder="0.00" 
+                                                   class="price-input-box w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-right text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
                                         </div>
                                     </div>
                                 @endif
 
                                 {{-- Row Total --}}
-                                <div class="flex items-center justify-between border-t border-slate-100 pt-2.5 sm:border-0 sm:pt-0 sm:w-28 sm:justify-end">
-                                    <span class="text-[10px] font-black uppercase tracking-wider text-slate-400 sm:hidden">Total</span>
+                                <div class="flex items-center justify-between gap-3 border-t border-slate-100 pt-2.5 sm:border-0 sm:pt-0 lg:w-52 lg:justify-end">
+                                    <span class="text-[10px] font-black uppercase tracking-wider text-slate-400 lg:hidden">Total</span>
                                     <span class="row-total text-sm font-black text-slate-900">₹ 0.00</span>
+                                    <button type="button" onclick="focusNextProduct({{ $summary['product_id'] }})" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">
+                                        Next
+                                    </button>
                                 </div>
                             </div>
                         </div>
+                        @error("items.{$summary['product_id']}.unit_price")
+                            <p class="mt-2 text-xs font-bold text-rose-600">{{ $message }}</p>
+                        @enderror
                     </div>
                 @endforeach
             </div>
@@ -179,15 +190,16 @@
             <div class="sticky bottom-3 z-40 mt-4 px-1 sm:px-0">
                 <div class="mx-auto flex max-w-4xl flex-col gap-3 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:rounded-[1.75rem] sm:px-4 sm:py-3">
                     <div class="min-w-0">
-                        <p class="text-xs font-black text-slate-500 uppercase">Estimated Grand Total</p>
-                        <p class="text-lg font-black text-teal-600" id="grand-total-display">₹ 0.00</p>
+                        <p class="text-xs font-black text-slate-500 uppercase">Draft Selection</p>
+                        <p class="text-lg font-black text-teal-600" id="draft-selection-display">0 selected • 0 KG</p>
+                        <p class="text-xs font-bold text-slate-500" id="grand-total-display">₹ 0.00</p>
                     </div>
                     <div class="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-end">
-                        <button type="button" onclick="history.back()" class="inline-flex h-11 w-full items-center justify-center rounded-xl bg-slate-100 px-4 text-sm font-black text-slate-700 transition hover:bg-slate-200 sm:w-auto">
-                            Back
+                        <button type="button" onclick="clearDraftRows()" class="inline-flex h-11 w-full items-center justify-center rounded-xl bg-slate-100 px-4 text-sm font-black text-slate-700 transition hover:bg-slate-200 sm:w-auto">
+                            Clear
                         </button>
-                        <button type="submit" class="inline-flex h-11 w-full items-center justify-center rounded-xl bg-teal-600 px-5 text-sm font-black text-white transition hover:bg-teal-500 sm:w-auto">
-                            Add to Cart
+                        <button type="submit" id="add-selected-button" disabled class="inline-flex h-11 w-full items-center justify-center rounded-xl bg-teal-600 px-5 text-sm font-black text-white transition hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto">
+                            Add Selected to Cart
                         </button>
                     </div>
                 </div>
@@ -307,6 +319,15 @@
                 calculateGrandTotal();
             }
 
+            function formatQuantity(value) {
+                const rounded = Math.round((Number(value) || 0) * 1000) / 1000;
+
+                return rounded.toLocaleString('en-IN', {
+                    minimumFractionDigits: rounded % 1 === 0 ? 0 : 2,
+                    maximumFractionDigits: 3
+                });
+            }
+
             window.calculateRow = function(productId) {
                 const basisInput = document.getElementById(`basis-${productId}`);
                 if (!basisInput) return 0;
@@ -314,7 +335,8 @@
 
                 const submitQty = document.getElementById(`submit-qty-${productId}`);
                 const submitPrice = document.getElementById(`submit-price-${productId}`);
-                const rowTotalDisplay = document.querySelector(`.product-row[data-product-id="${productId}"] .row-total`);
+                const row = document.querySelector(`.product-row[data-product-id="${productId}"]`);
+                const rowTotalDisplay = row?.querySelector('.row-total');
 
                 let qty = 0;
                 let price = 0;
@@ -339,6 +361,15 @@
                 if (submitQty) submitQty.value = qty.toFixed(3);
                 if (submitPrice) submitPrice.value = price.toFixed(4);
 
+                if (row) {
+                    row.dataset.draftQty = qty.toFixed(3);
+                    row.classList.toggle('border-teal-300', qty > 0);
+                    row.classList.toggle('bg-teal-50', qty > 0);
+                    row.classList.toggle('shadow-[0_10px_24px_rgba(13,148,136,0.10)]', qty > 0);
+                    row.classList.toggle('border-slate-200', qty <= 0);
+                    row.classList.toggle('bg-white', qty <= 0);
+                }
+
                 if (rowTotalDisplay) {
                     rowTotalDisplay.textContent = '₹ ' + rowTotal.toLocaleString('en-IN', {
                         minimumFractionDigits: 2,
@@ -351,10 +382,18 @@
 
             window.calculateGrandTotal = function() {
                 let grandTotal = 0;
+                let selectedCount = 0;
+                const totalsByUnit = {};
                 const rows = document.querySelectorAll('.product-row');
                 rows.forEach(row => {
                     const productId = row.getAttribute('data-product-id');
                     grandTotal += calculateRow(productId);
+                    const qty = Number(row.dataset.draftQty || 0);
+                    if (qty > 0) {
+                        selectedCount++;
+                        const unit = row.dataset.unit || 'KG';
+                        totalsByUnit[unit] = (totalsByUnit[unit] || 0) + qty;
+                    }
                 });
 
                 const grandTotalDisplay = document.getElementById('grand-total-display');
@@ -364,6 +403,41 @@
                         maximumFractionDigits: 2
                     });
                 }
+
+                const selectionDisplay = document.getElementById('draft-selection-display');
+                if (selectionDisplay) {
+                    const unitLabels = Object.entries(totalsByUnit).map(([unit, qty]) => `${formatQuantity(qty)} ${unit}`);
+                    selectionDisplay.textContent = `${selectedCount} selected • ${unitLabels.length > 0 ? unitLabels.join(' + ') : '0 KG'}`;
+                }
+
+                const addButton = document.getElementById('add-selected-button');
+                if (addButton) {
+                    addButton.disabled = selectedCount === 0;
+                }
+            }
+
+            window.focusNextProduct = function(productId) {
+                const rows = Array.from(document.querySelectorAll('.product-row'));
+                const currentIndex = rows.findIndex(row => row.getAttribute('data-product-id') === String(productId));
+                const nextRow = rows[currentIndex + 1] || rows[0];
+                const nextProductId = nextRow?.getAttribute('data-product-id');
+                const nextInput = nextProductId ? document.getElementById(`qty-kg-${nextProductId}`) : null;
+
+                nextInput?.focus();
+                nextInput?.select();
+            }
+
+            window.clearDraftRows = function() {
+                document.querySelectorAll('.product-row').forEach(row => {
+                    const productId = row.getAttribute('data-product-id');
+                    const qtyKg = document.getElementById(`qty-kg-${productId}`);
+                    const qtyBox = document.getElementById(`qty-box-${productId}`);
+
+                    if (qtyKg) qtyKg.value = '';
+                    if (qtyBox) qtyBox.value = '';
+                });
+
+                calculateGrandTotal();
             }
 
             // Bind input event listeners for calculations
@@ -375,6 +449,14 @@
                 const priceKg = document.getElementById(`price-kg-${productId}`);
                 if (qtyKg) qtyKg.addEventListener('input', calculateGrandTotal);
                 if (priceKg) priceKg.addEventListener('input', calculateGrandTotal);
+                if (qtyKg) {
+                    qtyKg.addEventListener('keydown', (event) => {
+                        if (event.key === 'Enter') {
+                            event.preventDefault();
+                            focusNextProduct(productId);
+                        }
+                    });
+                }
 
                 const qtyBox = document.getElementById(`qty-box-${productId}`);
                 const convBox = document.getElementById(`conv-box-${productId}`);
@@ -382,6 +464,14 @@
                 if (qtyBox) qtyBox.addEventListener('input', calculateGrandTotal);
                 if (convBox) convBox.addEventListener('input', calculateGrandTotal);
                 if (priceBox) priceBox.addEventListener('input', calculateGrandTotal);
+                if (qtyBox) {
+                    qtyBox.addEventListener('keydown', (event) => {
+                        if (event.key === 'Enter') {
+                            event.preventDefault();
+                            focusNextProduct(productId);
+                        }
+                    });
+                }
             });
 
             calculateGrandTotal();
@@ -389,8 +479,21 @@
 
             document.getElementById('bulk-buy-details-form')?.addEventListener('submit', (event) => {
                 calculateGrandTotal();
+                const selectedRows = Array.from(document.querySelectorAll('.product-row'))
+                    .filter(row => Number(row.dataset.draftQty || 0) > 0);
 
-                for (const row of document.querySelectorAll('.product-row')) {
+                if (selectedRows.length === 0) {
+                    event.preventDefault();
+                    window.showAppAlert?.('Enter quantity for at least one product before adding to cart.');
+
+                    if (!window.showAppAlert) {
+                        alert('Enter quantity for at least one product before adding to cart.');
+                    }
+
+                    return;
+                }
+
+                for (const row of selectedRows) {
                     const productId = row.getAttribute('data-product-id');
                     const basis = document.getElementById(`basis-${productId}`)?.value || 'kg';
                     const priceInput = basis === 'box'

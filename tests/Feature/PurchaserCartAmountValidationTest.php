@@ -46,6 +46,82 @@ class PurchaserCartAmountValidationTest extends TestCase
         $this->assertSame(0, PurchaserCartItem::query()->count());
     }
 
+    public function test_bulk_buy_adds_only_rows_with_quantity_above_zero(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $purchaser = $this->purchaserUser();
+        $selectedProduct = $this->activeProduct();
+        $draftOnlyProduct = Product::factory()->create([
+            'category_id' => $selectedProduct->category_id,
+            'name' => 'Draft Onion',
+            'sku' => 'DRAFT-ONION',
+            'unit' => 'kg',
+            'is_active' => true,
+        ]);
+
+        $this
+            ->actingAs($purchaser)
+            ->post(route('purchaser.carts.bulk-store'), [
+                'business_date' => today()->toDateString(),
+                'product_ids' => [$selectedProduct->id, $draftOnlyProduct->id],
+                'items' => [
+                    $selectedProduct->id => [
+                        'quantity' => 5,
+                        'unit_price' => 12.5,
+                    ],
+                    $draftOnlyProduct->id => [
+                        'quantity' => 0,
+                        'unit_price' => null,
+                    ],
+                ],
+            ])
+            ->assertRedirect(route('purchaser.vendors', ['date' => today()->toDateString()]))
+            ->assertSessionHas('success', '1 product added to cart.')
+            ->assertSessionHas('cart_success_actions', true);
+
+        $this->assertSame(1, PurchaserCartItem::query()->count());
+        $this->assertDatabaseHas('purchaser_cart_items', [
+            'product_id' => $selectedProduct->id,
+            'quantity' => 5,
+        ]);
+        $this->assertDatabaseMissing('purchaser_cart_items', [
+            'product_id' => $draftOnlyProduct->id,
+        ]);
+    }
+
+    public function test_bulk_buy_rejects_submit_without_selected_quantities(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $purchaser = $this->purchaserUser();
+        $product = $this->activeProduct();
+
+        $this
+            ->actingAs($purchaser)
+            ->from(route('purchaser.bulk-buy.details', [
+                'date' => today()->toDateString(),
+                'products' => [$product->id],
+            ]))
+            ->post(route('purchaser.carts.bulk-store'), [
+                'business_date' => today()->toDateString(),
+                'product_ids' => [$product->id],
+                'items' => [
+                    $product->id => [
+                        'quantity' => 0,
+                        'unit_price' => null,
+                    ],
+                ],
+            ])
+            ->assertRedirect(route('purchaser.bulk-buy.details', [
+                'date' => today()->toDateString(),
+                'products' => [$product->id],
+            ]))
+            ->assertSessionHas('error', 'Enter quantity for at least one product before adding to cart.');
+
+        $this->assertSame(0, PurchaserCartItem::query()->count());
+    }
+
     public function test_add_to_cart_rejects_zero_unit_price(): void
     {
         $this->seed(RolePermissionSeeder::class);
