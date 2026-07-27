@@ -102,7 +102,7 @@
                     'border-slate-200 bg-white' => (float) $productData['current_qty'] <= 0,
                 ])
             >
-                <div class="grid grid-cols-[2rem_minmax(0,1fr)_3.25rem_minmax(4.5rem,5.5rem)_2.75rem] items-center gap-1.5">
+                <div class="grid grid-cols-[2rem_minmax(0,1fr)_3.25rem_minmax(4.5rem,5.5rem)] items-center gap-1.5">
                     <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[11px] font-black text-slate-600">
                         {{ $productData['sku'] }}
                     </div>
@@ -129,9 +129,6 @@
                         placeholder="0"
                         aria-label="Quantity for {{ $productData['name'] }}"
                     >
-                    <button type="button" data-next-product class="h-8 rounded-lg bg-slate-900 px-2 text-[9px] font-black uppercase tracking-[0.08em] text-white transition active:scale-95" aria-label="Next product">
-                        Next
-                    </button>
                 </div>
 
                 <span data-row-selection-label class="{{ (float) $productData['current_qty'] > 0 ? '' : 'hidden' }} sr-only">Selected for cart</span>

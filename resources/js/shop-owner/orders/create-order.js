@@ -20,6 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const itemsErrorBanner = document.querySelector('[data-items-error-banner]');
     const savePresetForm = document.querySelector('[data-save-preset-form]');
     const hiddenPresetNameInput = document.querySelector('[data-preset-name-input]');
+    const mobileNav = document.getElementById('layout-mobile-nav');
 
     if (!formNode || !productCatalogNode || quantityInputs.length === 0 || !draftCartBar || !draftCartSummary || !draftCartClear || !draftCartSubmit) {
         return;
@@ -32,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const draftStorageKey = `shop-owner-order-draft:${formNode.action}:${formNode.querySelector('[name="business_date"]')?.value ?? window.location.pathname}`;
 
     let activeCategory = categoryPills.find((pill) => pill.hasAttribute('data-default-category'))?.getAttribute('data-default-category') ?? 'all';
+    let mobileNavRestoreTimer = null;
 
     const parseQty = (value) => {
         const quantity = Number.parseFloat(String(value));
@@ -126,6 +128,33 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    const setMobileNavHiddenForInput = (isHidden) => {
+        if (!mobileNav) {
+            return;
+        }
+
+        window.clearTimeout(mobileNavRestoreTimer);
+
+        if (isHidden) {
+            mobileNav.classList.add('hidden');
+            draftCartBar.classList.remove('bottom-16');
+            draftCartBar.classList.add('bottom-0');
+
+            return;
+        }
+
+        mobileNavRestoreTimer = window.setTimeout(() => {
+            const activeElement = document.activeElement;
+            const isStillEditingQuantity = activeElement instanceof HTMLElement && activeElement.matches('[data-inline-qty]');
+
+            if (!isStillEditingQuantity) {
+                mobileNav.classList.remove('hidden');
+                draftCartBar.classList.remove('bottom-0');
+                draftCartBar.classList.add('bottom-16');
+            }
+        }, 120);
+    };
+
     const visibleQuantityInputs = () => productRows
         .filter((row) => !row.classList.contains('hidden'))
         .map((row) => row.querySelector('[data-inline-qty]'))
@@ -203,6 +232,9 @@ document.addEventListener('DOMContentLoaded', () => {
     searchInput?.addEventListener('input', filterProducts);
 
     quantityInputs.forEach((input) => {
+        input.addEventListener('focus', () => setMobileNavHiddenForInput(true));
+        input.addEventListener('blur', () => setMobileNavHiddenForInput(false));
+
         input.addEventListener('input', () => {
             updateRowState(input);
             syncDraftBar();
@@ -216,16 +248,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             event.preventDefault();
             focusNextInput(input);
-        });
-    });
-
-    document.querySelectorAll('[data-next-product]').forEach((button) => {
-        button.addEventListener('click', () => {
-            const row = button.closest('[data-product-card]');
-            const input = row?.querySelector('[data-inline-qty]');
-            if (input) {
-                focusNextInput(input);
-            }
         });
     });
 
