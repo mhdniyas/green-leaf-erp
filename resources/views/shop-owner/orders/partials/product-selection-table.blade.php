@@ -138,17 +138,51 @@
                         <p class="truncate text-[11px] font-semibold leading-3 text-slate-500">{{ $productData['category'] }}</p>
                     </div>
                     @if(count($productData['order_units']) > 1)
-                        <select
-                            name="item_units[{{ $productData['sku'] }}]"
-                            data-inline-unit
-                            data-product-id="{{ $productData['id'] }}"
-                            class="h-8 w-full rounded-lg border border-slate-200 bg-slate-50 px-1 text-[11px] font-black uppercase text-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                            aria-label="Unit for {{ $productData['name'] }}"
-                        >
-                            @foreach($productData['order_units'] as $unit)
-                                <option value="{{ $unit['unit'] }}" @selected($unit['unit'] === $productData['current_unit'])>{{ strtoupper($unit['unit']) }}</option>
-                            @endforeach
-                        </select>
+                        <div class="relative" data-inline-unit-picker data-product-id="{{ $productData['id'] }}">
+                            <input
+                                type="hidden"
+                                name="item_units[{{ $productData['sku'] }}]"
+                                value="{{ $productData['current_unit'] }}"
+                                data-inline-unit
+                                data-product-id="{{ $productData['id'] }}"
+                            >
+                            <button
+                                type="button"
+                                data-unit-picker-trigger
+                                class="flex h-8 w-full items-center justify-between gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[11px] font-black uppercase text-slate-800 shadow-sm transition hover:border-emerald-300 hover:bg-white focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                aria-haspopup="listbox"
+                                aria-expanded="false"
+                                aria-label="Unit for {{ $productData['name'] }}"
+                            >
+                                <span data-unit-picker-label>{{ strtoupper($productData['current_unit']) }}</span>
+                                <svg class="h-3 w-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+                                </svg>
+                            </button>
+                            <div
+                                data-unit-picker-menu
+                                class="absolute left-0 top-[calc(100%+0.25rem)] z-50 hidden w-24 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl shadow-slate-900/15"
+                                role="listbox"
+                            >
+                                @foreach($productData['order_units'] as $unit)
+                                    <button
+                                        type="button"
+                                        data-unit-picker-option
+                                        data-unit-value="{{ $unit['unit'] }}"
+                                        @class([
+                                            'flex h-8 w-full items-center gap-1.5 rounded-lg px-2 text-left text-[11px] font-black uppercase transition',
+                                            'bg-emerald-600 text-white' => $unit['unit'] === $productData['current_unit'],
+                                            'text-slate-700 hover:bg-slate-100' => $unit['unit'] !== $productData['current_unit'],
+                                        ])
+                                        role="option"
+                                        aria-selected="{{ $unit['unit'] === $productData['current_unit'] ? 'true' : 'false' }}"
+                                    >
+                                        <span data-unit-picker-check class="{{ $unit['unit'] === $productData['current_unit'] ? '' : 'invisible' }}">✓</span>
+                                        <span>{{ strtoupper($unit['unit']) }}</span>
+                                    </button>
+                                @endforeach
+                            </div>
+                        </div>
                     @else
                         <div class="flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-1.5 text-[11px] font-black uppercase text-slate-800">
                             {{ $productData['order_units'][0]['unit'] ?? $productData['unit'] }}
@@ -174,6 +208,7 @@
                 </div>
 
                 <span data-row-selection-label class="{{ (float) $productData['current_qty'] > 0 ? '' : 'hidden' }} sr-only">Selected for cart</span>
+                <p data-unit-conversion-info class="mt-2 hidden rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-[11px] font-black uppercase tracking-[0.08em] text-emerald-700"></p>
                 <p data-row-error class="mt-2 hidden text-[11px] font-bold text-rose-700"></p>
             </article>
         @endforeach

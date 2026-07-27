@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const productRows = Array.from(document.querySelectorAll('[data-product-card]'));
     const quantityInputs = Array.from(document.querySelectorAll('[data-inline-qty]'));
     const unitInputs = Array.from(document.querySelectorAll('[data-inline-unit]'));
+    const unitPickers = Array.from(document.querySelectorAll('[data-inline-unit-picker]'));
     const productListContainer = document.getElementById('product-list-container');
     const noSearchResults = document.getElementById('no-search-results');
     const currentListTitle = document.getElementById('current-list-title');
@@ -43,6 +44,45 @@ document.addEventListener('DOMContentLoaded', () => {
         return Number.isFinite(quantity) && quantity > 0 ? quantity : 0;
     };
 
+    const formatQuantity = (value) => {
+        const rounded = Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+
+        return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+    };
+
+    const unitDefinitionForProduct = (product, unit) => {
+        if (!product || !Array.isArray(product.order_units)) {
+            return null;
+        }
+
+        return product.order_units.find((candidate) => candidate.unit === unit) ?? null;
+    };
+
+    const syncUnitConversionInfo = (input) => {
+        const row = input.closest('[data-product-card]');
+        const productId = String(input.getAttribute('data-product-id'));
+        const product = productsById.get(productId);
+        const unitInput = unitInputsByProductId.get(productId);
+        const selectedUnit = unitInput?.value || product?.current_unit || product?.unit;
+        const unitDefinition = unitDefinitionForProduct(product, selectedUnit);
+        const info = row?.querySelector('[data-unit-conversion-info]');
+        const conversion = Number.parseFloat(String(unitDefinition?.conversion_to_base ?? '1'));
+
+        if (!info || !product || !unitDefinition || !Number.isFinite(conversion) || conversion <= 0 || Math.abs(conversion - 1) < 0.0001) {
+            info?.classList.add('hidden');
+            return;
+        }
+
+        const enteredQuantity = parseQty(input.value);
+        const displayQuantity = enteredQuantity > 0 ? enteredQuantity : 1;
+        const baseQuantity = displayQuantity * conversion;
+        const selectedLabel = String(selectedUnit).toUpperCase();
+        const baseLabel = String(product.unit).toUpperCase();
+
+        info.textContent = `${formatQuantity(displayQuantity)} ${selectedLabel} = ${formatQuantity(baseQuantity)} ${baseLabel}`;
+        info.classList.remove('hidden');
+    };
+
     const selectedRows = () => quantityInputs
         .map((input) => {
             const productId = String(input.getAttribute('data-product-id'));
@@ -68,6 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
         row.classList.toggle('border-slate-200', !isSelected);
         row.classList.toggle('bg-white', !isSelected);
         row.querySelector('[data-row-selection-label]')?.classList.toggle('hidden', !isSelected);
+        syncUnitConversionInfo(input);
     };
 
     const syncSubmitButtons = () => {
@@ -125,13 +166,62 @@ document.addEventListener('DOMContentLoaded', () => {
 
         input.value = quantity > 0 ? quantity.toFixed(2) : '';
         if (unit) {
-            const unitInput = unitInputsByProductId.get(String(productId));
-            if (unitInput) {
-                unitInput.value = unit;
-            }
+            setProductUnit(productId, unit, { persist: false });
         }
         updateRowState(input);
     };
+
+    const closeUnitPickers = (exceptPicker = null) => {
+        unitPickers.forEach((picker) => {
+            if (picker === exceptPicker) {
+                return;
+            }
+
+            picker.querySelector('[data-unit-picker-menu]')?.classList.add('hidden');
+            picker.querySelector('[data-unit-picker-trigger]')?.setAttribute('aria-expanded', 'false');
+        });
+    };
+
+    const syncUnitPickerOptions = (picker, selectedUnit) => {
+        const label = picker.querySelector('[data-unit-picker-label]');
+        if (label) {
+            label.textContent = String(selectedUnit).toUpperCase();
+        }
+
+        picker.querySelectorAll('[data-unit-picker-option]').forEach((option) => {
+            const isSelected = option.getAttribute('data-unit-value') === selectedUnit;
+            option.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+            option.classList.toggle('bg-emerald-600', isSelected);
+            option.classList.toggle('text-white', isSelected);
+            option.classList.toggle('text-slate-700', !isSelected);
+            option.classList.toggle('hover:bg-slate-100', !isSelected);
+            option.querySelector('[data-unit-picker-check]')?.classList.toggle('invisible', !isSelected);
+        });
+    };
+
+    function setProductUnit(productId, unit, { persist = true } = {}) {
+        const unitInput = unitInputsByProductId.get(String(productId));
+        if (!unitInput) {
+            return;
+        }
+
+        unitInput.value = unit;
+
+        const picker = unitInput.closest('[data-inline-unit-picker]');
+        if (picker) {
+            syncUnitPickerOptions(picker, unit);
+        }
+
+        const quantityInput = inputsByProductId.get(String(productId));
+        if (quantityInput) {
+            syncUnitConversionInfo(quantityInput);
+        }
+
+        if (persist) {
+            syncDraftBar();
+            saveDraft();
+        }
+    }
 
     const syncAll = ({ persist = true } = {}) => {
         quantityInputs.forEach(updateRowState);
@@ -271,6 +361,50 @@ document.addEventListener('DOMContentLoaded', () => {
             syncDraftBar();
             saveDraft();
         });
+    });
+
+    unitPickers.forEach((picker) => {
+        const trigger = picker.querySelector('[data-unit-picker-trigger]');
+        const menu = picker.querySelector('[data-unit-picker-menu]');
+
+        trigger?.addEventListener('click', () => {
+            const willOpen = menu?.classList.contains('hidden') ?? false;
+            closeUnitPickers(picker);
+            menu?.classList.toggle('hidden', !willOpen);
+            trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+            setMobileNavHiddenForInput(willOpen);
+        });
+
+        picker.querySelectorAll('[data-unit-picker-option]').forEach((option) => {
+            option.addEventListener('click', () => {
+                const productId = picker.getAttribute('data-product-id');
+                const unit = option.getAttribute('data-unit-value');
+
+                if (productId && unit) {
+                    setProductUnit(productId, unit);
+                }
+
+                menu?.classList.add('hidden');
+                trigger?.setAttribute('aria-expanded', 'false');
+                setMobileNavHiddenForInput(false);
+            });
+        });
+    });
+
+    document.addEventListener('click', (event) => {
+        if (event.target instanceof HTMLElement && event.target.closest('[data-inline-unit-picker]')) {
+            return;
+        }
+
+        closeUnitPickers();
+        setMobileNavHiddenForInput(false);
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            closeUnitPickers();
+            setMobileNavHiddenForInput(false);
+        }
     });
 
     draftCartClear.addEventListener('click', () => {
