@@ -41,7 +41,7 @@ class DemoLoginTest extends TestCase
         $this->assertIsInt($loginFormStart);
         $this->assertIsInt($loginFormEnd);
         $this->assertIsInt($demoFormStart);
-        $this->assertGreaterThan($loginFormEnd, $demoFormStart);
+        $this->assertLessThan($loginFormStart, $demoFormStart);
     }
 
     public function test_demo_login_authenticates_selected_user(): void
