@@ -90,7 +90,7 @@
                             <th class="px-4 py-3 text-right">Pending Balance</th>
                             <th class="px-4 py-3 text-right">Closing Balance</th>
                             <th class="px-4 py-3">Configured</th>
-                            <th class="px-4 py-3 text-right">Open</th>
+                            <th class="px-4 py-3 text-right">Actions</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 text-sm">
@@ -174,9 +174,21 @@
                                     </span>
                                 </td>
                                 <td class="px-4 py-4 text-right">
-                                    <a href="{{ route('admin.accounting.owned-shops.show', $shop) }}" class="inline-flex h-9 items-center rounded-xl border border-slate-200 px-4 text-xs font-black uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-100">
-                                        Open
-                                    </a>
+                                    <div class="flex flex-wrap items-center justify-end gap-2">
+                                        <a href="{{ route('admin.accounting.owned-shops.show', $shop) }}" class="inline-flex h-9 items-center rounded-xl border border-slate-200 px-3 text-xs font-black uppercase tracking-[0.14em] text-slate-700 transition hover:bg-slate-100">
+                                            Open
+                                        </a>
+                                        <button type="button" data-owned-shop-edit="{{ $shop->id }}" class="inline-flex h-9 items-center rounded-xl border border-cyan-200 bg-cyan-50 px-3 text-xs font-black uppercase tracking-[0.14em] text-cyan-700 transition hover:bg-cyan-100">
+                                            Edit
+                                        </button>
+                                        <form method="POST" action="{{ route('admin.accounting.owned-shops.destroy', $shop) }}" onsubmit="return confirm('Remove {{ $shop->name }} from client accounting? Existing shop records will be kept.')">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="inline-flex h-9 items-center rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black uppercase tracking-[0.14em] text-rose-700 transition hover:bg-rose-100">
+                                                Remove
+                                            </button>
+                                        </form>
+                                    </div>
                                 </td>
                             </tr>
                         @empty
@@ -285,6 +297,72 @@
         </div>
     </div>
 
+    @foreach($shops as $shop)
+        <div id="owned-shop-edit-modal-{{ $shop->id }}" class="hidden fixed inset-0 z-[70]" data-owned-shop-edit-modal>
+            <div class="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" data-owned-shop-edit-close></div>
+            <div class="relative flex min-h-full items-center justify-center p-4">
+                <div class="w-full max-w-4xl rounded-[2rem] border border-slate-200 bg-white shadow-[0_30px_80px_rgba(15,23,42,0.22)]">
+                    <div class="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Edit Client Shop</p>
+                            <h2 class="mt-2 text-2xl font-black tracking-tight text-slate-950">{{ $shop->name }}</h2>
+                            <p class="mt-2 text-sm font-semibold text-slate-600">Update client assignment and cash defaults without deleting shop history.</p>
+                        </div>
+                        <button type="button" data-owned-shop-edit-close class="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">
+                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <form method="POST" action="{{ route('admin.accounting.owned-shops.update', $shop) }}" class="grid gap-4 px-6 py-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_220px]">
+                        @csrf
+                        @method('PATCH')
+
+                        <label class="block">
+                            <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Client</span>
+                            <select name="client_id" class="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900">
+                                <option value="">Aishwarya Veg</option>
+                                @foreach($clients as $client)
+                                    <option value="{{ $client->id }}" @selected((int) $shop->client_id === (int) $client->id)>{{ $client->name }}</option>
+                                @endforeach
+                            </select>
+                        </label>
+
+                        <label class="block">
+                            <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">New Client</span>
+                            <input type="text" name="client_name" placeholder="Optional client name" class="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900">
+                        </label>
+
+                        <label class="block">
+                            <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Business Date</span>
+                            <input type="date" name="business_date" value="{{ today()->toDateString() }}" class="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900">
+                        </label>
+
+                        <label class="block">
+                            <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Reserve Amount</span>
+                            <input type="number" step="0.01" min="0" name="reserve_amount" value="{{ number_format((float) $shop->reserve_amount, 2, '.', '') }}" class="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900">
+                        </label>
+
+                        <label class="block">
+                            <span class="mb-2 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Default Opening Balance</span>
+                            <input type="number" step="0.01" name="default_petty_cash_amount" value="{{ number_format((float) $shop->default_petty_cash_amount, 2, '.', '') }}" class="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900">
+                        </label>
+
+                        <div class="flex items-end justify-end gap-3 lg:col-span-3">
+                            <button type="button" data-owned-shop-edit-close class="inline-flex h-11 items-center rounded-2xl border border-slate-200 px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50">
+                                Cancel
+                            </button>
+                            <button type="submit" class="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-xs font-black uppercase tracking-[0.18em] text-white transition hover:bg-slate-800">
+                                Save Changes
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    @endforeach
+
     <script>
         (() => {
             const modal = document.getElementById('owned-shop-modal');
@@ -319,6 +397,40 @@
             document.addEventListener('keydown', (event) => {
                 if (event.key === 'Escape' && !modal.classList.contains('hidden')) {
                     hideModal();
+                }
+            });
+        })();
+
+        (() => {
+            const editButtons = document.querySelectorAll('[data-owned-shop-edit]');
+            const editModals = document.querySelectorAll('[data-owned-shop-edit-modal]');
+
+            const hideAll = () => {
+                editModals.forEach((modal) => modal.classList.add('hidden'));
+                document.body.classList.remove('overflow-hidden');
+            };
+
+            editButtons.forEach((button) => {
+                button.addEventListener('click', () => {
+                    hideAll();
+                    const modal = document.getElementById(`owned-shop-edit-modal-${button.dataset.ownedShopEdit}`);
+
+                    if (!modal) {
+                        return;
+                    }
+
+                    modal.classList.remove('hidden');
+                    document.body.classList.add('overflow-hidden');
+                });
+            });
+
+            document.querySelectorAll('[data-owned-shop-edit-close]').forEach((button) => {
+                button.addEventListener('click', hideAll);
+            });
+
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') {
+                    hideAll();
                 }
             });
         })();

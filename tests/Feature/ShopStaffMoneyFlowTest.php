@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Models\Client;
 use App\Models\Employee;
 use App\Models\EmployeeAdvanceRequest;
 use App\Models\EmployeeAdvanceRule;
@@ -2340,6 +2341,87 @@ class ShopStaffMoneyFlowTest extends TestCase
         $this->assertSame('-238.00', $todayEntry->closing_cash);
         $this->assertSame(338.0, $service->receiptSummaryForDate($shop, Carbon::parse('2026-07-20'))['cash_debit']);
         $this->assertSame(-338.0, $service->receiptSummaryForDate($shop, Carbon::parse('2026-07-21'))['opening_balance']);
+    }
+
+    public function test_admin_can_update_client_shop_settings_from_index(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $client = Client::query()->firstOrCreate(
+            ['code' => 'AISHWARYA_VEG'],
+            ['name' => 'Aishwarya Veg', 'status' => 'active'],
+        );
+        $newClient = Client::query()->create([
+            'name' => 'New Client',
+            'code' => 'NEW_CLIENT',
+            'status' => 'active',
+        ]);
+        $shop = $this->ownedShop([
+            'name' => 'Casio',
+            'client_id' => $client->id,
+            'reserve_amount' => 100,
+            'default_petty_cash_amount' => 50,
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->get(route('admin.accounting.owned-shops.index'))
+            ->assertOk()
+            ->assertSeeText('Edit')
+            ->assertSeeText('Remove');
+
+        $this
+            ->actingAs($admin)
+            ->patch(route('admin.accounting.owned-shops.update', ['shop' => $shop->code]), [
+                'client_id' => $newClient->id,
+                'reserve_amount' => 250,
+                'default_petty_cash_amount' => 75,
+                'business_date' => '2026-07-27',
+            ])
+            ->assertRedirect(route('admin.accounting.owned-shops.index'));
+
+        $shop->refresh();
+
+        $this->assertSame($newClient->id, $shop->client_id);
+        $this->assertSame('250.00', $shop->reserve_amount);
+        $this->assertSame('75.00', $shop->default_petty_cash_amount);
+        $this->assertDatabaseHas('shop_credits', [
+            'shop_id' => $shop->id,
+            'type' => 'in',
+            'amount' => '150.00',
+            'business_date' => '2026-07-27 00:00:00',
+            'status' => 'approved',
+        ]);
+    }
+
+    public function test_admin_can_remove_shop_from_client_accounting_without_deleting_shop(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $client = Client::query()->firstOrCreate(
+            ['code' => 'AISHWARYA_VEG'],
+            ['name' => 'Aishwarya Veg', 'status' => 'active'],
+        );
+        $shop = $this->ownedShop([
+            'name' => 'Casio',
+            'client_id' => $client->id,
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->delete(route('admin.accounting.owned-shops.destroy', ['shop' => $shop->code]))
+            ->assertRedirect(route('admin.accounting.owned-shops.index'));
+
+        $shop->refresh();
+
+        $this->assertFalse($shop->accounting_enabled);
+        $this->assertSame('regular', $shop->accounting_mode);
+        $this->assertNull($shop->client_id);
+        $this->assertModelExists($shop);
     }
 
     /**

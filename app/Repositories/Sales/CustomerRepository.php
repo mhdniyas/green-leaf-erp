@@ -18,7 +18,12 @@ class CustomerRepository extends BaseRepository
     public function paginateFiltered(int $perPage = 15, ?string $search = null, ?string $type = null): LengthAwarePaginator
     {
         return $this->query()
-            ->when($search, fn ($q) => $q->where('name', 'like', "%{$search}%"))
+            ->when($search, fn ($q) => $q->where(function ($query) use ($search) {
+                $query
+                    ->where('name', 'like', "%{$search}%")
+                    ->orWhere('contact', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%");
+            }))
             ->when($type, fn ($q) => $q->where('type', $type))
             ->orderBy('name')
             ->paginate($perPage);

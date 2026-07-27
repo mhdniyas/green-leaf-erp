@@ -188,7 +188,7 @@ Route::middleware('auth')->group(function () {
     // ── Sales ──────────────────────────────────────────────────────────────
     Route::prefix('sales')->name('sales.')->middleware('can:sales.customer.view')->group(function () {
         // Customers
-        Route::get('customers', [CustomerController::class, 'index'])->name('customers.index');
+        Route::resource('customers', CustomerController::class)->except(['show']);
 
         // Sales Invoices
         Route::resource('invoices', SalesInvoiceController::class)->only(['index', 'create', 'store', 'show']);
@@ -335,6 +335,8 @@ Route::middleware('auth')->group(function () {
             Route::get('clients/{client}', [AdminAccountingController::class, 'clientDashboard'])->name('clients.show');
             Route::get('owned-shops', [AdminAccountingController::class, 'ownedShopsIndex'])->name('owned-shops.index');
             Route::post('owned-shops', [AdminAccountingController::class, 'storeOwnedShop'])->name('owned-shops.store');
+            Route::patch('owned-shops/{shop:code}', [AdminAccountingController::class, 'updateOwnedShop'])->name('owned-shops.update');
+            Route::delete('owned-shops/{shop:code}', [AdminAccountingController::class, 'destroyOwnedShop'])->name('owned-shops.destroy');
             Route::get('owned-shops/{shop:code}', [AdminAccountingController::class, 'ownedShopShow'])->name('owned-shops.show');
             Route::get('owned-shops/{shop:code}/categories', [AdminAccountingController::class, 'ownedShopCategories'])->name('owned-shops.categories.index');
             Route::patch('owned-shops/{shop:code}/reserve-amount', [AdminAccountingController::class, 'updateReserveAmount'])->name('owned-shops.reserve-amount.update');

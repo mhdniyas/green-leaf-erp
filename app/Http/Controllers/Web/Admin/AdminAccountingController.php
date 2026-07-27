@@ -254,7 +254,7 @@ class AdminAccountingController extends Controller
         $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
 
         $shops = $this->ownedShopAccountingService->eligibleShops();
-        $shops->load(['users:id,shop_id', 'latestAccountingEntry.submittedBy:id,name', 'latestClosingAccountingEntry']);
+        $shops->load(['client', 'users:id,shop_id', 'latestAccountingEntry.submittedBy:id,name', 'latestClosingAccountingEntry']);
         $shops->loadSum('invoices as pending_balance_amount', 'balance_amount');
         $shops->loadCount([
             'accountingEntries as pending_updates_count' => fn ($query) => $query->where('status', 'submitted'),
@@ -462,6 +462,53 @@ class AdminAccountingController extends Controller
 
         return redirect()->route('admin.accounting.owned-shops.show', ['shop' => $shop->code])
             ->with('success', 'Client accounting enabled for '.$shop->name.' under '.$client->name.'.');
+    }
+
+    public function updateOwnedShop(Request $request, Shop $shop): RedirectResponse
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
+        $shop = $this->loadEligibleShop($shop);
+
+        $validated = $request->validate([
+            'client_id' => ['nullable', 'integer', 'exists:clients,id'],
+            'client_name' => ['nullable', 'string', 'max:120'],
+            'reserve_amount' => ['nullable', 'numeric', 'min:0'],
+            'default_petty_cash_amount' => ['nullable', 'numeric'],
+            'business_date' => ['required', 'date'],
+        ]);
+
+        $client = $this->resolveClientForShop($validated);
+        $previousReserveAmount = round((float) $shop->reserve_amount, 2);
+        $newReserveAmount = round((float) ($validated['reserve_amount'] ?? 0), 2);
+        $businessDate = Carbon::parse((string) $validated['business_date']);
+
+        DB::transaction(function () use ($request, $shop, $client, $previousReserveAmount, $newReserveAmount, $validated, $businessDate): void {
+            $shop->update([
+                'client_id' => $client->id,
+                'reserve_amount' => $newReserveAmount,
+                'default_petty_cash_amount' => round((float) ($validated['default_petty_cash_amount'] ?? 0), 2),
+            ]);
+
+            $this->recordReserveAdjustment($shop, $previousReserveAmount, $newReserveAmount, $businessDate, $request->user()?->id);
+        });
+
+        return redirect()->route('admin.accounting.owned-shops.index')
+            ->with('success', $shop->name.' client accounting settings updated.');
+    }
+
+    public function destroyOwnedShop(Request $request, Shop $shop): RedirectResponse
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
+        $shop = $this->loadEligibleShop($shop);
+
+        $shop->update([
+            'accounting_enabled' => false,
+            'accounting_mode' => 'regular',
+            'client_id' => null,
+        ]);
+
+        return redirect()->route('admin.accounting.owned-shops.index')
+            ->with('warning', $shop->name.' removed from client accounting. Existing shop records were kept.');
     }
 
     /**
