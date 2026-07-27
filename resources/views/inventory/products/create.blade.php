@@ -292,6 +292,7 @@ $unitRows = old('units', $existingUnitRows);
             let cropper = null;
             let selectedFile = null;
             const productUnitOptions = @json($units);
+            let previousBaseUnit = document.getElementById('unit')?.value || 'kg';
 
             function unitLabel(unit) {
                 return String(unit || '').toUpperCase();
@@ -366,6 +367,22 @@ $unitRows = old('units', $existingUnitRows);
                 }
             }
 
+            function handleBaseUnitChange() {
+                const baseUnit = document.getElementById('unit')?.value || 'kg';
+                const rows = Array.from(document.querySelectorAll('[data-product-unit-row]'));
+                const previousBaseRow = rows.find((row) => row.querySelector('[data-unit-select]')?.value === previousBaseUnit);
+                const newBaseRow = rows.find((row) => row.querySelector('[data-unit-select]')?.value === baseUnit);
+
+                if (!newBaseRow && previousBaseRow) {
+                    previousBaseRow.querySelector('[data-unit-select]').value = baseUnit;
+                } else if (newBaseRow && previousBaseRow && newBaseRow !== previousBaseRow) {
+                    previousBaseRow.remove();
+                }
+
+                previousBaseUnit = baseUnit;
+                syncProductUnitRows();
+            }
+
             document.getElementById('add-product-unit-row')?.addEventListener('click', () => {
                 const container = document.getElementById('product-unit-rows');
                 if (!container) return;
@@ -390,7 +407,7 @@ $unitRows = old('units', $existingUnitRows);
                 }
             });
 
-            document.getElementById('unit')?.addEventListener('change', syncProductUnitRows);
+            document.getElementById('unit')?.addEventListener('change', handleBaseUnitChange);
             syncProductUnitRows();
 
             function handleImageSelect(event) {
