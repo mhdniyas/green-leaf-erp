@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ProductUnit extends Model
 {
+    public const AVAILABLE_UNITS = ['kg', 'box', 'piece', 'bag', 'bunch', 'packet', 'crate', 'tray'];
+
     protected $fillable = [
         'product_id',
         'unit',

@@ -7,8 +7,10 @@ namespace App\Http\Controllers\Web\Inventory;
 use App\DTOs\Inventory\ProductData;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Inventory\StoreProductRequest;
+use App\Http\Requests\Web\Inventory\UpdateProductMeasuresBulkRequest;
 use App\Http\Requests\Web\Inventory\UpdateProductRequest;
 use App\Models\Product;
+use App\Models\ProductUnit;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Repositories\Inventory\CategoryRepository;
@@ -57,6 +59,29 @@ class ProductController extends Controller
         return view('inventory.products.create', compact('categories', 'warehouses'));
     }
 
+    public function bulkMeasures(Request $request): View
+    {
+        abort_unless($request->user()?->can('inventory.product.update'), 403);
+
+        $products = Product::query()
+            ->with(['category', 'orderUnits'])
+            ->when($request->string('search')->toString() !== '', function ($query) use ($request): void {
+                $search = $request->string('search')->toString();
+                $query->where(function ($query) use ($search): void {
+                    $query->where('name', 'like', "%{$search}%")
+                        ->orWhere('sku', 'like', "%{$search}%")
+                        ->orWhereHas('category', fn ($categoryQuery) => $categoryQuery->where('name', 'like', "%{$search}%"));
+                });
+            })
+            ->orderByDesc('is_active')
+            ->ordered()
+            ->get();
+
+        $units = ProductUnit::AVAILABLE_UNITS;
+
+        return view('inventory.products.bulk-measures', compact('products', 'units'));
+    }
+
     public function receiverIndex(Request $request): View
     {
         abort_unless($request->user()?->hasRole('warehouse_receiver') || $request->user()?->can('warehouse.receive.view'), 403);
@@ -99,6 +124,15 @@ class ProductController extends Controller
 
         return redirect()->route('inventory.products.index')
             ->with('success', 'Product updated successfully.');
+    }
+
+    public function updateBulkMeasures(UpdateProductMeasuresBulkRequest $request): RedirectResponse
+    {
+        $updated = $this->service->bulkUpdateMeasures($request->validatedProducts());
+
+        return redirect()
+            ->route('inventory.products.measures.bulk', $request->only('search'))
+            ->with('success', "{$updated} product measures updated.");
     }
 
     public function updateStatus(Request $request, Product $product): RedirectResponse

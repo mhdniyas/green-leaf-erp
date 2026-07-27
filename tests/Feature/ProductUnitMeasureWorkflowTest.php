@@ -124,4 +124,67 @@ class ProductUnitMeasureWorkflowTest extends TestCase
         $this->assertSame(3.0, (float) $item->requested_unit_quantity);
         $this->assertSame(12.0, (float) $item->requested_unit_conversion_to_base);
     }
+
+    public function test_admin_can_bulk_update_product_measures_only(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $category = Category::factory()->create();
+        $product = Product::factory()->create([
+            'category_id' => $category->id,
+            'name' => 'Bulk Tomato',
+            'sku' => 'BULK-TOMATO',
+            'unit' => 'kg',
+            'is_active' => true,
+        ]);
+        ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'kg',
+            'label' => 'KG',
+            'conversion_to_base' => 1,
+            'is_base' => true,
+            'is_orderable' => true,
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->get(route('inventory.products.index'))
+            ->assertOk()
+            ->assertSee(route('inventory.products.measures.bulk'), false);
+
+        $this
+            ->actingAs($admin)
+            ->get(route('inventory.products.measures.bulk'))
+            ->assertOk()
+            ->assertSeeText('Bulk Product Unit Measures')
+            ->assertSee('BULK-TOMATO');
+
+        $this
+            ->actingAs($admin)
+            ->put(route('inventory.products.measures.bulk.update'), [
+                'products' => [
+                    [
+                        'public_uuid' => $product->public_uuid,
+                        'base_unit' => 'kg',
+                        'units' => [
+                            'kg' => '1',
+                            'box' => '12',
+                            'piece' => '0.25',
+                            'bag' => '',
+                        ],
+                    ],
+                ],
+            ])
+            ->assertRedirect(route('inventory.products.measures.bulk'));
+
+        $product->refresh()->load('orderUnits');
+
+        $this->assertSame('Bulk Tomato', $product->name);
+        $this->assertSame('BULK-TOMATO', $product->sku);
+        $this->assertSame('kg', $product->unit);
+        $this->assertSame(3, $product->orderUnits->count());
+        $this->assertSame(12.0, (float) $product->orderUnits->firstWhere('unit', 'box')->conversion_to_base);
+        $this->assertSame(0.25, (float) $product->orderUnits->firstWhere('unit', 'piece')->conversion_to_base);
+        $this->assertNull($product->orderUnits->firstWhere('unit', 'bag'));
+    }
 }

@@ -8,6 +8,12 @@
                 Status Permissions
             </button>
         @endif
+        @can('inventory.product.update')
+            <a href="{{ route('inventory.products.measures.bulk') }}"
+               class="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 shadow-sm transition-colors hover:bg-emerald-100">
+                Bulk Measures
+            </a>
+        @endcan
         <a href="{{ route('inventory.products.create') }}"
            id="add-product-btn"
            class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-700 transition-colors shadow-sm">

@@ -4,12 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Web\Inventory;
 
+use App\Models\ProductUnit;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreProductRequest extends FormRequest
 {
-    private const Units = ['kg', 'box', 'bunch', 'piece', 'bag', 'packet', 'crate', 'tray'];
-
     public function authorize(): bool
     {
         return $this->user()->can('inventory.product.create');
@@ -22,9 +21,9 @@ class StoreProductRequest extends FormRequest
             'default_warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
             'name' => ['required', 'string', 'min:2', 'max:255'],
             'sku' => ['required', 'string', 'max:100', 'unique:products,sku', 'regex:/^[A-Za-z0-9\-_]+$/'],
-            'unit' => ['required', 'string', 'in:'.implode(',', self::Units)],
+            'unit' => ['required', 'string', 'in:'.implode(',', ProductUnit::AVAILABLE_UNITS)],
             'units' => ['nullable', 'array'],
-            'units.*.unit' => ['required_with:units', 'string', 'in:'.implode(',', self::Units)],
+            'units.*.unit' => ['required_with:units', 'string', 'in:'.implode(',', ProductUnit::AVAILABLE_UNITS)],
             'units.*.label' => ['nullable', 'string', 'max:50'],
             'units.*.conversion_to_base' => ['required_with:units', 'numeric', 'min:0.0001'],
             'units.*.is_base' => ['sometimes', 'boolean'],

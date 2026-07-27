@@ -6,6 +6,7 @@ namespace App\Services\Inventory;
 
 use App\DTOs\Inventory\ProductData;
 use App\Models\Product;
+use App\Models\ProductUnit;
 use App\Models\User;
 use App\Repositories\Inventory\ProductRepository;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -73,6 +74,38 @@ class ProductService
         });
     }
 
+    public function bulkUpdateMeasures(array $rows): int
+    {
+        if ($rows === []) {
+            return 0;
+        }
+
+        return DB::transaction(function () use ($rows): int {
+            $products = Product::query()
+                ->with('orderUnits')
+                ->whereIn('public_uuid', collect($rows)->pluck('public_uuid')->all())
+                ->get()
+                ->keyBy('public_uuid');
+
+            $updated = 0;
+
+            foreach ($rows as $row) {
+                /** @var Product|null $product */
+                $product = $products->get($row['public_uuid']);
+
+                if (! $product) {
+                    continue;
+                }
+
+                $product->update(['unit' => $row['base_unit']]);
+                $this->syncUnits($product, $this->bulkMeasureUnits($row['base_unit'], $row['units']));
+                $updated++;
+            }
+
+            return $updated;
+        });
+    }
+
     public function updateStatus(Product $product, bool $isActive, User $changedBy): Product
     {
         return $this->repository->update($product, [
@@ -134,5 +167,21 @@ class ProductService
                 ],
             );
         }
+    }
+
+    private function bulkMeasureUnits(string $baseUnit, array $units): array
+    {
+        return collect(ProductUnit::AVAILABLE_UNITS)
+            ->filter(fn (string $unit): bool => $unit === $baseUnit || isset($units[$unit]))
+            ->map(fn (string $unit, int $index): array => [
+                'unit' => $unit,
+                'label' => strtoupper($unit),
+                'conversion_to_base' => $unit === $baseUnit ? 1.0 : (float) $units[$unit],
+                'is_base' => $unit === $baseUnit,
+                'is_orderable' => true,
+                'sort_order' => $index,
+            ])
+            ->values()
+            ->all();
     }
 }

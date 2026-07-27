@@ -110,6 +110,8 @@ Route::middleware('auth')->group(function () {
 
         // Products
         Route::patch('products/status-permissions', [ProductController::class, 'updateStatusPermissions'])->name('products.status-permissions.update');
+        Route::get('products/measures/bulk', [ProductController::class, 'bulkMeasures'])->name('products.measures.bulk');
+        Route::put('products/measures/bulk', [ProductController::class, 'updateBulkMeasures'])->name('products.measures.bulk.update');
         Route::patch('products/{product}/status', [ProductController::class, 'updateStatus'])->name('products.status.update');
         Route::resource('products', ProductController::class);
 
