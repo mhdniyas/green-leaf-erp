@@ -25,6 +25,54 @@
             
             {{-- TAB: Receive (Pending) --}}
             <div id="tab-pending" class="wr-tab active space-y-4">
+                @php
+                    $receiveFiltersActive = filled($receiveSearch) || ($receiveSource ?? 'all') !== 'all' || filled($receiveCategoryId);
+                @endphp
+                <form action="{{ route('warehouse.receiver.checklist') }}" method="GET" class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
+                    <input type="hidden" name="date" value="{{ $date }}">
+                    <input type="hidden" name="tab" value="pending">
+                    <div class="grid gap-2 md:grid-cols-[1fr_180px_220px_auto] md:items-end">
+                        <div>
+                            <label for="receive-search" class="mb-1 block text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Search Delivery</label>
+                            <input id="receive-search" type="search" name="receive_search" value="{{ $receiveSearch }}" placeholder="Product, vendor, GRN, purchaser, order..." class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none">
+                        </div>
+                        <div class="relative">
+                            <label for="receive-source" class="mb-1 block text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Source</label>
+                            <select id="receive-source" name="receive_source" class="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-3 pl-3 pr-9 text-xs font-black text-slate-700 focus:border-indigo-500 focus:bg-white focus:outline-none">
+                                <option value="all" @selected(($receiveSource ?? 'all') === 'all')>All Sources</option>
+                                <option value="vendor" @selected(($receiveSource ?? 'all') === 'vendor')>Vendor Sheets</option>
+                                <option value="direct" @selected(($receiveSource ?? 'all') === 'direct')>Direct Purchases</option>
+                                <option value="batch" @selected(($receiveSource ?? 'all') === 'batch')>Pending Batches</option>
+                            </select>
+                            <div class="pointer-events-none absolute inset-y-0 right-0 top-5 flex items-center pr-3 text-slate-400">
+                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="relative">
+                            <label for="receive-category" class="mb-1 block text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Category</label>
+                            <select id="receive-category" name="receive_category_id" class="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-3 pl-3 pr-9 text-xs font-black text-slate-700 focus:border-indigo-500 focus:bg-white focus:outline-none">
+                                <option value="">All Categories</option>
+                                @foreach($receiveCategories as $category)
+                                    <option value="{{ $category->id }}" @selected((int) $receiveCategoryId === (int) $category->id)>{{ $category->name }}</option>
+                                @endforeach
+                            </select>
+                            <div class="pointer-events-none absolute inset-y-0 right-0 top-5 flex items-center pr-3 text-slate-400">
+                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="flex gap-2">
+                            @if($receiveFiltersActive)
+                                <a href="{{ route('warehouse.receiver.checklist', ['date' => $date, 'tab' => 'pending']) }}" class="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-600 transition-colors hover:bg-slate-50">Clear</a>
+                            @endif
+                            <button type="submit" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-indigo-600 px-4 text-xs font-black text-white transition-colors hover:bg-indigo-700 md:flex-none">Search</button>
+                        </div>
+                    </div>
+                </form>
+
                 @if($pendingGrns->isEmpty() && $pendingBatches->isEmpty() && $pendingDirectPurchaseOrders->isEmpty())
                     <div class="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm lg:rounded-[2rem]">
                         <div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 border border-emerald-100">
@@ -32,8 +80,14 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                         </div>
-                        <h3 class="text-sm font-bold text-slate-900">All Clear!</h3>
-                        <p class="mt-1 text-xs text-slate-500">No pending sheets or batches for {{ $date }}.<br>All stock is in inventory.</p>
+                        <h3 class="text-sm font-bold text-slate-900">{{ $receiveFiltersActive ? 'No matching deliveries' : 'All Clear!' }}</h3>
+                        <p class="mt-1 text-xs text-slate-500">
+                            @if($receiveFiltersActive)
+                                No pending warehouse deliveries match these filters for {{ $date }}.
+                            @else
+                                No pending sheets or batches for {{ $date }}.<br>All stock is in inventory.
+                            @endif
+                        </p>
                     </div>
                 @else
                     {{-- Pending GRNs / Vendor Sheets --}}

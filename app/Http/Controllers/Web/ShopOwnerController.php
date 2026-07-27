@@ -6,7 +6,6 @@ namespace App\Http\Controllers\Web;
 
 use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Web\ShopOwner\StoreShopCompanyPaymentRequest;
 use App\Http\Requests\Web\ShopOwner\StoreShopInvoicePaymentRequest;
 use App\Http\Requests\Web\ShopOwner\StoreShopOwnerAccountingEntryRequest;
 use App\Models\Category;
@@ -16,19 +15,23 @@ use App\Models\ShopCredit;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
+use App\Models\ShopOrderItem;
 use App\Models\ShopPreset;
 use App\Models\User;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\ShopInvoices\ShopInvoiceService;
+use App\Services\ShopOrders\DeliveryPriceReadinessService;
 use App\Services\ShopOrders\DeliveryVerificationEligibility;
 use App\Support\ShopOwner\ActiveShopResolver;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -40,6 +43,7 @@ class ShopOwnerController extends Controller
         private readonly PurchaserBusinessDayService $businessDayService,
         private readonly ShopInvoiceService $shopInvoiceService,
         private readonly ActiveShopResolver $activeShopResolver,
+        private readonly DeliveryPriceReadinessService $deliveryPriceReadinessService,
         private readonly DeliveryVerificationEligibility $deliveryVerificationEligibility,
     ) {}
 
@@ -114,7 +118,8 @@ class ShopOwnerController extends Controller
                 ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate))
                 ->where(function ($query): void {
                     $query->where('is_allocation_completed', true)
-                        ->orWhere('is_delivered', true);
+                        ->orWhere('is_delivered', true)
+                        ->orWhereHas('invoice');
                 })
                 ->latest('business_date')
                 ->paginate(12, ['*'], 'deliveries_page')
@@ -131,10 +136,11 @@ class ShopOwnerController extends Controller
         $order = ShopOrder::where('order_number', $orderNumber)
             ->where('shop_id', $activeShop->id)
             ->with([
-                'shop',
+                'shop.client',
+                'shop.priceGroup',
                 'invoice.paymentRequests.requestedBy',
                 'invoice.paymentRequests.reviewedBy',
-                'items' => fn ($q) => $q->where('sorting_status', 'loaded'),
+                'items',
                 'items.product',
                 'deliveredBy',
                 'invoice.shop',
@@ -146,8 +152,137 @@ class ShopOwnerController extends Controller
 
         return view('shop-owner.deliveries.show', [
             'order' => $order,
+            'deliveryPriceReadiness' => $this->deliveryPriceReadinessService->forOrder($order),
             'deliveryEligibility' => $this->deliveryVerificationEligibility->forOrder($order),
         ]);
+    }
+
+    public function verifyDeliveryItem(Request $request, string $orderNumber, ShopOrderItem $item): JsonResponse
+    {
+        $activeShop = $this->currentShop($request);
+        $validated = $request->validate([
+            'received_qty' => ['required', 'numeric', 'min:0'],
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $order = ShopOrder::query()
+            ->where('order_number', $orderNumber)
+            ->where('shop_id', $activeShop->id)
+            ->with(['items.product', 'invoice.items.product', 'invoice.shop.priceGroup'])
+            ->firstOrFail();
+
+        abort_unless((int) $item->shop_order_id === (int) $order->id, 404);
+
+        $eligibility = $this->deliveryVerificationEligibility->forOrder($order);
+        if (! $eligibility['allowed']) {
+            return response()->json([
+                'message' => $eligibility['message'],
+            ], 422);
+        }
+
+        $expectedQty = $item->loaded_qty !== null
+            ? round((float) $item->loaded_qty, 2)
+            : round((float) ($item->approved_qty ?? 0), 2);
+        $receivedQty = round((float) $validated['received_qty'], 2);
+
+        if ($expectedQty <= 0) {
+            return response()->json([
+                'message' => 'This product does not have an approved delivery quantity.',
+            ], 422);
+        }
+
+        $result = DB::transaction(function () use ($order, $item, $receivedQty, $expectedQty, $validated, $request): array {
+            /** @var ShopOrder $lockedOrder */
+            $lockedOrder = ShopOrder::query()
+                ->with(['items.product', 'invoice'])
+                ->lockForUpdate()
+                ->findOrFail($order->id);
+
+            if (
+                $lockedOrder->delivery_status !== 'in_transit'
+                || ! in_array($lockedOrder->delivery_review_status, ['not_started', 'correction_requested'], true)
+                || ! $lockedOrder->invoice
+            ) {
+                throw ValidationException::withMessages([
+                    'order' => 'This delivery is no longer accepting shop verification.',
+                ]);
+            }
+
+            /** @var ShopOrderItem $lockedItem */
+            $lockedItem = ShopOrderItem::query()
+                ->where('shop_order_id', $lockedOrder->id)
+                ->lockForUpdate()
+                ->findOrFail($item->id);
+
+            $shortQty = round(max(0, $expectedQty - $receivedQty), 2);
+            $excessQty = round(max(0, $receivedQty - $expectedQty), 2);
+            $lockedItem->update([
+                'shop_reported_received_qty' => $receivedQty,
+                'shop_reported_missing_qty' => $shortQty,
+                'shop_reported_excess_qty' => $excessQty,
+                'shop_reported_damaged_qty' => 0,
+                'shop_reported_returned_qty' => 0,
+                'shop_verified_by' => $request->user()?->id,
+                'shop_verified_at' => now(),
+                'shop_verification_note' => filled($validated['note'] ?? null) ? trim((string) $validated['note']) : null,
+            ]);
+
+            $items = $lockedOrder->items()
+                ->where('approved_qty', '>', 0)
+                ->get();
+            $verifiedCount = $items->whereNotNull('shop_verified_at')->count();
+            $totalCount = $items->count();
+            $orderSubmitted = $totalCount > 0 && $verifiedCount === $totalCount;
+
+            if ($orderSubmitted) {
+                $lockedOrder->invoice->update([
+                    'delivery_status' => 'awaiting_review',
+                    'status' => 'delivery_review',
+                    'delivery_confirmed_by' => $request->user()?->id,
+                    'delivery_confirmed_at' => now(),
+                ]);
+
+                $lockedOrder->update([
+                    'delivery_status' => 'pending_approval',
+                    'delivery_review_status' => 'pending',
+                    'shop_checked_by' => $request->user()?->id,
+                    'shop_checked_at' => now(),
+                    'admin_reviewed_by' => null,
+                    'admin_reviewed_at' => null,
+                    'admin_review_note' => null,
+                    'is_delivered' => false,
+                    'delivered_at' => null,
+                    'delivered_by' => $request->user()?->id,
+                ]);
+            }
+
+            return [
+                'item' => [
+                    'id' => $lockedItem->id,
+                    'received_qty' => number_format($receivedQty, 2, '.', ''),
+                    'short_qty' => number_format($shortQty, 2, '.', ''),
+                    'excess_qty' => number_format($excessQty, 2, '.', ''),
+                    'status' => $excessQty > 0 ? 'excess' : ($shortQty > 0 ? 'short' : 'submitted'),
+                    'status_label' => match (true) {
+                        $excessQty > 0 => 'Excess Submitted',
+                        $shortQty > 0 => 'Short Submitted',
+                        default => 'Submitted',
+                    },
+                ],
+                'progress' => [
+                    'verified' => $verifiedCount,
+                    'total' => $totalCount,
+                    'label' => "{$verifiedCount} / {$totalCount} products submitted",
+                ],
+                'order_submitted' => $orderSubmitted,
+                'order_status_label' => $orderSubmitted ? 'Submitted For Admin Review' : 'Waiting For Remaining Products',
+                'message' => $orderSubmitted
+                    ? 'All products submitted for admin review.'
+                    : 'Product submitted. Continue with the remaining products.',
+            ];
+        });
+
+        return response()->json($result);
     }
 
     public function financeIndex(Request $request): View
@@ -187,15 +322,6 @@ class ShopOwnerController extends Controller
         $payableInvoiceTotal = (float) (clone $invoiceQuery)
             ->where('balance_amount', '>', 0)
             ->sum('balance_amount');
-        $companyPayments = ShopCredit::query()
-            ->where('shop_id', $activeShop->id)
-            ->where('type', 'out')
-            ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))
-            ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate))
-            ->with('creator')
-            ->latest('id')
-            ->paginate(12, ['*'], 'payments_page')
-            ->withQueryString();
         $invoicePaymentRequests = ShopInvoicePaymentRequest::query()
             ->where('shop_id', $activeShop->id)
             ->when($filterStartDate, fn ($query) => $query->whereDate('created_at', '>=', $filterStartDate))
@@ -207,22 +333,16 @@ class ShopOwnerController extends Controller
         $latestBalanceDate = $this->latestShopBalanceDate($activeShop);
         $latestClosingBalance = $this->ownedShopAccountingService->closingBalanceForDate($activeShop, $latestBalanceDate);
         $pendingBillApprovalSummary = $this->ownedShopAccountingService->pendingDeliveryBillApprovalSummary($activeShop);
-        $companyPaymentTotal = (float) ShopCredit::query()
-            ->approved()
-            ->where('shop_id', $activeShop->id)
-            ->where('type', 'out')
-            ->sum('amount');
         $pendingInvoicePaymentAmount = (float) ShopInvoicePaymentRequest::query()
             ->where('shop_id', $activeShop->id)
             ->where('status', 'pending')
             ->sum('requested_amount');
-        $availableInvoicePaymentCredit = $isOwnedAccountingShop ? 0.0 : $this->shopInvoiceService->availableShopCredit((int) $activeShop->id);
+        $availableInvoicePaymentCredit = $this->shopInvoiceService->availableShopCredit((int) $activeShop->id);
 
         return view('shop-owner.finance.index', [
             'invoices' => $invoices,
             'payableInvoices' => $payableInvoices,
             'payableInvoiceTotal' => $payableInvoiceTotal,
-            'companyPayments' => $companyPayments,
             'invoicePaymentRequests' => $invoicePaymentRequests,
             'activeTab' => $tab,
             'isOwnedAccountingShop' => $isOwnedAccountingShop,
@@ -230,12 +350,10 @@ class ShopOwnerController extends Controller
             'outstandingBalance' => (float) ($invoiceTotals?->outstanding_balance ?? 0),
             'paidAmount' => (float) ($invoiceTotals?->paid_amount ?? 0),
             'shortageValue' => (float) ($invoiceTotals?->shortage_value ?? 0),
-            'pendingPaymentAmount' => $isOwnedAccountingShop ? $companyPaymentTotal : $pendingInvoicePaymentAmount,
+            'pendingPaymentAmount' => $pendingInvoicePaymentAmount,
             'availableInvoicePaymentCredit' => $availableInvoicePaymentCredit,
-            'companyPaymentTotal' => $companyPaymentTotal,
             'latestBalanceDate' => $latestBalanceDate,
             'latestClosingBalance' => $latestClosingBalance,
-            'payableToCompany' => max(0.0, round($latestClosingBalance, 2)),
             'pendingBillApprovalSummary' => $pendingBillApprovalSummary,
             'filterStartDate' => $filterStartDate,
             'filterEndDate' => $filterEndDate,
@@ -430,33 +548,33 @@ class ShopOwnerController extends Controller
             $ledgerEntriesByStatus = $ledgerEntriesByStatus->map(
                 fn (Collection $statusEntries, string $statusKey): LengthAwarePaginator => $this->paginateCollection(
                     $statusEntries
-                    ->groupBy(fn (ShopAccountingEntry $ledgerEntry): string => $ledgerEntry->business_date->toDateString())
-                    ->map(function (Collection $dayEntries, string $ledgerDate) use ($cashGivenToShopByDate, $deliveryExpenseByDate, $paymentToCompanyByDate, $shop): array {
-                        $firstEntry = $dayEntries->first();
-                        $income = round((float) $dayEntries->sum(
-                            fn (ShopAccountingEntry $ledgerEntry): float => (float) $ledgerEntry->lines->where('type', 'income')->sum('amount')
-                        ), 2);
-                        $manualExpense = round((float) $dayEntries->sum(
-                            fn (ShopAccountingEntry $ledgerEntry): float => (float) $ledgerEntry->lines->where('type', 'expense')->sum('amount')
-                        ), 2);
-                        $warehouseExpense = (float) ($deliveryExpenseByDate->get($ledgerDate) ?? 0.0);
-                        $cashGivenToShop = (float) ($cashGivenToShopByDate->get($ledgerDate) ?? 0.0);
-                        $paymentToCompany = (float) ($paymentToCompanyByDate->get($ledgerDate) ?? 0.0);
+                        ->groupBy(fn (ShopAccountingEntry $ledgerEntry): string => $ledgerEntry->business_date->toDateString())
+                        ->map(function (Collection $dayEntries, string $ledgerDate) use ($cashGivenToShopByDate, $deliveryExpenseByDate, $paymentToCompanyByDate, $shop): array {
+                            $firstEntry = $dayEntries->first();
+                            $income = round((float) $dayEntries->sum(
+                                fn (ShopAccountingEntry $ledgerEntry): float => (float) $ledgerEntry->lines->where('type', 'income')->sum('amount')
+                            ), 2);
+                            $manualExpense = round((float) $dayEntries->sum(
+                                fn (ShopAccountingEntry $ledgerEntry): float => (float) $ledgerEntry->lines->where('type', 'expense')->sum('amount')
+                            ), 2);
+                            $warehouseExpense = (float) ($deliveryExpenseByDate->get($ledgerDate) ?? 0.0);
+                            $cashGivenToShop = (float) ($cashGivenToShopByDate->get($ledgerDate) ?? 0.0);
+                            $paymentToCompany = (float) ($paymentToCompanyByDate->get($ledgerDate) ?? 0.0);
 
-                        return [
-                            'date' => $ledgerDate,
-                            'status_label' => $firstEntry?->statusLabel() ?? 'No Entry',
-                            'status_tone' => $firstEntry?->statusTone() ?? 'neutral',
-                            'income' => $income,
-                            'cash_given_to_shop' => $cashGivenToShop,
-                            'payment_to_company' => $paymentToCompany,
-                            'manual_expense' => $manualExpense,
-                            'warehouse_expense' => $warehouseExpense,
-                            'closing' => $this->ownedShopAccountingService->closingBalanceForDate($shop, Carbon::parse($ledgerDate)),
-                            'items' => $dayEntries->sum(fn (ShopAccountingEntry $ledgerEntry): int => $ledgerEntry->lines->count()),
-                        ];
-                    })
-                    ->values(),
+                            return [
+                                'date' => $ledgerDate,
+                                'status_label' => $firstEntry?->statusLabel() ?? 'No Entry',
+                                'status_tone' => $firstEntry?->statusTone() ?? 'neutral',
+                                'income' => $income,
+                                'cash_given_to_shop' => $cashGivenToShop,
+                                'payment_to_company' => $paymentToCompany,
+                                'manual_expense' => $manualExpense,
+                                'warehouse_expense' => $warehouseExpense,
+                                'closing' => $this->ownedShopAccountingService->closingBalanceForDate($shop, Carbon::parse($ledgerDate)),
+                                'items' => $dayEntries->sum(fn (ShopAccountingEntry $ledgerEntry): int => $ledgerEntry->lines->count()),
+                            ];
+                        })
+                        ->values(),
                     $request,
                     'ledger_'.$statusKey.'_page',
                     12,
@@ -865,7 +983,6 @@ class ShopOwnerController extends Controller
     {
         $user = $this->shopUser($request);
         $shop = $this->currentShop($request);
-        abort_if($shop->isOwnedAccountingEnabled(), 404);
         $invoice = ShopInvoice::query()
             ->where('shop_id', $shop->id)
             ->when(
@@ -896,42 +1013,6 @@ class ShopOwnerController extends Controller
 
         return redirect()->to($redirectUrl)
             ->with('success', 'Payment request sent for admin or purchase manager approval.');
-    }
-
-    public function storeCompanyPayment(StoreShopCompanyPaymentRequest $request): RedirectResponse
-    {
-        $shop = $this->ownedAccountingShop($request);
-        $validated = $request->validated();
-        $businessDate = Carbon::parse($validated['business_date']);
-        $amount = round((float) $validated['amount'], 2);
-        $availableBalance = max(0.0, $this->ownedShopAccountingService->closingBalanceForDate($shop, $businessDate));
-        $pendingPaymentAmount = round((float) ShopCredit::query()
-            ->where('shop_id', $shop->id)
-            ->where('type', 'out')
-            ->where('status', 'pending')
-            ->sum('amount'), 2);
-
-        if ($amount > max(0.0, round($availableBalance - $pendingPaymentAmount, 2))) {
-            throw ValidationException::withMessages([
-                'amount' => 'Payment cannot be more than the current payable company balance after pending approvals.',
-            ]);
-        }
-
-        ShopCredit::query()->create([
-            'shop_id' => $shop->id,
-            'type' => 'out',
-            'is_petty_cash' => true,
-            'amount' => $amount,
-            'description' => filled($validated['description'] ?? null)
-                ? trim((string) $validated['description'])
-                : 'Cash paid to company',
-            'created_by' => $request->user()?->id,
-            'business_date' => $businessDate->toDateString(),
-            'status' => 'pending',
-        ]);
-
-        return redirect()->route('shop-owner.finance.index', ['tab' => 'payments'])
-            ->with('success', 'Company payment sent for admin approval.');
     }
 
     /**

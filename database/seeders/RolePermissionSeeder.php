@@ -27,6 +27,7 @@ class RolePermissionSeeder extends Seeder
             'inventory.product.view',
             'inventory.product.create',
             'inventory.product.update',
+            'inventory.product.status.update',
             'inventory.product.delete',
             'inventory.category.view',
             'inventory.category.create',

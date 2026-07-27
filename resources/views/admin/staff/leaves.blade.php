@@ -279,7 +279,7 @@
                     categoryLabel.textContent = categoryName;
 
                     if (staffArea === 'shop') {
-                        shopLabel.textContent = shopName !== '' ? shopName : 'No default owned shop assigned';
+                        shopLabel.textContent = shopName !== '' ? shopName : 'No default client shop assigned';
                         contextLabel.textContent = shopName !== ''
                             ? `Shop leave request will be linked to ${shopName}.`
                             : 'Shop leave request will use the employee record without a default shop.';

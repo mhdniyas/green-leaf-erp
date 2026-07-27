@@ -13,7 +13,7 @@
                 <div>
                     <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Accounting / Cash Flow</p>
                     <h1 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Cash Flow Report</h1>
-                    <p class="mt-1 text-sm font-semibold text-slate-600">Combined purchaser and owned shop cash journal.</p>
+                    <p class="mt-1 text-sm font-semibold text-slate-600">Combined purchaser, client invoice, and client loan cash journal.</p>
                 </div>
 
                 <form method="GET" action="{{ route('admin.accounting.cash-flow') }}" class="flex flex-wrap items-center gap-2 rounded-[1.2rem] border border-slate-200 bg-slate-50 p-2">

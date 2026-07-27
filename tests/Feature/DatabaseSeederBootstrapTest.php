@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\Category;
+use App\Models\Client;
 use App\Models\EmployeeAdvanceRule;
 use App\Models\Product;
+use App\Models\Shop;
 use App\Models\ShopAccountingCategory;
 use App\Models\ShopEmployeeAssignment;
 use App\Models\ShopOrder;
@@ -23,7 +25,7 @@ class DatabaseSeederBootstrapTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
-    public function test_database_seeder_bootstraps_production_base_data_without_demo_orders(): void
+    public function test_database_seeder_bootstraps_production_base_data_with_fourteen_shops_and_daily_orders(): void
     {
         $this->seed(DatabaseSeeder::class);
 
@@ -40,7 +42,7 @@ class DatabaseSeederBootstrapTest extends TestCase
 
         $this->assertTrue($vegWarehouse->exists);
         $this->assertTrue($fruitWarehouse->exists);
-        $this->assertDatabaseCount('shop_orders', 0);
+        $this->assertDatabaseCount('shop_orders', 14);
         $this->assertDatabaseCount('goods_received', 0);
         $this->assertDatabaseHas('roles', ['name' => 'admin', 'guard_name' => 'web']);
         $this->assertDatabaseHas('roles', ['name' => 'shop', 'guard_name' => 'web']);
@@ -52,12 +54,47 @@ class DatabaseSeederBootstrapTest extends TestCase
         $this->assertDatabaseHas('users', ['email' => 'purchase@greenleaf.com', 'registration_status' => 'approved']);
         $this->assertDatabaseHas('users', ['email' => 'purchaser@greenleaf.com', 'registration_status' => 'approved']);
         $this->assertDatabaseHas('users', ['email' => 'receiver@greenleaf.com', 'registration_status' => 'approved']);
-        $this->assertDatabaseHas('shops', ['code' => 'SHOP_ASHIRWAD', 'name' => 'Ashirwad', 'status' => 'active']);
-        $this->assertDatabaseHas('users', ['email' => 'shop-ashirwad@greenleaf.com', 'registration_status' => 'approved']);
-        $this->assertNotNull(User::query()->where('email', 'shop-ashirwad@greenleaf.com')->firstOrFail()->shop?->shop_price_group_id);
+        $aishwaryaVeg = Client::query()->where('code', 'AISHWARYA_VEG')->firstOrFail();
+
+        $this->assertDatabaseHas('shops', [
+            'code' => 'AV_CASIO',
+            'name' => 'Casio',
+            'status' => 'active',
+            'client_id' => $aishwaryaVeg->id,
+        ]);
+        $this->assertDatabaseHas('shops', [
+            'code' => 'AV_SANA_JP',
+            'name' => 'Sana JP',
+            'status' => 'active',
+            'client_id' => $aishwaryaVeg->id,
+        ]);
+        $this->assertDatabaseHas('shops', [
+            'code' => 'AV_JINDAL_CITY',
+            'name' => 'Jindal City',
+            'status' => 'active',
+            'client_id' => $aishwaryaVeg->id,
+        ]);
+        $this->assertDatabaseHas('shops', [
+            'code' => 'DS_QUICK_MART',
+            'name' => 'Quick Mart',
+            'status' => 'active',
+            'client_id' => null,
+        ]);
+        $this->assertDatabaseHas('shops', [
+            'code' => 'DS_FORTUNE_SM',
+            'name' => 'Fortune SM',
+            'status' => 'active',
+            'client_id' => null,
+        ]);
+        $this->assertDatabaseHas('users', ['email' => 'shop-direct-quick-mart@greenleaf.com', 'registration_status' => 'approved']);
+        $this->assertNotNull(User::query()->where('email', 'shop-direct-quick-mart@greenleaf.com')->firstOrFail()->shop?->shop_price_group_id);
+        $this->assertSame(14, Shop::query()->where('status', 'active')->count());
+        $this->assertSame(12, Shop::query()->where('client_id', $aishwaryaVeg->id)->where('status', 'active')->count());
+        $this->assertSame(2, Shop::query()->whereNull('client_id')->where('status', 'active')->count());
         $this->assertSame(14, User::role('shop')->count());
         $this->assertSame(14, ShopOwnerAssignment::query()->count());
         $this->assertSame(42, ShopEmployeeAssignment::query()->where('status', 'active')->count());
+        $this->assertSame(70, ShopOrder::query()->withCount('items')->get()->sum('items_count'));
         $this->assertSame(10, EmployeeAdvanceRule::activeRule()->minimum_present_days);
         $this->assertGreaterThan(0, ShopAccountingCategory::query()->whereNull('shop_id')->where('is_active', true)->count());
 
@@ -71,7 +108,7 @@ class DatabaseSeederBootstrapTest extends TestCase
         );
     }
 
-    public function test_workflow_shop_order_seeder_creates_two_submitted_orders_per_shop_for_today(): void
+    public function test_workflow_shop_order_seeder_creates_one_five_item_submitted_order_per_shop_for_today(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-07-25 09:00:00', 'Asia/Kolkata'));
 
@@ -80,8 +117,9 @@ class DatabaseSeederBootstrapTest extends TestCase
 
         $shopCount = User::role('shop')->whereNotNull('shop_id')->count();
 
-        $this->assertSame($shopCount * 2, ShopOrder::query()->count());
-        $this->assertSame($shopCount * 2, ShopOrder::query()
+        $this->assertSame(14, $shopCount);
+        $this->assertSame($shopCount, ShopOrder::query()->count());
+        $this->assertSame($shopCount, ShopOrder::query()
             ->where('order_source', 'seeded_shop_workflow')
             ->where('state', 'submitted')
             ->whereDate('business_date', '2026-07-25')
@@ -92,8 +130,13 @@ class DatabaseSeederBootstrapTest extends TestCase
             ->select('shop_id')
             ->selectRaw('COUNT(*) as orders_count')
             ->groupBy('shop_id')
-            ->having('orders_count', 2)
+            ->having('orders_count', 1)
             ->get()
+            ->count());
+        $this->assertSame($shopCount, ShopOrder::query()
+            ->withCount('items')
+            ->get()
+            ->filter(fn (ShopOrder $order): bool => $order->items_count === 5)
             ->count());
         $this->assertSame(0, ShopOrder::query()
             ->whereHas('items', fn ($query) => $query->whereNotNull('approved_qty'))

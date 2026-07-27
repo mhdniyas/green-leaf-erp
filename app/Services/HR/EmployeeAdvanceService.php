@@ -27,13 +27,13 @@ class EmployeeAdvanceService
     /**
      * @return array{rule: EmployeeAdvanceRule, present_days: float, earned_amount: float, eligible_amount: float, already_advanced_amount: float, available_amount: float}
      */
-    public function eligibility(Employee $employee, Carbon $month): array
+    public function eligibility(Employee $employee, Carbon $month, ?int $shopId = null, ?bool $greenLeafOnly = null): array
     {
         $rule = EmployeeAdvanceRule::activeRule();
         $monthStart = $month->copy()->startOfMonth();
         $monthEnd = $month->copy()->endOfMonth();
         $periodEnd = today()->lt($monthEnd) ? today() : $monthEnd;
-        $summary = $this->payrollService->attendanceSummary($employee, $monthStart, $periodEnd);
+        $summary = $this->payrollService->attendanceSummary($employee, $monthStart, $periodEnd, $shopId, $greenLeafOnly);
         $presentDays = (float) $summary['present_days'];
         $dailyRate = (string) $employee->salary_type === 'daily_wage'
             ? (float) $employee->daily_wage
@@ -42,7 +42,7 @@ class EmployeeAdvanceService
         $eligibleAmount = $presentDays >= (float) $rule->minimum_present_days
             ? round($earnedAmount * ((float) $rule->advance_percent / 100), 2)
             : 0.0;
-        $alreadyAdvancedAmount = $this->approvedAdvanceAmount($employee, $monthStart);
+        $alreadyAdvancedAmount = $this->approvedAdvanceAmount($employee, $monthStart, $shopId);
         $availableAmount = round(max(0, $eligibleAmount - $alreadyAdvancedAmount), 2);
 
         return [
@@ -66,9 +66,11 @@ class EmployeeAdvanceService
             (int) $actor->id,
         );
 
-        if ($amount > $payrollRunItem->remainingAmount()) {
+        $remainingShopPayable = $this->remainingShopPayable($payrollRunItem, $employee, $shop, $paidOn);
+
+        if ($amount - $remainingShopPayable > 0.01) {
             throw ValidationException::withMessages([
-                'amount' => 'The salary payment cannot be more than the remaining salary.',
+                'amount' => 'The salary payment cannot be more than the remaining client-shop salary.',
             ]);
         }
 
@@ -97,9 +99,11 @@ class EmployeeAdvanceService
     {
         $payrollRunItem->loadMissing(['employee', 'shopStaffPayments', 'payments']);
 
-        if ($paymentType === 'salary' && $amount > $payrollRunItem->remainingAmount()) {
+        $remainingShopPayable = $this->remainingShopPayable($payrollRunItem, $payrollRunItem->employee, $shop, $paidOn);
+
+        if ($paymentType === 'salary' && $amount - $remainingShopPayable > 0.01) {
             throw ValidationException::withMessages([
-                'amount' => 'The shop salary payment cannot be more than the remaining salary.',
+                'amount' => 'The shop salary payment cannot be more than the remaining client-shop salary.',
             ]);
         }
 
@@ -129,7 +133,7 @@ class EmployeeAdvanceService
         $this->ensureShopAdvanceEmployee($employee, $shop, $requestedOn);
 
         $month = $requestedOn->copy()->startOfMonth();
-        $eligibility = $this->eligibility($employee, $month);
+        $eligibility = $this->eligibility($employee, $month, (int) $shop->id);
         /** @var EmployeeAdvanceRule $rule */
         $rule = $eligibility['rule'];
         $eligibleAmount = (float) $eligibility['eligible_amount'];
@@ -256,12 +260,26 @@ class EmployeeAdvanceService
         }
     }
 
-    private function approvedAdvanceAmount(Employee $employee, Carbon $monthStart): float
+    private function approvedAdvanceAmount(Employee $employee, Carbon $monthStart, ?int $shopId = null): float
     {
         return round((float) EmployeeAdvanceRequest::query()
             ->where('employee_id', $employee->id)
             ->whereDate('payroll_month', $monthStart->toDateString())
+            ->when($shopId !== null, fn ($query) => $query->where('shop_id', $shopId))
             ->where('status', 'approved')
             ->sum('approved_amount'), 2);
+    }
+
+    private function remainingShopPayable(PayrollRunItem $payrollRunItem, Employee $employee, Shop $shop, Carbon $date): float
+    {
+        $periodStart = $date->copy()->startOfMonth();
+        $periodEnd = $date->copy()->endOfMonth();
+        $payable = $this->payrollService->payableForAttendance($employee, $periodStart, $periodEnd, (int) $shop->id);
+        $paid = (float) $payrollRunItem
+            ->shopStaffPayments()
+            ->where('shop_id', $shop->id)
+            ->sum('amount');
+
+        return round(max(0, (float) $payable['amount'] - $paid), 2);
     }
 }

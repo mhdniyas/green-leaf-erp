@@ -9,12 +9,14 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Inventory\StoreProductRequest;
 use App\Http\Requests\Web\Inventory\UpdateProductRequest;
 use App\Models\Product;
+use App\Models\User;
 use App\Models\Warehouse;
 use App\Repositories\Inventory\CategoryRepository;
 use App\Services\Inventory\ProductService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
+use Spatie\Permission\Models\Permission;
 
 class ProductController extends Controller
 {
@@ -25,15 +27,26 @@ class ProductController extends Controller
 
     public function index(Request $request): View
     {
+        $status = in_array($request->string('status')->toString(), ['active', 'inactive'], true)
+            ? $request->string('status')->toString()
+            : null;
         $products = $this->service->paginate(
             perPage: 20,
             categoryId: $request->integer('category_id') ?: null,
             search: $request->string('search')->toString() ?: null,
+            status: $status,
         );
 
         $categories = $this->categories->findAllActive();
+        $warehouseReceivers = collect();
+        if ($request->user()?->hasRole('admin')) {
+            $warehouseReceivers = User::query()
+                ->role('warehouse_receiver')
+                ->orderBy('name')
+                ->get(['id', 'name', 'email']);
+        }
 
-        return view('inventory.products.index', compact('products', 'categories'));
+        return view('inventory.products.index', compact('products', 'categories', 'warehouseReceivers'));
     }
 
     public function create(): View
@@ -42,6 +55,25 @@ class ProductController extends Controller
         $warehouses = Warehouse::active()->orderBy('name')->get();
 
         return view('inventory.products.create', compact('categories', 'warehouses'));
+    }
+
+    public function receiverIndex(Request $request): View
+    {
+        abort_unless($request->user()?->hasRole('warehouse_receiver') || $request->user()?->can('warehouse.receive.view'), 403);
+
+        $status = in_array($request->string('status')->toString(), ['active', 'inactive'], true)
+            ? $request->string('status')->toString()
+            : null;
+
+        $products = $this->service->paginate(
+            perPage: 20,
+            categoryId: $request->integer('category_id') ?: null,
+            search: $request->string('search')->toString() ?: null,
+            status: $status,
+        );
+        $categories = $this->categories->findAllActive();
+
+        return view('warehouse-receiver.products', compact('products', 'categories'));
     }
 
     public function store(StoreProductRequest $request): RedirectResponse
@@ -66,6 +98,51 @@ class ProductController extends Controller
 
         return redirect()->route('inventory.products.index')
             ->with('success', 'Product updated successfully.');
+    }
+
+    public function updateStatus(Request $request, Product $product): RedirectResponse
+    {
+        abort_unless($request->user()?->hasRole('admin') || $request->user()?->can('inventory.product.status.update'), 403);
+
+        $validated = $request->validate([
+            'is_active' => ['required', 'boolean'],
+        ]);
+
+        $this->service->updateStatus($product, (bool) $validated['is_active'], $request->user());
+
+        return redirect()
+            ->back()
+            ->with('success', "{$product->name} marked ".($validated['is_active'] ? 'active.' : 'inactive.'));
+    }
+
+    public function updateStatusPermissions(Request $request): RedirectResponse
+    {
+        abort_unless($request->user()?->hasRole('admin'), 403);
+
+        $validated = $request->validate([
+            'user_ids' => ['nullable', 'array'],
+            'user_ids.*' => ['integer', 'exists:users,id'],
+        ]);
+
+        $permission = Permission::findOrCreate('inventory.product.status.update', 'web');
+        $selectedUserIds = collect($validated['user_ids'] ?? [])->map(fn ($id): int => (int) $id)->unique();
+
+        User::query()
+            ->role('warehouse_receiver')
+            ->get()
+            ->each(function (User $user) use ($permission, $selectedUserIds): void {
+                if ($selectedUserIds->contains((int) $user->id)) {
+                    $user->givePermissionTo($permission);
+
+                    return;
+                }
+
+                $user->revokePermissionTo($permission);
+            });
+
+        return redirect()
+            ->route('inventory.products.index', $request->only(['search', 'category_id', 'status']))
+            ->with('success', 'Warehouse receiver product status permissions updated.');
     }
 
     public function destroy(Product $product): RedirectResponse

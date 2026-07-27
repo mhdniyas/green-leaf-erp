@@ -451,6 +451,9 @@
                         <x-nav-item href="{{ route('warehouse.receiver.checklist', ['tab' => 'inventory']) }}" :active="request()->routeIs('warehouse.receiver.checklist') && request()->query('tab') === 'inventory'" :sub="true" :badge="$wrStockCount" badge-tone="success">
                             Inventory
                         </x-nav-item>
+                        <x-nav-item href="{{ route('warehouse.receiver.products.index') }}" :active="request()->routeIs('warehouse.receiver.products.*')" :sub="true">
+                            Products
+                        </x-nav-item>
                         <x-nav-item href="{{ route('warehouse.loadout.index') }}" :active="request()->routeIs('warehouse.loadout.*')" :sub="true" :badge="$wrLoadoutCount" badge-tone="success">
                             Loadout
                         </x-nav-item>

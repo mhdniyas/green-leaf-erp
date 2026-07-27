@@ -1,6 +1,13 @@
 <x-layouts.inventory title="Products">
 
     <x-slot:actions>
+        @if(auth()->user()?->hasRole('admin'))
+            <button type="button"
+                    onclick="document.getElementById('status-permission-modal')?.classList.remove('hidden')"
+                    class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50">
+                Status Permissions
+            </button>
+        @endif
         <a href="{{ route('inventory.products.create') }}"
            id="add-product-btn"
            class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-700 transition-colors shadow-sm">
@@ -27,8 +34,14 @@
                 <option value="{{ $cat->id }}" @selected(request('category_id') == $cat->id)>{{ $cat->name }}</option>
             @endforeach
         </select>
+        <select id="status-filter" name="status"
+                class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+            <option value="">All Status</option>
+            <option value="active" @selected(request('status') === 'active')>Active</option>
+            <option value="inactive" @selected(request('status') === 'inactive')>Inactive</option>
+        </select>
         <button type="submit" class="px-4 py-2 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">Filter</button>
-        @if(request()->hasAny(['search', 'category_id']))
+        @if(request()->hasAny(['search', 'category_id', 'status']))
             <a href="{{ route('inventory.products.index') }}" class="text-sm text-gray-500 hover:text-gray-700 transition-colors">Clear</a>
         @endif
     </form>
@@ -63,6 +76,7 @@
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Category</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Unit</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Last Status Change</th>
                         <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
                     </tr>
                 </thead>
@@ -81,6 +95,14 @@
                                 <div>
                                     <p class="font-medium text-gray-900">{{ $product->name }}</p>
                                     <p class="text-xs text-gray-400 sm:hidden">{{ $product->sku }}</p>
+                                    <p class="mt-1 text-[11px] font-medium text-gray-400 lg:hidden">
+                                        Status:
+                                        @if($product->statusChangedBy)
+                                            {{ $product->statusChangedBy->name }} · {{ $product->status_changed_at?->format('d M, h:i A') }}
+                                        @else
+                                            Not recorded
+                                        @endif
+                                    </p>
                                 </div>
                             </div>
                         </td>
@@ -94,14 +116,31 @@
                             <span class="inline-flex items-center bg-gray-100 text-gray-700 text-xs font-medium px-2 py-0.5 rounded-full">{{ strtoupper($product->unit) }}</span>
                         </td>
                         <td class="px-6 py-4">
-                            @if($product->is_active)
-                                <span class="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span> Active
-                                </span>
+                            @if(auth()->user()?->hasRole('admin') || auth()->user()?->can('inventory.product.status.update'))
+                                <form method="POST" action="{{ route('inventory.products.status.update', $product) }}">
+                                    @csrf
+                                    @method('PATCH')
+                                    <input type="hidden" name="is_active" value="{{ $product->is_active ? '0' : '1' }}">
+                                    <button type="submit" class="group inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs font-black transition-colors {{ $product->is_active ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-slate-200 bg-slate-100 text-slate-500 hover:bg-slate-200' }}" title="Toggle product status">
+                                        <span class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors {{ $product->is_active ? 'bg-emerald-500' : 'bg-slate-300' }}">
+                                            <span class="inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform {{ $product->is_active ? 'translate-x-4' : 'translate-x-0.5' }}"></span>
+                                        </span>
+                                        <span>{{ $product->is_active ? 'Active' : 'Inactive' }}</span>
+                                    </button>
+                                </form>
                             @else
-                                <span class="inline-flex items-center gap-1 text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span> Inactive
+                                <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium {{ $product->is_active ? 'border border-green-200 bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500' }}">
+                                    <span class="h-1.5 w-1.5 rounded-full {{ $product->is_active ? 'bg-green-500' : 'bg-gray-400' }}"></span>
+                                    {{ $product->is_active ? 'Active' : 'Inactive' }}
                                 </span>
+                            @endif
+                        </td>
+                        <td class="px-6 py-4 hidden lg:table-cell">
+                            @if($product->statusChangedBy)
+                                <p class="text-xs font-semibold text-gray-900">{{ $product->statusChangedBy->name }}</p>
+                                <p class="mt-0.5 text-[11px] font-medium text-gray-400">{{ $product->status_changed_at?->format('d M Y, h:i A') }}</p>
+                            @else
+                                <span class="text-xs font-medium text-gray-400">Not recorded</span>
                             @endif
                         </td>
                         <td class="px-6 py-4 text-right">
@@ -139,5 +178,43 @@
         @endif
         @endif
     </div>
+
+    @if(auth()->user()?->hasRole('admin'))
+        <div id="status-permission-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-950/60 px-4 py-6">
+            <div class="mx-auto w-full max-w-xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
+                <div class="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-700">Product Status</p>
+                        <h3 class="mt-1 text-lg font-black text-slate-950">Warehouse Receiver Permissions</h3>
+                        <p class="mt-1 text-sm font-semibold text-slate-500">Select receiver users who can activate or deactivate products.</p>
+                    </div>
+                    <button type="button" onclick="document.getElementById('status-permission-modal')?.classList.add('hidden')" class="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-black text-slate-500 hover:bg-slate-50">Close</button>
+                </div>
+                <form method="POST" action="{{ route('inventory.products.status-permissions.update', request()->only(['search', 'category_id', 'status'])) }}" class="p-6">
+                    @csrf
+                    @method('PATCH')
+                    <div class="space-y-2">
+                        @forelse($warehouseReceivers as $receiver)
+                            <label class="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 px-4 py-3">
+                                <span class="min-w-0">
+                                    <span class="block truncate text-sm font-black text-slate-950">{{ $receiver->name }}</span>
+                                    <span class="block truncate text-xs font-semibold text-slate-500">{{ $receiver->email }}</span>
+                                </span>
+                                <input type="checkbox" name="user_ids[]" value="{{ $receiver->id }}" @checked($receiver->can('inventory.product.status.update')) class="h-5 w-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                            </label>
+                        @empty
+                            <div class="rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm font-bold text-slate-500">
+                                No warehouse receiver users found.
+                            </div>
+                        @endforelse
+                    </div>
+                    <div class="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4">
+                        <button type="button" onclick="document.getElementById('status-permission-modal')?.classList.add('hidden')" class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-600 hover:bg-slate-50">Cancel</button>
+                        <button type="submit" class="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white hover:bg-emerald-700">Save Permissions</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    @endif
 
 </x-layouts.inventory>

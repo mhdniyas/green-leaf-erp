@@ -1,5 +1,5 @@
 <x-layouts.app title="Loadout">
-    <div class="mx-auto flex w-full max-w-xl min-w-0 flex-col gap-4 py-3 lg:px-4 lg:py-4">
+    <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-4 py-3 lg:max-w-6xl lg:px-4 lg:py-4">
 
         <div class="flex items-center justify-between gap-3 px-1">
             <div>
@@ -12,21 +12,81 @@
         </div>
 
         <form method="GET" action="{{ route('warehouse.loadout.index') }}" class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-            <div class="flex items-center gap-2">
-                <div class="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                    <svg class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" />
-                    </svg>
-                    <input type="search"
-                           name="search"
-                           value="{{ $search }}"
-                           placeholder="Search by shop or order number"
-                           class="w-full border-none bg-transparent p-0 text-sm font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-0">
+            @php
+                $loadoutFiltersActive = filled($search) || filled($selectedDate) || filled($selectedShopId) || ($selectedSource ?? 'all') !== 'all' || filled($selectedCategoryId);
+            @endphp
+            <input type="hidden" name="tab" value="{{ request()->query('tab', 'waiting') }}">
+            <div class="grid gap-2 md:grid-cols-2 lg:grid-cols-[1fr_150px_180px_180px_150px_auto] lg:items-end">
+                <div>
+                    <label for="loadout-search" class="mb-1 block text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Search Loadout</label>
+                    <div class="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                        <svg class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" />
+                        </svg>
+                        <input id="loadout-search"
+                               type="search"
+                               name="search"
+                               value="{{ $search }}"
+                               placeholder="Shop, order, product, SKU..."
+                               class="w-full border-none bg-transparent p-0 text-sm font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-0">
+                    </div>
                 </div>
-                <button type="submit"
-                        class="rounded-xl bg-slate-950 px-4 py-2.5 text-[11px] font-black uppercase tracking-[0.12em] text-white transition-colors hover:bg-slate-800 border-none cursor-pointer">
-                    Search
-                </button>
+                <div>
+                    <label for="loadout-date" class="mb-1 block text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Date</label>
+                    <input id="loadout-date" type="date" name="date" value="{{ $selectedDate }}" class="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-700 focus:border-indigo-500 focus:bg-white focus:outline-none">
+                </div>
+                <div class="relative">
+                    <label for="loadout-shop" class="mb-1 block text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Shop</label>
+                    <select id="loadout-shop" name="shop_id" class="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-3 pr-9 text-xs font-black text-slate-700 focus:border-indigo-500 focus:bg-white focus:outline-none">
+                        <option value="">All Shops</option>
+                        @foreach($shops as $shop)
+                            <option value="{{ $shop->id }}" @selected((int) $selectedShopId === (int) $shop->id)>
+                                {{ $shop->name }}{{ $shop->warehouse_tag ? ' · '.$shop->warehouse_tag : '' }}
+                            </option>
+                        @endforeach
+                    </select>
+                    <div class="pointer-events-none absolute inset-y-0 right-0 top-5 flex items-center pr-3 text-slate-400">
+                        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                </div>
+                <div class="relative">
+                    <label for="loadout-source" class="mb-1 block text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Source</label>
+                    <select id="loadout-source" name="source" class="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-3 pr-9 text-xs font-black text-slate-700 focus:border-indigo-500 focus:bg-white focus:outline-none">
+                        <option value="all" @selected(($selectedSource ?? 'all') === 'all')>All Sources</option>
+                        <option value="shop" @selected(($selectedSource ?? 'all') === 'shop')>Shop Orders</option>
+                        <option value="direct" @selected(($selectedSource ?? 'all') === 'direct')>Direct Purchase</option>
+                    </select>
+                    <div class="pointer-events-none absolute inset-y-0 right-0 top-5 flex items-center pr-3 text-slate-400">
+                        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                </div>
+                <div class="relative">
+                    <label for="loadout-category" class="mb-1 block text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Category</label>
+                    <select id="loadout-category" name="category_id" class="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-3 pr-9 text-xs font-black text-slate-700 focus:border-indigo-500 focus:bg-white focus:outline-none">
+                        <option value="">All Categories</option>
+                        @foreach($categories as $category)
+                            <option value="{{ $category->id }}" @selected((int) $selectedCategoryId === (int) $category->id)>{{ $category->name }}</option>
+                        @endforeach
+                    </select>
+                    <div class="pointer-events-none absolute inset-y-0 right-0 top-5 flex items-center pr-3 text-slate-400">
+                        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    @if($loadoutFiltersActive)
+                        <a href="{{ route('warehouse.loadout.index', ['tab' => request()->query('tab', 'waiting')]) }}" class="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-600 transition-colors hover:bg-slate-50">Clear</a>
+                    @endif
+                    <button type="submit"
+                            class="inline-flex h-11 flex-1 items-center justify-center rounded-xl bg-slate-950 px-4 text-[11px] font-black uppercase tracking-[0.12em] text-white transition-colors hover:bg-slate-800 border-none cursor-pointer md:flex-none">
+                        Search
+                    </button>
+                </div>
             </div>
         </form>
 

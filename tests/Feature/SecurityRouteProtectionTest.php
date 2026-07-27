@@ -35,7 +35,7 @@ class SecurityRouteProtectionTest extends TestCase
     {
         $this->seed(DatabaseSeeder::class);
 
-        $shopUser = User::query()->where('email', 'shop-ashirwad@greenleaf.com')->firstOrFail();
+        $shopUser = User::query()->where('email', 'shop-direct@greenleaf.com')->firstOrFail();
         $purchaseUser = User::query()->where('email', 'purchase@greenleaf.com')->firstOrFail();
         $hrUser = User::query()->where('email', 'hr@greenleaf.com')->firstOrFail();
 

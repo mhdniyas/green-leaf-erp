@@ -48,7 +48,7 @@
         <section class="space-y-4">
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                    <h2 class="text-xl font-black text-slate-950">Owned Shop Coverage</h2>
+                    <h2 class="text-xl font-black text-slate-950">Client Shop Coverage</h2>
                     <p class="text-sm font-semibold text-slate-500">Shop cards show employee attendance details for {{ $selectedDate->format('d M Y') }}.</p>
                 </div>
                 <a href="{{ route('admin.staff.attendance', ['date' => $selectedDate->format('Y-m-d')]) }}" class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700">Open Full Attendance Board</a>
@@ -129,7 +129,7 @@
                                 </div>
                             @empty
                                 <div class="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm font-semibold text-slate-500">
-                                    No staff attendance recorded for this owned shop on the selected date.
+                                    No staff attendance recorded for this client shop on the selected date.
                                 </div>
                             @endforelse
                         </div>

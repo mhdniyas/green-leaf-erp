@@ -23,7 +23,7 @@
 	    $donutSegments = [
 	        ['label' => 'Cash Debit', 'amount' => (float) ($analytics['cards']['cash_debit'] ?? 0), 'class' => 'bg-rose-500 text-rose-700'],
 	        ['label' => 'Staff', 'amount' => $staffTotal, 'class' => 'bg-amber-400 text-amber-700'],
-	        ['label' => 'Shop Cash Movement', 'amount' => abs((float) ($analytics['cards']['shop_cash_movement'] ?? 0)), 'class' => 'bg-emerald-500 text-emerald-700'],
+	        ['label' => 'Loan Movement', 'amount' => abs((float) ($analytics['cards']['shop_cash_movement'] ?? 0)), 'class' => 'bg-emerald-500 text-emerald-700'],
 	    ];
     $donutTotal = max(1, collect($donutSegments)->sum('amount'));
     $primaryCards = [
@@ -37,7 +37,7 @@
 	        ['label' => 'Cash Debit', 'value' => (float) ($analytics['cards']['cash_debit'] ?? 0), 'tone' => 'text-rose-700'],
 	        ['label' => 'Staff Salary', 'value' => (float) $analytics['cards']['staff_salary'], 'tone' => 'text-amber-700'],
 	        ['label' => 'Staff Advance', 'value' => (float) $analytics['cards']['staff_advance'], 'tone' => 'text-amber-700'],
-	        ['label' => 'Shop Cash Movement', 'value' => (float) ($analytics['cards']['shop_cash_movement'] ?? 0), 'tone' => (float) ($analytics['cards']['shop_cash_movement'] ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'],
+	        ['label' => 'Loan Movement', 'value' => (float) ($analytics['cards']['shop_cash_movement'] ?? 0), 'tone' => (float) ($analytics['cards']['shop_cash_movement'] ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'],
 	        ['label' => 'Receipt Balance', 'value' => $cashFlow, 'tone' => $cashFlow >= 0 ? 'text-cyan-700' : 'text-rose-700'],
 	    ];
 @endphp
@@ -46,7 +46,7 @@
     <div class="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-[0_10px_30px_rgba(15,23,42,0.04)] sm:px-6">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-                <p class="text-[11px] font-semibold uppercase text-slate-400">Owned shop dashboard</p>
+                <p class="text-[11px] font-semibold uppercase text-slate-400">Client dashboard</p>
                 <h2 class="mt-1 text-2xl font-semibold text-slate-950">Sales and financial insights</h2>
             </div>
             <div class="inline-flex w-fit items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">

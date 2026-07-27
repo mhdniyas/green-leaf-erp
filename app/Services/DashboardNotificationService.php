@@ -80,7 +80,7 @@ class DashboardNotificationService
 
         return [
             [
-                'label' => 'Owned Shop Receipts',
+                'label' => 'Client Shop Receipts',
                 'count' => $counts['owned_shop_receipts_pending'],
                 'href' => route('admin.accounting.owned-shops.index'),
                 'hint' => 'Daily shop receipts waiting for accounting approval.',

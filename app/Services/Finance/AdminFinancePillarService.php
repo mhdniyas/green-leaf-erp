@@ -163,10 +163,11 @@ class AdminFinancePillarService
                 'closing_balance' => $closingBalance,
                 'purchaser_in' => round((float) $purchaserCredits->where('type', 'in')->sum('amount'), 2),
                 'purchaser_out' => round((float) $purchaserCredits->where('type', 'out')->sum('amount'), 2),
-                'owned_shop_in' => round((float) $journalRows->where('source', 'owned_shop')->where('direction', 'IN')->sum('amount'), 2),
-                'owned_shop_out' => round((float) $journalRows->where('source', 'owned_shop')->where('direction', 'OUT')->sum('amount'), 2),
-                'petty_cash_in' => round((float) $journalRows->where('source', 'owned_shop_petty_cash')->where('direction', 'IN')->sum('amount'), 2),
-                'petty_cash_out' => round((float) $journalRows->where('source', 'owned_shop_petty_cash')->where('direction', 'OUT')->sum('amount'), 2),
+                'client_invoice_in' => round((float) $journalRows->where('source', 'client_invoice')->where('direction', 'IN')->sum('amount'), 2),
+                'client_loan_out' => round((float) $journalRows->where('source', 'client_shop_loan')->where('direction', 'OUT')->sum('amount'), 2),
+                'client_loan_in' => round((float) $journalRows->where('source', 'client_shop_loan')->where('direction', 'IN')->sum('amount'), 2),
+                'petty_cash_in' => round((float) $journalRows->where('source', 'client_shop_loan')->where('direction', 'IN')->sum('amount'), 2),
+                'petty_cash_out' => round((float) $journalRows->where('source', 'client_shop_loan')->where('direction', 'OUT')->sum('amount'), 2),
             ],
             'journal_rows' => $journalRows,
             'selected_date' => $selectedDate,
@@ -550,7 +551,7 @@ class AdminFinancePillarService
             $isCreditToShop = $credit->type === 'in';
             $shopName = (string) ($credit->shop?->name ?? 'Unknown shop');
             $category = $credit->cashMovementCategory?->name
-                ?? ($isCreditToShop ? 'Shop Cash Credit' : 'Shop Cash Return');
+                ?? ($isCreditToShop ? 'Loan Given' : 'Loan Repayment');
 
             return [
                 'date' => $credit->business_date?->toDateString() ?? $credit->created_at?->toDateString(),
@@ -559,7 +560,7 @@ class AdminFinancePillarService
                 'journal' => $category.' - '.$shopName,
                 'remarks' => $credit->description ?: $category.' for '.$shopName,
                 'category' => $category,
-                'source' => 'owned_shop_petty_cash',
+                'source' => 'client_shop_loan',
                 'sort_at' => $credit->created_at?->timestamp ?? 0,
             ];
         })->values();
@@ -595,7 +596,12 @@ class AdminFinancePillarService
     private function cashFlowCategory(JournalEntry $entry, Collection $counterpartyAccounts): string
     {
         if ($entry->source_type === ShopInvoice::class) {
-            return 'Daily Sales Income';
+            $isClientInvoice = ShopInvoice::query()
+                ->whereKey($entry->source_id)
+                ->whereHas('shop', fn (Builder $query): Builder => $query->whereNotNull('client_id'))
+                ->exists();
+
+            return $isClientInvoice ? 'Client Invoice Payment' : 'Direct Sales Income';
         }
 
         if ($entry->source_type === PurchaserCredit::class) {
@@ -619,8 +625,16 @@ class AdminFinancePillarService
 
     private function cashFlowSource(JournalEntry $entry): string
     {
+        if ($entry->source_type === ShopInvoice::class) {
+            return ShopInvoice::query()
+                ->whereKey($entry->source_id)
+                ->whereHas('shop', fn (Builder $query): Builder => $query->whereNotNull('client_id'))
+                ->exists()
+                    ? 'client_invoice'
+                    : 'daily_sales';
+        }
+
         return match ($entry->source_type) {
-            ShopInvoice::class => 'daily_sales',
             PayrollPayment::class => 'payroll',
             PurchaserCredit::class => 'purchaser',
             PurchaseInvoice::class => match (true) {

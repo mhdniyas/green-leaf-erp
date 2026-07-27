@@ -29,7 +29,11 @@ class OwnedShopAccountingService
     {
         return Shop::query()
             ->where('accounting_enabled', true)
-            ->where('accounting_mode', 'owned')
+            ->where(function (Builder $query): void {
+                $query->whereNotNull('client_id')
+                    ->orWhere('accounting_mode', 'owned');
+            })
+            ->with('client')
             ->orderBy('name')
             ->get();
     }
@@ -60,7 +64,7 @@ class OwnedShopAccountingService
         $payment->loadMissing(['employee', 'shop']);
 
         if (! $payment->shop instanceof Shop || ! $this->isEligibleShop($payment->shop)) {
-            throw new RuntimeException('Shop staff payments can only be posted to owned-shop accounting shops.');
+            throw new RuntimeException('Shop staff payments can only be posted to client accounting shops.');
         }
 
         return DB::transaction(function () use ($payment, $userId): ShopAccountingEntryLine {
@@ -222,7 +226,7 @@ class OwnedShopAccountingService
     public function closePeriod(Shop $shop, Carbon $periodStart, Carbon $periodEnd, int $userId, ?string $notes = null): ShopAccountingPeriodClosure
     {
         if (! $this->isEligibleShop($shop)) {
-            throw new RuntimeException('Period closing is only available for accounting-enabled owned shops.');
+            throw new RuntimeException('Period closing is only available for accounting-enabled client shops.');
         }
 
         $periodStart = $periodStart->copy()->startOfDay();
@@ -1140,7 +1144,7 @@ class OwnedShopAccountingService
     /**
      * @return array{
      *     eligible_shop_count:int,
-     *     owned_shop_count:int,
+     *     client_shop_count:int,
      *     entries_today_count:int,
      *     draft_entries_count:int,
      *     pending_review_count:int,
@@ -1171,7 +1175,7 @@ class OwnedShopAccountingService
 
         return [
             'eligible_shop_count' => $eligibleShops->count(),
-            'owned_shop_count' => $eligibleShops->where('accounting_mode', 'owned')->count(),
+            'client_shop_count' => $eligibleShops->count(),
             'entries_today_count' => (clone $entryQuery)->count(),
             'draft_entries_count' => (clone $entryQuery)->where('status', 'draft')->count(),
             'pending_review_count' => (clone $entryQuery)->where('status', 'submitted')->count(),

@@ -1877,12 +1877,6 @@ class RequisitionController extends Controller
             $deliveredQty = (float) ($deliveredQtys[$item->id] ?? 0.00);
             $expectedQty = $item->loaded_qty !== null ? (float) $item->loaded_qty : (float) ($item->approved_qty ?? 0.00);
 
-            if ($deliveredQty > $expectedQty) {
-                throw ValidationException::withMessages([
-                    "delivered_qty.{$item->id}" => 'Received quantity cannot be more than the loaded/approved warehouse quantity.',
-                ]);
-            }
-
             if (abs($deliveredQty - $expectedQty) > 0.001) {
                 $hasDiscrepancy = true;
             }
@@ -1953,6 +1947,7 @@ class RequisitionController extends Controller
             $order,
             $request->validated('approved_delivered_qty', []),
             $request->validated('item_review_notes', []),
+            $request->validated('item_inventory_actions', []),
             $request->validated('delivery_discrepancy_types', []),
             $request->validated('delivery_discrepancy_notes', []),
             (int) $request->user()->id,

@@ -28,6 +28,7 @@
     $notificationCounts = app(\App\Services\DashboardNotificationService::class)->counts(\Illuminate\Support\Carbon::parse($navDate));
     $ownedShopPendingApprovalCount = $canManageOwnedShops ? $notificationCounts['owned_shop_total'] : 0;
     $shopPaymentPendingCount = $canManageOwnedShops ? $notificationCounts['shop_payment_requests_pending'] : 0;
+    $currentClient = request()->route('client');
     $sidebarItems = [
         [
             'label' => 'Dashboard',
@@ -100,16 +101,22 @@
                     'badge' => $notificationCounts['owned_shop_receipts_pending'],
                 ],
                 [
-                    'label' => 'Company Payments',
-                    'href' => route('admin.accounting.owned-shops.show', ['shop' => $currentShop, 'tab' => 'cashbook', 'date' => $navDate]).'#owned-shop-cash-movements',
-                    'active' => false,
-                    'badge' => $notificationCounts['owned_shop_company_payments_pending'],
-                    'badge_tone' => 'danger',
-                ],
-                [
                     'label' => 'Categories',
                     'href' => route('admin.accounting.owned-shops.categories.index', $currentShop),
                     'active' => request()->routeIs('admin.accounting.owned-shops.categories.*'),
+                ],
+            ]);
+        } elseif ($currentClient instanceof \App\Models\Client) {
+            $ownedShopChildren = array_merge($ownedShopChildren, [
+                [
+                    'label' => $currentClient->name,
+                    'href' => route('admin.accounting.clients.show', ['client' => $currentClient, 'start_date' => request('start_date'), 'end_date' => request('end_date')]),
+                    'active' => request()->routeIs('admin.accounting.clients.show'),
+                ],
+                [
+                    'label' => 'Sales',
+                    'href' => route('admin.accounting.daily-sales', ['sales_scope' => 'client', 'client_id' => $currentClient->id, 'date' => $navDate]),
+                    'active' => false,
                 ],
             ]);
         } else {
@@ -127,20 +134,13 @@
                     'badge' => $notificationCounts['owned_shop_recheck'],
                     'badge_tone' => 'danger',
                 ],
-                [
-                    'label' => 'Company Payments',
-                    'href' => route('admin.accounting.owned-shops.index'),
-                    'active' => false,
-                    'badge' => $notificationCounts['owned_shop_company_payments_pending'],
-                    'badge_tone' => 'danger',
-                ],
             ]);
         }
 
         $sidebarItems[] = [
-            'label' => 'Owned Shops',
+            'label' => 'Clients',
             'href' => route('admin.accounting.owned-shops.index'),
-            'active' => request()->routeIs('admin.accounting.owned-shops.*'),
+            'active' => request()->routeIs('admin.accounting.owned-shops.*') || request()->routeIs('admin.accounting.clients.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M4.5 21V8.25m15 12.75V8.25M9 21V3.75h6V21M7.5 6h9" /></svg>',
             'children' => $ownedShopChildren,
             'badge' => $ownedShopPendingApprovalCount,
@@ -207,7 +207,7 @@
     ];
 
     if ($canManageOwnedShops) {
-        $mobileItems[] = ['label' => 'Shops', 'href' => route('admin.accounting.owned-shops.index'), 'active' => request()->routeIs('admin.accounting.owned-shops.*')];
+        $mobileItems[] = ['label' => 'Clients', 'href' => route('admin.accounting.owned-shops.index'), 'active' => request()->routeIs('admin.accounting.owned-shops.*') || request()->routeIs('admin.accounting.clients.*')];
     }
 
     if ($canManagePurchaserCash) {

@@ -12,6 +12,10 @@ class DailyPriceApproval extends Model
 {
     use HasFactory;
 
+    public string $movement_status = 'changed';
+
+    public ?float $comparison_purchase_price = null;
+
     protected $fillable = [
         'product_id',
         'business_date',

@@ -8,9 +8,9 @@
 
 <div class="grid gap-5 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
     <section class="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-        <p class="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-700">Payments To Company</p>
+        <p class="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-700">Green Leaf Invoice Payments</p>
         <h2 class="mt-2 text-lg font-black text-slate-950 sm:text-xl">Submit bill payment for approval</h2>
-        <p class="mt-2 text-sm font-semibold leading-6 text-slate-600">These payments are for regular shop invoices. Accounting approval updates the invoice paid amount and posts the journal entry.</p>
+        <p class="mt-2 text-sm font-semibold leading-6 text-slate-600">These payments settle Green Leaf invoices. Accounting approval updates the invoice paid amount and posts the journal entry.</p>
 
         <div class="mt-5 grid grid-cols-2 gap-3">
             <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">

@@ -21,6 +21,7 @@ use App\Models\ShopEmployeeAssignment;
 use App\Models\ShopStaffPayment;
 use App\Services\HR\AttendanceService;
 use App\Services\HR\EmployeeAdvanceService;
+use App\Services\HR\PayrollService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -33,6 +34,7 @@ class ShopOwnerStaffController extends Controller
     public function __construct(
         private readonly AttendanceService $attendanceService,
         private readonly EmployeeAdvanceService $employeeAdvanceService,
+        private readonly PayrollService $payrollService,
     ) {}
 
     public function index(Request $request): View
@@ -61,10 +63,10 @@ class ShopOwnerStaffController extends Controller
         $quickEmployees = $this->quickEmployeesForShop($selectedShop?->id, $selectedDate);
         $advanceEmployees = $this->advanceEmployeesForShop($selectedShop?->id, $selectedDate);
         $advanceOptions = $advanceEmployees
-            ->mapWithKeys(fn (Employee $employee): array => [$employee->id => $this->advanceOptionForEmployee($employee, $selectedDate)])
+            ->mapWithKeys(fn (Employee $employee): array => [$employee->id => $this->advanceOptionForEmployee($employee, $selectedDate, $selectedShop?->id)])
             ->all();
         $salaryOptions = $quickEmployees
-            ->mapWithKeys(fn (Employee $employee): array => [$employee->id => $this->salaryOptionForEmployee($employee, $selectedDate)])
+            ->mapWithKeys(fn (Employee $employee): array => [$employee->id => $this->salaryOptionForEmployee($employee, $selectedDate, $selectedShop?->id)])
             ->all();
 
         return view('shop-owner.staff.index', [
@@ -182,7 +184,7 @@ class ShopOwnerStaffController extends Controller
         abort_unless(
             $this->attendanceService->canOwnerMarkAttendance($request->user(), $employee, $attendanceDate, $shop->id),
             403,
-            'You can only mark today attendance for shop staff assigned to your owned shops.',
+            'You can only mark today attendance for shop staff assigned to your client shops.',
         );
 
         $notes = $request->string('status')->toString() === 'leave'
@@ -278,7 +280,7 @@ class ShopOwnerStaffController extends Controller
         abort_unless(
             $request->user()->ownedShopAssignments()->exists(),
             403,
-            'This staff module is available only for owned shop assignments.',
+            'This staff module is available only for client shop assignments.',
         );
     }
 
@@ -400,9 +402,9 @@ class ShopOwnerStaffController extends Controller
     /**
      * @return array{present_days:float, earned_amount:float, eligible_amount:float, already_advanced_amount:float, available_amount:float, rule_label:string}
      */
-    private function advanceOptionForEmployee(Employee $employee, Carbon $selectedDate): array
+    private function advanceOptionForEmployee(Employee $employee, Carbon $selectedDate, ?int $shopId): array
     {
-        $eligibility = $this->employeeAdvanceService->eligibility($employee, $selectedDate->copy()->startOfMonth());
+        $eligibility = $this->employeeAdvanceService->eligibility($employee, $selectedDate->copy()->startOfMonth(), $shopId);
 
         return [
             'present_days' => (float) $eligibility['present_days'],
@@ -417,7 +419,7 @@ class ShopOwnerStaffController extends Controller
     /**
      * @return array{salary_amount:float, paid_amount:float, remaining_amount:float|null}
      */
-    private function salaryOptionForEmployee(Employee $employee, Carbon $selectedDate): array
+    private function salaryOptionForEmployee(Employee $employee, Carbon $selectedDate, ?int $shopId): array
     {
         $payrollRunItem = PayrollRunItem::query()
             ->with(['payments', 'shopStaffPayments'])
@@ -425,10 +427,22 @@ class ShopOwnerStaffController extends Controller
             ->whereHas('payrollRun', fn ($query) => $query->whereDate('period_start', $selectedDate->copy()->startOfMonth()->toDateString()))
             ->first();
 
+        $shopPayable = $shopId !== null
+            ? $this->payrollService->payableForAttendance(
+                $employee,
+                $selectedDate->copy()->startOfMonth(),
+                $selectedDate->copy()->endOfMonth(),
+                $shopId,
+            )
+            : ['amount' => 0.0];
+        $paidAmount = round((float) ($payrollRunItem?->shopStaffPayments
+            ->when($shopId !== null, fn ($payments) => $payments->where('shop_id', $shopId))
+            ->sum('amount') ?? 0), 2);
+
         return [
-            'salary_amount' => round((float) ($payrollRunItem?->final_amount ?? ($employee->salary_type === 'daily_wage' ? $employee->daily_wage : $employee->monthly_salary)), 2),
-            'paid_amount' => round((float) ($payrollRunItem?->paidAmount() ?? 0), 2),
-            'remaining_amount' => $payrollRunItem ? $payrollRunItem->remainingAmount() : null,
+            'salary_amount' => round((float) $shopPayable['amount'], 2),
+            'paid_amount' => $paidAmount,
+            'remaining_amount' => $payrollRunItem ? round(max(0, (float) $shopPayable['amount'] - $paidAmount), 2) : null,
         ];
     }
 

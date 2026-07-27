@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Web\Admin;
 
 use App\Exports\CashFlowDayJournalExport;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Web\Admin\ApplyShopInvoiceDiscountRequest;
 use App\Http\Requests\Web\Admin\ApproveShopInvoicePaymentRequest;
 use App\Http\Requests\Web\Admin\CloseShopAccountingPeriodRequest;
 use App\Http\Requests\Web\Admin\ReviewOwnedShopPaymentRequest;
@@ -19,6 +20,7 @@ use App\Http\Requests\Web\Admin\UpdateDailyBillPaymentRequest;
 use App\Http\Requests\Web\Admin\UpdateShopAccountingEntryRequest;
 use App\Http\Requests\Web\Admin\UpdateShopCashMovementCategoryRequest;
 use App\Http\Requests\Web\Admin\UpdateShopPettyCashSettingsRequest;
+use App\Models\Client;
 use App\Models\PurchaserCredit;
 use App\Models\Shop;
 use App\Models\ShopAccountingCategory;
@@ -90,14 +92,21 @@ class AdminAccountingController extends Controller
         $date = Carbon::parse($request->input('date', today()->toDateString()));
         $statusFilter = (string) $request->input('status', 'all');
         $statusFilter = in_array($statusFilter, ['all', 'pending', 'settled'], true) ? $statusFilter : 'all';
-        $ownedShops = $this->ownedShopAccountingService->eligibleShops();
-        $onlyOwnedShops = $request->boolean('only_owned_shops');
-        $selectedOwnedShopId = $request->integer('owned_shop_id');
-        $selectedOwnedShop = $ownedShops->firstWhere('id', $selectedOwnedShopId);
-        $selectedOwnedShopId = $selectedOwnedShop instanceof Shop ? $selectedOwnedShop->id : null;
+        $clients = Client::query()->active()->orderBy('name')->get();
+        $clientShops = $this->ownedShopAccountingService->eligibleShops();
+        $salesScope = (string) $request->input('sales_scope', $request->boolean('only_owned_shops') ? 'client' : 'all');
+        $salesScope = in_array($salesScope, ['all', 'direct', 'client'], true) ? $salesScope : 'all';
+        $selectedClientId = $request->integer('client_id') ?: null;
+        $selectedClient = $selectedClientId !== null ? $clients->firstWhere('id', $selectedClientId) : null;
+        $selectedClientId = $selectedClient instanceof Client ? $selectedClient->id : null;
+        $selectedClientShopId = $request->integer('client_shop_id') ?: $request->integer('owned_shop_id');
+        $selectedClientShop = $clientShops->firstWhere('id', $selectedClientShopId);
+        $selectedClientShopId = $selectedClientShop instanceof Shop ? $selectedClientShop->id : null;
         $shopIds = match (true) {
-            $selectedOwnedShopId !== null => [$selectedOwnedShopId],
-            $onlyOwnedShops => $ownedShops->pluck('id')->map(fn ($id): int => (int) $id)->all(),
+            $selectedClientShopId !== null => [$selectedClientShopId],
+            $selectedClientId !== null => Shop::query()->where('client_id', $selectedClientId)->pluck('id')->map(fn ($id): int => (int) $id)->all(),
+            $salesScope === 'client' => $clientShops->pluck('id')->map(fn ($id): int => (int) $id)->all(),
+            $salesScope === 'direct' => Shop::query()->whereNull('client_id')->pluck('id')->map(fn ($id): int => (int) $id)->all(),
             default => null,
         };
         $report = $this->financePillars->salesDailyDetail($date, $statusFilter, $shopIds);
@@ -112,7 +121,18 @@ class AdminAccountingController extends Controller
                 $paymentRequest->id => $this->shopInvoiceService->allocationPreviewForShopPayment($paymentRequest),
             ]);
 
-        return view('admin.accounting.daily_sales', compact('date', 'report', 'statusFilter', 'ownedShops', 'selectedOwnedShopId', 'onlyOwnedShops', 'pendingPaymentRequests', 'paymentRequestPreviews'));
+        return view('admin.accounting.daily_sales', compact(
+            'date',
+            'report',
+            'statusFilter',
+            'clients',
+            'clientShops',
+            'salesScope',
+            'selectedClientId',
+            'selectedClientShopId',
+            'pendingPaymentRequests',
+            'paymentRequestPreviews',
+        ));
     }
 
     public function updateShopInvoicePayment(ApproveShopInvoicePaymentRequest $request, ShopInvoice $invoice): RedirectResponse
@@ -128,6 +148,21 @@ class AdminAccountingController extends Controller
         }
 
         return back()->with('success', 'Shop payment approved and added to accounting journal.');
+    }
+
+    public function applyShopInvoiceDiscount(ApplyShopInvoiceDiscountRequest $request, ShopInvoice $invoice): RedirectResponse
+    {
+        try {
+            $this->shopInvoiceService->applyAdminDiscount(
+                $invoice,
+                $request->validated(),
+                (int) $request->user()->id,
+            );
+        } catch (ValidationException $exception) {
+            return back()->withErrors($exception->errors())->withInput();
+        }
+
+        return back()->with('success', 'Shop invoice discount applied and bill balance recalculated.');
     }
 
     public function reviewShopInvoicePaymentRequest(ReviewShopInvoicePaymentRequest $request, ShopInvoicePaymentRequest $paymentRequest): RedirectResponse
@@ -232,8 +267,158 @@ class AdminAccountingController extends Controller
             })
             ->orderBy('name')
             ->get(['id', 'name', 'code', 'accounting_mode', 'accounting_enabled']);
+        $clients = Client::query()->active()->orderBy('name')->get();
 
-        return view('admin.accounting.owned_shops.index', compact('shops', 'availableShops'));
+        return view('admin.accounting.owned_shops.index', compact('shops', 'availableShops', 'clients'));
+    }
+
+    public function clientDashboard(Request $request, Client $client): View
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
+
+        $startDate = Carbon::parse($request->input('start_date', today()->startOfMonth()->toDateString()))->startOfDay();
+        $endDate = Carbon::parse($request->input('end_date', today()->toDateString()))->endOfDay();
+
+        if ($endDate->lt($startDate)) {
+            [$startDate, $endDate] = [$endDate->copy()->startOfDay(), $startDate->copy()->endOfDay()];
+        }
+
+        $client->load([
+            'shops' => fn ($query) => $query
+                ->orderBy('name'),
+        ]);
+
+        $shops = $client->shops;
+        $shopIds = $shops->pluck('id')->map(fn ($id): int => (int) $id)->all();
+        $periodInvoices = ShopInvoice::query()
+            ->whereIn('shop_id', $shopIds)
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
+            ->with(['shop', 'order'])
+            ->latest('business_date')
+            ->latest('id')
+            ->get();
+        $periodCredits = ShopCredit::query()
+            ->approved()
+            ->whereIn('shop_id', $shopIds)
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
+            ->with(['shop', 'cashMovementCategory'])
+            ->latest('business_date')
+            ->latest('id')
+            ->get();
+        $periodEntries = ShopAccountingEntry::query()
+            ->whereIn('shop_id', $shopIds)
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
+            ->whereIn('status', ['submitted', 'recheck_required', 'approved', 'finalized'])
+            ->with(['shop', 'lines.category'])
+            ->latest('business_date')
+            ->latest('id')
+            ->get();
+        $loanCategoryLabels = [
+            'primary' => ShopCashMovementCategory::LOAN,
+            'salary_advance' => ShopCashMovementCategory::ADVANCE_LOAN_FOR_SALARY,
+        ];
+
+        $summary = [
+            'shop_count' => $shops->count(),
+            'invoice_count' => $periodInvoices->count(),
+            'invoice_collected' => round((float) $periodInvoices->sum('paid_amount'), 2),
+            'invoice_pending' => round((float) $periodInvoices->sum('balance_amount'), 2),
+            'expense_total' => round((float) $periodEntries
+                ->flatMap(fn (ShopAccountingEntry $entry): Collection => $entry->lines)
+                ->where('type', 'expense')
+                ->sum('amount'), 2),
+            'loan_given' => round((float) $periodCredits->where('type', 'in')->sum('amount'), 2),
+        ];
+
+        $invoicesByShopDate = $periodInvoices->groupBy(
+            fn (ShopInvoice $invoice): string => $invoice->shop_id.'|'.$invoice->business_date?->toDateString()
+        );
+        $creditsByShopDate = $periodCredits->groupBy(
+            fn (ShopCredit $credit): string => $credit->shop_id.'|'.$credit->business_date?->toDateString()
+        );
+        $entriesByShopDate = $periodEntries->groupBy(
+            fn (ShopAccountingEntry $entry): string => $entry->shop_id.'|'.$entry->business_date?->toDateString()
+        );
+        $shopLookup = $shops->keyBy('id');
+
+        $activityKeys = collect()
+            ->merge($periodInvoices->map(fn (ShopInvoice $invoice): array => [
+                'shop_id' => (int) $invoice->shop_id,
+                'shop_name' => $invoice->shop?->name ?? '',
+                'date' => $invoice->business_date?->toDateString(),
+            ]))
+            ->merge($periodCredits->map(fn (ShopCredit $credit): array => [
+                'shop_id' => (int) $credit->shop_id,
+                'shop_name' => $credit->shop?->name ?? '',
+                'date' => $credit->business_date?->toDateString(),
+            ]))
+            ->merge($periodEntries->map(fn (ShopAccountingEntry $entry): array => [
+                'shop_id' => (int) $entry->shop_id,
+                'shop_name' => $entry->shop?->name ?? '',
+                'date' => $entry->business_date?->toDateString(),
+            ]))
+            ->filter(fn (array $row): bool => filled($row['date']) && $shopLookup->has($row['shop_id']))
+            ->unique(fn (array $row): string => $row['shop_id'].'|'.$row['date'])
+            ->sort(function (array $left, array $right): int {
+                return strcmp((string) $right['date'], (string) $left['date'])
+                    ?: strcmp((string) $left['shop_name'], (string) $right['shop_name']);
+            })
+            ->values();
+
+        $dailyRows = $activityKeys
+            ->map(function (array $activity) use ($invoicesByShopDate, $creditsByShopDate, $entriesByShopDate, $loanCategoryLabels, $shopLookup): array {
+                $key = $activity['shop_id'].'|'.$activity['date'];
+                $shopInvoices = $invoicesByShopDate->get($key, collect());
+                $shopCredits = $creditsByShopDate->get($key, collect());
+                $shopEntries = $entriesByShopDate->get($key, collect());
+                $balanceEntries = $shopEntries->where('entry_type', ShopAccountingEntry::TypeDaily);
+
+                if ($balanceEntries->isEmpty()) {
+                    $balanceEntries = $shopEntries;
+                }
+
+                $loanPrimary = $shopCredits
+                    ->where('type', 'in')
+                    ->filter(fn (ShopCredit $credit): bool => ($credit->cashMovementCategory?->name ?? ShopCashMovementCategory::LOAN) === $loanCategoryLabels['primary'])
+                    ->sum('amount');
+                $loanSalaryAdvance = $shopCredits
+                    ->where('type', 'in')
+                    ->filter(fn (ShopCredit $credit): bool => $credit->cashMovementCategory?->name === $loanCategoryLabels['salary_advance'])
+                    ->sum('amount');
+                $loanTotal = $shopCredits->where('type', 'in')->sum('amount');
+
+                return [
+                    'shop' => $shopLookup->get($activity['shop_id']),
+                    'date' => Carbon::parse($activity['date']),
+                    'invoice_collected' => round((float) $shopInvoices->sum('paid_amount'), 2),
+                    'invoice_pending' => round((float) $shopInvoices->sum('balance_amount'), 2),
+                    'expense_total' => round((float) $shopEntries
+                        ->flatMap(fn (ShopAccountingEntry $entry): Collection => $entry->lines)
+                        ->where('type', 'expense')
+                        ->sum('amount'), 2),
+                    'loan_primary' => round((float) $loanPrimary, 2),
+                    'loan_salary_advance' => round((float) $loanSalaryAdvance, 2),
+                    'loan_total' => round((float) $loanTotal, 2),
+                    'opening_balance' => round((float) $balanceEntries->sum('opening_cash'), 2),
+                    'closing_balance' => round((float) $balanceEntries->sum('closing_cash'), 2),
+                ];
+            })
+            ->values();
+        $clientOptions = Client::query()->active()->orderBy('name')->get();
+
+        return view('admin.accounting.clients.show', [
+            'client' => $client,
+            'clientOptions' => $clientOptions,
+            'startDate' => $startDate,
+            'endDate' => $endDate,
+            'shops' => $shops,
+            'dailyRows' => $dailyRows,
+            'loanCategoryLabels' => $loanCategoryLabels,
+            'summary' => $summary,
+        ]);
     }
 
     public function storeOwnedShop(Request $request): RedirectResponse
@@ -243,6 +428,8 @@ class AdminAccountingController extends Controller
         $validated = $request->validate([
             'shop_id' => ['required', 'integer', 'exists:shops,id'],
             'accounting_mode' => ['required', 'string', 'in:owned'],
+            'client_id' => ['nullable', 'integer', 'exists:clients,id'],
+            'client_name' => ['nullable', 'string', 'max:120'],
             'reserve_amount' => ['nullable', 'numeric', 'min:0'],
             'default_petty_cash_amount' => ['nullable', 'numeric'],
         ]);
@@ -257,11 +444,13 @@ class AdminAccountingController extends Controller
 
         $reserveAmount = round((float) ($validated['reserve_amount'] ?? 0), 2);
         $defaultPettyCashAmount = round((float) ($validated['default_petty_cash_amount'] ?? 0), 2);
+        $client = $this->resolveClientForShop($validated);
 
-        DB::transaction(function () use ($request, $shop, $validated, $reserveAmount, $defaultPettyCashAmount): void {
+        DB::transaction(function () use ($request, $shop, $validated, $reserveAmount, $defaultPettyCashAmount, $client): void {
             $shop->update([
                 'accounting_enabled' => true,
                 'accounting_mode' => $validated['accounting_mode'],
+                'client_id' => $client->id,
                 'reserve_amount' => $reserveAmount,
                 'default_petty_cash_amount' => $defaultPettyCashAmount,
             ]);
@@ -272,7 +461,33 @@ class AdminAccountingController extends Controller
         });
 
         return redirect()->route('admin.accounting.owned-shops.show', ['shop' => $shop->code])
-            ->with('success', 'Owned shop accounting enabled for '.$shop->name.'.');
+            ->with('success', 'Client accounting enabled for '.$shop->name.' under '.$client->name.'.');
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function resolveClientForShop(array $validated): Client
+    {
+        $clientName = filled($validated['client_name'] ?? null) ? trim((string) $validated['client_name']) : null;
+
+        if ($clientName !== null) {
+            $clientCode = str($clientName)->upper()->replaceMatches('/[^A-Z0-9]+/', '_')->trim('_')->limit(40, '')->toString();
+
+            return Client::query()->firstOrCreate(
+                ['code' => $clientCode ?: 'CLIENT'],
+                ['name' => $clientName, 'status' => 'active'],
+            );
+        }
+
+        if (! empty($validated['client_id'])) {
+            return Client::query()->findOrFail((int) $validated['client_id']);
+        }
+
+        return Client::query()->firstOrCreate(
+            ['code' => 'AISHWARYA_VEG'],
+            ['name' => 'Aishwarya Veg', 'status' => 'active'],
+        );
     }
 
     public function updateReserveAmount(Request $request, Shop $shop): RedirectResponse
@@ -360,24 +575,12 @@ class AdminAccountingController extends Controller
             ->latest('id')
             ->limit(12)
             ->get();
-        $cashMovementCategories = ShopCashMovementCategory::query()
-            ->where('is_active', true)
-            ->orderByDesc('is_default')
-            ->orderBy('name')
-            ->get();
+        $cashMovementCategories = ShopCashMovementCategory::loanCategoryOptions();
         $defaultCashMovementCategory = $cashMovementCategories->firstWhere('is_default', true)
             ?? ShopCashMovementCategory::defaultCategory();
         if (! $cashMovementCategories->contains('id', $defaultCashMovementCategory->id)) {
             $cashMovementCategories = $cashMovementCategories->prepend($defaultCashMovementCategory)->values();
         }
-        $companyPaymentRequests = ShopCredit::query()
-            ->where('shop_id', $shop->id)
-            ->where('type', 'out')
-            ->with(['creator', 'reviewedBy'])
-            ->latest('business_date')
-            ->latest('id')
-            ->limit(20)
-            ->get();
         $approvalEntriesByTab = collect($approvalStatuses)
             ->mapWithKeys(fn (string $status, string $key): array => [
                 $key => ShopAccountingEntry::query()
@@ -454,7 +657,6 @@ class AdminAccountingController extends Controller
             'periodClosures' => $periodClosures,
             'billingInvoices' => $billingInvoices,
             'paymentRequests' => $paymentRequests,
-            'companyPaymentRequests' => $companyPaymentRequests,
             'shopCredits' => $shopCredits,
             'cashMovementCategories' => $cashMovementCategories,
             'defaultCashMovementCategory' => $defaultCashMovementCategory,
@@ -770,7 +972,7 @@ class AdminAccountingController extends Controller
             'amount' => round((float) $validated['amount'], 2),
             'description' => filled($validated['description'] ?? null)
                 ? trim((string) $validated['description'])
-                : 'Shop working cash given to shop',
+                : 'Loan given to client shop',
             'created_by' => $request->user()?->id,
             'business_date' => $validated['business_date'],
             'status' => 'approved',
@@ -787,45 +989,7 @@ class AdminAccountingController extends Controller
             'shop' => $shop->code,
             'tab' => 'cashbook',
             'date' => $validated['business_date'],
-        ])->with('success', 'Shop working cash recorded.');
-    }
-
-    public function reviewCompanyPayment(ReviewOwnedShopPaymentRequest $request, Shop $shop, ShopCredit $credit): RedirectResponse
-    {
-        $this->ensureAccountingAccess($request, AccountingAccess::OwnedShopManage);
-        $shop = $this->loadEligibleShop($shop);
-        abort_unless($credit->shop_id === $shop->id && $credit->type === 'out', 404);
-
-        if ($credit->status !== 'pending') {
-            return back()->withErrors(['payment' => 'This company payment request has already been reviewed.']);
-        }
-
-        $decision = (string) $request->validated('decision');
-
-        if ($decision === 'approve') {
-            $availableBalance = max(0.0, $this->ownedShopAccountingService->closingBalanceForDate($shop, Carbon::parse($credit->business_date)));
-
-            if ((float) $credit->amount > $availableBalance) {
-                return back()->withErrors(['payment' => 'This payment is higher than the current payable company balance.']);
-            }
-        }
-
-        $credit->forceFill([
-            'status' => $decision === 'approve' ? 'approved' : 'rejected',
-            'admin_note' => filled($request->validated('admin_note')) ? trim((string) $request->validated('admin_note')) : null,
-            'reviewed_by' => $request->user()?->id,
-            'reviewed_at' => now(),
-        ])->save();
-
-        if ($decision === 'approve') {
-            $this->ownedShopAccountingService->syncStoredClosingBalanceForDate(
-                $shop,
-                Carbon::parse($credit->business_date),
-                (int) $request->user()->id,
-            );
-        }
-
-        return back()->with($decision === 'approve' ? 'success' : 'warning', $decision === 'approve' ? 'Company payment approved and balance updated.' : 'Company payment rejected.');
+        ])->with('success', 'Client shop loan recorded.');
     }
 
     public function reviewOwnedShopPaymentRequest(ReviewOwnedShopPaymentRequest $request, Shop $shop, ShopInvoicePaymentRequest $paymentRequest): RedirectResponse
@@ -862,10 +1026,14 @@ class AdminAccountingController extends Controller
             'date' => ['required', 'date'],
         ]);
 
-        $this->shopInvoiceService->generateForBusinessDate($validated['date'], (int) $request->user()->id);
+        $summary = $this->shopInvoiceService->generateForBusinessDate($validated['date'], (int) $request->user()->id);
+        $skipped = count($summary['skipped']);
 
         return redirect()->route('admin.accounting.index', ['date' => $validated['date']])
-            ->with('success', 'Daily shop invoices generated for the selected date.');
+            ->with('success', 'Daily shop invoices generated for the selected date.')
+            ->with('warning', $skipped > 0
+                ? "Skipped {$skipped} order(s) because daily prices are missing."
+                : null);
     }
 
     public function purchasersIndex(Request $request): View

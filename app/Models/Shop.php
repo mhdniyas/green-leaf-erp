@@ -22,6 +22,7 @@ class Shop extends Model
         'name',
         'warehouse_tag',
         'shop_price_group_id',
+        'client_id',
         'status',
         'accounting_mode',
         'accounting_enabled',
@@ -46,6 +47,11 @@ class Shop extends Model
     public function priceGroup(): BelongsTo
     {
         return $this->belongsTo(ShopPriceGroup::class, 'shop_price_group_id');
+    }
+
+    public function client(): BelongsTo
+    {
+        return $this->belongsTo(Client::class);
     }
 
     /**
@@ -175,12 +181,20 @@ class Shop extends Model
         $query
             ->active()
             ->where('accounting_enabled', true)
-            ->where('accounting_mode', 'owned');
+            ->where(function (Builder $query): void {
+                $query->whereNotNull('client_id')
+                    ->orWhere('accounting_mode', 'owned');
+            });
     }
 
     public function isOwnedAccountingEnabled(): bool
     {
         return (bool) $this->accounting_enabled
-            && (string) $this->accounting_mode === 'owned';
+            && ((string) $this->accounting_mode === 'owned' || $this->client_id !== null);
+    }
+
+    public function isClientShop(): bool
+    {
+        return $this->client_id !== null;
     }
 }

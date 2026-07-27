@@ -277,7 +277,7 @@
                             </div>
                             @if($employee->user->ownedShopAssignments->isNotEmpty())
                                 <div>
-                                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Owned Shops</p>
+                                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Client Shops</p>
                                     <p class="mt-1 text-sm font-semibold text-slate-600">{{ $employee->user->ownedShopAssignments->pluck('shop.name')->implode(', ') }}</p>
                                 </div>
                             @endif
@@ -293,7 +293,7 @@
                         <article class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                             <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Quick List Shops</p>
                             <p class="mt-2 text-sm font-semibold text-slate-600">
-                                {{ $employee->assignedShops->isNotEmpty() ? $employee->assignedShops->pluck('name')->implode(', ') : 'Not added to any owned shop quick list yet.' }}
+                                {{ $employee->assignedShops->isNotEmpty() ? $employee->assignedShops->pluck('name')->implode(', ') : 'Not added to any client shop quick list yet.' }}
                             </p>
                         </article>
                         <article class="rounded-2xl border border-slate-200 bg-slate-50 p-4">

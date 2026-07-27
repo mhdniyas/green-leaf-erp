@@ -12,6 +12,7 @@ class DeliveryVerificationEligibility
 {
     public function __construct(
         private readonly ShopInvoiceIntegrityValidator $invoiceIntegrityValidator,
+        private readonly DeliveryPriceReadinessService $deliveryPriceReadinessService,
     ) {}
 
     /**
@@ -19,7 +20,7 @@ class DeliveryVerificationEligibility
      */
     public function forOrder(ShopOrder $order): array
     {
-        $order->loadMissing(['invoice.items.product', 'invoice.shop.priceGroup']);
+        $order->loadMissing(['invoice.items.product', 'invoice.shop.priceGroup', 'items.product', 'shop.priceGroup']);
 
         if ($order->state !== 'approved') {
             return $this->blocked('order_not_approved', 'This order has not been approved.');
@@ -35,6 +36,12 @@ class DeliveryVerificationEligibility
 
         if ($order->is_delivered || $order->delivery_review_status === 'pending') {
             return $this->blocked('already_submitted', 'This delivery has already been submitted or completed.');
+        }
+
+        $priceReadiness = $this->deliveryPriceReadinessService->forOrder($order);
+
+        if (! $priceReadiness['ready']) {
+            return $this->blocked('daily_prices_unpublished', $priceReadiness['message']);
         }
 
         if (! $order->invoice) {

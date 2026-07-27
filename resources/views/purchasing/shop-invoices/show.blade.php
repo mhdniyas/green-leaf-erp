@@ -8,6 +8,10 @@
     @php
         $invoiceDate = $invoice->business_date->toDateString();
         $invoiceCarbonDate = $invoice->business_date->copy();
+        $canManageInvoiceMoney = \App\Support\AccountingAccess::canViewDashboard(auth()->user());
+        $isDeliveryReviewPending = $invoice->delivery_status === 'awaiting_review' || $invoice->order?->delivery_status === 'pending_approval';
+        $grossPayableAmount = round(max(0, (float) $invoice->subtotal - (float) $invoice->shortage_total + (float) $invoice->excess_total), 2);
+        $maxDiscountAmount = round(max(0, $grossPayableAmount - (float) $invoice->paid_amount), 2);
     @endphp
     <div class="space-y-6">
         <section class="rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -56,6 +60,7 @@
                             <th class="px-5 py-4">Business Date</th>
                             <th class="px-5 py-4 text-right">Subtotal</th>
                             <th class="px-5 py-4 text-right">Shortage</th>
+                            <th class="px-5 py-4 text-right">Excess</th>
                             <th class="px-5 py-4 text-right">Discount</th>
                             <th class="px-5 py-4 text-right">Paid</th>
                             <th class="px-5 py-4 text-right">Balance</th>
@@ -67,6 +72,7 @@
                             <td class="px-5 py-4 text-slate-700">{{ $invoice->business_date->format('d M Y') }}</td>
                             <td class="px-5 py-4 text-right font-black text-slate-950">Rs. {{ number_format((float) $invoice->subtotal, 2) }}</td>
                             <td class="px-5 py-4 text-right font-black text-amber-600">Rs. {{ number_format((float) $invoice->shortage_total, 2) }}</td>
+                            <td class="px-5 py-4 text-right font-black text-cyan-700">Rs. {{ number_format((float) $invoice->excess_total, 2) }}</td>
                             <td class="px-5 py-4 text-right font-black text-indigo-700">Rs. {{ number_format((float) $invoice->discount_total, 2) }}</td>
                             <td class="px-5 py-4 text-right font-black text-emerald-700">Rs. {{ number_format((float) $invoice->paid_amount, 2) }}</td>
                             <td class="px-5 py-4 text-right font-black text-rose-600">Rs. {{ number_format((float) $invoice->balance_amount, 2) }}</td>
@@ -82,7 +88,7 @@
                     <div>
                         <p class="text-[11px] font-black uppercase tracking-[0.16em] text-amber-700">Delivery Review</p>
                         <h2 class="mt-1 text-lg font-black text-slate-950">Admin Approval Required</h2>
-                        <p class="mt-1 text-sm font-semibold text-slate-600">Confirm delivered quantity, add short item notes only where needed, then approve or request correction.</p>
+                        <p class="mt-1 text-sm font-semibold text-slate-600">Confirm final delivered quantity. Short reduces the bill; accepted excess adds to the bill and consumes inventory.</p>
                     </div>
                     <span class="w-fit rounded-full border border-amber-200 bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-amber-700">
                         Finance impact pending
@@ -102,7 +108,9 @@
                                 <th class="px-3 py-3 text-right">Approved</th>
                                 <th class="px-3 py-3 text-right">Received</th>
                                 <th class="px-3 py-3 text-right">Short</th>
-                                <th class="px-3 py-3 text-right">Impact</th>
+                                <th class="px-3 py-3 text-right">Excess</th>
+                                <th class="px-3 py-3 text-right">Bill Impact</th>
+                                <th class="px-3 py-3">Inventory Impact</th>
                                 <th class="px-3 py-3">Final Qty</th>
                                 <th class="px-4 py-3">Manager Note</th>
                             </tr>
@@ -112,10 +120,17 @@
                                 @php
                                     $reportedDeliveredQty = (float) ($item->orderItem?->shop_reported_received_qty ?? $item->delivered_qty);
                                     $reportedShortageQty = (float) ($item->orderItem?->shop_reported_missing_qty ?? $item->shortage_qty);
+                                    $reportedExcessQty = (float) ($item->orderItem?->shop_reported_excess_qty ?? $item->excess_qty);
                                     $approvedDeliveredQty = old("approved_delivered_qty.{$item->shop_order_item_id}", number_format($reportedDeliveredQty, 2, '.', ''));
                                     $reportedShortageAmount = round($reportedShortageQty * (float) $item->unit_price, 2);
+                                    $reportedExcessAmount = round($reportedExcessQty * (float) $item->unit_price, 2);
+                                    $billImpact = round($reportedExcessAmount - $reportedShortageAmount, 2);
+                                    $defaultInventoryAction = $reportedExcessQty > 0
+                                        ? 'deduct_extra'
+                                        : ($reportedShortageQty > 0 ? 'add_back' : 'none');
+                                    $inventoryAction = old("item_inventory_actions.{$item->shop_order_item_id}", $defaultInventoryAction);
                                 @endphp
-                                <tr class="align-middle hover:bg-slate-50/70">
+                                <tr class="delivery-review-row align-middle hover:bg-slate-50/70" data-product-name="{{ $item->product_name }}">
                                     <td class="px-4 py-2.5">
                                         <p class="whitespace-nowrap font-black text-slate-950">{{ $item->product_name }}</p>
                                         <p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">{{ strtoupper($item->unit) }}</p>
@@ -126,14 +141,77 @@
                                     <td class="px-3 py-2.5 text-right font-semibold text-slate-900">{{ number_format((float) $item->approved_qty, 2) }}</td>
                                     <td class="px-3 py-2.5 text-right font-semibold text-slate-900">{{ number_format($reportedDeliveredQty, 2) }}</td>
                                     <td class="px-3 py-2.5 text-right font-black {{ $reportedShortageQty > 0 ? 'text-amber-700' : 'text-emerald-700' }}">{{ number_format($reportedShortageQty, 2) }}</td>
-                                    <td class="px-3 py-2.5 text-right font-black {{ $reportedShortageAmount > 0 ? 'text-rose-600' : 'text-slate-900' }}">Rs. {{ number_format($reportedShortageAmount, 2) }}</td>
+                                    <td class="px-3 py-2.5 text-right font-black {{ $reportedExcessQty > 0 ? 'text-cyan-700' : 'text-emerald-700' }}">{{ number_format($reportedExcessQty, 2) }}</td>
+                                    <td class="px-3 py-2.5 text-right font-black {{ $billImpact < 0 ? 'text-rose-600' : ($billImpact > 0 ? 'text-cyan-700' : 'text-slate-900') }}">
+                                        {{ $billImpact > 0 ? '+' : ($billImpact < 0 ? '-' : '') }}Rs. {{ number_format(abs($billImpact), 2) }}
+                                    </td>
+                                    <td class="px-3 py-2.5">
+                                        @if ($reportedShortageQty > 0)
+                                            <div class="space-y-1.5">
+                                                <label class="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">
+                                                <input
+                                                    form="delivery-discrepancy-approve-form"
+                                                    type="radio"
+                                                        name="item_inventory_actions[{{ $item->shop_order_item_id }}]"
+                                                    value="add_back"
+                                                    data-inventory-impact="Add back {{ number_format($reportedShortageQty, 2) }} {{ $item->unit }} to inventory"
+                                                        @checked($inventoryAction === 'add_back')
+                                                        class="mt-0.5 border-emerald-300 text-emerald-600 focus:ring-emerald-500"
+                                                    >
+                                                    <span>Add back {{ number_format($reportedShortageQty, 2) }} {{ $item->unit }} to inventory</span>
+                                                </label>
+                                                <label class="flex items-start gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700">
+                                                    <input
+                                                        form="delivery-discrepancy-approve-form"
+                                                        type="radio"
+                                                        name="item_inventory_actions[{{ $item->shop_order_item_id }}]"
+                                                        value="none"
+                                                        @checked($inventoryAction === 'none')
+                                                        class="mt-0.5 border-slate-300 text-slate-700 focus:ring-slate-500"
+                                                    >
+                                                    <span>No inventory add-back</span>
+                                                </label>
+                                            </div>
+                                        @elseif ($reportedExcessQty > 0)
+                                            <div class="space-y-1.5">
+                                                <label class="flex items-start gap-2 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-bold text-cyan-800">
+                                                    <input
+                                                        form="delivery-discrepancy-approve-form"
+                                                        type="radio"
+                                                        name="item_inventory_actions[{{ $item->shop_order_item_id }}]"
+                                                    value="deduct_extra"
+                                                    data-inventory-impact="Deduct extra {{ number_format($reportedExcessQty, 2) }} {{ $item->unit }} from inventory. This can create negative stock."
+                                                        @checked($inventoryAction === 'deduct_extra')
+                                                        class="mt-0.5 border-cyan-300 text-cyan-600 focus:ring-cyan-500"
+                                                    >
+                                                    <span>Deduct extra {{ number_format($reportedExcessQty, 2) }} {{ $item->unit }} from inventory</span>
+                                                </label>
+                                                <label class="flex items-start gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700">
+                                                    <input
+                                                        form="delivery-discrepancy-approve-form"
+                                                        type="radio"
+                                                        name="item_inventory_actions[{{ $item->shop_order_item_id }}]"
+                                                        value="none"
+                                                        @checked($inventoryAction === 'none')
+                                                        class="mt-0.5 border-slate-300 text-slate-700 focus:ring-slate-500"
+                                                    >
+                                                    <span>No inventory deduction</span>
+                                                </label>
+                                            </div>
+                                        @else
+                                            <input form="delivery-discrepancy-approve-form" type="hidden" name="item_inventory_actions[{{ $item->shop_order_item_id }}]" value="none">
+                                            <p class="max-w-[13rem] text-xs font-bold leading-5 text-emerald-700">No stock adjustment.</p>
+                                        @endif
+                                        @error("item_inventory_actions.{$item->shop_order_item_id}")
+                                            <span class="mt-1 block text-xs font-semibold text-rose-600">{{ $message }}</span>
+                                        @enderror
+                                    </td>
                                     <td class="px-3 py-2.5">
                                         <input
                                             form="delivery-discrepancy-approve-form"
                                             type="number"
                                             step="0.01"
                                             min="0"
-                                            max="{{ number_format((float) $item->approved_qty, 2, '.', '') }}"
                                             name="approved_delivered_qty[{{ $item->shop_order_item_id }}]"
                                             value="{{ $approvedDeliveredQty }}"
                                             class="h-9 w-24 rounded-xl border border-slate-200 bg-white px-3 text-right text-sm font-black text-slate-900 focus:border-amber-400 focus:outline-none"
@@ -148,7 +226,7 @@
                                             name="item_review_notes[{{ $item->shop_order_item_id }}]"
                                             value="{{ old("item_review_notes.{$item->shop_order_item_id}") }}"
                                             class="h-9 w-72 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 focus:border-amber-400 focus:outline-none"
-                                            placeholder="Short note if correction is needed"
+                                            placeholder="Note if correction is needed"
                                         >
                                         @error("item_review_notes.{$item->shop_order_item_id}")
                                             <span class="mt-1 block text-xs font-semibold text-rose-600">{{ $message }}</span>
@@ -186,6 +264,36 @@
                     </div>
                 </div>
             </section>
+
+            <script>
+                document.addEventListener('DOMContentLoaded', function () {
+                    const form = document.getElementById('delivery-discrepancy-approve-form');
+
+                    if (!form) {
+                        return;
+                    }
+
+                    form.addEventListener('submit', function (event) {
+                        const impacts = Array.from(document.querySelectorAll('input[form="delivery-discrepancy-approve-form"][data-inventory-impact]:checked'))
+                            .map((input) => {
+                                const row = input.closest('.delivery-review-row');
+                                const product = row?.dataset.productName || 'Product';
+
+                                return `${product}: ${input.dataset.inventoryImpact}`;
+                            });
+
+                        if (impacts.length === 0) {
+                            return;
+                        }
+
+                        const message = `Inventory impact will be posted:\n\n${impacts.join('\n')}\n\nContinue approval?`;
+
+                        if (!window.confirm(message)) {
+                            event.preventDefault();
+                        }
+                    });
+                });
+            </script>
         @endif
 
         <section class="rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -201,6 +309,7 @@
                             <th class="px-5 py-4 text-right">Delivered</th>
                             <th class="px-5 py-4 text-right">Unit Price</th>
                             <th class="px-5 py-4 text-right">Shortage</th>
+                            <th class="px-5 py-4 text-right">Excess</th>
                             <th class="px-5 py-4 text-right">Final</th>
                         </tr>
                     </thead>
@@ -212,6 +321,7 @@
                                 <td class="px-5 py-4 text-right text-slate-700">{{ number_format((float) $item->delivered_qty, 2) }}</td>
                                 <td class="px-5 py-4 text-right text-slate-900">Rs. {{ number_format((float) $item->unit_price, 2) }}</td>
                                 <td class="px-5 py-4 text-right text-amber-600">Rs. {{ number_format((float) $item->shortage_amount, 2) }}</td>
+                                <td class="px-5 py-4 text-right text-cyan-700">Rs. {{ number_format((float) $item->excess_amount, 2) }}</td>
                                 <td class="px-5 py-4 text-right font-black text-slate-950">Rs. {{ number_format((float) $item->final_line_total, 2) }}</td>
                             </tr>
                         @endforeach
@@ -308,8 +418,119 @@
                     @if ($invoice->payment_note)
                         <p class="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-600">{{ $invoice->payment_note }}</p>
                     @endif
+                    @if ((float) $invoice->discount_total > 0)
+                        <div class="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-indigo-700">Discount Approval</p>
+                            <p class="mt-2 text-sm font-semibold text-slate-700">{{ $invoice->discount_note ?: 'No discount reason recorded.' }}</p>
+                            <p class="mt-2 text-xs font-semibold text-slate-500">
+                                {{ $invoice->discountApprovedBy?->name ?? 'Admin' }}
+                                @if ($invoice->discount_approved_at)
+                                    · {{ $invoice->discount_approved_at->format('d M Y h:i A') }}
+                                @endif
+                            </p>
+                        </div>
+                    @endif
                 </div>
             </section>
+
+            @if ($canManageInvoiceMoney)
+                <section class="rounded-3xl border border-slate-200 bg-white shadow-sm">
+                    <div class="border-b border-slate-100 px-5 py-4">
+                        <h2 class="text-lg font-black text-slate-950">Admin Billing Actions</h2>
+                        <p class="mt-1 text-sm text-slate-600">Apply audited discount first, then record collected money against the finalized bill.</p>
+                    </div>
+
+                    @if ($isDeliveryReviewPending)
+                        <div class="px-5 py-5">
+                            <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                                <p class="text-sm font-black text-amber-900">Approve delivery review before discount or payment changes.</p>
+                                <p class="mt-1 text-sm font-semibold text-amber-800">The final bill can still change from shortage or excess quantities.</p>
+                            </div>
+                        </div>
+                    @else
+                        <div class="grid gap-5 px-5 py-5 lg:grid-cols-2">
+                            <form method="POST" action="{{ route('admin.accounting.shop-invoices.discount', $invoice) }}" class="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+                                @csrf
+                                @method('PATCH')
+                                <div class="grid gap-3 sm:grid-cols-3">
+                                    <div>
+                                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-indigo-700">Before Discount</p>
+                                        <p class="mt-1 text-sm font-black text-slate-950">Rs. {{ number_format($grossPayableAmount, 2) }}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-indigo-700">Current Discount</p>
+                                        <p class="mt-1 text-sm font-black text-indigo-800">Rs. {{ number_format((float) $invoice->discount_total, 2) }}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-indigo-700">Max Allowed</p>
+                                        <p class="mt-1 text-sm font-black text-slate-950">Rs. {{ number_format($maxDiscountAmount, 2) }}</p>
+                                    </div>
+                                </div>
+                                <label class="mt-4 block">
+                                    <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-indigo-700">Total discount amount</span>
+                                    <input type="number" step="0.01" min="0" max="{{ number_format($maxDiscountAmount, 2, '.', '') }}" name="discount_total" value="{{ old('discount_total', number_format((float) $invoice->discount_total, 2, '.', '')) }}" class="h-11 w-full rounded-2xl border border-indigo-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-indigo-400 focus:outline-none">
+                                    @error('discount_total')
+                                        <span class="mt-1 block text-xs font-semibold text-rose-600">{{ $message }}</span>
+                                    @enderror
+                                </label>
+                                <label class="mt-4 block">
+                                    <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-indigo-700">Discount reason</span>
+                                    <textarea name="discount_note" rows="3" required class="w-full rounded-2xl border border-indigo-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-indigo-400 focus:outline-none" placeholder="Reason required for audit">{{ old('discount_note', $invoice->discount_note) }}</textarea>
+                                    @error('discount_note')
+                                        <span class="mt-1 block text-xs font-semibold text-rose-600">{{ $message }}</span>
+                                    @enderror
+                                </label>
+                                <button type="submit" class="mt-4 inline-flex h-11 w-full items-center justify-center rounded-2xl bg-indigo-600 px-5 text-sm font-black text-white transition hover:bg-indigo-500 sm:w-auto">
+                                    Apply Discount
+                                </button>
+                            </form>
+
+                            <form method="POST" action="{{ route('admin.accounting.shop-invoices.payment', $invoice) }}" class="rounded-2xl border border-cyan-200 bg-cyan-50 p-4">
+                                @csrf
+                                @method('PATCH')
+                                <input type="hidden" name="discount_total" value="{{ number_format((float) $invoice->discount_total, 2, '.', '') }}">
+                                <div class="grid gap-3 sm:grid-cols-3">
+                                    <div>
+                                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Final Payable</p>
+                                        <p class="mt-1 text-sm font-black text-slate-950">Rs. {{ number_format((float) $invoice->final_total, 2) }}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Collected</p>
+                                        <p class="mt-1 text-sm font-black text-emerald-700">Rs. {{ number_format((float) $invoice->paid_amount, 2) }}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Balance</p>
+                                        <p class="mt-1 text-sm font-black text-rose-700">Rs. {{ number_format((float) $invoice->balance_amount, 2) }}</p>
+                                    </div>
+                                </div>
+                                @if ((float) $invoice->balance_amount > 0)
+                                    <label class="mt-4 block">
+                                        <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Total collected amount</span>
+                                        <input type="number" step="0.01" min="{{ number_format((float) $invoice->paid_amount, 2, '.', '') }}" max="{{ number_format((float) $invoice->final_total, 2, '.', '') }}" name="paid_amount" value="{{ old('paid_amount', number_format((float) $invoice->final_total, 2, '.', '')) }}" class="h-11 w-full rounded-2xl border border-cyan-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-cyan-400 focus:outline-none">
+                                        @error('paid_amount')
+                                            <span class="mt-1 block text-xs font-semibold text-rose-600">{{ $message }}</span>
+                                        @enderror
+                                    </label>
+                                    <label class="mt-4 block">
+                                        <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Payment note</span>
+                                        <textarea name="payment_note" rows="3" class="w-full rounded-2xl border border-cyan-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none" placeholder="e.g. Balance collected in cash.">{{ old('payment_note', $invoice->payment_note) }}</textarea>
+                                        @error('payment_note')
+                                            <span class="mt-1 block text-xs font-semibold text-rose-600">{{ $message }}</span>
+                                        @enderror
+                                    </label>
+                                    <button type="submit" class="mt-4 inline-flex h-11 w-full items-center justify-center rounded-2xl bg-cyan-600 px-5 text-sm font-black text-white transition hover:bg-cyan-500 sm:w-auto">
+                                        Update Payment
+                                    </button>
+                                @else
+                                    <div class="mt-4 rounded-2xl border border-emerald-200 bg-white p-4 text-sm font-black text-emerald-700">
+                                        This bill is fully paid.
+                                    </div>
+                                @endif
+                            </form>
+                        </div>
+                    @endif
+                </section>
+            @endif
         @endif
 
         @if (auth()->user()->hasRole('admin'))
@@ -327,6 +548,7 @@
                                 <th class="px-4 py-4 text-right">Current Unit Price</th>
                                 <th class="px-4 py-4 text-right">Current Line Subtotal</th>
                                 <th class="px-4 py-4 text-right">Current Shortage Amount</th>
+                                <th class="px-4 py-4 text-right">Current Excess Amount</th>
                                 <th class="px-4 py-4 text-right">Current Final Line Total</th>
                             </tr>
                         </thead>
@@ -338,6 +560,7 @@
                                     <td class="px-4 py-4 text-right font-black text-slate-900">Rs. {{ number_format((float) $item->unit_price, 2) }}</td>
                                     <td class="px-4 py-4 text-right font-black text-slate-900">Rs. {{ number_format((float) $item->line_subtotal, 2) }}</td>
                                     <td class="px-4 py-4 text-right font-black text-amber-700">Rs. {{ number_format((float) $item->shortage_amount, 2) }}</td>
+                                    <td class="px-4 py-4 text-right font-black text-cyan-700">Rs. {{ number_format((float) $item->excess_amount, 2) }}</td>
                                     <td class="px-4 py-4 text-right font-black text-slate-900">Rs. {{ number_format((float) $item->final_line_total, 2) }}</td>
                                 </tr>
                             @endforeach
@@ -347,6 +570,7 @@
                                 <td class="px-4 py-4"></td>
                                 <td class="px-4 py-4 text-right font-black text-slate-950">Rs. {{ number_format((float) $invoice->subtotal, 2) }}</td>
                                 <td class="px-4 py-4 text-right font-black text-amber-700">Rs. {{ number_format((float) $invoice->shortage_total, 2) }}</td>
+                                <td class="px-4 py-4 text-right font-black text-cyan-700">Rs. {{ number_format((float) $invoice->excess_total, 2) }}</td>
                                 <td class="px-4 py-4 text-right font-black text-slate-950">Rs. {{ number_format((float) $invoice->final_total, 2) }}</td>
                             </tr>
                         </tbody>

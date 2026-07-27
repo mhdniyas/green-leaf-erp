@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Models\Client;
 use App\Models\Employee;
 use App\Models\EmployeeAdvanceRule;
 use App\Models\EmployeeAttendance;
@@ -26,6 +27,8 @@ class EssentialUserSeeder extends Seeder
         $defaultPriceGroup = $this->defaultShopPriceGroup();
         $this->defaultEmployeeAdvanceRule();
 
+        $this->deactivateRemovedSeedShops();
+
         foreach ($this->roleAccounts() as $account) {
             $user = $this->upsertUser(
                 name: $account['name'],
@@ -39,15 +42,18 @@ class EssentialUserSeeder extends Seeder
         }
 
         foreach ($this->shops() as $shopSeed) {
+            $existingShop = Shop::query()->where('code', $shopSeed['code'])->first();
+
             $shop = Shop::query()->updateOrCreate(
                 ['code' => $shopSeed['code']],
                 [
                     'name' => $shopSeed['name'],
                     'warehouse_tag' => $shopSeed['warehouse_tag'],
                     'status' => 'active',
-                    'shop_price_group_id' => $shop->shop_price_group_id ?? $defaultPriceGroup->id,
-                    'accounting_mode' => 'owned',
-                    'accounting_enabled' => true,
+                    'shop_price_group_id' => $existingShop?->shop_price_group_id ?? $defaultPriceGroup->id,
+                    'client_id' => $this->clientId($shopSeed['client_code']),
+                    'accounting_mode' => $shopSeed['accounting_mode'],
+                    'accounting_enabled' => $shopSeed['accounting_enabled'],
                     'approved_at' => now(),
                 ],
             );
@@ -70,6 +76,8 @@ class EssentialUserSeeder extends Seeder
 
             $this->ensureAssignedShopStaff($shop, $owner);
         }
+
+        $this->deactivateRemovedSeedShops();
 
         $this->command?->info('Essential role users and real shop-owner users seeded successfully.');
     }
@@ -233,25 +241,167 @@ class EssentialUserSeeder extends Seeder
     }
 
     /**
-     * @return array<int, array{code:string, name:string, warehouse_tag:string, owner_email:string}>
+     * @return array<int, array{code:string, name:string, warehouse_tag:string, owner_email:string, accounting_mode:string, accounting_enabled:bool, client_code:?string}>
      */
     private function shops(): array
     {
         return [
-            ['code' => 'SHOP_CASIO', 'name' => 'Casio Hypermarket', 'warehouse_tag' => 'A', 'owner_email' => 'shop-casio@greenleaf.com'],
-            ['code' => 'SHOP_BUDEGERE', 'name' => 'Budegere', 'warehouse_tag' => 'B', 'owner_email' => 'shop-budegere@greenleaf.com'],
-            ['code' => 'SHOP_GRANCITY', 'name' => 'Grancity', 'warehouse_tag' => 'C', 'owner_email' => 'shop-grancity@greenleaf.com'],
-            ['code' => 'SHOP_ASHIRWAD', 'name' => 'Ashirwad', 'warehouse_tag' => 'D', 'owner_email' => 'shop-ashirwad@greenleaf.com'],
-            ['code' => 'SHOP_METRO', 'name' => 'Metro Retail', 'warehouse_tag' => 'E', 'owner_email' => 'shop-metro@greenleaf.com'],
-            ['code' => 'SHOP_RELIANCE', 'name' => 'Reliance Fresh', 'warehouse_tag' => 'F', 'owner_email' => 'shop-reliance@greenleaf.com'],
-            ['code' => 'SHOP_SPAR', 'name' => 'Spar Hypermarket', 'warehouse_tag' => 'G', 'owner_email' => 'shop-spar@greenleaf.com'],
-            ['code' => 'SHOP_MORE', 'name' => 'More Supermarket', 'warehouse_tag' => 'H', 'owner_email' => 'shop-more@greenleaf.com'],
-            ['code' => 'SHOP_LULU', 'name' => 'Lulu Express', 'warehouse_tag' => 'I', 'owner_email' => 'shop-lulu@greenleaf.com'],
-            ['code' => 'SHOP_STAR', 'name' => 'Star Bazaar', 'warehouse_tag' => 'J', 'owner_email' => 'shop-star@greenleaf.com'],
-            ['code' => 'SHOP_FOODWORLD', 'name' => 'Foodworld', 'warehouse_tag' => 'K', 'owner_email' => 'shop-foodworld@greenleaf.com'],
-            ['code' => 'SHOP_NILGIRIS', 'name' => 'Nilgiris', 'warehouse_tag' => 'L', 'owner_email' => 'shop-nilgiris@greenleaf.com'],
-            ['code' => 'SHOP_DMART', 'name' => 'DMart', 'warehouse_tag' => 'M', 'owner_email' => 'shop-dmart@greenleaf.com'],
-            ['code' => 'SHOP_EASYDAY', 'name' => 'Easyday', 'warehouse_tag' => 'N', 'owner_email' => 'shop-easyday@greenleaf.com'],
+            [
+                'code' => 'AV_CASIO',
+                'name' => 'Casio',
+                'warehouse_tag' => 'AV-CASIO',
+                'owner_email' => 'shop-aishwarya-casio@greenleaf.com',
+                'accounting_mode' => 'owned',
+                'accounting_enabled' => true,
+                'client_code' => 'AISHWARYA_VEG',
+            ],
+            [
+                'code' => 'AV_BUDEGERE',
+                'name' => 'Budegere',
+                'warehouse_tag' => 'AV-BDG',
+                'owner_email' => 'shop-aishwarya-budegere@greenleaf.com',
+                'accounting_mode' => 'owned',
+                'accounting_enabled' => true,
+                'client_code' => 'AISHWARYA_VEG',
+            ],
+            [
+                'code' => 'AV_GRANCITY',
+                'name' => 'Grancity',
+                'warehouse_tag' => 'AV-GCITY',
+                'owner_email' => 'shop-aishwarya-grancity@greenleaf.com',
+                'accounting_mode' => 'owned',
+                'accounting_enabled' => true,
+                'client_code' => 'AISHWARYA_VEG',
+            ],
+            [
+                'code' => 'AV_ASHIRWAD',
+                'name' => 'Ashirwad',
+                'warehouse_tag' => 'AV-ASH',
+                'owner_email' => 'shop-aishwarya-ashirwad@greenleaf.com',
+                'accounting_mode' => 'owned',
+                'accounting_enabled' => true,
+                'client_code' => 'AISHWARYA_VEG',
+            ],
+            [
+                'code' => 'AV_SANA',
+                'name' => 'Sana',
+                'warehouse_tag' => 'AV-SANA',
+                'owner_email' => 'shop-aishwarya-sana@greenleaf.com',
+                'accounting_mode' => 'owned',
+                'accounting_enabled' => true,
+                'client_code' => 'AISHWARYA_VEG',
+            ],
+            [
+                'code' => 'AV_BAZARO',
+                'name' => 'Bazaro',
+                'warehouse_tag' => 'AV-BAZ',
+                'owner_email' => 'shop-aishwarya-bazaro@greenleaf.com',
+                'accounting_mode' => 'owned',
+                'accounting_enabled' => true,
+                'client_code' => 'AISHWARYA_VEG',
+            ],
+            [
+                'code' => 'AV_SANA_JP',
+                'name' => 'Sana JP',
+                'warehouse_tag' => 'AV-SANA-JP',
+                'owner_email' => 'shop-aishwarya-sana-jp@greenleaf.com',
+                'accounting_mode' => 'owned',
+                'accounting_enabled' => true,
+                'client_code' => 'AISHWARYA_VEG',
+            ],
+            [
+                'code' => 'AV_VARTHUR',
+                'name' => 'Varthur',
+                'warehouse_tag' => 'AV-VAR',
+                'owner_email' => 'shop-aishwarya-varthur@greenleaf.com',
+                'accounting_mode' => 'owned',
+                'accounting_enabled' => true,
+                'client_code' => 'AISHWARYA_VEG',
+            ],
+            [
+                'code' => 'AV_GM',
+                'name' => 'GM',
+                'warehouse_tag' => 'AV-GM',
+                'owner_email' => 'shop-aishwarya-gm@greenleaf.com',
+                'accounting_mode' => 'owned',
+                'accounting_enabled' => true,
+                'client_code' => 'AISHWARYA_VEG',
+            ],
+            [
+                'code' => 'AV_HSR',
+                'name' => 'HSR',
+                'warehouse_tag' => 'AV-HSR',
+                'owner_email' => 'shop-aishwarya-hsr@greenleaf.com',
+                'accounting_mode' => 'owned',
+                'accounting_enabled' => true,
+                'client_code' => 'AISHWARYA_VEG',
+            ],
+            [
+                'code' => 'AV_BEGUR',
+                'name' => 'Begur',
+                'warehouse_tag' => 'AV-BEGUR',
+                'owner_email' => 'shop-aishwarya-begur@greenleaf.com',
+                'accounting_mode' => 'owned',
+                'accounting_enabled' => true,
+                'client_code' => 'AISHWARYA_VEG',
+            ],
+            [
+                'code' => 'AV_JINDAL_CITY',
+                'name' => 'Jindal City',
+                'warehouse_tag' => 'AV-JINDAL',
+                'owner_email' => 'shop-aishwarya-jindal-city@greenleaf.com',
+                'accounting_mode' => 'owned',
+                'accounting_enabled' => true,
+                'client_code' => 'AISHWARYA_VEG',
+            ],
+            [
+                'code' => 'DS_QUICK_MART',
+                'name' => 'Quick Mart',
+                'warehouse_tag' => 'DS-QM',
+                'owner_email' => 'shop-direct-quick-mart@greenleaf.com',
+                'accounting_mode' => 'regular',
+                'accounting_enabled' => false,
+                'client_code' => null,
+            ],
+            [
+                'code' => 'DS_FORTUNE_SM',
+                'name' => 'Fortune SM',
+                'warehouse_tag' => 'DS-FSM',
+                'owner_email' => 'shop-direct-fortune-sm@greenleaf.com',
+                'accounting_mode' => 'regular',
+                'accounting_enabled' => false,
+                'client_code' => null,
+            ],
         ];
+    }
+
+    private function clientId(?string $clientCode): ?int
+    {
+        if ($clientCode === null) {
+            return null;
+        }
+
+        return Client::query()->updateOrCreate(
+            ['code' => $clientCode],
+            [
+                'name' => 'Aishwarya Veg',
+                'status' => 'active',
+                'notes' => 'Default client for client-shop accounting.',
+            ],
+        )->id;
+    }
+
+    private function deactivateRemovedSeedShops(): void
+    {
+        $activeSeedCodes = collect($this->shops())->pluck('code')->all();
+
+        Shop::query()
+            ->whereNotIn('code', $activeSeedCodes)
+            ->update([
+                'status' => 'inactive',
+                'client_id' => null,
+                'accounting_enabled' => false,
+                'warehouse_tag' => null,
+            ]);
     }
 }

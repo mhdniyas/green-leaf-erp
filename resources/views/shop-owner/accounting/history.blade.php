@@ -2,7 +2,7 @@
 
 @section('title', 'Accounting History')
 @section('page_title', 'Accounting History')
-@section('page_description', 'Review previous bill approvals, balances, payment requests, and for owned shops the cashbook approval history.')
+@section('page_description', 'Review previous bill approvals, balances, payment requests, and for client shops the cashbook approval history.')
 @php
     $breadcrumbs = [['label' => 'Accounting', 'url' => route('shop-owner.accounting.index', ['tab' => $tab])], ['label' => 'History']];
 @endphp

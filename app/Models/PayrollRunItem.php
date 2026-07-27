@@ -28,7 +28,11 @@ class PayrollRunItem extends Model
         'unpaid_leave_days',
         'absent_days',
         'payable_units',
+        'green_leaf_payable_units',
+        'client_shop_payable_units',
         'computed_amount',
+        'green_leaf_computed_amount',
+        'client_shop_computed_amount',
         'override_amount',
         'final_amount',
         'rule_snapshot',
@@ -45,7 +49,11 @@ class PayrollRunItem extends Model
             'unpaid_leave_days' => 'decimal:2',
             'absent_days' => 'decimal:2',
             'payable_units' => 'decimal:2',
+            'green_leaf_payable_units' => 'decimal:2',
+            'client_shop_payable_units' => 'decimal:2',
             'computed_amount' => 'decimal:2',
+            'green_leaf_computed_amount' => 'decimal:2',
+            'client_shop_computed_amount' => 'decimal:2',
             'override_amount' => 'decimal:2',
             'final_amount' => 'decimal:2',
             'rule_snapshot' => 'array',
@@ -102,5 +110,35 @@ class PayrollRunItem extends Model
     public function remainingAmount(): float
     {
         return round(max(0, (float) $this->final_amount - $this->paidAmount()), 2);
+    }
+
+    public function greenLeafPayableAmount(): float
+    {
+        if ($this->override_amount !== null) {
+            return round(max(0, (float) $this->final_amount - (float) $this->client_shop_computed_amount), 2);
+        }
+
+        return round((float) $this->green_leaf_computed_amount, 2);
+    }
+
+    public function clientShopPayableAmount(): float
+    {
+        return round((float) $this->client_shop_computed_amount, 2);
+    }
+
+    public function remainingGreenLeafAmount(): float
+    {
+        return round(max(0, $this->greenLeafPayableAmount() - $this->officePaidAmount()), 2);
+    }
+
+    public function remainingClientShopAmount(?int $shopId = null): float
+    {
+        $payments = $this->relationLoaded('shopStaffPayments') ? $this->shopStaffPayments : $this->shopStaffPayments()->get();
+
+        if ($shopId !== null) {
+            $payments = $payments->where('shop_id', $shopId);
+        }
+
+        return round(max(0, $this->clientShopPayableAmount() - (float) $payments->sum('amount')), 2);
     }
 }

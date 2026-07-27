@@ -24,8 +24,10 @@ class ReviewDeliveryDiscrepancyRequest extends FormRequest
             'approved_delivered_qty.*' => ['nullable', 'numeric', 'min:0'],
             'item_review_notes' => ['nullable', 'array'],
             'item_review_notes.*' => ['nullable', 'string', 'max:500'],
+            'item_inventory_actions' => ['nullable', 'array'],
+            'item_inventory_actions.*' => ['nullable', 'string', 'in:none,add_back,deduct_extra'],
             'delivery_discrepancy_types' => ['nullable', 'array'],
-            'delivery_discrepancy_types.*' => ['nullable', 'string', 'in:none,wastage,other'],
+            'delivery_discrepancy_types.*' => ['nullable', 'string', 'in:none,wastage,excess,other'],
             'delivery_discrepancy_notes' => ['nullable', 'array'],
             'delivery_discrepancy_notes.*' => ['nullable', 'string', 'max:1000'],
         ];

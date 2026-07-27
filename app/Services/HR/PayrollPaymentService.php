@@ -37,10 +37,10 @@ class PayrollPaymentService
     ): PayrollPayment {
         $payrollRunItem->loadMissing(['payrollRun', 'employee', 'payments']);
 
-        $remainingAmount = $payrollRunItem->remainingAmount();
+        $remainingAmount = $payrollRunItem->remainingGreenLeafAmount();
 
         if ($amount <= 0 || ($amount > $remainingAmount && ! $allowAdvanceOverage)) {
-            throw new RuntimeException('Payment amount is outside the remaining salary balance.');
+            throw new RuntimeException('Payment amount is outside the remaining Green Leaf salary balance.');
         }
 
         return DB::transaction(function () use ($payrollRunItem, $amount, $paymentMethod, $paymentType, $paidOn, $actor, $notes, $shop, $fundSource, $advanceRequestId): PayrollPayment {

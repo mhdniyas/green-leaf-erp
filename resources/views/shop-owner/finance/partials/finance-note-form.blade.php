@@ -12,6 +12,7 @@
                         <th class="px-4 py-3 text-right">Delivered</th>
                         <th class="px-4 py-3 text-right">Unit Price</th>
                         <th class="px-4 py-3 text-right">Shortage</th>
+                        <th class="px-4 py-3 text-right">Excess</th>
                         <th class="px-4 py-3 text-right">Final</th>
                     </tr>
                 </thead>
@@ -26,6 +27,7 @@
                             <td class="px-4 py-3 text-right font-semibold text-slate-700">{{ number_format((float) $item->delivered_qty, 2) }}</td>
                             <td class="px-4 py-3 text-right font-semibold text-slate-900">Rs. {{ number_format((float) $item->unit_price, 2) }}</td>
                             <td class="px-4 py-3 text-right font-semibold text-amber-600">Rs. {{ number_format((float) $item->shortage_amount, 2) }}</td>
+                            <td class="px-4 py-3 text-right font-semibold text-cyan-700">Rs. {{ number_format((float) $item->excess_amount, 2) }}</td>
                             <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $item->final_line_total, 2) }}</td>
                         </tr>
                     @endforeach

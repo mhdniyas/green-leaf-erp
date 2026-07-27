@@ -32,7 +32,7 @@
                 <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" class="rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold">
 
                 <select name="shop_id" class="rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold">
-                    <option value="">All Owned Shops and Office</option>
+                    <option value="">All Client Shops and Office</option>
                     @foreach($shops as $shop)
                         <option value="{{ $shop->id }}" @selected($selectedShopId === $shop->id)>{{ $shop->name }}</option>
                     @endforeach

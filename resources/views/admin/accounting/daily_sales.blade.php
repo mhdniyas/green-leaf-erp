@@ -6,9 +6,20 @@
         $summary = $report['summary'];
         $shopRows = $report['shop_rows'];
         $invoices = $report['invoices'];
-        $ownedShopOptions = $ownedShops ?? collect();
+        $clientOptions = $clients ?? collect();
+        $clientShopOptions = $clientShops ?? collect();
+        $salesScope = $salesScope ?? request('sales_scope', 'all');
+        $selectedClientId = $selectedClientId ?? null;
+        $selectedClientShopId = $selectedClientShopId ?? null;
         $activeTab = request('tab', 'shops');
         $activeTab = in_array($activeTab, ['shops', 'invoices'], true) ? $activeTab : 'shops';
+        $reportQuery = [
+            'status' => $statusFilter,
+            'tab' => $activeTab,
+            'sales_scope' => $salesScope,
+            'client_id' => $selectedClientId,
+            'client_shop_id' => $selectedClientShopId,
+        ];
     @endphp
 
     <div class="mx-auto max-w-[96rem] space-y-5">
@@ -21,7 +32,7 @@
                 </div>
 
                 <form method="GET" action="{{ route('admin.accounting.daily-sales') }}" class="flex flex-wrap items-end gap-2 rounded-[1.5rem] border border-white/15 bg-white/10 p-3 backdrop-blur">
-                    <a href="{{ route('admin.accounting.daily-sales', ['date' => $previousDate, 'status' => $statusFilter, 'tab' => $activeTab, 'owned_shop_id' => $selectedOwnedShopId, 'only_owned_shops' => ($onlyOwnedShops ?? false) ? 1 : null]) }}" class="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-white transition hover:bg-white/20" title="Previous day">
+                    <a href="{{ route('admin.accounting.daily-sales', array_merge($reportQuery, ['date' => $previousDate])) }}" class="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-white transition hover:bg-white/20" title="Previous day">
                         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
                         </svg>
@@ -38,29 +49,42 @@
                             <option value="settled" @selected($statusFilter === 'settled')>Settled Only</option>
                         </select>
                     </label>
+                    <label class="min-w-[10rem]">
+                        <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-emerald-100">Sales Type</span>
+                        <select name="sales_scope" class="mt-2 h-11 w-full rounded-2xl border border-white/20 bg-white px-4 text-sm font-black text-slate-950 focus:outline-none">
+                            <option value="all" @selected($salesScope === 'all')>All Sales</option>
+                            <option value="direct" @selected($salesScope === 'direct')>Direct Sales</option>
+                            <option value="client" @selected($salesScope === 'client')>Client Sales</option>
+                        </select>
+                    </label>
                     <label class="min-w-[12rem]">
-                        <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-emerald-100">Owned Shop</span>
-                        <select name="owned_shop_id" class="mt-2 h-11 w-full rounded-2xl border border-white/20 bg-white px-4 text-sm font-black text-slate-950 focus:outline-none">
-                            <option value="">All Shops</option>
-                            @foreach ($ownedShopOptions as $shop)
-                                <option value="{{ $shop->id }}" @selected((int) ($selectedOwnedShopId ?? 0) === (int) $shop->id)>{{ $shop->name }}</option>
+                        <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-emerald-100">Client</span>
+                        <select name="client_id" class="mt-2 h-11 w-full rounded-2xl border border-white/20 bg-white px-4 text-sm font-black text-slate-950 focus:outline-none">
+                            <option value="">All Clients</option>
+                            @foreach ($clientOptions as $client)
+                                <option value="{{ $client->id }}" @selected((int) ($selectedClientId ?? 0) === (int) $client->id)>{{ $client->name }}</option>
                             @endforeach
                         </select>
                     </label>
-                    <label class="flex h-11 items-center gap-3 rounded-2xl border border-white/20 bg-white px-4 text-sm font-black text-slate-950">
-                        <input type="checkbox" name="only_owned_shops" value="1" @checked($onlyOwnedShops ?? false) class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
-                        <span>Only owned shops</span>
+                    <label class="min-w-[12rem]">
+                        <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-emerald-100">Client Shop</span>
+                        <select name="client_shop_id" class="mt-2 h-11 w-full rounded-2xl border border-white/20 bg-white px-4 text-sm font-black text-slate-950 focus:outline-none">
+                            <option value="">All Client Shops</option>
+                            @foreach ($clientShopOptions as $shop)
+                                <option value="{{ $shop->id }}" @selected((int) ($selectedClientShopId ?? 0) === (int) $shop->id)>{{ $shop->client?->name ? $shop->client->name.' - ' : '' }}{{ $shop->name }}</option>
+                            @endforeach
+                        </select>
                     </label>
                     <input type="hidden" name="tab" value="{{ $activeTab }}">
                     <button type="submit" class="inline-flex h-11 items-center justify-center rounded-2xl bg-white px-4 text-xs font-black uppercase tracking-[0.18em] text-slate-950 transition hover:bg-emerald-50">
                         Apply
                     </button>
-                    @if ($date->format('Y-m-d') !== $todayDate || $statusFilter !== 'all' || ($onlyOwnedShops ?? false) || $selectedOwnedShopId)
+                    @if ($date->format('Y-m-d') !== $todayDate || $statusFilter !== 'all' || $salesScope !== 'all' || $selectedClientId || $selectedClientShopId)
                         <a href="{{ route('admin.accounting.daily-sales', ['date' => $todayDate, 'status' => 'all', 'tab' => $activeTab]) }}" class="inline-flex h-11 items-center justify-center rounded-2xl border border-white/15 bg-white/10 px-4 text-xs font-black uppercase tracking-[0.18em] text-white transition hover:bg-white/20">
                             Reset
                         </a>
                     @endif
-                    <a href="{{ route('admin.accounting.daily-sales', ['date' => $nextDate, 'status' => $statusFilter, 'tab' => $activeTab, 'owned_shop_id' => $selectedOwnedShopId, 'only_owned_shops' => ($onlyOwnedShops ?? false) ? 1 : null]) }}" class="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-white transition hover:bg-white/20" title="Next day">
+                    <a href="{{ route('admin.accounting.daily-sales', array_merge($reportQuery, ['date' => $nextDate])) }}" class="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-white transition hover:bg-white/20" title="Next day">
                         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
                             <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
                         </svg>
@@ -77,7 +101,7 @@
                 <article class="rounded-[1.5rem] border border-white/10 bg-white/8 p-5 backdrop-blur">
                     <p class="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-100/80">Credit</p>
                     <p class="mt-3 text-3xl font-black tracking-tight text-white">Rs. {{ number_format($summary['total_amount'], 2) }}</p>
-                    <p class="mt-2 text-sm font-semibold text-emerald-50/90">Total shop sales for the day</p>
+                    <p class="mt-2 text-sm font-semibold text-emerald-50/90">{{ $salesScope === 'direct' ? 'Direct sales' : ($salesScope === 'client' || $selectedClientId || $selectedClientShopId ? 'Client sales' : 'Total shop sales') }} for the day</p>
                 </article>
                 <article class="rounded-[1.5rem] border border-white/10 bg-white/8 p-5 backdrop-blur">
                     <p class="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-100/80">Debit</p>
@@ -179,10 +203,10 @@
                     <p class="mt-2 text-sm font-semibold leading-6 text-slate-600">Switch between shop summary and invoice detail without splitting the page width.</p>
                 </div>
                 <div class="flex flex-wrap gap-2">
-                    <a href="{{ route('admin.accounting.daily-sales', ['date' => $date->format('Y-m-d'), 'status' => $statusFilter, 'tab' => 'shops', 'owned_shop_id' => $selectedOwnedShopId, 'only_owned_shops' => ($onlyOwnedShops ?? false) ? 1 : null]) }}" class="inline-flex h-11 items-center rounded-2xl px-4 text-xs font-black uppercase tracking-[0.16em] transition {{ $activeTab === 'shops' ? 'bg-slate-950 text-white' : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">
+                    <a href="{{ route('admin.accounting.daily-sales', array_merge($reportQuery, ['date' => $date->format('Y-m-d'), 'tab' => 'shops'])) }}" class="inline-flex h-11 items-center rounded-2xl px-4 text-xs font-black uppercase tracking-[0.16em] transition {{ $activeTab === 'shops' ? 'bg-slate-950 text-white' : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">
                         Sales by Shop
                     </a>
-                    <a href="{{ route('admin.accounting.daily-sales', ['date' => $date->format('Y-m-d'), 'status' => $statusFilter, 'tab' => 'invoices', 'owned_shop_id' => $selectedOwnedShopId, 'only_owned_shops' => ($onlyOwnedShops ?? false) ? 1 : null]) }}" class="inline-flex h-11 items-center rounded-2xl px-4 text-xs font-black uppercase tracking-[0.16em] transition {{ $activeTab === 'invoices' ? 'bg-emerald-600 text-white' : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">
+                    <a href="{{ route('admin.accounting.daily-sales', array_merge($reportQuery, ['date' => $date->format('Y-m-d'), 'tab' => 'invoices'])) }}" class="inline-flex h-11 items-center rounded-2xl px-4 text-xs font-black uppercase tracking-[0.16em] transition {{ $activeTab === 'invoices' ? 'bg-emerald-600 text-white' : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">
                         Invoices
                     </a>
                     <button type="button" data-export="excel" class="inline-flex h-11 items-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-emerald-700 transition hover:bg-emerald-100">
@@ -309,6 +333,18 @@
                                                 </a>
                                                 @if ((float) $invoice->balance_amount > 0)
                                                     <button type="button"
+                                                            class="daily-sales-discount-open inline-flex h-9 items-center rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-black text-indigo-700 transition hover:bg-indigo-100"
+                                                            data-invoice-number="{{ $invoice->invoice_number }}"
+                                                            data-gross-total="{{ (float) $invoice->subtotal - (float) $invoice->shortage_total + (float) $invoice->excess_total }}"
+                                                            data-final-total="{{ (float) $invoice->final_total }}"
+                                                            data-paid-amount="{{ (float) $invoice->paid_amount }}"
+                                                            data-balance-amount="{{ (float) $invoice->balance_amount }}"
+                                                            data-discount-total="{{ (float) $invoice->discount_total }}"
+                                                            data-discount-note="{{ $invoice->discount_note }}"
+                                                            data-action="{{ route('admin.accounting.shop-invoices.discount', $invoice) }}">
+                                                        Discount
+                                                    </button>
+                                                    <button type="button"
                                                             class="daily-sales-payment-open inline-flex h-9 items-center rounded-xl bg-cyan-600 px-3 text-xs font-black text-white transition hover:bg-cyan-500"
                                                             data-invoice-number="{{ $invoice->invoice_number }}"
                                                             data-final-total="{{ (float) $invoice->final_total }}"
@@ -404,6 +440,72 @@
         </div>
     </div>
 
+    <div id="daily-sales-discount-modal" class="fixed inset-0 z-[70] hidden">
+        <div class="daily-sales-discount-modal-overlay absolute inset-0 bg-slate-950/50 backdrop-blur-sm"></div>
+        <div class="relative flex min-h-full items-center justify-center p-4">
+            <div class="w-full max-w-xl overflow-hidden rounded-[1.75rem] bg-white shadow-2xl">
+                <div class="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Apply Discount</p>
+                        <h2 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Adjust bill payable amount</h2>
+                    </div>
+                    <button type="button" class="daily-sales-discount-modal-close inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">
+                        <span class="sr-only">Close</span>
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+
+                <form id="daily-sales-discount-form" method="POST" action="" class="space-y-4 px-6 py-6">
+                    @csrf
+                    @method('PATCH')
+
+                    <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
+                        <p class="text-sm font-bold text-slate-700">Invoice: <span id="daily-sales-discount-invoice-number" class="font-black text-slate-950"></span></p>
+                        <div class="mt-4 grid gap-3 sm:grid-cols-4">
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Before Discount</p>
+                                <p id="daily-sales-discount-gross-total" class="mt-1 text-sm font-black text-slate-950">Rs. 0.00</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Current Discount</p>
+                                <p id="daily-sales-discount-current-total" class="mt-1 text-sm font-black text-indigo-700">Rs. 0.00</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Collected</p>
+                                <p id="daily-sales-discount-paid-total" class="mt-1 text-sm font-black text-emerald-700">Rs. 0.00</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Balance</p>
+                                <p id="daily-sales-discount-balance-total" class="mt-1 text-sm font-black text-rose-700">Rs. 0.00</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <label class="block">
+                        <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Total discount amount</span>
+                        <input type="number" step="0.01" min="0" name="discount_total" id="daily-sales-discount-total-input" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-indigo-400 focus:outline-none">
+                    </label>
+
+                    <label class="block">
+                        <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Discount reason</span>
+                        <textarea name="discount_note" id="daily-sales-discount-note-input" rows="3" required class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-indigo-400 focus:outline-none" placeholder="Reason required for audit"></textarea>
+                    </label>
+
+                    <div class="flex justify-end gap-3 pt-2">
+                        <button type="button" class="daily-sales-discount-modal-close inline-flex h-11 items-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
+                            Cancel
+                        </button>
+                        <button type="submit" class="inline-flex h-11 items-center rounded-2xl bg-indigo-600 px-5 text-sm font-black text-white transition hover:bg-indigo-500">
+                            Apply discount
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <script>
         (() => {
             const modal = document.getElementById('daily-sales-payment-modal');
@@ -460,6 +562,62 @@
             modal?.querySelectorAll('.daily-sales-payment-modal-close').forEach((button) => button.addEventListener('click', closeModal));
             modal?.addEventListener('click', (event) => {
                 if (event.target instanceof HTMLElement && event.target.classList.contains('daily-sales-payment-modal-overlay')) {
+                    closeModal();
+                }
+            });
+        })();
+    </script>
+
+    <script>
+        (() => {
+            const modal = document.getElementById('daily-sales-discount-modal');
+            const form = document.getElementById('daily-sales-discount-form');
+            const buttons = document.querySelectorAll('.daily-sales-discount-open');
+            const invoiceNumber = document.getElementById('daily-sales-discount-invoice-number');
+            const grossTotalDisplay = document.getElementById('daily-sales-discount-gross-total');
+            const currentDiscountDisplay = document.getElementById('daily-sales-discount-current-total');
+            const paidTotalDisplay = document.getElementById('daily-sales-discount-paid-total');
+            const balanceTotalDisplay = document.getElementById('daily-sales-discount-balance-total');
+            const discountInput = document.getElementById('daily-sales-discount-total-input');
+            const noteInput = document.getElementById('daily-sales-discount-note-input');
+            const money = (amount) => 'Rs. ' + amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const closeModal = () => {
+                modal?.classList.add('hidden');
+                document.body.classList.remove('overflow-hidden');
+            };
+
+            buttons.forEach((button) => {
+                button.addEventListener('click', () => {
+                    if (!modal || !form) {
+                        return;
+                    }
+
+                    const grossTotal = parseFloat(button.dataset.grossTotal ?? '0');
+                    const paidAmount = parseFloat(button.dataset.paidAmount ?? '0');
+                    const balanceAmount = parseFloat(button.dataset.balanceAmount ?? '0');
+                    const discountTotal = parseFloat(button.dataset.discountTotal ?? '0');
+                    const maxDiscount = Math.max(0, grossTotal - paidAmount);
+
+                    form.action = button.dataset.action ?? '';
+                    if (invoiceNumber) invoiceNumber.textContent = button.dataset.invoiceNumber ?? '';
+                    if (grossTotalDisplay) grossTotalDisplay.textContent = money(grossTotal);
+                    if (currentDiscountDisplay) currentDiscountDisplay.textContent = money(discountTotal);
+                    if (paidTotalDisplay) paidTotalDisplay.textContent = money(paidAmount);
+                    if (balanceTotalDisplay) balanceTotalDisplay.textContent = money(balanceAmount);
+                    if (discountInput) {
+                        discountInput.value = discountTotal.toFixed(2);
+                        discountInput.max = maxDiscount.toFixed(2);
+                    }
+                    if (noteInput) noteInput.value = button.dataset.discountNote ?? '';
+
+                    modal.classList.remove('hidden');
+                    document.body.classList.add('overflow-hidden');
+                });
+            });
+
+            modal?.querySelectorAll('.daily-sales-discount-modal-close').forEach((button) => button.addEventListener('click', closeModal));
+            modal?.addEventListener('click', (event) => {
+                if (event.target instanceof HTMLElement && event.target.classList.contains('daily-sales-discount-modal-overlay')) {
                     closeModal();
                 }
             });

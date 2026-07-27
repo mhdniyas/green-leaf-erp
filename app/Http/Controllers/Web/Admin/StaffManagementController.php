@@ -56,7 +56,6 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -748,7 +747,7 @@ class StaffManagementController extends Controller
         return view('admin.staff.payroll', [
             'selectedPayrollMonth' => $selectedPayrollMonth,
             'payrollRuns' => PayrollRun::query()
-                ->with(['items.employee', 'items.category', 'generatedBy', 'finalizedBy', 'journalEntry'])
+                ->with(['items.employee', 'items.category', 'items.payments', 'items.shopStaffPayments.shop', 'generatedBy', 'finalizedBy', 'journalEntry'])
                 ->whereBetween('period_start', [$monthStart->toDateString(), $monthEnd->toDateString()])
                 ->latest('period_start')
                 ->paginate(self::PAGE_SIZE)

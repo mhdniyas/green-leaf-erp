@@ -30,16 +30,23 @@ class Product extends Model implements AuditableContract
         'unit',
         'description',
         'base_price',
+        'buffer_qty',
+        'carryover_enabled',
         'vendor_price',
         'image',
         'is_active',
+        'status_changed_by',
+        'status_changed_at',
     ];
 
     protected $casts = [
         'default_warehouse_id' => 'integer',
         'base_price' => 'decimal:2',
+        'buffer_qty' => 'decimal:2',
+        'carryover_enabled' => 'boolean',
         'vendor_price' => 'decimal:4',
         'is_active' => 'boolean',
+        'status_changed_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
@@ -94,6 +101,11 @@ class Product extends Model implements AuditableContract
         return $this->belongsToMany(Supplier::class)
             ->withPivot(['last_price', 'last_purchased_at'])
             ->withTimestamps();
+    }
+
+    public function statusChangedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'status_changed_by');
     }
 
     // Scopes

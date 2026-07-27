@@ -18,6 +18,7 @@ use App\Http\Controllers\Web\BusinessDaySettingsController;
 use App\Http\Controllers\Web\DashboardController;
 use App\Http\Controllers\Web\Finance\FinanceController;
 use App\Http\Controllers\Web\Inventory\BatchController;
+use App\Http\Controllers\Web\Inventory\DailyInventoryCloseController;
 use App\Http\Controllers\Web\Inventory\DeliveryDashboardController;
 use App\Http\Controllers\Web\Inventory\FulfillmentReportController;
 use App\Http\Controllers\Web\Inventory\ProductController;
@@ -82,13 +83,13 @@ Route::middleware('auth')->group(function () {
         Route::get('/orders/{order_number}', [ShopOwnerController::class, 'ordersShow'])->name('orders.show');
         Route::get('/deliveries', [ShopOwnerController::class, 'deliveriesIndex'])->name('deliveries.index');
         Route::get('/deliveries/{order_number}', [ShopOwnerController::class, 'deliveriesShow'])->name('deliveries.show');
+        Route::post('/deliveries/{order_number}/items/{item}/verify', [ShopOwnerController::class, 'verifyDeliveryItem'])->name('deliveries.items.verify');
         Route::get('/accounting', [ShopOwnerController::class, 'accountingIndex'])->name('accounting.index');
         Route::get('/accounting/daily-report', [ShopOwnerController::class, 'accountingDailyReport'])->name('accounting.daily-report');
         Route::get('/accounting/history', [ShopOwnerController::class, 'accountingHistory'])->name('accounting.history');
         Route::post('/accounting/entries', [ShopOwnerController::class, 'storeAccountingEntry'])->name('accounting.entries.store');
         Route::post('/accounting/payment-requests', [ShopOwnerController::class, 'storePaymentRequest'])->name('accounting.payment-requests.store');
         Route::get('/finance', [ShopOwnerController::class, 'financeIndex'])->name('finance.index');
-        Route::post('/finance/payments', [ShopOwnerController::class, 'storeCompanyPayment'])->name('finance.payments.store');
         Route::get('/finance/{invoice}', [ShopOwnerController::class, 'financeShow'])->name('finance.show');
         Route::get('/finance/{invoice}/pdf', [ShopOwnerController::class, 'financePdf'])->name('finance.pdf');
         Route::get('/staff', [ShopOwnerStaffController::class, 'index'])->name('staff.index');
@@ -108,10 +109,14 @@ Route::middleware('auth')->group(function () {
         })->name('dashboard');
 
         // Products
+        Route::patch('products/status-permissions', [ProductController::class, 'updateStatusPermissions'])->name('products.status-permissions.update');
+        Route::patch('products/{product}/status', [ProductController::class, 'updateStatus'])->name('products.status.update');
         Route::resource('products', ProductController::class);
 
         // Stock levels
         Route::get('stock', [StockController::class, 'index'])->name('stock.index');
+        Route::get('daily-close', [DailyInventoryCloseController::class, 'index'])->name('daily-close.index');
+        Route::post('daily-close', [DailyInventoryCloseController::class, 'store'])->name('daily-close.store');
 
         // Batches + Sorting
         Route::get('batches', [BatchController::class, 'index'])->name('batches.index');
@@ -152,6 +157,7 @@ Route::middleware('auth')->group(function () {
         Route::post('suppliers/{supplier}/credit-approve', [SupplierController::class, 'approveCreditApproval'])->name('suppliers.credit-approve');
         Route::get('prices', [DailyPriceBoardController::class, 'index'])->name('prices.index');
         Route::post('prices', [DailyPriceBoardController::class, 'update'])->name('prices.update');
+        Route::post('prices/settings', [DailyPriceBoardController::class, 'updateSettings'])->name('prices.settings.update');
         Route::post('price-groups/assign-shops', [ShopPriceGroupController::class, 'assignShops'])->name('price-groups.assign-shops');
         Route::resource('price-groups', ShopPriceGroupController::class)->only(['index', 'store', 'update', 'destroy']);
         Route::get('shop-invoices', [ShopInvoiceController::class, 'index'])->name('shop-invoices.index');
@@ -279,6 +285,7 @@ Route::middleware('auth')->group(function () {
 
     // ── Warehouse Receiver ─────────────────────────────────────────────────
     Route::prefix('warehouse-receiver')->name('warehouse.receiver.')->middleware('can:warehouse.receive.view')->group(function () {
+        Route::get('/products', [ProductController::class, 'receiverIndex'])->name('products.index');
         Route::get('/checklist', [WarehouseReceiverController::class, 'index'])->name('checklist');
         Route::post('/confirm/{batch}', [WarehouseReceiverController::class, 'confirm'])->name('confirm');
         Route::post('/confirm-all', [WarehouseReceiverController::class, 'confirmAll'])->name('confirm-all');
@@ -316,6 +323,7 @@ Route::middleware('auth')->group(function () {
         Route::prefix('accounting')->name('accounting.')->middleware('can:accounting.dashboard.view')->group(function () {
             Route::get('/', [AdminAccountingController::class, 'index'])->name('index');
             Route::get('daily-sales', [AdminAccountingController::class, 'dailySalesReport'])->name('daily-sales');
+            Route::patch('shop-invoices/{invoice}/discount', [AdminAccountingController::class, 'applyShopInvoiceDiscount'])->name('shop-invoices.discount');
             Route::patch('shop-invoices/{invoice}/payment', [AdminAccountingController::class, 'updateShopInvoicePayment'])->name('shop-invoices.payment');
             Route::patch('shop-invoice-payment-requests/{paymentRequest}/review', [AdminAccountingController::class, 'reviewShopInvoicePaymentRequest'])->name('shop-invoice-payment-requests.review');
             Route::get('cash-flow', [AdminAccountingController::class, 'cashFlowReport'])->name('cash-flow');
@@ -324,6 +332,7 @@ Route::middleware('auth')->group(function () {
             Route::get('cash-flow/export/pdf', [AdminAccountingController::class, 'exportCashFlowDayJournalPdf'])->name('cash-flow.export.pdf');
             Route::get('vendor-reports', [AdminAccountingController::class, 'vendorReports'])->name('vendor-reports');
             Route::post('daily-workflow/invoices', [AdminAccountingController::class, 'generateDailyWorkflowInvoices'])->name('daily-workflow.invoices');
+            Route::get('clients/{client}', [AdminAccountingController::class, 'clientDashboard'])->name('clients.show');
             Route::get('owned-shops', [AdminAccountingController::class, 'ownedShopsIndex'])->name('owned-shops.index');
             Route::post('owned-shops', [AdminAccountingController::class, 'storeOwnedShop'])->name('owned-shops.store');
             Route::get('owned-shops/{shop:code}', [AdminAccountingController::class, 'ownedShopShow'])->name('owned-shops.show');
@@ -339,7 +348,6 @@ Route::middleware('auth')->group(function () {
             Route::patch('owned-shops/{shop:code}/entries/{entry}', [AdminAccountingController::class, 'updateEntry'])->name('owned-shops.entries.update');
             Route::patch('owned-shops/{shop:code}/entries/{entry}/review', [AdminAccountingController::class, 'reviewEntry'])->name('owned-shops.entries.review');
             Route::post('owned-shops/{shop:code}/credits', [AdminAccountingController::class, 'storeShopCredit'])->name('owned-shops.credits.store');
-            Route::patch('owned-shops/{shop:code}/company-payments/{credit}/review', [AdminAccountingController::class, 'reviewCompanyPayment'])->name('owned-shops.company-payments.review');
             Route::post('owned-shops/{shop:code}/period-closures', [AdminAccountingController::class, 'closePeriod'])->name('owned-shops.period-closures.store');
             Route::patch('owned-shops/{shop:code}/daily-bills/{invoice}/payment', [AdminAccountingController::class, 'updateDailyBillPayment'])->name('owned-shops.daily-bills.payment');
             Route::patch('owned-shops/{shop:code}/payment-requests/{paymentRequest}/review', [AdminAccountingController::class, 'reviewOwnedShopPaymentRequest'])->name('owned-shops.payment-requests.review');

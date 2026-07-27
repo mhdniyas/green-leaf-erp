@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\DB;
 
 class WorkflowShopOrderSeeder extends Seeder
 {
-    private const ORDERS_PER_SHOP = 2;
+    private const ORDERS_PER_SHOP = 1;
 
     private const ITEMS_PER_ORDER = 5;
 
@@ -44,7 +44,7 @@ class WorkflowShopOrderSeeder extends Seeder
         DB::transaction(function () use ($shops, $products, $businessDate, $submittedDate, $deadlineAt): void {
             $createdOrders = 0;
 
-            foreach ($shops as $shop) {
+            foreach ($shops as $shopIndex => $shop) {
                 $creator = $shop->users->first() ?? User::role('shop')->where('shop_id', $shop->id)->first();
 
                 if (! $creator instanceof User) {
@@ -54,22 +54,26 @@ class WorkflowShopOrderSeeder extends Seeder
                 for ($orderIndex = 1; $orderIndex <= self::ORDERS_PER_SHOP; $orderIndex++) {
                     $submittedAt = $this->submittedAt($submittedDate, $orderIndex);
 
-                    $order = ShopOrder::query()->create([
-                        'shop_id' => $shop->id,
-                        'order_source' => self::ORDER_SOURCE,
-                        'shop_daily_order_key' => null,
-                        'state' => 'submitted',
-                        'delivery_status' => 'pending_delivery',
-                        'delivery_review_status' => 'not_started',
-                        'payment_status' => 'unpaid',
-                        'business_date' => $businessDate->toDateString(),
-                        'submitted_at' => $submittedAt,
-                        'deadline_at' => $deadlineAt,
-                        'created_by' => $creator->id,
-                        'is_late' => false,
-                    ]);
+                    $order = ShopOrder::query()->updateOrCreate(
+                        [
+                            'shop_daily_order_key' => $this->seededDailyOrderKey($shop->id, $businessDate, $orderIndex),
+                        ],
+                        [
+                            'shop_id' => $shop->id,
+                            'order_source' => self::ORDER_SOURCE,
+                            'state' => 'submitted',
+                            'delivery_status' => 'pending_delivery',
+                            'delivery_review_status' => 'not_started',
+                            'payment_status' => 'unpaid',
+                            'business_date' => $businessDate->toDateString(),
+                            'submitted_at' => $submittedAt,
+                            'deadline_at' => $deadlineAt,
+                            'created_by' => $creator->id,
+                            'is_late' => false,
+                        ],
+                    );
 
-                    $this->createItems($order, $products, $orderIndex);
+                    $this->createItems($order, $products, $orderIndex, $shopIndex);
                     $createdOrders++;
                 }
             }
@@ -99,12 +103,11 @@ class WorkflowShopOrderSeeder extends Seeder
     /**
      * @param  Collection<int, Product>  $products
      */
-    private function createItems(ShopOrder $order, Collection $products, int $orderIndex): void
+    private function createItems(ShopOrder $order, Collection $products, int $orderIndex, int $shopIndex): void
     {
-        $selectedProducts = $products
-            ->shuffle()
-            ->take(self::ITEMS_PER_ORDER)
-            ->values();
+        $selectedProducts = $this->productsForShop($products, $shopIndex);
+
+        $order->items()->delete();
 
         foreach ($selectedProducts as $itemIndex => $product) {
             ShopOrderItem::query()->create([
@@ -124,6 +127,20 @@ class WorkflowShopOrderSeeder extends Seeder
         }
     }
 
+    /**
+     * @param  Collection<int, Product>  $products
+     * @return Collection<int, Product>
+     */
+    private function productsForShop(Collection $products, int $shopIndex): Collection
+    {
+        $productCount = $products->count();
+        $startIndex = ($shopIndex * self::ITEMS_PER_ORDER) % $productCount;
+
+        return collect(range(0, self::ITEMS_PER_ORDER - 1))
+            ->map(fn (int $offset): Product => $products[($startIndex + $offset) % $productCount])
+            ->values();
+    }
+
     private function quantityFor(Product $product, int $orderIndex, int $itemIndex): float
     {
         $base = (($orderIndex + 1) * 3) + $itemIndex;
@@ -139,5 +156,10 @@ class WorkflowShopOrderSeeder extends Seeder
         return $submittedDate
             ->copy()
             ->setTime(18 + $orderIndex, 10 + ($orderIndex * 7), 0);
+    }
+
+    private function seededDailyOrderKey(int $shopId, Carbon $businessDate, int $orderIndex): string
+    {
+        return sprintf('seeded-shop:%d:%s:%d', $shopId, $businessDate->toDateString(), $orderIndex);
     }
 }

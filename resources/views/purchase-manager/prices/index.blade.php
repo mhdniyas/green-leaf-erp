@@ -8,10 +8,16 @@
     @php
         $isAdminViewer = auth()->user()?->hasRole('admin');
         $allApprovals = $pendingApprovals->concat($approvedApprovals);
+        $movementOptions = [
+            'changed' => 'Changed',
+            'up' => 'Up',
+            'down' => 'Down',
+            'all' => 'All',
+        ];
     @endphp
     <div class="space-y-6">
         <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <form method="GET" action="{{ route('purchasing.prices.index') }}" class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px_auto] lg:items-end">
+            <form method="GET" action="{{ route('purchasing.prices.index') }}" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_220px_320px_auto_auto] xl:items-end">
                 <div>
                     <label for="search" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Product Search</label>
                     <input
@@ -33,8 +39,29 @@
                         class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-cyan-700 focus:border-cyan-500 focus:outline-none"
                     >
                 </div>
-                <button type="submit" class="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-black text-white">
+                <div>
+                    <label class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Price Movement</label>
+                    <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        @foreach ($movementOptions as $value => $label)
+                            <button
+                                type="submit"
+                                name="movement"
+                                value="{{ $value }}"
+                                class="inline-flex min-h-11 items-center justify-center rounded-2xl border px-3 text-center text-xs font-black transition {{ $movement === $value ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50' }}"
+                            >
+                                {{ $label }}
+                            </button>
+                        @endforeach
+                    </div>
+                </div>
+                <button type="submit" name="movement" value="{{ $movement }}" class="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-black text-white">
                     Search
+                </button>
+                <button type="button" onclick="openPriceBoardSettingsModal()" class="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700">
+                    Settings
+                    @if ($autoApproveSamePurchasePrice)
+                        <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-700">Auto</span>
+                    @endif
                 </button>
             </form>
             <p class="mt-3 text-sm text-slate-500">
@@ -46,6 +73,12 @@
         @if (session('success'))
             <div class="rounded-3xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-800">
                 {{ session('success') }}
+            </div>
+        @endif
+
+        @if (session('warning'))
+            <div class="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-bold text-amber-800">
+                {{ session('warning') }}
             </div>
         @endif
 
@@ -78,6 +111,7 @@
         <form method="POST" action="{{ route('purchasing.prices.update') }}" class="rounded-3xl border border-slate-200 bg-white shadow-sm">
             @csrf
             <input type="hidden" name="search" value="{{ $search }}">
+            <input type="hidden" name="movement" value="{{ $movement }}">
             <input type="hidden" name="date" value="{{ $purchaseDate }}">
 
             <div class="border-b border-slate-200 px-5 py-5">
@@ -105,6 +139,7 @@
                             <tr>
                                 <th class="px-5 py-4">Product</th>
                                 <th class="px-5 py-4 text-center">Status</th>
+                                <th class="px-5 py-4 text-center">Movement</th>
                                 <th class="px-5 py-4 text-right">Avg Purchase</th>
                                 <th class="px-5 py-4 text-right">Category A</th>
                                 <th class="px-5 py-4 text-right">Category B</th>
@@ -117,6 +152,18 @@
                                 @php
                                     $product = $approval->product;
                                     $tone = $approval->status === 'approved' ? 'emerald' : 'amber';
+                                    $movementClass = match ($approval->movement_status) {
+                                        'same' => 'border-sky-200 bg-sky-50 text-sky-700',
+                                        'up' => 'border-emerald-200 bg-emerald-50 text-emerald-700',
+                                        'down' => 'border-rose-200 bg-rose-50 text-rose-700',
+                                        default => 'border-cyan-200 bg-cyan-50 text-cyan-700',
+                                    };
+                                    $movementLabel = match ($approval->movement_status) {
+                                        'same' => 'Same',
+                                        'up' => '+ INR '.number_format(abs((float) $approval->purchase_price - (float) $approval->comparison_purchase_price), 2),
+                                        'down' => '- INR '.number_format(abs((float) $approval->purchase_price - (float) $approval->comparison_purchase_price), 2),
+                                        default => 'Changed',
+                                    };
                                 @endphp
                                 <tr>
                                     <td class="px-5 py-4">
@@ -125,6 +172,14 @@
                                     </td>
                                     <td class="px-5 py-4 text-center">
                                         <x-purchase-manager.components.status-badge :label="str($approval->status)->replace('_', ' ')->title()" :tone="$tone" />
+                                    </td>
+                                    <td class="px-5 py-4 text-center">
+                                        <span class="inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.14em] {{ $movementClass }}">
+                                            {{ $movementLabel }}
+                                        </span>
+                                        @if ($approval->comparison_purchase_price !== null)
+                                            <p class="mt-1 text-[10px] font-semibold text-slate-400">Prev INR {{ number_format($approval->comparison_purchase_price, 2) }}</p>
+                                        @endif
                                     </td>
                                     <td class="px-5 py-4 text-right font-black text-slate-950">
                                         INR {{ number_format((float) $approval->purchase_price, 2) }}
@@ -182,5 +237,75 @@
                 </div>
             @endif
         </form>
+
+        <div id="price-board-settings-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/45 px-4">
+            <div class="w-full max-w-xl rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Price Board Settings</p>
+                        <h3 class="mt-1 text-lg font-black text-slate-950">Approval controls</h3>
+                        <p class="mt-2 text-sm text-slate-600">Same-price products can skip admin review while changed prices keep the publish workflow.</p>
+                    </div>
+                    <button type="button" onclick="closePriceBoardSettingsModal()" class="rounded-2xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+
+                <form method="POST" action="{{ route('purchasing.prices.settings.update') }}" class="mt-6 rounded-3xl border border-emerald-200 bg-emerald-50 p-4">
+                    @csrf
+                    <input type="hidden" name="date" value="{{ $purchaseDate }}">
+                    <input type="hidden" name="search" value="{{ $search }}">
+                    <input type="hidden" name="movement" value="{{ $movement }}">
+
+                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Automatic Approval</p>
+                    <h4 class="mt-1 text-sm font-black text-emerald-950">Same purchase price</h4>
+                    <label class="mt-4 flex cursor-pointer items-start gap-3 rounded-2xl border border-emerald-200 bg-white px-4 py-3">
+                        <input type="checkbox" name="auto_approve_same_purchase_price" value="1" @checked($autoApproveSamePurchasePrice) class="mt-1 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500">
+                        <span>
+                            <span class="block text-sm font-black text-slate-950">Approve automatically</span>
+                            <span class="mt-1 block text-xs font-semibold leading-5 text-slate-500">Products with the same average purchase price as the previous approved day will be marked approved and keep the previous selling prices.</span>
+                        </span>
+                    </label>
+                    <div class="mt-5 flex justify-end gap-3">
+                        <button type="button" onclick="closePriceBoardSettingsModal()" class="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
+                            Close
+                        </button>
+                        <button type="submit" class="rounded-2xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white transition hover:bg-emerald-700">
+                            Save Settings
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
+
+    @once
+        @push('scripts')
+            <script>
+                function openPriceBoardSettingsModal() {
+                    const modal = document.getElementById('price-board-settings-modal');
+                    if (modal) {
+                        modal.classList.remove('hidden');
+                        modal.classList.add('flex');
+                    }
+                }
+
+                function closePriceBoardSettingsModal() {
+                    const modal = document.getElementById('price-board-settings-modal');
+                    if (modal) {
+                        modal.classList.add('hidden');
+                        modal.classList.remove('flex');
+                    }
+                }
+
+                document.addEventListener('DOMContentLoaded', () => {
+                    if (@json(request()->boolean('settings'))) {
+                        openPriceBoardSettingsModal();
+                    }
+                });
+            </script>
+        @endpush
+    @endonce
 @endsection

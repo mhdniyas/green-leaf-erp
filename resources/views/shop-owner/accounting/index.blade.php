@@ -64,7 +64,7 @@
             <section class="rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
                 <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div>
-                        <p class="text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">{{ $shop->isOwnedAccountingEnabled() ? 'Owned Shop' : 'Shop Bill' }}</p>
+                        <p class="text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">{{ $shop->isOwnedAccountingEnabled() ? 'Client: '.($shop->client?->name ?? 'Aishwarya Veg') : 'Shop Bill' }}</p>
                         <h2 class="mt-1 text-lg font-black text-slate-950">Daily Delivery Bill</h2>
                     </div>
 
@@ -163,8 +163,8 @@
 
                 <div class="mt-4 rounded-xl border border-emerald-300 bg-white/50 p-3">
                     @if ($shop->isOwnedAccountingEnabled())
-                        <p class="text-sm font-black text-slate-900">Approved bills are posted as shop debit for this bill date.</p>
-                        <p class="mt-1 text-sm font-semibold text-slate-700">Company payment is handled from Finance > Payments. Bills do not create duplicate manual expenses.</p>
+                        <p class="text-sm font-black text-slate-900">Approved bills are posted as client-shop debit for this bill date.</p>
+                        <p class="mt-1 text-sm font-semibold text-slate-700">Green Leaf invoice payment is handled from Finance > Payments. Bills do not create duplicate manual expenses.</p>
                     @else
                         <p class="text-sm font-black text-slate-900">Regular shop bills stay as customer receivable until payment is approved.</p>
                         <p class="mt-1 text-sm font-semibold text-slate-700">Submit bill payment from Finance > Payments.</p>

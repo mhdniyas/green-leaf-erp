@@ -126,6 +126,23 @@ $units = ['kg' => 'Kilogram (kg)', 'box' => 'Box', 'bunch' => 'Bunch', 'piece' =
                     @error('default_warehouse_id') <p class="text-red-600 text-xs">{{ $message }}</p> @enderror
                 </div>
 
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    <div class="space-y-1.5">
+                        <label for="buffer_qty" class="block text-sm font-medium text-gray-700">Buffer Qty</label>
+                        <input id="buffer_qty" name="buffer_qty" type="number" step="0.01" min="0"
+                               value="{{ old('buffer_qty', $product->buffer_qty ?? 0) }}"
+                               class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 @error('buffer_qty') border-red-300 @enderror">
+                        @error('buffer_qty') <p class="text-red-600 text-xs">{{ $message }}</p> @enderror
+                    </div>
+                    <div class="flex items-center gap-3 rounded-2xl border border-cyan-100 bg-cyan-50 px-4 py-3">
+                        <input type="hidden" name="carryover_enabled" value="0">
+                        <input id="carryover_enabled" name="carryover_enabled" type="checkbox" value="1"
+                               @checked(old('carryover_enabled', $product->carryover_enabled ?? false))
+                               class="w-4 h-4 rounded border-cyan-300 text-cyan-600 focus:ring-cyan-500/30 cursor-pointer">
+                        <label for="carryover_enabled" class="text-sm font-semibold text-cyan-800 cursor-pointer">Allow daily carryover</label>
+                    </div>
+                </div>
+
                 {{-- Description --}}
                 <div class="space-y-1.5">
                     <label for="description" class="block text-sm font-medium text-gray-700">Description <span class="text-gray-400 font-normal">(optional)</span></label>
@@ -136,6 +153,7 @@ $units = ['kg' => 'Kilogram (kg)', 'box' => 'Box', 'bunch' => 'Bunch', 'piece' =
 
                 {{-- Active toggle --}}
                 <div class="flex items-center gap-3">
+                    <input type="hidden" name="is_active" value="0">
                     <input id="is_active" name="is_active" type="checkbox" value="1"
                            @checked(old('is_active', $product->is_active))
                            class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500/30 cursor-pointer">

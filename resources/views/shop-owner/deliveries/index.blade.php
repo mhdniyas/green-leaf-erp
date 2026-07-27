@@ -2,7 +2,7 @@
 
 @section('title', 'Deliveries')
 @section('page_title', 'Deliveries')
-@section('page_description', 'Track allocated orders, verify received quantities, and review delivery history.')
+@section('page_description', 'Track priced invoices, warehouse dispatch, delivery verification, and admin review.')
 @php($breadcrumbs = [['label' => 'Deliveries']])
 
 @section('content')

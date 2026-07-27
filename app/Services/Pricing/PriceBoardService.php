@@ -7,6 +7,7 @@ namespace App\Services\Pricing;
 use App\Enums\Inventory\BatchStatus;
 use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
+use App\Models\BusinessSetting;
 use App\Models\DailyPriceApproval;
 use App\Models\DailyProductPrice;
 use App\Models\DailyProductPriceRevision;
@@ -24,6 +25,8 @@ use Illuminate\Support\Facades\DB;
 
 class PriceBoardService
 {
+    private const AUTO_APPROVE_SAME_PURCHASE_PRICE_KEY = 'auto_approve_same_daily_purchase_price';
+
     /**
      * @return array<int, ProductGrade>
      */
@@ -51,6 +54,24 @@ class PriceBoardService
             ->withCount('shops')
             ->orderBy('name')
             ->get();
+    }
+
+    public function autoApproveSamePurchasePrice(): bool
+    {
+        return filter_var(
+            BusinessSetting::query()
+                ->where('key', self::AUTO_APPROVE_SAME_PURCHASE_PRICE_KEY)
+                ->value('value') ?? true,
+            FILTER_VALIDATE_BOOLEAN
+        );
+    }
+
+    public function updateAutoApproveSamePurchasePrice(bool $enabled): void
+    {
+        BusinessSetting::query()->updateOrCreate(
+            ['key' => self::AUTO_APPROVE_SAME_PURCHASE_PRICE_KEY],
+            ['value' => $enabled ? '1' : '0'],
+        );
     }
 
     public function defaultGroup(): ShopPriceGroup
@@ -357,6 +378,7 @@ class PriceBoardService
                 if (! isset($products[$productId])) {
                     $products[$productId] = [
                         'product_id' => $productId,
+                        'base_price' => (float) $product->base_price,
                         'total_qty' => 0.0,
                         'weighted_sum' => 0.0,
                     ];
@@ -375,16 +397,33 @@ class PriceBoardService
         $marginA = (float) ($priceGroups->firstWhere('name', 'A')?->default_margin_percent ?? 10);
         $marginB = (float) ($priceGroups->firstWhere('name', 'B')?->default_margin_percent ?? 12);
         $marginC = (float) ($priceGroups->firstWhere('name', 'C')?->default_margin_percent ?? 15);
+        $autoApproveSamePurchasePrice = $this->autoApproveSamePurchasePrice();
+        $previousApprovals = DailyPriceApproval::query()
+            ->whereIn('product_id', array_map('intval', array_keys($products)))
+            ->whereDate('business_date', '<', $businessDate)
+            ->where('status', 'approved')
+            ->whereNotNull('approved_at')
+            ->orderBy('business_date')
+            ->get()
+            ->keyBy('product_id');
 
         foreach ($products as $product) {
             $purchasePrice = $product['total_qty'] > 0
                 ? round($product['weighted_sum'] / $product['total_qty'], 4)
                 : 0.0;
+            $previousApproval = $previousApprovals->get((int) $product['product_id']);
+            $comparisonPurchasePrice = $previousApproval
+                ? (float) $previousApproval->purchase_price
+                : ((float) $product['base_price'] > 0 ? (float) $product['base_price'] : null);
+            $movementStatus = $this->movementStatusForPurchasePrice($purchasePrice, $comparisonPurchasePrice);
 
-            $approval = DailyPriceApproval::query()->firstOrNew([
-                'product_id' => $product['product_id'],
-                'business_date' => $businessDate,
-            ]);
+            $approval = DailyPriceApproval::query()
+                ->where('product_id', $product['product_id'])
+                ->whereDate('business_date', $businessDate)
+                ->first() ?? new DailyPriceApproval([
+                    'product_id' => $product['product_id'],
+                    'business_date' => $businessDate,
+                ]);
 
             if ($approval->exists && $approval->status === 'approved') {
                 if ($this->hasValidApprovedSellingPrices($approval)) {
@@ -398,12 +437,16 @@ class PriceBoardService
                 ]);
             }
 
+            $samePriceAutoApproved = $movementStatus === 'same' && $autoApproveSamePurchasePrice;
+
             $approval->fill([
                 'purchase_price' => $purchasePrice,
-                'price_a' => (float) $approval->price_a > 0 ? $approval->price_a : round($purchasePrice * (1 + $marginA / 100), 2),
-                'price_b' => (float) $approval->price_b > 0 ? $approval->price_b : round($purchasePrice * (1 + $marginB / 100), 2),
-                'price_c' => (float) $approval->price_c > 0 ? $approval->price_c : round($purchasePrice * (1 + $marginC / 100), 2),
-                'status' => $approval->exists ? $approval->status : 'pending',
+                'price_a' => $samePriceAutoApproved && $previousApproval ? $previousApproval->price_a : ((float) $approval->price_a > 0 ? $approval->price_a : round($purchasePrice * (1 + $marginA / 100), 2)),
+                'price_b' => $samePriceAutoApproved && $previousApproval ? $previousApproval->price_b : ((float) $approval->price_b > 0 ? $approval->price_b : round($purchasePrice * (1 + $marginB / 100), 2)),
+                'price_c' => $samePriceAutoApproved && $previousApproval ? $previousApproval->price_c : ((float) $approval->price_c > 0 ? $approval->price_c : round($purchasePrice * (1 + $marginC / 100), 2)),
+                'status' => $samePriceAutoApproved ? 'approved' : ($approval->exists ? $approval->status : 'pending'),
+                'approved_by' => $samePriceAutoApproved ? null : $approval->approved_by,
+                'approved_at' => $samePriceAutoApproved ? ($approval->approved_at ?? now()) : $approval->approved_at,
             ]);
             $approval->save();
         }
@@ -413,7 +456,41 @@ class PriceBoardService
             ->whereDate('business_date', $businessDate)
             ->whereIn('product_id', array_map('intval', array_keys($products)))
             ->orderBy('product_id')
-            ->get();
+            ->get()
+            ->each(fn (DailyPriceApproval $approval) => $this->appendMovementMetadata($approval));
+    }
+
+    public function appendMovementMetadata(DailyPriceApproval $approval): DailyPriceApproval
+    {
+        $approval->loadMissing('product');
+
+        $previousApproval = DailyPriceApproval::query()
+            ->where('product_id', $approval->product_id)
+            ->whereDate('business_date', '<', $approval->business_date)
+            ->where('status', 'approved')
+            ->whereNotNull('approved_at')
+            ->orderByDesc('business_date')
+            ->first();
+
+        $approval->comparison_purchase_price = $previousApproval
+            ? (float) $previousApproval->purchase_price
+            : ($approval->product && (float) $approval->product->base_price > 0 ? (float) $approval->product->base_price : null);
+        $approval->movement_status = $this->movementStatusForPurchasePrice((float) $approval->purchase_price, $approval->comparison_purchase_price);
+
+        return $approval;
+    }
+
+    private function movementStatusForPurchasePrice(float $purchasePrice, ?float $comparisonPurchasePrice): string
+    {
+        if ($comparisonPurchasePrice === null) {
+            return 'changed';
+        }
+
+        if (abs($purchasePrice - $comparisonPurchasePrice) <= 0.0001) {
+            return 'same';
+        }
+
+        return $purchasePrice > $comparisonPurchasePrice ? 'up' : 'down';
     }
 
     private function hasValidApprovedSellingPrices(DailyPriceApproval $approval): bool

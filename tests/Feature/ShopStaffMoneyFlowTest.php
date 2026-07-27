@@ -825,6 +825,125 @@ class ShopStaffMoneyFlowTest extends TestCase
         $this->assertSame(100.00, $payrollRunItem->fresh(['payments', 'shopStaffPayments'])->shopPaidAmount());
     }
 
+    public function test_salary_payable_is_split_between_green_leaf_and_client_shop_attendance(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $shop = $this->ownedShop(['code' => 'SHOP_SPLIT_PAY']);
+        $shopOwner = $this->shopOwner($shop);
+        $employee = $this->shopEmployee([
+            'monthly_salary' => 31000,
+            'salary_type' => 'monthly',
+        ]);
+        ShopEmployeeAssignment::factory()->create([
+            'employee_id' => $employee->id,
+            'shop_id' => $shop->id,
+            'assigned_by' => $admin->id,
+            'effective_from' => '2026-07-01',
+            'status' => 'active',
+        ]);
+        EmployeeAttendance::factory()->create([
+            'employee_id' => $employee->id,
+            'attendance_date' => '2026-07-01',
+            'status' => 'present',
+            'shop_id' => null,
+            'source' => 'admin',
+            'marked_by' => $admin->id,
+        ]);
+        EmployeeAttendance::factory()->create([
+            'employee_id' => $employee->id,
+            'attendance_date' => '2026-07-02',
+            'status' => 'present',
+            'shop_id' => $shop->id,
+            'source' => 'owner',
+            'marked_by' => $shopOwner->id,
+        ]);
+
+        $payrollRun = app(PayrollService::class)->generate(
+            Carbon::parse('2026-07-01'),
+            Carbon::parse('2026-07-31'),
+            $admin->id,
+        );
+        $payrollRunItem = $payrollRun->items()->where('employee_id', $employee->id)->firstOrFail()->fresh(['payments', 'shopStaffPayments']);
+
+        $this->assertSame('1000.00', $payrollRun->fresh()->gross_amount);
+        $this->assertSame(1000.00, $payrollRunItem->greenLeafPayableAmount());
+        $this->assertSame(1000.00, $payrollRunItem->clientShopPayableAmount());
+        $this->assertSame(1000.00, $payrollRunItem->remainingGreenLeafAmount());
+        $this->assertSame(1000.00, app(PayrollService::class)->payableForAttendance(
+            $employee,
+            Carbon::parse('2026-07-01'),
+            Carbon::parse('2026-07-31'),
+            $shop->id,
+        )['amount']);
+
+        $this
+            ->actingAs($admin)
+            ->post(route('admin.staff.payments.store'), [
+                'payroll_run_item_id' => $payrollRunItem->id,
+                'payment_type' => 'full',
+                'payment_method' => 'cash',
+                'paid_on' => '2026-07-03',
+                'amount' => 1000,
+            ])
+            ->assertSessionHas('success');
+
+        $this
+            ->actingAs($admin)
+            ->from(route('admin.staff.payments.index', ['payroll_month' => '2026-07']))
+            ->post(route('admin.staff.payments.store'), [
+                'payroll_run_item_id' => $payrollRunItem->id,
+                'payment_type' => 'partial',
+                'payment_method' => 'cash',
+                'paid_on' => '2026-07-03',
+                'amount' => 100,
+            ])
+            ->assertRedirect(route('admin.staff.payments.index', ['payroll_month' => '2026-07']))
+            ->assertSessionHasErrors('amount');
+
+        $refreshedItem = app(PayrollService::class)->ensurePayrollRunItem(
+            $employee,
+            Carbon::parse('2026-07-01'),
+            Carbon::parse('2026-07-31'),
+            $shopOwner->id,
+        );
+        $this->assertSame(1000.00, $refreshedItem->fresh()->clientShopPayableAmount());
+        $this->assertSame(0.00, (float) $refreshedItem->shopStaffPayments()->where('shop_id', $shop->id)->sum('amount'));
+
+        $this
+            ->actingAs($shopOwner)
+            ->post(route('shop-owner.staff.salary-payments.store'), [
+                'shop_id' => $shop->id,
+                'employee_id' => $employee->id,
+                'paid_on' => '2026-07-03',
+                'amount' => 1000,
+                'fund_source' => 'sales_income',
+                'notes' => 'Shop day salary',
+            ])
+            ->assertSessionHas('success');
+
+        $this
+            ->actingAs($shopOwner)
+            ->from(route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'salary']))
+            ->post(route('shop-owner.staff.salary-payments.store'), [
+                'shop_id' => $shop->id,
+                'employee_id' => $employee->id,
+                'paid_on' => '2026-07-03',
+                'amount' => 100,
+                'fund_source' => 'sales_income',
+            ])
+            ->assertRedirect(route('shop-owner.staff.index', ['shop' => $shop->code, 'tab' => 'salary']))
+            ->assertSessionHasErrors('amount');
+
+        $payrollRunItem = $payrollRunItem->fresh(['payments', 'shopStaffPayments']);
+        $this->assertSame(1000.00, $payrollRunItem->officePaidAmount());
+        $this->assertSame(1000.00, $payrollRunItem->shopPaidAmount());
+        $this->assertSame(0.00, $payrollRunItem->remainingGreenLeafAmount());
+        $this->assertSame(0.00, $payrollRunItem->remainingClientShopAmount($shop->id));
+    }
+
     public function test_owned_shop_bills_page_shows_daily_movement_graph(): void
     {
         $this->seed(RolePermissionSeeder::class);
@@ -930,13 +1049,15 @@ class ShopStaffMoneyFlowTest extends TestCase
             ]))
             ->assertOk()
             ->assertSeeTextInOrder(['Admin Approval', 'Income', 'Expense', 'Net'])
-            ->assertSeeText('Shop Cash Movement')
-            ->assertSeeText('Add shop cash')
-            ->assertSeeText('Working cash given to shop')
-            ->assertSeeText('Company view: cash out. Shop view: cash credit.')
+            ->assertSeeText('Green Leaf Loan')
+            ->assertSeeText('Add loan')
+            ->assertSeeText('Loan given to client shop')
+            ->assertSeeText('Green Leaf view: cash out. Client dashboard: loan balance increases.')
+            ->assertSeeText('Advance Loan for Salary')
             ->assertDontSeeText('Cash Received from Shop - Income')
             ->assertDontSeeText('Daily Balance Movement')
             ->assertDontSeeText('Add Shop Cash Movement')
+            ->assertDontSeeText('Add category')
             ->assertSeeText('Admin Approval')
             ->assertSeeText('7');
     }
@@ -1308,7 +1429,7 @@ class ShopStaffMoneyFlowTest extends TestCase
             ->count());
     }
 
-    public function test_owned_shop_finance_payments_record_company_cash_out_and_regular_shops_use_invoice_payment_requests(): void
+    public function test_client_shop_and_regular_shop_finance_use_invoice_payment_requests(): void
     {
         $this->seed(RolePermissionSeeder::class);
 
@@ -1391,66 +1512,36 @@ class ShopStaffMoneyFlowTest extends TestCase
             ->get(route('shop-owner.finance.index', ['tab' => 'payments']))
             ->assertOk()
             ->assertSeeText('Payments')
-            ->assertSeeText('Payment To Company')
-            ->assertSeeText('Rs. 1,000.00')
-            ->assertSeeText('1 bills pending approval')
-            ->assertSeeText('Rs. 600.00');
+            ->assertSeeText('Green Leaf Invoice Payments')
+            ->assertSeeText('Submit bill payment for approval')
+            ->assertSeeText('Rs. 4,100.00')
+            ->assertSeeText('SINV-FIN-PENDING')
+            ->assertSeeText('SINV-FIN-PAY-001');
 
         $this
             ->actingAs($shopOwner)
-            ->post(route('shop-owner.finance.payments.store'), [
+            ->post(route('shop-owner.accounting.payment-requests.store'), [
+                'invoice_id' => $invoice->id,
+                'amount_mode' => 'custom',
                 'amount' => 700,
-                'business_date' => '2026-07-18',
-                'description' => 'Cash paid to office',
+                'shop_note' => 'Cash paid to office',
             ])
-            ->assertRedirect(route('shop-owner.finance.index', ['tab' => 'payments']))
+            ->assertRedirect()
             ->assertSessionHas('success');
 
-        $this->assertDatabaseHas('shop_credits', [
+        $this->assertDatabaseHas('shop_invoice_payment_requests', [
+            'shop_invoice_id' => $invoice->id,
             'shop_id' => $ownedShop->id,
-            'type' => 'out',
-            'amount' => 700,
-            'description' => 'Cash paid to office',
-            'business_date' => '2026-07-18 00:00:00',
+            'requested_amount' => 700,
             'status' => 'pending',
+            'shop_note' => 'Cash paid to office',
         ]);
-
-        $companyPayment = ShopCredit::query()
+        $this->assertSame(0, ShopCredit::query()
             ->where('shop_id', $ownedShop->id)
             ->where('type', 'out')
-            ->firstOrFail();
-
+            ->count());
         $this->assertSame(1000.00, app(OwnedShopAccountingService::class)->closingBalanceForDate($ownedShop, Carbon::parse('2026-07-18')));
-        $this->assertSame(0, ShopInvoicePaymentRequest::query()->count());
         $this->assertSame(0, JournalEntry::query()->where('source_type', ShopInvoice::class)->count());
-
-        $this
-            ->actingAs($admin)
-            ->get(route('admin.accounting.owned-shops.show', [
-                'shop' => $ownedShop->code,
-                'tab' => 'cashbook',
-                'date' => '2026-07-18',
-            ]))
-            ->assertOk()
-            ->assertSeeText('Approve payments to company')
-            ->assertSeeText('Cash paid to office')
-            ->assertSeeText('Pending Approval');
-
-        $this
-            ->actingAs($admin)
-            ->patch(route('admin.accounting.owned-shops.company-payments.review', ['shop' => $ownedShop, 'credit' => $companyPayment]), [
-                'decision' => 'approve',
-                'admin_note' => 'Cash received',
-            ])
-            ->assertSessionHas('success');
-
-        $this->assertDatabaseHas('shop_credits', [
-            'id' => $companyPayment->id,
-            'status' => 'approved',
-            'admin_note' => 'Cash received',
-            'reviewed_by' => $admin->id,
-        ]);
-        $this->assertSame(300.00, app(OwnedShopAccountingService::class)->closingBalanceForDate($ownedShop, Carbon::parse('2026-07-18')));
 
         $regularShop = Shop::factory()->create([
             'accounting_enabled' => false,
@@ -1515,7 +1606,7 @@ class ShopStaffMoneyFlowTest extends TestCase
         $this->assertSame(1, JournalEntry::query()->where('source_type', ShopInvoice::class)->where('source_id', $regularInvoice->id)->count());
     }
 
-    public function test_admin_owned_shop_daily_bill_payment_does_not_post_shop_invoice_journal(): void
+    public function test_admin_client_shop_daily_bill_payment_posts_shop_invoice_journal(): void
     {
         $this->seed(RolePermissionSeeder::class);
 
@@ -1539,7 +1630,7 @@ class ShopStaffMoneyFlowTest extends TestCase
         $this->assertSame('paid', $invoice->payment_status);
         $this->assertSame('750.00', $invoice->paid_amount);
         $this->assertSame('0.00', $invoice->balance_amount);
-        $this->assertSame(0, JournalEntry::query()
+        $this->assertSame(1, JournalEntry::query()
             ->where('source_type', ShopInvoice::class)
             ->where('source_id', $invoice->id)
             ->count());
@@ -1871,7 +1962,7 @@ class ShopStaffMoneyFlowTest extends TestCase
             'type' => 'in',
             'is_petty_cash' => true,
             'amount' => 500,
-            'description' => 'Working cash given to shop',
+            'description' => 'Loan given to client shop',
             'created_by' => $shopOwner->id,
             'business_date' => '2026-07-18',
         ]);
@@ -1937,7 +2028,7 @@ class ShopStaffMoneyFlowTest extends TestCase
             ->assertSeeText('Cash Bill')
             ->assertSeeText('SINV-HISTORY-001')
             ->assertSeeText('Bill Payment')
-            ->assertSeeText('Shop Cash Credit')
+            ->assertSeeText('Loan Given')
             ->assertSeeText('Sales Income - Cash')
             ->assertSeeText('Cash Purchase');
     }

@@ -52,6 +52,7 @@ class ShopOrder extends Model
         'balance_amount',
         'finance_note',
         'total_shortage_value',
+        'total_excess_value',
     ];
 
     protected $casts = [
@@ -70,6 +71,7 @@ class ShopOrder extends Model
         'cash_discrepancy' => 'decimal:2',
         'balance_amount' => 'decimal:2',
         'total_shortage_value' => 'decimal:2',
+        'total_excess_value' => 'decimal:2',
     ];
 
     public function deliveredBy(): BelongsTo

@@ -6,6 +6,8 @@ namespace App\Http\Controllers\Web\Warehouse;
 
 use App\Enums\Inventory\StockMovementType;
 use App\Http\Controllers\Controller;
+use App\Models\Category;
+use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
@@ -27,7 +29,19 @@ class WarehouseLoadoutController extends Controller
     public function index(Request $request): View
     {
         $this->authorizeAccess($request);
-        $search = trim((string) $request->string('search'));
+        $validated = $request->validate([
+            'search' => ['nullable', 'string', 'max:120'],
+            'date' => ['nullable', 'date'],
+            'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
+            'source' => ['nullable', 'string', 'in:all,shop,direct'],
+            'category_id' => ['nullable', 'integer', 'exists:categories,id'],
+        ]);
+
+        $search = trim((string) ($validated['search'] ?? ''));
+        $selectedDate = $validated['date'] ?? null;
+        $selectedShopId = isset($validated['shop_id']) ? (int) $validated['shop_id'] : null;
+        $selectedSource = (string) ($validated['source'] ?? 'all');
+        $selectedCategoryId = isset($validated['category_id']) ? (int) $validated['category_id'] : null;
 
         $orders = ShopOrder::query()
             ->whereIn('delivery_status', [
@@ -39,8 +53,33 @@ class WarehouseLoadoutController extends Controller
                 'partially_delivered',
                 'delivery_issue',
             ])
-            ->with(['shop', 'items'])
+            ->with(['shop', 'items.product.category'])
             ->whereHas('items')
+            ->when($selectedDate, fn ($query) => $query->whereDate('business_date', $selectedDate))
+            ->when($selectedShopId, fn ($query) => $query->where('shop_id', $selectedShopId))
+            ->when($selectedSource === 'shop', fn ($query) => $query->where('order_source', 'shop_owner'))
+            ->when($selectedSource === 'direct', fn ($query) => $query->where('order_source', 'admin_direct_purchase'))
+            ->when($selectedCategoryId, function ($query) use ($selectedCategoryId): void {
+                $query->whereHas('items.product', fn ($productQuery) => $productQuery->where('category_id', $selectedCategoryId));
+            })
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($searchQuery) use ($search): void {
+                    $searchQuery
+                        ->where('order_number', 'like', "%{$search}%")
+                        ->orWhereHas('shop', function ($shopQuery) use ($search): void {
+                            $shopQuery
+                                ->where('name', 'like', "%{$search}%")
+                                ->orWhere('code', 'like', "%{$search}%")
+                                ->orWhere('warehouse_tag', 'like', "%{$search}%");
+                        })
+                        ->orWhereHas('items.product', function ($productQuery) use ($search): void {
+                            $productQuery
+                                ->where('name', 'like', "%{$search}%")
+                                ->orWhere('sku', 'like', "%{$search}%")
+                                ->orWhereHas('category', fn ($categoryQuery) => $categoryQuery->where('name', 'like', "%{$search}%"));
+                        });
+                });
+            })
             ->orderBy('business_date', 'desc')
             ->orderBy('created_at', 'asc')
             ->get()
@@ -51,18 +90,25 @@ class WarehouseLoadoutController extends Controller
                 return $shopOrder;
             });
 
-        if ($search !== '') {
-            $searchTerm = mb_strtolower($search);
+        $shops = Shop::query()
+            ->whereHas('orders')
+            ->orderBy('name')
+            ->get(['id', 'name', 'code', 'warehouse_tag']);
+        $categories = Category::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name']);
 
-            $orders = $orders->filter(function (ShopOrder $shopOrder) use ($searchTerm): bool {
-                $shopName = mb_strtolower((string) $shopOrder->shop?->name);
-                $orderNumber = mb_strtolower((string) $shopOrder->order_number);
-
-                return str_contains($shopName, $searchTerm) || str_contains($orderNumber, $searchTerm);
-            })->values();
-        }
-
-        return view('warehouse.loadout.index', compact('orders', 'search'));
+        return view('warehouse.loadout.index', compact(
+            'orders',
+            'search',
+            'selectedDate',
+            'selectedShopId',
+            'selectedSource',
+            'selectedCategoryId',
+            'shops',
+            'categories',
+        ));
     }
 
     /**
@@ -73,7 +119,7 @@ class WarehouseLoadoutController extends Controller
     {
         $this->authorizeAccess($request);
 
-        $shopOrder->load(['shop', 'items.product', 'deliveredBy']);
+        $shopOrder->load(['shop', 'items.product.category', 'deliveredBy']);
 
         // Group items by product — UI shows one merged row per product
         $productGroups = $shopOrder->items

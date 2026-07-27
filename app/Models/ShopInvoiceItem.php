@@ -21,9 +21,11 @@ class ShopInvoiceItem extends Model
         'approved_qty',
         'delivered_qty',
         'shortage_qty',
+        'excess_qty',
         'unit_price',
         'line_subtotal',
         'shortage_amount',
+        'excess_amount',
         'final_line_total',
     ];
 
@@ -33,9 +35,11 @@ class ShopInvoiceItem extends Model
             'approved_qty' => 'decimal:2',
             'delivered_qty' => 'decimal:2',
             'shortage_qty' => 'decimal:2',
+            'excess_qty' => 'decimal:2',
             'unit_price' => 'decimal:2',
             'line_subtotal' => 'decimal:2',
             'shortage_amount' => 'decimal:2',
+            'excess_amount' => 'decimal:2',
             'final_line_total' => 'decimal:2',
         ];
     }

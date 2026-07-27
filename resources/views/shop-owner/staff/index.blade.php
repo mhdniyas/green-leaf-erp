@@ -1,8 +1,8 @@
 @extends('shop-owner.layouts.app')
 
 @section('title', 'Staff')
-@section('page_title', 'Owned Shop Staff')
-@section('page_description', 'Handle attendance, advances, salary, leave, and staff history for owned shops.')
+@section('page_title', 'Client Shop Staff')
+@section('page_description', 'Handle attendance, advances, salary, leave, and staff history for client shops.')
 @php
     $breadcrumbs = [['label' => 'Staff']];
 @endphp
@@ -27,7 +27,7 @@
     <div class="space-y-4" data-staff-advance-options='@json($advanceOptions)' data-staff-salary-options='@json($salaryOptions)'>
         <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-                <h1 class="text-2xl font-black text-slate-950">Owned Shop Staff</h1>
+                <h1 class="text-2xl font-black text-slate-950">Client Shop Staff</h1>
                 <p class="mt-1 text-sm font-semibold text-slate-500">Choose one workflow and keep the screen focused.</p>
             </div>
 
@@ -45,7 +45,7 @@
 
         @if($shops->isEmpty())
             <div class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">
-                No owned shop is assigned to this account yet. Staff access requires an owned shop assignment.
+                No client shop is assigned to this account yet. Staff access requires a client shop assignment.
             </div>
         @else
             <nav class="grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm sm:grid-cols-5">
@@ -211,7 +211,7 @@
             <section class="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
                 <article class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                     <h2 class="text-lg font-black text-slate-950">Request Advance</h2>
-                    <p class="mt-1 text-sm font-semibold text-slate-500">Current and previous staff for this owned shop are available here.</p>
+                    <p class="mt-1 text-sm font-semibold text-slate-500">Current and previous staff for this client shop are available here.</p>
                     <form method="POST" action="{{ route('shop-owner.staff.advance-requests.store') }}" class="mt-4 grid gap-3">
                         @csrf
                         <input type="hidden" name="shop_id" value="{{ $selectedShop?->id }}">
@@ -344,7 +344,7 @@
                                 <p class="mt-2 text-sm font-semibold text-slate-600">{{ $leaveRequest->reason }}</p>
                             </div>
                         @empty
-                            <p class="text-sm font-semibold text-slate-500">No leave requests yet for this owned shop.</p>
+                            <p class="text-sm font-semibold text-slate-500">No leave requests yet for this client shop.</p>
                         @endforelse
                     </div>
                     @if($leaveRequests->hasPages())

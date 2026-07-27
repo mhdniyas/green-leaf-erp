@@ -97,7 +97,7 @@ class ShopCredit extends Model
 
     public function accountingLabel(): string
     {
-        return $this->isAccountingOut() ? 'Given to Shop' : 'Received from Shop';
+        return $this->isAccountingOut() ? 'Loan Given to Client Shop' : 'Loan Repayment Received';
     }
 
     public function accountingCategory(): string
@@ -106,7 +106,7 @@ class ShopCredit extends Model
             return $this->cashMovementCategory->name;
         }
 
-        return $this->isAccountingOut() ? 'Cash Given to Shop' : 'Cash Received from Shop';
+        return $this->isAccountingOut() ? 'Client Shop Loan Given' : 'Client Shop Loan Repayment';
     }
 
     public function signedAccountingAmount(): float
@@ -118,7 +118,7 @@ class ShopCredit extends Model
 
     public function shopCashLabel(): string
     {
-        return $this->type === 'in' ? 'Shop Cash Credit' : 'Cash Returned To Company';
+        return $this->type === 'in' ? 'Loan Given' : 'Loan Repayment';
     }
 
     public function shopSignedAmount(): float

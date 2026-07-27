@@ -19,7 +19,7 @@
     </div>
     @if ($isOwnedAccountingShop)
         <div class="rounded-[1.35rem] border border-slate-200 bg-white px-4 py-4 shadow-sm">
-            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Paid To Company</p>
+            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Pending Payments</p>
             <p class="mt-2 whitespace-nowrap text-lg font-black text-amber-700 sm:text-xl">Rs. {{ number_format((float) $pendingPaymentAmount, 2) }}</p>
         </div>
     @endif

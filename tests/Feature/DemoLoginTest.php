@@ -29,6 +29,7 @@ class DemoLoginTest extends TestCase
         $response
             ->assertOk()
             ->assertSeeText('Demo Login')
+            ->assertSeeText('Admin')
             ->assertSeeText('Demo Admin')
             ->assertSeeText('demo-admin@greenleaf.test');
 
@@ -85,6 +86,8 @@ class DemoLoginTest extends TestCase
         $response
             ->assertOk()
             ->assertSeeText('Choose a demo account')
+            ->assertSeeText('Admin')
+            ->assertSeeText('Shop Owners')
             ->assertSeeText('Demo Admin')
             ->assertSeeText('Demo Shop')
             ->assertSee(route('login.demo', $admin), false)

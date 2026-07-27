@@ -23,16 +23,20 @@ class ShopInvoice extends Model
         'payment_status',
         'subtotal',
         'shortage_total',
+        'excess_total',
         'discount_total',
         'final_total',
         'paid_amount',
         'balance_amount',
         'delivery_note',
         'payment_note',
+        'discount_note',
         'admin_price_note',
         'generated_by',
         'delivery_confirmed_by',
         'delivery_confirmed_at',
+        'discount_approved_by',
+        'discount_approved_at',
         'payment_approved_by',
         'payment_approved_at',
         'price_updated_by',
@@ -45,11 +49,13 @@ class ShopInvoice extends Model
             'business_date' => 'date',
             'subtotal' => 'decimal:2',
             'shortage_total' => 'decimal:2',
+            'excess_total' => 'decimal:2',
             'discount_total' => 'decimal:2',
             'final_total' => 'decimal:2',
             'paid_amount' => 'decimal:2',
             'balance_amount' => 'decimal:2',
             'delivery_confirmed_at' => 'datetime',
+            'discount_approved_at' => 'datetime',
             'payment_approved_at' => 'datetime',
             'price_updated_at' => 'datetime',
         ];
@@ -97,6 +103,11 @@ class ShopInvoice extends Model
     public function paymentApprovedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'payment_approved_by');
+    }
+
+    public function discountApprovedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'discount_approved_by');
     }
 
     public function deliveryConfirmedBy(): BelongsTo

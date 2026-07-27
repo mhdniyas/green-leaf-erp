@@ -12,9 +12,9 @@
         <section class="rounded-3xl border border-slate-200 bg-white px-4 py-4 shadow-[0_12px_34px_rgba(15,23,42,0.05)] sm:px-6 sm:py-5">
             <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                 <div>
-                    <p class="text-[11px] font-semibold uppercase text-slate-400">Owned Shop Accounting</p>
+                    <p class="text-[11px] font-semibold uppercase text-slate-400">Client Accounting</p>
                     <h1 class="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{{ $shop->name }}</h1>
-                    <p class="mt-2 text-sm font-medium text-slate-500">{{ $shop->code }} • {{ ucfirst($shop->accounting_mode) }} accounting workflow.</p>
+                    <p class="mt-2 text-sm font-medium text-slate-500">{{ $shop->code }} • Client: {{ $shop->client?->name ?? 'Aishwarya Veg' }}</p>
                 </div>
 
                 <form method="GET" action="{{ route('admin.accounting.owned-shops.show', $shop) }}" class="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2">
@@ -119,59 +119,6 @@
                     @if ($billingInvoices->hasPages())
                         <div class="mt-5">{{ $billingInvoices->withQueryString()->links() }}</div>
                     @endif
-                </article>
-
-                <article class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-                    <div class="flex items-center justify-between gap-3">
-                        <div>
-                            <p class="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Company Payments</p>
-                            <h2 class="mt-2 text-xl font-black text-slate-950">Approve payments to company</h2>
-                        </div>
-                    </div>
-
-                    <div class="mt-6 space-y-3">
-                        @forelse($companyPaymentRequests as $companyPayment)
-                            <div class="rounded-[1.25rem] border {{ $companyPayment->status === 'pending' ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50' }} p-4">
-                                <div class="flex flex-col gap-3">
-                                    <div class="flex items-start justify-between gap-3">
-                                        <div>
-                                            <p class="text-sm font-black text-slate-950">{{ $companyPayment->business_date?->format('d M Y') }}</p>
-                                            <p class="mt-1 text-sm font-semibold text-slate-600">{{ $companyPayment->description ?: 'Cash paid to company' }}</p>
-                                            <p class="mt-2 text-sm font-black text-rose-700">Rs. {{ number_format((float) $companyPayment->amount, 2) }}</p>
-                                        </div>
-                                        <span class="rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] {{ $companyPayment->statusTone() === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($companyPayment->statusTone() === 'danger' ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700') }}">
-                                            {{ $companyPayment->statusLabel() }}
-                                        </span>
-                                    </div>
-
-                                    @if ($companyPayment->status === 'pending')
-                                        <form method="POST" action="{{ route('admin.accounting.owned-shops.company-payments.review', ['shop' => $shop, 'credit' => $companyPayment]) }}" class="rounded-[1.1rem] border border-white/80 bg-white/80 px-4 py-3">
-                                            @csrf
-                                            @method('PATCH')
-                                            <label class="block">
-                                                <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Admin Note</span>
-                                                <textarea name="admin_note" rows="2" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none" placeholder="Optional note for shop owner">{{ old('admin_note') }}</textarea>
-                                            </label>
-                                            <div class="mt-3 flex flex-wrap justify-end gap-2">
-                                                <button type="submit" name="decision" value="reject" class="inline-flex h-10 items-center rounded-2xl bg-red-600 px-4 text-xs font-black uppercase tracking-[0.14em] text-white transition hover:bg-red-500">
-                                                    Reject
-                                                </button>
-                                                <button type="submit" name="decision" value="approve" class="inline-flex h-10 items-center rounded-2xl bg-emerald-600 px-4 text-xs font-black uppercase tracking-[0.14em] text-white transition hover:bg-emerald-500">
-                                                    Approve Payment
-                                                </button>
-                                            </div>
-                                        </form>
-                                    @elseif ($companyPayment->admin_note)
-                                        <p class="text-sm font-semibold text-slate-700">Admin note: {{ $companyPayment->admin_note }}</p>
-                                    @endif
-                                </div>
-                            </div>
-                        @empty
-                            <div class="rounded-[1.25rem] border border-dashed border-slate-300 px-4 py-8 text-center text-sm font-bold text-slate-500">
-                                No company payment requests found.
-                            </div>
-                        @endforelse
-                    </div>
                 </article>
 
                 <article class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
@@ -420,51 +367,6 @@
                 ];
             @endphp
 
-            <section class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-                <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                        <p class="text-[11px] font-semibold uppercase text-slate-400">Company Payments</p>
-                        <h2 class="mt-1 text-xl font-semibold text-slate-950">Approve payments to company</h2>
-                    </div>
-                    @php
-                        $pendingCompanyPayments = $companyPaymentRequests->where('status', 'pending');
-                    @endphp
-                    <span class="w-fit rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold uppercase text-amber-700">
-                        {{ $pendingCompanyPayments->count() }} pending
-                    </span>
-                </div>
-
-                <div class="mt-4 space-y-3">
-                    @forelse($pendingCompanyPayments as $companyPayment)
-                        <form method="POST" action="{{ route('admin.accounting.owned-shops.company-payments.review', ['shop' => $shop, 'credit' => $companyPayment]) }}" class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                            @csrf
-                            @method('PATCH')
-                            <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                <div>
-                                    <p class="text-sm font-black text-slate-950">{{ $companyPayment->business_date?->format('d M Y') }} - Rs. {{ number_format((float) $companyPayment->amount, 2) }}</p>
-                                    <p class="mt-1 text-sm font-semibold text-slate-600">{{ $companyPayment->description ?: 'Cash paid to company' }}</p>
-                                </div>
-                                <div class="flex min-w-0 flex-1 flex-col gap-2 lg:max-w-xl">
-                                    <textarea name="admin_note" rows="2" class="w-full rounded-2xl border border-amber-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none" placeholder="Optional note for shop owner">{{ old('admin_note') }}</textarea>
-                                    <div class="flex flex-wrap justify-end gap-2">
-                                        <button type="submit" name="decision" value="reject" class="inline-flex h-10 items-center rounded-2xl bg-red-600 px-4 text-xs font-black uppercase tracking-[0.14em] text-white transition hover:bg-red-500">
-                                            Reject
-                                        </button>
-                                        <button type="submit" name="decision" value="approve" class="inline-flex h-10 items-center rounded-2xl bg-emerald-600 px-4 text-xs font-black uppercase tracking-[0.14em] text-white transition hover:bg-emerald-500">
-                                            Approve Payment
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </form>
-                    @empty
-                        <div class="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm font-bold text-slate-500">
-                            No company payments waiting for approval.
-                        </div>
-                    @endforelse
-                </div>
-            </section>
-
             <section id="owned-shop-approval-workflow" class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                 <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
@@ -662,19 +564,16 @@
                     <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
                         <div class="flex items-center justify-between gap-3">
                             <div>
-                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Cash Movement Ledger</p>
-                                <h3 class="mt-2 text-lg font-black text-slate-950">Latest admin cash movements</h3>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Green Leaf Loan Ledger</p>
+                                <h3 class="mt-2 text-lg font-black text-slate-950">Latest client-shop loan movements</h3>
                             </div>
                             @php
                                 $shopCashTotal = (float) $shopCredits->sum(fn ($credit) => $credit->signedAccountingAmount());
                             @endphp
                             <div class="flex flex-wrap items-center justify-end gap-2">
                                 <p class="text-sm font-black {{ $shopCashTotal >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format($shopCashTotal, 2) }}</p>
-                                <button type="button" id="shop-cash-category-open-modal" class="inline-flex h-10 items-center rounded-xl border border-emerald-200 bg-white px-4 text-xs font-black text-emerald-700 transition hover:bg-emerald-50">
-                                    Add category
-                                </button>
                                 <button type="button" id="shop-cash-open-modal" class="inline-flex h-10 items-center rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white transition hover:bg-emerald-500">
-                                    Add shop cash
+                                    Add loan
                                 </button>
                             </div>
                         </div>
@@ -682,8 +581,8 @@
                             <div class="rounded-2xl border border-slate-200 bg-white p-4">
                                 <div class="flex items-center justify-between gap-3">
                                     <div>
-                                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Category Report</p>
-                                        <p class="mt-1 text-sm font-black text-slate-950">Shop cash by category</p>
+                                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Loan Category Report</p>
+                                        <p class="mt-1 text-sm font-black text-slate-950">Green Leaf loans by category</p>
                                     </div>
                                     <span class="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-600">{{ $cashMovementCategoryTotals->count() }} active</span>
                                 </div>
@@ -730,7 +629,7 @@
                                         </tr>
                                     @empty
                                         <tr>
-                                            <td colspan="6" class="px-4 py-8 text-center font-bold text-slate-500">No shop cash movements added yet.</td>
+                                            <td colspan="6" class="px-4 py-8 text-center font-bold text-slate-500">No Green Leaf loan movements added yet.</td>
                                         </tr>
                                     @endforelse
                                 </tbody>
@@ -920,9 +819,9 @@
                 <div class="w-full max-w-lg rounded-[2rem] border border-slate-200 bg-white shadow-[0_30px_80px_rgba(15,23,42,0.22)]">
                     <div class="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
                         <div>
-	                            <p class="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-700">Shop Cash Movement</p>
-	                            <h2 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Add shop cash</h2>
-	                            <p class="mt-2 text-sm font-semibold text-slate-500">This records company cash out and shop working cash in. Sales income stays in approved daily receipts.</p>
+	                            <p class="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-700">Green Leaf Loan</p>
+	                            <h2 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Add loan</h2>
+	                            <p class="mt-2 text-sm font-semibold text-slate-500">This records Green Leaf cash out and increases the client shop loan balance. Sales income stays in approved daily receipts.</p>
 	                        </div>
                         <button type="button" class="shop-cash-modal-close inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">
                             <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
@@ -938,8 +837,8 @@
                         </form>
 	                        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
 	                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Movement Type</p>
-	                            <p class="mt-1 text-sm font-black text-slate-950">Working cash given to shop</p>
-	                            <p class="mt-1 text-xs font-semibold text-slate-600">Company view: cash out. Shop view: cash credit.</p>
+	                            <p class="mt-1 text-sm font-black text-slate-950">Loan given to client shop</p>
+	                            <p class="mt-1 text-xs font-semibold text-slate-600">Green Leaf view: cash out. Client dashboard: loan balance increases.</p>
 	                        </div>
                         <label>
                             <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Amount</span>
@@ -974,60 +873,17 @@
                         </div>
 	                        <label>
                             <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Description</span>
-	                            <input form="shop-cash-credit-form" type="text" name="description" value="{{ old('description') }}" placeholder="Shop working cash given to shop" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+	                            <input form="shop-cash-credit-form" type="text" name="description" value="{{ old('description') }}" placeholder="Loan given to client shop" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
                         </label>
                         <div class="flex justify-end gap-3 pt-2">
                             <button type="button" class="shop-cash-modal-close inline-flex h-11 items-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
                                 Cancel
                             </button>
                             <button form="shop-cash-credit-form" type="submit" class="inline-flex h-11 items-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
-                                Add shop cash
+                                Record loan
                             </button>
                         </div>
                     </div>
-                </div>
-            </div>
-        </div>
-
-        <div id="shop-cash-category-modal" class="hidden fixed inset-0 z-[75]">
-            <div class="shop-cash-category-modal-overlay absolute inset-0 bg-slate-950/50 backdrop-blur-sm"></div>
-            <div class="relative flex min-h-full items-center justify-center p-4">
-                <div class="w-full max-w-md rounded-[2rem] border border-slate-200 bg-white shadow-[0_30px_80px_rgba(15,23,42,0.22)]">
-                    <div class="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
-                        <div>
-                            <p class="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-700">Shop Cash Category</p>
-                            <h2 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Add category</h2>
-                            <p class="mt-2 text-sm font-semibold text-slate-500">Use categories to track shop cash reports separately.</p>
-                        </div>
-                        <button type="button" class="shop-cash-category-modal-close inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">
-                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                    </div>
-                    <form method="POST" action="{{ route('admin.accounting.owned-shops.cash-movement-categories.store', $shop) }}" class="space-y-4 px-6 py-6">
-                        @csrf
-                        <input type="hidden" name="date" value="{{ $selectedDate->format('Y-m-d') }}">
-                        <label>
-                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Category Name</span>
-                            <input type="text" name="name" value="{{ old('name') }}" placeholder="Category name" data-shop-cash-category-name class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
-                        </label>
-                        <label class="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-                            <input type="checkbox" name="is_default" value="1" @checked(old('is_default')) class="mt-1 h-4 w-4 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500">
-                            <span>
-                                <span class="block text-sm font-black text-slate-950">Make default category</span>
-                                <span class="mt-1 block text-xs font-semibold text-slate-600">New shop cash entries will select this category first.</span>
-                            </span>
-                        </label>
-                        <div class="flex justify-end gap-3 pt-2">
-                            <button type="button" class="shop-cash-category-modal-close inline-flex h-11 items-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
-                                Cancel
-                            </button>
-                            <button type="submit" class="inline-flex h-11 items-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
-                                Add category
-                            </button>
-                        </div>
-                    </form>
                 </div>
             </div>
         </div>
@@ -1247,7 +1103,6 @@
                 };
 
                 bindModal('shop-cash-open-modal', 'shop-cash-modal', '.shop-cash-modal-close', {{ $errors->has('type') || $errors->has('amount') || $errors->has('description') || $errors->has('shop_cash_movement_category_id') ? 'true' : 'false' }});
-                bindModal('shop-cash-category-open-modal', 'shop-cash-category-modal', '.shop-cash-category-modal-close', {{ $errors->has('name') || $errors->has('is_default') ? 'true' : 'false' }});
                 bindModal('daily-entry-open-modal', 'daily-entry-modal', '.daily-entry-modal-close', {{ $errors->has('lines') || $errors->has('business_date') ? 'true' : 'false' }});
                 bindModal('approve-entry-open-modal', 'approve-entry-modal', '.approve-entry-modal-close');
                 bindModal('review-details-open-modal', 'approve-entry-modal', '.approve-entry-modal-close');
@@ -1273,16 +1128,6 @@
                 const shopCashCategoryMenu = shopCashCategoryDropdown?.querySelector('[data-shop-cash-category-menu]');
                 const shopCashCategoryInput = shopCashCategoryDropdown?.querySelector('[data-shop-cash-category-input]');
                 const shopCashCategoryLabel = shopCashCategoryDropdown?.querySelector('[data-shop-cash-category-label]');
-                const shopCashCategoryOpenModal = document.getElementById('shop-cash-category-open-modal');
-                const shopCashCategoryNameInput = document.querySelector('[data-shop-cash-category-name]');
-
-                shopCashCategoryOpenModal?.addEventListener('click', () => {
-                    window.setTimeout(() => {
-                        if (shopCashCategoryNameInput instanceof HTMLInputElement) {
-                            shopCashCategoryNameInput.focus();
-                        }
-                    }, 50);
-                });
 
                 shopCashCategoryButton?.addEventListener('click', () => {
                     shopCashCategoryMenu?.classList.toggle('hidden');
@@ -1295,7 +1140,7 @@
                         }
 
                         if (shopCashCategoryLabel) {
-                            shopCashCategoryLabel.textContent = option.dataset.label ?? 'Petty Cash';
+                            shopCashCategoryLabel.textContent = option.dataset.label ?? 'Loan';
                         }
 
                         shopCashCategoryMenu?.classList.add('hidden');

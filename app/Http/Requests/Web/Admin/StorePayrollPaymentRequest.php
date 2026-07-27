@@ -45,10 +45,10 @@ class StorePayrollPaymentRequest extends FormRequest
                 }
 
                 $amount = (float) $this->input('amount', 0);
-                $remainingAmount = $item->remainingAmount();
+                $remainingAmount = $item->remainingGreenLeafAmount();
 
                 if ($amount > $remainingAmount) {
-                    $validator->errors()->add('amount', 'The payment amount cannot be more than the remaining salary.');
+                    $validator->errors()->add('amount', 'The payment amount cannot be more than the remaining Green Leaf salary.');
                 }
             },
         ];

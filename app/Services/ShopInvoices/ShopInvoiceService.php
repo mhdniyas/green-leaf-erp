@@ -25,15 +25,40 @@ class ShopInvoiceService
         private readonly OwnedShopAccountingService $ownedShopAccountingService,
     ) {}
 
-    public function generateForBusinessDate(string $businessDate, int $userId): void
+    /**
+     * @return array{generated: int, skipped: array<int, array{order_number: string|null, shop_name: string|null, products: array<int, string>}>}
+     */
+    public function generateForBusinessDate(string $businessDate, int $userId): array
     {
+        $summary = [
+            'generated' => 0,
+            'skipped' => [],
+        ];
+
         ShopOrder::query()
             ->with(['shop.priceGroup', 'items.product', 'invoice.items'])
             ->whereDate('business_date', $businessDate)
             ->where('state', 'approved')
             ->where('order_source', '!=', 'admin_direct_purchase')
             ->get()
-            ->each(fn (ShopOrder $order) => $this->synchronizeOrderInvoice($order, $userId));
+            ->each(function (ShopOrder $order) use ($userId, &$summary): void {
+                $missingProducts = $this->missingDailyPriceProductNamesForOrder($order);
+
+                if ($missingProducts !== []) {
+                    $summary['skipped'][] = [
+                        'order_number' => $order->order_number,
+                        'shop_name' => $order->shop?->name,
+                        'products' => $missingProducts,
+                    ];
+
+                    return;
+                }
+
+                $this->synchronizeOrderInvoice($order, $userId);
+                $summary['generated']++;
+            });
+
+        return $summary;
     }
 
     public function synchronizeOrderInvoice(ShopOrder $order, int $userId): ShopInvoice
@@ -61,47 +86,59 @@ class ShopInvoiceService
             ]);
             $invoice->save();
 
-            $existingItems = $invoice->items()->get()->keyBy('shop_order_item_id');
-            $activeOrderItemIds = [];
+            $existingItems = $invoice->items()->get()->keyBy('product_id');
+            $activeProductIds = [];
 
-            foreach ($order->items as $orderItem) {
-                if ((float) ($orderItem->approved_qty ?? 0) <= 0) {
-                    continue;
-                }
+            $order->items
+                ->filter(fn (ShopOrderItem $orderItem): bool => (float) ($orderItem->approved_qty ?? 0) > 0)
+                ->groupBy('product_id')
+                ->each(function (Collection $orderItems, int|string $productId) use ($order, $invoice, $existingItems, &$activeProductIds): void {
+                    /** @var ShopOrderItem $firstOrderItem */
+                    $firstOrderItem = $orderItems->first();
 
-                $activeOrderItemIds[] = (int) $orderItem->id;
-                $invoiceItem = $existingItems->get($orderItem->id) ?? new ShopInvoiceItem([
-                    'shop_invoice_id' => $invoice->id,
-                    'shop_order_item_id' => $orderItem->id,
-                    'product_id' => $orderItem->product_id,
-                ]);
+                    $activeProductIds[] = (int) $productId;
+                    $invoiceItem = $existingItems->get($productId) ?? new ShopInvoiceItem([
+                        'shop_invoice_id' => $invoice->id,
+                        'shop_order_item_id' => $firstOrderItem->id,
+                        'product_id' => (int) $productId,
+                    ]);
 
-                $unitPrice = $this->unitPriceForOrderItem($order, $orderItem);
-                $approvedQty = (float) $orderItem->approved_qty;
-                $deliveredQty = $invoiceItem->exists ? (float) $invoiceItem->delivered_qty : (float) ($orderItem->delivered_qty ?? 0);
-                $shortageQty = $invoiceItem->exists ? (float) $invoiceItem->shortage_qty : (float) ($orderItem->shortage_qty ?? 0);
-                $lineSubtotal = round($approvedQty * $unitPrice, 2);
-                $shortageAmount = round($shortageQty * $unitPrice, 2);
+                    $unitPrice = $this->unitPriceForOrderItem($order, $firstOrderItem);
+                    $approvedQty = (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) $item->approved_qty);
+                    $deliveredQty = $invoiceItem->exists
+                        ? (float) $invoiceItem->delivered_qty
+                        : (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) ($item->delivered_qty ?? 0));
+                    $shortageQty = $invoiceItem->exists
+                        ? (float) $invoiceItem->shortage_qty
+                        : (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) ($item->shortage_qty ?? 0));
+                    $excessQty = $invoiceItem->exists
+                        ? (float) $invoiceItem->excess_qty
+                        : (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) ($item->excess_qty ?? 0));
+                    $lineSubtotal = round($approvedQty * $unitPrice, 2);
+                    $shortageAmount = round($shortageQty * $unitPrice, 2);
+                    $excessAmount = round($excessQty * $unitPrice, 2);
 
-                $invoiceItem->fill([
-                    'shop_order_item_id' => $orderItem->id,
-                    'product_name' => $orderItem->product?->name ?? 'Unknown Product',
-                    'unit' => $orderItem->unit,
-                    'approved_qty' => $approvedQty,
-                    'delivered_qty' => $deliveredQty,
-                    'shortage_qty' => $shortageQty,
-                    'unit_price' => $unitPrice,
-                    'line_subtotal' => $lineSubtotal,
-                    'shortage_amount' => $shortageAmount,
-                    'final_line_total' => round($lineSubtotal - $shortageAmount, 2),
-                ]);
-                $invoiceItem->save();
-            }
+                    $invoiceItem->fill([
+                        'shop_order_item_id' => $firstOrderItem->id,
+                        'product_name' => $firstOrderItem->product?->name ?? 'Unknown Product',
+                        'unit' => $firstOrderItem->unit,
+                        'approved_qty' => $approvedQty,
+                        'delivered_qty' => $deliveredQty,
+                        'shortage_qty' => $shortageQty,
+                        'excess_qty' => $excessQty,
+                        'unit_price' => $unitPrice,
+                        'line_subtotal' => $lineSubtotal,
+                        'shortage_amount' => $shortageAmount,
+                        'excess_amount' => $excessAmount,
+                        'final_line_total' => round($lineSubtotal - $shortageAmount + $excessAmount, 2),
+                    ]);
+                    $invoiceItem->save();
+                });
 
             $invoice->items()
                 ->when(
-                    $activeOrderItemIds !== [],
-                    fn ($query) => $query->whereNotIn('shop_order_item_id', $activeOrderItemIds),
+                    $activeProductIds !== [],
+                    fn ($query) => $query->whereNotIn('product_id', $activeProductIds),
                     fn ($query) => $query,
                 )
                 ->delete();
@@ -122,34 +159,56 @@ class ShopInvoiceService
 
         return DB::transaction(function () use ($order, $invoice, $deliveredQtys, $userId, $deliveryNote): ShopInvoice {
             $hasDiscrepancy = false;
-            $invoiceItems = $invoice->items()->get()->keyBy('shop_order_item_id');
+            $invoiceItems = $invoice->items()->get()->keyBy('product_id');
 
-            foreach ($order->items as $orderItem) {
-                $approvedQty = (float) ($orderItem->approved_qty ?? 0);
-                $deliveredQty = (float) ($deliveredQtys[$orderItem->id] ?? 0);
-                $shortageQty = max(0.00, $approvedQty - $deliveredQty);
-                $hasDiscrepancy = $hasDiscrepancy || $shortageQty > 0.0001;
+            $order->items
+                ->filter(fn (ShopOrderItem $orderItem): bool => (float) ($orderItem->approved_qty ?? 0) > 0)
+                ->groupBy('product_id')
+                ->each(function (Collection $orderItems, int|string $productId) use ($invoiceItems, $deliveredQtys, &$hasDiscrepancy): void {
+                    /** @var ShopOrderItem $firstOrderItem */
+                    $firstOrderItem = $orderItems->first();
+                    $approvedQty = (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) $item->approved_qty);
+                    $deliveredQty = (float) $orderItems->sum(
+                        fn (ShopOrderItem $item): float => (float) ($deliveredQtys[$item->id] ?? 0)
+                    );
+                    $shortageQty = max(0.00, $approvedQty - $deliveredQty);
+                    $excessQty = max(0.00, $deliveredQty - $approvedQty);
+                    $hasDiscrepancy = $hasDiscrepancy || $shortageQty > 0.0001 || $excessQty > 0.0001;
 
-                $invoiceItem = $invoiceItems->get($orderItem->id);
-                if (! $invoiceItem) {
-                    continue;
-                }
+                    $invoiceItem = $invoiceItems->get($productId);
+                    if (! $invoiceItem) {
+                        return;
+                    }
 
-                $shortageAmount = round($shortageQty * (float) $invoiceItem->unit_price, 2);
+                    $shortageAmount = round($shortageQty * (float) $invoiceItem->unit_price, 2);
+                    $excessAmount = round($excessQty * (float) $invoiceItem->unit_price, 2);
 
-                $invoiceItem->update([
-                    'delivered_qty' => $deliveredQty,
-                    'shortage_qty' => $shortageQty,
-                    'shortage_amount' => $shortageAmount,
-                    'final_line_total' => round((float) $invoiceItem->line_subtotal - $shortageAmount, 2),
-                ]);
+                    $invoiceItem->update([
+                        'delivered_qty' => $deliveredQty,
+                        'shortage_qty' => $shortageQty,
+                        'excess_qty' => $excessQty,
+                        'shortage_amount' => $shortageAmount,
+                        'excess_amount' => $excessAmount,
+                        'final_line_total' => round((float) $invoiceItem->line_subtotal - $shortageAmount + $excessAmount, 2),
+                    ]);
 
-                $orderItem->update([
-                    'delivered_qty' => $deliveredQty,
-                    'shortage_qty' => $shortageQty,
-                    'shortage_value' => $shortageAmount,
-                ]);
-            }
+                    foreach ($orderItems as $orderItem) {
+                        $itemApprovedQty = (float) ($orderItem->approved_qty ?? 0);
+                        $itemDeliveredQty = (float) ($deliveredQtys[$orderItem->id] ?? 0);
+                        $itemShortageQty = max(0.00, $itemApprovedQty - $itemDeliveredQty);
+                        $itemExcessQty = max(0.00, $itemDeliveredQty - $itemApprovedQty);
+                        $itemShortageAmount = round($itemShortageQty * (float) $invoiceItem->unit_price, 2);
+                        $itemExcessAmount = round($itemExcessQty * (float) $invoiceItem->unit_price, 2);
+
+                        $orderItem->update([
+                            'delivered_qty' => $itemDeliveredQty,
+                            'shortage_qty' => $itemShortageQty,
+                            'excess_qty' => $itemExcessQty,
+                            'shortage_value' => $itemShortageAmount,
+                            'excess_value' => $itemExcessAmount,
+                        ]);
+                    }
+                });
 
             $invoice->update([
                 'delivery_status' => $hasDiscrepancy ? 'received_with_discrepancy' : 'received_full',
@@ -168,6 +227,7 @@ class ShopInvoiceService
                 'delivered_by' => $userId,
                 'delivery_notes' => $deliveryNote,
                 'total_shortage_value' => $invoice->shortage_total,
+                'total_excess_value' => $invoice->excess_total,
                 'balance_amount' => $invoice->balance_amount,
                 'payment_status' => $invoice->payment_status,
             ]);
@@ -205,6 +265,7 @@ class ShopInvoiceService
             'payment_status' => $invoice->payment_status,
             'balance_amount' => $invoice->balance_amount,
             'total_shortage_value' => $invoice->shortage_total,
+            'total_excess_value' => $invoice->excess_total,
         ]);
 
         $this->syncOwnedShopBalanceForInvoice($invoice, $userId);
@@ -426,13 +487,6 @@ class ShopInvoiceService
         return DB::transaction(function () use ($invoice, $payload, $userId): ShopInvoicePaymentRequest {
             $invoice->refresh();
 
-            if (array_key_exists('discount_total', $payload)) {
-                $invoice->update([
-                    'discount_total' => round((float) ($payload['discount_total'] ?? $invoice->discount_total), 2),
-                ]);
-                $invoice = $this->recalculate($invoice->fresh('items'));
-            }
-
             $currentPaidAmount = round((float) $invoice->paid_amount, 2);
             $paidAmount = round((float) $payload['paid_amount'], 2);
             $approvedAmount = round($paidAmount - $currentPaidAmount, 2);
@@ -481,6 +535,37 @@ class ShopInvoiceService
         });
     }
 
+    /**
+     * @param  array{discount_total: float|int|string, discount_note: string}  $payload
+     */
+    public function applyAdminDiscount(ShopInvoice $invoice, array $payload, int $userId): ShopInvoice
+    {
+        return DB::transaction(function () use ($invoice, $payload, $userId): ShopInvoice {
+            $invoice->refresh();
+
+            $invoice->update([
+                'discount_total' => round((float) $payload['discount_total'], 2),
+                'discount_note' => trim((string) $payload['discount_note']),
+                'discount_approved_by' => $userId,
+                'discount_approved_at' => now(),
+            ]);
+
+            $invoice = $this->recalculate($invoice->fresh('items'));
+
+            if ($invoice->order) {
+                $invoice->order->update([
+                    'cash_discrepancy' => round((float) $invoice->final_total - (float) $invoice->paid_amount, 2),
+                    'payment_status' => $invoice->payment_status,
+                    'balance_amount' => $invoice->balance_amount,
+                ]);
+            }
+
+            $this->syncOwnedShopBalanceForInvoice($invoice, $userId);
+
+            return $invoice;
+        });
+    }
+
     public function repriceInvoice(ShopInvoice $invoice, int $userId, ?string $reason = null): ShopInvoice
     {
         $invoice->loadMissing(['shop.priceGroup', 'items.product', 'order']);
@@ -503,12 +588,14 @@ class ShopInvoiceService
                 $unitPrice = round((float) $price['price'], 2);
                 $lineSubtotal = round((float) $invoiceItem->approved_qty * $unitPrice, 2);
                 $shortageAmount = round((float) $invoiceItem->shortage_qty * $unitPrice, 2);
+                $excessAmount = round((float) $invoiceItem->excess_qty * $unitPrice, 2);
 
                 $invoiceItem->update([
                     'unit_price' => $unitPrice,
                     'line_subtotal' => $lineSubtotal,
                     'shortage_amount' => $shortageAmount,
-                    'final_line_total' => round($lineSubtotal - $shortageAmount, 2),
+                    'excess_amount' => $excessAmount,
+                    'final_line_total' => round($lineSubtotal - $shortageAmount + $excessAmount, 2),
                 ]);
             }
 
@@ -523,6 +610,7 @@ class ShopInvoiceService
             if ($invoice->order) {
                 $invoice->order->update([
                     'total_shortage_value' => $invoice->shortage_total,
+                    'total_excess_value' => $invoice->excess_total,
                     'balance_amount' => $invoice->balance_amount,
                 ]);
             }
@@ -531,14 +619,39 @@ class ShopInvoiceService
         });
     }
 
-    public function repriceAllForBusinessDate(string $businessDate, int $userId, ?string $reason = null): void
+    /**
+     * @return array{repriced: int, skipped: array<int, array{order_number: string|null, shop_name: string|null, products: array<int, string>}>}
+     */
+    public function repriceAllForBusinessDate(string $businessDate, int $userId, ?string $reason = null): array
     {
+        $summary = [
+            'repriced' => 0,
+            'skipped' => [],
+        ];
+
         ShopInvoice::query()
             ->with(['shop.priceGroup', 'items.product', 'order'])
             ->whereDate('business_date', $businessDate)
             ->get()
             ->reject(fn (ShopInvoice $invoice): bool => $invoice->isFinalLocked())
-            ->each(fn (ShopInvoice $invoice) => $this->repriceInvoice($invoice, $userId, $reason));
+            ->each(function (ShopInvoice $invoice) use ($userId, $reason, &$summary): void {
+                $missingProducts = $this->missingDailyPriceProductNamesForInvoice($invoice);
+
+                if ($missingProducts !== []) {
+                    $summary['skipped'][] = [
+                        'order_number' => $invoice->order?->order_number,
+                        'shop_name' => $invoice->shop?->name,
+                        'products' => $missingProducts,
+                    ];
+
+                    return;
+                }
+
+                $this->repriceInvoice($invoice, $userId, $reason);
+                $summary['repriced']++;
+            });
+
+        return $summary;
     }
 
     private function allocateShopPaymentToPendingInvoices(ShopInvoicePaymentRequest $paymentRequest, float $paymentAmount, int $userId, ?string $adminNote = null): float
@@ -630,20 +743,22 @@ class ShopInvoiceService
 
         $subtotal = round((float) $invoice->items->sum('line_subtotal'), 2);
         $shortageTotal = round((float) $invoice->items->sum('shortage_amount'), 2);
+        $excessTotal = round((float) $invoice->items->sum('excess_amount'), 2);
         $discountTotal = round((float) $invoice->discount_total, 2);
-        $finalTotal = round(max(0.00, $subtotal - $shortageTotal - $discountTotal), 2);
+        $finalTotal = round(max(0.00, $subtotal - $shortageTotal + $excessTotal - $discountTotal), 2);
         $paidAmount = round((float) $invoice->paid_amount, 2);
         $balanceAmount = round(max(0.00, $finalTotal - $paidAmount), 2);
 
         $paymentStatus = match (true) {
+            $finalTotal <= 0.00 && $balanceAmount <= 0.00 => 'paid',
             $paidAmount <= 0.00 => 'unpaid',
             $balanceAmount > 0.00 => 'partially_paid',
             default => 'paid',
         };
 
         $status = match (true) {
-            $paymentStatus === 'paid' => 'paid',
             in_array($invoice->delivery_status, ['awaiting_review', 'received_with_discrepancy'], true) => 'delivery_review',
+            $paymentStatus === 'paid' => 'paid',
             in_array($invoice->delivery_status, ['received_full', 'approved_after_discrepancy'], true) => 'payment_pending',
             default => $invoice->status ?: 'generated',
         };
@@ -651,6 +766,7 @@ class ShopInvoiceService
         $invoice->update([
             'subtotal' => $subtotal,
             'shortage_total' => $shortageTotal,
+            'excess_total' => $excessTotal,
             'final_total' => $finalTotal,
             'balance_amount' => $balanceAmount,
             'payment_status' => $paymentStatus,
@@ -662,9 +778,7 @@ class ShopInvoiceService
 
     private function shouldPostPaymentToJournal(ShopInvoice $invoice): bool
     {
-        $invoice->loadMissing('shop');
-
-        return ! $invoice->shop?->isOwnedAccountingEnabled();
+        return true;
     }
 
     private function invoiceNumberFor(ShopOrder $order): string
@@ -711,6 +825,61 @@ class ShopInvoiceService
         $price = $this->approvedDailyPriceResolver->resolve($product, $order->shop, $order->business_date);
 
         return round((float) $price['price'], 2);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function missingDailyPriceProductNamesForOrder(ShopOrder $order): array
+    {
+        $order->loadMissing(['shop.priceGroup', 'items.product']);
+
+        return $order->items
+            ->filter(fn (ShopOrderItem $item): bool => (float) ($item->approved_qty ?? 0) > 0)
+            ->filter(function (ShopOrderItem $item) use ($order): bool {
+                if (! $item->product || ! $order->shop) {
+                    return true;
+                }
+
+                try {
+                    $this->approvedDailyPriceResolver->resolve($item->product, $order->shop, $order->business_date);
+
+                    return false;
+                } catch (ValidationException) {
+                    return true;
+                }
+            })
+            ->map(fn (ShopOrderItem $item): string => $item->product?->name ?? 'Unknown Product')
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function missingDailyPriceProductNamesForInvoice(ShopInvoice $invoice): array
+    {
+        $invoice->loadMissing(['shop.priceGroup', 'items.product']);
+
+        return $invoice->items
+            ->filter(function (ShopInvoiceItem $item) use ($invoice): bool {
+                if (! $item->product || ! $invoice->shop) {
+                    return true;
+                }
+
+                try {
+                    $this->approvedDailyPriceResolver->resolve($item->product, $invoice->shop, $invoice->business_date);
+
+                    return false;
+                } catch (ValidationException) {
+                    return true;
+                }
+            })
+            ->map(fn (ShopInvoiceItem $item): string => $item->product?->name ?? 'Unknown Product')
+            ->unique()
+            ->values()
+            ->all();
     }
 
     private function syncOwnedShopBalanceForInvoice(ShopInvoice $invoice, int $userId): void

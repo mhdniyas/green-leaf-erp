@@ -41,7 +41,7 @@
             <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
                 <div>
                     <h2 class="text-xl font-black text-slate-950">Staff CRUD</h2>
-                    <p class="text-sm font-semibold text-slate-500">Search by name, code, phone, or email. Linked user roles and owned shops are shown inline.</p>
+                    <p class="text-sm font-semibold text-slate-500">Search by name, code, phone, or email. Linked user roles and client shops are shown inline.</p>
                 </div>
                 <form method="GET" class="flex flex-wrap gap-2">
                     @if($selectedCategoryCode !== null)

@@ -352,7 +352,7 @@
                         <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider">Top Supplier</span>
                         <div class="text-2xl font-black text-slate-900 mt-1 truncate" title="{{ $topSupplier }}">{{ $topSupplier }}</div>
                     </div>
-                    <div class="text-[10px] text-slate-500 font-semibold mt-4 pt-2 border-t border-slate-50">Partner with highest trade volume</div>
+                    <div class="text-[10px] text-slate-500 font-semibold mt-4 pt-2 border-t border-slate-50">Supplier with highest trade volume</div>
                 </div>
             </div>
 

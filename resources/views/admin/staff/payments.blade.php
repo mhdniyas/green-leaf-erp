@@ -1,11 +1,12 @@
 <x-layouts.staff title="Staff Payments">
     @php
         $items = $payrollRun?->items ?? collect();
-        $totalPayroll = round((float) $items->sum('final_amount'), 2);
+        $totalPayroll = round((float) $items->sum(fn ($item): float => $item->greenLeafPayableAmount()), 2);
+        $totalClientShopPayroll = round((float) $items->sum(fn ($item): float => $item->clientShopPayableAmount()), 2);
         $totalPaid = round((float) $items->sum(fn ($item): float => $item->paidAmount()), 2);
         $totalOfficePaid = round((float) $items->sum(fn ($item): float => $item->officePaidAmount()), 2);
         $totalShopPaid = round((float) $items->sum(fn ($item): float => $item->shopPaidAmount()), 2);
-        $totalRemaining = round(max(0, $totalPayroll - $totalPaid), 2);
+        $totalRemaining = round((float) $items->sum(fn ($item): float => $item->remainingGreenLeafAmount()), 2);
     @endphp
 
     <div class="mx-auto max-w-7xl space-y-6">
@@ -26,7 +27,7 @@
 
         <section class="grid gap-4 md:grid-cols-5">
             <article class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Payroll amount</p>
+                <p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Green Leaf Payable</p>
                 <p class="mt-2 text-2xl font-black text-slate-950">Rs. {{ number_format($totalPayroll, 2) }}</p>
             </article>
             <article class="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
@@ -38,8 +39,9 @@
                 <p class="mt-2 text-2xl font-black text-cyan-900">Rs. {{ number_format($totalOfficePaid, 2) }}</p>
             </article>
             <article class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Shop Paid</p>
-                <p class="mt-2 text-2xl font-black text-slate-950">Rs. {{ number_format($totalShopPaid, 2) }}</p>
+                <p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Client Shop Payable</p>
+                <p class="mt-2 text-2xl font-black text-slate-950">Rs. {{ number_format($totalClientShopPayroll, 2) }}</p>
+                <p class="mt-1 text-xs font-bold text-slate-500">Paid Rs. {{ number_format($totalShopPaid, 2) }}</p>
             </article>
             <article class="rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
                 <p class="text-[11px] font-black uppercase tracking-[0.2em] text-amber-700">Remaining</p>
@@ -113,9 +115,10 @@
                             <tr>
                                 <th class="px-3 py-3">Employee</th>
                                 <th class="px-3 py-3">Category</th>
-                                <th class="px-3 py-3 text-right">Salary due</th>
+                                <th class="px-3 py-3 text-right">Green Leaf Due</th>
+                                <th class="px-3 py-3 text-right">Client Shop Due</th>
                                 <th class="px-3 py-3 text-right">Paid</th>
-                                <th class="px-3 py-3 text-right">Remaining</th>
+                                <th class="px-3 py-3 text-right">GL Remaining</th>
                                 <th class="px-3 py-3">Last payment</th>
                                 <th class="px-3 py-3 text-right">Action</th>
                             </tr>
@@ -124,7 +127,7 @@
                             @foreach($items as $item)
                                 @php
                                     $paidAmount = $item->paidAmount();
-                                    $remainingAmount = $item->remainingAmount();
+                                    $remainingAmount = $item->remainingGreenLeafAmount();
                                     $lastPayment = $item->payments->sortByDesc('paid_on')->first();
                                 @endphp
                                 <tr>
@@ -132,7 +135,8 @@
                                         <a href="{{ route('admin.staff.show', $item->employee) }}" class="font-black text-slate-900 underline-offset-4 hover:text-cyan-700 hover:underline">{{ $item->employee->name }}</a>
                                     </td>
                                     <td class="px-3 py-4 font-semibold text-slate-600">{{ $item->category?->name ?? 'Uncategorized' }}</td>
-                                    <td class="px-3 py-4 text-right font-black text-slate-900">Rs. {{ number_format((float) $item->final_amount, 2) }}</td>
+                                    <td class="px-3 py-4 text-right font-black text-slate-900">Rs. {{ number_format($item->greenLeafPayableAmount(), 2) }}</td>
+                                    <td class="px-3 py-4 text-right font-black text-slate-900">Rs. {{ number_format($item->clientShopPayableAmount(), 2) }}</td>
                                     <td class="px-3 py-4 text-right font-black text-emerald-700">Rs. {{ number_format($paidAmount, 2) }}</td>
                                     <td class="px-3 py-4 text-right font-black {{ $remainingAmount > 0 ? 'text-amber-700' : 'text-emerald-700' }}">Rs. {{ number_format($remainingAmount, 2) }}</td>
                                     <td class="px-3 py-4 text-sm font-semibold text-slate-500">
@@ -152,7 +156,7 @@
                 </div>
 
                 @foreach($items as $item)
-                    @php($remainingAmount = $item->remainingAmount())
+                    @php($remainingAmount = $item->remainingGreenLeafAmount())
                     @if($remainingAmount > 0)
                         <dialog id="payroll-payment-{{ $item->id }}" class="fixed left-1/2 top-1/2 m-0 max-h-[calc(100dvh-2rem)] w-[min(calc(100vw-2rem),42rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/60">
                             <form method="POST" action="{{ route('admin.staff.payments.store') }}" class="max-h-[calc(100dvh-2rem)] overflow-y-auto p-5 sm:p-6">
@@ -163,7 +167,7 @@
                                     <div class="min-w-0">
                                         <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Salary payment</p>
                                         <h3 class="mt-1 truncate text-xl font-black text-slate-950">{{ $item->employee->name }}</h3>
-                                        <p class="mt-1 text-sm font-semibold text-slate-500">Remaining Rs. {{ number_format($remainingAmount, 2) }}</p>
+                                        <p class="mt-1 text-sm font-semibold text-slate-500">Green Leaf remaining Rs. {{ number_format($remainingAmount, 2) }}</p>
                                     </div>
                                     <button type="button" class="shrink-0 rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-600 transition hover:bg-slate-200" data-payroll-payment-close>Close</button>
                                 </div>
@@ -218,7 +222,7 @@
                     <select name="payroll_run_item_id" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>
                         <option value="">Employee payroll item</option>
                         @foreach($items as $item)
-                            <option value="{{ $item->id }}">{{ $item->employee?->name }} · remaining Rs. {{ number_format($item->remainingAmount(), 2) }}</option>
+                            <option value="{{ $item->id }}">{{ $item->employee?->name }} · client shop due Rs. {{ number_format($item->clientShopPayableAmount(), 2) }}</option>
                         @endforeach
                     </select>
                     <select name="shop_id" class="rounded-xl border border-slate-200 px-3 py-2 text-sm" required>

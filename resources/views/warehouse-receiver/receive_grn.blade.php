@@ -84,10 +84,39 @@
                 <p class="text-[10px] text-indigo-600 font-bold mt-1.5 pl-0.5">Select a default warehouse. You can override this for individual products below.</p>
             </div>
 
+            @php
+                $grnCategoryNames = $groupedItems->keys()->filter()->sort()->values();
+                $grnItemCount = $groupedItems->flatten(1)->count();
+            @endphp
+
+            <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                <div class="grid gap-2 sm:grid-cols-[1fr_180px]">
+                    <div>
+                        <label for="grn-product-search" class="mb-1 block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Find Product</label>
+                        <input id="grn-product-search" type="search" placeholder="Search product, SKU, category..." class="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none">
+                    </div>
+                    <div class="relative">
+                        <label for="grn-product-category" class="mb-1 block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Category</label>
+                        <select id="grn-product-category" class="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-3 pr-9 text-xs font-black text-slate-700 focus:border-indigo-500 focus:bg-white focus:outline-none">
+                            <option value="">All Categories</option>
+                            @foreach($grnCategoryNames as $categoryName)
+                                <option value="{{ strtolower($categoryName) }}">{{ $categoryName }}</option>
+                            @endforeach
+                        </select>
+                        <div class="pointer-events-none absolute inset-y-0 right-0 top-5 flex items-center pr-3 text-slate-400">
+                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+                <p id="grn-product-filter-count" class="mt-2 text-[11px] font-bold text-slate-500">{{ $grnItemCount }} product(s)</p>
+            </section>
+
             {{-- Grouped Items --}}
-            <div class="space-y-4">
+            <div class="space-y-4" id="grn-product-list">
                 @foreach($groupedItems as $categoryName => $items)
-                    <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div class="grn-category-card rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                         <h2 class="text-xs font-black uppercase tracking-[0.14em] text-slate-900 border-b border-slate-100 pb-2 mb-3">
                             {{ $categoryName }}
                         </h2>
@@ -95,8 +124,12 @@
                             @foreach($items as $item)
                                 @php
                                     $purchasedQty = (float) ($item->purchaseOrderItem?->quantity ?? $item->received_qty);
+                                    $itemSku = $item->product?->sku ?? '';
                                 @endphp
-                                <div class="py-3.5 first:pt-0 last:pb-0" data-item-id="{{ $item->id }}">
+                                <div class="grn-product-row py-3.5 first:pt-0 last:pb-0"
+                                     data-item-id="{{ $item->id }}"
+                                     data-search="{{ strtolower(trim(($item->product?->name ?? '').' '.$itemSku.' '.$categoryName)) }}"
+                                     data-category="{{ strtolower($categoryName) }}">
                                     <div class="flex items-start justify-between gap-3 min-w-0">
                                         <div class="min-w-0 flex-1">
                                             <h4 class="truncate text-sm font-black text-slate-950">{{ $item->product->name }}</h4>
@@ -172,6 +205,10 @@
                 @endforeach
             </div>
 
+            <div id="grn-product-empty" class="hidden rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm font-bold text-slate-500">
+                No products match these filters.
+            </div>
+
             {{-- Submit Form Action --}}
             <div class="rounded-2xl bg-white border border-slate-200 p-4 shadow-sm">
                 <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3.5 text-xs font-black uppercase tracking-wider shadow-md transition-colors border-none cursor-pointer">
@@ -185,6 +222,48 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const qtyInputs = document.querySelectorAll('.received-qty-input');
+            const productSearch = document.getElementById('grn-product-search');
+            const productCategory = document.getElementById('grn-product-category');
+            const productRows = Array.from(document.querySelectorAll('.grn-product-row'));
+            const productCards = Array.from(document.querySelectorAll('.grn-category-card'));
+            const productEmpty = document.getElementById('grn-product-empty');
+            const productCount = document.getElementById('grn-product-filter-count');
+
+            function filterGrnProducts() {
+                const query = (productSearch?.value || '').trim().toLowerCase();
+                const category = productCategory?.value || '';
+                let visibleCount = 0;
+
+                productRows.forEach(row => {
+                    const matchesSearch = query === '' || (row.dataset.search || '').includes(query);
+                    const matchesCategory = category === '' || row.dataset.category === category;
+
+                    if (matchesSearch && matchesCategory) {
+                        row.classList.remove('hidden');
+                        visibleCount++;
+                    } else {
+                        row.classList.add('hidden');
+                    }
+                });
+
+                productCards.forEach(card => {
+                    const hasVisibleRows = Array.from(card.querySelectorAll('.grn-product-row'))
+                        .some(row => !row.classList.contains('hidden'));
+                    card.classList.toggle('hidden', !hasVisibleRows);
+                });
+
+                if (productEmpty) {
+                    productEmpty.classList.toggle('hidden', visibleCount > 0);
+                }
+
+                if (productCount) {
+                    productCount.textContent = visibleCount + ' of ' + productRows.length + ' product(s)';
+                }
+            }
+
+            productSearch?.addEventListener('input', filterGrnProducts);
+            productCategory?.addEventListener('change', filterGrnProducts);
+            filterGrnProducts();
 
             qtyInputs.forEach(input => {
                 input.addEventListener('input', () => {

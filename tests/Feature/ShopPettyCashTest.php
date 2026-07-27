@@ -7,6 +7,7 @@ namespace Tests\Feature;
 use App\Models\Shop;
 use App\Models\ShopAccountingCategory;
 use App\Models\ShopAccountingEntry;
+use App\Models\ShopCashMovementCategory;
 use App\Models\ShopCredit;
 use App\Models\ShopPettyCashExpense;
 use App\Models\User;
@@ -29,7 +30,7 @@ class ShopPettyCashTest extends TestCase
         $this->assertDatabaseHas('shop_accounting_categories', [
             'shop_id' => null,
             'type' => 'income',
-            'name' => 'Shop Cash Credit',
+            'name' => 'Loan Given',
             'cash_effect' => true,
             'purpose' => 'shop_cash_credit',
         ]);
@@ -47,6 +48,14 @@ class ShopPettyCashTest extends TestCase
             'cash_effect' => true,
             'purpose' => 'staff_advance',
         ]);
+    }
+
+    public function test_shop_cash_movement_categories_are_client_loan_categories(): void
+    {
+        $categories = ShopCashMovementCategory::loanCategoryOptions();
+
+        $this->assertSame(['Loan', 'Advance Loan for Salary'], $categories->pluck('name')->all());
+        $this->assertSame('Loan', ShopCashMovementCategory::defaultCategory()->name);
     }
 
     public function test_manual_petty_cash_expense_can_update_previous_days(): void
@@ -176,9 +185,9 @@ class ShopPettyCashTest extends TestCase
             'business_date' => '2026-07-15',
         ]);
 
-        $this->assertSame('Given to Shop', $credit->accountingLabel());
+        $this->assertSame('Loan Given to Client Shop', $credit->accountingLabel());
         $this->assertSame(-1000.00, $credit->signedAccountingAmount());
-        $this->assertSame('Shop Cash Credit', $credit->shopCashLabel());
+        $this->assertSame('Loan Given', $credit->shopCashLabel());
         $this->assertSame(1000.00, $credit->shopSignedAmount());
         $this->assertSame(
             1000.00,
@@ -186,7 +195,7 @@ class ShopPettyCashTest extends TestCase
         );
 
         $report = app(AdminFinancePillarService::class)->cashFlowReport(Carbon::parse('2026-07-15'));
-        $pettyCashRows = $report['journal_rows']->where('source', 'owned_shop_petty_cash')->values();
+        $pettyCashRows = $report['journal_rows']->where('source', 'client_shop_loan')->values();
 
         $this->assertSame(1000.00, $report['summary']['total_out']);
         $this->assertSame(-1000.00, $report['summary']['closing_balance']);
@@ -195,8 +204,8 @@ class ShopPettyCashTest extends TestCase
         $this->assertSame('2026-07-15', $pettyCashRows->first()['date']);
         $this->assertSame(1000.00, $pettyCashRows->first()['amount']);
         $this->assertSame('OUT', $pettyCashRows->first()['direction']);
-        $this->assertSame('Petty Cash - Ashirwad', $pettyCashRows->first()['journal']);
-        $this->assertSame('Petty Cash', $pettyCashRows->first()['category']);
+        $this->assertSame('Loan - Ashirwad', $pettyCashRows->first()['journal']);
+        $this->assertSame('Loan', $pettyCashRows->first()['category']);
         $this->assertSame('Shop cash sent to shop', $pettyCashRows->first()['remarks']);
 
         $nextMonthReport = app(AdminFinancePillarService::class)->cashFlowReport(Carbon::parse('2026-08-01'));

@@ -39,6 +39,21 @@ class StockController extends Controller
         }
 
         $stock = $this->stockMovements->currentStockByProductAndGrade($date);
+        $stockByProduct = $stock->groupBy('product_id');
+        $negativeProductCount = $stockByProduct
+            ->filter(fn ($rows) => (float) $rows->sum('current_stock') < -0.001)
+            ->count();
+        $belowBufferProductCount = $stockByProduct
+            ->filter(function ($rows): bool {
+                $totalStock = (float) $rows->sum('current_stock');
+                $bufferQty = (float) ($rows->first()->buffer_qty ?? 0);
+
+                return $bufferQty > 0 && $totalStock < $bufferQty;
+            })
+            ->count();
+        $carryoverProductCount = $stockByProduct
+            ->filter(fn ($rows): bool => (bool) ($rows->first()->carryover_enabled ?? false))
+            ->count();
 
         // Fetch dispatches/allocations for the date
         $allocations = ShopOrderItem::whereHas('order', function ($query) use ($date) {
@@ -49,6 +64,13 @@ class StockController extends Controller
             ->get()
             ->groupBy('product_id');
 
-        return view('inventory.stock.index', compact('stock', 'date', 'allocations'));
+        return view('inventory.stock.index', compact(
+            'stock',
+            'date',
+            'allocations',
+            'negativeProductCount',
+            'belowBufferProductCount',
+            'carryoverProductCount',
+        ));
     }
 }

@@ -11,6 +11,7 @@ use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Inventory\WastageReason;
 use App\Http\Controllers\Controller;
+use App\Models\Category;
 use App\Models\GoodsReceived;
 use App\Models\PurchaserCart;
 use App\Models\ShopOrder;
@@ -40,22 +41,62 @@ class WarehouseReceiverController extends Controller
         $this->authorizeReceiverAccess($request);
         $request->validate([
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'receive_search' => ['nullable', 'string', 'max:120'],
+            'receive_source' => ['nullable', 'string', 'in:all,vendor,direct,batch'],
+            'receive_category_id' => ['nullable', 'integer', 'exists:categories,id'],
         ]);
 
         $date = $request->input('date', app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
         $selectedWarehouseId = $request->integer('warehouse_id') ?: null;
+        $receiveSearch = trim($request->string('receive_search')->toString());
+        $receiveSource = $request->string('receive_source')->toString() ?: 'all';
+        $receiveCategoryId = $request->integer('receive_category_id') ?: null;
 
         // All pending vendor sheets (GRNs) awaiting warehouse receipt confirmation
         $pendingGrns = GoodsReceived::where('status', 'pending_approval')
             ->whereDate('received_at', $date)
             ->with(['purchaseOrder.supplier', 'purchaseOrder.purchaserCart.user', 'items.product.category'])
+            ->when($receiveSource !== 'all' && $receiveSource !== 'vendor', fn ($query) => $query->whereRaw('1 = 0'))
+            ->when($receiveCategoryId, function ($query) use ($receiveCategoryId): void {
+                $query->whereHas('items.product', fn ($productQuery) => $productQuery->where('category_id', $receiveCategoryId));
+            })
+            ->when($receiveSearch !== '', function ($query) use ($receiveSearch): void {
+                $query->where(function ($searchQuery) use ($receiveSearch): void {
+                    $searchQuery
+                        ->where('grn_number', 'like', "%{$receiveSearch}%")
+                        ->orWhereHas('purchaseOrder.supplier', fn ($supplierQuery) => $supplierQuery->where('name', 'like', "%{$receiveSearch}%"))
+                        ->orWhereHas('purchaseOrder.purchaserCart.user', fn ($userQuery) => $userQuery->where('name', 'like', "%{$receiveSearch}%"))
+                        ->orWhereHas('items.product', function ($productQuery) use ($receiveSearch): void {
+                            $productQuery
+                                ->where('name', 'like', "%{$receiveSearch}%")
+                                ->orWhere('sku', 'like', "%{$receiveSearch}%")
+                                ->orWhereHas('category', fn ($categoryQuery) => $categoryQuery->where('name', 'like', "%{$receiveSearch}%"));
+                        });
+                });
+            })
             ->orderBy('created_at', 'asc')
             ->get();
 
         // Fetch pending batches for test compatibility
         $pendingBatches = StockBatch::where('warehouse_receive_pending', true)
             ->whereDate('received_at', $date)
-            ->with(['product'])
+            ->with(['product.category'])
+            ->when($receiveSource !== 'all' && $receiveSource !== 'batch', fn ($query) => $query->whereRaw('1 = 0'))
+            ->when($receiveCategoryId, function ($query) use ($receiveCategoryId): void {
+                $query->whereHas('product', fn ($productQuery) => $productQuery->where('category_id', $receiveCategoryId));
+            })
+            ->when($receiveSearch !== '', function ($query) use ($receiveSearch): void {
+                $query->where(function ($searchQuery) use ($receiveSearch): void {
+                    $searchQuery
+                        ->where('reference', 'like', "%{$receiveSearch}%")
+                        ->orWhereHas('product', function ($productQuery) use ($receiveSearch): void {
+                            $productQuery
+                                ->where('name', 'like', "%{$receiveSearch}%")
+                                ->orWhere('sku', 'like', "%{$receiveSearch}%")
+                                ->orWhereHas('category', fn ($categoryQuery) => $categoryQuery->where('name', 'like', "%{$receiveSearch}%"));
+                        });
+                });
+            })
             ->orderBy('created_at', 'asc')
             ->get();
 
@@ -180,8 +221,24 @@ class WarehouseReceiverController extends Controller
             ->where('state', 'approved')
             ->where('delivery_status', 'pending_delivery')
             ->where('is_allocation_completed', false)
-            ->with(['items.product'])
+            ->with(['items.product.category'])
             ->whereHas('items')
+            ->when($receiveSource !== 'all' && $receiveSource !== 'direct', fn ($query) => $query->whereRaw('1 = 0'))
+            ->when($receiveCategoryId, function ($query) use ($receiveCategoryId): void {
+                $query->whereHas('items.product', fn ($productQuery) => $productQuery->where('category_id', $receiveCategoryId));
+            })
+            ->when($receiveSearch !== '', function ($query) use ($receiveSearch): void {
+                $query->where(function ($searchQuery) use ($receiveSearch): void {
+                    $searchQuery
+                        ->where('order_number', 'like', "%{$receiveSearch}%")
+                        ->orWhereHas('items.product', function ($productQuery) use ($receiveSearch): void {
+                            $productQuery
+                                ->where('name', 'like', "%{$receiveSearch}%")
+                                ->orWhere('sku', 'like', "%{$receiveSearch}%")
+                                ->orWhereHas('category', fn ($categoryQuery) => $categoryQuery->where('name', 'like', "%{$receiveSearch}%"));
+                        });
+                });
+            })
             ->get()
             ->filter(function (ShopOrder $order) use ($directPurchaseGrnProductIds): bool {
                 return $order->items
@@ -255,6 +312,10 @@ class WarehouseReceiverController extends Controller
         }
 
         $warehouses = Warehouse::active()->orderBy('name')->get();
+        $receiveCategories = Category::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name']);
 
         return view('warehouse-receiver.checklist', compact(
             'date',
@@ -270,6 +331,10 @@ class WarehouseReceiverController extends Controller
             'shopOrders',
             'selectedWarehouseId',
             'warehouses',
+            'receiveSearch',
+            'receiveSource',
+            'receiveCategoryId',
+            'receiveCategories',
         ));
     }
 

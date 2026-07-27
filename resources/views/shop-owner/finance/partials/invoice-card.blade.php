@@ -17,7 +17,7 @@
         </div>
     </div>
 
-    <div class="mt-5 grid gap-4 md:grid-cols-4">
+    <div class="mt-5 grid gap-4 md:grid-cols-5">
         <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
             <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Subtotal</p>
             <p class="mt-2 text-2xl font-black text-slate-900">Rs. {{ number_format((float) $invoice->subtotal, 2) }}</p>
@@ -25,6 +25,10 @@
         <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
             <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Shortage</p>
             <p class="mt-2 text-2xl font-black text-amber-600">Rs. {{ number_format((float) $invoice->shortage_total, 2) }}</p>
+        </div>
+        <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+            <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Excess</p>
+            <p class="mt-2 text-2xl font-black text-cyan-700">Rs. {{ number_format((float) $invoice->excess_total, 2) }}</p>
         </div>
         <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
             <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Discount</p>

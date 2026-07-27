@@ -4,16 +4,15 @@ declare(strict_types=1);
 
 namespace App\Domains\ShopOrder\Actions;
 
-use App\DTOs\Inventory\WastageEntryData;
-use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
-use App\Enums\Inventory\WastageReason;
 use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
 use App\Models\StockMovement;
+use App\Models\User;
+use App\Notifications\NegativeStockCreatedNotification;
+use App\Notifications\ShopDeliveryReviewSubmittedNotification;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Inventory\StockLedgerService;
-use App\Services\Inventory\WastageService;
 use App\Services\ShopInvoices\ShopInvoiceIntegrityValidator;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Support\Arr;
@@ -25,7 +24,6 @@ class ResolveDeliveryReviewAction
     public function __construct(
         private readonly ShopInvoiceService $shopInvoiceService,
         private readonly StockLedgerService $stockLedgerService,
-        private readonly WastageService $wastageService,
         private readonly ShopInvoiceIntegrityValidator $shopInvoiceIntegrityValidator,
         private readonly OwnedShopAccountingService $ownedShopAccountingService,
     ) {}
@@ -64,17 +62,18 @@ class ResolveDeliveryReviewAction
                     : round((float) $item->approved_qty, 2);
                 $reportedReceivedQty = round((float) Arr::get($reportedDeliveredQuantities, $item->id, 0), 2);
 
-                if ($reportedReceivedQty < 0 || $reportedReceivedQty > $expectedQty) {
+                if ($reportedReceivedQty < 0) {
                     $productName = $item->product?->name ?? 'this item';
 
                     throw ValidationException::withMessages([
-                        "delivered_qty.{$item->id}" => "Received quantity for {$productName} must be between 0 and {$expectedQty}.",
+                        "delivered_qty.{$item->id}" => "Received quantity for {$productName} cannot be negative.",
                     ]);
                 }
 
                 $item->update([
                     'shop_reported_received_qty' => $reportedReceivedQty,
                     'shop_reported_missing_qty' => round(max(0, $expectedQty - $reportedReceivedQty), 2),
+                    'shop_reported_excess_qty' => round(max(0, $reportedReceivedQty - $expectedQty), 2),
                     'shop_reported_damaged_qty' => 0,
                     'shop_reported_returned_qty' => 0,
                 ]);
@@ -102,13 +101,17 @@ class ResolveDeliveryReviewAction
                 'delivered_by' => $userId,
             ]);
 
-            return $lockedOrder->fresh(['items.product', 'invoice.items']);
+            $lockedOrder = $lockedOrder->fresh(['shop', 'items.product', 'invoice.items']);
+            $this->notifyAdminsAboutDeliveryReview($lockedOrder);
+
+            return $lockedOrder;
         });
     }
 
     /**
      * @param  array<int|string, mixed>  $approvedDeliveredQuantities
      * @param  array<int|string, mixed>  $itemReviewNotes
+     * @param  array<int|string, string>  $itemInventoryActions
      * @param  array<int|string, string>  $deliveryDiscrepancyTypes
      * @param  array<int|string, string>  $deliveryDiscrepancyNotes
      */
@@ -116,6 +119,7 @@ class ResolveDeliveryReviewAction
         ShopOrder $order,
         array $approvedDeliveredQuantities,
         array $itemReviewNotes,
+        array $itemInventoryActions,
         array $deliveryDiscrepancyTypes,
         array $deliveryDiscrepancyNotes,
         int $userId,
@@ -125,6 +129,7 @@ class ResolveDeliveryReviewAction
             $order,
             $approvedDeliveredQuantities,
             $itemReviewNotes,
+            $itemInventoryActions,
             $deliveryDiscrepancyTypes,
             $deliveryDiscrepancyNotes,
             $userId,
@@ -148,62 +153,109 @@ class ResolveDeliveryReviewAction
 
             $invoice = ShopInvoice::query()->with('items')->lockForUpdate()->findOrFail($invoice->id);
             $this->shopInvoiceIntegrityValidator->assertMatchesApprovedDailyPrices($invoice);
-            $invoiceItemsByOrderItemId = $invoice->items->keyBy(fn ($invoiceItem) => (int) $invoiceItem->shop_order_item_id);
+            $invoiceItemsByProductId = $invoice->items->keyBy(fn ($invoiceItem) => (int) $invoiceItem->product_id);
 
             $hasShortage = false;
+            $hasDeliveryAdjustment = false;
             foreach ($lockedOrder->items as $item) {
                 $expectedQty = $item->loaded_qty !== null
                     ? round((float) $item->loaded_qty, 2)
                     : round((float) $item->approved_qty, 2);
                 $deliveredQty = round((float) Arr::get($approvedDeliveredQuantities, $item->id, $item->shop_reported_received_qty ?? 0), 2);
 
-                if ($deliveredQty < 0 || $deliveredQty > $expectedQty) {
+                if ($deliveredQty < 0) {
                     $productName = $item->product?->name ?? 'this item';
 
                     throw ValidationException::withMessages([
-                        "approved_delivered_qty.{$item->id}" => "Approved delivered quantity for {$productName} must be between 0 and {$expectedQty}.",
+                        "approved_delivered_qty.{$item->id}" => "Approved delivered quantity for {$productName} cannot be negative.",
                     ]);
                 }
 
                 $shortageQty = round(max(0, $expectedQty - $deliveredQty), 2);
+                $excessQty = round(max(0, $deliveredQty - $expectedQty), 2);
                 $hasShortage = $hasShortage || $shortageQty > 0.0;
-                $discrepancyType = $shortageQty > 0.0
+                $hasDeliveryAdjustment = $hasDeliveryAdjustment || $shortageQty > 0.0 || $excessQty > 0.0;
+                $discrepancyType = $excessQty > 0.0
+                    ? 'excess'
+                    : ($shortageQty > 0.0
                     ? Arr::get($deliveryDiscrepancyTypes, $item->id, 'wastage')
-                    : 'none';
+                    : 'none');
                 $discrepancyNote = Arr::get($deliveryDiscrepancyNotes, $item->id);
                 $itemReviewNote = trim((string) Arr::get($itemReviewNotes, $item->id, ''));
+                $inventoryAction = (string) Arr::get(
+                    $itemInventoryActions,
+                    $item->id,
+                    $excessQty > 0.0 ? 'deduct_extra' : 'none',
+                );
                 $shortageValue = round($shortageQty * (float) $item->unit_cost, 2);
+                $excessValue = round($excessQty * (float) $item->unit_cost, 2);
+
+                if ($shortageQty > 0.0 && $inventoryAction === 'add_back') {
+                    $this->addShortageBackToInventory($lockedOrder, $item, $shortageQty, $userId);
+                }
+
+                if ($excessQty > 0.0 && $inventoryAction === 'deduct_extra') {
+                    $availableStock = $this->stockLedgerService->availableStockForProduct((int) $item->product_id);
+                    $this->stockLedgerService->consumeStockForProductAllowingNegative(
+                        (int) $item->product_id,
+                        $excessQty,
+                        $userId,
+                        StockMovementType::Out,
+                        "Delivery excess approved - Order: {$lockedOrder->order_number}; Item: {$item->id}",
+                        (int) $item->id,
+                    );
+
+                    if ($excessQty > $availableStock + 0.001) {
+                        $this->notifyAdminsAboutNegativeStock(
+                            $item->product?->name ?? 'Unknown product',
+                            $lockedOrder->order_number,
+                            round($excessQty - max(0.0, $availableStock), 2),
+                            (string) $item->unit,
+                        );
+                    }
+                }
 
                 $item->update([
                     'delivered_qty' => $deliveredQty,
                     'shortage_qty' => $shortageQty,
+                    'excess_qty' => $excessQty,
                     'shortage_value' => $shortageValue,
+                    'excess_value' => $excessValue,
                     'delivery_discrepancy_type' => $discrepancyType,
                     'delivery_discrepancy_note' => $discrepancyNote,
                     'notes' => $itemReviewNote !== ''
                         ? $this->appendReviewNote($item->notes, 'Delivery review', $itemReviewNote)
                         : $item->notes,
                 ]);
+            }
 
-                $invoiceItem = $invoiceItemsByOrderItemId->get((int) $item->id);
-                if ($invoiceItem) {
+            $lockedOrder->items
+                ->groupBy(fn ($item) => (int) $item->product_id)
+                ->each(function ($items, int $productId) use ($invoiceItemsByProductId): void {
+                    $invoiceItem = $invoiceItemsByProductId->get($productId);
+
+                    if (! $invoiceItem) {
+                        return;
+                    }
+
+                    $deliveredQty = round((float) $items->sum('delivered_qty'), 2);
+                    $shortageQty = round((float) $items->sum('shortage_qty'), 2);
+                    $excessQty = round((float) $items->sum('excess_qty'), 2);
                     $shortageAmount = round($shortageQty * (float) $invoiceItem->unit_price, 2);
+                    $excessAmount = round($excessQty * (float) $invoiceItem->unit_price, 2);
 
                     $invoiceItem->update([
                         'delivered_qty' => $deliveredQty,
                         'shortage_qty' => $shortageQty,
+                        'excess_qty' => $excessQty,
                         'shortage_amount' => $shortageAmount,
-                        'final_line_total' => round((float) $invoiceItem->line_subtotal - $shortageAmount, 2),
+                        'excess_amount' => $excessAmount,
+                        'final_line_total' => round((float) $invoiceItem->line_subtotal - $shortageAmount + $excessAmount, 2),
                     ]);
-                }
-
-                if ($shortageQty > 0.0) {
-                    $this->recordApprovedShortage($lockedOrder, $item, $shortageQty, $userId, $discrepancyType, $discrepancyNote);
-                }
-            }
+                });
 
             $invoice->update([
-                'delivery_status' => $hasShortage ? 'approved_after_discrepancy' : 'received_full',
+                'delivery_status' => $hasDeliveryAdjustment ? 'approved_after_discrepancy' : 'received_full',
                 'delivery_note' => $this->appendReviewNote($invoice->delivery_note, 'Delivery approved', $reviewNote),
                 'delivery_confirmed_by' => $invoice->delivery_confirmed_by ?? $lockedOrder->shop_checked_by ?? $userId,
                 'delivery_confirmed_at' => $invoice->delivery_confirmed_at ?? now(),
@@ -222,6 +274,7 @@ class ResolveDeliveryReviewAction
                 'admin_reviewed_at' => now(),
                 'admin_review_note' => $reviewNote,
                 'total_shortage_value' => $invoice->shortage_total,
+                'total_excess_value' => $invoice->excess_total,
                 'balance_amount' => $invoice->balance_amount,
                 'payment_status' => $invoice->payment_status,
                 'cash_discrepancy' => round((float) $invoice->final_total - (float) $lockedOrder->cash_collected, 2),
@@ -256,11 +309,17 @@ class ResolveDeliveryReviewAction
                 $item->update([
                     'shop_reported_received_qty' => null,
                     'shop_reported_missing_qty' => 0,
+                    'shop_reported_excess_qty' => 0,
                     'shop_reported_damaged_qty' => 0,
                     'shop_reported_returned_qty' => 0,
+                    'shop_verified_by' => null,
+                    'shop_verified_at' => null,
+                    'shop_verification_note' => null,
                     'delivered_qty' => null,
                     'shortage_qty' => 0,
+                    'excess_qty' => 0,
                     'shortage_value' => 0,
+                    'excess_value' => 0,
                 ]);
             }
 
@@ -269,7 +328,9 @@ class ResolveDeliveryReviewAction
                     $invoiceItem->update([
                         'delivered_qty' => 0,
                         'shortage_qty' => 0,
+                        'excess_qty' => 0,
                         'shortage_amount' => 0,
+                        'excess_amount' => 0,
                         'final_line_total' => (float) $invoiceItem->line_subtotal,
                     ]);
                 }
@@ -328,54 +389,63 @@ class ResolveDeliveryReviewAction
         ])));
     }
 
-    private function recordApprovedShortage(
+    private function addShortageBackToInventory(
         ShopOrder $order,
         object $item,
         float $shortageQty,
-        int $userId,
-        string $discrepancyType,
-        ?string $discrepancyNote
+        int $userId
     ): void {
-        if ($discrepancyType === 'wastage') {
-            $notes = "Delivery shortage discrepancy (approved): {$order->order_number}";
+        $remainingQty = $shortageQty;
+        $sourceMovements = StockMovement::query()
+            ->where('product_id', $item->product_id)
+            ->where('type', StockMovementType::Out->value)
+            ->where('notes', 'like', "%Order: {$order->order_number}%")
+            ->oldest('id')
+            ->get();
 
-            $this->stockLedgerService->consumeSortedStockForProduct(
-                $item->product_id,
-                $shortageQty,
-                $userId,
-                StockMovementType::Wastage,
-                $notes
-            );
-
-            $movements = StockMovement::query()
-                ->where('product_id', $item->product_id)
-                ->where('type', StockMovementType::Wastage->value)
-                ->where('created_by', $userId)
-                ->where('notes', $notes)
-                ->get();
-
-            foreach ($movements as $movement) {
-                $this->wastageService->record(new WastageEntryData(
-                    productId: $movement->product_id,
-                    batchId: $movement->batch_id,
-                    grade: $movement->grade instanceof ProductGrade ? $movement->grade->value : (string) $movement->grade,
-                    quantity: (float) $movement->quantity,
-                    costPerKg: (float) $movement->cost_per_unit,
-                    reason: WastageReason::TransitDamage,
-                    wastageDate: now()->toDateString(),
-                    notes: 'Delivery discrepancy wastage: '.($discrepancyNote ?? 'Order delivery discrepancy'),
-                ), $userId);
+        foreach ($sourceMovements as $sourceMovement) {
+            if ($remainingQty <= 0.001) {
+                break;
             }
 
-            return;
+            $reversalQty = min($remainingQty, (float) $sourceMovement->quantity);
+
+            StockMovement::query()->create([
+                'batch_id' => $sourceMovement->batch_id,
+                'product_id' => $item->product_id,
+                'warehouse_id' => $sourceMovement->warehouse_id,
+                'shop_order_item_id' => $item->id,
+                'created_by' => $userId,
+                'grade' => $sourceMovement->grade,
+                'type' => StockMovementType::SaleReversal,
+                'quantity' => $reversalQty,
+                'cost_per_unit' => $sourceMovement->cost_per_unit,
+                'notes' => "Delivery shortage added back to inventory - Order: {$order->order_number}; Item: {$item->id}",
+            ]);
+
+            $remainingQty = round($remainingQty - $reversalQty, 3);
         }
 
-        $this->stockLedgerService->consumeSortedStockForProduct(
-            $item->product_id,
-            $shortageQty,
-            $userId,
-            StockMovementType::Adjustment,
-            "Delivery shortage discrepancy other (approved): {$order->order_number}"
-        );
+        if ($remainingQty > 0.001) {
+            throw ValidationException::withMessages([
+                "approved_delivered_qty.{$item->id}" => 'Short quantity cannot be added back because the original loadout stock movement was not found.',
+            ]);
+        }
+    }
+
+    private function notifyAdminsAboutNegativeStock(string $productName, string $orderNumber, float $negativeQty, string $unit): void
+    {
+        User::role('admin')
+            ->get()
+            ->each
+            ->notify(new NegativeStockCreatedNotification($productName, $orderNumber, $negativeQty, $unit));
+    }
+
+    private function notifyAdminsAboutDeliveryReview(ShopOrder $order): void
+    {
+        User::role('admin')
+            ->get()
+            ->each
+            ->notify(new ShopDeliveryReviewSubmittedNotification($order));
     }
 }

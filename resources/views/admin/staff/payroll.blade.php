@@ -69,7 +69,7 @@
                             </div>
                         </div>
                         <div class="text-right">
-                            <p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Total to pay</p>
+                            <p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Green Leaf to pay</p>
                             <p class="text-xl font-black text-slate-950" data-payroll-run-total>Rs. {{ number_format((float) $run->net_amount, 2) }}</p>
                             @if($run->status === 'draft')
                                 <div class="mt-3 flex flex-wrap justify-end gap-2">
@@ -89,20 +89,22 @@
                         @foreach($categorySummary as $categoryName => $items)
                             <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                                 <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{{ $categoryName }}</p>
-                                <p class="mt-2 text-lg font-black text-slate-950" data-payroll-category-total="{{ $categoryName }}">Rs. {{ number_format((float) $items->sum('final_amount'), 2) }}</p>
+                                <p class="mt-2 text-lg font-black text-slate-950" data-payroll-category-total="{{ $categoryName }}">Rs. {{ number_format((float) $items->sum(fn ($item) => $item->greenLeafPayableAmount()), 2) }}</p>
                                 <p class="mt-1 text-xs font-semibold text-slate-500">{{ $items->count() }} people</p>
                             </div>
                         @endforeach
                     </div>
 
                     <div class="mt-4 overflow-x-auto rounded-2xl border border-slate-100">
-                        <table class="w-full min-w-[1000px] table-fixed text-left text-sm">
+                        <table class="w-full min-w-[1180px] table-fixed text-left text-sm">
                             <colgroup>
                                 <col class="w-12">
                                 <col class="w-52">
                                 <col class="w-36">
                                 <col class="w-20">
-                                <col class="w-28">
+                                <col class="w-32">
+                                <col class="w-32">
+                                <col class="w-32">
                                 <col class="w-[30rem]">
                                 <col class="w-32">
                             </colgroup>
@@ -112,7 +114,9 @@
                                     <th class="px-3 py-3">Employee</th>
                                     <th class="px-3 py-3">Category</th>
                                     <th class="px-3 py-3">Absent days</th>
-                                    <th class="px-3 py-3">System pay</th>
+                                    <th class="px-3 py-3">Green Leaf Pay</th>
+                                    <th class="px-3 py-3">Client Shop Pay</th>
+                                    <th class="px-3 py-3">Paid Split</th>
                                     <th class="px-3 py-3">Change pay</th>
                                     <th class="px-3 py-3 text-right">Pay this person</th>
                                 </tr>
@@ -124,7 +128,18 @@
                                         <td class="px-3 py-3"><a href="{{ route('admin.staff.show', $item->employee) }}" class="block truncate font-bold text-slate-900 underline-offset-4 hover:text-cyan-700 hover:underline">{{ $item->employee->name }}</a></td>
                                         <td class="px-3 py-3">{{ $item->category?->name ?? 'Uncategorized' }}</td>
                                         <td class="px-3 py-3">{{ $item->absent_days }}</td>
-                                        <td class="px-3 py-3 whitespace-nowrap">Rs. {{ number_format((float) $item->computed_amount, 2) }}</td>
+                                        <td class="px-3 py-3 whitespace-nowrap">
+                                            <p class="font-black text-slate-950">Rs. {{ number_format($item->greenLeafPayableAmount(), 2) }}</p>
+                                            <p class="mt-1 text-[11px] font-bold text-slate-500">{{ number_format((float) $item->green_leaf_payable_units, 2) }} day units</p>
+                                        </td>
+                                        <td class="px-3 py-3 whitespace-nowrap">
+                                            <p class="font-black text-slate-950">Rs. {{ number_format($item->clientShopPayableAmount(), 2) }}</p>
+                                            <p class="mt-1 text-[11px] font-bold text-slate-500">{{ number_format((float) $item->client_shop_payable_units, 2) }} day units</p>
+                                        </td>
+                                        <td class="px-3 py-3 whitespace-nowrap">
+                                            <p class="font-bold text-emerald-700">GL Rs. {{ number_format($item->officePaidAmount(), 2) }}</p>
+                                            <p class="mt-1 text-[11px] font-bold text-cyan-700">Shop Rs. {{ number_format($item->shopPaidAmount(), 2) }}</p>
+                                        </td>
                                         <td class="px-3 py-3 align-top">
                                             @if($run->status === 'draft')
                                                 @php($shouldUseOldInput = (int) old('payroll_run_item_id') === $item->id)
@@ -148,7 +163,7 @@
                                                 <span class="text-sm font-semibold text-slate-500">{{ $item->override_amount !== null ? 'Rs. '.number_format((float) $item->override_amount, 2) : 'System amount' }}</span>
                                             @endif
                                         </td>
-                                        <td class="px-3 py-3 text-right font-black text-slate-900 whitespace-nowrap" data-payroll-item-final="{{ $item->id }}">Rs. {{ number_format((float) $item->final_amount, 2) }}</td>
+                                        <td class="px-3 py-3 text-right font-black text-slate-900 whitespace-nowrap" data-payroll-item-final="{{ $item->id }}">Rs. {{ number_format($item->remainingGreenLeafAmount(), 2) }}</td>
                                     </tr>
                                 @endforeach
                             </tbody>

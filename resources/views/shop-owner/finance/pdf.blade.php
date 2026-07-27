@@ -31,7 +31,7 @@
                 </div>
             </div>
 
-            <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                 <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
                     <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Subtotal</p>
                     <p class="mt-2 text-xl font-black text-slate-950">Rs. {{ number_format((float) $invoice->subtotal, 2) }}</p>
@@ -39,6 +39,10 @@
                 <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
                     <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Shortage</p>
                     <p class="mt-2 text-xl font-black text-amber-600">Rs. {{ number_format((float) $invoice->shortage_total, 2) }}</p>
+                </div>
+                <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                    <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Excess</p>
+                    <p class="mt-2 text-xl font-black text-cyan-700">Rs. {{ number_format((float) $invoice->excess_total, 2) }}</p>
                 </div>
                 <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
                     <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Discount</p>
@@ -59,6 +63,7 @@
                             <th class="px-4 py-3 text-right">Delivered</th>
                             <th class="px-4 py-3 text-right">Unit Price</th>
                             <th class="px-4 py-3 text-right">Shortage</th>
+                            <th class="px-4 py-3 text-right">Excess</th>
                             <th class="px-4 py-3 text-right">Line Total</th>
                         </tr>
                     </thead>
@@ -70,6 +75,7 @@
                                 <td class="px-4 py-3 text-right text-slate-700">{{ number_format((float) $item->delivered_qty, 2) }} {{ $item->unit }}</td>
                                 <td class="px-4 py-3 text-right font-semibold text-slate-900">Rs. {{ number_format((float) $item->unit_price, 2) }}</td>
                                 <td class="px-4 py-3 text-right font-semibold text-amber-600">Rs. {{ number_format((float) $item->shortage_amount, 2) }}</td>
+                                <td class="px-4 py-3 text-right font-semibold text-cyan-700">Rs. {{ number_format((float) $item->excess_amount, 2) }}</td>
                                 <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $item->final_line_total, 2) }}</td>
                             </tr>
                         @endforeach

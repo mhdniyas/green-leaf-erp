@@ -19,8 +19,30 @@
                class="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-700 transition-colors shadow-sm">
                 + Receive Batch
             </a>
+            <a href="{{ route('inventory.daily-close.index', ['date' => $date]) }}"
+               class="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-800 transition-colors shadow-sm">
+                Daily Close
+            </a>
         </div>
     </x-slot:actions>
+
+    <div class="mb-6 grid gap-4 md:grid-cols-3">
+        <a href="{{ route('inventory.daily-close.index', ['date' => $date]) }}" class="rounded-3xl border border-rose-200 bg-rose-50 p-5 shadow-sm">
+            <p class="text-[10px] font-black uppercase tracking-[0.18em] text-rose-700">Negative Stock</p>
+            <p class="mt-2 text-3xl font-black text-rose-950">{{ $negativeProductCount }}</p>
+            <p class="mt-1 text-xs font-bold text-rose-700">products need discrepancy notes or replenishment.</p>
+        </a>
+        <a href="{{ route('inventory.daily-close.index', ['date' => $date]) }}" class="rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+            <p class="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">Below Buffer</p>
+            <p class="mt-2 text-3xl font-black text-amber-950">{{ $belowBufferProductCount }}</p>
+            <p class="mt-1 text-xs font-bold text-amber-700">products are below configured buffer level.</p>
+        </a>
+        <a href="{{ route('inventory.daily-close.index', ['date' => $date]) }}" class="rounded-3xl border border-cyan-200 bg-cyan-50 p-5 shadow-sm">
+            <p class="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-700">Carryover Enabled</p>
+            <p class="mt-2 text-3xl font-black text-cyan-950">{{ $carryoverProductCount }}</p>
+            <p class="mt-1 text-xs font-bold text-cyan-700">products can be retained during daily close.</p>
+        </a>
+    </div>
 
     {{-- Grade legend --}}
     <div class="flex flex-wrap gap-3 mb-6 bg-white border border-gray-200 rounded-2xl p-4 shadow-xs">
@@ -69,6 +91,9 @@
             $productName = $firstEntry->product_name;
             $productImage = $firstEntry->product_image;
             $totalStock  = $grades->sum(fn ($e) => (float) $e->current_stock);
+            $bufferQty = (float) ($firstEntry->buffer_qty ?? 0);
+            $isBelowBuffer = $bufferQty > 0 && $totalStock < $bufferQty;
+            $isNegative = $totalStock < -0.001;
         @endphp
         <div class="bg-white rounded-3xl border border-gray-200 overflow-hidden shadow-sm flex flex-col justify-between">
             
@@ -86,9 +111,14 @@
                     @endif
                     <p class="text-sm font-black text-slate-800 tracking-tight">{{ $productName }}</p>
                 </div>
-                <p class="text-sm font-black text-slate-800">
-                    {{ number_format($totalStock, 2) }} <span class="text-xs font-bold text-slate-400">kg total stock</span>
-                </p>
+                <div class="text-right">
+                    <p class="text-sm font-black {{ $isNegative ? 'text-rose-700' : ($isBelowBuffer ? 'text-amber-700' : 'text-slate-800') }}">
+                        {{ number_format($totalStock, 2) }} <span class="text-xs font-bold text-slate-400">kg total stock</span>
+                    </p>
+                    @if($bufferQty > 0)
+                        <p class="mt-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Buffer {{ number_format($bufferQty, 2) }} kg</p>
+                    @endif
+                </div>
             </div>
 
             {{-- Card Body: Grade Breakdown --}}

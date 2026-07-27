@@ -6,6 +6,7 @@ namespace App\Services\Inventory;
 
 use App\DTOs\Inventory\ProductData;
 use App\Models\Product;
+use App\Models\User;
 use App\Repositories\Inventory\ProductRepository;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
@@ -17,9 +18,9 @@ class ProductService
         private readonly ProductRepository $repository,
     ) {}
 
-    public function paginate(int $perPage = 15, ?int $categoryId = null, ?string $search = null): LengthAwarePaginator
+    public function paginate(int $perPage = 15, ?int $categoryId = null, ?string $search = null, ?string $status = null): LengthAwarePaginator
     {
-        return $this->repository->paginateFiltered($perPage, $categoryId, $search);
+        return $this->repository->paginateFiltered($perPage, $categoryId, $search, $status);
     }
 
     public function allActive(): Collection
@@ -39,7 +40,13 @@ class ProductService
 
     public function update(Product $product, ProductData $data): Product
     {
+        $wasActive = (bool) $product->is_active;
         $attributes = $data->toArray();
+        if ($wasActive !== $data->isActive) {
+            $attributes['status_changed_by'] = auth()->id();
+            $attributes['status_changed_at'] = now();
+        }
+
         if ($data->removeImage) {
             if ($product->image) {
                 Storage::disk('public')->delete($product->image);
@@ -53,6 +60,15 @@ class ProductService
         }
 
         return $this->repository->update($product, $attributes);
+    }
+
+    public function updateStatus(Product $product, bool $isActive, User $changedBy): Product
+    {
+        return $this->repository->update($product, [
+            'is_active' => $isActive,
+            'status_changed_by' => $changedBy->id,
+            'status_changed_at' => now(),
+        ]);
     }
 
     public function delete(Product $product): void

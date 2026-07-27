@@ -59,5 +59,5 @@
         <div class="mt-5">{{ $deliveries->links() }}</div>
     @endif
 @else
-    @include('shop-owner.components.empty-state', ['title' => 'No deliveries yet', 'description' => 'Allocated or delivered orders will appear here.'])
+    @include('shop-owner.components.empty-state', ['title' => 'No deliveries yet', 'description' => 'Priced invoices, allocated orders, and delivered orders will appear here.'])
 @endif

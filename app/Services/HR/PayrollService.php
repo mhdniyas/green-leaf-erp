@@ -57,7 +57,7 @@ class PayrollService
 
             foreach ($employees as $employee) {
                 $payload = $this->payrollItemPayload($employee, $periodStart, $periodEnd);
-                $grossAmount += (float) $payload['computed_amount'];
+                $grossAmount += (float) $payload['green_leaf_computed_amount'];
 
                 $payrollRun->items()->create($payload);
             }
@@ -174,13 +174,16 @@ class PayrollService
     /**
      * @return array{present_days: float, half_days: float, paid_leave_days: float, unpaid_leave_days: float, absent_days: float}
      */
-    public function attendanceSummary(Employee $employee, Carbon $periodStart, Carbon $periodEnd): array
+    public function attendanceSummary(Employee $employee, Carbon $periodStart, Carbon $periodEnd, ?int $shopId = null, ?bool $greenLeafOnly = null): array
     {
         /** @var Collection<int, EmployeeAttendance> $attendances */
         $attendances = EmployeeAttendance::query()
             ->where('employee_id', $employee->id)
             ->whereDate('attendance_date', '>=', $periodStart->toDateString())
             ->whereDate('attendance_date', '<=', $periodEnd->toDateString())
+            ->when($shopId !== null, fn ($query) => $query->where('shop_id', $shopId))
+            ->when($greenLeafOnly === true, fn ($query) => $query->whereNull('shop_id'))
+            ->when($greenLeafOnly === false, fn ($query) => $query->whereNotNull('shop_id'))
             ->get();
         $approvedLeaveRequests = EmployeeLeaveRequest::query()
             ->with('leaveType')
@@ -192,6 +195,7 @@ class PayrollService
 
         $attendanceByDate = $attendances->keyBy(fn (EmployeeAttendance $attendance): string => $attendance->attendance_date->toDateString());
         $approvedLeaveByDate = [];
+        $countMissingAsAbsent = $shopId === null && $greenLeafOnly === null;
 
         foreach ($approvedLeaveRequests as $leaveRequest) {
             $cursor = $leaveRequest->start_date->copy();
@@ -213,7 +217,10 @@ class PayrollService
             $attendance = $attendanceByDate->get($cursor->toDateString());
 
             if ($attendance === null) {
-                $absentDays++;
+                if ($countMissingAsAbsent) {
+                    $absentDays++;
+                }
+
                 $cursor->addDay();
 
                 continue;
@@ -249,6 +256,29 @@ class PayrollService
     }
 
     /**
+     * @return array{summary: array{present_days: float, half_days: float, paid_leave_days: float, unpaid_leave_days: float, absent_days: float}, payable_units: float, amount: float}
+     */
+    public function payableForAttendance(Employee $employee, Carbon $periodStart, Carbon $periodEnd, ?int $shopId = null, ?bool $greenLeafOnly = null): array
+    {
+        $employee->loadMissing('category');
+        $summary = $this->attendanceSummary($employee, $periodStart, $periodEnd, $shopId, $greenLeafOnly);
+        $payableUnits = $this->payableUnitsForSummary($summary, $employee);
+        $salaryType = in_array((string) $employee->salary_type, ['monthly', 'daily_wage'], true)
+            ? (string) $employee->salary_type
+            : 'monthly';
+        $daysInPeriod = $this->daysInPeriod($periodStart, $periodEnd);
+        $amount = $salaryType === 'daily_wage'
+            ? round((float) $employee->daily_wage * $payableUnits, 2)
+            : round(((float) $employee->monthly_salary / $daysInPeriod) * $payableUnits, 2);
+
+        return [
+            'summary' => $summary,
+            'payable_units' => $payableUnits,
+            'amount' => $amount,
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function payrollItemPayload(Employee $employee, Carbon $periodStart, Carbon $periodEnd): array
@@ -256,6 +286,10 @@ class PayrollService
         $employee->loadMissing('category');
 
         $summary = $this->attendanceSummary($employee, $periodStart, $periodEnd);
+        $greenLeafPayable = $this->payableForAttendance($employee, $periodStart, $periodEnd, greenLeafOnly: true);
+        $clientShopPayable = $this->payableForAttendance($employee, $periodStart, $periodEnd, greenLeafOnly: false);
+        $greenLeafSummary = $greenLeafPayable['summary'];
+        $clientShopSummary = $clientShopPayable['summary'];
         $baseSalary = (float) $employee->monthly_salary;
         $dailyWage = (float) $employee->daily_wage;
         $salaryType = in_array((string) $employee->salary_type, ['monthly', 'daily_wage'], true)
@@ -269,10 +303,14 @@ class PayrollService
             + ($summary['absent_days'] * (float) $employee->category->absent_day_weight),
             2,
         );
-        $daysInPeriod = max(1, $periodStart->diffInDays($periodEnd) + 1);
+        $greenLeafPayableUnits = $greenLeafPayable['payable_units'];
+        $clientShopPayableUnits = $clientShopPayable['payable_units'];
+        $daysInPeriod = $this->daysInPeriod($periodStart, $periodEnd);
         $computedAmount = $salaryType === 'daily_wage'
             ? round($dailyWage * $payableUnits, 2)
             : round(($baseSalary / $daysInPeriod) * $payableUnits, 2);
+        $greenLeafComputedAmount = $greenLeafPayable['amount'];
+        $clientShopComputedAmount = $clientShopPayable['amount'];
 
         return [
             'employee_id' => $employee->id,
@@ -286,7 +324,11 @@ class PayrollService
             'unpaid_leave_days' => $summary['unpaid_leave_days'],
             'absent_days' => $summary['absent_days'],
             'payable_units' => $payableUnits,
+            'green_leaf_payable_units' => $greenLeafPayableUnits,
+            'client_shop_payable_units' => $clientShopPayableUnits,
             'computed_amount' => $computedAmount,
+            'green_leaf_computed_amount' => $greenLeafComputedAmount,
+            'client_shop_computed_amount' => $clientShopComputedAmount,
             'override_amount' => null,
             'final_amount' => $computedAmount,
             'rule_snapshot' => [
@@ -298,20 +340,42 @@ class PayrollService
                 'paid_leave_weight' => (float) $employee->category->paid_leave_weight,
                 'excess_leave_weight' => (float) $employee->category->excess_leave_weight,
                 'absent_day_weight' => (float) $employee->category->absent_day_weight,
+                'green_leaf_summary' => $greenLeafSummary,
+                'client_shop_summary' => $clientShopSummary,
             ],
         ];
+    }
+
+    /**
+     * @param  array{present_days: float, half_days: float, paid_leave_days: float, unpaid_leave_days: float, absent_days: float}  $summary
+     */
+    private function payableUnitsForSummary(array $summary, Employee $employee): float
+    {
+        return round(
+            ($summary['present_days'] * (float) $employee->category->present_day_weight)
+            + ($summary['half_days'] * (float) $employee->category->half_day_weight)
+            + ($summary['paid_leave_days'] * (float) $employee->category->paid_leave_weight)
+            + ($summary['unpaid_leave_days'] * (float) $employee->category->excess_leave_weight)
+            + ($summary['absent_days'] * (float) $employee->category->absent_day_weight),
+            2,
+        );
     }
 
     private function refreshRunTotals(PayrollRun $payrollRun): void
     {
         $payrollRun->loadMissing('items');
 
-        $totalAmount = round((float) $payrollRun->items->sum('final_amount'), 2);
+        $totalAmount = round((float) $payrollRun->items->sum(fn (PayrollRunItem $item): float => $item->greenLeafPayableAmount()), 2);
 
         $payrollRun->forceFill([
             'gross_amount' => $totalAmount,
             'net_amount' => $totalAmount,
         ])->save();
+    }
+
+    private function daysInPeriod(Carbon $periodStart, Carbon $periodEnd): int
+    {
+        return max(1, (int) $periodStart->copy()->startOfDay()->diffInDays($periodEnd->copy()->startOfDay()) + 1);
     }
 
     private function recordPayrollExpense(PayrollRun $payrollRun, int $userId): JournalEntry

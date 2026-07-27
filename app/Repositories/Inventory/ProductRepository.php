@@ -16,15 +16,19 @@ class ProductRepository extends BaseRepository
         return Product::class;
     }
 
-    public function paginateFiltered(int $perPage = 15, ?int $categoryId = null, ?string $search = null): LengthAwarePaginator
+    public function paginateFiltered(int $perPage = 15, ?int $categoryId = null, ?string $search = null, ?string $status = null): LengthAwarePaginator
     {
         return $this->query()
-            ->with(['category'])
+            ->with(['category', 'statusChangedBy:id,name'])
             ->when($categoryId, fn ($q) => $q->where('category_id', $categoryId))
+            ->when($status === 'active', fn ($q) => $q->where('is_active', true))
+            ->when($status === 'inactive', fn ($q) => $q->where('is_active', false))
             ->when($search, fn ($q) => $q->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('sku', 'like', "%{$search}%");
+                    ->orWhere('sku', 'like', "%{$search}%")
+                    ->orWhereHas('category', fn ($categoryQuery) => $categoryQuery->where('name', 'like', "%{$search}%"));
             }))
+            ->orderByDesc('is_active')
             ->ordered()
             ->paginate($perPage);
     }

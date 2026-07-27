@@ -9,6 +9,7 @@ use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 class StockLedgerService
@@ -35,7 +36,8 @@ class StockLedgerService
         float $quantity,
         int $userId,
         StockMovementType $movementType,
-        string $notes
+        string $notes,
+        ?int $shopOrderItemId = null,
     ): float {
         if ($quantity <= 0.0) {
             return 0.0;
@@ -51,6 +53,7 @@ class StockLedgerService
             $userId,
             $movementType,
             $notes,
+            $shopOrderItemId,
         );
 
         if ($remainingQuantity > 0.0) {
@@ -61,10 +64,55 @@ class StockLedgerService
                 $userId,
                 $movementType,
                 $notes,
+                $shopOrderItemId,
             );
         }
 
         return round($consumedQuantity, 3);
+    }
+
+    public function consumeStockForProductAllowingNegative(
+        int $productId,
+        float $quantity,
+        int $userId,
+        StockMovementType $movementType,
+        string $notes,
+        ?int $shopOrderItemId = null,
+    ): float {
+        if ($quantity <= 0.0) {
+            return 0.0;
+        }
+
+        $consumedQuantity = $this->consumeSortedStockForProduct(
+            $productId,
+            $quantity,
+            $userId,
+            $movementType,
+            $notes,
+            $shopOrderItemId,
+        );
+        $remainingQuantity = round($quantity - $consumedQuantity, 3);
+
+        if ($remainingQuantity <= 0.0) {
+            return round($consumedQuantity, 3);
+        }
+
+        $batch = $this->negativeStockBatchForProduct($productId, $userId);
+
+        StockMovement::create([
+            'product_id' => $productId,
+            'batch_id' => $batch->id,
+            'created_by' => $userId,
+            'grade' => ProductGrade::GradeA->value,
+            'type' => $movementType->value,
+            'quantity' => $remainingQuantity,
+            'cost_per_unit' => (float) $batch->cost_per_kg,
+            'warehouse_id' => $batch->warehouse_id,
+            'shop_order_item_id' => $shopOrderItemId,
+            'notes' => $notes.'; negative stock allowed',
+        ]);
+
+        return round($quantity, 3);
     }
 
     /**
@@ -112,7 +160,8 @@ class StockLedgerService
         float $consumedQuantity,
         int $userId,
         StockMovementType $movementType,
-        string $notes
+        string $notes,
+        ?int $shopOrderItemId = null,
     ): array {
         foreach ($this->sortedLotsForProduct($productId) as $lot) {
             if ($remainingQuantity <= 0.0) {
@@ -136,6 +185,7 @@ class StockLedgerService
                 'quantity' => $deductionQuantity,
                 'cost_per_unit' => (float) $lot->cost_per_unit,
                 'warehouse_id' => $lot->warehouse_id ? (int) $lot->warehouse_id : null,
+                'shop_order_item_id' => $shopOrderItemId,
                 'notes' => $notes,
             ]);
 
@@ -155,7 +205,8 @@ class StockLedgerService
         float $consumedQuantity,
         int $userId,
         StockMovementType $movementType,
-        string $notes
+        string $notes,
+        ?int $shopOrderItemId = null,
     ): array {
         foreach ($this->pendingBatchesForProduct($productId) as $batch) {
             if ($remainingQuantity <= 0.0) {
@@ -179,6 +230,7 @@ class StockLedgerService
                 'quantity' => $deductionQuantity,
                 'cost_per_unit' => (float) $batch->cost_per_kg,
                 'warehouse_id' => $batch->warehouse_id,
+                'shop_order_item_id' => $shopOrderItemId,
                 'notes' => $notes,
             ]);
 
@@ -226,5 +278,39 @@ class StockLedgerService
             ->value('movement_balance');
 
         return round(max(0.0, (float) $batch->total_kg - $wastedQuantity + $movementBalance), 3);
+    }
+
+    private function negativeStockBatchForProduct(int $productId, int $userId): StockBatch
+    {
+        $latestBatch = StockBatch::query()
+            ->where('product_id', $productId)
+            ->latest('received_at')
+            ->latest('id')
+            ->first();
+
+        if ($latestBatch) {
+            return $latestBatch;
+        }
+
+        $reference = 'NEG-'.Carbon::today()->format('Ymd').'-'.$productId;
+
+        return StockBatch::query()->firstOrCreate(
+            ['reference' => $reference],
+            [
+                'product_id' => $productId,
+                'created_by' => $userId,
+                'received_at' => Carbon::today()->toDateString(),
+                'total_kg' => 0,
+                'cost_per_kg' => 0,
+                'transport_cost' => 0,
+                'labour_cost' => 0,
+                'status' => BatchStatus::Sorted->value,
+                'warehouse_receive_pending' => false,
+                'warehouse_confirmed_at' => now(),
+                'warehouse_confirmed_by' => $userId,
+                'notes' => 'System batch for negative stock adjustment.',
+                'sorted_at' => now(),
+            ],
+        );
     }
 }

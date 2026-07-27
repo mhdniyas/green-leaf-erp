@@ -3,6 +3,16 @@
         $prevDate = $date->copy()->subDay()->format('Y-m-d');
         $nextDate = $date->copy()->addDay()->format('Y-m-d');
         $todayDate = now()->toDateString();
+        $mainSummary = $salesChannelContext['summary'];
+        $salesChannels = $salesChannelContext['channels'];
+        $mainStats = [
+            ['label' => 'Total Sales', 'value' => 'Rs. '.number_format($mainSummary['sales_total'], 2), 'hint' => $mainSummary['invoice_count'].' invoice(s)'],
+            ['label' => 'Collections', 'value' => 'Rs. '.number_format($mainSummary['collections_total'], 2), 'hint' => 'cash received today'],
+            ['label' => 'Outstanding', 'value' => 'Rs. '.number_format($mainSummary['outstanding_total'], 2), 'hint' => 'pending invoice balance'],
+            ['label' => 'Orders', 'value' => number_format($mainSummary['orders_today']), 'hint' => $mainSummary['delivered_orders'].' delivered'],
+            ['label' => 'Inventory In', 'value' => number_format($mainSummary['received_kg_today'], 2).' kg', 'hint' => 'warehouse received'],
+            ['label' => 'Staff Present', 'value' => number_format($mainSummary['present_staff']), 'hint' => $mainSummary['online_users'].' user(s) online'],
+        ];
         $overviewCards = [
             ['label' => 'Today Orders', 'value' => number_format($overview['today_orders']), 'hint' => $overview['submitted_orders'].' waiting approval', 'tone' => 'slate'],
             ['label' => 'Delivered Orders', 'value' => number_format($overview['delivered_orders']), 'hint' => $overview['approved_orders'].' approved today', 'tone' => 'emerald'],
@@ -25,41 +35,117 @@
             'danger' => 'border-red-200 bg-red-50 text-red-700',
             'info' => 'border-sky-200 bg-sky-50 text-sky-700',
         ];
+        $channelToneClasses = [
+            'emerald' => [
+                'panel' => 'border-emerald-200 bg-emerald-50 hover:border-emerald-300',
+                'eyebrow' => 'text-emerald-700',
+                'badge' => 'border-emerald-200 bg-white text-emerald-700',
+                'link' => 'text-emerald-800 group-hover:text-emerald-950',
+            ],
+            'cyan' => [
+                'panel' => 'border-cyan-200 bg-cyan-50 hover:border-cyan-300',
+                'eyebrow' => 'text-cyan-700',
+                'badge' => 'border-cyan-200 bg-white text-cyan-700',
+                'link' => 'text-cyan-800 group-hover:text-cyan-950',
+            ],
+        ];
     @endphp
 
     <div class="mx-auto max-w-7xl space-y-6">
-        <section class="overflow-hidden rounded-[2rem] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(6,182,212,0.18),_transparent_35%),linear-gradient(135deg,_#020617,_#0f172a_60%,_#111827)] p-6 text-white shadow-[0_24px_80px_rgba(15,23,42,0.18)] sm:p-8">
-            <div class="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-                <div class="max-w-3xl">
-                    <p class="text-[11px] font-black uppercase tracking-[0.34em] text-cyan-200">Admin Overview</p>
-                    <h1 class="mt-3 text-3xl font-black tracking-tight text-white sm:text-4xl">Control operations, cash flow, and user access from one place.</h1>
-                    <p class="mt-4 max-w-2xl text-sm leading-6 text-slate-300">
-                        Monitor today&apos;s order flow, live inventory movement, warehouse execution, purchase approvals, and user-level access overrides without leaving the admin workspace.
-                    </p>
+        <section class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div class="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                <div>
+                    <p class="text-[10px] font-black uppercase tracking-[0.28em] text-emerald-700">Green Leaf Traders</p>
+                    <h1 class="mt-2 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">Green Leaf Main Company</h1>
+                    <p class="mt-2 text-sm font-semibold text-slate-500">Today&apos;s sales, collections, outstanding invoices, delivery flow, inventory, and staff visibility.</p>
                 </div>
 
-                <form method="GET" action="{{ route('admin.overview') }}" class="flex flex-wrap items-center gap-2 rounded-[1.75rem] border border-white/10 bg-white/10 p-2 backdrop-blur">
-                    <a href="{{ route('admin.overview', ['date' => $prevDate]) }}" class="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-slate-900/70 text-white transition hover:bg-slate-800" title="Previous day">
+                <form method="GET" action="{{ route('admin.overview') }}" class="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                    <a href="{{ route('admin.overview', ['date' => $prevDate]) }}" class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700" title="Previous day">
                         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.4">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
                         </svg>
                     </a>
-                    <label class="min-w-[12rem] rounded-2xl border border-white/10 bg-white px-4 py-2 text-slate-900 shadow-sm">
+                    <label class="min-w-[12rem] rounded-xl border border-slate-200 bg-white px-4 py-2 text-slate-900">
                         <span class="block text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Business Date</span>
                         <input type="date" name="date" value="{{ $date->format('Y-m-d') }}" onchange="this.form.submit()" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
                     </label>
                     @if($date->format('Y-m-d') !== $todayDate)
-                        <a href="{{ route('admin.overview', ['date' => $todayDate]) }}" class="inline-flex h-11 items-center justify-center rounded-2xl border border-cyan-300/40 bg-cyan-400/20 px-4 text-xs font-black uppercase tracking-[0.24em] text-cyan-100 transition hover:bg-cyan-400/30">
+                        <a href="{{ route('admin.overview', ['date' => $todayDate]) }}" class="inline-flex h-11 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-black uppercase tracking-[0.22em] text-emerald-700 transition hover:bg-emerald-100">
                             Today
                         </a>
                     @endif
-                    <a href="{{ route('admin.overview', ['date' => $nextDate]) }}" class="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-slate-900/70 text-white transition hover:bg-slate-800" title="Next day">
+                    <a href="{{ route('admin.overview', ['date' => $nextDate]) }}" class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700" title="Next day">
                         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.4">
                             <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
                         </svg>
                     </a>
                 </form>
             </div>
+
+            <div class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                @foreach($mainStats as $stat)
+                    <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                        <p class="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">{{ $stat['label'] }}</p>
+                        <p class="mt-2 text-2xl font-black tracking-tight text-slate-950">{{ $stat['value'] }}</p>
+                        <p class="mt-1 text-xs font-semibold text-slate-500">{{ $stat['hint'] }}</p>
+                    </div>
+                @endforeach
+            </div>
+
+            <details open class="mt-5 group">
+                <summary class="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-900 transition hover:border-emerald-200">
+                    <span>Sales channels</span>
+                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition group-open:rotate-90">
+                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.4">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m9 5 7 7-7 7" />
+                        </svg>
+                    </span>
+                </summary>
+
+                <div class="mt-4 grid gap-4 lg:grid-cols-2">
+                    @foreach($salesChannels as $channel)
+                        @php($channelTone = $channelToneClasses[$channel['tone']] ?? $channelToneClasses['emerald'])
+                        <article class="group rounded-[1.35rem] border p-5 transition {{ $channelTone['panel'] }}">
+                            <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                                <div class="min-w-0">
+                                    <p class="text-[10px] font-black uppercase tracking-[0.24em] {{ $channelTone['eyebrow'] }}">{{ $channel['label'] }}</p>
+                                    <h2 class="mt-2 text-xl font-black tracking-tight text-slate-950">Rs. {{ number_format($channel['summary']['total_amount'], 2) }}</h2>
+                                    <p class="mt-1 text-xs font-semibold leading-5 text-slate-600">{{ $channel['description'] }}</p>
+                                </div>
+                                <span class="inline-flex w-fit shrink-0 rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] {{ $channelTone['badge'] }}">
+                                    {{ $channel['shop_count'] }} shop(s)
+                                </span>
+                            </div>
+
+                            <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                                <div>
+                                    <p class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Invoices</p>
+                                    <p class="mt-1 text-lg font-black text-slate-950">{{ number_format($channel['summary']['invoice_count']) }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Paid</p>
+                                    <p class="mt-1 text-lg font-black text-slate-950">Rs. {{ number_format($channel['summary']['paid_amount'], 2) }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Pending</p>
+                                    <p class="mt-1 text-lg font-black text-slate-950">Rs. {{ number_format($channel['summary']['outstanding_amount'], 2) }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Settled</p>
+                                    <p class="mt-1 text-lg font-black text-slate-950">{{ number_format($channel['summary']['settlement_rate'], 1) }}%</p>
+                                </div>
+                            </div>
+
+                            <div class="mt-5 flex flex-wrap items-center gap-3 text-xs font-black uppercase tracking-[0.18em]">
+                                <a href="{{ $channel['href'] }}" class="{{ $channelTone['link'] }}">Open details</a>
+                                <span class="text-slate-300">/</span>
+                                <a href="{{ $channel['secondary_href'] }}" class="{{ $channelTone['link'] }}">{{ $channel['secondary_label'] }}</a>
+                            </div>
+                        </article>
+                    @endforeach
+                </div>
+            </details>
         </section>
 
         <section class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
@@ -153,7 +239,7 @@
             </div>
         </section>
 
-        <section class="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <section>
             <div class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
                 <div class="flex items-center justify-between gap-3">
                     <div>
@@ -216,33 +302,6 @@
                     @endforelse
                 </div>
             </div>
-
-            <div class="space-y-6">
-                <div class="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-                    <p class="text-[10px] font-black uppercase tracking-[0.26em] text-slate-400">Recent Activity</p>
-                    <h2 class="mt-2 text-xl font-black tracking-tight text-slate-950">What happened across the app</h2>
-                    <div class="mt-6 space-y-3">
-                        @forelse($recentActivities as $activity)
-                            <article class="rounded-[1.35rem] border border-slate-200 bg-slate-50 px-4 py-4">
-                                <div class="flex items-center justify-between gap-3">
-                                    <p class="text-sm font-black text-slate-950">{{ $activity->description }}</p>
-                                    <span class="text-[11px] font-bold text-slate-400">{{ $activity->created_at?->diffForHumans() }}</span>
-                                </div>
-                                <p class="mt-1 text-xs font-semibold text-slate-500">
-                                    {{ $activity->causer?->name ?? 'System' }}
-                                    @if($activity->event)
-                                        • {{ $activity->event }}
-                                    @endif
-                                </p>
-                            </article>
-                        @empty
-                            <div class="rounded-[1.35rem] border border-slate-200 bg-slate-50 p-5 text-sm font-semibold text-slate-500">
-                                No activity records available yet.
-                            </div>
-                        @endforelse
-                    </div>
-                </div>
-            </div>
         </section>
     </div>
-</x-layouts.app>
+</x-layouts.admin>

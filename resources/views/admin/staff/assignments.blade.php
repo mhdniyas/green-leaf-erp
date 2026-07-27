@@ -145,7 +145,7 @@
             @empty
                 <div class="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center">
                     <p class="text-lg font-black text-slate-950">No owned staff shops found.</p>
-                    <p class="mt-2 text-sm font-semibold text-slate-500">Only active owned shops with accounting enabled appear here.</p>
+                    <p class="mt-2 text-sm font-semibold text-slate-500">Only active client shops with accounting enabled appear here.</p>
                 </div>
             @endforelse
         </section>
@@ -154,7 +154,7 @@
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <div>
                     <h2 class="text-xl font-black text-slate-950">Recent Active Assignments</h2>
-                    <p class="text-sm font-semibold text-slate-500">Latest active shop placements across owned shops.</p>
+                    <p class="text-sm font-semibold text-slate-500">Latest active shop placements across client shops.</p>
                 </div>
                 <a href="{{ route('admin.staff.employees.index') }}" class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700">Open Employees</a>
             </div>

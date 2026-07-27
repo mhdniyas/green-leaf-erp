@@ -36,28 +36,13 @@
         ])
 
         @if ($activeTab === 'payments')
-            @if ($isOwnedAccountingShop)
-                @include('shop-owner.finance.partials.payments-tab', [
-                    'companyPayments' => $companyPayments,
-                    'totalBilled' => $totalBilled,
-                    'paidAmount' => $paidAmount,
-                    'outstandingBalance' => $outstandingBalance,
-                    'pendingPaymentAmount' => $pendingPaymentAmount,
-                    'companyPaymentTotal' => $companyPaymentTotal,
-                    'latestBalanceDate' => $latestBalanceDate,
-                    'latestClosingBalance' => $latestClosingBalance,
-                    'payableToCompany' => $payableToCompany,
-                    'pendingBillApprovalSummary' => $pendingBillApprovalSummary,
-                ])
-            @else
-                @include('shop-owner.finance.partials.invoice-payments-tab', [
-                    'invoices' => $invoices,
-                    'invoicePaymentRequests' => $invoicePaymentRequests,
-                    'outstandingBalance' => $outstandingBalance,
-                    'pendingPaymentAmount' => $pendingPaymentAmount,
-                    'availableInvoicePaymentCredit' => $availableInvoicePaymentCredit,
-                ])
-            @endif
+            @include('shop-owner.finance.partials.invoice-payments-tab', [
+                'invoices' => $invoices,
+                'invoicePaymentRequests' => $invoicePaymentRequests,
+                'outstandingBalance' => $outstandingBalance,
+                'pendingPaymentAmount' => $pendingPaymentAmount,
+                'availableInvoicePaymentCredit' => $availableInvoicePaymentCredit,
+            ])
         @else
             <section class="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
                 <h2 class="text-lg font-black text-slate-950 sm:text-xl">Daily Invoices</h2>

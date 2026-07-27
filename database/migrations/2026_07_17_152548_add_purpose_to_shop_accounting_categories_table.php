@@ -25,7 +25,7 @@ return new class extends Migration
             ->update(['purpose' => 'sales_non_cash']);
 
         DB::table('shop_accounting_categories')
-            ->where('name', 'Shop Cash Credit')
+            ->whereIn('name', ['Shop Cash Credit', 'Loan Given'])
             ->update(['purpose' => 'shop_cash_credit']);
 
         DB::table('shop_accounting_categories')

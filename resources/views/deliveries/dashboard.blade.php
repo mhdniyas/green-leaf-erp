@@ -107,8 +107,33 @@
                         </div>
                         <span class="rounded-full bg-cyan-400 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-950">View</span>
                     </a>
+                    <a href="{{ route('inventory.daily-close.index', ['date' => $date]) }}" class="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 transition hover:border-cyan-300/40 hover:bg-white/10">
+                        <div>
+                            <p class="text-sm font-black text-white">Daily Inventory Close</p>
+                            <p class="mt-1 text-xs font-semibold text-slate-300">Remove wastage, carry over stock, and resolve negative product notes.</p>
+                        </div>
+                        <span class="rounded-full bg-cyan-400 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-950">Close</span>
+                    </a>
                 </div>
             </section>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <a href="{{ route('inventory.daily-close.index', ['date' => $date]) }}" class="rounded-3xl border border-rose-200 bg-rose-50 p-5 shadow-sm">
+                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-rose-700">Negative Stock</p>
+                <p class="mt-2 text-3xl font-black text-rose-950">{{ $negativeProductCount }}</p>
+                <p class="mt-1 text-xs font-bold text-rose-700">products need a discrepancy note or purchase correction.</p>
+            </a>
+            <a href="{{ route('inventory.daily-close.index', ['date' => $date]) }}" class="rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">Below Buffer</p>
+                <p class="mt-2 text-3xl font-black text-amber-950">{{ $belowBufferProductCount }}</p>
+                <p class="mt-1 text-xs font-bold text-amber-700">products are below the configured buffer quantity.</p>
+            </a>
+            <a href="{{ route('inventory.daily-close.index', ['date' => $date]) }}" class="rounded-3xl border border-cyan-200 bg-cyan-50 p-5 shadow-sm">
+                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-700">Carryover Products</p>
+                <p class="mt-2 text-3xl font-black text-cyan-950">{{ $carryoverProductCount }}</p>
+                <p class="mt-1 text-xs font-bold text-cyan-700">products can be retained during daily close.</p>
+            </a>
         </div>
 
         <!-- Metrics Grid -->

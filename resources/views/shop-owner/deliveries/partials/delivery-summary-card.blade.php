@@ -5,6 +5,7 @@
     $displayDeliveredQuantity = $order->hasPendingDeliveryReview()
         ? (float) $order->items->sum('shop_reported_received_qty')
         : (float) $order->items->sum('delivered_qty');
+    $isClientShop = (bool) $order->shop?->client_id;
 @endphp
 
 <section class="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
@@ -16,6 +17,9 @@
                 <p class="mt-2 text-sm text-slate-600">{{ $order->business_date->format('d F Y') }} · {{ $order->shop->name }}</p>
             </div>
             <div class="flex flex-wrap gap-2">
+                <span class="rounded-full {{ $isClientShop ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-700' }} px-3 py-1 text-xs font-black uppercase tracking-[0.16em] shadow-sm">
+                    {{ $isClientShop ? 'Client: '.($order->shop?->client?->name ?? 'Aishwarya Veg') : 'Direct Sales' }}
+                </span>
                 @include('shop-owner.deliveries.partials.delivery-status-badge', ['order' => $order])
                 <span class="rounded-full bg-white px-3 py-1 text-xs font-black uppercase tracking-[0.16em] text-slate-700 shadow-sm">
                     {{ $order->items->count() }} Items

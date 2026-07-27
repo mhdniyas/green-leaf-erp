@@ -24,8 +24,11 @@ class LoginController extends Controller
             return redirect()->route('dashboard');
         }
 
+        $demoUsers = $this->demoUsers();
+
         return view('auth.login', [
-            'demoUsers' => $this->demoUsers(),
+            'demoUsers' => $demoUsers,
+            'demoUserSections' => $this->demoUserSections($demoUsers),
         ]);
     }
 
@@ -37,8 +40,11 @@ class LoginController extends Controller
             return redirect()->route('dashboard');
         }
 
+        $demoUsers = $this->demoUsers();
+
         return view('auth.demo-login', [
-            'demoUsers' => $this->demoUsers(),
+            'demoUsers' => $demoUsers,
+            'demoUserSections' => $this->demoUserSections($demoUsers),
         ]);
     }
 
@@ -115,5 +121,55 @@ class LoginController extends Controller
             ->orderByRaw("CASE WHEN email LIKE '%@greenleaf.com' THEN 0 ELSE 1 END")
             ->orderBy('name')
             ->get();
+    }
+
+    /**
+     * @return Collection<int, array{title:string, users:Collection<int, User>}>
+     */
+    private function demoUserSections(Collection $demoUsers): Collection
+    {
+        $sections = [
+            'admin' => ['title' => 'Admin', 'users' => collect()],
+            'hr' => ['title' => 'HR', 'users' => collect()],
+            'purchase' => ['title' => 'Purchase', 'users' => collect()],
+            'warehouse' => ['title' => 'Warehouse', 'users' => collect()],
+            'shop' => ['title' => 'Shop Owners', 'users' => collect()],
+            'other' => ['title' => 'Other', 'users' => collect()],
+        ];
+
+        foreach ($demoUsers as $user) {
+            $sections[$this->demoSectionKey($user)]['users']->push($user);
+        }
+
+        return collect($sections)
+            ->filter(fn (array $section): bool => $section['users']->isNotEmpty())
+            ->values();
+    }
+
+    private function demoSectionKey(User $user): string
+    {
+        $roles = $user->roles->pluck('name');
+
+        if ($roles->contains('admin')) {
+            return 'admin';
+        }
+
+        if ($roles->contains('hr_manager')) {
+            return 'hr';
+        }
+
+        if ($roles->contains(fn (string $role): bool => str_contains($role, 'purchase') || $role === 'purchaser')) {
+            return 'purchase';
+        }
+
+        if ($roles->contains('warehouse_receiver')) {
+            return 'warehouse';
+        }
+
+        if ($roles->contains('shop')) {
+            return 'shop';
+        }
+
+        return 'other';
     }
 }

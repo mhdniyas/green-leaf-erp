@@ -19,12 +19,13 @@ use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class DailyPriceBoardController extends Controller
 {
+    private const MOVEMENT_FILTERS = ['changed', 'up', 'down', 'all'];
+
     public function __construct(
         private readonly PriceBoardService $priceBoardService,
         private readonly PurchaserBusinessDayService $businessDayService,
@@ -39,12 +40,10 @@ class DailyPriceBoardController extends Controller
         $purchaseDate = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
         $targetBusinessDate = Carbon::parse($purchaseDate)->toDateString();
         $search = trim((string) $request->input('search', ''));
+        $movement = $this->normalizeMovementFilter($request->input('movement'));
 
         $approvals = $this->priceBoardService
             ->ensurePendingApprovalsForPurchaseDate($purchaseDate)
-            ->when($search !== '', function ($query): void {
-                // handled after collection load
-            })
             ->values();
 
         $matchingApprovals = $approvals
@@ -67,6 +66,14 @@ class DailyPriceBoardController extends Controller
 
                 return str_contains($haystack, strtolower($search));
             })
+            ->filter(function (DailyPriceApproval $approval) use ($movement): bool {
+                return match ($movement) {
+                    'changed' => $approval->movement_status !== 'same',
+                    'up' => $approval->movement_status === 'up',
+                    'down' => $approval->movement_status === 'down',
+                    default => true,
+                };
+            })
             ->sortBy([
                 ['status', 'asc'],
                 ['product.name', 'asc'],
@@ -85,6 +92,8 @@ class DailyPriceBoardController extends Controller
             'pendingApprovals' => $pendingApprovals,
             'approvedApprovals' => $approvedApprovals,
             'search' => $search,
+            'movement' => $movement,
+            'autoApproveSamePurchasePrice' => $this->priceBoardService->autoApproveSamePurchasePrice(),
             'purchaseDate' => $purchaseDate,
             'targetBusinessDate' => $targetBusinessDate,
         ]);
@@ -144,27 +153,96 @@ class DailyPriceBoardController extends Controller
 
         if ($isAdmin) {
             $targetBusinessDate = Carbon::parse($validated['date'])->toDateString();
-            $this->shopInvoiceService->generateForBusinessDate($targetBusinessDate, (int) $user->id);
-            $this->shopInvoiceService->repriceAllForBusinessDate(
+            $generationSummary = $this->shopInvoiceService->generateForBusinessDate($targetBusinessDate, (int) $user->id);
+            $repriceSummary = $this->shopInvoiceService->repriceAllForBusinessDate(
                 $targetBusinessDate,
                 (int) $user->id,
                 'Admin saved and published daily prices from price proposal board.',
             );
         }
 
+        $redirectParams = [
+            'search' => $request->validated('search'),
+            'date' => $validated['date'],
+        ];
+
+        if ($request->filled('movement')) {
+            $redirectParams['movement'] = $request->validated('movement');
+        }
+
         return redirect()
-            ->route('purchasing.prices.index', [
-                'search' => $request->validated('search'),
-                'date' => $validated['date'],
-            ])
+            ->route('purchasing.prices.index', $redirectParams)
             ->with('success', $isAdmin
                 ? 'Daily prices published immediately.'
-                : 'Price proposals updated and sent for admin approval.');
+                : 'Price proposals updated and sent for admin approval.')
+            ->with('warning', $isAdmin ? $this->invoiceSkipWarning($generationSummary ?? [], $repriceSummary ?? []) : null);
+    }
+
+    public function updateSettings(Request $request): RedirectResponse
+    {
+        $this->authorizeBoardAccess();
+
+        $validated = $request->validate([
+            'auto_approve_same_purchase_price' => ['nullable', 'boolean'],
+            'date' => ['nullable', 'date'],
+            'search' => ['nullable', 'string', 'max:255'],
+            'movement' => ['nullable', 'in:changed,up,down,all'],
+        ]);
+
+        $enabled = (bool) ($validated['auto_approve_same_purchase_price'] ?? false);
+
+        $this->priceBoardService->updateAutoApproveSamePurchasePrice($enabled);
+
+        return redirect()
+            ->route('purchasing.prices.index', [
+                'date' => $validated['date'] ?? null,
+                'search' => $validated['search'] ?? null,
+                'movement' => $validated['movement'] ?? 'changed',
+                'settings' => 1,
+            ])
+            ->with('success', $enabled
+                ? 'Same-price products will be approved automatically.'
+                : 'Same-price products will wait for admin approval.');
     }
 
     private function authorizeBoardAccess(): void
     {
         abort_unless(auth()->user()?->hasRole('purchase') || auth()->user()?->hasRole('admin'), 403);
+    }
+
+    private function normalizeMovementFilter(mixed $movement): string
+    {
+        $movement = (string) ($movement ?: 'changed');
+
+        return in_array($movement, self::MOVEMENT_FILTERS, true) ? $movement : 'changed';
+    }
+
+    /**
+     * @param  array{skipped?: array<int, array{order_number: string|null, shop_name: string|null, products: array<int, string>}>}  $generationSummary
+     * @param  array{skipped?: array<int, array{order_number: string|null, shop_name: string|null, products: array<int, string>}>}  $repriceSummary
+     */
+    private function invoiceSkipWarning(array $generationSummary, array $repriceSummary): ?string
+    {
+        $skipped = collect($generationSummary['skipped'] ?? [])
+            ->merge($repriceSummary['skipped'] ?? [])
+            ->unique(fn (array $row): string => ($row['order_number'] ?? '').'|'.implode(',', $row['products']))
+            ->values();
+
+        if ($skipped->isEmpty()) {
+            return null;
+        }
+
+        $products = $skipped
+            ->flatMap(fn (array $row): array => $row['products'])
+            ->unique()
+            ->values()
+            ->implode(', ');
+
+        return sprintf(
+            'Prices saved. %d order(s) skipped because daily prices are missing for %s.',
+            $skipped->count(),
+            $products
+        );
     }
 
     private function updateActivePricesForGroup(Product $product, ?ShopPriceGroup $group, float $priceGradeA, int $userId): void

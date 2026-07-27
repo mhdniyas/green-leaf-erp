@@ -10,6 +10,7 @@ use App\Models\GoodsReceived;
 use App\Models\PurchaseOrder;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Repositories\Inventory\StockMovementRepository;
 use App\Support\ShopOwner\ActiveShopResolver;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -19,6 +20,7 @@ class DeliveryDashboardController extends Controller
 {
     public function __construct(
         private readonly ActiveShopResolver $activeShopResolver,
+        private readonly StockMovementRepository $stockMovements,
     ) {}
 
     /**
@@ -71,6 +73,23 @@ class DeliveryDashboardController extends Controller
         $pendingGrnApprovalCount = GoodsReceived::query()
             ->whereDate('received_at', $date)
             ->where('status', 'pending_approval')
+            ->count();
+        $stockByProduct = $this->stockMovements
+            ->currentStockByProductAndGrade($date)
+            ->groupBy('product_id');
+        $negativeProductCount = $stockByProduct
+            ->filter(fn ($rows) => (float) $rows->sum('current_stock') < -0.001)
+            ->count();
+        $belowBufferProductCount = $stockByProduct
+            ->filter(function ($rows): bool {
+                $totalStock = (float) $rows->sum('current_stock');
+                $bufferQty = (float) ($rows->first()->buffer_qty ?? 0);
+
+                return $bufferQty > 0 && $totalStock < $bufferQty;
+            })
+            ->count();
+        $carryoverProductCount = $stockByProduct
+            ->filter(fn ($rows): bool => (bool) ($rows->first()->carryover_enabled ?? false))
             ->count();
 
         $shopCards = $orders
@@ -145,6 +164,9 @@ class DeliveryDashboardController extends Controller
                 'inTransitCount',
                 'receiveQueueCount',
                 'pendingGrnApprovalCount',
+                'negativeProductCount',
+                'belowBufferProductCount',
+                'carryoverProductCount',
                 'shopCards',
                 'totalShortageValue',
                 'totalCashCollected',

@@ -67,23 +67,23 @@ class CashFlowReportJournalTableTest extends TestCase
         $this->assertCount(2, $dailySalesRows);
         $this->assertSame(2758.00, round((float) $dailySalesRows->sum('amount'), 2));
         $this->assertSame(['IN'], $dailySalesRows->pluck('direction')->unique()->values()->all());
-        $this->assertSame(['Daily Sales Income'], $dailySalesRows->pluck('category')->unique()->values()->all());
+        $this->assertSame(['Direct Sales Income'], $dailySalesRows->pluck('category')->unique()->values()->all());
         $this->assertContains('Sales Revenue', $dailySalesRows->pluck('journal')->all());
     }
 
-    public function test_cash_flow_report_includes_company_payment_only_after_admin_approval(): void
+    public function test_cash_flow_report_includes_client_shop_loan_only_after_admin_approval(): void
     {
         $shop = Shop::factory()->create([
-            'name' => 'Owned Shop',
+            'name' => 'Client Shop',
             'accounting_enabled' => true,
             'accounting_mode' => 'owned',
         ]);
         $payment = ShopCredit::query()->create([
             'shop_id' => $shop->id,
-            'type' => 'out',
+            'type' => 'in',
             'is_petty_cash' => true,
             'amount' => 700,
-            'description' => 'Cash paid to office',
+            'description' => 'Loan given to client shop',
             'business_date' => '2026-07-18',
             'status' => 'pending',
         ]);
@@ -91,8 +91,8 @@ class CashFlowReportJournalTableTest extends TestCase
         $pendingReport = app(AdminFinancePillarService::class)->cashFlowReport(Carbon::parse('2026-07-18'));
 
         $this->assertSame(0, $pendingReport['journal_rows']
-            ->where('source', 'owned_shop_petty_cash')
-            ->where('remarks', 'Cash paid to office')
+            ->where('source', 'client_shop_loan')
+            ->where('remarks', 'Loan given to client shop')
             ->count());
 
         $payment->forceFill([
@@ -102,13 +102,13 @@ class CashFlowReportJournalTableTest extends TestCase
 
         $approvedRows = app(AdminFinancePillarService::class)
             ->cashFlowReport(Carbon::parse('2026-07-18'))['journal_rows']
-            ->where('source', 'owned_shop_petty_cash')
-            ->where('remarks', 'Cash paid to office')
+            ->where('source', 'client_shop_loan')
+            ->where('remarks', 'Loan given to client shop')
             ->values();
 
         $this->assertCount(1, $approvedRows);
-        $this->assertSame('IN', $approvedRows->first()['direction']);
+        $this->assertSame('OUT', $approvedRows->first()['direction']);
         $this->assertSame(700.00, $approvedRows->first()['amount']);
-        $this->assertSame('Petty Cash - Owned Shop', $approvedRows->first()['journal']);
+        $this->assertSame('Loan - Client Shop', $approvedRows->first()['journal']);
     }
 }
