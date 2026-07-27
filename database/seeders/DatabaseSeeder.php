@@ -20,7 +20,6 @@ class DatabaseSeeder extends Seeder
             ShopAccountingCategorySeeder::class,
             ClientSeeder::class,
             EssentialUserSeeder::class,
-            WorkflowShopOrderSeeder::class,
         ]);
     }
 }
