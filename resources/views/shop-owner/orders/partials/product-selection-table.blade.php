@@ -6,9 +6,28 @@
         foreach ($category->products as $product) {
             $existingItem = $tomorrowOrder?->items->firstWhere('product_id', $product->id);
             $yesterdayItem = $yesterdayOrder?->items->firstWhere('product_id', $product->id);
-            $currentQuantity = old("items.{$product->sku}", $existingItem?->requested_qty ?? '');
+            $currentUnit = old("item_units.{$product->sku}", $existingItem?->requested_unit ?? $product->unit);
+            $currentUnitQuantity = old("items.{$product->sku}", $existingItem?->requested_unit_quantity ?? $existingItem?->requested_qty ?? '');
+            $orderUnits = $product->relationLoaded('orderUnits')
+                ? $product->orderUnits->where('is_orderable', true)->values()
+                : collect();
+
+            if ($orderUnits->isEmpty()) {
+                $orderUnits = collect([(object) [
+                    'unit' => $product->unit,
+                    'label' => strtoupper((string) $product->unit),
+                    'conversion_to_base' => 1,
+                    'is_base' => true,
+                    'is_orderable' => true,
+                ]]);
+            }
+
+            $selectedUnitRow = $orderUnits->firstWhere('unit', $currentUnit) ?? $orderUnits->first();
+            $displayQuantity = $selectedUnitRow && $existingItem
+                ? old("items.{$product->sku}", (float) ($existingItem->requested_unit_quantity ?? $existingItem->requested_qty))
+                : $currentUnitQuantity;
             $suggestedQuantity = (float) ($yesterdayItem?->requested_qty ?? 0);
-            $isSelected = (float) $currentQuantity > 0;
+            $isSelected = (float) $displayQuantity > 0;
             $isFrequent = $frequentProducts->contains(fn ($item) => (int) $item['product']->id === (int) $product->id);
 
             $allProductsForOrder->push([
@@ -17,8 +36,15 @@
                 'sku_sort_value' => $product->sku_sort_value,
                 'name' => $product->name,
                 'unit' => $product->unit,
+                'current_unit' => $selectedUnitRow?->unit ?? $product->unit,
+                'order_units' => $orderUnits->map(fn ($unit) => [
+                    'unit' => $unit->unit,
+                    'label' => $unit->label ?: strtoupper((string) $unit->unit),
+                    'conversion_to_base' => (float) $unit->conversion_to_base,
+                    'is_base' => (bool) $unit->is_base,
+                ])->values()->all(),
                 'category' => $category->name,
-                'current_qty' => $currentQuantity,
+                'current_qty' => $displayQuantity,
                 'suggested_qty' => $suggestedQuantity,
                 'yesterday_qty' => $suggestedQuantity,
                 'is_selected' => $isSelected,
@@ -93,6 +119,7 @@
                 data-sku="{{ $productData['sku'] }}"
                 data-name="{{ $productData['name'] }}"
                 data-unit="{{ $productData['unit'] }}"
+                data-current-unit="{{ $productData['current_unit'] }}"
                 data-category="{{ $productData['category'] }}"
                 data-is-frequent="{{ $productData['is_frequent'] ? 'true' : 'false' }}"
                 data-search-text="{{ \Illuminate\Support\Str::lower($productData['name'].' '.$productData['sku'].' '.$productData['category']) }}"
@@ -102,7 +129,7 @@
                     'border-slate-200 bg-white' => (float) $productData['current_qty'] <= 0,
                 ])
             >
-                <div class="grid grid-cols-[2rem_minmax(0,1fr)_3.25rem_minmax(4.5rem,5.5rem)] items-center gap-1.5">
+                <div class="grid grid-cols-[2rem_minmax(0,1fr)_4.25rem_minmax(4.5rem,5.5rem)] items-center gap-1.5">
                     <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[11px] font-black text-slate-600">
                         {{ $productData['sku'] }}
                     </div>
@@ -110,9 +137,24 @@
                         <h4 class="truncate text-[13px] font-black leading-4 text-slate-950">{{ $productData['name'] }}</h4>
                         <p class="truncate text-[11px] font-semibold leading-3 text-slate-500">{{ $productData['category'] }}</p>
                     </div>
-                    <div class="flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-1.5 text-[11px] font-black uppercase text-slate-800">
-                        {{ $productData['unit'] }}
-                    </div>
+                    @if(count($productData['order_units']) > 1)
+                        <select
+                            name="item_units[{{ $productData['sku'] }}]"
+                            data-inline-unit
+                            data-product-id="{{ $productData['id'] }}"
+                            class="h-8 w-full rounded-lg border border-slate-200 bg-slate-50 px-1 text-[11px] font-black uppercase text-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                            aria-label="Unit for {{ $productData['name'] }}"
+                        >
+                            @foreach($productData['order_units'] as $unit)
+                                <option value="{{ $unit['unit'] }}" @selected($unit['unit'] === $productData['current_unit'])>{{ strtoupper($unit['unit']) }}</option>
+                            @endforeach
+                        </select>
+                    @else
+                        <div class="flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-1.5 text-[11px] font-black uppercase text-slate-800">
+                            {{ $productData['order_units'][0]['unit'] ?? $productData['unit'] }}
+                        </div>
+                        <input type="hidden" name="item_units[{{ $productData['sku'] }}]" value="{{ $productData['order_units'][0]['unit'] ?? $productData['unit'] }}" data-inline-unit data-product-id="{{ $productData['id'] }}">
+                    @endif
                     <input
                         id="order-qty-{{ $productData['id'] }}"
                         type="number"

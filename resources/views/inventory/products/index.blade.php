@@ -113,7 +113,20 @@
                             {{ $product->category?->name ?? '—' }}
                         </td>
                         <td class="px-6 py-4 hidden sm:table-cell">
-                            <span class="inline-flex items-center bg-gray-100 text-gray-700 text-xs font-medium px-2 py-0.5 rounded-full">{{ strtoupper($product->unit) }}</span>
+                            @php
+                                $baseUnit = $product->orderUnits->firstWhere('is_base', true);
+                                $orderableUnits = $product->orderUnits
+                                    ->where('is_orderable', true)
+                                    ->pluck('unit')
+                                    ->map(fn ($unit) => strtoupper((string) $unit))
+                                    ->values();
+                            @endphp
+                            <div class="flex flex-wrap items-center gap-1">
+                                <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">{{ strtoupper($baseUnit?->unit ?? $product->unit) }}</span>
+                                @if($orderableUnits->count() > 1)
+                                    <span class="text-[11px] font-semibold text-gray-400">{{ $orderableUnits->join(' / ') }}</span>
+                                @endif
+                            </div>
                         </td>
                         <td class="px-6 py-4">
                             @if(auth()->user()?->hasRole('admin') || auth()->user()?->can('inventory.product.status.update'))

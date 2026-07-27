@@ -12,6 +12,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use OwenIt\Auditing\Auditable;
 use OwenIt\Auditing\Contracts\Auditable as AuditableContract;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
@@ -25,6 +27,7 @@ class Product extends Model implements AuditableContract
     protected $fillable = [
         'category_id',
         'default_warehouse_id',
+        'public_uuid',
         'name',
         'sku',
         'unit',
@@ -38,6 +41,8 @@ class Product extends Model implements AuditableContract
         'status_changed_by',
         'status_changed_at',
     ];
+
+    private static ?bool $hasPublicUuidColumn = null;
 
     protected $casts = [
         'default_warehouse_id' => 'integer',
@@ -94,6 +99,11 @@ class Product extends Model implements AuditableContract
     public function wholesalePrices(): HasMany
     {
         return $this->hasMany(ProductWholesalePrice::class);
+    }
+
+    public function orderUnits(): HasMany
+    {
+        return $this->hasMany(ProductUnit::class)->orderBy('sort_order')->orderBy('id');
     }
 
     public function suppliers(): BelongsToMany
@@ -170,6 +180,43 @@ class Product extends Model implements AuditableContract
 
     public function getRouteKeyName(): string
     {
-        return 'sku';
+        return static::hasPublicUuidColumn() ? 'public_uuid' : 'sku';
+    }
+
+    public function getRouteKey(): mixed
+    {
+        if (static::hasPublicUuidColumn() && $this->public_uuid) {
+            return $this->public_uuid;
+        }
+
+        return parent::getRouteKey();
+    }
+
+    public function conversionToBaseForUnit(?string $unit): float
+    {
+        $normalizedUnit = strtolower(trim((string) ($unit ?: $this->unit)));
+
+        if ($normalizedUnit === strtolower((string) $this->unit)) {
+            return 1.0;
+        }
+
+        $units = $this->relationLoaded('orderUnits') ? $this->orderUnits : $this->orderUnits()->get();
+        $matchedUnit = $units->first(fn (ProductUnit $productUnit): bool => strtolower($productUnit->unit) === $normalizedUnit);
+
+        return $matchedUnit ? (float) $matchedUnit->conversion_to_base : 1.0;
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $product): void {
+            if (static::hasPublicUuidColumn() && ! $product->public_uuid) {
+                $product->public_uuid = (string) Str::uuid();
+            }
+        });
+    }
+
+    private static function hasPublicUuidColumn(): bool
+    {
+        return self::$hasPublicUuidColumn ??= Schema::hasColumn('products', 'public_uuid');
     }
 }

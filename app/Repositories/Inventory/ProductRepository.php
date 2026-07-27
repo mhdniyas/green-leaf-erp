@@ -19,7 +19,7 @@ class ProductRepository extends BaseRepository
     public function paginateFiltered(int $perPage = 15, ?int $categoryId = null, ?string $search = null, ?string $status = null): LengthAwarePaginator
     {
         return $this->query()
-            ->with(['category', 'statusChangedBy:id,name'])
+            ->with(['category', 'orderUnits', 'statusChangedBy:id,name'])
             ->when($categoryId, fn ($q) => $q->where('category_id', $categoryId))
             ->when($status === 'active', fn ($q) => $q->where('is_active', true))
             ->when($status === 'inactive', fn ($q) => $q->where('is_active', false))
@@ -36,7 +36,7 @@ class ProductRepository extends BaseRepository
     public function findAllActive(): Collection
     {
         return $this->query()
-            ->with(['category'])
+            ->with(['category', 'orderUnits'])
             ->where('is_active', true)
             ->ordered()
             ->get();

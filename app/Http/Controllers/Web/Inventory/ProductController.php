@@ -86,6 +86,7 @@ class ProductController extends Controller
 
     public function edit(Product $product): View
     {
+        $product->load('orderUnits');
         $categories = $this->categories->findAllActive();
         $warehouses = Warehouse::active()->orderBy('name')->get();
 

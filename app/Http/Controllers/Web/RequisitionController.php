@@ -74,7 +74,7 @@ class RequisitionController extends Controller
                 ->withInput();
         }
 
-        $items = $this->resolveRequestedProducts($request->input('items', []));
+        $items = $this->resolveRequestedProducts($request->input('items', []), $request->input('item_units', []));
 
         if ($items === []) {
             if ($request->expectsJson()) {
@@ -350,7 +350,7 @@ class RequisitionController extends Controller
 
         $businessDate = Carbon::parse($request->input('date', today()->toDateString()));
         $productsByCategory = Category::with(['products' => function ($query): void {
-            $query->where('is_active', true)->ordered();
+            $query->where('is_active', true)->with('orderUnits')->ordered();
         }])
             ->where('is_active', true)
             ->get()
@@ -389,7 +389,7 @@ class RequisitionController extends Controller
             'items' => ['required', 'array'],
         ]);
 
-        $items = $this->resolveRequestedProducts($validated['items']);
+        $items = $this->resolveRequestedProducts($validated['items'], $request->input('item_units', []));
 
         if ($items === []) {
             return redirect()->route('admin.accounting.purchasers.direct-purchase.create', [
@@ -548,7 +548,7 @@ class RequisitionController extends Controller
                 ->with('error', 'This order can no longer be modified from the shop owner workflow.');
         }
 
-        $items = $this->resolveRequestedProducts($request->input('items', []));
+        $items = $this->resolveRequestedProducts($request->input('items', []), $request->input('item_units', []));
         if ($items === []) {
             return redirect()->route('shop-owner.orders.create')
                 ->withErrors(['items' => 'Updated order cannot be empty.']);
@@ -2025,7 +2025,7 @@ class RequisitionController extends Controller
      * @param  array<string, mixed>  $rawItems
      * @return array<int, array{product: Product, quantity: float}>
      */
-    private function resolveRequestedProducts(array $rawItems): array
+    private function resolveRequestedProducts(array $rawItems, array $rawUnits = []): array
     {
         $requestedQuantities = [];
 
@@ -2049,6 +2049,7 @@ class RequisitionController extends Controller
         }
 
         $productsBySku = Product::query()
+            ->with('orderUnits')
             ->whereIn('sku', array_keys($requestedQuantities))
             ->get()
             ->keyBy('sku');
@@ -2063,9 +2064,25 @@ class RequisitionController extends Controller
                 continue;
             }
 
+            $requestedUnit = strtolower(trim((string) ($rawUnits[$sku] ?? $product->unit)));
+            $orderableUnits = $product->orderUnits
+                ->where('is_orderable', true)
+                ->pluck('unit')
+                ->map(fn (string $unit): string => strtolower($unit));
+
+            if ($orderableUnits->isNotEmpty() && ! $orderableUnits->contains($requestedUnit)) {
+                $requestedUnit = strtolower((string) $product->unit);
+            }
+
+            $conversionToBase = $product->conversionToBaseForUnit($requestedUnit);
+            $baseQuantity = round($quantity * $conversionToBase, 2);
+
             $resolvedItems[] = [
                 'product' => $product,
-                'quantity' => $quantity,
+                'quantity' => $baseQuantity,
+                'requested_unit' => $requestedUnit,
+                'requested_unit_quantity' => $quantity,
+                'requested_unit_conversion_to_base' => $conversionToBase,
             ];
         }
 
@@ -2092,6 +2109,9 @@ class RequisitionController extends Controller
                 $existingItem->update([
                     'requested_qty' => $item['quantity'],
                     'unit' => $product->unit,
+                    'requested_unit' => $item['requested_unit'] ?? $product->unit,
+                    'requested_unit_quantity' => $item['requested_unit_quantity'] ?? $item['quantity'],
+                    'requested_unit_conversion_to_base' => $item['requested_unit_conversion_to_base'] ?? 1,
                     ...$pricePayload,
                 ]);
 
@@ -2104,6 +2124,9 @@ class RequisitionController extends Controller
                 'product_id' => $product->id,
                 'requested_qty' => $item['quantity'],
                 'unit' => $product->unit,
+                'requested_unit' => $item['requested_unit'] ?? $product->unit,
+                'requested_unit_quantity' => $item['requested_unit_quantity'] ?? $item['quantity'],
+                'requested_unit_conversion_to_base' => $item['requested_unit_conversion_to_base'] ?? 1,
                 ...$pricePayload,
             ]);
         }

@@ -1,11 +1,37 @@
 @php
 /** @var \Illuminate\Database\Eloquent\Collection $categories */
-$units = ['kg' => 'Kilogram (kg)', 'box' => 'Box', 'bunch' => 'Bunch', 'piece' => 'Piece', 'bag' => 'Bag'];
+$units = [
+    'kg' => 'Kilogram (kg)',
+    'box' => 'Box',
+    'piece' => 'Piece',
+    'bag' => 'Bag',
+    'bunch' => 'Bunch',
+    'packet' => 'Packet',
+    'crate' => 'Crate',
+    'tray' => 'Tray',
+];
+$baseUnit = old('unit', $product->unit ?? 'kg');
+$existingUnitRows = isset($product)
+    ? $product->orderUnits->map(fn ($unit) => [
+        'unit' => $unit->unit,
+        'label' => $unit->label,
+        'conversion_to_base' => (float) $unit->conversion_to_base,
+        'is_base' => (bool) $unit->is_base,
+        'is_orderable' => (bool) $unit->is_orderable,
+    ])->values()->all()
+    : [[
+        'unit' => $baseUnit,
+        'label' => strtoupper((string) $baseUnit),
+        'conversion_to_base' => 1,
+        'is_base' => true,
+        'is_orderable' => true,
+    ]];
+$unitRows = old('units', $existingUnitRows);
 @endphp
 
 <x-layouts.inventory title="{{ isset($product) ? 'Edit Product' : 'Add Product' }}">
 
-    <div class="max-w-2xl">
+    <div class="max-w-5xl">
         <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
             <div class="px-6 py-5 border-b border-gray-100">
                 <h2 class="text-sm font-semibold text-gray-900">{{ isset($product) ? 'Edit Product' : 'New Product' }}</h2>
@@ -101,7 +127,7 @@ $units = ['kg' => 'Kilogram (kg)', 'box' => 'Box', 'bunch' => 'Bunch', 'piece' =
                     </div>
 
                     <div class="space-y-1.5">
-                        <label for="unit" class="block text-sm font-medium text-gray-700">Unit of Measure <span class="text-red-500">*</span></label>
+                        <label for="unit" class="block text-sm font-medium text-gray-700">Base Unit <span class="text-red-500">*</span></label>
                         <select id="unit" name="unit" required
                                 class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white @error('unit') border-red-300 @enderror">
                             @foreach($units as $val => $label)
@@ -109,6 +135,58 @@ $units = ['kg' => 'Kilogram (kg)', 'box' => 'Box', 'bunch' => 'Bunch', 'piece' =
                             @endforeach
                         </select>
                         @error('unit') <p class="text-red-600 text-xs">{{ $message }}</p> @enderror
+                    </div>
+                </div>
+
+                <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <h3 class="text-sm font-black text-slate-950">Units & Measures</h3>
+                            <p class="mt-1 text-xs font-semibold text-slate-500">Keep one base unit for stock and billing. Add box, piece, bag, or other order units with their base-unit conversion.</p>
+                        </div>
+                        <button type="button" id="add-product-unit-row" class="inline-flex w-fit items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white hover:bg-slate-800">
+                            Add Unit
+                        </button>
+                    </div>
+
+                    @error('units') <p class="mt-3 text-xs font-bold text-red-600">{{ $message }}</p> @enderror
+
+                    <div class="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                        <div class="grid grid-cols-[1.2fr_1fr_1fr_2.5rem] gap-2 border-b border-slate-100 bg-slate-100 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
+                            <span>Unit</span>
+                            <span>Per Unit</span>
+                            <span>Orderable</span>
+                            <span></span>
+                        </div>
+                        <div id="product-unit-rows" class="divide-y divide-slate-100">
+                            @foreach($unitRows as $index => $unitRow)
+                                @php
+                                    $rowUnit = $unitRow['unit'] ?? $baseUnit;
+                                    $isBaseRow = $rowUnit === $baseUnit || (bool) ($unitRow['is_base'] ?? false);
+                                @endphp
+                                <div data-product-unit-row class="grid grid-cols-[1.2fr_1fr_1fr_2.5rem] items-center gap-2 px-3 py-2">
+                                    <input type="hidden" name="units[{{ $index }}][is_base]" value="{{ $isBaseRow ? '1' : '0' }}" data-unit-is-base>
+                                    <select name="units[{{ $index }}][unit]" data-unit-select class="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs font-bold text-slate-900 focus:border-brand-500 focus:outline-none">
+                                        @foreach($units as $val => $label)
+                                            <option value="{{ $val }}" @selected($rowUnit === $val)>{{ strtoupper($val) }}</option>
+                                        @endforeach
+                                    </select>
+                                    <div class="flex items-center gap-1">
+                                        <input name="units[{{ $index }}][conversion_to_base]" data-unit-conversion type="number" step="0.0001" min="0.0001" value="{{ old("units.{$index}.conversion_to_base", $unitRow['conversion_to_base'] ?? 1) }}" class="h-9 w-full rounded-lg border border-slate-200 px-2 text-right text-xs font-bold text-slate-900 focus:border-brand-500 focus:outline-none" @readonly($isBaseRow)>
+                                        <span data-base-unit-label class="shrink-0 text-[10px] font-black uppercase text-slate-400">{{ $baseUnit }}</span>
+                                    </div>
+                                    <label class="flex items-center justify-center gap-2 text-xs font-bold text-slate-600">
+                                        <input type="hidden" name="units[{{ $index }}][is_orderable]" value="0">
+                                        <input type="checkbox" name="units[{{ $index }}][is_orderable]" value="1" @checked((bool) ($unitRow['is_orderable'] ?? true)) class="rounded border-slate-300 text-brand-600 focus:ring-brand-500">
+                                        Yes
+                                    </label>
+                                    <button type="button" data-remove-unit-row class="h-9 rounded-lg text-xs font-black text-slate-400 hover:bg-red-50 hover:text-red-600" @disabled($isBaseRow)>
+                                        X
+                                    </button>
+                                    <input type="hidden" name="units[{{ $index }}][label]" value="{{ $unitRow['label'] ?? strtoupper((string) $rowUnit) }}" data-unit-label>
+                                </div>
+                            @endforeach
+                        </div>
                     </div>
                 </div>
 
@@ -213,6 +291,107 @@ $units = ['kg' => 'Kilogram (kg)', 'box' => 'Box', 'bunch' => 'Bunch', 'piece' =
         <script>
             let cropper = null;
             let selectedFile = null;
+            const productUnitOptions = @json($units);
+
+            function unitLabel(unit) {
+                return String(unit || '').toUpperCase();
+            }
+
+            function unitRowTemplate(index, unit = 'box', conversion = '1', isOrderable = true) {
+                const options = Object.keys(productUnitOptions)
+                    .map((value) => `<option value="${value}" ${value === unit ? 'selected' : ''}>${value.toUpperCase()}</option>`)
+                    .join('');
+
+                return `
+                    <div data-product-unit-row class="grid grid-cols-[1.2fr_1fr_1fr_2.5rem] items-center gap-2 px-3 py-2">
+                        <input type="hidden" name="units[${index}][is_base]" value="0" data-unit-is-base>
+                        <select name="units[${index}][unit]" data-unit-select class="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs font-bold text-slate-900 focus:border-brand-500 focus:outline-none">
+                            ${options}
+                        </select>
+                        <div class="flex items-center gap-1">
+                            <input name="units[${index}][conversion_to_base]" data-unit-conversion type="number" step="0.0001" min="0.0001" value="${conversion}" class="h-9 w-full rounded-lg border border-slate-200 px-2 text-right text-xs font-bold text-slate-900 focus:border-brand-500 focus:outline-none">
+                            <span data-base-unit-label class="shrink-0 text-[10px] font-black uppercase text-slate-400">${document.getElementById('unit')?.value || 'kg'}</span>
+                        </div>
+                        <label class="flex items-center justify-center gap-2 text-xs font-bold text-slate-600">
+                            <input type="hidden" name="units[${index}][is_orderable]" value="0">
+                            <input type="checkbox" name="units[${index}][is_orderable]" value="1" ${isOrderable ? 'checked' : ''} class="rounded border-slate-300 text-brand-600 focus:ring-brand-500">
+                            Yes
+                        </label>
+                        <button type="button" data-remove-unit-row class="h-9 rounded-lg text-xs font-black text-slate-400 hover:bg-red-50 hover:text-red-600">X</button>
+                        <input type="hidden" name="units[${index}][label]" value="${unitLabel(unit)}" data-unit-label>
+                    </div>
+                `;
+            }
+
+            function syncProductUnitRows() {
+                const baseUnit = document.getElementById('unit')?.value || 'kg';
+                const rows = Array.from(document.querySelectorAll('[data-product-unit-row]'));
+                let hasBaseRow = false;
+
+                rows.forEach((row, index) => {
+                    const unitSelect = row.querySelector('[data-unit-select]');
+                    const conversionInput = row.querySelector('[data-unit-conversion]');
+                    const baseInput = row.querySelector('[data-unit-is-base]');
+                    const labelInput = row.querySelector('[data-unit-label]');
+                    const removeButton = row.querySelector('[data-remove-unit-row]');
+                    const isBase = unitSelect?.value === baseUnit;
+
+                    if (isBase) {
+                        hasBaseRow = true;
+                    }
+
+                    row.querySelectorAll('[name]').forEach((input) => {
+                        input.name = input.name.replace(/units\[\d+\]/, `units[${index}]`);
+                    });
+
+                    if (baseInput) baseInput.value = isBase ? '1' : '0';
+                    if (conversionInput) {
+                        conversionInput.readOnly = isBase;
+                        if (isBase) conversionInput.value = '1';
+                    }
+                    if (labelInput && unitSelect) labelInput.value = unitLabel(unitSelect.value);
+                    if (removeButton) {
+                        removeButton.disabled = isBase;
+                        removeButton.classList.toggle('opacity-40', isBase);
+                    }
+                    row.querySelectorAll('[data-base-unit-label]').forEach((label) => {
+                        label.textContent = baseUnit.toUpperCase();
+                    });
+                });
+
+                if (!hasBaseRow) {
+                    const container = document.getElementById('product-unit-rows');
+                    container?.insertAdjacentHTML('afterbegin', unitRowTemplate(0, baseUnit, '1', true));
+                    syncProductUnitRows();
+                }
+            }
+
+            document.getElementById('add-product-unit-row')?.addEventListener('click', () => {
+                const container = document.getElementById('product-unit-rows');
+                if (!container) return;
+
+                const usedUnits = Array.from(document.querySelectorAll('[data-unit-select]')).map((select) => select.value);
+                const nextUnit = Object.keys(productUnitOptions).find((unit) => !usedUnits.includes(unit)) || 'box';
+                container.insertAdjacentHTML('beforeend', unitRowTemplate(container.children.length, nextUnit, '1', true));
+                syncProductUnitRows();
+            });
+
+            document.getElementById('product-unit-rows')?.addEventListener('click', (event) => {
+                const button = event.target.closest('[data-remove-unit-row]');
+                if (!button || button.disabled) return;
+
+                button.closest('[data-product-unit-row]')?.remove();
+                syncProductUnitRows();
+            });
+
+            document.getElementById('product-unit-rows')?.addEventListener('change', (event) => {
+                if (event.target.matches('[data-unit-select]')) {
+                    syncProductUnitRows();
+                }
+            });
+
+            document.getElementById('unit')?.addEventListener('change', syncProductUnitRows);
+            syncProductUnitRows();
 
             function handleImageSelect(event) {
                 const files = event.target.files;

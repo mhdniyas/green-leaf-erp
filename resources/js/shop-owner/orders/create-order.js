@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const categoryPills = Array.from(document.querySelectorAll('[data-category-pill]'));
     const productRows = Array.from(document.querySelectorAll('[data-product-card]'));
     const quantityInputs = Array.from(document.querySelectorAll('[data-inline-qty]'));
+    const unitInputs = Array.from(document.querySelectorAll('[data-inline-unit]'));
     const productListContainer = document.getElementById('product-list-container');
     const noSearchResults = document.getElementById('no-search-results');
     const currentListTitle = document.getElementById('current-list-title');
@@ -30,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const productsById = new Map(productCatalog.map((product) => [String(product.id), product]));
     const presets = presetsNode ? JSON.parse(presetsNode.textContent ?? '[]') : [];
     const inputsByProductId = new Map(quantityInputs.map((input) => [String(input.getAttribute('data-product-id')), input]));
+    const unitInputsByProductId = new Map(unitInputs.map((input) => [String(input.getAttribute('data-product-id')), input]));
     const draftStorageKey = `shop-owner-order-draft:${formNode.action}:${formNode.querySelector('[name="business_date"]')?.value ?? window.location.pathname}`;
 
     let activeCategory = categoryPills.find((pill) => pill.hasAttribute('data-default-category'))?.getAttribute('data-default-category') ?? 'all';
@@ -46,8 +48,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const productId = String(input.getAttribute('data-product-id'));
             const product = productsById.get(productId);
             const quantity = parseQty(input.value);
+            const unitInput = unitInputsByProductId.get(productId);
+            const unit = unitInput?.value || product?.current_unit || product?.unit;
 
-            return product && quantity > 0 ? { input, product, quantity } : null;
+            return product && quantity > 0 ? { input, product, quantity, unitInput, unit } : null;
         })
         .filter(Boolean);
 
@@ -81,7 +85,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveDraft = () => {
         const draft = {};
         selectedRows().forEach((row) => {
-            draft[row.product.id] = row.quantity;
+            draft[row.product.id] = {
+                quantity: row.quantity,
+                unit: row.unit,
+            };
         });
 
         if (Object.keys(draft).length > 0) {
@@ -95,7 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const rows = selectedRows();
         const count = rows.length;
         const total = rows.reduce((sum, row) => sum + row.quantity, 0);
-        const units = new Set(rows.map((row) => String(row.product.unit).toUpperCase()));
+        const units = new Set(rows.map((row) => String(row.unit || row.product.unit).toUpperCase()));
         const quantityLabel = units.size === 1 ? `${total.toFixed(2)} ${Array.from(units)[0]}` : `${total.toFixed(2)} total`;
 
         if (count > 0) {
@@ -110,13 +117,19 @@ document.addEventListener('DOMContentLoaded', () => {
         document.dispatchEvent(new Event('shop-owner-order-input-change'));
     };
 
-    const setInputQuantity = (productId, quantity) => {
+    const setInputQuantity = (productId, quantity, unit = null) => {
         const input = inputsByProductId.get(String(productId));
         if (!input) {
             return;
         }
 
         input.value = quantity > 0 ? quantity.toFixed(2) : '';
+        if (unit) {
+            const unitInput = unitInputsByProductId.get(String(productId));
+            if (unitInput) {
+                unitInput.value = unit;
+            }
+        }
         updateRowState(input);
     };
 
@@ -145,7 +158,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         mobileNavRestoreTimer = window.setTimeout(() => {
             const activeElement = document.activeElement;
-            const isStillEditingQuantity = activeElement instanceof HTMLElement && activeElement.matches('[data-inline-qty]');
+            const isStillEditingQuantity = activeElement instanceof HTMLElement && activeElement.matches('[data-inline-qty], [data-inline-unit]');
 
             if (!isStillEditingQuantity) {
                 mobileNav.classList.remove('hidden');
@@ -251,6 +264,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    unitInputs.forEach((input) => {
+        input.addEventListener('focus', () => setMobileNavHiddenForInput(true));
+        input.addEventListener('blur', () => setMobileNavHiddenForInput(false));
+        input.addEventListener('change', () => {
+            syncDraftBar();
+            saveDraft();
+        });
+    });
+
     draftCartClear.addEventListener('click', () => {
         quantityInputs.forEach((input) => {
             input.value = '';
@@ -346,8 +368,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            Object.entries(draft).forEach(([productId, quantity]) => {
-                setInputQuantity(productId, parseQty(quantity));
+            Object.entries(draft).forEach(([productId, value]) => {
+                if (value && typeof value === 'object') {
+                    setInputQuantity(productId, parseQty(value.quantity), value.unit ?? null);
+                    return;
+                }
+
+                setInputQuantity(productId, parseQty(value));
             });
         } catch {
             window.localStorage.removeItem(draftStorageKey);

@@ -20,6 +20,7 @@ final readonly class ProductData
         public bool $isActive,
         public ?string $imageData = null,
         public bool $removeImage = false,
+        public array $units = [],
     ) {}
 
     public static function fromRequest(Request $request): self
@@ -36,6 +37,7 @@ final readonly class ProductData
             isActive: $request->boolean('is_active', true),
             imageData: $request->input('image_data') ?: null,
             removeImage: $request->boolean('remove_image'),
+            units: self::unitsFromRequest($request),
         );
     }
 
@@ -52,5 +54,49 @@ final readonly class ProductData
             'carryover_enabled' => $this->carryoverEnabled,
             'is_active' => $this->isActive,
         ];
+    }
+
+    private static function unitsFromRequest(Request $request): array
+    {
+        $baseUnit = strtolower($request->string('unit', 'kg')->toString());
+        $rows = collect($request->input('units', []))
+            ->filter(fn ($row): bool => is_array($row) && filled($row['unit'] ?? null))
+            ->map(function (array $row, int $index) use ($baseUnit): array {
+                $unit = strtolower(trim((string) $row['unit']));
+                $isBase = (bool) ($row['is_base'] ?? false) || $unit === $baseUnit;
+
+                return [
+                    'unit' => $unit,
+                    'label' => trim((string) ($row['label'] ?? strtoupper($unit))) ?: strtoupper($unit),
+                    'conversion_to_base' => $isBase ? 1.0 : round((float) ($row['conversion_to_base'] ?? 1), 4),
+                    'is_base' => $isBase,
+                    'is_orderable' => (bool) ($row['is_orderable'] ?? true),
+                    'sort_order' => $index,
+                ];
+            })
+            ->unique('unit')
+            ->values();
+
+        if (! $rows->contains(fn (array $row): bool => $row['unit'] === $baseUnit)) {
+            $rows->prepend([
+                'unit' => $baseUnit,
+                'label' => strtoupper($baseUnit),
+                'conversion_to_base' => 1.0,
+                'is_base' => true,
+                'is_orderable' => true,
+                'sort_order' => 0,
+            ]);
+        }
+
+        return $rows
+            ->map(function (array $row, int $index) use ($baseUnit): array {
+                $row['is_base'] = $row['unit'] === $baseUnit;
+                $row['conversion_to_base'] = $row['is_base'] ? 1.0 : max(0.0001, (float) $row['conversion_to_base']);
+                $row['sort_order'] = $index;
+
+                return $row;
+            })
+            ->values()
+            ->all();
     }
 }

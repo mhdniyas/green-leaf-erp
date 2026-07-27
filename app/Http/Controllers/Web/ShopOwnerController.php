@@ -141,7 +141,7 @@ class ShopOwnerController extends Controller
                 'invoice.paymentRequests.requestedBy',
                 'invoice.paymentRequests.reviewedBy',
                 'items',
-                'items.product',
+                'items.product.orderUnits',
                 'deliveredBy',
                 'invoice.shop',
             ])
@@ -1104,7 +1104,7 @@ class ShopOwnerController extends Controller
         $tomorrowDate = Carbon::tomorrow();
 
         $productsByCategory = Category::with(['products' => function ($query): void {
-            $query->where('is_active', true)->ordered();
+            $query->where('is_active', true)->with('orderUnits')->ordered();
         }])
             ->where('is_active', true)
             ->get()
@@ -1199,9 +1199,9 @@ class ShopOwnerController extends Controller
                 'deliveredBy',
                 'creator',
                 'reviewedBy',
-                'latestResolvedRevision.items.product',
+                'latestResolvedRevision.items.product.orderUnits',
                 'latestResolvedRevision.reviewedBy',
-                'revisions.items.product',
+                'revisions.items.product.orderUnits',
                 'revisions.reviewedBy',
             ]);
     }

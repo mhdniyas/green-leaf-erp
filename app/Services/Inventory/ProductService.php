@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Repositories\Inventory\ProductRepository;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class ProductService
@@ -35,7 +36,12 @@ class ProductService
             $attributes['image'] = $this->storeImage($data->imageData);
         }
 
-        return $this->repository->create($attributes);
+        return DB::transaction(function () use ($attributes, $data): Product {
+            $product = $this->repository->create($attributes);
+            $this->syncUnits($product, $data->units);
+
+            return $product->fresh(['orderUnits']) ?? $product;
+        });
     }
 
     public function update(Product $product, ProductData $data): Product
@@ -59,7 +65,12 @@ class ProductService
             $attributes['image'] = $this->storeImage($data->imageData);
         }
 
-        return $this->repository->update($product, $attributes);
+        return DB::transaction(function () use ($product, $attributes, $data): Product {
+            $updatedProduct = $this->repository->update($product, $attributes);
+            $this->syncUnits($updatedProduct, $data->units);
+
+            return $updatedProduct->fresh(['orderUnits']) ?? $updatedProduct;
+        });
     }
 
     public function updateStatus(Product $product, bool $isActive, User $changedBy): Product
@@ -90,5 +101,38 @@ class ProductService
         Storage::disk('public')->put($filename, $decoded);
 
         return $filename;
+    }
+
+    private function syncUnits(Product $product, array $units): void
+    {
+        if ($units === []) {
+            $units = [[
+                'unit' => $product->unit,
+                'label' => strtoupper((string) $product->unit),
+                'conversion_to_base' => 1.0,
+                'is_base' => true,
+                'is_orderable' => true,
+                'sort_order' => 0,
+            ]];
+        }
+
+        $submittedUnits = collect($units)->pluck('unit')->all();
+
+        $product->orderUnits()
+            ->whereNotIn('unit', $submittedUnits)
+            ->delete();
+
+        foreach ($units as $unit) {
+            $product->orderUnits()->updateOrCreate(
+                ['unit' => $unit['unit']],
+                [
+                    'label' => $unit['label'],
+                    'conversion_to_base' => $unit['conversion_to_base'],
+                    'is_base' => $unit['is_base'],
+                    'is_orderable' => $unit['is_orderable'],
+                    'sort_order' => $unit['sort_order'],
+                ],
+            );
+        }
     }
 }
