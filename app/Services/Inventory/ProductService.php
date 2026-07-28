@@ -98,7 +98,7 @@ class ProductService
                 }
 
                 $product->update(['unit' => $row['base_unit']]);
-                $this->syncUnits($product, $this->bulkMeasureUnits($row['base_unit'], $row['units']));
+                $this->syncUnits($product, $this->bulkMeasureUnits($row['base_unit'], $row['units'], $row['box_variants'] ?? []));
                 $updated++;
             }
 
@@ -149,39 +149,76 @@ class ProductService
             ]];
         }
 
-        $submittedUnits = collect($units)->pluck('unit')->all();
-
-        $product->orderUnits()
-            ->whereNotIn('unit', $submittedUnits)
-            ->delete();
+        $existingUnits = $product->orderUnits()->get()->keyBy('id');
+        $keptIds = [];
 
         foreach ($units as $unit) {
-            $product->orderUnits()->updateOrCreate(
-                ['unit' => $unit['unit']],
-                [
-                    'label' => $unit['label'],
-                    'conversion_to_base' => $unit['conversion_to_base'] ?? null,
-                    'is_base' => $unit['is_base'],
-                    'is_orderable' => $unit['is_orderable'],
-                    'sort_order' => $unit['sort_order'],
-                ],
-            );
+            $attributes = [
+                'unit' => $unit['unit'],
+                'label' => $unit['label'],
+                'conversion_to_base' => $unit['conversion_to_base'] ?? null,
+                'is_base' => $unit['is_base'],
+                'is_orderable' => $unit['is_orderable'],
+                'sort_order' => $unit['sort_order'],
+            ];
+
+            $existing = filled($unit['id'] ?? null)
+                ? $existingUnits->get((int) $unit['id'])
+                : $product->orderUnits()
+                    ->whereRaw('LOWER(label) = ?', [mb_strtolower((string) $unit['label'])])
+                    ->first();
+
+            if ($existing) {
+                $existing->update($attributes);
+                $keptIds[] = $existing->id;
+
+                continue;
+            }
+
+            $created = $product->orderUnits()->create($attributes);
+            $keptIds[] = $created->id;
+        }
+
+        if ($keptIds !== []) {
+            $product->orderUnits()->whereNotIn('id', $keptIds)->delete();
         }
     }
 
-    private function bulkMeasureUnits(string $baseUnit, array $units): array
+    private function bulkMeasureUnits(string $baseUnit, array $units, array $boxVariants = []): array
     {
-        return collect(ProductUnit::AVAILABLE_UNITS)
+        $rows = collect(ProductUnit::AVAILABLE_UNITS)
             ->filter(fn (string $unit): bool => $unit === $baseUnit || array_key_exists($unit, $units))
             ->map(fn (string $unit, int $index): array => [
                 'unit' => $unit,
-                'label' => strtoupper($unit),
+                'label' => $unit === 'box' && $unit !== $baseUnit && filled($units[$unit] ?? null)
+                    ? 'BOX '.$this->formatMeasureLabelNumber((float) $units[$unit]).' '.strtoupper($baseUnit)
+                    : strtoupper($unit),
                 'conversion_to_base' => $unit === $baseUnit ? 1.0 : $units[$unit],
                 'is_base' => $unit === $baseUnit,
                 'is_orderable' => true,
                 'sort_order' => $index,
-            ])
-            ->values()
-            ->all();
+            ]);
+
+        foreach ($boxVariants as $variant) {
+            if ($baseUnit === 'box' || abs((float) ($units['box'] ?? 0) - (float) $variant) < 0.0001) {
+                continue;
+            }
+
+            $rows->push([
+                'unit' => 'box',
+                'label' => 'BOX '.$this->formatMeasureLabelNumber((float) $variant).' '.strtoupper($baseUnit),
+                'conversion_to_base' => (float) $variant,
+                'is_base' => false,
+                'is_orderable' => true,
+                'sort_order' => $rows->count(),
+            ]);
+        }
+
+        return $rows->values()->all();
+    }
+
+    private function formatMeasureLabelNumber(float $value): string
+    {
+        return rtrim(rtrim(number_format($value, 4, '.', ''), '0'), '.');
     }
 }

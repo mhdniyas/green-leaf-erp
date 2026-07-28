@@ -40,18 +40,20 @@ class ShopOrderRevisionService
             ]);
         }
 
-        $baselineItems = $order->items()->with('product')->get()->keyBy('product_id');
+        $baselineQuantities = $order->items()
+            ->get()
+            ->groupBy('product_id')
+            ->map(fn ($items): float => (float) $items->sum(fn (ShopOrderItem $item): float => (float) ($item->approved_qty ?? $item->requested_qty ?? 0.00)));
         $incomingQuantities = collect($items)
-            ->mapWithKeys(fn (array $item): array => [(int) $item['product']->id => (float) $item['quantity']]);
+            ->groupBy(fn (array $item): int => (int) $item['product']->id)
+            ->map(fn ($productItems): float => (float) $productItems->sum(fn (array $item): float => (float) $item['quantity']));
 
-        $changedProducts = collect($baselineItems->keys())
+        $changedProducts = collect($baselineQuantities->keys())
             ->merge($incomingQuantities->keys())
             ->unique()
             ->values()
-            ->map(function (int $productId) use ($baselineItems, $incomingQuantities): ?array {
-                /** @var ShopOrderItem|null $baselineItem */
-                $baselineItem = $baselineItems->get($productId);
-                $oldQuantity = (float) ($baselineItem?->approved_qty ?? $baselineItem?->requested_qty ?? 0.00);
+            ->map(function (int $productId) use ($baselineQuantities, $incomingQuantities): ?array {
+                $oldQuantity = (float) ($baselineQuantities->get($productId) ?? 0.00);
                 $newQuantity = (float) ($incomingQuantities->get($productId) ?? 0.00);
 
                 if (abs($oldQuantity - $newQuantity) < 0.0001) {
@@ -162,7 +164,7 @@ class ShopOrderRevisionService
             return $revision->fresh(['items.product', 'shopOrder']);
         }
 
-        $existingItems = $order->items()->with('product')->get()->keyBy('product_id');
+        $existingItems = $order->items()->with('product')->get()->groupBy('product_id');
         $wasApplied = false;
 
         foreach ($revision->items as $revisionItem) {
@@ -172,8 +174,9 @@ class ShopOrderRevisionService
                 : (float) $revisionItem->new_requested_qty;
             $finalQuantity = round(max(0.0, $finalQuantity), 2);
 
+            $existingProductItems = $existingItems->get($productId, collect());
             /** @var ShopOrderItem|null $existingItem */
-            $existingItem = $existingItems->get($productId);
+            $existingItem = $existingProductItems->first();
             $fulfillmentType = (string) ($fulfillmentTypes[$productId] ?? $existingItem?->fulfillment_type ?? 'warehouse');
             $product = $revisionItem->product ?? Product::findOrFail($productId);
 
@@ -185,23 +188,34 @@ class ShopOrderRevisionService
                         'requested_qty' => $finalQuantity,
                         'approved_qty' => $finalQuantity,
                         'unit' => $product->unit,
+                        'requested_product_unit_id' => null,
+                        'requested_unit' => $product->unit,
+                        'requested_unit_label' => strtoupper((string) $product->unit),
+                        'requested_unit_quantity' => $finalQuantity,
+                        'requested_unit_conversion_to_base' => 1,
                         'fulfillment_type' => $fulfillmentType,
                         ...$payload,
                     ]);
+                    $extraItemIds = $existingProductItems->skip(1)->pluck('id')->all();
+                    if ($extraItemIds !== []) {
+                        $order->items()->whereIn('id', $extraItemIds)->delete();
+                    }
                 } else {
                     $existingItem = $order->items()->create([
                         'product_id' => $product->id,
                         'requested_qty' => $finalQuantity,
                         'approved_qty' => $finalQuantity,
                         'unit' => $product->unit,
+                        'requested_unit' => $product->unit,
+                        'requested_unit_label' => strtoupper((string) $product->unit),
+                        'requested_unit_quantity' => $finalQuantity,
+                        'requested_unit_conversion_to_base' => 1,
                         'fulfillment_type' => $fulfillmentType,
                         ...$payload,
                     ]);
-                    $existingItems->put($productId, $existingItem);
                 }
             } elseif ($existingItem) {
-                $existingItem->delete();
-                $existingItems->forget($productId);
+                $order->items()->whereIn('id', $existingProductItems->pluck('id')->all())->delete();
             }
 
             if (abs((float) $revisionItem->old_requested_qty - $finalQuantity) > 0.0001) {

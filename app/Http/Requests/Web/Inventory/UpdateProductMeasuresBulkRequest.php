@@ -25,6 +25,7 @@ class UpdateProductMeasuresBulkRequest extends FormRequest
             'products.*.enabled_units.*' => ['nullable', 'boolean'],
             'products.*.units' => ['nullable', 'array'],
             'products.*.units.*' => ['nullable', 'numeric', 'min:0.0001'],
+            'products.*.box_variants' => ['nullable', 'string', 'max:255'],
             'save_row' => ['nullable', 'integer', 'min:0'],
         ];
     }
@@ -74,11 +75,19 @@ class UpdateProductMeasuresBulkRequest extends FormRequest
                 }
 
                 $units[$baseUnit] = 1.0;
+                $boxVariants = collect(explode(',', (string) ($row['box_variants'] ?? '')))
+                    ->map(fn (string $value): string => trim($value))
+                    ->filter(fn (string $value): bool => $value !== '' && is_numeric($value) && (float) $value > 0)
+                    ->map(fn (string $value): float => round((float) $value, 4))
+                    ->unique()
+                    ->values()
+                    ->all();
 
                 return [
                     'public_uuid' => (string) $row['public_uuid'],
                     'base_unit' => $baseUnit,
                     'units' => $units,
+                    'box_variants' => $boxVariants,
                 ];
             })
             ->values()

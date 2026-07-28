@@ -13,6 +13,8 @@ $units = [
 $baseUnit = old('unit', $product->unit ?? 'kg');
 $existingUnitRows = isset($product)
     ? $product->orderUnits->map(fn ($unit) => [
+        'id' => $unit->id,
+        'public_uuid' => $unit->public_uuid,
         'unit' => $unit->unit,
         'label' => $unit->label,
         'conversion_to_base' => $unit->conversion_to_base !== null ? (float) $unit->conversion_to_base : null,
@@ -184,6 +186,12 @@ $unitRows = old('units', $existingUnitRows);
                                     $isBaseRow = $rowUnit === $baseUnit || (bool) ($unitRow['is_base'] ?? false);
                                 @endphp
                                 <div data-product-unit-row class="grid grid-cols-[1.2fr_1fr_1fr_2.5rem] items-center gap-2 px-3 py-2">
+                                    @if(! empty($unitRow['id']))
+                                        <input type="hidden" name="units[{{ $index }}][id]" value="{{ $unitRow['id'] }}">
+                                    @endif
+                                    @if(! empty($unitRow['public_uuid']))
+                                        <input type="hidden" name="units[{{ $index }}][public_uuid]" value="{{ $unitRow['public_uuid'] }}">
+                                    @endif
                                     <input type="hidden" name="units[{{ $index }}][is_base]" value="{{ $isBaseRow ? '1' : '0' }}" data-unit-is-base>
                                     <div class="relative" data-product-select>
                                         <input type="hidden" name="units[{{ $index }}][unit]" value="{{ $rowUnit }}" data-product-select-input data-unit-select>
@@ -330,8 +338,23 @@ $unitRows = old('units', $existingUnitRows);
             const productUnitOptions = @json($units);
             let previousBaseUnit = document.getElementById('unit')?.value || 'kg';
 
-            function unitLabel(unit) {
-                return String(unit || '').toUpperCase();
+            function formatMeasureNumber(value) {
+                const number = Number.parseFloat(String(value));
+                if (!Number.isFinite(number)) return '';
+
+                const rounded = Math.round((number + Number.EPSILON) * 100) / 100;
+                return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+            }
+
+            function unitLabel(unit, conversion = null, baseUnit = null) {
+                const normalizedUnit = String(unit || '').toUpperCase();
+                const formattedConversion = formatMeasureNumber(conversion);
+
+                if (!formattedConversion || Number.parseFloat(String(conversion)) === 1) {
+                    return normalizedUnit;
+                }
+
+                return `${normalizedUnit} ${formattedConversion} ${String(baseUnit || 'kg').toUpperCase()}`;
             }
 
             function productSelectOptionClasses(isSelected) {
@@ -447,7 +470,7 @@ $unitRows = old('units', $existingUnitRows);
                             Yes
                         </label>
                         <button type="button" data-remove-unit-row class="h-9 rounded-lg text-xs font-black text-slate-400 hover:bg-red-50 hover:text-red-600">X</button>
-                        <input type="hidden" name="units[${index}][label]" value="${unitLabel(unit)}" data-unit-label>
+                        <input type="hidden" name="units[${index}][label]" value="${unitLabel(unit, conversion, document.getElementById('unit')?.value || 'kg')}" data-unit-label>
                         <p data-unit-row-hint class="col-span-4 hidden rounded-lg px-2 py-1 text-[11px] font-black"></p>
                     </div>
                 `;
@@ -480,7 +503,7 @@ $unitRows = old('units', $existingUnitRows);
                         conversionInput.readOnly = isBase;
                         if (isBase) conversionInput.value = '1';
                     }
-                    if (labelInput && unitSelect) labelInput.value = unitLabel(unitSelect.value);
+                    if (labelInput && unitSelect) labelInput.value = unitLabel(unitSelect.value, conversionInput?.value, baseUnit);
                     if (removeButton) {
                         removeButton.disabled = isBase;
                         removeButton.classList.toggle('opacity-40', isBase);
@@ -536,7 +559,9 @@ $unitRows = old('units', $existingUnitRows);
                 if (!container) return;
 
                 const usedUnits = Array.from(document.querySelectorAll('[data-unit-select]')).map((select) => select.value);
-                const nextUnit = Object.keys(productUnitOptions).find((unit) => !usedUnits.includes(unit)) || 'box';
+                const nextUnit = usedUnits.includes('box')
+                    ? 'box'
+                    : (Object.keys(productUnitOptions).find((unit) => !usedUnits.includes(unit)) || 'box');
                 container.insertAdjacentHTML('beforeend', unitRowTemplate(container.children.length, nextUnit, '1', true));
                 syncProductUnitRows();
             });

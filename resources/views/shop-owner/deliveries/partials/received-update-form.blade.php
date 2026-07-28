@@ -103,6 +103,9 @@
                             <p class="mt-0.5 truncate text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
                                 Code {{ $item->product->sku }} · {{ strtoupper($item->unit) }}
                             </p>
+                            <p class="mt-1 truncate text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700">
+                                Ordered {{ $item->requestedMeasureBreakdownLabel() }}
+                            </p>
                         </div>
 
                         <div class="grid grid-cols-3 gap-2 md:contents">

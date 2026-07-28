@@ -29,10 +29,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const productCatalog = JSON.parse(productCatalogNode.textContent ?? '[]');
-    const productsById = new Map(productCatalog.map((product) => [String(product.id), product]));
+    const productsById = productCatalog.reduce((map, product) => {
+        const id = String(product.id);
+        if (!map.has(id)) {
+            map.set(id, product);
+        }
+
+        return map;
+    }, new Map());
+    const productsByLineKey = new Map(productCatalog.map((product) => [String(product.line_key ?? product.id), product]));
     const presets = presetsNode ? JSON.parse(presetsNode.textContent ?? '[]') : [];
-    const inputsByProductId = new Map(quantityInputs.map((input) => [String(input.getAttribute('data-product-id')), input]));
-    const unitInputsByProductId = new Map(unitInputs.map((input) => [String(input.getAttribute('data-product-id')), input]));
+    const inputsByLineKey = new Map(quantityInputs.map((input) => [String(input.getAttribute('data-line-key') ?? input.getAttribute('data-product-id')), input]));
+    const unitInputsByLineKey = new Map(unitInputs.map((input) => [String(input.getAttribute('data-line-key') ?? input.getAttribute('data-product-id')), input]));
     const draftStorageKey = `shop-owner-order-draft:${formNode.action}:${formNode.querySelector('[name="business_date"]')?.value ?? window.location.pathname}`;
 
     let activeCategory = categoryPills.find((pill) => pill.hasAttribute('data-default-category'))?.getAttribute('data-default-category') ?? 'all';
@@ -55,15 +63,30 @@ document.addEventListener('DOMContentLoaded', () => {
             return null;
         }
 
-        return product.order_units.find((candidate) => candidate.unit === unit) ?? null;
+        return product.order_units.find((candidate) => candidate.public_uuid === unit || candidate.unit === unit || candidate.label === unit) ?? null;
     };
 
-    const syncUnitConversionInfo = (input) => {
-        const row = input.closest('[data-product-card]');
+    const productForInput = (input) => {
+        const lineKey = String(input.getAttribute('data-line-key') ?? input.getAttribute('data-product-id'));
         const productId = String(input.getAttribute('data-product-id'));
-        const product = productsById.get(productId);
-        const unitInput = unitInputsByProductId.get(productId);
-        const selectedUnit = unitInput?.value || product?.current_unit || product?.unit;
+
+        return productsByLineKey.get(lineKey) ?? productsById.get(productId);
+    };
+
+    const measureInputForUnitInput = (unitInput) => unitInput
+        ?.closest('[data-inline-unit-picker]')
+        ?.querySelector('[data-inline-measure]')
+        ?? unitInput
+            ?.closest('[data-product-card]')
+            ?.querySelector(`[data-inline-measure][data-line-key="${unitInput.getAttribute('data-line-key')}"]`);
+
+    const syncUnitConversionInfo = (input) => {
+        const row = input.closest('[data-extra-measure-line]') ?? input.closest('[data-product-card]');
+        const lineKey = String(input.getAttribute('data-line-key') ?? input.getAttribute('data-product-id'));
+        const product = productForInput(input);
+        const unitInput = unitInputsByLineKey.get(lineKey);
+        const measureInput = measureInputForUnitInput(unitInput);
+        const selectedUnit = measureInput?.value || unitInput?.value || product?.current_unit || product?.unit;
         const unitDefinition = unitDefinitionForProduct(product, selectedUnit);
         const info = row?.querySelector('[data-unit-conversion-info]');
         const conversion = Number.parseFloat(String(unitDefinition?.conversion_to_base ?? '1'));
@@ -76,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const enteredQuantity = parseQty(input.value);
         const displayQuantity = enteredQuantity > 0 ? enteredQuantity : 1;
         const baseQuantity = displayQuantity * conversion;
-        const selectedLabel = String(selectedUnit).toUpperCase();
+        const selectedLabel = String(unitDefinition?.label ?? selectedUnit).toUpperCase();
         const baseLabel = String(product.unit).toUpperCase();
 
         info.textContent = `${formatQuantity(displayQuantity)} ${selectedLabel} = ${formatQuantity(baseQuantity)} ${baseLabel}`;
@@ -85,13 +108,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const selectedRows = () => quantityInputs
         .map((input) => {
-            const productId = String(input.getAttribute('data-product-id'));
-            const product = productsById.get(productId);
+            const lineKey = String(input.getAttribute('data-line-key') ?? input.getAttribute('data-product-id'));
+            const product = productForInput(input);
             const quantity = parseQty(input.value);
-            const unitInput = unitInputsByProductId.get(productId);
+            const unitInput = unitInputsByLineKey.get(lineKey);
             const unit = unitInput?.value || product?.current_unit || product?.unit;
+            const measureInput = measureInputForUnitInput(unitInput);
+            const unitDefinition = unitDefinitionForProduct(product, measureInput?.value || unit);
 
-            return product && quantity > 0 ? { input, product, quantity, unitInput, unit } : null;
+            return product && quantity > 0 ? { input, product, quantity, unitInput, unit, lineKey, unitDefinition } : null;
         })
         .filter(Boolean);
 
@@ -101,7 +126,14 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const isSelected = parseQty(input.value) > 0;
+        const isSelected = Array.from(row.querySelectorAll('[data-inline-qty]')).some((candidate) => parseQty(candidate.value) > 0);
+        const measureEntry = input.closest('[data-measure-entry]');
+        const isMeasureSelected = parseQty(input.value) > 0;
+
+        measureEntry?.classList.toggle('border-emerald-200', isMeasureSelected);
+        measureEntry?.classList.toggle('bg-emerald-50', isMeasureSelected);
+        measureEntry?.classList.toggle('border-slate-100', !isMeasureSelected);
+        measureEntry?.classList.toggle('bg-slate-50/70', !isMeasureSelected);
         row.classList.toggle('border-emerald-200', isSelected);
         row.classList.toggle('bg-emerald-50', isSelected);
         row.classList.toggle('shadow-sm', isSelected);
@@ -126,9 +158,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveDraft = () => {
         const draft = {};
         selectedRows().forEach((row) => {
-            draft[row.product.id] = {
+            draft[row.lineKey] = {
                 quantity: row.quantity,
                 unit: row.unit,
+                measure: measureInputForUnitInput(row.unitInput)?.value ?? null,
             };
         });
 
@@ -142,9 +175,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const syncDraftBar = () => {
         const rows = selectedRows();
         const count = rows.length;
-        const total = rows.reduce((sum, row) => sum + row.quantity, 0);
-        const units = new Set(rows.map((row) => String(row.unit || row.product.unit).toUpperCase()));
-        const quantityLabel = units.size === 1 ? `${total.toFixed(2)} ${Array.from(units)[0]}` : `${total.toFixed(2)} total`;
+        const convertedRows = rows.filter((row) => row.unitDefinition?.conversion_to_base !== null && row.unitDefinition?.conversion_to_base !== undefined);
+        const unconvertedRows = rows.filter((row) => !convertedRows.includes(row));
+        const baseTotals = new Map();
+
+        convertedRows.forEach((row) => {
+            const baseUnit = String(row.product.unit || row.unit).toUpperCase();
+            const conversion = Number.parseFloat(String(row.unitDefinition?.conversion_to_base ?? 1));
+            baseTotals.set(baseUnit, (baseTotals.get(baseUnit) ?? 0) + (row.quantity * conversion));
+        });
+
+        unconvertedRows.forEach((row) => {
+            const label = String(row.unitDefinition?.label || row.unit || row.product.unit).toUpperCase();
+            baseTotals.set(label, (baseTotals.get(label) ?? 0) + row.quantity);
+        });
+
+        const quantityLabel = Array.from(baseTotals.entries())
+            .map(([unit, total]) => `${formatQuantity(total)} ${unit}`)
+            .join(' + ') || '0 selected';
 
         if (count > 0) {
             draftCartSummary.textContent = `${count} selected • ${quantityLabel}`;
@@ -158,15 +206,18 @@ document.addEventListener('DOMContentLoaded', () => {
         document.dispatchEvent(new Event('shop-owner-order-input-change'));
     };
 
-    const setInputQuantity = (productId, quantity, unit = null) => {
-        const input = inputsByProductId.get(String(productId));
+    const setInputQuantity = (lineKey, quantity, unit = null) => {
+        const input = inputsByLineKey.get(String(lineKey));
         if (!input) {
             return;
         }
 
         input.value = quantity > 0 ? quantity.toFixed(2) : '';
+        if (quantity > 0) {
+            input.closest('[data-extra-measure-line]')?.classList.remove('hidden');
+        }
         if (unit) {
-            setProductUnit(productId, unit, { persist: false });
+            setProductUnit(lineKey, unit, { persist: false });
         }
         updateRowState(input);
     };
@@ -184,12 +235,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const syncUnitPickerOptions = (picker, selectedUnit) => {
         const label = picker.querySelector('[data-unit-picker-label]');
+        const product = productsByLineKey.get(String(picker.getAttribute('data-line-key') ?? picker.getAttribute('data-product-id')))
+            ?? productsById.get(String(picker.getAttribute('data-product-id')));
+        const selectedDefinition = unitDefinitionForProduct(product, selectedUnit);
         if (label) {
-            label.textContent = String(selectedUnit).toUpperCase();
+            label.textContent = String(selectedDefinition?.label ?? selectedUnit).toUpperCase();
         }
 
         picker.querySelectorAll('[data-unit-picker-option]').forEach((option) => {
-            const isSelected = option.getAttribute('data-unit-value') === selectedUnit;
+            const isSelected = option.getAttribute('data-unit-value') === selectedUnit
+                || option.getAttribute('data-unit-name') === selectedUnit;
             option.setAttribute('aria-selected', isSelected ? 'true' : 'false');
             option.classList.toggle('bg-emerald-600', isSelected);
             option.classList.toggle('text-white', isSelected);
@@ -199,20 +254,29 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    function setProductUnit(productId, unit, { persist = true } = {}) {
-        const unitInput = unitInputsByProductId.get(String(productId));
+    function setProductUnit(lineKey, unit, { persist = true } = {}) {
+        const unitInput = unitInputsByLineKey.get(String(lineKey));
         if (!unitInput) {
             return;
         }
 
-        unitInput.value = unit;
+        const product = productsByLineKey.get(String(lineKey))
+            ?? productsById.get(String(unitInput.getAttribute('data-product-id')));
+        const unitDefinition = unitDefinitionForProduct(product, unit);
+        const measureInput = measureInputForUnitInput(unitInput);
+
+        unitInput.value = unitDefinition?.unit ?? unit;
+
+        if (measureInput) {
+            measureInput.value = unitDefinition?.public_uuid ?? '';
+        }
 
         const picker = unitInput.closest('[data-inline-unit-picker]');
         if (picker) {
-            syncUnitPickerOptions(picker, unit);
+            syncUnitPickerOptions(picker, unitDefinition?.public_uuid ?? unitDefinition?.unit ?? unit);
         }
 
-        const quantityInput = inputsByProductId.get(String(productId));
+        const quantityInput = inputsByLineKey.get(String(lineKey));
         if (quantityInput) {
             syncUnitConversionInfo(quantityInput);
         }
@@ -334,6 +398,61 @@ document.addEventListener('DOMContentLoaded', () => {
 
     searchInput?.addEventListener('input', filterProducts);
 
+    document.querySelectorAll('[data-add-measure-line]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const row = button.closest('[data-product-card]');
+            const nextLine = row?.querySelector('[data-extra-measure-line].hidden');
+
+            if (!nextLine) {
+                return;
+            }
+
+            const usedMeasures = new Set(
+                Array.from(row.querySelectorAll('[data-inline-measure]'))
+                    .filter((input) => !input.closest('[data-extra-measure-line]')?.classList.contains('hidden'))
+                    .map((input) => input.value || input.closest('[data-inline-unit-picker]')?.querySelector('[data-inline-unit]')?.value)
+                    .filter(Boolean)
+            );
+            const picker = nextLine.querySelector('[data-inline-unit-picker]');
+            const fallbackOption = picker?.querySelector('[data-unit-picker-option]');
+            const unusedOption = Array.from(picker?.querySelectorAll('[data-unit-picker-option]') ?? [])
+                .find((option) => !usedMeasures.has(option.getAttribute('data-unit-value')));
+            const selectedOption = unusedOption ?? fallbackOption;
+            const lineKey = picker?.getAttribute('data-line-key');
+            const selectedMeasure = selectedOption?.getAttribute('data-unit-value');
+
+            nextLine.classList.remove('hidden');
+            if (lineKey && selectedMeasure) {
+                setProductUnit(lineKey, selectedMeasure, { persist: false });
+            }
+            const input = nextLine.querySelector('[data-inline-qty]');
+            if (input) {
+                input.focus();
+                input.select();
+                updateRowState(input);
+            }
+
+            button.classList.toggle('hidden', !row.querySelector('[data-extra-measure-line].hidden'));
+        });
+    });
+
+    document.querySelectorAll('[data-remove-measure-line]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const line = button.closest('[data-extra-measure-line]');
+            const input = line?.querySelector('[data-inline-qty]');
+
+            if (input) {
+                input.value = '';
+                updateRowState(input);
+            }
+
+            line?.classList.add('hidden');
+            line?.closest('[data-product-card]')?.querySelector('[data-add-measure-line]')?.classList.remove('hidden');
+            syncDraftBar();
+            saveDraft();
+        });
+    });
+
     quantityInputs.forEach((input) => {
         input.addEventListener('focus', () => setMobileNavHiddenForInput(true));
         input.addEventListener('blur', () => setMobileNavHiddenForInput(false));
@@ -378,10 +497,11 @@ document.addEventListener('DOMContentLoaded', () => {
         picker.querySelectorAll('[data-unit-picker-option]').forEach((option) => {
             option.addEventListener('click', () => {
                 const productId = picker.getAttribute('data-product-id');
+                const lineKey = picker.getAttribute('data-line-key') ?? productId;
                 const unit = option.getAttribute('data-unit-value');
 
-                if (productId && unit) {
-                    setProductUnit(productId, unit);
+                if (lineKey && unit) {
+                    setProductUnit(lineKey, unit);
                 }
 
                 menu?.classList.add('hidden');
@@ -445,8 +565,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         quantityInputs.forEach((input) => {
             const productId = String(input.getAttribute('data-product-id'));
+            const lineKey = String(input.getAttribute('data-line-key') ?? productId);
             const quantity = quantitiesByProductId.get(productId) ?? 0;
-            input.value = quantity > 0 ? quantity.toFixed(2) : '';
+            const isFirstProductRow = quantityInputs.find((candidate) => String(candidate.getAttribute('data-product-id')) === productId) === input;
+            input.value = quantity > 0 && isFirstProductRow ? quantity.toFixed(2) : '';
+            if (!isFirstProductRow) {
+                window.localStorage.removeItem(`${draftStorageKey}:${lineKey}`);
+            }
         });
 
         syncAll();
@@ -476,7 +601,13 @@ document.addEventListener('DOMContentLoaded', () => {
             quantityField.value = row.quantity.toFixed(2);
             quantityField.setAttribute('data-generated-preset-item', 'true');
 
-            form.append(productField, quantityField);
+            const measureField = document.createElement('input');
+            measureField.type = 'hidden';
+            measureField.name = `items[${index}][product_unit_uuid]`;
+            measureField.value = row.product.current_measure_uuid ?? '';
+            measureField.setAttribute('data-generated-preset-item', 'true');
+
+            form.append(productField, quantityField, measureField);
         });
     });
 
@@ -502,13 +633,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            Object.entries(draft).forEach(([productId, value]) => {
+            Object.entries(draft).forEach(([lineKey, value]) => {
                 if (value && typeof value === 'object') {
-                    setInputQuantity(productId, parseQty(value.quantity), value.unit ?? null);
+                    setInputQuantity(lineKey, parseQty(value.quantity), value.measure ?? value.unit ?? null);
                     return;
                 }
 
-                setInputQuantity(productId, parseQty(value));
+                setInputQuantity(lineKey, parseQty(value));
             });
         } catch {
             window.localStorage.removeItem(draftStorageKey);
@@ -525,8 +656,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const product = productsById.get(String(productId));
+        const lineKey = String(product?.line_key ?? productId);
         const fallbackQuantity = parseQty(product?.suggested_qty ?? 0) || 1;
-        setInputQuantity(productId, requestedQuantity || fallbackQuantity);
+        setInputQuantity(lineKey, requestedQuantity || fallbackQuantity);
 
         url.searchParams.delete('product');
         url.searchParams.delete('price_date');

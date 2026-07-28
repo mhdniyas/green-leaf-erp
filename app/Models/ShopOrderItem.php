@@ -31,7 +31,9 @@ class ShopOrderItem extends Model
         'loadout_discrepancy_type',
         'loadout_discrepancy_note',
         'unit',
+        'requested_product_unit_id',
         'requested_unit',
+        'requested_unit_label',
         'requested_unit_quantity',
         'requested_unit_conversion_to_base',
         'locked_price_group_id',
@@ -96,6 +98,11 @@ class ShopOrderItem extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function requestedProductUnit(): BelongsTo
+    {
+        return $this->belongsTo(ProductUnit::class, 'requested_product_unit_id');
     }
 
     public function lockedPriceGroup(): BelongsTo
@@ -169,5 +176,27 @@ class ShopOrderItem extends Model
             'pending_approval' => 'warning',
             default => 'neutral',
         };
+    }
+
+    public function requestedMeasureLabel(): string
+    {
+        $label = trim((string) ($this->requested_unit_label ?: $this->requested_unit ?: $this->unit));
+        $quantity = (float) ($this->requested_unit_quantity ?? $this->requested_qty);
+
+        return trim(number_format($quantity, 2, '.', '').' '.$label);
+    }
+
+    public function requestedMeasureBreakdownLabel(): string
+    {
+        $requested = $this->requestedMeasureLabel();
+
+        if ($this->requested_unit_conversion_to_base === null) {
+            return $requested;
+        }
+
+        $baseQty = (float) $this->requested_qty;
+        $baseUnit = strtoupper((string) $this->unit);
+
+        return "{$requested} = ".number_format($baseQty, 2, '.', '')." {$baseUnit}";
     }
 }

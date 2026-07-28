@@ -64,17 +64,20 @@ final readonly class ProductData
             ->map(function (array $row, int $index) use ($baseUnit): array {
                 $unit = strtolower(trim((string) $row['unit']));
                 $isBase = (bool) ($row['is_base'] ?? false) || $unit === $baseUnit;
+                $label = trim((string) ($row['label'] ?? strtoupper($unit))) ?: strtoupper($unit);
 
                 return [
+                    'id' => filled($row['id'] ?? null) ? (int) $row['id'] : null,
                     'unit' => $unit,
-                    'label' => trim((string) ($row['label'] ?? strtoupper($unit))) ?: strtoupper($unit),
+                    'label' => $label,
+                    'public_uuid' => filled($row['public_uuid'] ?? null) ? (string) $row['public_uuid'] : null,
                     'conversion_to_base' => $isBase ? 1.0 : (filled($row['conversion_to_base'] ?? null) ? round((float) $row['conversion_to_base'], 4) : null),
                     'is_base' => $isBase,
                     'is_orderable' => (bool) ($row['is_orderable'] ?? true),
                     'sort_order' => $index,
                 ];
             })
-            ->unique('unit')
+            ->unique(fn (array $row): string => mb_strtolower($row['label']))
             ->values();
 
         if (! $rows->contains(fn (array $row): bool => $row['unit'] === $baseUnit)) {

@@ -125,6 +125,76 @@ class ProductUnitMeasureWorkflowTest extends TestCase
         $this->assertSame(12.0, (float) $item->requested_unit_conversion_to_base);
     }
 
+    public function test_shop_owner_can_order_same_product_with_multiple_box_measures(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-07-23 10:00:00', 'Asia/Kolkata'));
+
+        $shop = Shop::factory()->create();
+        $shopOwner = User::factory()->create(['shop_id' => $shop->id]);
+        $shopOwner->assignRole('shop');
+        $product = Product::factory()->create([
+            'name' => 'Multi Box Tomato',
+            'sku' => 'MULTI-BOX-TOMATO',
+            'unit' => 'kg',
+            'is_active' => true,
+        ]);
+        ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'kg',
+            'label' => 'KG',
+            'conversion_to_base' => 1,
+            'is_base' => true,
+            'is_orderable' => true,
+        ]);
+        $box10 = ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'box',
+            'label' => 'BOX 10 KG',
+            'conversion_to_base' => 10,
+            'is_base' => false,
+            'is_orderable' => true,
+        ]);
+        $box5 = ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'box',
+            'label' => 'BOX 5 KG',
+            'conversion_to_base' => 5,
+            'is_base' => false,
+            'is_orderable' => true,
+        ]);
+
+        $line10 = $product->sku.'|'.$box10->public_uuid;
+        $line5 = $product->sku.'|'.$box5->public_uuid;
+
+        $this
+            ->actingAs($shopOwner)
+            ->post(route('requisitions.store'), [
+                'items' => [
+                    $line10 => 1,
+                    $line5 => 2,
+                ],
+                'item_units' => [
+                    $line10 => 'box',
+                    $line5 => 'box',
+                ],
+                'item_measures' => [
+                    $line10 => $box10->public_uuid,
+                    $line5 => $box5->public_uuid,
+                ],
+            ])
+            ->assertRedirect();
+
+        $items = ShopOrder::query()->with('items')->sole()->items->sortBy('requested_unit_conversion_to_base')->values();
+
+        $this->assertCount(2, $items);
+        $this->assertSame('BOX 5 KG', $items[0]->requested_unit_label);
+        $this->assertSame(2.0, (float) $items[0]->requested_unit_quantity);
+        $this->assertSame(10.0, (float) $items[0]->requested_qty);
+        $this->assertSame('BOX 10 KG', $items[1]->requested_unit_label);
+        $this->assertSame(1.0, (float) $items[1]->requested_unit_quantity);
+        $this->assertSame(10.0, (float) $items[1]->requested_qty);
+    }
+
     public function test_shop_owner_piece_order_without_kg_conversion_stays_as_piece_quantity(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-07-23 10:00:00', 'Asia/Kolkata'));

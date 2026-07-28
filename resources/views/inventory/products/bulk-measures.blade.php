@@ -60,6 +60,7 @@
                                 <th class="border-b border-slate-200 px-3 py-3 text-left">Base</th>
                                 <th class="border-b border-slate-200 px-3 py-3 text-center">Box</th>
                                 <th class="border-b border-slate-200 px-3 py-3 text-right">KG per Box</th>
+                                <th class="border-b border-slate-200 px-3 py-3 text-left">Extra Box KG</th>
                                 <th class="border-b border-slate-200 px-3 py-3 text-center">Piece</th>
                                 <th class="border-b border-slate-200 px-3 py-3 text-right">KG per Piece</th>
                                 @foreach(['bag', 'bunch', 'packet', 'crate', 'tray'] as $unit)
@@ -75,7 +76,9 @@
                                     $rowIndex = $loop->index;
                                     $baseUnit = old("products.{$rowIndex}.base_unit", $product->unit);
                                     $unitMap = $product->orderUnits->keyBy('unit');
-                                    $boxUnit = $unitMap->get('box');
+                                    $boxUnits = $product->orderUnits->where('unit', 'box')->values();
+                                    $boxUnit = $boxUnits->first();
+                                    $extraBoxValues = $boxUnits->slice(1)->pluck('conversion_to_base')->filter()->map(fn ($value) => rtrim(rtrim(number_format((float) $value, 4, '.', ''), '0'), '.'))->implode(', ');
                                     $pieceUnit = $unitMap->get('piece');
                                 @endphp
                                 <tr data-measure-row data-product-name="{{ $product->name }}" data-category="{{ $product->category?->name ?? 'No category' }}" class="group hover:bg-emerald-50/40">
@@ -102,6 +105,9 @@
                                     </td>
                                     <td class="border-b border-slate-100 px-3 py-2">
                                         <input type="number" step="0.0001" min="0.0001" name="products[{{ $rowIndex }}][units][box]" value="{{ old("products.{$rowIndex}.units.box", $baseUnit === 'box' ? 1 : ($boxUnit?->conversion_to_base ?? '')) }}" data-measure-input data-unit="box" class="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-right text-xs font-black text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:border-emerald-200 disabled:bg-emerald-50 disabled:text-emerald-800" placeholder="Required">
+                                    </td>
+                                    <td class="border-b border-slate-100 px-3 py-2">
+                                        <input type="text" name="products[{{ $rowIndex }}][box_variants]" value="{{ old("products.{$rowIndex}.box_variants", $extraBoxValues) }}" data-box-variants class="h-9 w-32 rounded-lg border border-slate-200 bg-white px-2 text-xs font-black text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" placeholder="5, 10, 15">
                                     </td>
                                     <td class="border-b border-slate-100 px-3 py-2 text-center">
                                         <input type="hidden" name="products[{{ $rowIndex }}][enabled_units][piece]" value="0">
@@ -140,7 +146,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="12" class="px-4 py-12 text-center text-sm font-bold text-slate-500">No products found.</td>
+                                    <td colspan="13" class="px-4 py-12 text-center text-sm font-bold text-slate-500">No products found.</td>
                                 </tr>
                             @endforelse
                         </tbody>

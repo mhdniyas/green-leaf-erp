@@ -52,11 +52,12 @@ class StoreProductRequest extends FormRequest
             return;
         }
 
-        $units = $rows->map(fn (array $row): string => strtolower((string) $row['unit']));
-        if ($units->duplicates()->isNotEmpty()) {
-            $validator->errors()->add('units', 'Each unit can only be added once.');
+        $labels = $rows->map(fn (array $row): string => mb_strtolower(trim((string) ($row['label'] ?? $row['unit'] ?? ''))));
+        if ($labels->duplicates()->isNotEmpty()) {
+            $validator->errors()->add('units', 'Each measure label can only be added once.');
         }
 
+        $units = $rows->map(fn (array $row): string => strtolower((string) $row['unit']));
         $baseUnit = strtolower($this->string('unit')->toString());
         if (! $units->contains($baseUnit)) {
             $validator->errors()->add('units', 'The base unit must be included in order units.');

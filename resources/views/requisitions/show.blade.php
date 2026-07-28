@@ -105,6 +105,7 @@
                                         <td class="py-4 px-6 font-semibold text-slate-900">
                                             {{ $item->product->name }}
                                             <span class="block text-[10px] text-slate-400 font-normal mt-0.5">{{ $item->product->sku }}</span>
+                                            <span class="block text-[10px] text-emerald-700 font-black uppercase tracking-[0.12em] mt-1">{{ $item->requestedMeasureBreakdownLabel() }}</span>
                                         </td>
                                         @if($order->is_delivered || $order->delivery_status === 'pending_approval')
                                             <td class="py-4 px-6 text-right font-semibold text-slate-700">

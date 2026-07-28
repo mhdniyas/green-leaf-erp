@@ -11,13 +11,14 @@
                 <div>
                     <p class="font-bold text-slate-900">{{ $item->product->name }}</p>
                     <p class="mt-1 text-xs text-slate-500">Code {{ $item->product->sku }}</p>
+                    <p class="mt-1 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700">{{ $item->requestedMeasureBreakdownLabel() }}</p>
                 </div>
                 <span class="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-600">{{ $item->unit }}</span>
             </div>
             <div class="mt-4 grid grid-cols-3 gap-3">
                 <div>
                     <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Requested</p>
-                    <p class="mt-1 text-sm font-bold text-slate-900">{{ number_format((float) $item->requested_qty, 2) }}</p>
+                    <p class="mt-1 text-sm font-bold text-slate-900">{{ number_format((float) $item->requested_qty, 2) }} {{ $item->unit }}</p>
                 </div>
                 <div>
                     <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Approved</p>
@@ -62,6 +63,7 @@
                     <td class="py-4 pr-4">
                         <p class="font-bold text-slate-900">{{ $item->product->name }}</p>
                         <p class="mt-1 text-xs text-slate-500">Code {{ $item->product->sku }}</p>
+                        <p class="mt-1 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700">{{ $item->requestedMeasureBreakdownLabel() }}</p>
                     </td>
                     <td class="py-4 pr-4 text-right font-bold">{{ number_format((float) $item->requested_qty, 2) }} {{ $item->unit }}</td>
                     <td class="py-4 pr-4 text-right font-bold">{{ number_format((float) ($item->approved_qty ?? 0), 2) }} {{ $item->unit }}</td>

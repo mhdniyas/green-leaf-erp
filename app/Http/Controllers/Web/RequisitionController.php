@@ -11,6 +11,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\ReviewDeliveryDiscrepancyRequest;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\ProductUnit;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\Shop;
@@ -74,7 +75,7 @@ class RequisitionController extends Controller
                 ->withInput();
         }
 
-        $items = $this->resolveRequestedProducts($request->input('items', []), $request->input('item_units', []));
+        $items = $this->resolveRequestedProducts($request->input('items', []), $request->input('item_units', []), $request->input('item_measures', []));
 
         if ($items === []) {
             if ($request->expectsJson()) {
@@ -389,7 +390,7 @@ class RequisitionController extends Controller
             'items' => ['required', 'array'],
         ]);
 
-        $items = $this->resolveRequestedProducts($validated['items'], $request->input('item_units', []));
+        $items = $this->resolveRequestedProducts($validated['items'], $request->input('item_units', []), $request->input('item_measures', []));
 
         if ($items === []) {
             return redirect()->route('admin.accounting.purchasers.direct-purchase.create', [
@@ -548,7 +549,7 @@ class RequisitionController extends Controller
                 ->with('error', 'This order can no longer be modified from the shop owner workflow.');
         }
 
-        $items = $this->resolveRequestedProducts($request->input('items', []), $request->input('item_units', []));
+        $items = $this->resolveRequestedProducts($request->input('items', []), $request->input('item_units', []), $request->input('item_measures', []));
         if ($items === []) {
             return redirect()->route('shop-owner.orders.create')
                 ->withErrors(['items' => 'Updated order cannot be empty.']);
@@ -2025,23 +2026,32 @@ class RequisitionController extends Controller
      * @param  array<string, mixed>  $rawItems
      * @return array<int, array{product: Product, quantity: float}>
      */
-    private function resolveRequestedProducts(array $rawItems, array $rawUnits = []): array
+    private function resolveRequestedProducts(array $rawItems, array $rawUnits = [], array $rawMeasures = []): array
     {
         $requestedQuantities = [];
+        $lineMeta = [];
 
-        foreach ($rawItems as $sku => $quantity) {
-            if (! is_string($sku) && ! is_int($sku)) {
+        foreach ($rawItems as $lineKey => $quantity) {
+            if (! is_string($lineKey) && ! is_int($lineKey)) {
                 continue;
             }
 
-            $normalizedSku = (string) $sku;
+            $normalizedLineKey = (string) $lineKey;
+            [$normalizedSku, $embeddedMeasure] = array_pad(explode('|', $normalizedLineKey, 2), 2, null);
+            $normalizedSku = (string) $normalizedSku;
             $numericQuantity = (float) $quantity;
 
             if ($numericQuantity <= 0) {
                 continue;
             }
 
-            $requestedQuantities[$normalizedSku] = $numericQuantity;
+            $requestedQuantities[$normalizedLineKey] = $numericQuantity;
+            $lineMeta[$normalizedLineKey] = [
+                'sku' => $normalizedSku,
+                'measure' => filled($rawMeasures[$normalizedLineKey] ?? null)
+                    ? (string) $rawMeasures[$normalizedLineKey]
+                    : ($embeddedMeasure ?: null),
+            ];
         }
 
         if ($requestedQuantities === []) {
@@ -2050,13 +2060,14 @@ class RequisitionController extends Controller
 
         $productsBySku = Product::query()
             ->with('orderUnits')
-            ->whereIn('sku', array_keys($requestedQuantities))
+            ->whereIn('sku', collect($lineMeta)->pluck('sku')->unique()->all())
             ->get()
             ->keyBy('sku');
 
         $resolvedItems = [];
 
-        foreach ($requestedQuantities as $sku => $quantity) {
+        foreach ($requestedQuantities as $lineKey => $quantity) {
+            $sku = $lineMeta[$lineKey]['sku'];
             /** @var Product|null $product */
             $product = $productsBySku->get($sku);
 
@@ -2064,30 +2075,43 @@ class RequisitionController extends Controller
                 continue;
             }
 
-            $requestedUnit = strtolower(trim((string) ($rawUnits[$sku] ?? $product->unit)));
-            $orderableUnits = $product->orderUnits
-                ->where('is_orderable', true)
-                ->pluck('unit')
-                ->map(fn (string $unit): string => strtolower($unit));
+            $selectedMeasure = $this->selectedProductUnitForLine(
+                product: $product,
+                measureUuid: $lineMeta[$lineKey]['measure'],
+                requestedUnit: strtolower(trim((string) ($rawUnits[$lineKey] ?? $rawUnits[$sku] ?? $product->unit))),
+            );
 
-            if ($orderableUnits->isNotEmpty() && ! $orderableUnits->contains($requestedUnit)) {
-                $requestedUnit = strtolower((string) $product->unit);
-            }
-
-            $conversionToBase = $product->conversionToBaseForUnit($requestedUnit);
+            $requestedUnit = strtolower((string) ($selectedMeasure?->unit ?? $product->unit));
+            $requestedUnitLabel = $selectedMeasure?->label ?: strtoupper($requestedUnit);
+            $conversionToBase = $selectedMeasure
+                ? ($selectedMeasure->conversion_to_base !== null ? (float) $selectedMeasure->conversion_to_base : null)
+                : $product->conversionToBaseForUnit($requestedUnit);
             $baseQuantity = $conversionToBase !== null ? round($quantity * $conversionToBase, 2) : $quantity;
 
             $resolvedItems[] = [
                 'product' => $product,
+                'line_key' => $lineKey,
+                'requested_product_unit_id' => $selectedMeasure?->id,
                 'quantity' => $baseQuantity,
                 'unit' => $conversionToBase !== null ? $product->unit : $requestedUnit,
                 'requested_unit' => $requestedUnit,
+                'requested_unit_label' => $requestedUnitLabel,
                 'requested_unit_quantity' => $quantity,
                 'requested_unit_conversion_to_base' => $conversionToBase,
             ];
         }
 
-        return $resolvedItems;
+        return collect($resolvedItems)
+            ->groupBy(fn (array $item): string => $this->resolvedOrderItemKey($item))
+            ->map(function (Collection $items): array {
+                $first = $items->first();
+                $first['quantity'] = round((float) $items->sum('quantity'), 2);
+                $first['requested_unit_quantity'] = round((float) $items->sum('requested_unit_quantity'), 2);
+
+                return $first;
+            })
+            ->values()
+            ->all();
     }
 
     /**
@@ -2095,22 +2119,25 @@ class RequisitionController extends Controller
      */
     private function syncShopOrderItems(ShopOrder $order, array $items): void
     {
-        $existingItems = $order->items()->get()->keyBy('product_id');
-        $incomingProductIds = [];
+        $existingItems = $order->items()->get()->keyBy(fn (ShopOrderItem $item): string => $this->shopOrderItemKey($item));
+        $incomingKeys = [];
 
         foreach ($items as $item) {
             $product = $item['product'];
-            $incomingProductIds[] = $product->id;
+            $incomingKey = $this->resolvedOrderItemKey($item);
+            $incomingKeys[] = $incomingKey;
 
             /** @var ShopOrderItem|null $existingItem */
-            $existingItem = $existingItems->get($product->id);
+            $existingItem = $existingItems->get($incomingKey);
 
             if ($existingItem) {
                 $pricePayload = $this->lockedPricePayload($order, $product, (float) $item['quantity']);
                 $existingItem->update([
                     'requested_qty' => $item['quantity'],
                     'unit' => $item['unit'] ?? $product->unit,
+                    'requested_product_unit_id' => $item['requested_product_unit_id'] ?? null,
                     'requested_unit' => $item['requested_unit'] ?? $product->unit,
+                    'requested_unit_label' => $item['requested_unit_label'] ?? strtoupper((string) ($item['requested_unit'] ?? $product->unit)),
                     'requested_unit_quantity' => $item['requested_unit_quantity'] ?? $item['quantity'],
                     'requested_unit_conversion_to_base' => $item['requested_unit_conversion_to_base'] ?? null,
                     ...$pricePayload,
@@ -2125,16 +2152,54 @@ class RequisitionController extends Controller
                 'product_id' => $product->id,
                 'requested_qty' => $item['quantity'],
                 'unit' => $item['unit'] ?? $product->unit,
+                'requested_product_unit_id' => $item['requested_product_unit_id'] ?? null,
                 'requested_unit' => $item['requested_unit'] ?? $product->unit,
+                'requested_unit_label' => $item['requested_unit_label'] ?? strtoupper((string) ($item['requested_unit'] ?? $product->unit)),
                 'requested_unit_quantity' => $item['requested_unit_quantity'] ?? $item['quantity'],
                 'requested_unit_conversion_to_base' => $item['requested_unit_conversion_to_base'] ?? null,
                 ...$pricePayload,
             ]);
         }
 
-        $order->items()
-            ->whereNotIn('product_id', $incomingProductIds)
-            ->delete();
+        $itemsToDelete = $order->items()->get()
+            ->reject(fn (ShopOrderItem $item): bool => in_array($this->shopOrderItemKey($item), $incomingKeys, true))
+            ->pluck('id')
+            ->all();
+
+        if ($itemsToDelete !== []) {
+            $order->items()->whereIn('id', $itemsToDelete)->delete();
+        }
+    }
+
+    private function selectedProductUnitForLine(Product $product, ?string $measureUuid, string $requestedUnit): ?ProductUnit
+    {
+        $orderableUnits = $product->orderUnits->where('is_orderable', true);
+
+        if (filled($measureUuid)) {
+            /** @var ProductUnit|null $selected */
+            $selected = $orderableUnits->firstWhere('public_uuid', $measureUuid);
+            if ($selected) {
+                return $selected;
+            }
+        }
+
+        /** @var ProductUnit|null $selected */
+        $selected = $orderableUnits->first(fn (ProductUnit $unit): bool => strtolower((string) $unit->unit) === $requestedUnit);
+
+        return $selected;
+    }
+
+    private function resolvedOrderItemKey(array $item): string
+    {
+        $product = $item['product'];
+        $measureId = $item['requested_product_unit_id'] ?? null;
+
+        return $product->id.'|'.($measureId ?: ($item['requested_unit'] ?? $product->unit));
+    }
+
+    private function shopOrderItemKey(ShopOrderItem $item): string
+    {
+        return $item->product_id.'|'.($item->requested_product_unit_id ?: ($item->requested_unit ?? $item->unit));
     }
 
     /**

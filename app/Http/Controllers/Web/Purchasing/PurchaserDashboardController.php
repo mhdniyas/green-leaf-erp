@@ -2081,6 +2081,23 @@ class PurchaserDashboardController extends Controller
                     ->values()
                     ->all();
 
+                $measureBreakdown = $items
+                    ->groupBy(fn (ShopOrderItem $item): string => (string) ($item->requested_unit_label ?: $item->requested_unit ?: $item->unit))
+                    ->map(function (Collection $measureItems, string $label): array {
+                        $requestedQty = (float) $measureItems->sum('requested_unit_quantity');
+                        $approvedQty = (float) $measureItems->sum('approved_qty');
+
+                        return [
+                            'label' => $label,
+                            'requested_qty' => $requestedQty,
+                            'approved_qty' => $approvedQty,
+                            'count' => $measureItems->count(),
+                        ];
+                    })
+                    ->sortBy('label')
+                    ->values()
+                    ->all();
+
                 return [
                     'product_id' => (int) $productId,
                     'product_name' => $product->name,
@@ -2094,6 +2111,7 @@ class PurchaserDashboardController extends Controller
                     'draft_purchasers' => $draftPurchasers,
                     'remaining_qty' => $remainingQty,
                     'quantity_buckets' => $quantityBuckets,
+                    'measure_breakdown' => $measureBreakdown,
                     'order_date' => $itemDate,
                     'shop_details' => $items->map(fn (ShopOrderItem $item): array => [
                         'shop_order_item_id' => $item->id,
@@ -2101,6 +2119,7 @@ class PurchaserDashboardController extends Controller
                         'is_direct_purchase' => $item->order->isAdminDirectPurchase(),
                         'approved_qty' => (float) $item->approved_qty,
                         'unit' => $item->unit,
+                        'requested_measure_label' => $item->requestedMeasureBreakdownLabel(),
                         'order_number' => $item->order->order_number,
                         'notes' => $item->notes,
                     ])->sortBy('shop_name')->values()->all(),
