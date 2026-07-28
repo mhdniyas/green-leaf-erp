@@ -289,4 +289,46 @@ class ProductUnitMeasureWorkflowTest extends TestCase
         $this->assertNull($piece->conversion_to_base);
         $this->assertNull($product->orderUnits->firstWhere('unit', 'box'));
     }
+
+    public function test_bulk_measures_ajax_save_returns_json_without_redirect(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $product = Product::factory()->create([
+            'name' => 'Ajax Tomato',
+            'sku' => 'AJAX-TOMATO',
+            'unit' => 'kg',
+            'is_active' => true,
+        ]);
+        ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'kg',
+            'label' => 'KG',
+            'conversion_to_base' => 1,
+            'is_base' => true,
+            'is_orderable' => true,
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->withHeaders(['Accept' => 'application/json', 'X-Requested-With' => 'XMLHttpRequest'])
+            ->put(route('inventory.products.measures.bulk.update'), [
+                'save_row' => 0,
+                'products' => [
+                    [
+                        'public_uuid' => $product->public_uuid,
+                        'base_unit' => 'kg',
+                        'enabled_units' => ['box' => '1'],
+                        'units' => ['kg' => '1', 'box' => '10'],
+                    ],
+                ],
+            ])
+            ->assertOk()
+            ->assertJson([
+                'success' => true,
+                'updated' => 1,
+            ]);
+
+        $this->assertSame(10.0, (float) $product->fresh('orderUnits')->orderUnits->firstWhere('unit', 'box')->conversion_to_base);
+    }
 }

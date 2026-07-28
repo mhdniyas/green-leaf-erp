@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Repositories\Inventory\CategoryRepository;
 use App\Services\Inventory\ProductService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -145,13 +146,22 @@ class ProductController extends Controller
             ->with('success', 'Product updated successfully.');
     }
 
-    public function updateBulkMeasures(UpdateProductMeasuresBulkRequest $request): RedirectResponse
+    public function updateBulkMeasures(UpdateProductMeasuresBulkRequest $request): JsonResponse|RedirectResponse
     {
         $updated = $this->service->bulkUpdateMeasures($request->validatedProducts());
+        $message = "{$updated} product measures updated.";
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'updated' => $updated,
+                'message' => $message,
+            ]);
+        }
 
         return redirect()
             ->route('inventory.products.measures.bulk', $request->only(['search', 'category_id', 'status', 'base_unit', 'measure_status']))
-            ->with('success', "{$updated} product measures updated.");
+            ->with('success', $message);
     }
 
     public function updateStatus(Request $request, Product $product): RedirectResponse

@@ -135,6 +135,7 @@
                                         <button type="submit" name="save_row" value="{{ $rowIndex }}" data-save-row class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-black uppercase tracking-[0.12em] text-slate-500 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700">
                                             Save
                                         </button>
+                                        <p data-row-save-status class="mt-1 text-[11px] font-black text-slate-400"></p>
                                     </td>
                                 </tr>
                             @empty
@@ -160,6 +161,7 @@
         <script>
             const changedCount = document.querySelector('[data-changed-count]');
             const form = document.querySelector('[data-bulk-measures-form]');
+            const saveChangedButton = document.querySelector('[data-save-changed]');
 
             function formatMeasure(value) {
                 const number = Number.parseFloat(String(value));
@@ -174,10 +176,85 @@
                 if (changedCount) changedCount.textContent = String(count);
             }
 
+            function setRowStatus(row, message, tone = 'muted') {
+                const status = row.querySelector('[data-row-save-status]');
+                if (!status) return;
+
+                status.textContent = message;
+                status.classList.remove('text-slate-400', 'text-emerald-700', 'text-rose-700');
+                status.classList.add(tone === 'success' ? 'text-emerald-700' : (tone === 'error' ? 'text-rose-700' : 'text-slate-400'));
+            }
+
+            function appendControl(formData, control) {
+                if (!control.name || control.disabled || control.type === 'button' || control.type === 'submit') return;
+                if ((control.type === 'checkbox' || control.type === 'radio') && !control.checked) return;
+
+                formData.append(control.name, control.value);
+            }
+
+            function payloadForRows(rows, saveRow = null) {
+                const formData = new FormData();
+                formData.append('_token', form.querySelector('input[name="_token"]')?.value || '');
+                formData.append('_method', 'PUT');
+
+                rows.forEach((row) => {
+                    row.querySelectorAll('input, select, textarea').forEach((control) => appendControl(formData, control));
+                });
+
+                if (saveRow !== null) {
+                    formData.append('save_row', saveRow);
+                }
+
+                return formData;
+            }
+
+            async function saveRows(rows, saveRow = null) {
+                rows.forEach((row) => setRowStatus(row, 'Saving...'));
+                saveChangedButton?.setAttribute('disabled', 'disabled');
+                form.querySelectorAll('[data-save-row]').forEach((button) => button.setAttribute('disabled', 'disabled'));
+
+                try {
+                    const response = await fetch(form.action, {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        body: payloadForRows(rows, saveRow),
+                    });
+                    const payload = await response.json().catch(() => ({}));
+
+                    if (!response.ok) {
+                        const message = Object.values(payload.errors || {})?.flat()?.[0] || payload.message || 'Could not save measures.';
+                        rows.forEach((row) => setRowStatus(row, message, 'error'));
+                        return false;
+                    }
+
+                    rows.forEach((row) => {
+                        row.classList.remove('is-dirty', 'bg-amber-50');
+                        setRowStatus(row, 'Saved', 'success');
+                    });
+                    syncChangedCount();
+
+                    return true;
+                } catch {
+                    rows.forEach((row) => setRowStatus(row, 'Network error', 'error'));
+                    return false;
+                } finally {
+                    saveChangedButton?.removeAttribute('disabled');
+                    form.querySelectorAll('[data-save-row]').forEach((button) => {
+                        if (!button.closest('[data-measure-row]')?.querySelector('[data-row-rule-error]:not(.hidden)')) {
+                            button.removeAttribute('disabled');
+                        }
+                    });
+                }
+            }
+
             document.querySelectorAll('[data-measure-row]').forEach((row) => {
                 const select = row.querySelector('[data-base-unit-select]');
                 const markDirty = () => {
                     row.classList.add('is-dirty', 'bg-amber-50');
+                    setRowStatus(row, 'Changed');
                     syncChangedCount();
                 };
 
@@ -282,22 +359,23 @@
             });
 
             form?.addEventListener('submit', (event) => {
+                event.preventDefault();
+
                 if (event.submitter?.matches('[data-save-row]')) {
+                    const row = event.submitter.closest('[data-measure-row]');
+                    if (row) {
+                        saveRows([row], event.submitter.value);
+                    }
                     return;
                 }
 
-                const dirtyRows = document.querySelectorAll('[data-measure-row].is-dirty');
+                const dirtyRows = Array.from(document.querySelectorAll('[data-measure-row].is-dirty'));
                 if (dirtyRows.length === 0) {
-                    event.preventDefault();
                     window.alert('No changed rows to save.');
                     return;
                 }
 
-                document.querySelectorAll('[data-measure-row]:not(.is-dirty)').forEach((row) => {
-                    row.querySelectorAll('input, select, button').forEach((input) => {
-                        input.disabled = true;
-                    });
-                });
+                saveRows(dirtyRows);
             });
         </script>
     @endpush
