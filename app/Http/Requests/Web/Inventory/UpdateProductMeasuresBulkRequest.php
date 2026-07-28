@@ -26,6 +26,8 @@ class UpdateProductMeasuresBulkRequest extends FormRequest
             'products.*.units' => ['nullable', 'array'],
             'products.*.units.*' => ['nullable', 'numeric', 'min:0.0001'],
             'products.*.box_variants' => ['nullable', 'string', 'max:255'],
+            'products.*.visible_labels' => ['nullable', 'array'],
+            'products.*.visible_labels.*' => ['nullable', 'boolean'],
             'save_row' => ['nullable', 'integer', 'min:0'],
         ];
     }
@@ -43,6 +45,11 @@ class UpdateProductMeasuresBulkRequest extends FormRequest
 
                 if ($boxEnabled && $baseUnit !== 'box' && ! filled(data_get($row, 'units.box'))) {
                     $validator->errors()->add("products.{$index}.units.box", 'KG per box is required when box is enabled.');
+                }
+
+                if (array_key_exists('visible_labels', $row)
+                    && collect($row['visible_labels'])->filter(fn ($visible): bool => (bool) $visible)->isEmpty()) {
+                    $validator->errors()->add("products.{$index}.visible_labels", 'At least one shop owner unit must be visible.');
                 }
             }
         });
@@ -82,12 +89,20 @@ class UpdateProductMeasuresBulkRequest extends FormRequest
                     ->unique()
                     ->values()
                     ->all();
+                $visibleLabels = collect($row['visible_labels'] ?? [])
+                    ->filter(fn ($visible): bool => (bool) $visible)
+                    ->keys()
+                    ->map(fn (string $label): string => mb_strtolower(trim($label)))
+                    ->filter()
+                    ->values()
+                    ->all();
 
                 return [
                     'public_uuid' => (string) $row['public_uuid'],
                     'base_unit' => $baseUnit,
                     'units' => $units,
                     'box_variants' => $boxVariants,
+                    'visible_labels' => $visibleLabels,
                 ];
             })
             ->values()

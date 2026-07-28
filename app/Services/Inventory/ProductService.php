@@ -98,7 +98,12 @@ class ProductService
                 }
 
                 $product->update(['unit' => $row['base_unit']]);
-                $this->syncUnits($product, $this->bulkMeasureUnits($row['base_unit'], $row['units'], $row['box_variants'] ?? []));
+                $this->syncUnits($product, $this->bulkMeasureUnits(
+                    $row['base_unit'],
+                    $row['units'],
+                    $row['box_variants'] ?? [],
+                    $row['visible_labels'] ?? [],
+                ));
                 $updated++;
             }
 
@@ -184,32 +189,46 @@ class ProductService
         }
     }
 
-    private function bulkMeasureUnits(string $baseUnit, array $units, array $boxVariants = []): array
+    private function bulkMeasureUnits(string $baseUnit, array $units, array $boxVariants = [], array $visibleLabels = []): array
     {
+        $isVisible = function (string $label) use ($visibleLabels): bool {
+            if ($visibleLabels === []) {
+                return true;
+            }
+
+            return in_array(mb_strtolower(trim($label)), $visibleLabels, true);
+        };
+
         $rows = collect(ProductUnit::AVAILABLE_UNITS)
             ->filter(fn (string $unit): bool => $unit === $baseUnit || array_key_exists($unit, $units))
-            ->map(fn (string $unit, int $index): array => [
-                'unit' => $unit,
-                'label' => $unit === 'box' && $unit !== $baseUnit && filled($units[$unit] ?? null)
+            ->map(function (string $unit, int $index) use ($baseUnit, $units, $isVisible): array {
+                $label = $unit === 'box' && $unit !== $baseUnit && filled($units[$unit] ?? null)
                     ? 'BOX '.$this->formatMeasureLabelNumber((float) $units[$unit]).' '.strtoupper($baseUnit)
-                    : strtoupper($unit),
-                'conversion_to_base' => $unit === $baseUnit ? 1.0 : $units[$unit],
-                'is_base' => $unit === $baseUnit,
-                'is_orderable' => true,
-                'sort_order' => $index,
-            ]);
+                    : strtoupper($unit);
+
+                return [
+                    'unit' => $unit,
+                    'label' => $label,
+                    'conversion_to_base' => $unit === $baseUnit ? 1.0 : $units[$unit],
+                    'is_base' => $unit === $baseUnit,
+                    'is_orderable' => $isVisible($label),
+                    'sort_order' => $index,
+                ];
+            });
 
         foreach ($boxVariants as $variant) {
             if ($baseUnit === 'box' || abs((float) ($units['box'] ?? 0) - (float) $variant) < 0.0001) {
                 continue;
             }
 
+            $label = 'BOX '.$this->formatMeasureLabelNumber((float) $variant).' '.strtoupper($baseUnit);
+
             $rows->push([
                 'unit' => 'box',
-                'label' => 'BOX '.$this->formatMeasureLabelNumber((float) $variant).' '.strtoupper($baseUnit),
+                'label' => $label,
                 'conversion_to_base' => (float) $variant,
                 'is_base' => false,
-                'is_orderable' => true,
+                'is_orderable' => $isVisible($label),
                 'sort_order' => $rows->count(),
             ]);
         }

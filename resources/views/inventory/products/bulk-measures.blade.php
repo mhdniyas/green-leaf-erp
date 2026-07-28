@@ -80,6 +80,13 @@
                                     $boxUnit = $boxUnits->first();
                                     $extraBoxValues = $boxUnits->slice(1)->pluck('conversion_to_base')->filter()->map(fn ($value) => rtrim(rtrim(number_format((float) $value, 4, '.', ''), '0'), '.'))->implode(', ');
                                     $pieceUnit = $unitMap->get('piece');
+                                    $visibilityUnits = $product->orderUnits->values();
+                                    if ($visibilityUnits->isEmpty()) {
+                                        $visibilityUnits = collect([(object) [
+                                            'label' => strtoupper((string) $baseUnit),
+                                            'is_orderable' => true,
+                                        ]]);
+                                    }
                                 @endphp
                                 <tr data-measure-row data-product-name="{{ $product->name }}" data-category="{{ $product->category?->name ?? 'No category' }}" class="group hover:bg-emerald-50/40">
                                     <td class="sticky left-0 z-10 border-b border-slate-100 bg-white px-3 py-2 group-hover:bg-emerald-50">
@@ -135,6 +142,37 @@
                                             </div>
                                             <p data-preview-conversion class="mt-2 hidden rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-[11px] font-black uppercase tracking-[0.08em] text-emerald-700"></p>
                                             <p data-row-rule-error class="mt-2 hidden rounded-lg border border-rose-100 bg-rose-50 px-2 py-1 text-[11px] font-black text-rose-700"></p>
+                                            <button type="button" data-open-visibility-popup class="mt-2 inline-flex w-full items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700">
+                                                Show Units
+                                            </button>
+                                            <div data-visibility-popup class="fixed inset-0 z-[80] hidden p-4">
+                                                <div data-close-visibility-popup class="absolute inset-0 bg-slate-950/40"></div>
+                                                <div class="relative mx-auto mt-24 w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
+                                                    <div class="flex items-start justify-between gap-3">
+                                                        <div class="min-w-0">
+                                                            <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Shop Owner Units</p>
+                                                            <h3 class="mt-1 truncate text-sm font-black text-slate-950">{{ $product->name }}</h3>
+                                                        </div>
+                                                        <button type="button" data-close-visibility-popup class="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-600">Close</button>
+                                                    </div>
+                                                    <div class="mt-4 grid gap-2">
+                                                        @foreach($visibilityUnits as $visibilityUnit)
+                                                            @php($visibilityLabel = (string) $visibilityUnit->label)
+                                                            <label class="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-800">
+                                                                <span class="truncate">{{ $visibilityLabel }}</span>
+                                                                <span class="relative inline-flex">
+                                                                    <input type="hidden" name="products[{{ $rowIndex }}][visible_labels][{{ $visibilityLabel }}]" value="0">
+                                                                    <input type="checkbox" name="products[{{ $rowIndex }}][visible_labels][{{ $visibilityLabel }}]" value="1" data-visible-label="{{ $visibilityLabel }}" @checked((bool) $visibilityUnit->is_orderable) class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                                                                </span>
+                                                            </label>
+                                                        @endforeach
+                                                    </div>
+                                                    <p data-visibility-error class="mt-3 hidden rounded-lg border border-rose-100 bg-rose-50 px-2 py-1 text-[11px] font-black text-rose-700">Select at least one unit.</p>
+                                                    <button type="button" data-close-visibility-popup class="mt-4 w-full rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black uppercase tracking-[0.14em] text-white hover:bg-emerald-700">
+                                                        Done
+                                                    </button>
+                                                </div>
+                                            </div>
                                         </div>
                                     </td>
                                     <td class="border-b border-slate-100 px-3 py-2 text-right">
@@ -264,6 +302,25 @@
                     syncChangedCount();
                 };
 
+                const visibleLabels = () => Array.from(row.querySelectorAll('[data-visible-label]:checked'))
+                    .map((input) => input.getAttribute('data-visible-label'))
+                    .filter(Boolean);
+
+                const syncVisibility = () => {
+                    const labels = visibleLabels();
+                    const error = row.querySelector('[data-visibility-error]');
+                    const saveButton = row.querySelector('[data-save-row]');
+                    const hasVisible = labels.length > 0;
+
+                    error?.classList.toggle('hidden', hasVisible);
+                    if (!hasVisible) {
+                        saveButton?.setAttribute('disabled', 'disabled');
+                        saveButton?.classList.add('opacity-50', 'cursor-not-allowed');
+                    }
+
+                    return labels;
+                };
+
                 const unitEnabled = (unit) => {
                     if (select?.value === unit) return true;
 
@@ -289,7 +346,10 @@
                     }
 
                     if (previewUnits) {
-                        previewUnits.textContent = enabledUnits.map((unit) => unit.toUpperCase()).join(' / ');
+                        const labels = syncVisibility();
+                        previewUnits.textContent = labels.length > 0
+                            ? labels.map((label) => label.toUpperCase()).join(' / ')
+                            : enabledUnits.map((unit) => unit.toUpperCase()).join(' / ');
                     }
 
                     const boxEnabled = unitEnabled('box') && baseUnit !== 'box';
@@ -302,7 +362,7 @@
                         error.classList.remove('hidden');
                         saveButton?.setAttribute('disabled', 'disabled');
                         saveButton?.classList.add('opacity-50', 'cursor-not-allowed');
-                    } else {
+                    } else if (visibleLabels().length > 0) {
                         error?.classList.add('hidden');
                         saveButton?.removeAttribute('disabled');
                         saveButton?.classList.remove('opacity-50', 'cursor-not-allowed');
@@ -357,6 +417,19 @@
                     });
                     input.addEventListener('input', () => {
                         markDirty();
+                        syncPreview();
+                    });
+                });
+
+                row.querySelector('[data-open-visibility-popup]')?.addEventListener('click', () => {
+                    row.querySelector('[data-visibility-popup]')?.classList.remove('hidden');
+                    document.body.classList.add('overflow-hidden');
+                });
+
+                row.querySelectorAll('[data-close-visibility-popup]').forEach((button) => {
+                    button.addEventListener('click', () => {
+                        row.querySelector('[data-visibility-popup]')?.classList.add('hidden');
+                        document.body.classList.remove('overflow-hidden');
                         syncPreview();
                     });
                 });
