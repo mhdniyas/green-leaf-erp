@@ -15,7 +15,7 @@ $existingUnitRows = isset($product)
     ? $product->orderUnits->map(fn ($unit) => [
         'unit' => $unit->unit,
         'label' => $unit->label,
-        'conversion_to_base' => (float) $unit->conversion_to_base,
+        'conversion_to_base' => $unit->conversion_to_base !== null ? (float) $unit->conversion_to_base : null,
         'is_base' => (bool) $unit->is_base,
         'is_orderable' => (bool) $unit->is_orderable,
     ])->values()->all()
@@ -128,12 +128,27 @@ $unitRows = old('units', $existingUnitRows);
 
                     <div class="space-y-1.5">
                         <label for="unit" class="block text-sm font-medium text-gray-700">Base Unit <span class="text-red-500">*</span></label>
-                        <select id="unit" name="unit" required
-                                class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white @error('unit') border-red-300 @enderror">
-                            @foreach($units as $val => $label)
-                                <option value="{{ $val }}" @selected(old('unit', $product->unit ?? 'kg') === $val)>{{ $label }}</option>
-                            @endforeach
-                        </select>
+                        <div class="relative" data-product-select data-select-target="unit">
+                            <input id="unit" type="hidden" name="unit" value="{{ $baseUnit }}" data-product-select-input>
+                            <button type="button" data-product-select-trigger class="flex w-full items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-left text-sm font-bold text-slate-900 transition hover:border-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 @error('unit') border-red-300 @enderror" aria-haspopup="listbox" aria-expanded="false">
+                                <span data-product-select-label>{{ $units[$baseUnit] ?? strtoupper((string) $baseUnit) }}</span>
+                                <svg class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+                                </svg>
+                            </button>
+                            <div data-product-select-menu class="absolute left-0 top-[calc(100%+0.35rem)] z-50 hidden w-full overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl shadow-slate-900/15" role="listbox">
+                                @foreach($units as $val => $label)
+                                    <button type="button" data-product-select-option data-value="{{ $val }}" data-label="{{ $label }}" @class([
+                                        'flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs font-black uppercase transition',
+                                        'bg-emerald-600 text-white' => $baseUnit === $val,
+                                        'text-slate-700 hover:bg-slate-100' => $baseUnit !== $val,
+                                    ]) role="option" aria-selected="{{ $baseUnit === $val ? 'true' : 'false' }}">
+                                        <span data-product-select-check class="{{ $baseUnit === $val ? '' : 'invisible' }}">✓</span>
+                                        <span>{{ $label }}</span>
+                                    </button>
+                                @endforeach
+                            </div>
+                        </div>
                         @error('unit') <p class="text-red-600 text-xs">{{ $message }}</p> @enderror
                     </div>
                 </div>
@@ -143,6 +158,10 @@ $unitRows = old('units', $existingUnitRows);
                         <div>
                             <h3 class="text-sm font-black text-slate-950">Units & Measures</h3>
                             <p class="mt-1 text-xs font-semibold text-slate-500">Keep one base unit for stock and billing. Add box, piece, bag, or other order units with their base-unit conversion.</p>
+                            <div class="mt-2 flex flex-wrap gap-2 text-[11px] font-black">
+                                <span class="rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-emerald-700">BOX needs KG conversion</span>
+                                <span class="rounded-lg border border-sky-100 bg-sky-50 px-2 py-1 text-sky-700">PIECE conversion optional</span>
+                            </div>
                         </div>
                         <button type="button" id="add-product-unit-row" class="inline-flex w-fit items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-black text-white hover:bg-slate-800">
                             Add Unit
@@ -166,13 +185,29 @@ $unitRows = old('units', $existingUnitRows);
                                 @endphp
                                 <div data-product-unit-row class="grid grid-cols-[1.2fr_1fr_1fr_2.5rem] items-center gap-2 px-3 py-2">
                                     <input type="hidden" name="units[{{ $index }}][is_base]" value="{{ $isBaseRow ? '1' : '0' }}" data-unit-is-base>
-                                    <select name="units[{{ $index }}][unit]" data-unit-select class="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs font-bold text-slate-900 focus:border-brand-500 focus:outline-none">
-                                        @foreach($units as $val => $label)
-                                            <option value="{{ $val }}" @selected($rowUnit === $val)>{{ strtoupper($val) }}</option>
-                                        @endforeach
-                                    </select>
+                                    <div class="relative" data-product-select>
+                                        <input type="hidden" name="units[{{ $index }}][unit]" value="{{ $rowUnit }}" data-product-select-input data-unit-select>
+                                        <button type="button" data-product-select-trigger class="flex h-9 w-full items-center justify-between gap-1 rounded-lg border border-slate-200 bg-white px-2 text-left text-xs font-black uppercase text-slate-900 transition hover:border-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" aria-haspopup="listbox" aria-expanded="false">
+                                            <span data-product-select-label>{{ strtoupper((string) $rowUnit) }}</span>
+                                            <svg class="h-3 w-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+                                            </svg>
+                                        </button>
+                                        <div data-product-select-menu class="absolute left-0 top-[calc(100%+0.25rem)] z-50 hidden w-28 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl shadow-slate-900/15" role="listbox">
+                                            @foreach($units as $val => $label)
+                                                <button type="button" data-product-select-option data-value="{{ $val }}" data-label="{{ strtoupper($val) }}" @class([
+                                                    'flex h-8 w-full items-center gap-1.5 rounded-lg px-2 text-left text-[11px] font-black uppercase transition',
+                                                    'bg-emerald-600 text-white' => $rowUnit === $val,
+                                                    'text-slate-700 hover:bg-slate-100' => $rowUnit !== $val,
+                                                ]) role="option" aria-selected="{{ $rowUnit === $val ? 'true' : 'false' }}">
+                                                    <span data-product-select-check class="{{ $rowUnit === $val ? '' : 'invisible' }}">✓</span>
+                                                    <span>{{ strtoupper($val) }}</span>
+                                                </button>
+                                            @endforeach
+                                        </div>
+                                    </div>
                                     <div class="flex items-center gap-1">
-                                        <input name="units[{{ $index }}][conversion_to_base]" data-unit-conversion type="number" step="0.0001" min="0.0001" value="{{ old("units.{$index}.conversion_to_base", $unitRow['conversion_to_base'] ?? 1) }}" class="h-9 w-full rounded-lg border border-slate-200 px-2 text-right text-xs font-bold text-slate-900 focus:border-brand-500 focus:outline-none" @readonly($isBaseRow)>
+                                        <input name="units[{{ $index }}][conversion_to_base]" data-unit-conversion type="number" step="0.0001" min="0.0001" value="{{ old("units.{$index}.conversion_to_base", $isBaseRow ? 1 : ($unitRow['conversion_to_base'] ?? '')) }}" class="h-9 w-full rounded-lg border border-slate-200 px-2 text-right text-xs font-bold text-slate-900 focus:border-brand-500 focus:outline-none" @readonly($isBaseRow)>
                                         <span data-base-unit-label class="shrink-0 text-[10px] font-black uppercase text-slate-400">{{ $baseUnit }}</span>
                                     </div>
                                     <label class="flex items-center justify-center gap-2 text-xs font-bold text-slate-600">
@@ -184,6 +219,7 @@ $unitRows = old('units', $existingUnitRows);
                                         X
                                     </button>
                                     <input type="hidden" name="units[{{ $index }}][label]" value="{{ $unitRow['label'] ?? strtoupper((string) $rowUnit) }}" data-unit-label>
+                                    <p data-unit-row-hint class="col-span-4 hidden rounded-lg px-2 py-1 text-[11px] font-black"></p>
                                 </div>
                             @endforeach
                         </div>
@@ -298,17 +334,109 @@ $unitRows = old('units', $existingUnitRows);
                 return String(unit || '').toUpperCase();
             }
 
+            function productSelectOptionClasses(isSelected) {
+                return [
+                    'flex h-8 w-full items-center gap-1.5 rounded-lg px-2 text-left text-[11px] font-black uppercase transition',
+                    isSelected ? 'bg-emerald-600 text-white' : 'text-slate-700 hover:bg-slate-100',
+                ].join(' ');
+            }
+
+            function closeProductSelects(except = null) {
+                document.querySelectorAll('[data-product-select]').forEach((picker) => {
+                    if (picker === except) return;
+
+                    picker.querySelector('[data-product-select-menu]')?.classList.add('hidden');
+                    picker.querySelector('[data-product-select-trigger]')?.setAttribute('aria-expanded', 'false');
+                });
+            }
+
+            function syncProductSelect(picker, value, label = null) {
+                const input = picker.querySelector('[data-product-select-input]');
+                const displayLabel = picker.querySelector('[data-product-select-label]');
+
+                if (input) {
+                    input.value = value;
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+
+                if (displayLabel) {
+                    displayLabel.textContent = label || unitLabel(value);
+                }
+
+                picker.querySelectorAll('[data-product-select-option]').forEach((option) => {
+                    const isSelected = option.getAttribute('data-value') === value;
+                    option.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+                    option.classList.toggle('bg-emerald-600', isSelected);
+                    option.classList.toggle('text-white', isSelected);
+                    option.classList.toggle('text-slate-700', !isSelected);
+                    option.classList.toggle('hover:bg-slate-100', !isSelected);
+                    option.querySelector('[data-product-select-check]')?.classList.toggle('invisible', !isSelected);
+                });
+            }
+
+            document.addEventListener('click', (event) => {
+                const trigger = event.target.closest('[data-product-select-trigger]');
+                if (trigger) {
+                    const picker = trigger.closest('[data-product-select]');
+                    const menu = picker?.querySelector('[data-product-select-menu]');
+                    const willOpen = menu?.classList.contains('hidden') ?? false;
+
+                    closeProductSelects(picker);
+                    menu?.classList.toggle('hidden', !willOpen);
+                    trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+
+                    return;
+                }
+
+                const option = event.target.closest('[data-product-select-option]');
+                if (option) {
+                    const picker = option.closest('[data-product-select]');
+                    const value = option.getAttribute('data-value');
+                    const label = option.getAttribute('data-label');
+
+                    if (picker && value) {
+                        syncProductSelect(picker, value, label);
+                        picker.querySelector('[data-product-select-menu]')?.classList.add('hidden');
+                        picker.querySelector('[data-product-select-trigger]')?.setAttribute('aria-expanded', 'false');
+                    }
+
+                    return;
+                }
+
+                closeProductSelects();
+            });
+
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') {
+                    closeProductSelects();
+                }
+            });
+
             function unitRowTemplate(index, unit = 'box', conversion = '1', isOrderable = true) {
                 const options = Object.keys(productUnitOptions)
-                    .map((value) => `<option value="${value}" ${value === unit ? 'selected' : ''}>${value.toUpperCase()}</option>`)
+                    .map((value) => `
+                        <button type="button" data-product-select-option data-value="${value}" data-label="${value.toUpperCase()}" class="${productSelectOptionClasses(value === unit)}" role="option" aria-selected="${value === unit ? 'true' : 'false'}">
+                            <span data-product-select-check class="${value === unit ? '' : 'invisible'}">✓</span>
+                            <span>${value.toUpperCase()}</span>
+                        </button>
+                    `)
                     .join('');
 
                 return `
                     <div data-product-unit-row class="grid grid-cols-[1.2fr_1fr_1fr_2.5rem] items-center gap-2 px-3 py-2">
                         <input type="hidden" name="units[${index}][is_base]" value="0" data-unit-is-base>
-                        <select name="units[${index}][unit]" data-unit-select class="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs font-bold text-slate-900 focus:border-brand-500 focus:outline-none">
-                            ${options}
-                        </select>
+                        <div class="relative" data-product-select>
+                            <input type="hidden" name="units[${index}][unit]" value="${unit}" data-product-select-input data-unit-select>
+                            <button type="button" data-product-select-trigger class="flex h-9 w-full items-center justify-between gap-1 rounded-lg border border-slate-200 bg-white px-2 text-left text-xs font-black uppercase text-slate-900 transition hover:border-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" aria-haspopup="listbox" aria-expanded="false">
+                                <span data-product-select-label>${unit.toUpperCase()}</span>
+                                <svg class="h-3 w-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+                                </svg>
+                            </button>
+                            <div data-product-select-menu class="absolute left-0 top-[calc(100%+0.25rem)] z-50 hidden w-28 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl shadow-slate-900/15" role="listbox">
+                                ${options}
+                            </div>
+                        </div>
                         <div class="flex items-center gap-1">
                             <input name="units[${index}][conversion_to_base]" data-unit-conversion type="number" step="0.0001" min="0.0001" value="${conversion}" class="h-9 w-full rounded-lg border border-slate-200 px-2 text-right text-xs font-bold text-slate-900 focus:border-brand-500 focus:outline-none">
                             <span data-base-unit-label class="shrink-0 text-[10px] font-black uppercase text-slate-400">${document.getElementById('unit')?.value || 'kg'}</span>
@@ -320,6 +448,7 @@ $unitRows = old('units', $existingUnitRows);
                         </label>
                         <button type="button" data-remove-unit-row class="h-9 rounded-lg text-xs font-black text-slate-400 hover:bg-red-50 hover:text-red-600">X</button>
                         <input type="hidden" name="units[${index}][label]" value="${unitLabel(unit)}" data-unit-label>
+                        <p data-unit-row-hint class="col-span-4 hidden rounded-lg px-2 py-1 text-[11px] font-black"></p>
                     </div>
                 `;
             }
@@ -335,6 +464,7 @@ $unitRows = old('units', $existingUnitRows);
                     const baseInput = row.querySelector('[data-unit-is-base]');
                     const labelInput = row.querySelector('[data-unit-label]');
                     const removeButton = row.querySelector('[data-remove-unit-row]');
+                    const hint = row.querySelector('[data-unit-row-hint]');
                     const isBase = unitSelect?.value === baseUnit;
 
                     if (isBase) {
@@ -355,6 +485,21 @@ $unitRows = old('units', $existingUnitRows);
                         removeButton.disabled = isBase;
                         removeButton.classList.toggle('opacity-40', isBase);
                     }
+                    if (hint && unitSelect) {
+                        hint.className = 'col-span-4 hidden rounded-lg px-2 py-1 text-[11px] font-black';
+
+                        if (!isBase && unitSelect.value === 'box') {
+                            hint.textContent = 'BOX needs KG conversion. Example: 1 BOX = 12 ' + baseUnit.toUpperCase();
+                            hint.classList.remove('hidden');
+                            hint.classList.add('border', 'border-emerald-100', 'bg-emerald-50', 'text-emerald-700');
+                        } else if (!isBase && unitSelect.value === 'piece') {
+                            hint.textContent = conversionInput?.value
+                                ? 'Shop owner sees PIECE and conversion info.'
+                                : 'Shop owner sees PIECE as count only.';
+                            hint.classList.remove('hidden');
+                            hint.classList.add('border', 'border-sky-100', 'bg-sky-50', 'text-sky-700');
+                        }
+                    }
                     row.querySelectorAll('[data-base-unit-label]').forEach((label) => {
                         label.textContent = baseUnit.toUpperCase();
                     });
@@ -374,7 +519,10 @@ $unitRows = old('units', $existingUnitRows);
                 const newBaseRow = rows.find((row) => row.querySelector('[data-unit-select]')?.value === baseUnit);
 
                 if (!newBaseRow && previousBaseRow) {
-                    previousBaseRow.querySelector('[data-unit-select]').value = baseUnit;
+                    const picker = previousBaseRow.querySelector('[data-product-select]');
+                    if (picker) {
+                        syncProductSelect(picker, baseUnit, unitLabel(baseUnit));
+                    }
                 } else if (newBaseRow && previousBaseRow && newBaseRow !== previousBaseRow) {
                     previousBaseRow.remove();
                 }
@@ -403,6 +551,11 @@ $unitRows = old('units', $existingUnitRows);
 
             document.getElementById('product-unit-rows')?.addEventListener('change', (event) => {
                 if (event.target.matches('[data-unit-select]')) {
+                    syncProductUnitRows();
+                }
+            });
+            document.getElementById('product-unit-rows')?.addEventListener('input', (event) => {
+                if (event.target.matches('[data-unit-conversion]')) {
                     syncProductUnitRows();
                 }
             });

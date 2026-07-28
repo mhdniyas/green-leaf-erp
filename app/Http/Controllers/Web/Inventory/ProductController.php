@@ -63,8 +63,22 @@ class ProductController extends Controller
     {
         abort_unless($request->user()?->can('inventory.product.update'), 403);
 
+        $status = in_array($request->string('status')->toString(), ['active', 'inactive'], true)
+            ? $request->string('status')->toString()
+            : null;
+        $baseUnit = in_array($request->string('base_unit')->toString(), ProductUnit::AVAILABLE_UNITS, true)
+            ? $request->string('base_unit')->toString()
+            : null;
+        $measureStatus = in_array($request->string('measure_status')->toString(), ['missing_box', 'missing_piece', 'has_multiple'], true)
+            ? $request->string('measure_status')->toString()
+            : null;
+
         $products = Product::query()
             ->with(['category', 'orderUnits'])
+            ->when($request->integer('category_id') > 0, fn ($query) => $query->where('category_id', $request->integer('category_id')))
+            ->when($status === 'active', fn ($query) => $query->where('is_active', true))
+            ->when($status === 'inactive', fn ($query) => $query->where('is_active', false))
+            ->when($baseUnit, fn ($query) => $query->where('unit', $baseUnit))
             ->when($request->string('search')->toString() !== '', function ($query) use ($request): void {
                 $search = $request->string('search')->toString();
                 $query->where(function ($query) use ($search): void {
@@ -75,11 +89,16 @@ class ProductController extends Controller
             })
             ->orderByDesc('is_active')
             ->ordered()
-            ->get();
+            ->get()
+            ->when($measureStatus === 'missing_box', fn ($products) => $products->filter(fn (Product $product): bool => ! $product->orderUnits->contains('unit', 'box')))
+            ->when($measureStatus === 'missing_piece', fn ($products) => $products->filter(fn (Product $product): bool => ! $product->orderUnits->contains('unit', 'piece')))
+            ->when($measureStatus === 'has_multiple', fn ($products) => $products->filter(fn (Product $product): bool => $product->orderUnits->where('is_orderable', true)->count() > 1))
+            ->values();
 
         $units = ProductUnit::AVAILABLE_UNITS;
+        $categories = $this->categories->findAllActive();
 
-        return view('inventory.products.bulk-measures', compact('products', 'units'));
+        return view('inventory.products.bulk-measures', compact('products', 'units', 'categories'));
     }
 
     public function receiverIndex(Request $request): View
@@ -131,7 +150,7 @@ class ProductController extends Controller
         $updated = $this->service->bulkUpdateMeasures($request->validatedProducts());
 
         return redirect()
-            ->route('inventory.products.measures.bulk', $request->only('search'))
+            ->route('inventory.products.measures.bulk', $request->only(['search', 'category_id', 'status', 'base_unit', 'measure_status']))
             ->with('success', "{$updated} product measures updated.");
     }
 

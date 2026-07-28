@@ -68,7 +68,7 @@ final readonly class ProductData
                 return [
                     'unit' => $unit,
                     'label' => trim((string) ($row['label'] ?? strtoupper($unit))) ?: strtoupper($unit),
-                    'conversion_to_base' => $isBase ? 1.0 : round((float) ($row['conversion_to_base'] ?? 1), 4),
+                    'conversion_to_base' => $isBase ? 1.0 : (filled($row['conversion_to_base'] ?? null) ? round((float) $row['conversion_to_base'], 4) : null),
                     'is_base' => $isBase,
                     'is_orderable' => (bool) ($row['is_orderable'] ?? true),
                     'sort_order' => $index,
@@ -91,7 +91,9 @@ final readonly class ProductData
         return $rows
             ->map(function (array $row, int $index) use ($baseUnit): array {
                 $row['is_base'] = $row['unit'] === $baseUnit;
-                $row['conversion_to_base'] = $row['is_base'] ? 1.0 : max(0.0001, (float) $row['conversion_to_base']);
+                $row['conversion_to_base'] = $row['is_base']
+                    ? 1.0
+                    : ($row['conversion_to_base'] !== null ? max(0.0001, (float) $row['conversion_to_base']) : null);
                 $row['sort_order'] = $index;
 
                 return $row;

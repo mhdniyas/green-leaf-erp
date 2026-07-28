@@ -2075,11 +2075,12 @@ class RequisitionController extends Controller
             }
 
             $conversionToBase = $product->conversionToBaseForUnit($requestedUnit);
-            $baseQuantity = round($quantity * $conversionToBase, 2);
+            $baseQuantity = $conversionToBase !== null ? round($quantity * $conversionToBase, 2) : $quantity;
 
             $resolvedItems[] = [
                 'product' => $product,
                 'quantity' => $baseQuantity,
+                'unit' => $conversionToBase !== null ? $product->unit : $requestedUnit,
                 'requested_unit' => $requestedUnit,
                 'requested_unit_quantity' => $quantity,
                 'requested_unit_conversion_to_base' => $conversionToBase,
@@ -2108,10 +2109,10 @@ class RequisitionController extends Controller
                 $pricePayload = $this->lockedPricePayload($order, $product, (float) $item['quantity']);
                 $existingItem->update([
                     'requested_qty' => $item['quantity'],
-                    'unit' => $product->unit,
+                    'unit' => $item['unit'] ?? $product->unit,
                     'requested_unit' => $item['requested_unit'] ?? $product->unit,
                     'requested_unit_quantity' => $item['requested_unit_quantity'] ?? $item['quantity'],
-                    'requested_unit_conversion_to_base' => $item['requested_unit_conversion_to_base'] ?? 1,
+                    'requested_unit_conversion_to_base' => $item['requested_unit_conversion_to_base'] ?? null,
                     ...$pricePayload,
                 ]);
 
@@ -2123,10 +2124,10 @@ class RequisitionController extends Controller
                 'shop_order_id' => $order->id,
                 'product_id' => $product->id,
                 'requested_qty' => $item['quantity'],
-                'unit' => $product->unit,
+                'unit' => $item['unit'] ?? $product->unit,
                 'requested_unit' => $item['requested_unit'] ?? $product->unit,
                 'requested_unit_quantity' => $item['requested_unit_quantity'] ?? $item['quantity'],
-                'requested_unit_conversion_to_base' => $item['requested_unit_conversion_to_base'] ?? 1,
+                'requested_unit_conversion_to_base' => $item['requested_unit_conversion_to_base'] ?? null,
                 ...$pricePayload,
             ]);
         }

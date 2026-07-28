@@ -29,7 +29,7 @@ class UpdateProductRequest extends FormRequest
             'units' => ['nullable', 'array'],
             'units.*.unit' => ['required_with:units', 'string', 'in:'.implode(',', ProductUnit::AVAILABLE_UNITS)],
             'units.*.label' => ['nullable', 'string', 'max:50'],
-            'units.*.conversion_to_base' => ['required_with:units', 'numeric', 'min:0.0001'],
+            'units.*.conversion_to_base' => ['nullable', 'numeric', 'min:0.0001'],
             'units.*.is_base' => ['sometimes', 'boolean'],
             'units.*.is_orderable' => ['sometimes', 'boolean'],
             'description' => ['nullable', 'string', 'max:1000'],
@@ -69,8 +69,14 @@ class UpdateProductRequest extends FormRequest
         }
 
         foreach ($rows as $index => $row) {
-            if (strtolower((string) $row['unit']) === $baseUnit && abs((float) ($row['conversion_to_base'] ?? 0) - 1.0) > 0.0001) {
+            $unit = strtolower((string) $row['unit']);
+
+            if ($unit === $baseUnit && abs((float) ($row['conversion_to_base'] ?? 0) - 1.0) > 0.0001) {
                 $validator->errors()->add("units.{$index}.conversion_to_base", 'The base unit conversion must be 1.');
+            }
+
+            if ($unit !== $baseUnit && $unit !== 'piece' && ! filled($row['conversion_to_base'] ?? null)) {
+                $validator->errors()->add("units.{$index}.conversion_to_base", 'KG conversion is required for this unit.');
             }
         }
     }

@@ -37,7 +37,7 @@ return new class extends Migration
             $table->foreignId('product_id')->constrained('products')->cascadeOnDelete();
             $table->string('unit', 20);
             $table->string('label', 50);
-            $table->decimal('conversion_to_base', 12, 4)->default(1);
+            $table->decimal('conversion_to_base', 12, 4)->nullable();
             $table->boolean('is_base')->default(false);
             $table->boolean('is_orderable')->default(true);
             $table->unsignedSmallInteger('sort_order')->default(0);

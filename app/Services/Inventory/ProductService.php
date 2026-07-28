@@ -160,7 +160,7 @@ class ProductService
                 ['unit' => $unit['unit']],
                 [
                     'label' => $unit['label'],
-                    'conversion_to_base' => $unit['conversion_to_base'],
+                    'conversion_to_base' => $unit['conversion_to_base'] ?? null,
                     'is_base' => $unit['is_base'],
                     'is_orderable' => $unit['is_orderable'],
                     'sort_order' => $unit['sort_order'],
@@ -172,11 +172,11 @@ class ProductService
     private function bulkMeasureUnits(string $baseUnit, array $units): array
     {
         return collect(ProductUnit::AVAILABLE_UNITS)
-            ->filter(fn (string $unit): bool => $unit === $baseUnit || isset($units[$unit]))
+            ->filter(fn (string $unit): bool => $unit === $baseUnit || array_key_exists($unit, $units))
             ->map(fn (string $unit, int $index): array => [
                 'unit' => $unit,
                 'label' => strtoupper($unit),
-                'conversion_to_base' => $unit === $baseUnit ? 1.0 : (float) $units[$unit],
+                'conversion_to_base' => $unit === $baseUnit ? 1.0 : $units[$unit],
                 'is_base' => $unit === $baseUnit,
                 'is_orderable' => true,
                 'sort_order' => $index,

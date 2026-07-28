@@ -40,7 +40,7 @@
                 'order_units' => $orderUnits->map(fn ($unit) => [
                     'unit' => $unit->unit,
                     'label' => $unit->label ?: strtoupper((string) $unit->unit),
-                    'conversion_to_base' => (float) $unit->conversion_to_base,
+                    'conversion_to_base' => $unit->conversion_to_base !== null ? (float) $unit->conversion_to_base : null,
                     'is_base' => (bool) $unit->is_base,
                 ])->values()->all(),
                 'category' => $category->name,

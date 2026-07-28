@@ -192,7 +192,7 @@ class Product extends Model implements AuditableContract
         return parent::getRouteKey();
     }
 
-    public function conversionToBaseForUnit(?string $unit): float
+    public function conversionToBaseForUnit(?string $unit): ?float
     {
         $normalizedUnit = strtolower(trim((string) ($unit ?: $this->unit)));
 
@@ -203,7 +203,7 @@ class Product extends Model implements AuditableContract
         $units = $this->relationLoaded('orderUnits') ? $this->orderUnits : $this->orderUnits()->get();
         $matchedUnit = $units->first(fn (ProductUnit $productUnit): bool => strtolower($productUnit->unit) === $normalizedUnit);
 
-        return $matchedUnit ? (float) $matchedUnit->conversion_to_base : 1.0;
+        return $matchedUnit ? ($matchedUnit->conversion_to_base !== null ? (float) $matchedUnit->conversion_to_base : null) : 1.0;
     }
 
     protected static function booted(): void

@@ -125,6 +125,53 @@ class ProductUnitMeasureWorkflowTest extends TestCase
         $this->assertSame(12.0, (float) $item->requested_unit_conversion_to_base);
     }
 
+    public function test_shop_owner_piece_order_without_kg_conversion_stays_as_piece_quantity(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-07-23 10:00:00', 'Asia/Kolkata'));
+
+        $shop = Shop::factory()->create();
+        $shopOwner = User::factory()->create(['shop_id' => $shop->id]);
+        $shopOwner->assignRole('shop');
+        $product = Product::factory()->create([
+            'name' => 'Piece Lettuce',
+            'sku' => 'PIECE-LETTUCE',
+            'unit' => 'kg',
+            'is_active' => true,
+        ]);
+        ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'kg',
+            'label' => 'KG',
+            'conversion_to_base' => 1,
+            'is_base' => true,
+            'is_orderable' => true,
+        ]);
+        ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'piece',
+            'label' => 'PIECE',
+            'conversion_to_base' => null,
+            'is_base' => false,
+            'is_orderable' => true,
+        ]);
+
+        $this
+            ->actingAs($shopOwner)
+            ->post(route('requisitions.store'), [
+                'items' => [$product->sku => 12],
+                'item_units' => [$product->sku => 'piece'],
+            ])
+            ->assertRedirect();
+
+        $item = ShopOrder::query()->with('items.product')->sole()->items->sole();
+
+        $this->assertSame('piece', $item->unit);
+        $this->assertSame(12.0, (float) $item->requested_qty);
+        $this->assertSame('piece', $item->requested_unit);
+        $this->assertSame(12.0, (float) $item->requested_unit_quantity);
+        $this->assertNull($item->requested_unit_conversion_to_base);
+    }
+
     public function test_admin_can_bulk_update_product_measures_only(): void
     {
         $admin = User::factory()->create();
@@ -186,5 +233,60 @@ class ProductUnitMeasureWorkflowTest extends TestCase
         $this->assertSame(12.0, (float) $product->orderUnits->firstWhere('unit', 'box')->conversion_to_base);
         $this->assertSame(0.25, (float) $product->orderUnits->firstWhere('unit', 'piece')->conversion_to_base);
         $this->assertNull($product->orderUnits->firstWhere('unit', 'bag'));
+    }
+
+    public function test_bulk_measures_requires_box_kg_and_allows_piece_without_kg(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $product = Product::factory()->create([
+            'name' => 'Measure Beans',
+            'sku' => 'MEASURE-BEANS',
+            'unit' => 'kg',
+            'is_active' => true,
+        ]);
+        ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'kg',
+            'label' => 'KG',
+            'conversion_to_base' => 1,
+            'is_base' => true,
+            'is_orderable' => true,
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->put(route('inventory.products.measures.bulk.update'), [
+                'products' => [
+                    [
+                        'public_uuid' => $product->public_uuid,
+                        'base_unit' => 'kg',
+                        'enabled_units' => ['box' => '1'],
+                        'units' => ['kg' => '1', 'box' => '', 'piece' => ''],
+                    ],
+                ],
+            ])
+            ->assertSessionHasErrors('products.0.units.box');
+
+        $this
+            ->actingAs($admin)
+            ->put(route('inventory.products.measures.bulk.update'), [
+                'products' => [
+                    [
+                        'public_uuid' => $product->public_uuid,
+                        'base_unit' => 'kg',
+                        'enabled_units' => ['piece' => '1'],
+                        'units' => ['kg' => '1', 'box' => '', 'piece' => ''],
+                    ],
+                ],
+            ])
+            ->assertRedirect(route('inventory.products.measures.bulk'));
+
+        $product->refresh()->load('orderUnits');
+
+        $piece = $product->orderUnits->firstWhere('unit', 'piece');
+        $this->assertNotNull($piece);
+        $this->assertNull($piece->conversion_to_base);
+        $this->assertNull($product->orderUnits->firstWhere('unit', 'box'));
     }
 }
