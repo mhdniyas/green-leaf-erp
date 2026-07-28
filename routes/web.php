@@ -112,6 +112,8 @@ Route::middleware('auth')->group(function () {
         Route::patch('products/status-permissions', [ProductController::class, 'updateStatusPermissions'])->name('products.status-permissions.update');
         Route::get('products/measures/bulk', [ProductController::class, 'bulkMeasures'])->name('products.measures.bulk');
         Route::put('products/measures/bulk', [ProductController::class, 'updateBulkMeasures'])->name('products.measures.bulk.update');
+        Route::get('products/measures/bulk/export-json', [ProductController::class, 'exportBulkMeasures'])->name('products.measures.bulk.export-json');
+        Route::post('products/measures/bulk/import-json', [ProductController::class, 'importBulkMeasures'])->name('products.measures.bulk.import-json');
         Route::patch('products/{product}/status', [ProductController::class, 'updateStatus'])->name('products.status.update');
         Route::resource('products', ProductController::class);
 

@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Web\Inventory;
 
 use App\DTOs\Inventory\ProductData;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Web\Inventory\ImportProductMeasuresJsonRequest;
 use App\Http\Requests\Web\Inventory\StoreProductRequest;
 use App\Http\Requests\Web\Inventory\UpdateProductMeasuresBulkRequest;
 use App\Http\Requests\Web\Inventory\UpdateProductRequest;
@@ -20,6 +21,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 use Spatie\Permission\Models\Permission;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ProductController extends Controller
 {
@@ -64,37 +66,7 @@ class ProductController extends Controller
     {
         abort_unless($request->user()?->can('inventory.product.update'), 403);
 
-        $status = in_array($request->string('status')->toString(), ['active', 'inactive'], true)
-            ? $request->string('status')->toString()
-            : null;
-        $baseUnit = in_array($request->string('base_unit')->toString(), ProductUnit::AVAILABLE_UNITS, true)
-            ? $request->string('base_unit')->toString()
-            : null;
-        $measureStatus = in_array($request->string('measure_status')->toString(), ['missing_box', 'missing_piece', 'has_multiple'], true)
-            ? $request->string('measure_status')->toString()
-            : null;
-
-        $products = Product::query()
-            ->with(['category', 'orderUnits'])
-            ->when($request->integer('category_id') > 0, fn ($query) => $query->where('category_id', $request->integer('category_id')))
-            ->when($status === 'active', fn ($query) => $query->where('is_active', true))
-            ->when($status === 'inactive', fn ($query) => $query->where('is_active', false))
-            ->when($baseUnit, fn ($query) => $query->where('unit', $baseUnit))
-            ->when($request->string('search')->toString() !== '', function ($query) use ($request): void {
-                $search = $request->string('search')->toString();
-                $query->where(function ($query) use ($search): void {
-                    $query->where('name', 'like', "%{$search}%")
-                        ->orWhere('sku', 'like', "%{$search}%")
-                        ->orWhereHas('category', fn ($categoryQuery) => $categoryQuery->where('name', 'like', "%{$search}%"));
-                });
-            })
-            ->orderByDesc('is_active')
-            ->ordered()
-            ->get()
-            ->when($measureStatus === 'missing_box', fn ($products) => $products->filter(fn (Product $product): bool => ! $product->orderUnits->contains('unit', 'box')))
-            ->when($measureStatus === 'missing_piece', fn ($products) => $products->filter(fn (Product $product): bool => ! $product->orderUnits->contains('unit', 'piece')))
-            ->when($measureStatus === 'has_multiple', fn ($products) => $products->filter(fn (Product $product): bool => $product->orderUnits->where('is_orderable', true)->count() > 1))
-            ->values();
+        $products = $this->filteredBulkMeasureProducts($request);
 
         $units = ProductUnit::AVAILABLE_UNITS;
         $categories = $this->categories->findAllActive();
@@ -164,6 +136,51 @@ class ProductController extends Controller
             ->with('success', $message);
     }
 
+    public function exportBulkMeasures(Request $request): StreamedResponse
+    {
+        abort_unless($request->user()?->can('inventory.product.update'), 403);
+
+        $products = $this->filteredBulkMeasureProducts($request);
+        $payload = [
+            'format' => 'green-leaf-product-measures.v1',
+            'exported_at' => now()->toIso8601String(),
+            'filters' => $request->only(['search', 'category_id', 'status', 'base_unit', 'measure_status']),
+            'products' => $products->map(fn (Product $product): array => [
+                'public_uuid' => $product->public_uuid,
+                'sku' => $product->sku,
+                'name' => $product->name,
+                'category' => $product->category?->name,
+                'is_active' => (bool) $product->is_active,
+                'base_unit' => $product->unit,
+                'measures' => $product->orderUnits->map(fn (ProductUnit $unit): array => [
+                    'unit' => $unit->unit,
+                    'label' => $unit->label,
+                    'conversion_to_base' => $unit->conversion_to_base !== null ? (float) $unit->conversion_to_base : null,
+                    'is_base' => (bool) $unit->is_base,
+                    'is_orderable' => (bool) $unit->is_orderable,
+                    'sort_order' => (int) $unit->sort_order,
+                ])->values()->all(),
+            ])->values()->all(),
+        ];
+
+        $filename = 'green-leaf-product-measures-'.now()->format('Y-m-d-His').'.json';
+
+        return response()->streamDownload(function () use ($payload): void {
+            echo json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        }, $filename, [
+            'Content-Type' => 'application/json',
+        ]);
+    }
+
+    public function importBulkMeasures(ImportProductMeasuresJsonRequest $request): RedirectResponse
+    {
+        $updated = $this->service->bulkUpdateMeasures($request->importedProducts());
+
+        return redirect()
+            ->route('inventory.products.measures.bulk', $request->only(['search', 'category_id', 'status', 'base_unit', 'measure_status']))
+            ->with('success', "{$updated} product measures imported.");
+    }
+
     public function updateStatus(Request $request, Product $product): RedirectResponse
     {
         abort_unless($request->user()?->hasRole('admin') || $request->user()?->can('inventory.product.status.update'), 403);
@@ -215,5 +232,40 @@ class ProductController extends Controller
 
         return redirect()->route('inventory.products.index')
             ->with('success', 'Product deleted.');
+    }
+
+    private function filteredBulkMeasureProducts(Request $request)
+    {
+        $status = in_array($request->string('status')->toString(), ['active', 'inactive'], true)
+            ? $request->string('status')->toString()
+            : null;
+        $baseUnit = in_array($request->string('base_unit')->toString(), ProductUnit::AVAILABLE_UNITS, true)
+            ? $request->string('base_unit')->toString()
+            : null;
+        $measureStatus = in_array($request->string('measure_status')->toString(), ['missing_box', 'missing_piece', 'has_multiple'], true)
+            ? $request->string('measure_status')->toString()
+            : null;
+
+        return Product::query()
+            ->with(['category', 'orderUnits'])
+            ->when($request->integer('category_id') > 0, fn ($query) => $query->where('category_id', $request->integer('category_id')))
+            ->when($status === 'active', fn ($query) => $query->where('is_active', true))
+            ->when($status === 'inactive', fn ($query) => $query->where('is_active', false))
+            ->when($baseUnit, fn ($query) => $query->where('unit', $baseUnit))
+            ->when($request->string('search')->toString() !== '', function ($query) use ($request): void {
+                $search = $request->string('search')->toString();
+                $query->where(function ($query) use ($search): void {
+                    $query->where('name', 'like', "%{$search}%")
+                        ->orWhere('sku', 'like', "%{$search}%")
+                        ->orWhereHas('category', fn ($categoryQuery) => $categoryQuery->where('name', 'like', "%{$search}%"));
+                });
+            })
+            ->orderByDesc('is_active')
+            ->ordered()
+            ->get()
+            ->when($measureStatus === 'missing_box', fn ($products) => $products->filter(fn (Product $product): bool => ! $product->orderUnits->contains('unit', 'box')))
+            ->when($measureStatus === 'missing_piece', fn ($products) => $products->filter(fn (Product $product): bool => ! $product->orderUnits->contains('unit', 'piece')))
+            ->when($measureStatus === 'has_multiple', fn ($products) => $products->filter(fn (Product $product): bool => $product->orderUnits->where('is_orderable', true)->count() > 1))
+            ->values();
     }
 }

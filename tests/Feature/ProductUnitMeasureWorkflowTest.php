@@ -12,6 +12,7 @@ use App\Models\ShopOrder;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
@@ -358,6 +359,159 @@ class ProductUnitMeasureWorkflowTest extends TestCase
         $this->assertNotNull($piece);
         $this->assertNull($piece->conversion_to_base);
         $this->assertNull($product->orderUnits->firstWhere('unit', 'box'));
+    }
+
+    public function test_bulk_measures_can_limit_shop_owner_visible_units(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $product = Product::factory()->create([
+            'name' => 'Box Only Tomato',
+            'sku' => 'BOX-ONLY-TOMATO',
+            'unit' => 'kg',
+            'is_active' => true,
+        ]);
+        ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'kg',
+            'label' => 'KG',
+            'conversion_to_base' => 1,
+            'is_base' => true,
+            'is_orderable' => true,
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->put(route('inventory.products.measures.bulk.update'), [
+                'products' => [
+                    [
+                        'public_uuid' => $product->public_uuid,
+                        'base_unit' => 'kg',
+                        'enabled_units' => ['box' => '1'],
+                        'units' => ['kg' => '1', 'box' => '14'],
+                        'visible_labels' => [
+                            'KG' => '0',
+                            'BOX 14 KG' => '1',
+                        ],
+                    ],
+                ],
+            ])
+            ->assertRedirect(route('inventory.products.measures.bulk'));
+
+        $product->refresh()->load('orderUnits');
+
+        $this->assertFalse((bool) $product->orderUnits->firstWhere('label', 'KG')->is_orderable);
+        $this->assertTrue((bool) $product->orderUnits->firstWhere('label', 'BOX 14 KG')->is_orderable);
+    }
+
+    public function test_admin_can_export_bulk_product_measures_as_json(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $product = Product::factory()->create([
+            'name' => 'Export Tomato',
+            'sku' => 'EXPORT-TOMATO',
+            'unit' => 'kg',
+            'is_active' => true,
+        ]);
+        ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'kg',
+            'label' => 'KG',
+            'conversion_to_base' => 1,
+            'is_base' => true,
+            'is_orderable' => true,
+        ]);
+        ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'box',
+            'label' => 'BOX 10 KG',
+            'conversion_to_base' => 10,
+            'is_base' => false,
+            'is_orderable' => false,
+        ]);
+
+        $response = $this
+            ->actingAs($admin)
+            ->get(route('inventory.products.measures.bulk.export-json', ['search' => 'EXPORT-TOMATO']))
+            ->assertOk();
+
+        $payload = json_decode($response->streamedContent(), true);
+
+        $this->assertSame('green-leaf-product-measures.v1', $payload['format']);
+        $this->assertCount(1, $payload['products']);
+        $this->assertSame('EXPORT-TOMATO', $payload['products'][0]['sku']);
+        $this->assertSame('BOX 10 KG', $payload['products'][0]['measures'][1]['label']);
+        $this->assertFalse($payload['products'][0]['measures'][1]['is_orderable']);
+    }
+
+    public function test_admin_can_import_bulk_product_measures_json_update(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $product = Product::factory()->create([
+            'name' => 'Import Tomato',
+            'sku' => 'IMPORT-TOMATO',
+            'unit' => 'kg',
+            'is_active' => true,
+        ]);
+        ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'kg',
+            'label' => 'KG',
+            'conversion_to_base' => 1,
+            'is_base' => true,
+            'is_orderable' => true,
+        ]);
+
+        $payload = [
+            'format' => 'green-leaf-product-measures.v1',
+            'products' => [
+                [
+                    'sku' => 'IMPORT-TOMATO',
+                    'base_unit' => 'kg',
+                    'measures' => [
+                        [
+                            'unit' => 'kg',
+                            'label' => 'KG',
+                            'conversion_to_base' => 1,
+                            'is_base' => true,
+                            'is_orderable' => false,
+                        ],
+                        [
+                            'unit' => 'box',
+                            'label' => 'BOX 8 KG',
+                            'conversion_to_base' => 8,
+                            'is_base' => false,
+                            'is_orderable' => true,
+                        ],
+                        [
+                            'unit' => 'box',
+                            'label' => 'BOX 12 KG',
+                            'conversion_to_base' => 12,
+                            'is_base' => false,
+                            'is_orderable' => true,
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        $this
+            ->actingAs($admin)
+            ->post(route('inventory.products.measures.bulk.import-json'), [
+                'import_file' => UploadedFile::fake()->createWithContent('measures.json', json_encode($payload)),
+            ])
+            ->assertRedirect(route('inventory.products.measures.bulk'))
+            ->assertSessionHas('success', '1 product measures imported.');
+
+        $product->refresh()->load('orderUnits');
+
+        $this->assertSame(3, $product->orderUnits->count());
+        $this->assertFalse((bool) $product->orderUnits->firstWhere('label', 'KG')->is_orderable);
+        $this->assertSame(8.0, (float) $product->orderUnits->firstWhere('label', 'BOX 8 KG')->conversion_to_base);
+        $this->assertSame(12.0, (float) $product->orderUnits->firstWhere('label', 'BOX 12 KG')->conversion_to_base);
+        $this->assertTrue((bool) $product->orderUnits->firstWhere('label', 'BOX 12 KG')->is_orderable);
     }
 
     public function test_bulk_measures_ajax_save_returns_json_without_redirect(): void

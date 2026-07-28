@@ -44,6 +44,32 @@
                         Filter
                     </button>
                 </form>
+
+                <div class="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                    <div>
+                        <p class="text-xs font-black text-slate-900">JSON backup and bulk update</p>
+                        <p class="mt-1 text-[11px] font-semibold text-slate-500">Export the currently filtered products, edit measures in JSON, then import to update existing products by UUID or SKU.</p>
+                    </div>
+                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <a href="{{ route('inventory.products.measures.bulk.export-json', request()->query()) }}"
+                           class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-[0.12em] text-slate-700 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700">
+                            Export JSON
+                        </a>
+                        <form method="POST" action="{{ route('inventory.products.measures.bulk.import-json', request()->query()) }}" enctype="multipart/form-data" class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                            @csrf
+                            <label class="inline-flex h-10 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-black uppercase tracking-[0.12em] text-slate-600 shadow-sm transition hover:border-emerald-200 hover:bg-white hover:text-emerald-700">
+                                <span data-import-file-label>Choose JSON</span>
+                                <input type="file" name="import_file" accept="application/json,.json" data-import-file-input class="sr-only">
+                            </label>
+                            <button type="submit" class="inline-flex h-10 items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-black uppercase tracking-[0.12em] text-white shadow-sm transition hover:bg-emerald-700">
+                                Import Update
+                            </button>
+                        </form>
+                    </div>
+                    @error('import_file')
+                        <p class="rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 lg:col-span-2">{{ $message }}</p>
+                    @enderror
+                </div>
             </div>
         </div>
 
@@ -206,6 +232,12 @@
             const changedCount = document.querySelector('[data-changed-count]');
             const form = document.querySelector('[data-bulk-measures-form]');
             const saveChangedButton = document.querySelector('[data-save-changed]');
+            const importFileInput = document.querySelector('[data-import-file-input]');
+            const importFileLabel = document.querySelector('[data-import-file-label]');
+
+            importFileInput?.addEventListener('change', () => {
+                importFileLabel.textContent = importFileInput.files?.[0]?.name || 'Choose JSON';
+            });
 
             function formatMeasure(value) {
                 const number = Number.parseFloat(String(value));
