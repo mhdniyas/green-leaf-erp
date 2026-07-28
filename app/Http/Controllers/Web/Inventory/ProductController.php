@@ -151,15 +151,8 @@ class ProductController extends Controller
                 'name' => $product->name,
                 'category' => $product->category?->name,
                 'is_active' => (bool) $product->is_active,
-                'base_unit' => $product->unit,
-                'measures' => $product->orderUnits->map(fn (ProductUnit $unit): array => [
-                    'unit' => $unit->unit,
-                    'label' => $unit->label,
-                    'conversion_to_base' => $unit->conversion_to_base !== null ? (float) $unit->conversion_to_base : null,
-                    'is_base' => (bool) $unit->is_base,
-                    'is_orderable' => (bool) $unit->is_orderable,
-                    'sort_order' => (int) $unit->sort_order,
-                ])->values()->all(),
+                'base_unit' => ProductUnit::normalizeUnit($product->unit),
+                'measures' => $this->exportedMeasureRows($product),
             ])->values()->all(),
         ];
 
@@ -239,8 +232,9 @@ class ProductController extends Controller
         $status = in_array($request->string('status')->toString(), ['active', 'inactive'], true)
             ? $request->string('status')->toString()
             : null;
-        $baseUnit = in_array($request->string('base_unit')->toString(), ProductUnit::AVAILABLE_UNITS, true)
-            ? $request->string('base_unit')->toString()
+        $requestedBaseUnit = ProductUnit::normalizeUnit($request->string('base_unit')->toString());
+        $baseUnit = in_array($requestedBaseUnit, ProductUnit::AVAILABLE_UNITS, true)
+            ? $requestedBaseUnit
             : null;
         $measureStatus = in_array($request->string('measure_status')->toString(), ['missing_box', 'missing_piece', 'has_multiple'], true)
             ? $request->string('measure_status')->toString()
@@ -251,7 +245,7 @@ class ProductController extends Controller
             ->when($request->integer('category_id') > 0, fn ($query) => $query->where('category_id', $request->integer('category_id')))
             ->when($status === 'active', fn ($query) => $query->where('is_active', true))
             ->when($status === 'inactive', fn ($query) => $query->where('is_active', false))
-            ->when($baseUnit, fn ($query) => $query->where('unit', $baseUnit))
+            ->when($baseUnit, fn ($query) => $query->whereIn('unit', ProductUnit::databaseUnitsFor($baseUnit)))
             ->when($request->string('search')->toString() !== '', function ($query) use ($request): void {
                 $search = $request->string('search')->toString();
                 $query->where(function ($query) use ($search): void {
@@ -267,5 +261,33 @@ class ProductController extends Controller
             ->when($measureStatus === 'missing_piece', fn ($products) => $products->filter(fn (Product $product): bool => ! $product->orderUnits->contains('unit', 'piece')))
             ->when($measureStatus === 'has_multiple', fn ($products) => $products->filter(fn (Product $product): bool => $product->orderUnits->where('is_orderable', true)->count() > 1))
             ->values();
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function exportedMeasureRows(Product $product): array
+    {
+        if ($product->orderUnits->isEmpty()) {
+            $baseUnit = ProductUnit::normalizeUnit($product->unit);
+
+            return [[
+                'unit' => $baseUnit,
+                'label' => strtoupper($baseUnit),
+                'conversion_to_base' => 1.0,
+                'is_base' => true,
+                'is_orderable' => true,
+                'sort_order' => 0,
+            ]];
+        }
+
+        return $product->orderUnits->map(fn (ProductUnit $unit): array => [
+            'unit' => ProductUnit::normalizeUnit($unit->unit),
+            'label' => $unit->label,
+            'conversion_to_base' => $unit->conversion_to_base !== null ? (float) $unit->conversion_to_base : null,
+            'is_base' => (bool) $unit->is_base,
+            'is_orderable' => (bool) $unit->is_orderable,
+            'sort_order' => (int) $unit->sort_order,
+        ])->values()->all();
     }
 }

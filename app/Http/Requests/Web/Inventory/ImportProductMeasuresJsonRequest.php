@@ -59,7 +59,7 @@ class ImportProductMeasuresJsonRequest extends FormRequest
                     ]);
                 }
 
-                $baseUnit = mb_strtolower(trim((string) ($row['base_unit'] ?? $product->unit)));
+                $baseUnit = ProductUnit::normalizeUnit((string) ($row['base_unit'] ?? $product->unit));
                 if (! in_array($baseUnit, ProductUnit::AVAILABLE_UNITS, true)) {
                     throw ValidationException::withMessages([
                         'import_file' => 'Invalid base_unit for '.$product->sku.'.',
@@ -68,9 +68,13 @@ class ImportProductMeasuresJsonRequest extends FormRequest
 
                 $measures = collect($row['measures'] ?? []);
                 if ($measures->isEmpty()) {
-                    throw ValidationException::withMessages([
-                        'import_file' => 'Product '.$product->sku.' must contain at least one measure.',
-                    ]);
+                    $measures = collect([[
+                        'unit' => $baseUnit,
+                        'label' => strtoupper($baseUnit),
+                        'conversion_to_base' => 1,
+                        'is_base' => true,
+                        'is_orderable' => true,
+                    ]]);
                 }
 
                 $units = [$baseUnit => 1.0];
@@ -84,7 +88,7 @@ class ImportProductMeasuresJsonRequest extends FormRequest
                         ]);
                     }
 
-                    $unit = mb_strtolower(trim((string) ($measure['unit'] ?? '')));
+                    $unit = ProductUnit::normalizeUnit((string) ($measure['unit'] ?? ''));
                     if (! in_array($unit, ProductUnit::AVAILABLE_UNITS, true)) {
                         throw ValidationException::withMessages([
                             'import_file' => 'Invalid unit for '.$product->sku.'.',

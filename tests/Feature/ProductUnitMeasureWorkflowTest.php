@@ -514,6 +514,46 @@ class ProductUnitMeasureWorkflowTest extends TestCase
         $this->assertTrue((bool) $product->orderUnits->firstWhere('label', 'BOX 12 KG')->is_orderable);
     }
 
+    public function test_json_bulk_measures_normalizes_legacy_pcs_products_without_measure_rows(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $product = Product::factory()->create([
+            'name' => 'Legacy Coconut',
+            'sku' => '170',
+            'unit' => 'pcs',
+            'is_active' => true,
+        ]);
+
+        $response = $this
+            ->actingAs($admin)
+            ->get(route('inventory.products.measures.bulk.export-json', ['search' => '170']))
+            ->assertOk();
+
+        $payload = json_decode($response->streamedContent(), true);
+
+        $this->assertSame('piece', $payload['products'][0]['base_unit']);
+        $this->assertSame('piece', $payload['products'][0]['measures'][0]['unit']);
+        $this->assertSame('PIECE', $payload['products'][0]['measures'][0]['label']);
+
+        $payload['products'][0]['base_unit'] = 'pcs';
+        $payload['products'][0]['measures'] = [];
+
+        $this
+            ->actingAs($admin)
+            ->post(route('inventory.products.measures.bulk.import-json'), [
+                'import_file' => UploadedFile::fake()->createWithContent('legacy-measures.json', json_encode($payload)),
+            ])
+            ->assertRedirect(route('inventory.products.measures.bulk'))
+            ->assertSessionHas('success', '1 product measures imported.');
+
+        $product->refresh()->load('orderUnits');
+
+        $this->assertSame('piece', $product->unit);
+        $this->assertSame('piece', $product->orderUnits->sole()->unit);
+        $this->assertSame('PIECE', $product->orderUnits->sole()->label);
+    }
+
     public function test_bulk_measures_ajax_save_returns_json_without_redirect(): void
     {
         $admin = User::factory()->create();

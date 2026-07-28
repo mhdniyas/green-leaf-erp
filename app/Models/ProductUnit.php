@@ -11,7 +11,14 @@ use Illuminate\Support\Str;
 
 class ProductUnit extends Model
 {
-    public const AVAILABLE_UNITS = ['kg', 'box', 'piece', 'bag', 'bunch', 'packet', 'crate', 'tray'];
+    public const AVAILABLE_UNITS = ['kg', 'box', 'piece', 'bag', 'bunch', 'packet', 'crate', 'tray', 'roll'];
+
+    public const UNIT_ALIASES = [
+        'pc' => 'piece',
+        'pcs' => 'piece',
+        'pcs.' => 'piece',
+        'pieces' => 'piece',
+    ];
 
     private static ?bool $hasPublicUuidColumn = null;
 
@@ -50,6 +57,27 @@ class ProductUnit extends Model
     public static function hasPublicUuidColumn(): bool
     {
         return self::$hasPublicUuidColumn ??= Schema::hasColumn('product_units', 'public_uuid');
+    }
+
+    public static function normalizeUnit(?string $unit): string
+    {
+        $normalized = mb_strtolower(trim((string) $unit));
+
+        return self::UNIT_ALIASES[$normalized] ?? $normalized;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public static function databaseUnitsFor(string $unit): array
+    {
+        $normalized = self::normalizeUnit($unit);
+        $aliases = collect(self::UNIT_ALIASES)
+            ->filter(fn (string $aliasUnit): bool => $aliasUnit === $normalized)
+            ->keys()
+            ->all();
+
+        return array_values(array_unique([$normalized, ...$aliases]));
     }
 
     public function product(): BelongsTo
