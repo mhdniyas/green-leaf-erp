@@ -19,6 +19,7 @@
             'pendingPaymentAmount' => $pendingPaymentAmount,
             'isOwnedAccountingShop' => $isOwnedAccountingShop,
             'latestClosingBalance' => $latestClosingBalance,
+            'carryOver' => $carryOver,
         ])
 
         @include('shop-owner.partials.date-range-filter', [

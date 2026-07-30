@@ -238,6 +238,9 @@ class EssentialUserSeeder extends Seeder
             ['name' => 'HR Manager', 'email' => 'hr@greenleaf.com', 'role' => 'hr_manager'],
             ['name' => 'Purchase Manager', 'email' => 'purchase@greenleaf.com', 'role' => 'purchase'],
             ['name' => 'Purchaser', 'email' => 'purchaser@greenleaf.com', 'role' => 'purchaser'],
+            ['name' => 'Faisal', 'email' => 'faisal@greenleaf.com', 'role' => 'purchaser'],
+            ['name' => 'Shadhuli', 'email' => 'shadhuli@greenleaf.com', 'role' => 'purchaser'],
+            ['name' => 'Ashraf', 'email' => 'ashraf@greenleaf.com', 'role' => 'purchaser'],
             ['name' => 'Warehouse Receiver', 'email' => 'receiver@greenleaf.com', 'role' => 'warehouse_receiver'],
         ];
     }

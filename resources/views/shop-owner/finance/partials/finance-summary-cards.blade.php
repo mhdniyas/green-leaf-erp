@@ -1,6 +1,7 @@
 @php
     $isOwnedAccountingShop = $isOwnedAccountingShop ?? false;
     $latestClosingBalance = (float) ($latestClosingBalance ?? 0);
+    $carryOver = (float) ($carryOver ?? 0);
 @endphp
 
 <div class="grid grid-cols-2 gap-3 {{ $isOwnedAccountingShop ? 'lg:grid-cols-5' : 'lg:grid-cols-3' }}">
@@ -25,7 +26,7 @@
         </div>
     @endif
     <div class="rounded-[1.35rem] border border-slate-200 bg-white px-4 py-4 shadow-sm {{ $isOwnedAccountingShop ? 'col-span-2 lg:col-span-1' : '' }}">
-        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Deductions</p>
-        <p class="mt-2 whitespace-nowrap text-lg font-black text-amber-600 sm:text-xl">Rs. {{ number_format((float) $shortageValue, 2) }}</p>
+        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Carry Over</p>
+        <p class="mt-2 whitespace-nowrap text-lg font-black text-amber-600 sm:text-xl">Rs. {{ number_format((float) $carryOver, 2) }}</p>
     </div>
 </div>

@@ -15,6 +15,7 @@
             'pendingPaymentAmount' => $pendingPaymentAmount,
             'isOwnedAccountingShop' => $isOwnedAccountingShop,
             'latestClosingBalance' => $latestClosingBalance ?? 0,
+            'carryOver' => $carryOver,
         ])
 
         <section class="rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">

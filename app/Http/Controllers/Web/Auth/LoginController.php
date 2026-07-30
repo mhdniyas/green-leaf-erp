@@ -107,6 +107,32 @@ class LoginController extends Controller
         return redirect()->intended(route('dashboard'));
     }
 
+    public function demoPurchaser(Request $request, ?string $name = null): RedirectResponse
+    {
+        abort_if(app()->isProduction(), 404);
+
+        $nameMap = [
+            'faisal'   => 'faisal@greenleaf.com',
+            'shadhuli' => 'shadhuli@greenleaf.com',
+            'ashraf'   => 'ashraf@greenleaf.com',
+        ];
+
+        $email = $nameMap[strtolower((string) $name)] ?? null;
+
+        $user = $email
+            ? User::query()->where('email', $email)->first()
+            : User::role('purchaser')->whereHas('roles', fn ($q) => $q->where('name', 'purchaser'))->orderBy('name')->first();
+
+        if (! $user instanceof User || ! $user->hasApprovedRegistration()) {
+            return redirect()->route('login')->withErrors(['email' => 'Purchaser demo user not found. Run the seeder first.']);
+        }
+
+        Auth::login($user);
+        $request->session()->regenerate();
+
+        return redirect()->route('purchaser.vendors');
+    }
+
     /**
      * Log the user out of the application.
      */

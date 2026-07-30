@@ -354,6 +354,18 @@ class ShopOwnerController extends Controller
             ->where('status', 'pending')
             ->sum('requested_amount');
         $availableInvoicePaymentCredit = $this->shopInvoiceService->availableShopCredit((int) $activeShop->id);
+        $carryOver = (float) ShopCredit::query()
+            ->approved()
+            ->where('shop_id', $activeShop->id)
+            ->where(function ($query) {
+                $query->where('description', 'like', '%carry-over%')
+                    ->orWhere('description', 'like', '%carry over%')
+                    ->orWhere('description', 'like', '%carry_over%')
+                    ->orWhere('description', 'like', '%carryover%');
+            })
+            ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))
+            ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate))
+            ->sum('amount');
 
         return [
             'invoices' => $invoices,
@@ -373,6 +385,7 @@ class ShopOwnerController extends Controller
             'pendingBillApprovalSummary' => $pendingBillApprovalSummary,
             'filterStartDate' => $filterStartDate,
             'filterEndDate' => $filterEndDate,
+            'carryOver' => $carryOver,
         ];
     }
 
