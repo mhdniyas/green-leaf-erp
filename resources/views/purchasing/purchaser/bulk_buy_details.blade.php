@@ -52,9 +52,19 @@
 
             {{-- Products list --}}
             <div class="space-y-2.5">
-                <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
-                    <h2 class="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Selected Products</h2>
-                    <span class="rounded-lg bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">{{ $dailySummary->count() }} rows</span>
+                <div class="flex flex-col gap-2 border-b border-slate-100 pb-2.5 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="flex items-center justify-between gap-3">
+                        <h2 class="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Selected Products</h2>
+                        <span class="rounded-lg bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">{{ $dailySummary->count() }} rows</span>
+                    </div>
+                    <div class="flex h-9 w-full items-center rounded-xl bg-slate-100 p-1 sm:w-auto" role="group" aria-label="Bulk purchase row layout">
+                        <button type="button" id="bulk-layout-compact" class="bulk-layout-toggle flex-1 rounded-lg px-3 py-1.5 text-[11px] font-black uppercase text-slate-600 transition sm:flex-none" data-layout="compact">
+                            Row
+                        </button>
+                        <button type="button" id="bulk-layout-two-row" class="bulk-layout-toggle flex-1 rounded-lg px-3 py-1.5 text-[11px] font-black uppercase text-slate-600 transition sm:flex-none" data-layout="two-row">
+                            Two row
+                        </button>
+                    </div>
                 </div>
 
                 @foreach ($dailySummary as $summary)
@@ -91,8 +101,8 @@
                         <input type="hidden" id="basis-{{ $summary['product_id'] }}" value="{{ $defaultBasis }}">
                         <input type="hidden" id="unit-{{ $summary['product_id'] }}" value="{{ $summary['unit'] }}">
 
-                        <div class="grid grid-cols-[2rem_minmax(0,1fr)_3.75rem_4rem_4.25rem_1.65rem] items-center gap-1.5 sm:grid-cols-[2rem_minmax(0,1fr)_4.25rem_4.75rem_5rem_2rem] lg:grid-cols-[2.75rem_minmax(0,1fr)_16rem_5.25rem_18rem_8rem] lg:gap-2">
-                            <div class="contents lg:block">
+                        <div class="bulk-row-grid grid grid-cols-[2rem_minmax(0,1fr)_3.75rem_4rem_4.25rem_1.65rem] items-center gap-1.5 sm:grid-cols-[2rem_minmax(0,1fr)_4.25rem_4.75rem_5rem_2rem] lg:grid-cols-[2.75rem_minmax(0,1fr)_16rem_5.25rem_18rem_8rem] lg:gap-2">
+                            <div class="bulk-row-code contents lg:block">
                                 <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[11px] font-black text-slate-600 lg:h-9 lg:w-9">{{ $summary['sku'] ?: str_pad((string) $loop->iteration, 2, '0', STR_PAD_LEFT) }}</span>
                                 <div class="min-w-0 lg:hidden">
                                     <h3 class="truncate text-[13px] font-black leading-4 text-slate-950">{{ $summary['product_name'] }}</h3>
@@ -100,12 +110,12 @@
                                 </div>
                             </div>
 
-                            <div class="hidden min-w-0 lg:block">
+                            <div class="bulk-row-title hidden min-w-0 lg:block">
                                 <h3 class="truncate text-[13px] font-black leading-4 text-slate-950">{{ $summary['product_name'] }}</h3>
                                 <p class="truncate text-[11px] font-semibold leading-3 text-slate-500">{{ $summary['category_name'] ?: 'Other' }}</p>
                             </div>
 
-                            <div class="hidden grid-cols-3 gap-1.5 lg:grid">
+                            <div class="bulk-row-stats hidden grid-cols-3 gap-1.5 lg:grid">
                                 <div class="rounded-lg bg-slate-50 px-2 py-1.5">
                                     <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Need</p>
                                     <p class="truncate text-[11px] font-black text-slate-800">{{ number_format($summary['total_approved_qty'], 1) }} {{ $summary['unit'] }}</p>
@@ -121,7 +131,7 @@
                             </div>
 
                             @if ($summary['unit'] === 'kg' && ($baseUnitOption || $defaultBoxUnit))
-                                <div class="flex h-8 items-center gap-1 rounded-lg bg-slate-100 p-0.5">
+                                <div class="bulk-row-basis flex h-8 items-center gap-1 rounded-lg bg-slate-100 p-0.5">
                                     @if ($baseUnitOption)
                                         <button type="button" id="basis-kg-btn-{{ $summary['product_id'] }}" onclick="setRowBasis({{ $summary['product_id'] }}, 'kg')" class="flex-1 rounded-md px-2 py-1 text-[9px] font-black uppercase transition-all {{ $defaultBasis === 'kg' ? 'bg-white text-slate-950 shadow-xs' : 'text-slate-600 hover:bg-slate-50' }}">
                                             {{ $baseUnitOption['label'] }}
@@ -134,12 +144,12 @@
                                     @endif
                                 </div>
                             @else
-                                <div class="flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-2 text-[10px] font-black uppercase text-slate-800">
+                                <div class="bulk-row-basis flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-2 text-[10px] font-black uppercase text-slate-800">
                                     {{ $baseUnitOption['label'] ?? strtoupper($summary['unit']) }}
                                 </div>
                             @endif
 
-                            <div class="contents lg:block lg:min-w-0">
+                            <div class="bulk-row-inputs contents lg:block lg:min-w-0">
                                 <div id="kg-inputs-{{ $summary['product_id'] }}" class="{{ $defaultBasis === 'kg' ? 'contents' : 'hidden' }} lg:grid lg:grid-cols-2 lg:gap-1.5">
                                     <div>
                                         <label class="sr-only" for="qty-kg-{{ $summary['product_id'] }}">Quantity for {{ $summary['product_name'] }}</label>
@@ -216,7 +226,7 @@
                                 @endif
                             </div>
 
-                            <div class="contents lg:flex lg:items-center lg:justify-between lg:gap-1.5">
+                            <div class="bulk-row-action contents lg:flex lg:items-center lg:justify-between lg:gap-1.5">
                                 <div class="hidden min-w-0 lg:block">
                                     <span class="row-total block truncate text-sm font-black text-slate-950">₹ 0.00</span>
                                     <p id="prev-price-hint-{{ $summary['product_id'] }}" class="truncate text-[10px] font-black text-amber-700">
@@ -259,10 +269,116 @@
         </form>
     </div>
 
+    <style>
+        #bulk-buy-details-form.bulk-layout-two-row .product-row {
+            padding: 0.65rem;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-grid {
+            display: grid;
+            grid-template-columns: 2.25rem minmax(0, 1fr) 6.5rem;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-code {
+            display: block;
+            grid-column: 1 / 2;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-code > div {
+            display: none;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-title {
+            display: block;
+            grid-column: 2 / 3;
+            min-width: 0;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-stats {
+            display: grid;
+            grid-column: 1 / -1;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.375rem;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-basis {
+            grid-column: 1 / 2;
+            width: 100%;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-inputs {
+            display: block;
+            grid-column: 2 / -1;
+            min-width: 0;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-inputs [id^="kg-inputs-"]:not(.hidden),
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-inputs [id^="box-inputs-"]:not(.hidden) {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.375rem;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-inputs [id^="box-inputs-"]:not(.hidden) {
+            grid-template-columns: repeat(auto-fit, minmax(5.25rem, 1fr));
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-action {
+            display: flex;
+            grid-column: 3 / 4;
+            grid-row: 1;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 0.375rem;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-action > div {
+            display: block;
+            min-width: 0;
+        }
+
+        @media (max-width: 640px) {
+            #bulk-buy-details-form.bulk-layout-two-row .bulk-row-grid {
+                grid-template-columns: 2rem minmax(0, 1fr) 1.75rem;
+            }
+
+            #bulk-buy-details-form.bulk-layout-two-row .bulk-row-action > div {
+                display: none;
+            }
+        }
+    </style>
+
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const bulkPriceHintsByCart = @json($bulkPriceHintsByCart);
             const bulkFallbackPriceHints = @json($bulkFallbackPriceHints);
+            const layoutStorageKey = 'greenleaf:purchaser-bulk-buy-layout';
+            const form = document.getElementById('bulk-buy-details-form');
+            const layoutButtons = Array.from(document.querySelectorAll('.bulk-layout-toggle'));
+
+            function setBulkLayout(layout) {
+                const selectedLayout = layout === 'two-row' ? 'two-row' : 'compact';
+
+                form?.classList.toggle('bulk-layout-two-row', selectedLayout === 'two-row');
+                layoutButtons.forEach((button) => {
+                    const isActive = button.dataset.layout === selectedLayout;
+                    button.classList.toggle('bg-white', isActive);
+                    button.classList.toggle('text-slate-950', isActive);
+                    button.classList.toggle('shadow-sm', isActive);
+                    button.classList.toggle('text-slate-600', !isActive);
+                    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                });
+
+                window.localStorage?.setItem(layoutStorageKey, selectedLayout);
+            }
+
+            layoutButtons.forEach((button) => {
+                button.addEventListener('click', () => setBulkLayout(button.dataset.layout || 'compact'));
+            });
+
+            setBulkLayout(window.localStorage?.getItem(layoutStorageKey) || 'compact');
 
             function updateBulkPriceHints(cartId) {
                 document.querySelectorAll('.product-row').forEach((row) => {
