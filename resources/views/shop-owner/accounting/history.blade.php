@@ -36,7 +36,7 @@
                     'bg-rose-50 text-rose-700' => $totals['combined_net'] < 0,
                 ])>
                     <p class="text-[10px] font-black uppercase tracking-[0.16em]">Net</p>
-                    <p class="mt-1 text-lg font-black">Rs. {{ number_format(abs($totals['combined_net']), 2) }}</p>
+                    <p class="mt-1 text-lg font-black">{{ $totals['combined_net'] < 0 ? '-' : '' }}Rs. {{ number_format(abs($totals['combined_net']), 2) }}</p>
                 </div>
             </div>
 

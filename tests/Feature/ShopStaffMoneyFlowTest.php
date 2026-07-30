@@ -2095,6 +2095,71 @@ class ShopStaffMoneyFlowTest extends TestCase
             ->assertSeeText('Cash Purchase');
     }
 
+    public function test_shop_owner_accounting_history_excludes_carry_over_credits_and_displays_negative_sign(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-07-18 09:00:00'));
+        $this->seed(RolePermissionSeeder::class);
+
+        $shop = $this->ownedShop(['code' => 'SHOP_HISTORY_CARRY_OVER']);
+        $shopOwner = $this->shopOwner($shop);
+
+        // Carry-over credit (should be excluded)
+        ShopCredit::query()->create([
+            'shop_id' => $shop->id,
+            'type' => 'in',
+            'is_petty_cash' => false,
+            'amount' => 1000,
+            'description' => 'June month-end carry-over balance to collect',
+            'created_by' => $shopOwner->id,
+            'business_date' => '2026-06-30',
+            'status' => 'approved',
+        ]);
+
+        // Regular credit (should be included)
+        ShopCredit::query()->create([
+            'shop_id' => $shop->id,
+            'type' => 'in',
+            'is_petty_cash' => false,
+            'amount' => 500,
+            'description' => 'Regular loan given',
+            'created_by' => $shopOwner->id,
+            'business_date' => '2026-07-05',
+            'status' => 'approved',
+        ]);
+
+        // Invoice/bill (should be included)
+        $order = ShopOrder::query()->create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => '2026-07-05',
+            'created_by' => $shopOwner->id,
+        ]);
+        ShopInvoice::query()->create([
+            'shop_id' => $shop->id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'SINV-HISTORY-002',
+            'business_date' => '2026-07-05',
+            'status' => 'generated',
+            'delivery_status' => 'received_full',
+            'payment_status' => 'unpaid',
+            'subtotal' => 1200,
+            'final_total' => 1200,
+            'paid_amount' => 0,
+            'balance_amount' => 1200,
+            'generated_by' => $shopOwner->id,
+        ]);
+
+        $this
+            ->actingAs($shopOwner)
+            ->get(route('shop-owner.accounting.history', [
+                'tab' => 'cashbook',
+                'start_date' => '2026-07-01',
+                'end_date' => '2026-07-31',
+            ]))
+            ->assertOk()
+            ->assertSeeText('-Rs. 700.00'); // Inflow (500) - Outflow (1200) = -700.00
+    }
+
     public function test_shop_owner_daily_report_shows_daily_opening_closing_and_net_difference(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-08-01 09:00:00'));

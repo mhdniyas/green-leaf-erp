@@ -28,7 +28,6 @@
                     'amount' => (string) $setting->default_daily_amount,
                     'description' => 'Auto paid from loan',
                     'is_loan_entry' => '1',
-                    'loan_cashbook_offset_enabled' => '0',
                 ])
                 ->values()
                 ->all()
@@ -39,7 +38,6 @@
                 'amount' => (string) $line->amount,
                 'description' => (string) ($line->description ?? ''),
                 'is_loan_entry' => (string) (int) ((bool) $line->is_loan_entry),
-                'loan_cashbook_offset_enabled' => (string) (int) ((bool) $line->loan_cashbook_offset_enabled),
             ])->all()
             : $loanDefaultLines))
             ->filter(fn ($line) => is_array($line))
@@ -51,7 +49,6 @@
             'purpose' => (string) $category->purpose,
             'name' => (string) $category->name,
             'is_loan_category' => $loanCategoryIds->contains((int) $category->id),
-            'loan_cashbook_offset_enabled' => (bool) ($loanSettingsByCategory->get($category->id)?->cashbook_offset_enabled ?? false),
             'loan_default_daily_amount' => (float) ($loanSettingsByCategory->get($category->id)?->default_daily_amount ?? 0),
         ])->values();
         $calculatedClosing = (float) ($receiptSummary['entered_closing'] ?? $receiptSummary['expected_closing']);
@@ -1035,7 +1032,6 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                     .map(line => ({
                         ...line,
                         is_loan_entry: ['1', 1, true, 'true'].includes(line.is_loan_entry),
-                        loan_cashbook_offset_enabled: ['1', 1, true, 'true'].includes(line.loan_cashbook_offset_enabled),
                     }))
                 : [];
             const openingCash = Number(openingDisplay?.dataset.openingCash ?? 0);
@@ -1053,7 +1049,6 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
 
                 return meta?.type === 'expense' && ['1', 1, true, 'true'].includes(line?.is_loan_entry);
             };
-            const isLoanOffsetLine = (line) => ['1', 1, true, 'true'].includes(line?.loan_cashbook_offset_enabled);
             const cashbookLabel = (meta, line = null) => {
                 if (!meta) {
                     return 'Entry';
@@ -1193,7 +1188,6 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                     <input type="hidden" name="lines[${index}][amount]" value="${escapeHtml(line.amount)}">
                     <input type="hidden" name="lines[${index}][description]" value="${escapeHtml(line.description ?? '')}">
                     <input type="hidden" name="lines[${index}][is_loan_entry]" value="${isLoanLine(line) ? '1' : '0'}">
-                    <input type="hidden" name="lines[${index}][loan_cashbook_offset_enabled]" value="${isLoanOffsetLine(line) ? '1' : '0'}">
                 `).join('');
             };
 
@@ -1357,7 +1351,6 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                     amount,
                     description,
                     is_loan_entry: meta?.type === 'expense' && loanInput.checked,
-                    loan_cashbook_offset_enabled: false,
                 };
 
                 if (editIndex === null) {

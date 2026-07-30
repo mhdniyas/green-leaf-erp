@@ -214,7 +214,6 @@ class OwnedShopAccountingService
                     'shop_accounting_category_id' => $category->id,
                     'type' => $category->type,
                     'cash_effect' => $category->cash_effect,
-                    'loan_cashbook_offset_enabled' => false,
                     'is_loan_entry' => $isLoanEntry,
                     'amount' => round((float) $line['amount'], 2),
                     'description' => filled($line['description'] ?? null) ? trim((string) $line['description']) : null,
@@ -293,8 +292,7 @@ class OwnedShopAccountingService
      *         shop_accounting_category_id:int,
      *         amount: float|int|string,
      *         description?: string|null,
-     *         is_loan_entry?: bool|int|string|null,
-     *         loan_cashbook_offset_enabled?: bool|int|string|null
+     *         is_loan_entry?: bool|int|string|null
      *     }>
      * }  $payload
      */
@@ -335,7 +333,7 @@ class OwnedShopAccountingService
     }
 
     /**
-     * @param  array<int, array{shop_accounting_category_id:int, amount: float|int|string, description?: string|null, is_loan_entry?: bool|int|string|null, loan_cashbook_offset_enabled?: bool|int|string|null}>  $lines
+     * @param  array<int, array{shop_accounting_category_id:int, amount: float|int|string, description?: string|null, is_loan_entry?: bool|int|string|null}>  $lines
      */
     public function hasSimilarAdjustment(Shop $shop, Carbon $businessDate, array $lines, ?int $exceptEntryId = null): bool
     {
@@ -370,7 +368,7 @@ class OwnedShopAccountingService
     }
 
     /**
-     * @param  array<int, array{shop_accounting_category_id:int, amount: float|int|string, description?: string|null, is_loan_entry?: bool|int|string|null, loan_cashbook_offset_enabled?: bool|int|string|null}>  $lines
+     * @param  array<int, array{shop_accounting_category_id:int, amount: float|int|string, description?: string|null, is_loan_entry?: bool|int|string|null}>  $lines
      */
     private function calculatedClosingCash(Shop $shop, Carbon $businessDate, float $openingCash, array $lines): float
     {
@@ -381,7 +379,7 @@ class OwnedShopAccountingService
             ->values();
 
         if ($categoryIds->isEmpty()) {
-            return round($openingCash + $this->shopCashMovementForDate($shop, $businessDate) - $this->approvedDeliveryBillTotalForDate($shop, $businessDate), 2);
+            return round($openingCash + $this->shopCashMovementForDate($shop, $businessDate), 2);
         }
 
         $categories = ShopAccountingCategory::query()
@@ -411,7 +409,7 @@ class OwnedShopAccountingService
             return $category->type === 'income' ? $amount : -$amount;
         });
 
-        return round($openingCash + $this->shopCashMovementForDate($shop, $businessDate) + (float) $cashMovement - $this->approvedDeliveryBillTotalForDate($shop, $businessDate), 2);
+        return round($openingCash + $this->shopCashMovementForDate($shop, $businessDate) + (float) $cashMovement, 2);
     }
 
     public function previousClosingBalance(Shop $shop, Carbon $businessDate): float
@@ -451,11 +449,11 @@ class OwnedShopAccountingService
             ->get();
 
         if ($entries->isEmpty()) {
-            return round($this->previousClosingBalance($shop, $businessDate) + $this->shopCashMovementForDate($shop, $businessDate) - $this->approvedDeliveryBillTotalForDate($shop, $businessDate), 2);
+            return round($this->previousClosingBalance($shop, $businessDate) + $this->shopCashMovementForDate($shop, $businessDate), 2);
         }
 
         if ($entries->every(fn (ShopAccountingEntry $entry): bool => $entry->lines->isEmpty())) {
-            $shopCashMovement = $this->shopCashMovementForDate($shop, $businessDate) - $this->approvedDeliveryBillTotalForDate($shop, $businessDate);
+            $shopCashMovement = $this->shopCashMovementForDate($shop, $businessDate);
 
             if (abs($shopCashMovement) > 0.009) {
                 $openingBalance = round((float) ($entries->first()?->opening_cash ?? $this->previousClosingBalance($shop, $businessDate)), 2);
@@ -468,7 +466,6 @@ class OwnedShopAccountingService
 
         $openingBalance = round((float) ($entries->first()?->opening_cash ?? 0.0), 2);
         $shopCashMovement = $this->shopCashMovementForDate($shop, $businessDate);
-        $approvedDeliveryBill = $this->approvedDeliveryBillTotalForDate($shop, $businessDate);
         $cashMovement = round((float) $entries->sum(function (ShopAccountingEntry $entry): float {
             $cashCredit = (float) $entry->lines
                 ->reject(fn (ShopAccountingEntryLine $line): bool => (bool) $line->is_loan_entry && $line->type === 'expense')
@@ -489,7 +486,7 @@ class OwnedShopAccountingService
             return $cashCredit - $cashDebit - $loanIncomeDebit;
         }), 2);
 
-        return round($openingBalance + $shopCashMovement + $cashMovement - $approvedDeliveryBill, 2);
+        return round($openingBalance + $shopCashMovement + $cashMovement, 2);
     }
 
     public function syncStoredClosingBalanceForDate(Shop $shop, Carbon $businessDate, int $userId): ShopAccountingEntry
@@ -504,7 +501,7 @@ class OwnedShopAccountingService
                 ->get();
 
             $openingBalance = $this->previousClosingBalance($shop, $businessDate);
-            $runningClosing = round($openingBalance + $this->shopCashMovementForDate($shop, $businessDate) - $this->approvedDeliveryBillTotalForDate($shop, $businessDate), 2);
+            $runningClosing = round($openingBalance + $this->shopCashMovementForDate($shop, $businessDate), 2);
 
             if ($entries->isEmpty()) {
                 return ShopAccountingEntry::query()->create([
@@ -716,7 +713,7 @@ class OwnedShopAccountingService
         $nonCashDebit = round((float) $cashBalanceLines
             ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'expense' && ! (bool) $line->cash_effect)
             ->sum('amount'), 2);
-        $cashDebitWithBills = round($cashDebit + $loanIncomeDebit + $approvedDeliveryBill, 2);
+        $cashDebitWithBills = round($cashDebit + $loanIncomeDebit, 2);
         $expectedClosing = round($openingBalance + $cashMovement['cash_given_to_shop'] - $cashMovement['payment_to_company'] + $cashCredit - $cashDebitWithBills, 2);
         $toBePaidToCompany = round(max(0.0, $expectedClosing), 2);
         $hasDayActivity = $entries->isNotEmpty()

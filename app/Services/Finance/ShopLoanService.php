@@ -31,15 +31,14 @@ class ShopLoanService
     /**
      * @param  array<int, string>  $categoryEffects
      * @param  array<int, mixed>  $defaultDailyAmounts
-     * @param  array<int, mixed>|null  $cashbookOffsets
      */
-    public function syncCategorySettings(Shop $shop, array $categoryEffects, array $defaultDailyAmounts = [], ?array $cashbookOffsets = null): void
+    public function syncCategorySettings(Shop $shop, array $categoryEffects, array $defaultDailyAmounts = []): void
     {
         $availableCategories = app(OwnedShopAccountingService::class)
             ->availableCategoriesForShop($shop)
             ->keyBy(fn ($category): int => (int) $category->id);
 
-        DB::transaction(function () use ($shop, $categoryEffects, $defaultDailyAmounts, $cashbookOffsets, $availableCategories): void {
+        DB::transaction(function () use ($shop, $categoryEffects, $defaultDailyAmounts, $availableCategories): void {
             ShopLoanCategorySetting::query()
                 ->where('shop_id', $shop->id)
                 ->delete();
@@ -57,7 +56,6 @@ class ShopLoanService
                     'shop_accounting_category_id' => $categoryId,
                     'effect' => ShopLoanCategorySetting::EffectUseLoan,
                     'default_daily_amount' => round(max(0, (float) ($defaultDailyAmounts[$categoryId] ?? 0)), 2),
-                    'cashbook_offset_enabled' => false,
                 ]);
             }
         });

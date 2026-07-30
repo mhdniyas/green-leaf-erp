@@ -266,10 +266,8 @@ class AdminAccountingController extends Controller
         $effects = is_array($effects) ? $effects : [];
         $defaultDailyAmounts = $request->input('loan_default_daily_amounts', []);
         $defaultDailyAmounts = is_array($defaultDailyAmounts) ? $defaultDailyAmounts : [];
-        $cashbookOffsets = $request->input('loan_cashbook_offsets', []);
-        $cashbookOffsets = is_array($cashbookOffsets) ? $cashbookOffsets : [];
 
-        $this->shopLoanService->syncCategorySettings($shop, $effects, $defaultDailyAmounts, $cashbookOffsets);
+        $this->shopLoanService->syncCategorySettings($shop, $effects, $defaultDailyAmounts);
 
         return redirect()->route('admin.accounting.loans', ['shop' => $shop->code])
             ->with('success', 'Loan category settings updated.');
@@ -1347,7 +1345,6 @@ class AdminAccountingController extends Controller
                 'shop_accounting_category_id' => $category->id,
                 'type' => $category->type,
                 'cash_effect' => $category->cash_effect,
-                'loan_cashbook_offset_enabled' => false,
                 'is_loan_entry' => $category->type === 'expense' && (bool) $line->is_loan_entry,
                 'amount' => round((float) $validated['amount'], 2),
                 'description' => filled($validated['description'] ?? null) ? trim((string) $validated['description']) : null,

@@ -16,14 +16,12 @@ class ShopLoanCategorySetting extends Model
         'shop_accounting_category_id',
         'effect',
         'default_daily_amount',
-        'cashbook_offset_enabled',
     ];
 
     protected function casts(): array
     {
         return [
             'default_daily_amount' => 'decimal:2',
-            'cashbook_offset_enabled' => 'boolean',
         ];
     }
 

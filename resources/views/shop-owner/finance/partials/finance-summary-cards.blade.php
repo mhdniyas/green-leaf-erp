@@ -1,12 +1,13 @@
 @php
     $isOwnedAccountingShop = $isOwnedAccountingShop ?? false;
+    $latestClosingBalance = (float) ($latestClosingBalance ?? 0);
 @endphp
 
 <div class="grid grid-cols-2 gap-3 {{ $isOwnedAccountingShop ? 'lg:grid-cols-5' : 'lg:grid-cols-3' }}">
     @if ($isOwnedAccountingShop)
         <div class="rounded-[1.35rem] border border-slate-200 bg-white px-4 py-4 shadow-sm">
-            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Bill Total</p>
-            <p class="mt-2 whitespace-nowrap text-lg font-black text-slate-950 sm:text-xl">Rs. {{ number_format((float) $totalBilled, 2) }}</p>
+            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Cashbook - Bill</p>
+            <p class="mt-2 whitespace-nowrap text-lg font-black text-slate-950 sm:text-xl">Rs. {{ number_format((float) ($latestClosingBalance - $outstandingBalance), 2) }}</p>
         </div>
     @endif
     <div class="rounded-[1.35rem] border border-slate-200 bg-white px-4 py-4 shadow-sm">

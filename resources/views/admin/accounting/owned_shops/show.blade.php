@@ -905,7 +905,6 @@
                                     <input type="number" step="0.01" min="0.01" name="lines[{{ $index }}][amount]" value="{{ old("lines.$index.amount", $line?->amount) }}" placeholder="Amount" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none">
                                     <input type="text" name="lines[{{ $index }}][description]" value="{{ old("lines.$index.description", $line?->description) }}" placeholder="Description" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none">
                                     <input type="hidden" name="lines[{{ $index }}][is_loan_entry]" value="{{ old("lines.$index.is_loan_entry", (int) ((bool) $line?->is_loan_entry)) }}">
-                                    <input type="hidden" name="lines[{{ $index }}][loan_cashbook_offset_enabled]" value="{{ old("lines.$index.loan_cashbook_offset_enabled", (int) ((bool) $line?->loan_cashbook_offset_enabled)) }}">
                                 </div>
                             @endfor
                         </div>

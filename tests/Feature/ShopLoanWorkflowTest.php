@@ -302,10 +302,6 @@ class ShopLoanWorkflowTest extends TestCase
                     $category->id => 2000,
                     $expenseCategory->id => 500,
                 ],
-                'loan_cashbook_offsets' => [
-                    $category->id => '1',
-                    $expenseCategory->id => '1',
-                ],
             ])
             ->assertRedirect(route('admin.accounting.loans', ['shop' => $shop->code]))
             ->assertSessionHas('success');
@@ -318,7 +314,6 @@ class ShopLoanWorkflowTest extends TestCase
             'shop_id' => $shop->id,
             'shop_accounting_category_id' => $expenseCategory->id,
             'default_daily_amount' => '500.00',
-            'cashbook_offset_enabled' => false,
         ]);
     }
 

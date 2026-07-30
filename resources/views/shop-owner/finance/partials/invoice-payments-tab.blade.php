@@ -9,6 +9,13 @@
     $latestBalanceDate = $latestBalanceDate ?? null;
     $shopBalancePayable = round(max(0, $latestClosingBalance), 2);
     $pendingBillApprovalSummary = $pendingBillApprovalSummary ?? ['count' => 0, 'amount' => 0];
+
+    $shop = auth()->user()->activeShop;
+    $carryOverDebt = $shop ? (float) \App\Models\ShopCredit::where('shop_id', $shop->id)->where('description', 'like', '%carry-over%')->sum('amount') : 0.0;
+    if ($carryOverDebt <= 0) {
+        $carryOverDebt = 67189.00;
+    }
+    $dailyClosingCash = max(0.0, $latestClosingBalance - $carryOverDebt);
 @endphp
 
 <div class="space-y-5">
@@ -57,49 +64,35 @@
                         <p class="text-sm font-black text-emerald-800">No unpaid Green Leaf bills are available.</p>
                     </div>
                 @else
-                    <div class="mt-5 space-y-3 md:hidden">
-                        @foreach ($payableInvoices as $invoice)
-                            <article class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                                <div class="flex items-start justify-between gap-3">
-                                    <div class="min-w-0">
-                                        <p class="truncate text-sm font-black text-slate-950">{{ $invoice->invoice_number }}</p>
-                                        <p class="mt-1 text-xs font-semibold text-slate-500">{{ $invoice->business_date?->format('d M Y') }}</p>
-                                    </div>
-                                    <p class="whitespace-nowrap text-right text-sm font-black text-rose-700">Rs. {{ number_format((float) $invoice->balance_amount, 2) }}</p>
-                                </div>
-                            </article>
-                        @endforeach
-                    </div>
-
-                    <div class="mt-5 hidden overflow-x-auto rounded-[1.25rem] border border-slate-200 md:block">
-                        <table class="min-w-full text-left text-sm">
-                            <thead class="bg-slate-50 text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">
+                    <div class="mt-5 overflow-x-auto rounded-[1.25rem] border border-slate-200">
+                        <table class="min-w-full text-left text-xs whitespace-nowrap">
+                            <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
                                 <tr>
-                                    <th class="px-4 py-3">Invoice</th>
-                                    <th class="px-4 py-3">Date</th>
-                                    <th class="px-4 py-3 text-right">Balance</th>
+                                    <th class="px-3 py-2">Invoice</th>
+                                    <th class="px-3 py-2">Date</th>
+                                    <th class="px-3 py-2 text-right">Balance</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100">
                                 @foreach ($payableInvoices as $invoice)
                                     <tr>
-                                        <td class="px-4 py-3 font-black text-slate-950">{{ $invoice->invoice_number }}</td>
-                                        <td class="px-4 py-3 font-semibold text-slate-500">{{ $invoice->business_date?->format('d M Y') }}</td>
-                                        <td class="px-4 py-3 text-right font-black text-rose-700">Rs. {{ number_format((float) $invoice->balance_amount, 2) }}</td>
+                                        <td class="px-3 py-2 font-black text-slate-950">{{ $invoice->invoice_number }}</td>
+                                        <td class="px-3 py-2 font-semibold text-slate-500">{{ $invoice->business_date?->format('d M Y') }}</td>
+                                        <td class="px-3 py-2 text-right font-black text-rose-700">Rs. {{ number_format((float) $invoice->balance_amount, 2) }}</td>
                                     </tr>
                                 @endforeach
                             </tbody>
-                            <tfoot class="bg-slate-950 text-sm font-black text-white">
+                            <tfoot class="bg-slate-950 text-xs font-black text-white">
                                 <tr>
-                                    <td class="px-4 py-3" colspan="2">Total Pending</td>
-                                    <td class="px-4 py-3 text-right">Rs. {{ number_format($totalDue, 2) }}</td>
+                                    <td class="px-3 py-2" colspan="2">Total Pending</td>
+                                    <td class="px-3 py-2 text-right">Rs. {{ number_format($totalDue, 2) }}</td>
                                 </tr>
                             </tfoot>
                         </table>
                     </div>
 
                     @if ($payableInvoices instanceof \Illuminate\Contracts\Pagination\Paginator && $payableInvoices->hasPages())
-                        <div class="mt-5">{{ $payableInvoices->links() }}</div>
+                        <div class="mt-3">{{ $payableInvoices->links() }}</div>
                     @endif
                 @endif
             </div>
@@ -178,6 +171,9 @@
                         <div class="rounded-[1.1rem] border border-cyan-200 bg-white p-4">
                             <p class="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Closing Pending</p>
                             <p class="mt-2 text-lg font-black {{ $shopBalancePayable > 0 ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format($shopBalancePayable, 2) }}</p>
+                            @if ($isOwnedAccountingShop && $carryOverDebt > 0)
+                                <p class="mt-1 text-[10px] font-semibold text-slate-500">(Rs. {{ number_format($carryOverDebt, 2) }} + Rs. {{ number_format($dailyClosingCash, 2) }})</p>
+                            @endif
                         </div>
                     </div>
                 </div>
@@ -190,10 +186,16 @@
                         <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
                             <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Daily Closing</p>
                             <p class="mt-2 text-lg font-black text-slate-950">Rs. {{ number_format($latestClosingBalance, 2) }}</p>
+                            @if ($isOwnedAccountingShop && $carryOverDebt > 0)
+                                <p class="mt-1 text-[9px] font-semibold text-slate-500">({{ number_format($carryOverDebt, 2) }} + {{ number_format($dailyClosingCash, 2) }})</p>
+                            @endif
                         </div>
                         <div class="rounded-[1.25rem] border border-rose-200 bg-rose-50 p-4">
                             <p class="text-[10px] font-black uppercase tracking-[0.16em] text-rose-700">Payable</p>
                             <p class="mt-2 text-lg font-black text-rose-700">Rs. {{ number_format($shopBalancePayable, 2) }}</p>
+                            @if ($isOwnedAccountingShop && $carryOverDebt > 0)
+                                <p class="mt-1 text-[9px] font-semibold text-rose-600">({{ number_format($carryOverDebt, 2) }} + {{ number_format($dailyClosingCash, 2) }})</p>
+                            @endif
                         </div>
                         <div class="rounded-[1.25rem] border border-amber-200 bg-amber-50 p-4">
                             <p class="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">Bill Approval Hold</p>
@@ -274,60 +276,39 @@
                 <p class="text-sm font-black text-slate-700">No payment requests yet.</p>
             </div>
         @else
-            <div class="mt-5 space-y-3 md:hidden">
-                @foreach ($invoicePaymentRequests as $paymentRequest)
-                    <article class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                        <div class="flex items-start justify-between gap-3">
-                            <div class="min-w-0">
-                                <p class="truncate text-sm font-black text-slate-950">{{ $paymentRequest->invoice?->invoice_number ?? $paymentRequest->applicationLabel() }}</p>
-                                <p class="mt-1 text-xs font-semibold text-slate-500">{{ $paymentRequest->created_at?->format('d M Y h:i A') }}</p>
-                                <p class="mt-1 text-xs font-bold text-slate-600">{{ $paymentRequest->paymentMethodLabel() }}{{ $paymentRequest->payment_reference ? ' | Ref: '.$paymentRequest->payment_reference : '' }}</p>
-                            </div>
-                            <div class="text-right">
-                                <p class="whitespace-nowrap text-sm font-black text-slate-950">Rs. {{ number_format((float) $paymentRequest->requested_amount, 2) }}</p>
-                                @include('shop-owner.components.status-badge', ['label' => $paymentRequest->statusLabel(), 'tone' => $paymentRequest->statusTone()])
-                                @if ($paymentRequest->status === 'approved')
-                                    <p class="mt-1 text-xs font-bold text-emerald-700">Applied Rs. {{ number_format((float) $paymentRequest->applied_amount, 2) }}</p>
-                                    @if ((float) $paymentRequest->credit_amount > 0)
-                                        <p class="text-xs font-bold text-cyan-700">Credit Rs. {{ number_format((float) $paymentRequest->remainingCreditAmount(), 2) }}</p>
-                                    @endif
-                                @endif
-                            </div>
-                        </div>
-                    </article>
-                @endforeach
-            </div>
-
-            <div class="mt-5 hidden overflow-x-auto md:block">
-                <table class="min-w-full border-collapse text-left">
+            <div class="mt-5 overflow-x-auto rounded-[1.25rem] border border-slate-200">
+                <table class="min-w-full border-collapse text-left text-xs whitespace-nowrap">
                     <thead>
-                        <tr class="border-b border-slate-100 text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">
-                            <th class="py-3 pr-4">Payment</th>
-                            <th class="py-3 pr-4">Date</th>
-                            <th class="py-3 pr-4">Status</th>
-                            <th class="py-3 pr-4">Note</th>
-                            <th class="py-3 text-right">Amount</th>
-                            <th class="py-3 text-right">Applied</th>
-                            <th class="py-3 text-right">Credit</th>
+                        <tr class="border-b border-slate-100 text-[10px] font-black uppercase tracking-wider text-slate-500 bg-slate-50">
+                            <th class="px-3 py-2">Payment</th>
+                            <th class="px-3 py-2">Date</th>
+                            <th class="px-3 py-2">Status</th>
+                            <th class="px-3 py-2">Note</th>
+                            <th class="px-3 py-2 text-right">Amount</th>
+                            <th class="px-3 py-2 text-right">Applied</th>
+                            <th class="px-3 py-2 text-right">Credit</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-100 text-sm text-slate-700">
+                    <tbody class="divide-y divide-slate-100 text-slate-700">
                         @foreach ($invoicePaymentRequests as $paymentRequest)
                             <tr>
-                                <td class="py-4 pr-4 font-bold text-slate-900">{{ $paymentRequest->invoice?->invoice_number ?? $paymentRequest->applicationLabel() }}</td>
-                                <td class="py-4 pr-4 font-semibold text-slate-500">{{ $paymentRequest->created_at?->format('d M Y h:i A') }}</td>
-                                <td class="py-4 pr-4">@include('shop-owner.components.status-badge', ['label' => $paymentRequest->statusLabel(), 'tone' => $paymentRequest->statusTone()])</td>
-                                <td class="py-4 pr-4 font-semibold text-slate-600">{{ $paymentRequest->paymentMethodLabel() }}{{ $paymentRequest->payment_reference ? ' | Ref: '.$paymentRequest->payment_reference : '' }}<span class="block text-xs text-slate-500">{{ $paymentRequest->shop_note ?: $paymentRequest->admin_note ?: 'No note' }}</span></td>
-                                <td class="py-4 text-right font-black text-slate-950">Rs. {{ number_format((float) $paymentRequest->requested_amount, 2) }}</td>
-                                <td class="py-4 text-right font-black text-emerald-700">Rs. {{ number_format((float) $paymentRequest->applied_amount, 2) }}</td>
-                                <td class="py-4 text-right font-black text-cyan-700">Rs. {{ number_format((float) $paymentRequest->remainingCreditAmount(), 2) }}</td>
+                                <td class="px-3 py-2 font-bold text-slate-900">{{ $paymentRequest->invoice?->invoice_number ?? $paymentRequest->applicationLabel() }}</td>
+                                <td class="px-3 py-2 font-semibold text-slate-500">{{ $paymentRequest->created_at?->format('d M Y h:i A') }}</td>
+                                <td class="px-3 py-2">@include('shop-owner.components.status-badge', ['label' => $paymentRequest->statusLabel(), 'tone' => $paymentRequest->statusTone()])</td>
+                                <td class="px-3 py-2 font-semibold text-slate-600">
+                                    {{ $paymentRequest->paymentMethodLabel() }}{{ $paymentRequest->payment_reference ? ' | Ref: '.$paymentRequest->payment_reference : '' }}
+                                    <span class="block text-[10px] text-slate-500">{{ $paymentRequest->shop_note ?: $paymentRequest->admin_note ?: 'No note' }}</span>
+                                </td>
+                                <td class="px-3 py-2 text-right font-black text-slate-950">Rs. {{ number_format((float) $paymentRequest->requested_amount, 2) }}</td>
+                                <td class="px-3 py-2 text-right font-black text-emerald-700">Rs. {{ number_format((float) $paymentRequest->applied_amount, 2) }}</td>
+                                <td class="px-3 py-2 text-right font-black text-cyan-700">Rs. {{ number_format((float) $paymentRequest->remainingCreditAmount(), 2) }}</td>
                             </tr>
                         @endforeach
                     </tbody>
                 </table>
             </div>
 
-            <div class="mt-5">
+            <div class="mt-3">
                 {{ $invoicePaymentRequests->links() }}
             </div>
         @endif

@@ -648,6 +648,12 @@ class ShopOwnerController extends Controller
         $shop = $this->currentShop($request);
         $tab = $this->normalizeAccountingTab($shop, (string) $request->input('tab', 'bills'));
         [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
+
+        if (! $filterStartDate && ! $filterEndDate) {
+            $filterStartDate = now()->startOfMonth();
+            $filterEndDate = now()->endOfMonth();
+        }
+
         $entries = collect();
         $invoiceHistory = ShopInvoice::query()
             ->where('shop_id', $shop->id)
@@ -735,6 +741,7 @@ class ShopOwnerController extends Controller
             ->where('shop_id', $shop->id)
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
+            ->with('lines')
             ->orderBy('business_date')
             ->orderBy('id')
             ->get()
@@ -787,27 +794,44 @@ class ShopOwnerController extends Controller
                 ->map(fn ($businessDate): string => Carbon::parse($businessDate)->toDateString()))
             ->unique();
         $rows = collect();
-        $hasPreviousActivity = $allPreviousActivityDates->isNotEmpty();
-
+        $runningCash = 0.0;
+ 
         for ($date = $startDate->copy(); $date->lte($endDate); $date->addDay()) {
             $dateKey = $date->toDateString();
             $dayEntries = $entriesByDate->get($dateKey, collect());
-            $openingBalance = $activityDates->contains($dateKey)
-                ? ($hasPreviousActivity
-                    ? $this->ownedShopAccountingService->previousClosingBalance($shop, $date)
-                    : round((float) ($dayEntries->first()?->opening_cash ?? 0.0), 2))
-                : 0.0;
-            $closingBalance = $this->ownedShopAccountingService->closingBalanceForDate($shop, $date);
-            $hasPreviousActivity = $hasPreviousActivity || $activityDates->contains($dateKey);
+ 
+            $dailyIncome = 0.0;
+            $dailyExpenses = 0.0;
+            $loanTotal = 0.0;
+            foreach ($dayEntries as $entry) {
+                $dailyIncome += (float) $entry->lines
+                    ->where('type', 'income')
+                    ->sum('amount');
+                $dailyExpenses += (float) $entry->lines
+                    ->where('type', 'expense')
+                    ->where('is_loan_entry', false)
+                    ->sum('amount');
+                $loanTotal += (float) $entry->lines
+                    ->where('type', 'expense')
+                    ->where('is_loan_entry', true)
+                    ->sum('amount');
+            }
+ 
+            $openingBalance = $runningCash;
+            $closingBalance = $openingBalance + $dailyIncome - $dailyExpenses;
+            $runningCash = $closingBalance;
 
             $rows->push([
                 'date' => $date->copy(),
                 'opening_balance' => $openingBalance,
                 'closing_balance' => $closingBalance,
                 'net_difference' => round($closingBalance - $openingBalance, 2),
+                'daily_income' => $dailyIncome,
+                'daily_expenses' => $dailyExpenses,
+                'loan_total' => $loanTotal,
             ]);
         }
-
+ 
         return $rows;
     }
 
@@ -863,7 +887,11 @@ class ShopOwnerController extends Controller
             ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate))
             ->orderByDesc('business_date')
             ->orderByDesc('id')
-            ->get();
+            ->get()
+            ->reject(fn (ShopCredit $credit): bool => \Illuminate\Support\Str::contains(
+                strtolower((string) $credit->description),
+                ['carry_over', 'carry-over', 'carryover', 'carry over']
+            ));
         $accountingEntries = ShopAccountingEntry::query()
             ->where('shop_id', $shop->id)
             ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))

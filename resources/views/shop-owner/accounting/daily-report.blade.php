@@ -54,6 +54,9 @@
                         <tr>
                             <th class="px-4 py-3">Date</th>
                             <th class="px-4 py-3 text-right">Opening Balance</th>
+                            <th class="px-4 py-3 text-right">Income</th>
+                            <th class="px-4 py-3 text-right">Daily Expense</th>
+                            <th class="px-4 py-3 text-right">Loan Total</th>
                             <th class="px-4 py-3 text-right">Closing Balance</th>
                             <th class="px-4 py-3 text-right">Net Difference</th>
                         </tr>
@@ -63,6 +66,9 @@
                             <tr>
                                 <td class="px-4 py-3 font-black text-slate-950">{{ $row['date']->format('d') }}</td>
                                 <td class="px-4 py-3 text-right font-black text-slate-700">Rs. {{ number_format($row['opening_balance'], 2) }}</td>
+                                <td class="px-4 py-3 text-right font-black text-emerald-600">Rs. {{ number_format($row['daily_income'], 2) }}</td>
+                                <td class="px-4 py-3 text-right font-black text-rose-600">Rs. {{ number_format($row['daily_expenses'], 2) }}</td>
+                                <td class="px-4 py-3 text-right font-black text-amber-600">Rs. {{ number_format($row['loan_total'], 2) }}</td>
                                 <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($row['closing_balance'], 2) }}</td>
                                 <td @class([
                                     'px-4 py-3 text-right font-black',

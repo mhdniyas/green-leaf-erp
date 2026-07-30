@@ -18,6 +18,7 @@
             'shortageValue' => $shortageValue,
             'pendingPaymentAmount' => $pendingPaymentAmount,
             'isOwnedAccountingShop' => $isOwnedAccountingShop,
+            'latestClosingBalance' => $latestClosingBalance,
         ])
 
         @include('shop-owner.partials.date-range-filter', [
