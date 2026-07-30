@@ -476,12 +476,16 @@ class AdminFinancePillarService
             ->whereDate('entry_date', '<=', $endDate)
             ->where(function (Builder $query): void {
                 $query->whereNull('source_type')
-                    ->orWhere('source_type', '!=', PurchaseInvoice::class)
+                    ->orWhere(function (Builder $subQuery): void {
+                        $subQuery->where('source_type', '!=', PurchaseInvoice::class)
+                            ->where('source_type', '!=', PurchaserCredit::class);
+                    })
                     ->orWhere(function (Builder $query): void {
                         $query->where('source_type', PurchaseInvoice::class)
                             ->where(function (Builder $eventQuery): void {
                                 $eventQuery
                                     ->where('source_event', 'like', 'green_leaf_direct_purchase_payment:%')
+                                    ->orWhere('source_event', 'like', 'purchaser_daily_purchase_payment:%')
                                     ->orWhere('source_event', 'like', 'company_vendor_credit_payment:%');
                             });
                     });
@@ -660,6 +664,10 @@ class AdminFinancePillarService
             return 'Green Leaf Direct Purchase';
         }
 
+        if ($entry->source_type === PurchaseInvoice::class && str_starts_with((string) $entry->source_event, 'purchaser_daily_purchase_payment:')) {
+            return 'Purchaser Daily Purchase';
+        }
+
         if ($entry->source_type === PurchaseInvoice::class && str_starts_with((string) $entry->source_event, 'company_vendor_credit_payment:')) {
             return 'Company Vendor Credit Payment';
         }
@@ -693,6 +701,7 @@ class AdminFinancePillarService
             PurchaserCredit::class => 'purchaser',
             PurchaseInvoice::class => match (true) {
                 str_starts_with((string) $entry->source_event, 'green_leaf_direct_purchase_payment:') => 'green_leaf_direct_purchase',
+                str_starts_with((string) $entry->source_event, 'purchaser_daily_purchase_payment:') => 'purchaser_daily_purchase',
                 str_starts_with((string) $entry->source_event, 'company_vendor_credit_payment:') => 'vendor_credit_company_payment',
                 default => 'journal',
             },

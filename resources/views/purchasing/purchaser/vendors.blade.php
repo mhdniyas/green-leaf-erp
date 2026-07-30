@@ -1,4 +1,4 @@
-<x-layouts.app title="Purchaser Daily Carts">
+<x-layouts.app title="Purchaser Carts">
     <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-3 lg:max-w-6xl lg:gap-4 lg:px-6 lg:py-4">
         @include('purchasing.purchaser.partials.feedback')
         @include('purchasing.purchaser.partials.deadline_alert')
@@ -7,7 +7,7 @@
             <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
                     <p class="text-[9px] font-black uppercase tracking-[0.18em] text-slate-500">Stage 4</p>
-                    <h1 class="mt-1 text-xl font-black text-slate-950">Daily Carts</h1>
+                    <h1 class="mt-1 text-xl font-black text-slate-950">Purchaser Carts</h1>
                     <p class="mt-1 text-xs font-semibold text-slate-600">Only the active business-day carts live here. Old payment follow-up stays in Vendor Hub.</p>
                 </div>
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -218,14 +218,108 @@
                         </div>
                     @endif
 
+                    <!-- Embedded Bill Receipt (Collapsed as Default) -->
+                    @if ($cart->purchaseInvoice)
+                        <details class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-2 text-slate-900">
+                            <summary class="cursor-pointer px-2 py-1 text-[10px] font-black text-cyan-700 hover:text-cyan-600 select-none">
+                                View Matched Bill Invoice
+                            </summary>
+                            <div class="mt-3 border-t border-dashed border-slate-300 pt-3 px-1">
+                                @php
+                                    $invoice = $cart->purchaseInvoice;
+                                    $payableTotal = max(0, (float) $invoice->amount - (float) $invoice->discount_amount);
+                                    $paidAmount = (float) $invoice->paid_amount;
+                                    $balanceAmount = max(0, $payableTotal - $paidAmount);
+                                    $paymentMethod = $invoice->payment_method ?: 'Credit';
+                                    $supplier = $invoice->supplier;
+                                    $businessDate = $cart->business_date;
+
+                                    $statusRibbonText = match(true) {
+                                        $invoice->status->value === 'paid' => 'PAID',
+                                        $balanceAmount <= 0 => 'PAID',
+                                        $paidAmount > 0 => 'PARTIAL',
+                                        default => 'UNPAID',
+                                    };
+
+                                    $statusRibbonColor = match($statusRibbonText) {
+                                        'PAID' => 'text-emerald-700 bg-emerald-100 border border-emerald-200',
+                                        'PARTIAL' => 'text-cyan-700 bg-cyan-100 border border-cyan-200',
+                                        default => 'text-amber-700 bg-amber-100 border border-amber-200',
+                                    };
+                                @endphp
+                                
+                                <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-xs">
+                                    <div class="flex items-center justify-between border-b border-dashed border-slate-300 pb-2">
+                                        <div>
+                                            <p class="text-[9px] font-black text-slate-900 uppercase">BILL INVOICE</p>
+                                            <p class="text-[8px] font-bold text-slate-500">GREEN LEAF</p>
+                                        </div>
+                                        <span class="rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-wider {{ $statusRibbonColor }}">
+                                            {{ $statusRibbonText }}
+                                        </span>
+                                    </div>
+                                    
+                                    <div class="grid grid-cols-2 py-2 text-[9px] text-slate-700 border-b border-dashed border-slate-300">
+                                        <div>
+                                            <p>Bill: <span class="font-bold text-slate-900">{{ $invoice->invoice_number }}</span></p>
+                                            <p>Cart: <span class="font-bold text-slate-900">{{ $cart->cart_number }}</span></p>
+                                        </div>
+                                        <div class="text-right">
+                                            <p>Date: <span class="font-bold text-slate-900">{{ $businessDate->format('d M Y') }}</span></p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="py-2 text-[9px] text-slate-700 border-b border-dashed border-slate-300">
+                                        <p class="font-black text-slate-950">{{ $supplier?->name }}</p>
+                                        <p class="mt-0.5 text-slate-600">{{ $supplier?->mobile_number }}</p>
+                                    </div>
+                                    
+                                    <table class="w-full text-left text-[9px] border-b border-dashed border-slate-300 py-1.5">
+                                        <thead>
+                                            <tr class="border-b border-dashed border-slate-200 font-bold text-slate-800">
+                                                <th class="py-1">Item</th>
+                                                <th class="py-1 text-right">Qty</th>
+                                                <th class="py-1 text-right">Amt</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach ($cart->items as $item)
+                                                <tr>
+                                                    <td class="py-1">{{ $item->product->name }}</td>
+                                                    <td class="py-1 text-right">{{ number_format((float) $item->quantity, 2) }} {{ $item->product->unit }}</td>
+                                                    <td class="py-1 text-right">₹{{ number_format((float) $item->line_total, 2) }}</td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                    
+                                    <div class="pt-2 text-[9px] space-y-1 text-slate-800">
+                                        <div class="flex justify-between font-bold text-slate-900">
+                                            <span>Total</span>
+                                            <span>₹{{ number_format($payableTotal, 2) }}</span>
+                                        </div>
+                                        <div class="flex justify-between text-emerald-700 font-bold">
+                                            <span>Paid</span>
+                                            <span>₹{{ number_format($paidAmount, 2) }}</span>
+                                        </div>
+                                        <div class="flex justify-between text-amber-700 font-bold">
+                                            <span>Balance</span>
+                                            <span>₹{{ number_format($balanceAmount, 2) }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
+                    @endif
+
                     <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
                         <div class="text-[10px] font-bold text-slate-500">
-                            ₹{{ number_format((float) $cart->items->sum('line_total') - (float) $cart->discount_amount, 2) }}
+                            Total: ₹{{ number_format((float) $cart->items->sum('line_total') - (float) $cart->discount_amount, 2) }}
                         </div>
                         <div class="flex flex-wrap gap-2">
                             @if ($cart->purchaseInvoice)
                                 <a href="{{ route('purchaser.invoices.show', $cart->purchaseInvoice) }}" class="inline-flex h-8 items-center rounded-lg border border-teal-200 bg-teal-50 px-3 text-[10px] font-black text-teal-700 hover:bg-teal-100">
-                                    View Bill
+                                    View Full Bill
                                 </a>
                             @endif
                             @if ($warehouseConfirmed && $cart->supplier)
@@ -282,13 +376,107 @@
                         </div>
                     @endif
 
+                    <!-- Embedded Bill Receipt (Collapsed as Default) -->
+                    @if ($cart->purchaseInvoice)
+                        <details class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-2 text-slate-900">
+                            <summary class="cursor-pointer px-2 py-1 text-[10px] font-black text-cyan-700 hover:text-cyan-600 select-none">
+                                View Matched Bill Invoice
+                            </summary>
+                            <div class="mt-3 border-t border-dashed border-slate-300 pt-3 px-1">
+                                @php
+                                    $invoice = $cart->purchaseInvoice;
+                                    $payableTotal = max(0, (float) $invoice->amount - (float) $invoice->discount_amount);
+                                    $paidAmount = (float) $invoice->paid_amount;
+                                    $balanceAmount = max(0, $payableTotal - $paidAmount);
+                                    $paymentMethod = $invoice->payment_method ?: 'Credit';
+                                    $supplier = $invoice->supplier;
+                                    $businessDate = $cart->business_date;
+
+                                    $statusRibbonText = match(true) {
+                                        $invoice->status->value === 'paid' => 'PAID',
+                                        $balanceAmount <= 0 => 'PAID',
+                                        $paidAmount > 0 => 'PARTIAL',
+                                        default => 'UNPAID',
+                                    };
+
+                                    $statusRibbonColor = match($statusRibbonText) {
+                                        'PAID' => 'text-emerald-700 bg-emerald-100 border border-emerald-200',
+                                        'PARTIAL' => 'text-cyan-700 bg-cyan-100 border border-cyan-200',
+                                        default => 'text-amber-700 bg-amber-100 border border-amber-200',
+                                    };
+                                @endphp
+                                
+                                <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-xs">
+                                    <div class="flex items-center justify-between border-b border-dashed border-slate-300 pb-2">
+                                        <div>
+                                            <p class="text-[9px] font-black text-slate-900 uppercase">BILL INVOICE</p>
+                                            <p class="text-[8px] font-bold text-slate-500">GREEN LEAF</p>
+                                        </div>
+                                        <span class="rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-wider {{ $statusRibbonColor }}">
+                                            {{ $statusRibbonText }}
+                                        </span>
+                                    </div>
+                                    
+                                    <div class="grid grid-cols-2 py-2 text-[9px] text-slate-700 border-b border-dashed border-slate-300">
+                                        <div>
+                                            <p>Bill: <span class="font-bold text-slate-900">{{ $invoice->invoice_number }}</span></p>
+                                            <p>Cart: <span class="font-bold text-slate-900">{{ $cart->cart_number }}</span></p>
+                                        </div>
+                                        <div class="text-right">
+                                            <p>Date: <span class="font-bold text-slate-900">{{ $businessDate->format('d M Y') }}</span></p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="py-2 text-[9px] text-slate-700 border-b border-dashed border-slate-300">
+                                        <p class="font-black text-slate-950">{{ $supplier?->name }}</p>
+                                        <p class="mt-0.5 text-slate-600">{{ $supplier?->mobile_number }}</p>
+                                    </div>
+                                    
+                                    <table class="w-full text-left text-[9px] border-b border-dashed border-slate-300 py-1.5">
+                                        <thead>
+                                            <tr class="border-b border-dashed border-slate-200 font-bold text-slate-800">
+                                                <th class="py-1">Item</th>
+                                                <th class="py-1 text-right">Qty</th>
+                                                <th class="py-1 text-right">Amt</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach ($cart->items as $item)
+                                                <tr>
+                                                    <td class="py-1">{{ $item->product->name }}</td>
+                                                    <td class="py-1 text-right">{{ number_format((float) $item->quantity, 2) }} {{ $item->product->unit }}</td>
+                                                    <td class="py-1 text-right">₹{{ number_format((float) $item->line_total, 2) }}</td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                    
+                                    <div class="pt-2 text-[9px] space-y-1 text-slate-800">
+                                        <div class="flex justify-between font-bold text-slate-900">
+                                            <span>Total</span>
+                                            <span>₹{{ number_format($payableTotal, 2) }}</span>
+                                        </div>
+                                        <div class="flex justify-between text-emerald-700 font-bold">
+                                            <span>Paid</span>
+                                            <span>₹{{ number_format($paidAmount, 2) }}</span>
+                                        </div>
+                                        <div class="flex justify-between text-amber-700 font-bold">
+                                            <span>Balance</span>
+                                            <span>₹{{ number_format($balanceAmount, 2) }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
+                    @endif
+
                     <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
                         <div class="text-[10px] font-bold text-slate-500">
-                            ₹{{ number_format((float) $cart->items->sum('line_total') - (float) $cart->discount_amount, 2) }}
+                            Total: ₹{{ number_format((float) $cart->items->sum('line_total') - (float) $cart->discount_amount, 2) }}
                         </div>
                         @if ($cart->purchaseInvoice)
                             <a href="{{ route('purchaser.invoices.show', $cart->purchaseInvoice) }}" class="inline-flex h-8 items-center rounded-lg border border-teal-200 bg-teal-50 px-3 text-[10px] font-black text-teal-700 hover:bg-teal-100">
-                                View Bill
+                                View Full Bill
                             </a>
                         @endif
                     </div>
@@ -382,6 +570,10 @@
                 <div>
                     <label class="mb-1 block text-[9px] font-black uppercase tracking-wider text-slate-500">Location</label>
                     <input type="text" name="vendor_location" placeholder="Location" class="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
+                </div>
+                <div>
+                    <label class="mb-1 block text-[9px] font-black uppercase tracking-wider text-slate-500">Banking Details / Notes (Optional)</label>
+                    <textarea name="vendor_bank_details" placeholder="Bank Name, A/C No, IFSC, UPI ID, etc." rows="2" class="w-full rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none"></textarea>
                 </div>
                 <input type="hidden" name="vendor_type" value="Vendor">
                 <input type="hidden" name="payment_terms" value="Cash">

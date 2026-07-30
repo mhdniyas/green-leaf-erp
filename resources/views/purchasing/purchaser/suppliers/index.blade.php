@@ -32,138 +32,193 @@
             </a>
         </div>
 
-        <details class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
-            <summary class="flex cursor-pointer list-none items-center justify-between gap-3">
-                <div class="min-w-0">
+        <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4 space-y-3">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-3">
+                <div>
                     <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Vendor Summary</p>
-                    <h2 class="mt-1 text-sm font-black text-slate-950">All purchaser vendors</h2>
-                    <p class="mt-1 text-xs font-semibold text-slate-500">Track vendor payment totals and open vendor history when needed.</p>
+                    <h2 class="mt-1 text-sm font-black text-slate-950">All purchaser vendors ({{ $supplierRows->count() }})</h2>
+                    <p class="mt-1 text-xs font-semibold text-slate-500">Track payment totals, banking notes, and open complete vendor history.</p>
                 </div>
-                <div class="flex shrink-0 items-center gap-2">
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black text-slate-700">{{ $supplierRows->count() }}</span>
-                    <span class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Expand</span>
+                <!-- Table / Cards View Switcher -->
+                <div class="flex items-center justify-end rounded-xl border border-slate-200 bg-slate-50 p-1 shadow-xs">
+                    <button type="button" id="vendor-view-mode-table-btn" onclick="setVendorViewMode('table')" class="rounded-lg bg-slate-950 px-3 py-1.5 text-[10px] font-black text-white shadow-xs transition-all">
+                        📋 Table View
+                    </button>
+                    <button type="button" id="vendor-view-mode-cards-btn" onclick="setVendorViewMode('cards')" class="rounded-lg px-3 py-1.5 text-[10px] font-black text-slate-500 hover:text-slate-800 transition-all">
+                        🎴 Cards View
+                    </button>
                 </div>
-            </summary>
+            </div>
 
-            @forelse ($supplierRows as $row)
-                @php($supplier = $row['supplier'])
-                <article class="mt-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 lg:hidden">
-                    <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0">
-                            <div class="flex flex-wrap items-center gap-2">
-                                <h3 class="truncate text-sm font-black text-slate-950">{{ $supplier->name }}</h3>
-                                <span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] {{ $supplier->credit_approved ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700' }}">
-                                    {{ $supplier->credit_approved ? 'Credit Approved' : 'Cash / Review' }}
-                                </span>
-                                @if ($row['pending_count'] > 0)
-                                    <span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] {{ $row['pending_issue_tone'] }}">
-                                        {{ $row['pending_issue_label'] }}
-                                    </span>
-                                    @if ($row['pending_issue_paid'])
-                                        <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-emerald-700">
-                                            Paid
+            <!-- Mobile Touch-Scrollable Table View -->
+            <div id="vendor-table-container" class="vendor-view-table overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-xs">
+                <table class="w-full text-left text-xs min-w-[950px]">
+                    <thead class="border-b border-slate-100 bg-slate-950 text-[10px] font-black uppercase tracking-wider text-slate-300">
+                        <tr>
+                            <th scope="col" class="py-3 px-3.5">Vendor Name</th>
+                            <th scope="col" class="py-3 px-3">Contact & Location</th>
+                            <th scope="col" class="py-3 px-3">Recent Date</th>
+                            <th scope="col" class="py-3 px-3 text-right">Total</th>
+                            <th scope="col" class="py-3 px-3 text-right">Paid</th>
+                            <th scope="col" class="py-3 px-3 text-right">Discount</th>
+                            <th scope="col" class="py-3 px-3 text-right">Balance</th>
+                            <th scope="col" class="py-3 px-3.5 text-center">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 text-slate-700">
+                        @forelse ($supplierRows as $row)
+                            @php($supplier = $row['supplier'])
+                            <tr class="transition-colors hover:bg-slate-50/80">
+                                <!-- Vendor Name -->
+                                <td class="py-3 px-3.5 align-top">
+                                    <div class="flex items-center gap-2">
+                                        <p class="font-black text-slate-950 text-sm">{{ $supplier->name }}</p>
+                                        <span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] {{ $supplier->credit_approved ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700' }}">
+                                            {{ $supplier->credit_approved ? 'Credit' : 'Cash' }}
+                                        </span>
+                                        @if ($row['pending_count'] > 0)
+                                            <span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] {{ $row['pending_issue_tone'] }}">
+                                                {{ $row['pending_issue_label'] }}
+                                            </span>
+                                        @endif
+                                    </div>
+                                </td>
+                                <!-- Contact & Banking Notes -->
+                                <td class="py-3 px-3 align-top">
+                                    <p class="text-xs font-semibold text-slate-900">{{ $supplier->mobile_number ?: 'Mobile pending' }}</p>
+                                    @if ($supplier->location)
+                                        <p class="text-[10px] font-medium text-slate-500">{{ $supplier->location }}</p>
+                                    @endif
+                                    @if (filled($supplier->bank_details))
+                                        <span class="mt-1 inline-flex items-center gap-1 rounded bg-teal-50 px-1.5 py-0.5 text-[9px] font-bold text-teal-700" title="{{ $supplier->bank_details }}">
+                                            🏦 Bank Info
                                         </span>
                                     @endif
-                                @endif
-                            </div>
-                            <p class="mt-1 text-xs font-semibold text-slate-600">{{ $supplier->mobile_number ?: 'Mobile pending' }}{{ $supplier->location ? ' • '.$supplier->location : '' }}</p>
-                        </div>
-                        <span class="rounded-full bg-white px-3 py-1 text-[10px] font-black text-slate-700">{{ $row['pending_count'] }} {{ \Illuminate\Support\Str::plural('issue', (int) $row['pending_count']) }}</span>
-                    </div>
+                                </td>
+                                <!-- Recent Date -->
+                                <td class="py-3 px-3 align-top font-mono text-xs font-bold text-slate-700">
+                                    {{ $row['recent_business_date'] }}
+                                </td>
+                                <!-- Total -->
+                                <td class="py-3 px-3 text-right align-top font-mono font-black text-slate-950 whitespace-nowrap">
+                                    ₹{{ number_format($row['total_amount'], 2) }}
+                                </td>
+                                <!-- Paid -->
+                                <td class="py-3 px-3 text-right align-top font-mono font-black text-emerald-700 whitespace-nowrap">
+                                    ₹{{ number_format($row['paid_amount'], 2) }}
+                                </td>
+                                <!-- Discount -->
+                                <td class="py-3 px-3 text-right align-top font-mono font-bold text-slate-600 whitespace-nowrap">
+                                    ₹{{ number_format($row['discount_amount'], 2) }}
+                                </td>
+                                <!-- Balance -->
+                                <td class="py-3 px-3 text-right align-top font-mono font-black {{ $row['balance_amount'] > 0 ? 'text-amber-700' : 'text-slate-900' }} whitespace-nowrap">
+                                    ₹{{ number_format($row['balance_amount'], 2) }}
+                                </td>
+                                <!-- Action Link -->
+                                <td class="py-3 px-3.5 text-center align-top whitespace-nowrap">
+                                    <a href="{{ $row['history_route'] }}" class="inline-flex h-8 items-center justify-center gap-1 rounded-xl bg-slate-950 px-3 text-[11px] font-black text-white shadow-xs transition-all hover:bg-slate-800 active:scale-95">
+                                        <span>View Details</span>
+                                        <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                                        </svg>
+                                    </a>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="8" class="py-8 text-center text-xs font-bold text-slate-500">
+                                    No vendors found for this tab yet.
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                    @if ($supplierRows->isNotEmpty())
+                        <tfoot class="border-t-2 border-slate-900 bg-slate-950 text-white font-mono text-xs">
+                            <tr>
+                                <td colspan="3" class="py-3 px-3.5 font-sans font-black uppercase text-[10px] tracking-wider text-slate-300">
+                                    Total Summary ({{ $supplierRows->count() }} {{ \Illuminate\Support\Str::plural('vendor', $supplierRows->count()) }})
+                                </td>
+                                <td class="py-3 px-3 text-right font-black text-white whitespace-nowrap">
+                                    ₹{{ number_format($supplierRows->sum('total_amount'), 2) }}
+                                </td>
+                                <td class="py-3 px-3 text-right font-black text-emerald-400 whitespace-nowrap">
+                                    ₹{{ number_format($supplierRows->sum('paid_amount'), 2) }}
+                                </td>
+                                <td class="py-3 px-3 text-right font-bold text-slate-300 whitespace-nowrap">
+                                    ₹{{ number_format($supplierRows->sum('discount_amount'), 2) }}
+                                </td>
+                                <td class="py-3 px-3 text-right font-black text-amber-400 whitespace-nowrap">
+                                    ₹{{ number_format($supplierRows->sum('balance_amount'), 2) }}
+                                </td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    @endif
+                </table>
+            </div>
 
-                    <div class="mt-3 grid grid-cols-2 gap-2">
-                        <div class="rounded-xl bg-white px-3 py-2.5">
-                            <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Date</p>
-                            <p class="mt-1 text-[11px] font-black text-slate-900">{{ $row['recent_business_date'] }}</p>
-                        </div>
-                        <div class="rounded-xl bg-white px-3 py-2.5">
-                            <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Recent Bill</p>
-                            <p class="mt-1 truncate text-[11px] font-black text-slate-900">{{ $row['recent_invoice_number'] }}</p>
-                        </div>
-                        <div class="rounded-xl bg-white px-3 py-2.5">
-                            <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Total</p>
-                            <p class="mt-1 text-[11px] font-black text-slate-900">₹{{ number_format($row['total_amount'], 2) }}</p>
-                        </div>
-                        <div class="rounded-xl bg-white px-3 py-2.5">
-                            <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Paid</p>
-                            <p class="mt-1 text-[11px] font-black text-emerald-700">₹{{ number_format($row['paid_amount'], 2) }}</p>
-                        </div>
-                        <div class="rounded-xl bg-white px-3 py-2.5">
-                            <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Discount</p>
-                            <p class="mt-1 text-[11px] font-black text-slate-900">₹{{ number_format($row['discount_amount'], 2) }}</p>
-                        </div>
-                        <div class="rounded-xl bg-white px-3 py-2.5">
-                            <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Balance</p>
-                            <p class="mt-1 text-[11px] font-black {{ $row['balance_amount'] > 0 ? 'text-amber-700' : 'text-slate-900' }}">₹{{ number_format($row['balance_amount'], 2) }}</p>
-                        </div>
-                        <div class="rounded-xl bg-white px-3 py-2.5">
-                            <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Last Cart</p>
-                            <p class="mt-1 truncate text-[11px] font-black text-slate-900">{{ $row['recent_cart_number'] }}</p>
-                        </div>
-                    </div>
-
-                    <div class="mt-3">
-                        <a href="{{ $row['history_route'] }}" class="inline-flex h-10 w-full items-center justify-center rounded-xl bg-slate-950 px-4 text-xs font-black text-white hover:bg-slate-800">
-                            Open Vendor History
-                        </a>
-                    </div>
-                </article>
-            @empty
-                <div class="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-12 text-center text-sm font-bold text-slate-500 lg:rounded-[2rem]">
-                    No vendors found for this tab yet.
-                </div>
-            @endforelse
-
-            @if ($supplierRows->isNotEmpty())
-                <div class="mt-3 hidden overflow-hidden rounded-2xl border border-slate-200 lg:block">
-                    <div class="grid grid-cols-[minmax(0,2.1fr)_120px_120px_120px_120px_120px_120px] gap-0 bg-slate-950 px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-slate-300">
-                        <div>Vendor</div>
-                        <div>Date</div>
-                        <div>Total</div>
-                        <div>Paid</div>
-                        <div>Discount</div>
-                        <div>Balance</div>
-                        <div>Action</div>
-                    </div>
-                    @foreach ($supplierRows as $row)
-                        @php($supplier = $row['supplier'])
-                        <div class="grid grid-cols-[minmax(0,2.1fr)_120px_120px_120px_120px_120px_120px] items-center gap-0 border-t border-slate-200 bg-white px-4 py-3 text-sm">
+            <!-- Mobile Cards View Container (Hidden by default or toggled) -->
+            <div id="vendor-cards-container" class="vendor-view-cards hidden space-y-3">
+                @forelse ($supplierRows as $row)
+                    @php($supplier = $row['supplier'])
+                    <article class="rounded-2xl border border-slate-200 bg-slate-50/70 p-3 shadow-xs">
+                        <div class="flex items-start justify-between gap-3">
                             <div class="min-w-0">
-                                <div class="flex items-center gap-2">
-                                    <p class="truncate font-black text-slate-950">{{ $supplier->name }}</p>
-                                    <span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] {{ $supplier->credit_approved ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700' }}">
-                                        {{ $supplier->credit_approved ? 'Credit' : 'Cash' }}
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <h3 class="truncate text-sm font-black text-slate-950">{{ $supplier->name }}</h3>
+                                    <span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] {{ $supplier->credit_approved ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700' }}">
+                                        {{ $supplier->credit_approved ? 'Credit Approved' : 'Cash Terms' }}
                                     </span>
                                     @if ($row['pending_count'] > 0)
                                         <span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] {{ $row['pending_issue_tone'] }}">
                                             {{ $row['pending_issue_label'] }}
                                         </span>
-                                        @if ($row['pending_issue_paid'])
-                                            <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] text-emerald-700">
-                                                Paid
-                                            </span>
-                                        @endif
                                     @endif
                                 </div>
-                                <p class="mt-1 truncate text-[11px] font-semibold text-slate-500">
-                                    {{ $supplier->mobile_number ?: 'Mobile pending' }}{{ $supplier->location ? ' • '.$supplier->location : '' }} • {{ $row['pending_count'] }} {{ \Illuminate\Support\Str::plural('issue', (int) $row['pending_count']) }}
-                                </p>
+                                <p class="mt-1 text-xs font-semibold text-slate-600">{{ $supplier->mobile_number ?: 'Mobile pending' }}{{ $supplier->location ? ' • '.$supplier->location : '' }}</p>
+                                @if (filled($supplier->bank_details))
+                                    <p class="mt-1 text-[10px] font-bold text-teal-700">🏦 {{ $supplier->bank_details }}</p>
+                                @endif
                             </div>
-                            <div class="text-[12px] font-black text-slate-700">{{ $row['recent_business_date'] }}</div>
-                            <div class="text-[12px] font-black text-slate-950">₹{{ number_format($row['total_amount'], 2) }}</div>
-                            <div class="text-[12px] font-black text-emerald-700">₹{{ number_format($row['paid_amount'], 2) }}</div>
-                            <div class="text-[12px] font-black text-slate-950">₹{{ number_format($row['discount_amount'], 2) }}</div>
-                            <div class="text-[12px] font-black {{ $row['balance_amount'] > 0 ? 'text-amber-700' : 'text-slate-950' }}">₹{{ number_format($row['balance_amount'], 2) }}</div>
-                            <div>
-                                <a href="{{ $row['history_route'] }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-950 px-3 text-[11px] font-black text-white hover:bg-slate-800">
-                                    History
-                                </a>
+                            <span class="rounded-full bg-white px-3 py-1 text-[10px] font-black text-slate-700 shrink-0">{{ $row['pending_count'] }} {{ \Illuminate\Support\Str::plural('issue', (int) $row['pending_count']) }}</span>
+                        </div>
+
+                        <div class="mt-3 grid grid-cols-2 gap-2">
+                            <div class="rounded-xl bg-white px-3 py-2">
+                                <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Recent Date</p>
+                                <p class="mt-0.5 font-mono text-[11px] font-black text-slate-900">{{ $row['recent_business_date'] }}</p>
+                            </div>
+                            <div class="rounded-xl bg-white px-3 py-2">
+                                <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Total Buy</p>
+                                <p class="mt-0.5 font-mono text-[11px] font-black text-slate-900">₹{{ number_format($row['total_amount'], 2) }}</p>
+                            </div>
+                            <div class="rounded-xl bg-white px-3 py-2">
+                                <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Paid Cash</p>
+                                <p class="mt-0.5 font-mono text-[11px] font-black text-emerald-700">₹{{ number_format($row['paid_amount'], 2) }}</p>
+                            </div>
+                            <div class="rounded-xl bg-white px-3 py-2">
+                                <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Balance</p>
+                                <p class="mt-0.5 font-mono text-[11px] font-black {{ $row['balance_amount'] > 0 ? 'text-amber-700' : 'text-slate-900' }}">₹{{ number_format($row['balance_amount'], 2) }}</p>
                             </div>
                         </div>
-                    @endforeach
-                </div>
-            @endif
-        </details>
+
+                        <div class="mt-3">
+                            <a href="{{ $row['history_route'] }}" class="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-xl bg-slate-950 px-4 text-xs font-black text-white hover:bg-slate-800">
+                                <span>View Details (Full History)</span>
+                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                                </svg>
+                            </a>
+                        </div>
+                    </article>
+                @empty
+                    <div class="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-xs font-bold text-slate-500">
+                        No vendors found for this tab yet.
+                    </div>
+                @endforelse
+            </div>
+        </section>
 
         <section class="rounded-2xl border {{ $issueSections->sum('count') > 0 ? 'border-rose-200 bg-rose-50' : 'border-emerald-200 bg-emerald-50' }} p-4 shadow-sm lg:rounded-[2rem] lg:p-5">
             <div class="flex flex-col gap-4">
@@ -384,11 +439,6 @@
                 paidLabel.textContent = `₹ ${directPaymentCurrentPaidAmount.toFixed(2)}`;
                 balanceLabel.textContent = `₹ ${remaining.toFixed(2)}`;
 
-                if (methodInput.value === 'Credit' && ! creditApproved) {
-                    warningLabel.textContent = 'Credit is blocked for this supplier until approval.';
-                    return;
-                }
-
                 warningLabel.textContent = remaining > 0 || methodInput.value === 'Credit'
                     ? 'This supplier credit remains pending until the balance is cleared.'
                     : 'This purchaser payment will settle the invoice and reduce purchaser balance.';
@@ -413,6 +463,27 @@
         function closeDirectPaymentModal() {
             document.getElementById('direct-payment-modal').classList.add('hidden');
             document.getElementById('direct-payment-modal').classList.remove('flex');
+        }
+
+        function setVendorViewMode(mode) {
+            const tableContainer = document.getElementById('vendor-table-container');
+            const cardsContainer = document.getElementById('vendor-cards-container');
+            const tableBtn = document.getElementById('vendor-view-mode-table-btn');
+            const cardsBtn = document.getElementById('vendor-view-mode-cards-btn');
+
+            if (!tableContainer || !cardsContainer || !tableBtn || !cardsBtn) return;
+
+            if (mode === 'table') {
+                tableContainer.classList.remove('hidden');
+                cardsContainer.classList.add('hidden');
+                tableBtn.className = 'rounded-lg bg-slate-950 px-3 py-1.5 text-[10px] font-black text-white shadow-xs transition-all';
+                cardsBtn.className = 'rounded-lg px-3 py-1.5 text-[10px] font-black text-slate-500 hover:text-slate-800 transition-all';
+            } else {
+                tableContainer.classList.add('hidden');
+                cardsContainer.classList.remove('hidden');
+                tableBtn.className = 'rounded-lg px-3 py-1.5 text-[10px] font-black text-slate-500 hover:text-slate-800 transition-all';
+                cardsBtn.className = 'rounded-lg bg-slate-950 px-3 py-1.5 text-[10px] font-black text-white shadow-xs transition-all';
+            }
         }
     </script>
 </x-layouts.app>

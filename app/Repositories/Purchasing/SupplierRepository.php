@@ -13,4 +13,9 @@ class SupplierRepository extends BaseRepository
     {
         return Supplier::class;
     }
+
+    public function paginate(int $perPage = 15): \Illuminate\Contracts\Pagination\LengthAwarePaginator
+    {
+        return $this->query()->with('purchaseInvoices')->paginate($perPage);
+    }
 }

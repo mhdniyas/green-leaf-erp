@@ -43,25 +43,40 @@
 
             {{-- LEFT: product list --}}
             <div class="min-w-0 flex-1 space-y-4">
-                <form action="{{ route('purchaser.daily') }}" method="GET" class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
+                <form action="{{ route('purchaser.daily') }}" method="GET" id="purchaser-daily-filter-form" class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
                     <input type="hidden" name="date" value="{{ $date }}">
-                    <div class="flex flex-col gap-3 md:flex-row md:items-center">
-                        <div class="relative flex-1">
-                            <input type="search" name="search" value="{{ $search }}" placeholder="Search product..." class="w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:px-4">
-                        </div>
-                        <div class="relative w-full md:w-64 shrink-0">
-                            <select name="chip" onchange="this.form.submit()" class="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-4 pr-10 py-3.5 text-xs font-black text-slate-700 focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:pl-5">
-                                @foreach ($quickFilters as $filter)
-                                    <option value="{{ $filter }}" {{ $selectedChip === $filter ? 'selected' : '' }}>
-                                        {{ $filter }}
-                                    </option>
-                                @endforeach
-                            </select>
-                            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-500">
-                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                                </svg>
+                    <input type="hidden" name="chip" id="daily-chip-input" value="{{ $selectedChip }}">
+                    <div class="flex flex-col gap-3">
+                        <div class="flex flex-col gap-3 md:flex-row md:items-center">
+                            <div class="relative flex-1">
+                                <input type="search" name="search" value="{{ $search }}" placeholder="Search product..." class="w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:px-4">
                             </div>
+                            <div class="relative w-full md:w-64 shrink-0">
+                                <select onchange="document.getElementById('daily-chip-input').value=this.value; this.form.submit()" class="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-4 pr-10 py-3.5 text-xs font-black text-slate-700 focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:pl-5">
+                                    @foreach ($quickFilters as $filter)
+                                        <option value="{{ $filter }}" {{ $selectedChip === $filter ? 'selected' : '' }}>
+                                            {{ $filter }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-500">
+                                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+
+                        {{-- Horizontal Category Filter Pills --}}
+                        <div class="-mx-1 flex snap-x snap-mandatory gap-1.5 overflow-x-auto px-1 pb-1">
+                            @foreach ($quickFilters as $filter)
+                                @php
+                                    $isSelected = ($selectedChip === $filter);
+                                @endphp
+                                <button type="button" onclick="document.getElementById('daily-chip-input').value='{{ $filter }}'; document.getElementById('purchaser-daily-filter-form').submit()" class="snap-start shrink-0 rounded-full px-3.5 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] transition {{ $isSelected ? 'bg-teal-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                                    {{ $filter }}
+                                </button>
+                            @endforeach
                         </div>
                     </div>
                 </form>

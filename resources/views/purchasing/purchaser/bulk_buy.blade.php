@@ -22,26 +22,45 @@
 
         {{-- Filter and search bar --}}
         <div class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
-            <div class="flex flex-col gap-3 md:flex-row md:items-center">
-                <div class="relative flex-1">
-                    <input id="search-input" type="search" placeholder="Search product..." class="w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:px-4">
-                </div>
-                <div class="relative custom-select-container w-full md:w-64 shrink-0">
-                    <button type="button" class="custom-select-trigger flex h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 text-left text-xs font-black text-slate-700 focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:px-5">
-                        <span class="custom-select-label truncate">Filter: All</span>
-                        <svg class="h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                        </svg>
-                    </button>
-                    <input type="hidden" id="filter-select" value="All">
-                    <div class="custom-select-options hidden absolute right-0 left-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg lg:rounded-2xl">
-                        @foreach ($quickFilters as $filter)
-                            <button type="button" data-value="{{ $filter }}" class="custom-select-option flex w-full items-center justify-between px-4 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-100">
-                                <span>{{ $filter }}</span>
-                                <span class="checkmark {{ $filter === 'All' ? '' : 'hidden' }} text-teal-600">✓</span>
-                            </button>
-                        @endforeach
+            <div class="flex flex-col gap-3">
+                <div class="flex flex-col gap-3 md:flex-row md:items-center">
+                    <div class="relative flex-1">
+                        <input id="search-input" type="search" placeholder="Search product..." class="w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:px-4">
                     </div>
+                    <div class="relative custom-select-container w-full md:w-64 shrink-0">
+                        <button type="button" class="custom-select-trigger flex h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 text-left text-xs font-black text-slate-700 focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:px-5">
+                            <span class="custom-select-label truncate">Filter: All</span>
+                            <svg class="h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                        <input type="hidden" id="filter-select" value="All">
+                        <div class="custom-select-options hidden absolute right-0 left-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg lg:rounded-2xl">
+                            @foreach ($quickFilters as $filter)
+                                <button type="button" data-value="{{ $filter }}" class="custom-select-option flex w-full items-center justify-between px-4 py-2 text-left text-xs font-black text-slate-700 hover:bg-slate-100">
+                                    <span>{{ $filter }}</span>
+                                    <span class="checkmark {{ $filter === 'All' ? '' : 'hidden' }} text-teal-600">✓</span>
+                                </button>
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Horizontal Category Pills (Matching Add-ons) --}}
+                <div class="-mx-1 flex snap-x snap-mandatory gap-1.5 overflow-x-auto px-1 pb-1">
+                    <button type="button" data-category-pill="All" onclick="selectCategoryPill('All', this)" class="category-pill snap-start shrink-0 rounded-full bg-teal-600 px-3.5 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] text-white shadow-xs transition">
+                        All
+                    </button>
+                    <button type="button" data-category-pill="Frequent" onclick="selectCategoryPill('Frequent', this)" class="category-pill snap-start shrink-0 rounded-full bg-slate-100 px-3.5 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] text-slate-600 transition hover:bg-slate-200">
+                        Frequent
+                    </button>
+                    @foreach ($quickFilters as $filter)
+                        @if (!in_array($filter, ['All', 'Frequent']))
+                            <button type="button" data-category-pill="{{ $filter }}" onclick="selectCategoryPill('{{ $filter }}', this)" class="category-pill snap-start shrink-0 rounded-full bg-slate-100 px-3.5 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] text-slate-600 transition hover:bg-slate-200">
+                                {{ $filter }}
+                            </button>
+                        @endif
+                    @endforeach
                 </div>
             </div>
         </div>
@@ -264,6 +283,9 @@
                     if (window.filterItems) {
                         window.filterItems();
                     }
+                    if (window.updatePillStyles) {
+                        window.updatePillStyles(val);
+                    }
                     return;
                 }
 
@@ -276,6 +298,32 @@
                     });
                 }
             });
+
+            window.updatePillStyles = function(selectedCategory) {
+                document.querySelectorAll('.category-pill').forEach(pill => {
+                    const pillCat = pill.getAttribute('data-category-pill');
+                    if (pillCat && pillCat.toLowerCase() === (selectedCategory || '').toLowerCase()) {
+                        pill.className = 'category-pill snap-start shrink-0 rounded-full bg-teal-600 px-3.5 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] text-white shadow-xs transition';
+                    } else {
+                        pill.className = 'category-pill snap-start shrink-0 rounded-full bg-slate-100 px-3.5 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] text-slate-600 transition hover:bg-slate-200';
+                    }
+                });
+            };
+
+            window.selectCategoryPill = function(category, btn) {
+                const filterSelectInput = document.getElementById('filter-select');
+                if (filterSelectInput) {
+                    filterSelectInput.value = category;
+                }
+                const label = document.querySelector('.custom-select-label');
+                if (label) {
+                    label.textContent = `Filter: ${category}`;
+                }
+                window.updatePillStyles(category);
+                if (window.filterItems) {
+                    window.filterItems();
+                }
+            };
 
             window.filterItems = function() {
                 const query = searchInput.value.toLowerCase().trim();
@@ -297,7 +345,7 @@
                     } else if (category === 'Frequent') {
                         matchFilter = isFrequent;
                     } else {
-                        matchFilter = itemCategory === category;
+                        matchFilter = (itemCategory || '').toLowerCase() === (category || '').toLowerCase();
                     }
 
                     const matchTab = itemTab === activeTab;

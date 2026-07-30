@@ -429,6 +429,9 @@
                     <x-nav-item href="{{ route('purchaser.history') }}" :active="request()->routeIs('purchaser.history')" :sub="true">
                         Report
                     </x-nav-item>
+                    <x-nav-item href="{{ route('purchaser.settings') }}" :active="request()->routeIs('purchaser.settings')" :sub="true">
+                        Settings
+                    </x-nav-item>
                 </div>
             @elseif(auth()->user()->hasRole('warehouse_receiver'))
                 @php

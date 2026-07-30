@@ -141,14 +141,18 @@ class PurchaseInvoiceService
                 $invoice->purchaserCart->update($cartUpdateData);
             }
 
-            if ($paymentPaidBy === 'purchaser' && $invoice->purchaser_submitted_by) {
+            $effectivePurchaserId = $invoice->purchaser_submitted_by
+                ?? $payload['payment_purchaser_id']
+                ?? null;
+
+            if ($paymentPaidBy === 'purchaser' && $effectivePurchaserId) {
                 PurchaserCredit::updateOrCreate(
                     ['purchase_invoice_id' => $invoice->id, 'type' => 'out'],
                     [
-                        'purchaser_id' => $invoice->purchaser_submitted_by,
+                        'purchaser_id' => $effectivePurchaserId,
                         'amount' => $netInvoiceAmount,
                         'description' => 'Debit for invoice: '.($payload['bill_number'] ?? $invoice->invoice_number),
-                        'created_by' => auth()->id() ?: $invoice->purchaser_submitted_by,
+                        'created_by' => auth()->id() ?: $effectivePurchaserId,
                         'business_date' => $invoice->purchaserCart?->business_date ?: today(),
                     ]
                 );
@@ -186,6 +190,13 @@ class PurchaseInvoiceService
                 );
             } elseif ($updatedInvoice->isGreenLeafDirectPurchase() && $paidIncrease > 0) {
                 $this->journalService->recordGreenLeafDirectPurchasePayment(
+                    invoice: $updatedInvoice,
+                    amount: $paidIncrease,
+                    userId: (int) (auth()->id() ?: $updatedInvoice->purchaser_submitted_by ?: 1),
+                    paymentMode: $paymentMethod,
+                );
+            } elseif ($paymentPaidBy === 'purchaser' && $paidIncrease > 0) {
+                $this->journalService->recordPurchaserDailyPurchasePayment(
                     invoice: $updatedInvoice,
                     amount: $paidIncrease,
                     userId: (int) (auth()->id() ?: $updatedInvoice->purchaser_submitted_by ?: 1),

@@ -96,9 +96,12 @@
                                                 @endif
                                             </p>
                                         </div>
-                                        <form method="POST" action="{{ route('purchasing.suppliers.credit-approve', $supplier) }}">
+                                        <form id="credit-approve-form-{{ $supplier->id }}" method="POST" action="{{ route('purchasing.suppliers.credit-approve', $supplier) }}">
                                             @csrf
-                                            <button type="submit" class="inline-flex h-9 items-center rounded-xl bg-emerald-600 px-3 text-[11px] font-black text-white hover:bg-emerald-500">
+                                            <button
+                                                type="button"
+                                                onclick="confirmCreditApprove({{ $supplier->id }}, '{{ addslashes($supplier->name) }}')"
+                                                class="inline-flex h-9 items-center rounded-xl bg-emerald-600 px-3 text-[11px] font-black text-white hover:bg-emerald-500">
                                                 Accept
                                             </button>
                                         </form>
@@ -134,6 +137,7 @@
                             <th class="px-5 py-4">Payment</th>
                             <th class="px-5 py-4">GRN Reference</th>
                             <th class="px-5 py-4">Matched Date</th>
+                            <th class="px-5 py-4">Updated Date</th>
                             <th class="px-5 py-4 text-right">Amount</th>
                             <th class="px-5 py-4 text-right">Paid</th>
                             <th class="px-5 py-4 text-right">Balance</th>
@@ -161,6 +165,7 @@
                                     @endif
                                 </td>
                                 <td class="px-5 py-4 text-slate-600">{{ $invoice->created_at->format('Y-m-d') }}</td>
+                                <td class="px-5 py-4 text-slate-600">{{ $invoice->updated_at?->format('Y-m-d') ?? '—' }}</td>
                                 <td class="px-5 py-4 text-right font-bold text-slate-950">INR {{ number_format((float) $invoice->amount, 2) }}</td>
                                 <td class="px-5 py-4 text-right font-bold text-emerald-700">₹{{ number_format((float) $invoice->paid_amount, 2) }}</td>
                                 <td class="px-5 py-4 text-right font-bold {{ $balance > 0 ? 'text-amber-700' : 'text-slate-950' }}">₹{{ number_format($balance, 2) }}</td>
@@ -186,9 +191,83 @@
                             </tr>
                         @endforeach
                     </tbody>
+                    <tfoot class="border-t-2 border-slate-900 bg-slate-950 text-white font-mono text-xs">
+                        <tr>
+                            <td colspan="6" class="px-5 py-3 font-sans font-black uppercase text-[10px] tracking-wider text-slate-300">
+                                Total Summary ({{ $invoices->count() }} {{ \Illuminate\Support\Str::plural('bill', $invoices->count()) }})
+                            </td>
+                            <td class="px-5 py-3 text-right font-black text-white whitespace-nowrap">
+                                ₹{{ number_format((float) $invoices->sum('amount'), 2) }}
+                            </td>
+                            <td class="px-5 py-3 text-right font-black text-emerald-400 whitespace-nowrap">
+                                ₹{{ number_format((float) $invoices->sum('paid_amount'), 2) }}
+                            </td>
+                            <td class="px-5 py-3 text-right font-black text-amber-400 whitespace-nowrap">
+                                ₹{{ number_format((float) $summary['outstanding_amount'], 2) }}
+                            </td>
+                            <td colspan="2"></td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
         @endif
         </section>
     </div>
+
+    {{-- Vendor Credit Approve Confirmation Modal --}}
+    <div id="credit-approve-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
+        <div class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+            <div class="flex items-center gap-3">
+                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100">
+                    <svg class="h-5 w-5 text-emerald-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-sm font-black text-slate-950">Approve Vendor Credit?</h3>
+                    <p id="credit-approve-supplier-name" class="mt-0.5 text-xs font-semibold text-slate-500"></p>
+                </div>
+            </div>
+            <p class="mt-4 text-xs font-semibold leading-5 text-slate-600">
+                This will allow the supplier to use credit for purchases. Credit bills will stay payable until an admin pays from the company account.
+            </p>
+            <div class="mt-5 flex items-center justify-end gap-2">
+                <button type="button" onclick="closeCreditApproveModal()" class="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 text-xs font-black text-slate-700 hover:bg-slate-100">
+                    Cancel
+                </button>
+                <button type="button" id="credit-approve-confirm-btn" onclick="submitCreditApprove()" class="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-5 text-xs font-black text-white hover:bg-emerald-500">
+                    Confirm Approve
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    let pendingApproveFormId = null;
+
+    function confirmCreditApprove(supplierId, supplierName) {
+        pendingApproveFormId = 'credit-approve-form-' + supplierId;
+        document.getElementById('credit-approve-supplier-name').textContent = supplierName;
+        const modal = document.getElementById('credit-approve-modal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+
+    function closeCreditApproveModal() {
+        const modal = document.getElementById('credit-approve-modal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        pendingApproveFormId = null;
+    }
+
+    function submitCreditApprove() {
+        if (pendingApproveFormId) {
+            document.getElementById(pendingApproveFormId)?.submit();
+        }
+    }
+
+    document.getElementById('credit-approve-modal')?.addEventListener('click', function(e) {
+        if (e.target === this) closeCreditApproveModal();
+    });
+    </script>
 @endsection

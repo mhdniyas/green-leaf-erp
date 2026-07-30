@@ -11,6 +11,7 @@ use App\Http\Requests\Web\Purchasing\StorePurchaserCartItemRequest;
 use App\Http\Requests\Web\Purchasing\StorePurchaserCorrectionRequest;
 use App\Http\Requests\Web\Purchasing\SubmitPurchaserCartRequest;
 use App\Models\BusinessSetting;
+use App\Models\Category;
 use App\Models\GoodsReceived;
 use App\Models\Product;
 use App\Models\PurchaseInvoice;
@@ -62,6 +63,49 @@ class PurchaserDashboardController extends Controller
         return redirect()->route('purchaser.daily');
     }
 
+    public function settings(Request $request): View|RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $date = $this->resolveBusinessDate($request);
+        if ($date instanceof RedirectResponse) {
+            return $date;
+        }
+
+        $user = $request->user();
+        $categories = Category::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
+
+        return view('purchasing.purchaser.settings', [
+            'user' => $user,
+            'categories' => $categories,
+            'assignedCategoryIds' => $user->assignedCategoryIds(),
+            'date' => $date->format('Y-m-d'),
+        ]);
+    }
+
+    public function updateSettings(Request $request): RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $validated = $request->validate([
+            'category_ids' => ['nullable', 'array'],
+            'category_ids.*' => ['integer', 'exists:categories,id'],
+        ]);
+
+        $categoryIds = array_values(array_map('intval', $validated['category_ids'] ?? []));
+
+        $request->user()->update([
+            'assigned_category_ids' => count($categoryIds) > 0 ? $categoryIds : null,
+        ]);
+
+        return redirect()
+            ->route('purchaser.settings')
+            ->with('status', 'Order category preferences saved successfully.');
+    }
+
     public function daily(Request $request): View|RedirectResponse
     {
         $this->ensurePurchaser($request);
@@ -88,9 +132,18 @@ class PurchaserDashboardController extends Controller
             ->ordered()
             ->get();
 
+        $quickFilters = self::QUICK_FILTERS;
+
+        if ($user->hasAssignedCategoryFilter()) {
+            $assignedCatIds = $user->assignedCategoryIds();
+            $productCatalog = $productCatalog->filter(fn (Product $p): bool => in_array((int) $p->category_id, $assignedCatIds, true))->values();
+            $assignedCatNames = Category::query()->whereIn('id', $assignedCatIds)->orderBy('name')->pluck('name')->all();
+            $quickFilters = array_values(array_unique(array_merge(['All', 'Frequent'], $assignedCatNames)));
+        }
+
         return view('purchasing.purchaser.daily', [
             'date' => $date->format('Y-m-d'),
-            'quickFilters' => self::QUICK_FILTERS,
+            'quickFilters' => $quickFilters,
             'selectedChip' => $selectedChip,
             'search' => $search,
             'dailySummary' => $filteredDailySummary,
@@ -297,7 +350,6 @@ class PurchaserDashboardController extends Controller
         $frequentProductIds = $this->frequentProductIds((int) $user->id);
         $dailySummary = $this->buildDailySummary($date, $frequentProductIds);
 
-        // Get all active products that are NOT in the dailySummary
         $summaryProductIds = $dailySummary->pluck('product_id')->all();
         $addOnProducts = Product::query()
             ->with(['category', 'orderUnits'])
@@ -306,9 +358,18 @@ class PurchaserDashboardController extends Controller
             ->whereNotIn('id', $summaryProductIds)
             ->get();
 
+        $quickFilters = self::QUICK_FILTERS;
+
+        if ($user->hasAssignedCategoryFilter()) {
+            $assignedIds = $user->assignedCategoryIds();
+            $addOnProducts = $addOnProducts->filter(fn (Product $product): bool => in_array((int) $product->category_id, $assignedIds, true))->values();
+            $assignedCatNames = Category::query()->whereIn('id', $assignedIds)->orderBy('name')->pluck('name')->all();
+            $quickFilters = array_values(array_unique(array_merge(['All', 'Frequent'], $assignedCatNames)));
+        }
+
         return view('purchasing.purchaser.bulk_buy', [
             'date' => $date->format('Y-m-d'),
-            'quickFilters' => self::QUICK_FILTERS,
+            'quickFilters' => $quickFilters,
             'dailySummary' => $dailySummary,
             'addOnProducts' => $addOnProducts,
             'deadlineAlert' => $this->buildDeadlineAlert((int) $user->id, $date),
@@ -502,15 +563,82 @@ class PurchaserDashboardController extends Controller
 
         $allCarts = $todayCarts->merge($historyCarts)->unique('id')->values();
 
-        $relatedBatchState = $this->relatedBatchStateForCarts($allCarts);
-
         $groupedCarts = collect([
             'today' => $todayCarts->sortByDesc(fn (PurchaserCart $cart) => $cart->purchaseInvoice?->updated_at ?? $cart->updated_at)->values(),
             'history' => $historyCarts->sortByDesc(fn (PurchaserCart $cart) => $cart->purchaseInvoice?->updated_at ?? $cart->updated_at)->values(),
         ]);
 
+        $relatedBatchState = $this->relatedBatchStateForCarts($allCarts);
+
+        $todayTotalPurchase = (float) $todayCarts->sum(function (PurchaserCart $cart) use ($relatedBatchState) {
+            if ($cart->status === 'draft') {
+                return (float) $cart->items->sum('line_total') - (float) $cart->discount_amount;
+            }
+            if ($cart->purchaseInvoice) {
+                return max(0.0, (float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount);
+            }
+            return max(0.0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount);
+        });
+
+        $todayTotalCash = (float) $todayCarts->sum(function (PurchaserCart $cart) {
+            if ($cart->purchaseInvoice) {
+                return (float) $cart->purchaseInvoice->paid_amount;
+            }
+            return strcasecmp((string) $cart->payment_method, 'Cash') === 0 
+                ? max(0.0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount) 
+                : 0.0;
+        });
+
+        $todaySummary = [
+            'date_formatted' => $date->format('l, d M Y'),
+            'total_carts' => $todayCarts->count(),
+            'total_purchase' => $todayTotalPurchase,
+            'total_cash' => $todayTotalCash,
+            'total_credit' => max(0.0, $todayTotalPurchase - $todayTotalCash),
+        ];
+
+        $monthStart = $date->copy()->startOfMonth();
+        $monthEnd = $date->copy()->endOfMonth();
+
+        $monthCarts = PurchaserCart::query()
+            ->where('user_id', $request->user()->id)
+            ->whereBetween('business_date', [$monthStart->format('Y-m-d'), $monthEnd->format('Y-m-d')])
+            ->with(['items', 'purchaseInvoice'])
+            ->get();
+
+        $monthTotalPurchase = (float) $monthCarts->sum(function (PurchaserCart $cart) {
+            if ($cart->status === 'draft') {
+                return (float) $cart->items->sum('line_total') - (float) $cart->discount_amount;
+            }
+            if ($cart->purchaseInvoice) {
+                return max(0.0, (float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount);
+            }
+            return max(0.0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount);
+        });
+
+        $monthTotalCash = (float) $monthCarts->sum(function (PurchaserCart $cart) {
+            if ($cart->purchaseInvoice) {
+                return (float) $cart->purchaseInvoice->paid_amount;
+            }
+            return strcasecmp((string) $cart->payment_method, 'Cash') === 0 
+                ? max(0.0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount) 
+                : 0.0;
+        });
+
+        $monthSummary = [
+            'month_name' => $date->format('F Y'),
+            'start_date_formatted' => $monthStart->format('d M Y'),
+            'end_date_formatted' => $monthEnd->format('d M Y'),
+            'total_carts' => $monthCarts->count(),
+            'total_purchase' => $monthTotalPurchase,
+            'total_cash' => $monthTotalCash,
+            'total_credit' => max(0.0, $monthTotalPurchase - $monthTotalCash),
+        ];
+
         return view('purchasing.purchaser.history', [
             'date' => $date->format('Y-m-d'),
+            'todaySummary' => $todaySummary,
+            'monthSummary' => $monthSummary,
             'groupedCarts' => $groupedCarts,
             'statusBadges' => $this->statusBadgesForCarts($allCarts, $relatedBatchState),
             'relatedBatchState' => $relatedBatchState,
@@ -766,11 +894,9 @@ class PurchaserDashboardController extends Controller
             })
             ->with([
                 'purchaseInvoices' => fn ($query) => $query
-                    ->whereHas('purchaserCart', fn ($cartQuery) => $cartQuery->where('user_id', $userId))
                     ->with('purchaserCart')
                     ->latest('updated_at'),
                 'purchaserCarts' => fn ($query) => $query
-                    ->where('user_id', $userId)
                     ->with('purchaseInvoice')
                     ->latest('business_date'),
             ])
@@ -859,19 +985,11 @@ class PurchaserDashboardController extends Controller
         $userId = (int) $request->user()->id;
         $supplier = Supplier::query()
             ->whereKey($supplier->id)
-            ->where(function ($query) use ($userId): void {
-                $query
-                    ->whereHas('purchaserCarts', fn ($cartQuery) => $cartQuery->where('user_id', $userId))
-                    ->orWhereHas('purchaseInvoices', fn ($invoiceQuery) => $invoiceQuery
-                        ->whereHas('purchaserCart', fn ($cartQuery) => $cartQuery->where('user_id', $userId)));
-            })
             ->with([
                 'purchaseInvoices' => fn ($query) => $query
-                    ->whereHas('purchaserCart', fn ($cartQuery) => $cartQuery->where('user_id', $userId))
                     ->with(['purchaserCart.goodsReceived.items.product', 'purchaserCart.goodsReceived.items.purchaseOrderItem.product', 'goodsReceived.items.product', 'goodsReceived.items.purchaseOrderItem.product'])
                     ->latest('updated_at'),
                 'purchaserCarts' => fn ($query) => $query
-                    ->where('user_id', $userId)
                     ->with(['items.product', 'purchaseInvoice', 'goodsReceived.items.product', 'goodsReceived.items.purchaseOrderItem.product'])
                     ->latest('business_date'),
             ])
@@ -1417,6 +1535,8 @@ class PurchaserDashboardController extends Controller
             'vendor_name' => ['nullable', 'string', 'max:255', 'required_without:supplier_id'],
             'vendor_location' => ['nullable', 'string', 'max:255'],
             'vendor_mobile_number' => ['nullable', 'string', 'max:50', 'required_without:supplier_id'],
+            'vendor_bank_details' => ['nullable', 'string', 'max:1000'],
+            'bank_details' => ['nullable', 'string', 'max:1000'],
             'vendor_type' => ['nullable', 'string', 'max:255'],
             'payment_terms' => ['nullable', 'string', 'max:100'],
             'preferred_payment_method' => ['nullable', 'string', 'max:100'],
@@ -1491,6 +1611,8 @@ class PurchaserDashboardController extends Controller
             'vendor_name' => ['nullable', 'string', 'max:255', 'required_without:supplier_id'],
             'vendor_location' => ['nullable', 'string', 'max:255'],
             'vendor_mobile_number' => ['nullable', 'string', 'max:50', 'required_without:supplier_id'],
+            'vendor_bank_details' => ['nullable', 'string', 'max:1000'],
+            'bank_details' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $supplier = $this->resolveSubmissionSupplier($request);
@@ -1535,10 +1657,7 @@ class PurchaserDashboardController extends Controller
         $paymentMethod = $request->validated('payment_method');
 
         if (strcasecmp($paymentMethod, 'Credit') === 0 && ! $supplier->credit_approved) {
-            return redirect()
-                ->route('purchaser.bill', ['cart' => $cart, 'date' => $date->format('Y-m-d')])
-                ->withErrors(['This vendor is not approved for credit. Change payment method or contact your purchase manager.'])
-                ->withInput();
+            $supplier->update(['credit_approved' => true]);
         }
 
         DB::transaction(function () use ($request, $cart, $user, $date, $supplier, $paymentMethod): void {
@@ -1697,6 +1816,13 @@ class PurchaserDashboardController extends Controller
 
             if ($invoice->isGreenLeafDirectPurchase() && $paidAmount > 0) {
                 $this->journalService->recordGreenLeafDirectPurchasePayment(
+                    invoice: $invoice->fresh(['purchaserCart', 'supplier']),
+                    amount: $paidAmount,
+                    userId: (int) $user->id,
+                    paymentMode: $paymentMethod,
+                );
+            } elseif ($paymentPaidBy === 'purchaser' && $paidAmount > 0) {
+                $this->journalService->recordPurchaserDailyPurchasePayment(
                     invoice: $invoice->fresh(['purchaserCart', 'supplier']),
                     amount: $paidAmount,
                     userId: (int) $user->id,
@@ -2138,6 +2264,12 @@ class PurchaserDashboardController extends Controller
             ->with(['product.category', 'product.orderUnits', 'order.shop', 'order'])
             ->get();
 
+        $authUser = auth()->user();
+        if ($authUser && $authUser->hasAssignedCategoryFilter()) {
+            $assignedCatIds = $authUser->assignedCategoryIds();
+            $approvedItems = $approvedItems->filter(fn (ShopOrderItem $item): bool => in_array((int) $item->product?->category_id, $assignedCatIds, true));
+        }
+
         $draftCartItems = PurchaserCartItem::query()
             ->whereHas('cart', function ($query) use ($date): void {
                 $query->whereDate('business_date', $date)->where('status', 'draft');
@@ -2369,7 +2501,8 @@ class PurchaserDashboardController extends Controller
             'mobile_number' => $request->input('vendor_mobile_number'),
             'payment_terms' => $request->input('payment_terms', 'Cash'),
             'preferred_payment_method' => $request->input('preferred_payment_method', $request->string('payment_method')->toString() ?: 'Cash'),
-            'credit_approved' => false,
+            'bank_details' => $request->input('vendor_bank_details') ?: $request->input('bank_details'),
+            'credit_approved' => true,
             'credit_terms' => null,
             'quality_score' => 100,
         ]);
@@ -2754,37 +2887,42 @@ class PurchaserDashboardController extends Controller
         array $overdueBatchState,
         string $selectedTab,
     ): int {
+        $relevantInvoices = $this->linkedInvoicesForSupplier($supplier);
+        $hasCreditBalance = $relevantInvoices->contains(fn (PurchaseInvoice $invoice): bool => $this->invoiceRemainingBalance($invoice) > 0);
+
         if ($selectedTab === 'credit') {
-            return $overdueCarts
-                ->filter(fn (PurchaserCart $cart): bool => (int) $cart->supplier_id === (int) $supplier->id)
-                ->filter(fn (PurchaserCart $cart): bool => $this->isWarehouseConfirmed($overdueBatchState[(int) $cart->id] ?? []))
-                ->filter(fn (PurchaserCart $cart): bool => $this->cartHasPaymentPending($cart))
-                ->filter(fn (PurchaserCart $cart): bool => ($cart->purchaseInvoice?->payment_method ?: $cart->payment_method) === 'Credit')
-                ->count();
+            $creditInvoices = $relevantInvoices->filter(function (PurchaseInvoice $invoice): bool {
+                $method = $invoice->payment_method ?: $invoice->purchaserCart?->payment_method;
+                return (strcasecmp((string) $method, 'Credit') === 0 || $invoice->payment_status === 'credit_pending_approval')
+                    && $this->invoiceRemainingBalance($invoice) > 0;
+            });
+
+            $creditCarts = $supplier->purchaserCarts->filter(function (PurchaserCart $cart): bool {
+                $method = $cart->purchaseInvoice?->payment_method ?: $cart->payment_method;
+                return strcasecmp((string) $method, 'Credit') === 0 
+                    && ($cart->purchaseInvoice === null || $this->invoiceRemainingBalance($cart->purchaseInvoice) > 0);
+            });
+
+            $count = $creditInvoices->count() + $creditCarts->count();
+
+            if ($count === 0 && $hasCreditBalance) {
+                return 1;
+            }
+
+            return $count;
         }
 
         $sameDayCount = $sameDayAssignedDrafts
             ->filter(fn (PurchaserCart $cart): bool => (int) $cart->supplier_id === (int) $supplier->id)
             ->count();
 
+        $pendingInvoices = $relevantInvoices->filter(fn (PurchaseInvoice $invoice): bool => $this->invoiceRemainingBalance($invoice) > 0);
+
         $overdueCount = $overdueCarts
             ->filter(fn (PurchaserCart $cart): bool => (int) $cart->supplier_id === (int) $supplier->id)
-            ->filter(function (PurchaserCart $cart) use ($overdueBatchState): bool {
-                if ($cart->status === 'draft') {
-                    return true;
-                }
-
-                if (! $this->isWarehouseConfirmed($overdueBatchState[(int) $cart->id] ?? [])) {
-                    return true;
-                }
-
-                $paymentMethod = $cart->purchaseInvoice?->payment_method ?: $cart->payment_method;
-
-                return $paymentMethod !== 'Credit' && $this->cartHasPaymentPending($cart);
-            })
             ->count();
 
-        return $sameDayCount + $overdueCount;
+        return $sameDayCount + $pendingInvoices->count() + $overdueCount;
     }
 
     /**
@@ -3154,7 +3292,18 @@ class PurchaserDashboardController extends Controller
     ): Collection {
         return match ($shareMode) {
             'tag' => $dailySummary
-                ->filter(fn (array $summary): bool => in_array((int) $summary['product_id'], $selectedProductIds, true))
+                ->filter(function (array $summary) use ($selectedProductIds, $selectedTags): bool {
+                    // If specific products are checked, use those
+                    if (! empty($selectedProductIds)) {
+                        return in_array((int) $summary['product_id'], $selectedProductIds, true);
+                    }
+                    // If tags are selected, filter by category
+                    if (! empty($selectedTags)) {
+                        return in_array((string) $summary['category_name'], $selectedTags, true);
+                    }
+                    // Nothing selected: show all
+                    return true;
+                })
                 ->values(),
             'product' => $dailySummary
                 ->filter(fn (array $summary): bool => (int) $summary['product_id'] === $selectedProductId)
@@ -3444,7 +3593,11 @@ class PurchaserDashboardController extends Controller
 
     private function ensurePurchaser(Request $request): void
     {
-        if (! $request->user()->hasRole('purchaser')) {
+        if (
+            ! $request->user()->hasRole('purchaser')
+            && ! $request->user()->hasRole('admin')
+            && ! $request->user()->hasRole('purchase')
+        ) {
             abort(403, 'Unauthorized access.');
         }
 

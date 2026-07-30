@@ -371,10 +371,18 @@ class RequisitionController extends Controller
     private function directPurchaseFormData(Request $request, string $formAction): array
     {
         $businessDate = Carbon::parse($request->input('date', $this->businessDayService->operationalDate()->toDateString()));
-        $productsByCategory = Category::with(['products' => function ($query): void {
+        $user = $request->user();
+
+        $categoryQuery = Category::with(['products' => function ($query): void {
             $query->where('is_active', true)->with('orderUnits')->ordered();
         }])
-            ->where('is_active', true)
+            ->where('is_active', true);
+
+        if ($user && $user->hasAssignedCategoryFilter()) {
+            $categoryQuery->whereIn('id', $user->assignedCategoryIds());
+        }
+
+        $productsByCategory = $categoryQuery
             ->get()
             ->filter(fn (Category $category): bool => $category->products->isNotEmpty());
 

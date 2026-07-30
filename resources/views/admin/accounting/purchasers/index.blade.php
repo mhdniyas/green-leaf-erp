@@ -16,8 +16,8 @@
             <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div>
                     <p class="text-[10px] font-black uppercase tracking-[0.26em] text-slate-400">Purchasers Ledger</p>
-                    <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-950">Purchaser accounts</h1>
-                    <p class="mt-3 max-w-3xl text-sm font-semibold leading-6 text-slate-600">Track advance cash, invoice outflow, and current balances in a table layout that fits the accounting dashboard.</p>
+                    <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-950">Purchaser Accounts & Cash Distribution</h1>
+                    <p class="mt-3 max-w-3xl text-sm font-semibold leading-6 text-slate-600">Track advance cash distribution, daily paid purchases, and active holding balances across all purchaser accounts.</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-3">
                     <button type="button" data-export="excel" class="inline-flex h-11 items-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-emerald-700 transition hover:bg-emerald-100">
@@ -29,6 +29,57 @@
                     <a href="{{ route('admin.accounting.index') }}" class="inline-flex h-11 items-center rounded-2xl border border-slate-200 px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50">
                         Back to Dashboard
                     </a>
+                </div>
+            </div>
+        </section>
+
+        {{-- Cash Distribution KPI Overview Cards --}}
+        <section class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {{-- Total Cash Distributed --}}
+            <div class="relative overflow-hidden rounded-[1.6rem] border border-emerald-200 bg-gradient-to-br from-emerald-600 to-emerald-700 p-5 text-white shadow-sm">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-100">Total Cash Distributed</p>
+                        <p class="mt-2 text-2xl font-black sm:text-3xl">Rs. {{ number_format($totals['total_in'], 2) }}</p>
+                        <p class="mt-1 text-xs font-semibold text-emerald-100">Total advances handed to purchasers</p>
+                    </div>
+                    <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/20">
+                        <svg class="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            {{-- Total Daily Paid Purchases --}}
+            <div class="relative overflow-hidden rounded-[1.6rem] border border-rose-200 bg-gradient-to-br from-rose-600 to-rose-700 p-5 text-white shadow-sm">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.2em] text-rose-100">Daily Paid Purchases</p>
+                        <p class="mt-2 text-2xl font-black sm:text-3xl">Rs. {{ number_format($totals['total_out'], 2) }}</p>
+                        <p class="mt-1 text-xs font-semibold text-rose-100">Cash spent by purchasers on daily orders</p>
+                    </div>
+                    <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/20">
+                        <svg class="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14" />
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            {{-- Active Purchaser Holding Balance --}}
+            <div class="relative overflow-hidden rounded-[1.6rem] border {{ $totals['balance'] >= 0 ? 'border-slate-800 bg-gradient-to-br from-slate-900 to-slate-800' : 'border-rose-800 bg-gradient-to-br from-rose-900 to-rose-800' }} p-5 text-white shadow-sm">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300">Purchaser Cash Balance</p>
+                        <p class="mt-2 text-2xl font-black sm:text-3xl {{ $totals['balance'] >= 0 ? 'text-white' : 'text-rose-200' }}">Rs. {{ number_format($totals['balance'], 2) }}</p>
+                        <p class="mt-1 text-xs font-semibold {{ $totals['balance'] >= 0 ? 'text-slate-300' : 'text-rose-200' }}">{{ $totals['balance'] >= 0 ? 'Net cash held by purchasers' : 'Purchaser deficit' }}</p>
+                    </div>
+                    <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/20">
+                        <svg class="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    </div>
                 </div>
             </div>
         </section>

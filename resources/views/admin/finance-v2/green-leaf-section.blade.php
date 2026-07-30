@@ -6,12 +6,14 @@
             'expense' => 'Expense',
             'salary' => 'Salary',
             'credit-loan' => 'Credit / Loan',
+            'balance' => 'Company Balance',
         ];
         $cards = [
             ['section' => 'purchase', 'label' => 'Purchase', 'value' => $summary['purchase_total'], 'hint' => 'Supplier total buy, paid and credit pending'],
             ['section' => 'expense', 'label' => 'Expense', 'value' => $summary['expense_total'], 'hint' => 'All company expenses'],
             ['section' => 'salary', 'label' => 'Salary', 'value' => $summary['salary_total'], 'hint' => 'Salary and staff advance payments'],
             ['section' => 'credit-loan', 'label' => 'Credit / Loan', 'value' => $summary['loan_total'], 'hint' => 'Given to shops with details link'],
+            ['section' => 'balance', 'label' => 'Company Balance', 'value' => $summary['balance'], 'hint' => 'Received Rs. '.number_format($summary['total_received'], 2).' | Outflow Rs. '.number_format($summary['total_paid'], 2)],
         ];
     @endphp
 
@@ -24,7 +26,7 @@
             <p class="mt-2 text-sm font-semibold text-slate-600">{{ $month_start->format('d M Y') }} to {{ $month_end->format('d M Y') }}</p>
         </section>
 
-        <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <section class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             @foreach($cards as $card)
                 @include('admin.finance-v2.partials.metric-card', [
                     'label' => $card['label'],
@@ -44,6 +46,10 @@
                 @if($section === 'purchase')
                     <div class="rounded-[1rem] border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-black text-amber-800">
                         Credit pending Rs. {{ number_format((float) $summary['purchase_pending'], 2) }}
+                    </div>
+                @elseif($section === 'balance')
+                    <div class="rounded-[1rem] border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-800">
+                        Received Rs. {{ number_format((float) $summary['total_received'], 2) }} | Outflow Rs. {{ number_format((float) $summary['total_paid'], 2) }}
                     </div>
                 @endif
             </div>

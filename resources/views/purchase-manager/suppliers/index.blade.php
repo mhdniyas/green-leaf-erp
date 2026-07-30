@@ -32,6 +32,7 @@
                             <th class="px-5 py-4">Contact</th>
                             <th class="px-5 py-4">Payment Terms</th>
                             <th class="px-5 py-4">Default</th>
+                            <th class="px-5 py-4">Pending Amount</th>
                             <th class="px-5 py-4">Quality Score</th>
                             <th class="px-5 py-4 text-right">Actions</th>
                         </tr>
@@ -56,6 +57,9 @@
                                 <td class="px-5 py-4 text-slate-600">{{ $supplier->payment_terms }}</td>
                                 <td class="px-5 py-4">
                                     <x-purchase-manager.components.status-badge :label="$supplier->is_default_purchase ? 'Default' : 'Standard'" :tone="$supplier->is_default_purchase ? 'emerald' : 'slate'" />
+                                </td>
+                                <td class="px-5 py-4 font-mono font-black {{ $supplier->pending_amount > 0 ? 'text-amber-700' : 'text-slate-900' }}">
+                                    ₹{{ number_format($supplier->pending_amount, 2) }}
                                 </td>
                                 <td class="px-5 py-4">
                                     <x-purchase-manager.components.status-badge :label="number_format($score, 2)" :tone="$tone" />

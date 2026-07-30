@@ -35,6 +35,7 @@ class Supplier extends Model
         'mobile_number',
         'payment_terms',
         'preferred_payment_method',
+        'bank_details',
         'credit_approved',
         'credit_approval_requested_at',
         'credit_approval_requested_by',
@@ -64,6 +65,10 @@ class Supplier extends Model
         $field ??= $this->getRouteKeyName();
 
         $query = $this->newQuery()->where($field, $value);
+
+        if (is_numeric($value)) {
+            $query->orWhere($this->getKeyName(), (int) $value);
+        }
 
         if ($field !== 'name') {
             $query->orWhere('name', $value);
@@ -143,5 +148,16 @@ class Supplier extends Model
         return $query
             ->where('category', 'own_purchase')
             ->where('is_default_purchase', true);
+    }
+
+    public function getPendingAmountAttribute(): float
+    {
+        if (! $this->relationLoaded('purchaseInvoices')) {
+            $this->load('purchaseInvoices');
+        }
+
+        return round((float) $this->purchaseInvoices->sum(function ($invoice) {
+            return max(0, ((float) $invoice->amount - (float) $invoice->discount_amount) - (float) $invoice->paid_amount);
+        }), 2);
     }
 }

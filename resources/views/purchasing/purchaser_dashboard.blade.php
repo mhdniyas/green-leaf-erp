@@ -343,6 +343,7 @@
                                             <input form="{{ $billFormId }}" type="text" name="vendor_mobile_number" placeholder="Mobile number" class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
                                             <input form="{{ $billFormId }}" type="text" name="vendor_type" value="Vendor" placeholder="Type" class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
                                             <input form="{{ $billFormId }}" type="text" name="payment_terms" value="COD" placeholder="Payment terms" class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
+                                            <textarea form="{{ $billFormId }}" name="vendor_bank_details" placeholder="Notes for banking details (Optional: Bank, A/C No, IFSC, UPI)" rows="2" class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none"></textarea>
                                             <input form="{{ $billFormId }}" type="hidden" name="preferred_payment_method" value="Cash">
                                         </div>
                                     </div>

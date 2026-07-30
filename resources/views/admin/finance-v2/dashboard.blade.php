@@ -12,7 +12,7 @@
             <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <div>
                     <p class="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Green Leaf Finance</p>
-                    <h2 class="mt-2 text-3xl font-black tracking-tight text-slate-950">Clean account dashboard</h2>
+                    <h2 class="mt-2 text-3xl font-black tracking-tight text-slate-950">Dashboard</h2>
                     <p class="mt-2 text-sm font-semibold text-slate-600">{{ $month_start->format('d M Y') }} to {{ $month_end->format('d M Y') }}. Every total opens its split.</p>
                 </div>
                 <a href="{{ route('admin.finance-v2.reports', ['date' => $dateParam]) }}" class="inline-flex h-11 items-center justify-center rounded-[1rem] bg-orange-500 px-5 text-xs font-black uppercase tracking-[0.16em] text-white shadow-sm transition hover:bg-orange-600">
@@ -28,11 +28,12 @@
                     <h3 class="mt-1 text-xl font-black text-slate-950">Green Leaf Account Details</h3>
                 </div>
             </div>
-            <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 @include('admin.finance-v2.partials.metric-card', ['label' => 'Purchase', 'value' => $green_leaf['purchase_total'], 'hint' => 'Paid Rs. '.number_format($green_leaf['purchase_paid'], 2).' | Pending Rs. '.number_format($green_leaf['purchase_pending'], 2), 'href' => $sectionHref('purchase')])
                 @include('admin.finance-v2.partials.metric-card', ['label' => 'Expense', 'value' => $green_leaf['expense_total'], 'hint' => 'All latest company expenses', 'href' => $sectionHref('expense')])
                 @include('admin.finance-v2.partials.metric-card', ['label' => 'Salary', 'value' => $green_leaf['salary_total'], 'hint' => 'Green Leaf and shop salary paid', 'href' => $sectionHref('salary')])
                 @include('admin.finance-v2.partials.metric-card', ['label' => 'Credit / Loan', 'value' => $green_leaf['loan_total'], 'hint' => 'Given to shops with details', 'href' => $sectionHref('credit-loan')])
+                @include('admin.finance-v2.partials.metric-card', ['label' => 'Company Balance', 'value' => $green_leaf['balance'], 'hint' => 'Received Rs. '.number_format($green_leaf['total_received'], 2).' | Outflow Rs. '.number_format($green_leaf['total_paid'], 2), 'href' => $sectionHref('balance')])
             </div>
         </section>
 

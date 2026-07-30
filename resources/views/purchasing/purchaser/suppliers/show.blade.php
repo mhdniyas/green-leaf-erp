@@ -15,6 +15,12 @@
                     <a href="{{ route('purchaser.finance', ['date' => $date]) }}" class="inline-flex h-10 items-center justify-center rounded-xl bg-slate-950 px-4 text-xs font-black text-white hover:bg-slate-800">Finance Desk</a>
                 </div>
             </div>
+            @if (filled($supplier->bank_details))
+                <div class="mt-3 rounded-xl border border-teal-200 bg-teal-50/70 p-3">
+                    <p class="text-[9px] font-black uppercase tracking-[0.14em] text-teal-800">Banking Details / Notes</p>
+                    <p class="mt-1 whitespace-pre-line text-xs font-bold text-teal-950">{{ $supplier->bank_details }}</p>
+                </div>
+            @endif
         </section>
 
         @php

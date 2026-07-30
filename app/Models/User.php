@@ -20,7 +20,7 @@ use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Permission\Traits\HasPermissions;
 use Spatie\Permission\Traits\HasRoles;
 
-#[Fillable(['public_uuid', 'name', 'email', 'password', 'shop_id', 'registration_status', 'approved_at', 'approved_by', 'own_purchase_purchaser_id'])]
+#[Fillable(['public_uuid', 'name', 'email', 'password', 'shop_id', 'registration_status', 'approved_at', 'approved_by', 'own_purchase_purchaser_id', 'assigned_category_ids'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements AuditableContract
 {
@@ -39,6 +39,7 @@ class User extends Authenticatable implements AuditableContract
             'last_seen_at' => 'datetime',
             'password' => 'hashed',
             'approved_at' => 'datetime',
+            'assigned_category_ids' => 'array',
         ];
     }
 
@@ -99,5 +100,23 @@ class User extends Authenticatable implements AuditableContract
     public function ownedShopAssignments(): HasMany
     {
         return $this->hasMany(ShopOwnerAssignment::class);
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    public function assignedCategoryIds(): array
+    {
+        $raw = $this->assigned_category_ids;
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map('intval', $raw)));
+    }
+
+    public function hasAssignedCategoryFilter(): bool
+    {
+        return count($this->assignedCategoryIds()) > 0;
     }
 }

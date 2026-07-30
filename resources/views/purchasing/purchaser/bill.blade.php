@@ -154,24 +154,6 @@
                                     </label>
                                 @endforeach
                             </div>
-                            @if ($supplier && ! $supplier->credit_approved)
-                                <div class="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2">
-                                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                        <p class="text-[10px] font-semibold text-amber-800">
-                                            @if ($supplier->credit_approval_requested_at)
-                                                Credit request pending since {{ $supplier->credit_approval_requested_at->format('d M Y h:i A') }}.
-                                            @else
-                                                Credit is blocked for this supplier until approval.
-                                            @endif
-                                        </p>
-                                        @if (! $supplier->credit_approval_requested_at)
-                                            <button type="submit" form="bill-credit-request-form" class="inline-flex h-7 shrink-0 items-center justify-center rounded-md border border-amber-300 bg-white px-2.5 text-[9px] font-black uppercase tracking-[0.08em] text-amber-800 hover:bg-amber-100">
-                                                Request Credit
-                                            </button>
-                                        @endif
-                                    </div>
-                                </div>
-                            @endif
                         </div>
 
                         <p id="credit-payment-note" class="mt-2 hidden text-[10px] font-semibold text-amber-700">Supplier credit keeps paid amount at zero until purchaser or company settles it.</p>

@@ -9,7 +9,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\StorePurchaseInvoiceRequest;
 use App\Models\GoodsReceived;
 use App\Models\PurchaseInvoice;
+use App\Models\PurchaserCredit;
 use App\Models\Supplier;
+use App\Models\User;
 use App\Services\Purchasing\PurchaseInvoiceService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -193,7 +195,31 @@ class PurchaseInvoiceController extends Controller
             'purchaserCart',
         ]);
 
-        return view('purchase-manager.invoices.show', compact('invoice'));
+        $purchasers = $this->purchasersWithBalance();
+
+        return view('purchase-manager.invoices.show', compact('invoice', 'purchasers'));
+    }
+
+    /**
+     * @return Collection<int, array{id: int, name: string, balance: float}>
+     */
+    private function purchasersWithBalance(): Collection
+    {
+        return User::query()
+            ->role('purchaser')
+            ->with('purchaserCredits')
+            ->orderBy('name')
+            ->get()
+            ->map(function (User $user): array {
+                $totalIn = (float) $user->purchaserCredits->where('type', 'in')->sum('amount');
+                $totalOut = (float) $user->purchaserCredits->where('type', 'out')->sum('amount');
+
+                return [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'balance' => round($totalIn - $totalOut, 2),
+                ];
+            });
     }
 
     public function pdf(PurchaseInvoice $invoice): View
@@ -231,6 +257,7 @@ class PurchaseInvoiceController extends Controller
         $validated = $request->validate([
             'payment_method' => ['required', 'string', 'in:Cash,Online,GPay,Credit'],
             'payment_paid_by' => ['nullable', 'string', 'in:purchaser,company,vendor_credit'],
+            'payment_purchaser_id' => ['nullable', 'integer', 'exists:users,id'],
             'paid_amount' => ['required', 'numeric', 'min:0'],
             'payment_note' => ['nullable', 'string', 'max:1000'],
             'payment_details' => ['nullable', 'string', 'max:1000'],
@@ -239,6 +266,7 @@ class PurchaseInvoiceController extends Controller
         $updatedInvoice = $this->service->updatePayment($invoice, [
             'payment_method' => $validated['payment_method'],
             'payment_paid_by' => $validated['payment_paid_by'] ?? null,
+            'payment_purchaser_id' => isset($validated['payment_purchaser_id']) ? (int) $validated['payment_purchaser_id'] : null,
             'paid_amount' => (float) $validated['paid_amount'],
             'payment_note' => $validated['payment_note'] ?? null,
             'payment_details' => $validated['payment_details'] ?? null,
@@ -282,7 +310,7 @@ class PurchaseInvoiceController extends Controller
                 'purchaserCart',
             ]);
 
-        $this->applyDailyDateFilter($query, $date);
+        $this->applyDailyDateFilter($query, $date, $activeTab);
         $this->applySearchFilter($query, $search);
         $this->applyReportTabFilter($query, $activeTab);
         $this->applyPaymentFilter($query, $paymentFilter);
@@ -313,8 +341,25 @@ class PurchaseInvoiceController extends Controller
         return $query;
     }
 
-    private function applyDailyDateFilter(Builder $query, Carbon $date): void
+    private function applyDailyDateFilter(Builder $query, Carbon $date, string $activeTab = 'credit'): void
     {
+        if ($activeTab === 'credit') {
+            $query->where(function (Builder $invoiceQuery) use ($date): void {
+                $invoiceQuery
+                    ->whereHas('purchaserCart', function (Builder $purchaserCartQuery) use ($date): void {
+                        $purchaserCartQuery->whereDate('business_date', '<=', $date);
+                    })
+                    ->orWhere(function (Builder $manualInvoiceQuery) use ($date): void {
+                        $manualInvoiceQuery
+                            ->whereNull('purchaser_cart_id')
+                            ->whereDate('created_at', '<=', $date);
+                    })
+                    ->orWhereRaw('(amount - discount_amount) > paid_amount');
+            });
+
+            return;
+        }
+
         $query->where(function (Builder $invoiceQuery) use ($date): void {
             $invoiceQuery
                 ->whereHas('purchaserCart', function (Builder $purchaserCartQuery) use ($date): void {
@@ -374,7 +419,9 @@ class PurchaseInvoiceController extends Controller
             $query->where(function (Builder $creditQuery): void {
                 $creditQuery
                     ->where('payment_method', 'Credit')
-                    ->orWhere('payment_status', 'credit_pending_approval');
+                    ->orWhere('payment_status', 'credit_pending_approval')
+                    ->orWhereHas('purchaserCart', fn (Builder $cq) => $cq->where('payment_method', 'Credit'))
+                    ->orWhereRaw('(amount - discount_amount) > paid_amount');
             });
 
             return;

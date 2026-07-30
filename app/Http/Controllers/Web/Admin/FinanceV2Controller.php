@@ -35,7 +35,7 @@ class FinanceV2Controller extends Controller
     public function greenLeaf(Request $request, string $section): View
     {
         $this->ensureAccess($request);
-        abort_unless(in_array($section, ['purchase', 'expense', 'salary', 'credit-loan'], true), 404);
+        abort_unless(in_array($section, ['purchase', 'expense', 'salary', 'credit-loan', 'balance'], true), 404);
 
         return view('admin.finance-v2.green-leaf-section', $this->financeV2->greenLeafSection($section, $this->date($request)));
     }
@@ -50,7 +50,7 @@ class FinanceV2Controller extends Controller
     public function aishwaryaVegSection(Request $request, string $section): View
     {
         $this->ensureAccess($request);
-        abort_unless(in_array($section, ['purchase', 'expense', 'salary', 'credit-loan'], true), 404);
+        abort_unless(in_array($section, ['purchase', 'expense', 'salary', 'credit-loan', 'balance'], true), 404);
 
         return view('admin.finance-v2.client-section', $this->financeV2->clientSection($section, $this->date($request)));
     }

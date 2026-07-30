@@ -57,6 +57,7 @@ class FinanceV2DashboardService
                 'expense' => $this->greenLeafExpenseRows($period['month_start'], $period['month_end']),
                 'salary' => $this->salaryRows($period['month_start'], $period['month_end']),
                 'credit-loan' => $this->greenLeafCreditLoanRows($period['month_start'], $period['month_end']),
+                'balance' => $this->greenLeafBalanceRows($period['month_start'], $period['month_end']),
                 default => collect(),
             },
         ];
@@ -533,6 +534,8 @@ class FinanceV2DashboardService
                     'paid' => $paid,
                     'pending' => $pending,
                     'status' => $pending > 0 ? 'Pending' : 'Paid',
+                    'view_url' => route('purchasing.invoices.show', $invoice),
+                    'supplier_url' => $invoice->supplier_id ? route('purchaser.suppliers.show', ['supplier' => $invoice->supplier_id, 'date' => $invoice->created_at?->format('Y-m-d') ?: now()->format('Y-m-d')]) : null,
                 ];
             });
     }
@@ -631,6 +634,46 @@ class FinanceV2DashboardService
     }
 
     /**
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function greenLeafBalanceRows(Carbon $startDate, Carbon $endDate): Collection
+    {
+        $receivedRows = ShopInvoicePaymentRequest::query()
+            ->where('status', 'approved')
+            ->with(['shop', 'reviewedBy'])
+            ->whereDate('reviewed_at', '>=', $startDate)
+            ->whereDate('reviewed_at', '<=', $endDate)
+            ->latest('reviewed_at')
+            ->get()
+            ->map(fn (ShopInvoicePaymentRequest $payment): array => [
+                'date' => $payment->reviewed_at?->toDateString() ?? $payment->created_at?->toDateString(),
+                'party' => $payment->shop?->name ?? 'Shop Collection',
+                'reference' => $payment->payment_reference ?: 'REC-'.$payment->id,
+                'description' => 'Collection received ('.$payment->paymentMethodLabel().')',
+                'amount' => round((float) $payment->approved_amount, 2),
+                'paid' => round((float) $payment->approved_amount, 2),
+                'pending' => 0.0,
+                'status' => 'Received',
+                'view_url' => route('admin.finance-v2.payments.show', $payment),
+                'supplier_url' => null,
+            ]);
+
+        $purchaseRows = $this->purchaseRows($startDate, $endDate);
+        $expenseRows = $this->greenLeafExpenseRows($startDate, $endDate);
+        $salaryRows = $this->salaryRows($startDate, $endDate);
+        $loanRows = $this->greenLeafCreditLoanRows($startDate, $endDate);
+
+        return $receivedRows
+            ->toBase()
+            ->merge($purchaseRows)
+            ->merge($expenseRows)
+            ->merge($salaryRows)
+            ->merge($loanRows)
+            ->sortByDesc('date')
+            ->values();
+    }
+
+    /**
      * @param  Collection<int, Shop>  $shops
      * @return Collection<int, array<string, mixed>>
      */
@@ -638,7 +681,7 @@ class FinanceV2DashboardService
     {
         return $shops
             ->flatMap(fn (Shop $shop): Collection => $this->shopLedgerRows($shop, $startDate, $endDate)
-                ->filter(fn (array $row): bool => $row['section'] === $section))
+                ->filter(fn (array $row): bool => $section === 'balance' || $row['section'] === $section))
             ->sortByDesc('date')
             ->values();
     }

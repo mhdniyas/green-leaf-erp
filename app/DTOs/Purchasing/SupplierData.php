@@ -18,8 +18,9 @@ final readonly class SupplierData
         public string $mobileNumber,
         public string $paymentTerms,
         public string $preferredPaymentMethod,
-        public bool $creditApproved,
-        public string $creditTerms,
+        public ?string $bankDetails = null,
+        public bool $creditApproved = true,
+        public string $creditTerms = '',
         public float $qualityScore = 100.00,
     ) {}
 
@@ -35,7 +36,8 @@ final readonly class SupplierData
             mobileNumber: $request->string('mobile_number')->toString(),
             paymentTerms: $request->string('payment_terms')->toString(),
             preferredPaymentMethod: $request->string('preferred_payment_method')->toString(),
-            creditApproved: $request->boolean('credit_approved'),
+            bankDetails: $request->input('bank_details') ?: $request->input('vendor_bank_details'),
+            creditApproved: $request->has('credit_approved') ? $request->boolean('credit_approved') : true,
             creditTerms: $request->string('credit_terms')->toString(),
             qualityScore: (float) $request->input('quality_score', 100.00),
         );
@@ -53,6 +55,7 @@ final readonly class SupplierData
             'mobile_number' => $this->mobileNumber,
             'payment_terms' => $this->paymentTerms,
             'preferred_payment_method' => $this->preferredPaymentMethod,
+            'bank_details' => $this->bankDetails ?: null,
             'credit_approved' => $this->creditApproved,
             'credit_terms' => $this->creditTerms ?: null,
             'quality_score' => $this->qualityScore,

@@ -35,6 +35,10 @@
                 <input id="preferred_payment_method" type="text" name="preferred_payment_method" value="{{ old('preferred_payment_method', $supplier?->preferred_payment_method) }}" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
             </div>
             <div class="md:col-span-2">
+                <label for="bank_details" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Banking Details / Notes (Optional)</label>
+                <textarea id="bank_details" name="bank_details" rows="2" placeholder="Bank Name, Account Number, IFSC, UPI ID, etc." class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">{{ old('bank_details', $supplier?->bank_details) }}</textarea>
+            </div>
+            <div class="md:col-span-2">
                 <label class="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
                     <input id="credit_approved" type="checkbox" name="credit_approved" value="1" @checked(old('credit_approved', $supplier?->credit_approved)) class="mt-1 h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500">
                     <span>

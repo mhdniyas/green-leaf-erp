@@ -25,6 +25,8 @@ class StoreSupplierRequest extends FormRequest
             'mobile_number' => ['nullable', 'string', 'max:50'],
             'payment_terms' => ['required', 'string', 'in:COD,Net 7,Net 15,Net 30'],
             'preferred_payment_method' => ['nullable', 'string', 'max:100'],
+            'bank_details' => ['nullable', 'string', 'max:1000'],
+            'vendor_bank_details' => ['nullable', 'string', 'max:1000'],
             'credit_approved' => ['nullable', 'boolean'],
             'credit_terms' => ['nullable', 'string', 'max:100'],
         ];

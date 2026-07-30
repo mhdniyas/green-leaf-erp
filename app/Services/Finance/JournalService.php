@@ -292,40 +292,55 @@ class JournalService
     }
 
     /**
-     * Record cash advanced from Green Leaf to a purchaser.
-     * Debit Purchaser Advances (1300), Credit Cash (1010).
+     * Purchaser credit (cash advance given to purchaser).
+     * Tracked in purchaser cash ledger (purchaser_credits table) without posting
+     * a premature main cash-out journal entry until daily purchase is paid.
      */
     public function recordPurchaserCredit(PurchaserCredit $credit): ?JournalEntry
     {
-        if ($credit->type !== 'in') {
-            return null;
-        }
+        // Cash advances handed to purchasers are tracked in the purchaser cash ledger
+        // and do not post a main journal cash-out entry until the purchaser makes a paid purchase.
+        return null;
+    }
 
-        $amount = round((float) $credit->amount, 2);
+    /**
+     * Record cash paid for purchaser daily purchase invoice.
+     * Debit Graded Inventory (1200), Credit Cash (1010).
+     */
+    public function recordPurchaserDailyPurchasePayment(PurchaseInvoice $invoice, float $amount, int $userId, ?string $sourceEvent = null, ?string $paymentMode = null): JournalEntry
+    {
+        $amount = round($amount, 2);
 
         if ($amount <= 0.00) {
-            throw new RuntimeException('Purchaser credit journal amount must be positive.');
+            throw new RuntimeException('Purchaser daily purchase payment journal amount must be positive.');
         }
 
-        $advanceAccountId = $this->getAccountIdByCode('1300');
-        $cashAccountId = $this->getAccountIdByCode('1010');
+        $invoice->loadMissing(['purchaserCart', 'supplier']);
+
+        $inventoryAccountId = $this->getAccountIdByCode('1200');
+        $cashAccountId = $this->cashAccountIdForPaymentMode($paymentMode ?? $invoice->payment_method);
+        $paidAmountCents = (int) round((float) $invoice->paid_amount * 100);
+        $event = $sourceEvent ?? "purchaser_daily_purchase_payment:paid-{$paidAmountCents}";
+        $businessDate = $invoice->purchaserCart?->business_date?->format('Y-m-d')
+            ?? $invoice->created_at?->format('Y-m-d')
+            ?? now()->format('Y-m-d');
 
         $lines = [
-            ['account_id' => $advanceAccountId, 'type' => 'debit', 'amount' => $amount],
+            ['account_id' => $inventoryAccountId, 'type' => 'debit', 'amount' => $amount],
             ['account_id' => $cashAccountId, 'type' => 'credit', 'amount' => $amount],
         ];
 
         $data = new JournalEntryData(
-            entryDate: $credit->business_date->format('Y-m-d'),
-            reference: "PURCH-CREDIT-{$credit->id}",
-            description: $credit->description ?: 'Cash advance given to purchaser.',
+            entryDate: $businessDate,
+            reference: "PURCH-DAILY-PAY-{$invoice->id}-{$paidAmountCents}",
+            description: 'Purchaser daily purchase payment for invoice #'.($invoice->invoice_number ?: $invoice->id),
             lines: $lines,
-            sourceType: PurchaserCredit::class,
-            sourceId: $credit->id,
-            sourceEvent: 'cash_advance'
+            sourceType: PurchaseInvoice::class,
+            sourceId: $invoice->id,
+            sourceEvent: $event
         );
 
-        return $this->createEntry($data, (int) ($credit->created_by ?? $credit->purchaser_id));
+        return $this->createEntry($data, $userId);
     }
 
     /**
