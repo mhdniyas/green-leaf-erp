@@ -64,7 +64,7 @@ Route::post('/seedtest', [SeedTestController::class, 'seed'])->name('seedtest.ru
 Route::middleware('guest')->group(function () {
     Route::get('/login', [LoginController::class, 'show'])->name('login');
     Route::get('/login/demo', [LoginController::class, 'demoIndex'])->name('login.demo.index');
-    Route::get('/demo_purchaser/{name?}', [LoginController::class, 'demoPurchaser'])->middleware('throttle:login')->name('login.demo.purchaser');
+    Route::get('/demo_purchaser', [LoginController::class, 'demoPurchaser'])->name('login.demo.purchaser');
     Route::get('/shop-owner/register', [ShopOwnerRegistrationController::class, 'create'])->name('shop-owner.register');
     Route::post('/shop-owner/register', [ShopOwnerRegistrationController::class, 'store'])->middleware('throttle:public-form')->name('shop-owner.register.store');
     Route::post('/login', [LoginController::class, 'store'])->middleware('throttle:login')->name('login.submit');
