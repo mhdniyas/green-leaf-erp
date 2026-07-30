@@ -10,6 +10,7 @@ use App\Http\Controllers\Web\Admin\DailyProgressController;
 use App\Http\Controllers\Web\Admin\DeliveryReviewController;
 use App\Http\Controllers\Web\Admin\DiscrepancyReportController;
 use App\Http\Controllers\Web\Admin\EnquiryController;
+use App\Http\Controllers\Web\Admin\FinanceV2Controller;
 use App\Http\Controllers\Web\Admin\StaffManagementController;
 use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\Admin\WarehouseController;
@@ -335,6 +336,21 @@ Route::middleware('auth')->group(function () {
         Route::get('/', AdminOverviewController::class)->name('overview');
         Route::get('company-settings', [CompanySettingsController::class, 'edit'])->name('company-settings.edit');
         Route::patch('company-settings', [CompanySettingsController::class, 'update'])->name('company-settings.update');
+        Route::prefix('finance-v2')->name('finance-v2.')->middleware('can:accounting.dashboard.view')->group(function () {
+            Route::get('/', [FinanceV2Controller::class, 'dashboard'])->name('dashboard');
+            Route::get('green-leaf/{section}', [FinanceV2Controller::class, 'greenLeaf'])->name('green-leaf.section');
+            Route::get('aishwarya-veg', [FinanceV2Controller::class, 'aishwaryaVeg'])->name('aishwarya-veg');
+            Route::get('aishwarya-veg/{section}', [FinanceV2Controller::class, 'aishwaryaVegSection'])->name('aishwarya-veg.section');
+            Route::get('reports', [FinanceV2Controller::class, 'reports'])->name('reports');
+            Route::get('payments', [FinanceV2Controller::class, 'payments'])->name('payments.index');
+            Route::get('payments/create', [FinanceV2Controller::class, 'createPayment'])->name('payments.create');
+            Route::post('payments', [FinanceV2Controller::class, 'storePayment'])->name('payments.store');
+            Route::get('payments/{paymentRequest}', [FinanceV2Controller::class, 'showPayment'])->name('payments.show');
+            Route::patch('payments/{paymentRequest}/approve', [FinanceV2Controller::class, 'approvePayment'])->name('payments.approve');
+            Route::patch('payments/{paymentRequest}/reject', [FinanceV2Controller::class, 'rejectPayment'])->name('payments.reject');
+            Route::patch('payments/{paymentRequest}/cheque', [FinanceV2Controller::class, 'updateCheque'])->name('payments.cheque');
+            Route::get('shops/{shop:code}', [FinanceV2Controller::class, 'shop'])->name('shops.show');
+        });
         Route::prefix('accounting')->name('accounting.')->middleware('can:accounting.dashboard.view')->group(function () {
             Route::get('/', [AdminAccountingController::class, 'index'])->name('index');
             Route::get('daily-sales', [AdminAccountingController::class, 'dailySalesReport'])->name('daily-sales');

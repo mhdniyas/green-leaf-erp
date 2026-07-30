@@ -37,6 +37,11 @@
             'href' => route('admin.accounting.index', ['date' => $navDate]),
             'active' => request()->routeIs('admin.accounting.*'),
         ];
+        $dashboardLinks[] = [
+            'label' => 'Finance V2',
+            'href' => route('admin.finance-v2.dashboard', ['date' => $navDate]),
+            'active' => request()->routeIs('admin.finance-v2.*'),
+        ];
     }
 
     if ($canAccessPurchasingDashboard) {

@@ -23,6 +23,10 @@ class ShopInvoicePaymentRequest extends Model
         'payment_method',
         'payment_reference',
         'payment_date',
+        'admin_verified_amount',
+        'cheque_status',
+        'cheque_bank_name',
+        'cheque_date',
         'requested_amount',
         'approved_amount',
         'applied_amount',
@@ -38,10 +42,12 @@ class ShopInvoicePaymentRequest extends Model
     {
         return [
             'requested_amount' => 'decimal:2',
+            'admin_verified_amount' => 'decimal:2',
             'approved_amount' => 'decimal:2',
             'applied_amount' => 'decimal:2',
             'credit_amount' => 'decimal:2',
             'payment_date' => 'date',
+            'cheque_date' => 'date',
             'reviewed_at' => 'datetime',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
@@ -107,6 +113,17 @@ class ShopInvoicePaymentRequest extends Model
             'online_upi' => 'Online UPI',
             'cheque' => 'Cheque',
             default => 'Not set',
+        };
+    }
+
+    public function chequeStatusLabel(): string
+    {
+        return match ($this->cheque_status) {
+            'pending' => 'Pending',
+            'deposited' => 'Deposited',
+            'cleared' => 'Cleared',
+            'bounced' => 'Bounced',
+            default => $this->payment_method === 'cheque' ? 'Pending' : 'Not cheque',
         };
     }
 

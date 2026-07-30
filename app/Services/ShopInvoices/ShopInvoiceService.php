@@ -439,7 +439,12 @@ class ShopInvoiceService
 
     public function reviewPaymentRequest(ShopInvoicePaymentRequest $paymentRequest, string $decision, int $userId, ?string $adminNote = null): ShopInvoicePaymentRequest
     {
-        return DB::transaction(function () use ($paymentRequest, $decision, $userId, $adminNote): ShopInvoicePaymentRequest {
+        return $this->reviewPaymentRequestWithAmount($paymentRequest, $decision, $userId, $adminNote);
+    }
+
+    public function reviewPaymentRequestWithAmount(ShopInvoicePaymentRequest $paymentRequest, string $decision, int $userId, ?string $adminNote = null, float|int|string|null $approvedAmountOverride = null): ShopInvoicePaymentRequest
+    {
+        return DB::transaction(function () use ($paymentRequest, $decision, $userId, $adminNote, $approvedAmountOverride): ShopInvoicePaymentRequest {
             $paymentRequest->loadMissing('invoice', 'allocations');
 
             if ($paymentRequest->status !== 'pending') {
@@ -450,12 +455,26 @@ class ShopInvoiceService
 
             if ($decision === 'approve') {
                 $invoice = $paymentRequest->invoice;
+                $approvedAmount = $approvedAmountOverride === null
+                    ? round((float) $paymentRequest->requested_amount, 2)
+                    : round((float) $approvedAmountOverride, 2);
+
+                if ($approvedAmount <= 0.0) {
+                    throw ValidationException::withMessages([
+                        'admin_verified_amount' => 'Verified amount must be greater than zero.',
+                    ]);
+                }
+
+                if ($paymentRequest->payment_method === 'cheque' && $paymentRequest->cheque_status !== 'cleared') {
+                    throw ValidationException::withMessages([
+                        'cheque_status' => 'Cheque payments can only be approved after the cheque is cleared.',
+                    ]);
+                }
 
                 if ($paymentRequest->request_type === 'shop_balance') {
-                    $approvedAmount = round((float) $paymentRequest->requested_amount, 2);
-
                     $paymentRequest->update([
                         'status' => 'approved',
+                        'admin_verified_amount' => $approvedAmount,
                         'approved_amount' => $approvedAmount,
                         'applied_amount' => 0,
                         'credit_amount' => $approvedAmount,
@@ -477,7 +496,6 @@ class ShopInvoiceService
                     ]);
                 }
 
-                $approvedAmount = round((float) $paymentRequest->requested_amount, 2);
                 $appliedAmount = $this->allocateShopPaymentToPendingInvoices($paymentRequest, $approvedAmount, $userId, $adminNote);
                 $creditAmount = round(max(0, $approvedAmount - $appliedAmount), 2);
 
@@ -493,6 +511,7 @@ class ShopInvoiceService
 
                 $paymentRequest->update([
                     'status' => 'approved',
+                    'admin_verified_amount' => $approvedAmount,
                     'approved_amount' => $approvedAmount,
                     'applied_amount' => $appliedAmount,
                     'credit_amount' => $creditAmount,
@@ -503,6 +522,7 @@ class ShopInvoiceService
             } else {
                 $paymentRequest->update([
                     'status' => 'rejected',
+                    'admin_verified_amount' => null,
                     'approved_amount' => null,
                     'applied_amount' => 0,
                     'credit_amount' => 0,
