@@ -77,8 +77,12 @@ Route::middleware('auth')->group(function () {
     // Dashboard
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
 
+    Route::get('/shop/dashboard', [ShopOwnerController::class, 'dashboard'])
+        ->middleware('can:sales.order.create')
+        ->name('shop.dashboard');
+
     Route::prefix('shop-owner')->name('shop-owner.')->middleware('can:sales.order.create')->group(function () {
-        Route::get('/dashboard', [ShopOwnerController::class, 'dashboard'])->name('dashboard');
+        Route::get('/dashboard', fn () => redirect()->route('shop.dashboard'))->name('dashboard');
         Route::get('/orders', [ShopOwnerController::class, 'ordersIndex'])->name('orders.index');
         Route::get('/orders/create', [ShopOwnerController::class, 'ordersCreate'])->name('orders.create');
         Route::get('/orders/history', [ShopOwnerController::class, 'ordersHistory'])->name('orders.history');

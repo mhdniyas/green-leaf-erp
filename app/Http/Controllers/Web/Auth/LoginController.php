@@ -53,21 +53,29 @@ class LoginController extends Controller
      */
     public function store(LoginRequest $request): RedirectResponse
     {
-        $credentials = $request->validated();
+        $credentials = $request->safe()->only(['email', 'password']);
 
         $remember = $request->boolean('remember');
 
         if (Auth::attempt($credentials, $remember)) {
             $user = Auth::user();
 
-            if ($user !== null && $user->isPendingRegistration()) {
+            if ($user !== null && ! $user->hasApprovedRegistration()) {
                 Auth::logout();
                 $request->session()->invalidate();
                 $request->session()->regenerateToken();
 
+                $message = $user->isPendingRegistration()
+                    ? 'Your registration is pending admin approval.'
+                    : 'Your account is not active. Contact an administrator.';
+
                 return back()
                     ->withInput($request->only('email'))
-                    ->withErrors(['email' => 'Your registration is pending admin approval.']);
+                    ->withErrors(['email' => $message]);
+            }
+
+            if ($user !== null) {
+                $this->ensureShopOwnerHasStoredShop($user);
             }
 
             $request->session()->regenerate();
@@ -84,11 +92,16 @@ class LoginController extends Controller
     {
         abort_if(app()->isProduction(), 404);
 
-        if ($user->isPendingRegistration()) {
-            return back()->withErrors(['email' => 'This demo user is pending admin approval.']);
+        if (! $user->hasApprovedRegistration()) {
+            $message = $user->isPendingRegistration()
+                ? 'This demo user is pending admin approval.'
+                : 'This demo user is not active.';
+
+            return back()->withErrors(['email' => $message]);
         }
 
         Auth::login($user);
+        $this->ensureShopOwnerHasStoredShop($user);
         $request->session()->regenerate();
 
         return redirect()->intended(route('dashboard'));
@@ -171,5 +184,22 @@ class LoginController extends Controller
         }
 
         return 'other';
+    }
+
+    private function ensureShopOwnerHasStoredShop(User $user): void
+    {
+        if (! $user->hasRole('shop') || $user->shop_id !== null) {
+            return;
+        }
+
+        $shopId = $user->ownedShopAssignments()
+            ->orderBy('shop_id')
+            ->value('shop_id');
+
+        if ($shopId === null) {
+            return;
+        }
+
+        $user->forceFill(['shop_id' => $shopId])->save();
     }
 }

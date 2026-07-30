@@ -71,6 +71,11 @@ class User extends Authenticatable implements AuditableContract
         return $this->registration_status === 'pending';
     }
 
+    public function hasApprovedRegistration(): bool
+    {
+        return $this->registration_status === 'approved';
+    }
+
     public function purchaserCredits(): HasMany
     {
         return $this->hasMany(PurchaserCredit::class, 'purchaser_id');

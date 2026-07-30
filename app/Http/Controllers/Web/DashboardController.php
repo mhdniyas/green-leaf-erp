@@ -37,7 +37,7 @@ class DashboardController extends Controller
         $user = $request->user();
 
         if ($user->hasRole('shop')) {
-            return redirect()->route('shop-owner.dashboard');
+            return redirect()->route('shop.dashboard');
         }
 
         if ($user->hasRole('admin')) {
