@@ -300,7 +300,7 @@ class PurchaserDashboardController extends Controller
         // Get all active products that are NOT in the dailySummary
         $summaryProductIds = $dailySummary->pluck('product_id')->all();
         $addOnProducts = Product::query()
-            ->with('category')
+            ->with(['category', 'orderUnits'])
             ->active()
             ->ordered()
             ->whereNotIn('id', $summaryProductIds)
@@ -337,7 +337,7 @@ class PurchaserDashboardController extends Controller
 
         $dailySummaryMap = $this->buildDailySummary($date, $frequentProductIds)->keyBy('product_id');
         $products = Product::query()
-            ->with('category')
+            ->with(['category', 'orderUnits'])
             ->whereIn('id', array_map('intval', $productIds))
             ->get();
 
@@ -352,6 +352,7 @@ class PurchaserDashboardController extends Controller
                     'category_name' => $product->category?->name,
                     'sku' => $product->sku,
                     'unit' => $product->unit,
+                    'orderable_units' => $this->orderableUnitOptions($product),
                     'total_approved_qty' => 0.0,
                     'bought_qty' => 0.0,
                     'draft_qty' => 0.0,
@@ -2134,7 +2135,7 @@ class PurchaserDashboardController extends Controller
             ->whereHas('order', function ($query) use ($date): void {
                 $query->whereDate('business_date', $date)->where('state', 'approved');
             })
-            ->with(['product.category', 'order.shop', 'order'])
+            ->with(['product.category', 'product.orderUnits', 'order.shop', 'order'])
             ->get();
 
         $draftCartItems = PurchaserCartItem::query()
@@ -2226,6 +2227,7 @@ class PurchaserDashboardController extends Controller
                     'product_name' => $product->name,
                     'sku' => $product->sku,
                     'unit' => $product->unit,
+                    'orderable_units' => $this->orderableUnitOptions($product),
                     'category_name' => $categoryName,
                     'is_frequent' => in_array((int) $productId, $frequentProductIds, true),
                     'total_approved_qty' => $totalApprovedQty,
@@ -2256,6 +2258,38 @@ class PurchaserDashboardController extends Controller
             ->filter()
             ->sortBy(fn (array $item): string => Product::sortableSku((string) $item['sku']).'_'.$item['order_date']->format('Y-m-d'))
             ->values();
+    }
+
+    /**
+     * @return array<int, array{unit:string,label:string,conversion_to_base:float,is_base:bool}>
+     */
+    private function orderableUnitOptions(Product $product): array
+    {
+        $units = $product->relationLoaded('orderUnits')
+            ? $product->orderUnits
+            : $product->orderUnits()->orderBy('sort_order')->orderBy('id')->get();
+
+        $orderableUnits = $units
+            ->filter(fn ($unit): bool => (bool) $unit->is_orderable)
+            ->values();
+
+        if ($orderableUnits->isEmpty()) {
+            return [[
+                'unit' => $product->unit,
+                'label' => strtoupper((string) $product->unit),
+                'conversion_to_base' => 1.0,
+                'is_base' => true,
+            ]];
+        }
+
+        return $orderableUnits
+            ->map(fn ($unit): array => [
+                'unit' => (string) $unit->unit,
+                'label' => (string) ($unit->label ?: strtoupper((string) $unit->unit)),
+                'conversion_to_base' => (float) $unit->conversion_to_base,
+                'is_base' => (bool) $unit->is_base,
+            ])
+            ->all();
     }
 
     private function filterProductsForChip(Collection $items, string $selectedChip, string $search, array $frequentProductIds): Collection

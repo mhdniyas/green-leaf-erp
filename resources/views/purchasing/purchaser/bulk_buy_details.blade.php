@@ -66,6 +66,21 @@
                         $remainingPlaceholder = $remainingPlaceholder > 0
                             ? rtrim(rtrim(number_format($remainingPlaceholder, 2, '.', ''), '0'), '.')
                             : '0';
+                        $orderableUnits = collect($summary['orderable_units'] ?? []);
+                        if ($orderableUnits->isEmpty()) {
+                            $orderableUnits = collect([[
+                                'unit' => $summary['unit'],
+                                'label' => strtoupper((string) $summary['unit']),
+                                'conversion_to_base' => 1,
+                                'is_base' => true,
+                            ]]);
+                        }
+                        $baseUnitOption = $orderableUnits->first(fn ($unit) => (bool) ($unit['is_base'] ?? false));
+                        $boxUnits = $orderableUnits
+                            ->filter(fn ($unit) => ($unit['unit'] ?? '') === 'box' && (float) ($unit['conversion_to_base'] ?? 0) > 0)
+                            ->values();
+                        $defaultBoxUnit = $boxUnits->first();
+                        $defaultBasis = $baseUnitOption ? 'kg' : ($defaultBoxUnit ? 'box' : 'kg');
                     @endphp
                     <input type="hidden" name="product_ids[]" value="{{ $summary['product_id'] }}">
 
@@ -73,7 +88,7 @@
                         {{-- Hidden inputs for form submission --}}
                         <input type="hidden" name="items[{{ $summary['product_id'] }}][quantity]" id="submit-qty-{{ $summary['product_id'] }}" value="{{ $rowQuantity }}">
                         <input type="hidden" name="items[{{ $summary['product_id'] }}][unit_price]" id="submit-price-{{ $summary['product_id'] }}" value="{{ $rowPrice }}">
-                        <input type="hidden" id="basis-{{ $summary['product_id'] }}" value="kg">
+                        <input type="hidden" id="basis-{{ $summary['product_id'] }}" value="{{ $defaultBasis }}">
                         <input type="hidden" id="unit-{{ $summary['product_id'] }}" value="{{ $summary['unit'] }}">
 
                         <div class="grid grid-cols-[2rem_minmax(0,1fr)_3.75rem_4rem_4.25rem_1.65rem] items-center gap-1.5 sm:grid-cols-[2rem_minmax(0,1fr)_4.25rem_4.75rem_5rem_2rem] lg:grid-cols-[2.75rem_minmax(0,1fr)_16rem_5.25rem_18rem_8rem] lg:gap-2">
@@ -105,23 +120,27 @@
                                 </div>
                             </div>
 
-                            @if ($summary['unit'] === 'kg')
+                            @if ($summary['unit'] === 'kg' && ($baseUnitOption || $defaultBoxUnit))
                                 <div class="flex h-8 items-center gap-1 rounded-lg bg-slate-100 p-0.5">
-                                    <button type="button" id="basis-kg-btn-{{ $summary['product_id'] }}" onclick="setRowBasis({{ $summary['product_id'] }}, 'kg')" class="flex-1 rounded-md px-2 py-1 text-[9px] font-black uppercase text-slate-950 shadow-xs transition-all bg-white">
-                                        KG
-                                    </button>
-                                    <button type="button" id="basis-box-btn-{{ $summary['product_id'] }}" onclick="setRowBasis({{ $summary['product_id'] }}, 'box')" class="flex-1 rounded-md px-2 py-1 text-[9px] font-black uppercase text-slate-600 transition-all hover:bg-slate-50">
-                                        BOX
-                                    </button>
+                                    @if ($baseUnitOption)
+                                        <button type="button" id="basis-kg-btn-{{ $summary['product_id'] }}" onclick="setRowBasis({{ $summary['product_id'] }}, 'kg')" class="flex-1 rounded-md px-2 py-1 text-[9px] font-black uppercase transition-all {{ $defaultBasis === 'kg' ? 'bg-white text-slate-950 shadow-xs' : 'text-slate-600 hover:bg-slate-50' }}">
+                                            {{ $baseUnitOption['label'] }}
+                                        </button>
+                                    @endif
+                                    @if ($defaultBoxUnit)
+                                        <button type="button" id="basis-box-btn-{{ $summary['product_id'] }}" onclick="setRowBasis({{ $summary['product_id'] }}, 'box')" class="flex-1 rounded-md px-2 py-1 text-[9px] font-black uppercase transition-all {{ $defaultBasis === 'box' ? 'bg-white text-slate-950 shadow-xs' : 'text-slate-600 hover:bg-slate-50' }}">
+                                            {{ $defaultBoxUnit['label'] }}
+                                        </button>
+                                    @endif
                                 </div>
                             @else
                                 <div class="flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-2 text-[10px] font-black uppercase text-slate-800">
-                                    {{ strtoupper($summary['unit']) }}
+                                    {{ $baseUnitOption['label'] ?? strtoupper($summary['unit']) }}
                                 </div>
                             @endif
 
                             <div class="contents lg:block lg:min-w-0">
-                                <div id="kg-inputs-{{ $summary['product_id'] }}" class="contents lg:grid lg:grid-cols-2 lg:gap-1.5">
+                                <div id="kg-inputs-{{ $summary['product_id'] }}" class="{{ $defaultBasis === 'kg' ? 'contents' : 'hidden' }} lg:grid lg:grid-cols-2 lg:gap-1.5">
                                     <div>
                                         <label class="sr-only" for="qty-kg-{{ $summary['product_id'] }}">Quantity for {{ $summary['product_name'] }}</label>
                                         <input type="number"
@@ -146,8 +165,8 @@
                                     </div>
                                 </div>
 
-                                @if ($summary['unit'] === 'kg')
-                                    <div id="box-inputs-{{ $summary['product_id'] }}" class="hidden contents lg:grid lg:grid-cols-3 lg:gap-1.5">
+                                @if ($summary['unit'] === 'kg' && $defaultBoxUnit)
+                                    <div id="box-inputs-{{ $summary['product_id'] }}" class="{{ $defaultBasis === 'box' ? 'contents' : 'hidden' }} lg:grid lg:grid-cols-3 lg:gap-1.5">
                                         <div>
                                             <label class="sr-only" for="qty-box-{{ $summary['product_id'] }}">Boxes for {{ $summary['product_name'] }}</label>
                                             <input type="number"
@@ -159,6 +178,17 @@
                                                    placeholder="Boxes"
                                                    class="qty-input-box h-8 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-right text-sm font-black text-slate-950 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 sm:px-2">
                                         </div>
+                                        @if ($boxUnits->count() > 1)
+                                            <div>
+                                                <label class="sr-only" for="measure-box-{{ $summary['product_id'] }}">Box measure for {{ $summary['product_name'] }}</label>
+                                                <select id="measure-box-{{ $summary['product_id'] }}"
+                                                        class="measure-input-box h-8 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-right text-[11px] font-black text-slate-950 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 sm:px-2">
+                                                    @foreach ($boxUnits as $boxUnit)
+                                                        <option value="{{ (float) $boxUnit['conversion_to_base'] }}" @selected($loop->first)>{{ $boxUnit['label'] }}</option>
+                                                    @endforeach
+                                                </select>
+                                            </div>
+                                        @endif
                                         <div>
                                             <label class="sr-only" for="conv-box-{{ $summary['product_id'] }}">Kg per box for {{ $summary['product_name'] }}</label>
                                             <input type="number"
@@ -166,9 +196,10 @@
                                                    step="0.1"
                                                    min="0.1"
                                                    id="conv-box-{{ $summary['product_id'] }}"
-                                                   value="15"
+                                                   value="{{ (float) $defaultBoxUnit['conversion_to_base'] }}"
                                                    placeholder="kg/Box"
-                                                   class="conv-input-box h-8 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-right text-sm font-black text-slate-950 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 sm:px-2">
+                                                   readonly
+                                                   class="conv-input-box h-8 w-full rounded-lg border border-slate-200 bg-slate-50 px-1.5 text-right text-sm font-black text-slate-700 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 sm:px-2">
                                         </div>
                                         <div>
                                             <label class="sr-only" for="price-box-{{ $summary['product_id'] }}">Price per box for {{ $summary['product_name'] }}</label>
@@ -442,7 +473,10 @@
                 const currentIndex = rows.findIndex(row => row.getAttribute('data-product-id') === String(productId));
                 const nextRow = rows[currentIndex + 1] || rows[0];
                 const nextProductId = nextRow?.getAttribute('data-product-id');
-                const nextInput = nextProductId ? document.getElementById(`qty-kg-${nextProductId}`) : null;
+                const nextBasis = nextProductId ? (document.getElementById(`basis-${nextProductId}`)?.value || 'kg') : 'kg';
+                const nextInput = nextProductId
+                    ? document.getElementById(`qty-${nextBasis}-${nextProductId}`) || document.getElementById(`qty-kg-${nextProductId}`) || document.getElementById(`qty-box-${nextProductId}`)
+                    : null;
 
                 nextInput?.focus();
                 nextInput?.select();
@@ -480,9 +514,16 @@
                 }
 
                 const qtyBox = document.getElementById(`qty-box-${productId}`);
+                const measureBox = document.getElementById(`measure-box-${productId}`);
                 const convBox = document.getElementById(`conv-box-${productId}`);
                 const priceBox = document.getElementById(`price-box-${productId}`);
                 if (qtyBox) qtyBox.addEventListener('input', calculateGrandTotal);
+                if (measureBox && convBox) {
+                    measureBox.addEventListener('change', () => {
+                        convBox.value = measureBox.value;
+                        calculateGrandTotal();
+                    });
+                }
                 if (convBox) convBox.addEventListener('input', calculateGrandTotal);
                 if (priceBox) priceBox.addEventListener('input', calculateGrandTotal);
                 if (qtyBox) {

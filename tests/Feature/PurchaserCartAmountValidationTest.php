@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\ProductUnit;
 use App\Models\PurchaserCartItem;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
@@ -88,6 +89,45 @@ class PurchaserCartAmountValidationTest extends TestCase
         $this->assertDatabaseMissing('purchaser_cart_items', [
             'product_id' => $draftOnlyProduct->id,
         ]);
+    }
+
+    public function test_bulk_buy_details_shows_only_orderable_product_measures(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $purchaser = $this->purchaserUser();
+        $product = $this->activeProduct();
+
+        ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'kg',
+            'label' => 'KG',
+            'conversion_to_base' => 1,
+            'is_base' => true,
+            'is_orderable' => false,
+            'sort_order' => 1,
+        ]);
+        ProductUnit::query()->create([
+            'product_id' => $product->id,
+            'unit' => 'box',
+            'label' => 'BOX 14 KG',
+            'conversion_to_base' => 14,
+            'is_base' => false,
+            'is_orderable' => true,
+            'sort_order' => 2,
+        ]);
+
+        $this
+            ->actingAs($purchaser)
+            ->get(route('purchaser.bulk-buy.details', [
+                'date' => today()->toDateString(),
+                'product_ids' => [$product->id],
+            ]))
+            ->assertOk()
+            ->assertSeeText('BOX 14 KG')
+            ->assertSee('id="basis-box-btn-'.$product->id.'"', false)
+            ->assertSee('value="14"', false)
+            ->assertDontSee('id="basis-kg-btn-'.$product->id.'"', false);
     }
 
     public function test_bulk_buy_rejects_submit_without_selected_quantities(): void
