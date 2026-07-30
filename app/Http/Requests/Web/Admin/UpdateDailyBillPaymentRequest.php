@@ -22,6 +22,10 @@ class UpdateDailyBillPaymentRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'payment_application' => ['nullable', 'string', 'in:invoice_pending,client_balance'],
+            'payment_method' => ['nullable', 'string', 'in:cash,online_upi,cheque'],
+            'payment_reference' => ['nullable', 'string', 'max:120'],
+            'payment_date' => ['nullable', 'date'],
             'discount_total' => ['nullable', 'numeric', 'min:0'],
             'paid_amount' => ['required', 'numeric', 'min:0'],
             'payment_note' => ['nullable', 'string', 'max:1000'],
@@ -41,6 +45,16 @@ class UpdateDailyBillPaymentRequest extends FormRequest
                 $submittedDiscountTotal = round((float) $this->input('discount_total', $invoice->discount_total), 2);
                 $discountTotal = round((float) $invoice->discount_total, 2);
                 $paidAmount = round((float) $this->input('paid_amount'), 2);
+                $paymentApplication = (string) $this->input('payment_application', 'invoice_pending');
+
+                if ($paymentApplication === 'client_balance') {
+                    if ($paidAmount <= 0.0) {
+                        $validator->errors()->add('paid_amount', 'Received amount must be greater than zero.');
+                    }
+
+                    return;
+                }
+
                 $currentPaidAmount = round((float) $invoice->paid_amount, 2);
                 $payableAmount = round(max(
                     0,

@@ -202,11 +202,11 @@ class DeliveryVerificationPricingGateTest extends TestCase
         $response
             ->assertOk()
             ->assertDontSeeText('Delivery verification is disabled until the approved daily invoice is generated.')
-            ->assertSeeText('Approved Invoice Pricing')
+            ->assertSeeText('Delivery Verification')
             ->assertSeeText('Rs. 120.00')
             ->assertSeeText('Rs. 600.00')
-            ->assertSeeText('Submit Each Product')
-            ->assertSeeText('Submit');
+            ->assertSeeText('Confirm Delivery')
+            ->assertSeeText('Submit Delivery Verification');
 
         $invoice = ShopInvoice::query()
             ->where('shop_order_id', $fixture['order']->id)

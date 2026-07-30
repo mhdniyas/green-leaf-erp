@@ -1,0 +1,6835 @@
+{
+  "source": {
+    "file": "/Users/niyas/Downloads/28.pdf",
+    "title": "Order Form 28-07.xlsx",
+    "extracted_with": "pdftotext -layout plus scripted total checks"
+  },
+  "business_date": "2026-07-28",
+  "shops": [
+    {
+      "shop_code": "AV_CASIO",
+      "shop_name": "Casio",
+      "items": [
+        {
+          "product_sku": "1",
+          "product_name": "Tomato H",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "2",
+          "product_name": "Tomato N",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "12",
+          "product_name": "Carrot",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "13",
+          "product_name": "French Beans",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "15",
+          "product_name": "ladies Finger",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "17",
+          "product_name": "Broad beans S / Belt",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "22",
+          "product_name": "Cluster Beans / Gorikkai",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "23",
+          "product_name": "Green Chilli Normal",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "24",
+          "product_name": "Chilli Spicy / Akash G4",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "27",
+          "product_name": "Brinjal White Long",
+          "unit": "kg",
+          "quantity": 1.3
+        },
+        {
+          "product_sku": "28",
+          "product_name": "Brinjal Big (Bertha)",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "29",
+          "product_name": "Brinjal Small",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "30",
+          "product_name": "Brinjal White Kolkata",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "32",
+          "product_name": "Brinjal Blue Long",
+          "unit": "kg",
+          "quantity": 1.3
+        },
+        {
+          "product_sku": "33",
+          "product_name": "Capsicum",
+          "unit": "kg",
+          "quantity": 4.3
+        },
+        {
+          "product_sku": "34",
+          "product_name": "Beetroot Ootty",
+          "unit": "kg",
+          "quantity": 4.0
+        },
+        {
+          "product_sku": "37",
+          "product_name": "Radish",
+          "unit": "kg",
+          "quantity": 2.6
+        },
+        {
+          "product_sku": "39",
+          "product_name": "Bitter Gourd Big",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "40",
+          "product_name": "Bitter Gourd Small",
+          "unit": "kg",
+          "quantity": 1.8
+        },
+        {
+          "product_sku": "42",
+          "product_name": "Bottle Gourd (Loki)",
+          "unit": "kg",
+          "quantity": 6.2
+        },
+        {
+          "product_sku": "43",
+          "product_name": "Ridge Gourd",
+          "unit": "kg",
+          "quantity": 4.0
+        },
+        {
+          "product_sku": "44",
+          "product_name": "Drum Stick",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "48",
+          "product_name": "Banana Flower",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "49",
+          "product_name": "Banana Stem",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "50",
+          "product_name": "Raw Banana",
+          "unit": "kg",
+          "quantity": 11.0
+        },
+        {
+          "product_sku": "53",
+          "product_name": "Cucumber",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "54",
+          "product_name": "English Cucumber",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "57",
+          "product_name": "Raw Mango Gund",
+          "unit": "kg",
+          "quantity": 2.7
+        },
+        {
+          "product_sku": "58",
+          "product_name": "Raw Mango totapuri",
+          "unit": "kg",
+          "quantity": 1.7
+        },
+        {
+          "product_sku": "59",
+          "product_name": "Lemon",
+          "unit": "kg",
+          "quantity": 4.0
+        },
+        {
+          "product_sku": "60",
+          "product_name": "Cauliflower",
+          "unit": "kg",
+          "quantity": 7.0
+        },
+        {
+          "product_sku": "67",
+          "product_name": "Jack Fruit Ripe",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "71",
+          "product_name": "Kovakka Normal",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "72",
+          "product_name": "Parval / Potol",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "73",
+          "product_name": "Sweet Potato",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "75",
+          "product_name": "Ginger",
+          "unit": "kg",
+          "quantity": 3.2
+        },
+        {
+          "product_sku": "79",
+          "product_name": "Raw Pappaya",
+          "unit": "kg",
+          "quantity": 4.0
+        },
+        {
+          "product_sku": "80",
+          "product_name": "SP Natti Thondakai",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "81",
+          "product_name": "Armenian Cucumber / Kakdi",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "96",
+          "product_name": "Nenua gourd",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "101",
+          "product_name": "Corriander",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "102",
+          "product_name": "Corriander Natti",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "103",
+          "product_name": "Curry Leaf",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "104",
+          "product_name": "Pudina / Mint Leaf",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "105",
+          "product_name": "Palak",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "106",
+          "product_name": "Green Cheera",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "107",
+          "product_name": "Red Cheera",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "108",
+          "product_name": "Methi / Menthaya",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "109",
+          "product_name": "Spring Onion",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "110",
+          "product_name": "Gongura",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "116",
+          "product_name": "Arai Keerai",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "117",
+          "product_name": "Siru Keerai",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "120",
+          "product_name": "Sweet Corn",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "121",
+          "product_name": "Peeled Corn",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "122",
+          "product_name": "Baby Corn",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "123",
+          "product_name": "Peeled Garlic",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "124",
+          "product_name": "Peeled Onion",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "128",
+          "product_name": "Mushroom",
+          "unit": "box",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "130",
+          "product_name": "Broccoli",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "133",
+          "product_name": "Lettuce",
+          "unit": "kg",
+          "quantity": 0.2
+        },
+        {
+          "product_sku": "135",
+          "product_name": "Colur Capcicum Yellow",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "136",
+          "product_name": "Colur Capcicum Red",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "147",
+          "product_name": "Misty Pumkin",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "162",
+          "product_name": "Banana yelakki Green",
+          "unit": "kg",
+          "quantity": 7.2
+        },
+        {
+          "product_sku": "166",
+          "product_name": "Banana Robusta",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "181",
+          "product_name": "Pappaya",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "3",
+          "product_name": "Onion",
+          "unit": "kg",
+          "quantity": 26.0
+        },
+        {
+          "product_sku": "6",
+          "product_name": "Potato Local",
+          "unit": "kg",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "11",
+          "product_name": "Garlic Ootty",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "170",
+          "product_name": "Coconut",
+          "unit": "pcs",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "182",
+          "product_name": "Gala NZ",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "194",
+          "product_name": "Mini Orange SL",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "195",
+          "product_name": "Pears",
+          "unit": "kg",
+          "quantity": 0.25
+        },
+        {
+          "product_sku": "200",
+          "product_name": "Kiwi",
+          "unit": "box",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "201",
+          "product_name": "Golden Kiwi",
+          "unit": "box",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "210",
+          "product_name": "Blue Berry",
+          "unit": "box",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "221",
+          "product_name": "Pineapple",
+          "unit": "pcs",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "256",
+          "product_name": "Mango Langada",
+          "unit": "kg",
+          "quantity": 2.0
+        }
+      ]
+    },
+    {
+      "shop_code": "AV_LULU_BUDHIGERE",
+      "shop_name": "Lulu Budhigere",
+      "items": [
+        {
+          "product_sku": "1",
+          "product_name": "Tomato H",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "2",
+          "product_name": "Tomato N",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "8",
+          "product_name": "Sambar Onion",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "12",
+          "product_name": "Carrot",
+          "unit": "kg",
+          "quantity": 16.0
+        },
+        {
+          "product_sku": "13",
+          "product_name": "French Beans",
+          "unit": "kg",
+          "quantity": 7.0
+        },
+        {
+          "product_sku": "15",
+          "product_name": "ladies Finger",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "16",
+          "product_name": "Green Peas",
+          "unit": "kg",
+          "quantity": 3.5
+        },
+        {
+          "product_sku": "17",
+          "product_name": "Broad beans S / Belt",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "18",
+          "product_name": "Paper Chikkdi",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "19",
+          "product_name": "White Karamani",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "20",
+          "product_name": "Green Karamani",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "22",
+          "product_name": "Cluster Beans / Gorikkai",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "23",
+          "product_name": "Green Chilli Normal",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "24",
+          "product_name": "Chilli Spicy / Akash G4",
+          "unit": "kg",
+          "quantity": 3.6
+        },
+        {
+          "product_sku": "28",
+          "product_name": "Brinjal Big (Bertha)",
+          "unit": "kg",
+          "quantity": 4.0
+        },
+        {
+          "product_sku": "29",
+          "product_name": "Brinjal Small",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "31",
+          "product_name": "Brinjol Rampuri",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "32",
+          "product_name": "Brinjal Blue Long",
+          "unit": "kg",
+          "quantity": 1.7
+        },
+        {
+          "product_sku": "33",
+          "product_name": "Capsicum",
+          "unit": "kg",
+          "quantity": 6.6
+        },
+        {
+          "product_sku": "34",
+          "product_name": "Beetroot Ootty",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "36",
+          "product_name": "Noolkol (Kohlrbi)",
+          "unit": "kg",
+          "quantity": 1.2
+        },
+        {
+          "product_sku": "37",
+          "product_name": "Radish",
+          "unit": "kg",
+          "quantity": 4.4
+        },
+        {
+          "product_sku": "38",
+          "product_name": "Tinda (Round Gurad)",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "39",
+          "product_name": "Bitter Gourd Big",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "40",
+          "product_name": "Bitter Gourd Small",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "42",
+          "product_name": "Bottle Gourd (Loki)",
+          "unit": "kg",
+          "quantity": 12.6
+        },
+        {
+          "product_sku": "43",
+          "product_name": "Ridge Gourd",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "44",
+          "product_name": "Drum Stick",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "48",
+          "product_name": "Banana Flower",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "50",
+          "product_name": "Raw Banana",
+          "unit": "kg",
+          "quantity": 14.0
+        },
+        {
+          "product_sku": "53",
+          "product_name": "Cucumber",
+          "unit": "kg",
+          "quantity": 11.0
+        },
+        {
+          "product_sku": "54",
+          "product_name": "English Cucumber",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "57",
+          "product_name": "Raw Mango Gund",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "58",
+          "product_name": "Raw Mango totapuri",
+          "unit": "kg",
+          "quantity": 1.7
+        },
+        {
+          "product_sku": "59",
+          "product_name": "Lemon",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "60",
+          "product_name": "Cauliflower",
+          "unit": "kg",
+          "quantity": 12.0
+        },
+        {
+          "product_sku": "61",
+          "product_name": "Cabbage",
+          "unit": "kg",
+          "quantity": 9.0
+        },
+        {
+          "product_sku": "62",
+          "product_name": "Arbi /Taroroot",
+          "unit": "kg",
+          "quantity": 3.3
+        },
+        {
+          "product_sku": "65",
+          "product_name": "Amla",
+          "unit": "kg",
+          "quantity": 2.3
+        },
+        {
+          "product_sku": "67",
+          "product_name": "Jack Fruit Ripe",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "71",
+          "product_name": "Kovakka Normal",
+          "unit": "kg",
+          "quantity": 1.2
+        },
+        {
+          "product_sku": "72",
+          "product_name": "Parval / Potol",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "75",
+          "product_name": "Ginger",
+          "unit": "kg",
+          "quantity": 6.3
+        },
+        {
+          "product_sku": "77",
+          "product_name": "Round Lauki White",
+          "unit": "kg",
+          "quantity": 3.6
+        },
+        {
+          "product_sku": "79",
+          "product_name": "Raw Pappaya",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "80",
+          "product_name": "SP Natti Thondakai",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "84",
+          "product_name": "Yellow Pumkin",
+          "unit": "kg",
+          "quantity": 6.7
+        },
+        {
+          "product_sku": "91",
+          "product_name": "kakrol / Kantola",
+          "unit": "kg",
+          "quantity": 1.2
+        },
+        {
+          "product_sku": "96",
+          "product_name": "Nenua gourd",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "101",
+          "product_name": "Corriander",
+          "unit": "kg",
+          "quantity": 18.0
+        },
+        {
+          "product_sku": "102",
+          "product_name": "Corriander Natti",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "103",
+          "product_name": "Curry Leaf",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "104",
+          "product_name": "Pudina / Mint Leaf",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "105",
+          "product_name": "Palak",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "106",
+          "product_name": "Green Cheera",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "107",
+          "product_name": "Red Cheera",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "108",
+          "product_name": "Methi / Menthaya",
+          "unit": "kg",
+          "quantity": 12.0
+        },
+        {
+          "product_sku": "109",
+          "product_name": "Spring Onion",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "110",
+          "product_name": "Gongura",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "111",
+          "product_name": "Basella leaf / Basala",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "112",
+          "product_name": "Sabbakki / Dil Leaf",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "113",
+          "product_name": "Chakotha",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "114",
+          "product_name": "Mustard Leaf",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "115",
+          "product_name": "Drum Stick Leaf",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "116",
+          "product_name": "Arai Keerai",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "117",
+          "product_name": "Siru Keerai",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "120",
+          "product_name": "Sweet Corn",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "121",
+          "product_name": "Peeled Corn",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "123",
+          "product_name": "Peeled Garlic",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "128",
+          "product_name": "Mushroom",
+          "unit": "box",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "130",
+          "product_name": "Broccoli",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "133",
+          "product_name": "Lettuce",
+          "unit": "kg",
+          "quantity": 0.25
+        },
+        {
+          "product_sku": "134",
+          "product_name": "Ice Berg Lettuce",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "135",
+          "product_name": "Colur Capcicum Yellow",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "136",
+          "product_name": "Colur Capcicum Red",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "137",
+          "product_name": "Zuchini Green",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "162",
+          "product_name": "Banana yelakki Green",
+          "unit": "kg",
+          "quantity": 24.0
+        },
+        {
+          "product_sku": "164",
+          "product_name": "Banana Nendran",
+          "unit": "kg",
+          "quantity": 10.5
+        },
+        {
+          "product_sku": "166",
+          "product_name": "Banana Robusta",
+          "unit": "kg",
+          "quantity": 36.0
+        },
+        {
+          "product_sku": "181",
+          "product_name": "Pappaya",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "3",
+          "product_name": "Onion",
+          "unit": "kg",
+          "quantity": 46.0
+        },
+        {
+          "product_sku": "5",
+          "product_name": "Potato Agra",
+          "unit": "kg",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "6",
+          "product_name": "Potato Local",
+          "unit": "kg",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "11",
+          "product_name": "Garlic Ootty",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "170",
+          "product_name": "Coconut",
+          "unit": "pcs",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "182",
+          "product_name": "Gala NZ",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "193",
+          "product_name": "Mini Orange",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "202",
+          "product_name": "Imp Butter Fruit",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "213",
+          "product_name": "Bare Apple",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "221",
+          "product_name": "Pineapple",
+          "unit": "pcs",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "223",
+          "product_name": "Musambi",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "227",
+          "product_name": "Supporta / Chikoo",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "228",
+          "product_name": "Thai Guava",
+          "unit": "kg",
+          "quantity": 7.0
+        },
+        {
+          "product_sku": "231",
+          "product_name": "Patta Jam",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "233",
+          "product_name": "Green Grapes",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "256",
+          "product_name": "Mango Langada",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "257",
+          "product_name": "Mango Dasari",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "263",
+          "product_name": "Mango Chausa",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "305",
+          "product_name": "Papper Bag 1kg",
+          "unit": "pcs",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "306",
+          "product_name": "Papper Bag 3kg",
+          "unit": "pcs",
+          "quantity": 25.0
+        }
+      ]
+    },
+    {
+      "shop_code": "AV_GRANDCITY",
+      "shop_name": "Grandcity",
+      "items": [
+        {
+          "product_sku": "12",
+          "product_name": "Carrot",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "15",
+          "product_name": "ladies Finger",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "16",
+          "product_name": "Green Peas",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "17",
+          "product_name": "Broad beans S / Belt",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "22",
+          "product_name": "Cluster Beans / Gorikkai",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "23",
+          "product_name": "Green Chilli Normal",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "24",
+          "product_name": "Chilli Spicy / Akash G4",
+          "unit": "kg",
+          "quantity": 2.6
+        },
+        {
+          "product_sku": "27",
+          "product_name": "Brinjal White Long",
+          "unit": "kg",
+          "quantity": 1.4
+        },
+        {
+          "product_sku": "28",
+          "product_name": "Brinjal Big (Bertha)",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "31",
+          "product_name": "Brinjol Rampuri",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "32",
+          "product_name": "Brinjal Blue Long",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "33",
+          "product_name": "Capsicum",
+          "unit": "kg",
+          "quantity": 2.4
+        },
+        {
+          "product_sku": "34",
+          "product_name": "Beetroot Ootty",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "37",
+          "product_name": "Radish",
+          "unit": "kg",
+          "quantity": 2.7
+        },
+        {
+          "product_sku": "38",
+          "product_name": "Tinda (Round Gurad)",
+          "unit": "kg",
+          "quantity": 2.3
+        },
+        {
+          "product_sku": "39",
+          "product_name": "Bitter Gourd Big",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "40",
+          "product_name": "Bitter Gourd Small",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "42",
+          "product_name": "Bottle Gourd (Loki)",
+          "unit": "kg",
+          "quantity": 3.3
+        },
+        {
+          "product_sku": "43",
+          "product_name": "Ridge Gourd",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "53",
+          "product_name": "Cucumber",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "54",
+          "product_name": "English Cucumber",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "59",
+          "product_name": "Lemon",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "60",
+          "product_name": "Cauliflower",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "61",
+          "product_name": "Cabbage",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "62",
+          "product_name": "Arbi /Taroroot",
+          "unit": "kg",
+          "quantity": 2.4
+        },
+        {
+          "product_sku": "72",
+          "product_name": "Parval / Potol",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "73",
+          "product_name": "Sweet Potato",
+          "unit": "kg",
+          "quantity": 2.7
+        },
+        {
+          "product_sku": "75",
+          "product_name": "Ginger",
+          "unit": "kg",
+          "quantity": 3.2
+        },
+        {
+          "product_sku": "79",
+          "product_name": "Raw Pappaya",
+          "unit": "kg",
+          "quantity": 3.7
+        },
+        {
+          "product_sku": "81",
+          "product_name": "Armenian Cucumber / Kakdi",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "101",
+          "product_name": "Corriander",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "102",
+          "product_name": "Corriander Natti",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "103",
+          "product_name": "Curry Leaf",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "104",
+          "product_name": "Pudina / Mint Leaf",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "105",
+          "product_name": "Palak",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "106",
+          "product_name": "Green Cheera",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "107",
+          "product_name": "Red Cheera",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "108",
+          "product_name": "Methi / Menthaya",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "109",
+          "product_name": "Spring Onion",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "120",
+          "product_name": "Sweet Corn",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "128",
+          "product_name": "Mushroom",
+          "unit": "box",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "130",
+          "product_name": "Broccoli",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "133",
+          "product_name": "Lettuce",
+          "unit": "kg",
+          "quantity": 0.7
+        },
+        {
+          "product_sku": "135",
+          "product_name": "Colur Capcicum Yellow",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "136",
+          "product_name": "Colur Capcicum Red",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "162",
+          "product_name": "Banana yelakki Green",
+          "unit": "kg",
+          "quantity": 15.3
+        },
+        {
+          "product_sku": "166",
+          "product_name": "Banana Robusta",
+          "unit": "kg",
+          "quantity": 40.0
+        },
+        {
+          "product_sku": "181",
+          "product_name": "Pappaya",
+          "unit": "kg",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "182",
+          "product_name": "Gala NZ",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "193",
+          "product_name": "Mini Orange",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "195",
+          "product_name": "Pears",
+          "unit": "kg",
+          "quantity": 0.2
+        },
+        {
+          "product_sku": "200",
+          "product_name": "Kiwi",
+          "unit": "box",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "221",
+          "product_name": "Pineapple",
+          "unit": "pcs",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "228",
+          "product_name": "Thai Guava",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "231",
+          "product_name": "Patta Jam",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "254",
+          "product_name": "Mango Neelam",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "256",
+          "product_name": "Mango Langada",
+          "unit": "kg",
+          "quantity": 1.0
+        }
+      ]
+    },
+    {
+      "shop_code": "AV_ASHIRWAD",
+      "shop_name": "Ashirwad",
+      "items": [
+        {
+          "product_sku": "1",
+          "product_name": "Tomato H",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "2",
+          "product_name": "Tomato N",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "12",
+          "product_name": "Carrot",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "13",
+          "product_name": "French Beans",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "15",
+          "product_name": "ladies Finger",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "16",
+          "product_name": "Green Peas",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "17",
+          "product_name": "Broad beans S / Belt",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "18",
+          "product_name": "Paper Chikkdi",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "19",
+          "product_name": "White Karamani",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "23",
+          "product_name": "Green Chilli Normal",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "24",
+          "product_name": "Chilli Spicy / Akash G4",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "28",
+          "product_name": "Brinjal Big (Bertha)",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "29",
+          "product_name": "Brinjal Small",
+          "unit": "kg",
+          "quantity": 2.2
+        },
+        {
+          "product_sku": "31",
+          "product_name": "Brinjol Rampuri",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "32",
+          "product_name": "Brinjal Blue Long",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "33",
+          "product_name": "Capsicum",
+          "unit": "kg",
+          "quantity": 2.7
+        },
+        {
+          "product_sku": "34",
+          "product_name": "Beetroot Ootty",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "36",
+          "product_name": "Noolkol (Kohlrbi)",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "37",
+          "product_name": "Radish",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "39",
+          "product_name": "Bitter Gourd Big",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "40",
+          "product_name": "Bitter Gourd Small",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "42",
+          "product_name": "Bottle Gourd (Loki)",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "43",
+          "product_name": "Ridge Gourd",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "44",
+          "product_name": "Drum Stick",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "45",
+          "product_name": "Snake Gourd White",
+          "unit": "kg",
+          "quantity": 1.7
+        },
+        {
+          "product_sku": "50",
+          "product_name": "Raw Banana",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "53",
+          "product_name": "Cucumber",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "54",
+          "product_name": "English Cucumber",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "55",
+          "product_name": "Yam",
+          "unit": "kg",
+          "quantity": 4.5
+        },
+        {
+          "product_sku": "59",
+          "product_name": "Lemon",
+          "unit": "kg",
+          "quantity": 4.0
+        },
+        {
+          "product_sku": "60",
+          "product_name": "Cauliflower",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "61",
+          "product_name": "Cabbage",
+          "unit": "kg",
+          "quantity": 5.5
+        },
+        {
+          "product_sku": "65",
+          "product_name": "Amla",
+          "unit": "kg",
+          "quantity": 1.3
+        },
+        {
+          "product_sku": "71",
+          "product_name": "Kovakka Normal",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "72",
+          "product_name": "Parval / Potol",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "73",
+          "product_name": "Sweet Potato",
+          "unit": "kg",
+          "quantity": 1.7
+        },
+        {
+          "product_sku": "75",
+          "product_name": "Ginger",
+          "unit": "kg",
+          "quantity": 2.2
+        },
+        {
+          "product_sku": "83",
+          "product_name": "White Pumkin",
+          "unit": "kg",
+          "quantity": 4.4
+        },
+        {
+          "product_sku": "91",
+          "product_name": "kakrol / Kantola",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "96",
+          "product_name": "Nenua gourd",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "101",
+          "product_name": "Corriander",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "103",
+          "product_name": "Curry Leaf",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "104",
+          "product_name": "Pudina / Mint Leaf",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "105",
+          "product_name": "Palak",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "108",
+          "product_name": "Methi / Menthaya",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "109",
+          "product_name": "Spring Onion",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "112",
+          "product_name": "Sabbakki / Dil Leaf",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "120",
+          "product_name": "Sweet Corn",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "123",
+          "product_name": "Peeled Garlic",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "128",
+          "product_name": "Mushroom",
+          "unit": "box",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "130",
+          "product_name": "Broccoli",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "135",
+          "product_name": "Colur Capcicum Yellow",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "136",
+          "product_name": "Colur Capcicum Red",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "162",
+          "product_name": "Banana yelakki Green",
+          "unit": "kg",
+          "quantity": 15.8
+        },
+        {
+          "product_sku": "164",
+          "product_name": "Banana Nendran",
+          "unit": "kg",
+          "quantity": 11.3
+        },
+        {
+          "product_sku": "166",
+          "product_name": "Banana Robusta",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "181",
+          "product_name": "Pappaya",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "3",
+          "product_name": "Onion",
+          "unit": "kg",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "5",
+          "product_name": "Potato Agra",
+          "unit": "kg",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "7",
+          "product_name": "Baby Potato",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "182",
+          "product_name": "Gala NZ",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "195",
+          "product_name": "Pears",
+          "unit": "kg",
+          "quantity": 0.2
+        },
+        {
+          "product_sku": "200",
+          "product_name": "Kiwi",
+          "unit": "box",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "201",
+          "product_name": "Golden Kiwi",
+          "unit": "box",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "228",
+          "product_name": "Thai Guava",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "230",
+          "product_name": "Muskmelon",
+          "unit": "pcs",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "231",
+          "product_name": "Patta Jam",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "235",
+          "product_name": "Butter Fruit",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "300",
+          "product_name": "Plate 1d",
+          "unit": "pcs",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "305",
+          "product_name": "Papper Bag 1kg",
+          "unit": "pcs",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "306",
+          "product_name": "Papper Bag 3kg",
+          "unit": "pcs",
+          "quantity": 2.0
+        }
+      ]
+    },
+    {
+      "shop_code": "AV_SANA",
+      "shop_name": "Sana",
+      "items": [
+        {
+          "product_sku": "8",
+          "product_name": "Sambar Onion",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "12",
+          "product_name": "Carrot",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "13",
+          "product_name": "French Beans",
+          "unit": "kg",
+          "quantity": 7.0
+        },
+        {
+          "product_sku": "15",
+          "product_name": "ladies Finger",
+          "unit": "kg",
+          "quantity": 7.0
+        },
+        {
+          "product_sku": "16",
+          "product_name": "Green Peas",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "17",
+          "product_name": "Broad beans S / Belt",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "18",
+          "product_name": "Paper Chikkdi",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "19",
+          "product_name": "White Karamani",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "23",
+          "product_name": "Green Chilli Normal",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "24",
+          "product_name": "Chilli Spicy / Akash G4",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "27",
+          "product_name": "Brinjal White Long",
+          "unit": "kg",
+          "quantity": 1.3
+        },
+        {
+          "product_sku": "28",
+          "product_name": "Brinjal Big (Bertha)",
+          "unit": "kg",
+          "quantity": 2.8
+        },
+        {
+          "product_sku": "29",
+          "product_name": "Brinjal Small",
+          "unit": "kg",
+          "quantity": 2.3
+        },
+        {
+          "product_sku": "31",
+          "product_name": "Brinjol Rampuri",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "32",
+          "product_name": "Brinjal Blue Long",
+          "unit": "kg",
+          "quantity": 1.2
+        },
+        {
+          "product_sku": "33",
+          "product_name": "Capsicum",
+          "unit": "kg",
+          "quantity": 5.3
+        },
+        {
+          "product_sku": "34",
+          "product_name": "Beetroot Ootty",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "35",
+          "product_name": "Chow Chow",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "36",
+          "product_name": "Noolkol (Kohlrbi)",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "37",
+          "product_name": "Radish",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "39",
+          "product_name": "Bitter Gourd Big",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "40",
+          "product_name": "Bitter Gourd Small",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "42",
+          "product_name": "Bottle Gourd (Loki)",
+          "unit": "kg",
+          "quantity": 5.3
+        },
+        {
+          "product_sku": "43",
+          "product_name": "Ridge Gourd",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "44",
+          "product_name": "Drum Stick",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "49",
+          "product_name": "Banana Stem",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "50",
+          "product_name": "Raw Banana",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "52",
+          "product_name": "Sambar Cucbr / Southikai",
+          "unit": "kg",
+          "quantity": 7.0
+        },
+        {
+          "product_sku": "53",
+          "product_name": "Cucumber",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "54",
+          "product_name": "English Cucumber",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "59",
+          "product_name": "Lemon",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "60",
+          "product_name": "Cauliflower",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "61",
+          "product_name": "Cabbage",
+          "unit": "kg",
+          "quantity": 10.5
+        },
+        {
+          "product_sku": "65",
+          "product_name": "Amla",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "67",
+          "product_name": "Jack Fruit Ripe",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "71",
+          "product_name": "Kovakka Normal",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "72",
+          "product_name": "Parval / Potol",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "73",
+          "product_name": "Sweet Potato",
+          "unit": "kg",
+          "quantity": 2.4
+        },
+        {
+          "product_sku": "74",
+          "product_name": "Tapioca",
+          "unit": "kg",
+          "quantity": 2.6
+        },
+        {
+          "product_sku": "75",
+          "product_name": "Ginger",
+          "unit": "kg",
+          "quantity": 3.2
+        },
+        {
+          "product_sku": "77",
+          "product_name": "Round Lauki White",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "96",
+          "product_name": "Nenua gourd",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "101",
+          "product_name": "Corriander",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "102",
+          "product_name": "Corriander Natti",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "103",
+          "product_name": "Curry Leaf",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "104",
+          "product_name": "Pudina / Mint Leaf",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "105",
+          "product_name": "Palak",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "106",
+          "product_name": "Green Cheera",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "107",
+          "product_name": "Red Cheera",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "108",
+          "product_name": "Methi / Menthaya",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "109",
+          "product_name": "Spring Onion",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "112",
+          "product_name": "Sabbakki / Dil Leaf",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "116",
+          "product_name": "Arai Keerai",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "117",
+          "product_name": "Siru Keerai",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "120",
+          "product_name": "Sweet Corn",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "122",
+          "product_name": "Baby Corn",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "123",
+          "product_name": "Peeled Garlic",
+          "unit": "kg",
+          "quantity": 4.0
+        },
+        {
+          "product_sku": "125",
+          "product_name": "Sprouds",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "126",
+          "product_name": "Cherry Tomato Box",
+          "unit": "box",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "128",
+          "product_name": "Mushroom",
+          "unit": "box",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "162",
+          "product_name": "Banana yelakki Green",
+          "unit": "kg",
+          "quantity": 14.2
+        },
+        {
+          "product_sku": "165",
+          "product_name": "Banana Nendran Color",
+          "unit": "kg",
+          "quantity": 7.4
+        },
+        {
+          "product_sku": "166",
+          "product_name": "Banana Robusta",
+          "unit": "kg",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "181",
+          "product_name": "Pappaya",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "3",
+          "product_name": "Onion",
+          "unit": "kg",
+          "quantity": 45.0
+        },
+        {
+          "product_sku": "5",
+          "product_name": "Potato Agra",
+          "unit": "kg",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "7",
+          "product_name": "Baby Potato",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "11",
+          "product_name": "Garlic Ootty",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "170",
+          "product_name": "Coconut",
+          "unit": "pcs",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "183",
+          "product_name": "Gala Apple",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "193",
+          "product_name": "Mini Orange",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "198",
+          "product_name": "Dragon Fruit",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "215",
+          "product_name": "Golden Custard",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "221",
+          "product_name": "Pineapple",
+          "unit": "pcs",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "224",
+          "product_name": "Anar / Pomegranate",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "228",
+          "product_name": "Thai Guava",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "235",
+          "product_name": "Butter Fruit",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "254",
+          "product_name": "Mango Neelam",
+          "unit": "kg",
+          "quantity": 1.0
+        }
+      ]
+    },
+    {
+      "shop_code": "AV_BAZARO",
+      "shop_name": "Bazaro",
+      "items": [
+        {
+          "product_sku": "1",
+          "product_name": "Tomato H",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "2",
+          "product_name": "Tomato N",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "12",
+          "product_name": "Carrot",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "13",
+          "product_name": "French Beans",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "15",
+          "product_name": "ladies Finger",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "17",
+          "product_name": "Broad beans S / Belt",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "18",
+          "product_name": "Paper Chikkdi",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "19",
+          "product_name": "White Karamani",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "20",
+          "product_name": "Green Karamani",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "22",
+          "product_name": "Cluster Beans / Gorikkai",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "23",
+          "product_name": "Green Chilli Normal",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "24",
+          "product_name": "Chilli Spicy / Akash G4",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "25",
+          "product_name": "Bajji Chilli",
+          "unit": "kg",
+          "quantity": 1.8
+        },
+        {
+          "product_sku": "28",
+          "product_name": "Brinjal Big (Bertha)",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "32",
+          "product_name": "Brinjal Blue Long",
+          "unit": "kg",
+          "quantity": 1.9
+        },
+        {
+          "product_sku": "33",
+          "product_name": "Capsicum",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "35",
+          "product_name": "Chow Chow",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "36",
+          "product_name": "Noolkol (Kohlrbi)",
+          "unit": "kg",
+          "quantity": 1.2
+        },
+        {
+          "product_sku": "37",
+          "product_name": "Radish",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "38",
+          "product_name": "Tinda (Round Gurad)",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "39",
+          "product_name": "Bitter Gourd Big",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "40",
+          "product_name": "Bitter Gourd Small",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "41",
+          "product_name": "Bitter Gourd White",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "42",
+          "product_name": "Bottle Gourd (Loki)",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "43",
+          "product_name": "Ridge Gourd",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "44",
+          "product_name": "Drum Stick",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "50",
+          "product_name": "Raw Banana",
+          "unit": "kg",
+          "quantity": 12.0
+        },
+        {
+          "product_sku": "53",
+          "product_name": "Cucumber",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "54",
+          "product_name": "English Cucumber",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "55",
+          "product_name": "Yam",
+          "unit": "kg",
+          "quantity": 7.7
+        },
+        {
+          "product_sku": "57",
+          "product_name": "Raw Mango Gund",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "59",
+          "product_name": "Lemon",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "60",
+          "product_name": "Cauliflower",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "61",
+          "product_name": "Cabbage",
+          "unit": "kg",
+          "quantity": 3.4
+        },
+        {
+          "product_sku": "65",
+          "product_name": "Amla",
+          "unit": "kg",
+          "quantity": 2.3
+        },
+        {
+          "product_sku": "67",
+          "product_name": "Jack Fruit Ripe",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "69",
+          "product_name": "Raw Turmeric Kalkata",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "71",
+          "product_name": "Kovakka Normal",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "72",
+          "product_name": "Parval / Potol",
+          "unit": "kg",
+          "quantity": 2.2
+        },
+        {
+          "product_sku": "73",
+          "product_name": "Sweet Potato",
+          "unit": "kg",
+          "quantity": 6.4
+        },
+        {
+          "product_sku": "74",
+          "product_name": "Tapioca",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "75",
+          "product_name": "Ginger",
+          "unit": "kg",
+          "quantity": 5.3
+        },
+        {
+          "product_sku": "79",
+          "product_name": "Raw Pappaya",
+          "unit": "kg",
+          "quantity": 2.7
+        },
+        {
+          "product_sku": "81",
+          "product_name": "Armenian Cucumber / Kakdi",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "96",
+          "product_name": "Nenua gourd",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "101",
+          "product_name": "Corriander",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "103",
+          "product_name": "Curry Leaf",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "104",
+          "product_name": "Pudina / Mint Leaf",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "105",
+          "product_name": "Palak",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "106",
+          "product_name": "Green Cheera",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "107",
+          "product_name": "Red Cheera",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "108",
+          "product_name": "Methi / Menthaya",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "109",
+          "product_name": "Spring Onion",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "110",
+          "product_name": "Gongura",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "111",
+          "product_name": "Basella leaf / Basala",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "112",
+          "product_name": "Sabbakki / Dil Leaf",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "113",
+          "product_name": "Chakotha",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "114",
+          "product_name": "Mustard Leaf",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "120",
+          "product_name": "Sweet Corn",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "122",
+          "product_name": "Baby Corn",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "123",
+          "product_name": "Peeled Garlic",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "124",
+          "product_name": "Peeled Onion",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "128",
+          "product_name": "Mushroom",
+          "unit": "box",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "130",
+          "product_name": "Broccoli",
+          "unit": "kg",
+          "quantity": 2.2
+        },
+        {
+          "product_sku": "134",
+          "product_name": "Ice Berg Lettuce",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "140",
+          "product_name": "Chinees Cabbage",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "162",
+          "product_name": "Banana yelakki Green",
+          "unit": "kg",
+          "quantity": 16.2
+        },
+        {
+          "product_sku": "164",
+          "product_name": "Banana Nendran",
+          "unit": "kg",
+          "quantity": 13.4
+        },
+        {
+          "product_sku": "166",
+          "product_name": "Banana Robusta",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "181",
+          "product_name": "Pappaya",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "3",
+          "product_name": "Onion",
+          "unit": "kg",
+          "quantity": 49.0
+        },
+        {
+          "product_sku": "4",
+          "product_name": "Pickle Onion Bag",
+          "unit": "bag",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "6",
+          "product_name": "Potato Local",
+          "unit": "kg",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "7",
+          "product_name": "Baby Potato",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "11",
+          "product_name": "Garlic Ootty",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "170",
+          "product_name": "Coconut",
+          "unit": "pcs",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "187",
+          "product_name": "Apple Pink lady",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "193",
+          "product_name": "Mini Orange",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "195",
+          "product_name": "Pears",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "200",
+          "product_name": "Kiwi",
+          "unit": "box",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "201",
+          "product_name": "Golden Kiwi",
+          "unit": "box",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "202",
+          "product_name": "Imp Butter Fruit",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "206",
+          "product_name": "Muscat Grape",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "215",
+          "product_name": "Golden Custard",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "216",
+          "product_name": "Orange",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "221",
+          "product_name": "Pineapple",
+          "unit": "pcs",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "226",
+          "product_name": "Anar S S",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "241",
+          "product_name": "Jamun",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "245",
+          "product_name": "Mango BP SPL",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "256",
+          "product_name": "Mango Langada",
+          "unit": "kg",
+          "quantity": 2.0
+        }
+      ]
+    },
+    {
+      "shop_code": "AV_SANA_JP",
+      "shop_name": "Sana JP",
+      "items": [
+        {
+          "product_sku": "1",
+          "product_name": "Tomato H",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "2",
+          "product_name": "Tomato N",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "12",
+          "product_name": "Carrot",
+          "unit": "kg",
+          "quantity": 7.0
+        },
+        {
+          "product_sku": "13",
+          "product_name": "French Beans",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "15",
+          "product_name": "ladies Finger",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "16",
+          "product_name": "Green Peas",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "17",
+          "product_name": "Broad beans S / Belt",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "18",
+          "product_name": "Paper Chikkdi",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "19",
+          "product_name": "White Karamani",
+          "unit": "kg",
+          "quantity": 1.7
+        },
+        {
+          "product_sku": "22",
+          "product_name": "Cluster Beans / Gorikkai",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "24",
+          "product_name": "Chilli Spicy / Akash G4",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "27",
+          "product_name": "Brinjal White Long",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "28",
+          "product_name": "Brinjal Big (Bertha)",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "29",
+          "product_name": "Brinjal Small",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "31",
+          "product_name": "Brinjol Rampuri",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "32",
+          "product_name": "Brinjal Blue Long",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "33",
+          "product_name": "Capsicum",
+          "unit": "kg",
+          "quantity": 2.7
+        },
+        {
+          "product_sku": "37",
+          "product_name": "Radish",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "38",
+          "product_name": "Tinda (Round Gurad)",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "39",
+          "product_name": "Bitter Gourd Big",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "40",
+          "product_name": "Bitter Gourd Small",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "42",
+          "product_name": "Bottle Gourd (Loki)",
+          "unit": "kg",
+          "quantity": 3.3
+        },
+        {
+          "product_sku": "43",
+          "product_name": "Ridge Gourd",
+          "unit": "kg",
+          "quantity": 3.2
+        },
+        {
+          "product_sku": "44",
+          "product_name": "Drum Stick",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "53",
+          "product_name": "Cucumber",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "54",
+          "product_name": "English Cucumber",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "57",
+          "product_name": "Raw Mango Gund",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "58",
+          "product_name": "Raw Mango totapuri",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "59",
+          "product_name": "Lemon",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "60",
+          "product_name": "Cauliflower",
+          "unit": "kg",
+          "quantity": 7.0
+        },
+        {
+          "product_sku": "61",
+          "product_name": "Cabbage",
+          "unit": "kg",
+          "quantity": 3.3
+        },
+        {
+          "product_sku": "65",
+          "product_name": "Amla",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "72",
+          "product_name": "Parval / Potol",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "75",
+          "product_name": "Ginger",
+          "unit": "kg",
+          "quantity": 2.3
+        },
+        {
+          "product_sku": "83",
+          "product_name": "White Pumkin",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "84",
+          "product_name": "Yellow Pumkin",
+          "unit": "kg",
+          "quantity": 5.4
+        },
+        {
+          "product_sku": "96",
+          "product_name": "Nenua gourd",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "101",
+          "product_name": "Corriander",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "102",
+          "product_name": "Corriander Natti",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "103",
+          "product_name": "Curry Leaf",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "104",
+          "product_name": "Pudina / Mint Leaf",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "105",
+          "product_name": "Palak",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "106",
+          "product_name": "Green Cheera",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "107",
+          "product_name": "Red Cheera",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "108",
+          "product_name": "Methi / Menthaya",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "109",
+          "product_name": "Spring Onion",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "112",
+          "product_name": "Sabbakki / Dil Leaf",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "116",
+          "product_name": "Arai Keerai",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "117",
+          "product_name": "Siru Keerai",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "120",
+          "product_name": "Sweet Corn",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "122",
+          "product_name": "Baby Corn",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "124",
+          "product_name": "Peeled Onion",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "125",
+          "product_name": "Sprouds",
+          "unit": "kg",
+          "quantity": 4.0
+        },
+        {
+          "product_sku": "128",
+          "product_name": "Mushroom",
+          "unit": "box",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "130",
+          "product_name": "Broccoli",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "133",
+          "product_name": "Lettuce",
+          "unit": "kg",
+          "quantity": 0.7
+        },
+        {
+          "product_sku": "135",
+          "product_name": "Colur Capcicum Yellow",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "136",
+          "product_name": "Colur Capcicum Red",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "162",
+          "product_name": "Banana yelakki Green",
+          "unit": "kg",
+          "quantity": 7.6
+        },
+        {
+          "product_sku": "166",
+          "product_name": "Banana Robusta",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "181",
+          "product_name": "Pappaya",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "11",
+          "product_name": "Garlic Ootty",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "182",
+          "product_name": "Gala NZ",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "193",
+          "product_name": "Mini Orange",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "195",
+          "product_name": "Pears",
+          "unit": "kg",
+          "quantity": 0.25
+        },
+        {
+          "product_sku": "198",
+          "product_name": "Dragon Fruit",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "224",
+          "product_name": "Anar / Pomegranate",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "227",
+          "product_name": "Supporta / Chikoo",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "228",
+          "product_name": "Thai Guava",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "231",
+          "product_name": "Patta Jam",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "302",
+          "product_name": "Wrapping Roll",
+          "unit": "roll",
+          "quantity": 1.0
+        }
+      ]
+    },
+    {
+      "shop_code": "AV_LULU_VARTHUR",
+      "shop_name": "Lulu Varthur",
+      "items": [
+        {
+          "product_sku": "8",
+          "product_name": "Sambar Onion",
+          "unit": "kg",
+          "quantity": 3.5
+        },
+        {
+          "product_sku": "12",
+          "product_name": "Carrot",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "13",
+          "product_name": "French Beans",
+          "unit": "kg",
+          "quantity": 9.0
+        },
+        {
+          "product_sku": "15",
+          "product_name": "ladies Finger",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "16",
+          "product_name": "Green Peas",
+          "unit": "kg",
+          "quantity": 5.2
+        },
+        {
+          "product_sku": "17",
+          "product_name": "Broad beans S / Belt",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "18",
+          "product_name": "Paper Chikkdi",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "19",
+          "product_name": "White Karamani",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "20",
+          "product_name": "Green Karamani",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "22",
+          "product_name": "Cluster Beans / Gorikkai",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "23",
+          "product_name": "Green Chilli Normal",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "24",
+          "product_name": "Chilli Spicy / Akash G4",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "25",
+          "product_name": "Bajji Chilli",
+          "unit": "kg",
+          "quantity": 1.3
+        },
+        {
+          "product_sku": "27",
+          "product_name": "Brinjal White Long",
+          "unit": "kg",
+          "quantity": 1.3
+        },
+        {
+          "product_sku": "28",
+          "product_name": "Brinjal Big (Bertha)",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "29",
+          "product_name": "Brinjal Small",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "32",
+          "product_name": "Brinjal Blue Long",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "33",
+          "product_name": "Capsicum",
+          "unit": "kg",
+          "quantity": 6.7
+        },
+        {
+          "product_sku": "34",
+          "product_name": "Beetroot Ootty",
+          "unit": "kg",
+          "quantity": 12.0
+        },
+        {
+          "product_sku": "35",
+          "product_name": "Chow Chow",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "36",
+          "product_name": "Noolkol (Kohlrbi)",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "37",
+          "product_name": "Radish",
+          "unit": "kg",
+          "quantity": 7.6
+        },
+        {
+          "product_sku": "38",
+          "product_name": "Tinda (Round Gurad)",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "39",
+          "product_name": "Bitter Gourd Big",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "40",
+          "product_name": "Bitter Gourd Small",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "41",
+          "product_name": "Bitter Gourd White",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "42",
+          "product_name": "Bottle Gourd (Loki)",
+          "unit": "kg",
+          "quantity": 15.4
+        },
+        {
+          "product_sku": "43",
+          "product_name": "Ridge Gourd",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "44",
+          "product_name": "Drum Stick",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "45",
+          "product_name": "Snake Gourd White",
+          "unit": "kg",
+          "quantity": 1.7
+        },
+        {
+          "product_sku": "46",
+          "product_name": "Snake Gourd Green",
+          "unit": "kg",
+          "quantity": 2.8
+        },
+        {
+          "product_sku": "49",
+          "product_name": "Banana Stem",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "50",
+          "product_name": "Raw Banana",
+          "unit": "kg",
+          "quantity": 18.0
+        },
+        {
+          "product_sku": "53",
+          "product_name": "Cucumber",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "54",
+          "product_name": "English Cucumber",
+          "unit": "kg",
+          "quantity": 12.0
+        },
+        {
+          "product_sku": "57",
+          "product_name": "Raw Mango Gund",
+          "unit": "kg",
+          "quantity": 3.3
+        },
+        {
+          "product_sku": "58",
+          "product_name": "Raw Mango totapuri",
+          "unit": "kg",
+          "quantity": 2.6
+        },
+        {
+          "product_sku": "59",
+          "product_name": "Lemon",
+          "unit": "kg",
+          "quantity": 4.0
+        },
+        {
+          "product_sku": "60",
+          "product_name": "Cauliflower",
+          "unit": "kg",
+          "quantity": 18.0
+        },
+        {
+          "product_sku": "62",
+          "product_name": "Arbi /Taroroot",
+          "unit": "kg",
+          "quantity": 3.4
+        },
+        {
+          "product_sku": "65",
+          "product_name": "Amla",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "67",
+          "product_name": "Jack Fruit Ripe",
+          "unit": "kg",
+          "quantity": 4.0
+        },
+        {
+          "product_sku": "71",
+          "product_name": "Kovakka Normal",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "72",
+          "product_name": "Parval / Potol",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "73",
+          "product_name": "Sweet Potato",
+          "unit": "kg",
+          "quantity": 4.5
+        },
+        {
+          "product_sku": "74",
+          "product_name": "Tapioca",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "75",
+          "product_name": "Ginger",
+          "unit": "kg",
+          "quantity": 5.2
+        },
+        {
+          "product_sku": "80",
+          "product_name": "SP Natti Thondakai",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "81",
+          "product_name": "Armenian Cucumber / Kakdi",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "83",
+          "product_name": "White Pumkin",
+          "unit": "kg",
+          "quantity": 5.3
+        },
+        {
+          "product_sku": "84",
+          "product_name": "Yellow Pumkin",
+          "unit": "kg",
+          "quantity": 9.8
+        },
+        {
+          "product_sku": "91",
+          "product_name": "kakrol / Kantola",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "96",
+          "product_name": "Nenua gourd",
+          "unit": "kg",
+          "quantity": 6.5
+        },
+        {
+          "product_sku": "101",
+          "product_name": "Corriander",
+          "unit": "kg",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "103",
+          "product_name": "Curry Leaf",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "104",
+          "product_name": "Pudina / Mint Leaf",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "105",
+          "product_name": "Palak",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "106",
+          "product_name": "Green Cheera",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "107",
+          "product_name": "Red Cheera",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "108",
+          "product_name": "Methi / Menthaya",
+          "unit": "kg",
+          "quantity": 12.0
+        },
+        {
+          "product_sku": "109",
+          "product_name": "Spring Onion",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "110",
+          "product_name": "Gongura",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "112",
+          "product_name": "Sabbakki / Dil Leaf",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "113",
+          "product_name": "Chakotha",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "115",
+          "product_name": "Drum Stick Leaf",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "120",
+          "product_name": "Sweet Corn",
+          "unit": "kg",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "121",
+          "product_name": "Peeled Corn",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "122",
+          "product_name": "Baby Corn",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "124",
+          "product_name": "Peeled Onion",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "128",
+          "product_name": "Mushroom",
+          "unit": "box",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "130",
+          "product_name": "Broccoli",
+          "unit": "kg",
+          "quantity": 5.7
+        },
+        {
+          "product_sku": "133",
+          "product_name": "Lettuce",
+          "unit": "kg",
+          "quantity": 0.2
+        },
+        {
+          "product_sku": "134",
+          "product_name": "Ice Berg Lettuce",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "135",
+          "product_name": "Colur Capcicum Yellow",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "136",
+          "product_name": "Colur Capcicum Red",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "137",
+          "product_name": "Zuchini Green",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "138",
+          "product_name": "Zuchini Yellow",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "162",
+          "product_name": "Banana yelakki Green",
+          "unit": "kg",
+          "quantity": 17.8
+        },
+        {
+          "product_sku": "164",
+          "product_name": "Banana Nendran",
+          "unit": "kg",
+          "quantity": 13.8
+        },
+        {
+          "product_sku": "166",
+          "product_name": "Banana Robusta",
+          "unit": "kg",
+          "quantity": 30.0
+        },
+        {
+          "product_sku": "181",
+          "product_name": "Pappaya",
+          "unit": "kg",
+          "quantity": 50.0
+        },
+        {
+          "product_sku": "3",
+          "product_name": "Onion",
+          "unit": "kg",
+          "quantity": 52.0
+        },
+        {
+          "product_sku": "6",
+          "product_name": "Potato Local",
+          "unit": "kg",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "11",
+          "product_name": "Garlic Ootty",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "170",
+          "product_name": "Coconut",
+          "unit": "pcs",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "183",
+          "product_name": "Gala Apple",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "192",
+          "product_name": "Washington Apple",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "193",
+          "product_name": "Mini Orange",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "195",
+          "product_name": "Pears",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "196",
+          "product_name": "Citrus Orange",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "198",
+          "product_name": "Dragon Fruit",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "202",
+          "product_name": "Imp Butter Fruit",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "210",
+          "product_name": "Blue Berry",
+          "unit": "box",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "215",
+          "product_name": "Golden Custard",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "221",
+          "product_name": "Pineapple",
+          "unit": "pcs",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "223",
+          "product_name": "Musambi",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "224",
+          "product_name": "Anar / Pomegranate",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "227",
+          "product_name": "Supporta / Chikoo",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "228",
+          "product_name": "Thai Guava",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "231",
+          "product_name": "Patta Jam",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "241",
+          "product_name": "Jamun",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "244",
+          "product_name": "Mango BP",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "254",
+          "product_name": "Mango Neelam",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "256",
+          "product_name": "Mango Langada",
+          "unit": "kg",
+          "quantity": 4.0
+        },
+        {
+          "product_sku": "263",
+          "product_name": "Mango Chausa",
+          "unit": "kg",
+          "quantity": 1.0
+        }
+      ]
+    },
+    {
+      "shop_code": "AV_GM_MIDLAND",
+      "shop_name": "GM Midland",
+      "items": [
+        {
+          "product_sku": "1",
+          "product_name": "Tomato H",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "8",
+          "product_name": "Sambar Onion",
+          "unit": "kg",
+          "quantity": 2.3
+        },
+        {
+          "product_sku": "12",
+          "product_name": "Carrot",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "13",
+          "product_name": "French Beans",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "15",
+          "product_name": "ladies Finger",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "17",
+          "product_name": "Broad beans S / Belt",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "20",
+          "product_name": "Green Karamani",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "22",
+          "product_name": "Cluster Beans / Gorikkai",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "23",
+          "product_name": "Green Chilli Normal",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "24",
+          "product_name": "Chilli Spicy / Akash G4",
+          "unit": "kg",
+          "quantity": 2.7
+        },
+        {
+          "product_sku": "27",
+          "product_name": "Brinjal White Long",
+          "unit": "kg",
+          "quantity": 1.4
+        },
+        {
+          "product_sku": "30",
+          "product_name": "Brinjal White Kolkata",
+          "unit": "kg",
+          "quantity": 2.3
+        },
+        {
+          "product_sku": "32",
+          "product_name": "Brinjal Blue Long",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "33",
+          "product_name": "Capsicum",
+          "unit": "kg",
+          "quantity": 2.3
+        },
+        {
+          "product_sku": "34",
+          "product_name": "Beetroot Ootty",
+          "unit": "kg",
+          "quantity": 3.5
+        },
+        {
+          "product_sku": "36",
+          "product_name": "Noolkol (Kohlrbi)",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "39",
+          "product_name": "Bitter Gourd Big",
+          "unit": "kg",
+          "quantity": 1.2
+        },
+        {
+          "product_sku": "40",
+          "product_name": "Bitter Gourd Small",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "42",
+          "product_name": "Bottle Gourd (Loki)",
+          "unit": "kg",
+          "quantity": 3.3
+        },
+        {
+          "product_sku": "43",
+          "product_name": "Ridge Gourd",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "44",
+          "product_name": "Drum Stick",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "50",
+          "product_name": "Raw Banana",
+          "unit": "kg",
+          "quantity": 14.0
+        },
+        {
+          "product_sku": "52",
+          "product_name": "Sambar Cucbr / Southikai",
+          "unit": "kg",
+          "quantity": 3.2
+        },
+        {
+          "product_sku": "53",
+          "product_name": "Cucumber",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "58",
+          "product_name": "Raw Mango totapuri",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "59",
+          "product_name": "Lemon",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "60",
+          "product_name": "Cauliflower",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "71",
+          "product_name": "Kovakka Normal",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "72",
+          "product_name": "Parval / Potol",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "75",
+          "product_name": "Ginger",
+          "unit": "kg",
+          "quantity": 2.3
+        },
+        {
+          "product_sku": "81",
+          "product_name": "Armenian Cucumber / Kakdi",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "83",
+          "product_name": "White Pumkin",
+          "unit": "kg",
+          "quantity": 3.3
+        },
+        {
+          "product_sku": "91",
+          "product_name": "kakrol / Kantola",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "96",
+          "product_name": "Nenua gourd",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "101",
+          "product_name": "Corriander",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "102",
+          "product_name": "Corriander Natti",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "103",
+          "product_name": "Curry Leaf",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "104",
+          "product_name": "Pudina / Mint Leaf",
+          "unit": "kg",
+          "quantity": 7.0
+        },
+        {
+          "product_sku": "105",
+          "product_name": "Palak",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "106",
+          "product_name": "Green Cheera",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "108",
+          "product_name": "Methi / Menthaya",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "115",
+          "product_name": "Drum Stick Leaf",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "128",
+          "product_name": "Mushroom",
+          "unit": "box",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "130",
+          "product_name": "Broccoli",
+          "unit": "kg",
+          "quantity": 2.7
+        },
+        {
+          "product_sku": "162",
+          "product_name": "Banana yelakki Green",
+          "unit": "kg",
+          "quantity": 15.5
+        },
+        {
+          "product_sku": "165",
+          "product_name": "Banana Nendran Color",
+          "unit": "kg",
+          "quantity": 7.9
+        },
+        {
+          "product_sku": "181",
+          "product_name": "Pappaya",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "3",
+          "product_name": "Onion",
+          "unit": "kg",
+          "quantity": 26.0
+        },
+        {
+          "product_sku": "4",
+          "product_name": "Pickle Onion Bag",
+          "unit": "bag",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "6",
+          "product_name": "Potato Local",
+          "unit": "kg",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "170",
+          "product_name": "Coconut",
+          "unit": "pcs",
+          "quantity": 12.0
+        },
+        {
+          "product_sku": "221",
+          "product_name": "Pineapple",
+          "unit": "pcs",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "228",
+          "product_name": "Thai Guava",
+          "unit": "kg",
+          "quantity": 4.0
+        },
+        {
+          "product_sku": "300",
+          "product_name": "Plate 1d",
+          "unit": "pcs",
+          "quantity": 1.0
+        }
+      ]
+    },
+    {
+      "shop_code": "AV_FOOD_PALACE_HSR",
+      "shop_name": "FOOD PALACE HSR",
+      "items": [
+        {
+          "product_sku": "1",
+          "product_name": "Tomato H",
+          "unit": "kg",
+          "quantity": 30.0
+        },
+        {
+          "product_sku": "2",
+          "product_name": "Tomato N",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "12",
+          "product_name": "Carrot",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "13",
+          "product_name": "French Beans",
+          "unit": "kg",
+          "quantity": 7.0
+        },
+        {
+          "product_sku": "15",
+          "product_name": "ladies Finger",
+          "unit": "kg",
+          "quantity": 7.5
+        },
+        {
+          "product_sku": "16",
+          "product_name": "Green Peas",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "17",
+          "product_name": "Broad beans S / Belt",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "18",
+          "product_name": "Paper Chikkdi",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "20",
+          "product_name": "Green Karamani",
+          "unit": "kg",
+          "quantity": 2.6
+        },
+        {
+          "product_sku": "22",
+          "product_name": "Cluster Beans / Gorikkai",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "23",
+          "product_name": "Green Chilli Normal",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "24",
+          "product_name": "Chilli Spicy / Akash G4",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "28",
+          "product_name": "Brinjal Big (Bertha)",
+          "unit": "kg",
+          "quantity": 2.8
+        },
+        {
+          "product_sku": "29",
+          "product_name": "Brinjal Small",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "33",
+          "product_name": "Capsicum",
+          "unit": "kg",
+          "quantity": 5.2
+        },
+        {
+          "product_sku": "34",
+          "product_name": "Beetroot Ootty",
+          "unit": "kg",
+          "quantity": 4.2
+        },
+        {
+          "product_sku": "36",
+          "product_name": "Noolkol (Kohlrbi)",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "37",
+          "product_name": "Radish",
+          "unit": "kg",
+          "quantity": 3.5
+        },
+        {
+          "product_sku": "39",
+          "product_name": "Bitter Gourd Big",
+          "unit": "kg",
+          "quantity": 2.2
+        },
+        {
+          "product_sku": "40",
+          "product_name": "Bitter Gourd Small",
+          "unit": "kg",
+          "quantity": 1.3
+        },
+        {
+          "product_sku": "42",
+          "product_name": "Bottle Gourd (Loki)",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "44",
+          "product_name": "Drum Stick",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "49",
+          "product_name": "Banana Stem",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "50",
+          "product_name": "Raw Banana",
+          "unit": "kg",
+          "quantity": 14.0
+        },
+        {
+          "product_sku": "52",
+          "product_name": "Sambar Cucbr / Southikai",
+          "unit": "kg",
+          "quantity": 2.7
+        },
+        {
+          "product_sku": "53",
+          "product_name": "Cucumber",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "54",
+          "product_name": "English Cucumber",
+          "unit": "kg",
+          "quantity": 2.7
+        },
+        {
+          "product_sku": "55",
+          "product_name": "Yam",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "57",
+          "product_name": "Raw Mango Gund",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "59",
+          "product_name": "Lemon",
+          "unit": "kg",
+          "quantity": 2.4
+        },
+        {
+          "product_sku": "60",
+          "product_name": "Cauliflower",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "61",
+          "product_name": "Cabbage",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "71",
+          "product_name": "Kovakka Normal",
+          "unit": "kg",
+          "quantity": 2.7
+        },
+        {
+          "product_sku": "72",
+          "product_name": "Parval / Potol",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "73",
+          "product_name": "Sweet Potato",
+          "unit": "kg",
+          "quantity": 1.4
+        },
+        {
+          "product_sku": "75",
+          "product_name": "Ginger",
+          "unit": "kg",
+          "quantity": 3.5
+        },
+        {
+          "product_sku": "77",
+          "product_name": "Round Lauki White",
+          "unit": "kg",
+          "quantity": 4.9
+        },
+        {
+          "product_sku": "101",
+          "product_name": "Corriander",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "103",
+          "product_name": "Curry Leaf",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "104",
+          "product_name": "Pudina / Mint Leaf",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "105",
+          "product_name": "Palak",
+          "unit": "kg",
+          "quantity": 7.0
+        },
+        {
+          "product_sku": "107",
+          "product_name": "Red Cheera",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "108",
+          "product_name": "Methi / Menthaya",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "109",
+          "product_name": "Spring Onion",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "112",
+          "product_name": "Sabbakki / Dil Leaf",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "120",
+          "product_name": "Sweet Corn",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "122",
+          "product_name": "Baby Corn",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "123",
+          "product_name": "Peeled Garlic",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "128",
+          "product_name": "Mushroom",
+          "unit": "box",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "130",
+          "product_name": "Broccoli",
+          "unit": "kg",
+          "quantity": 2.9
+        },
+        {
+          "product_sku": "162",
+          "product_name": "Banana yelakki Green",
+          "unit": "kg",
+          "quantity": 16.6
+        },
+        {
+          "product_sku": "164",
+          "product_name": "Banana Nendran",
+          "unit": "kg",
+          "quantity": 8.5
+        },
+        {
+          "product_sku": "166",
+          "product_name": "Banana Robusta",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "181",
+          "product_name": "Pappaya",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "3",
+          "product_name": "Onion",
+          "unit": "kg",
+          "quantity": 46.0
+        },
+        {
+          "product_sku": "5",
+          "product_name": "Potato Agra",
+          "unit": "kg",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "170",
+          "product_name": "Coconut",
+          "unit": "pcs",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "182",
+          "product_name": "Gala NZ",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "196",
+          "product_name": "Citrus Orange",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "228",
+          "product_name": "Thai Guava",
+          "unit": "kg",
+          "quantity": 5.0
+        }
+      ]
+    },
+    {
+      "shop_code": "AV_LULU_BEGUR",
+      "shop_name": "Lulu Begur",
+      "items": [
+        {
+          "product_sku": "1",
+          "product_name": "Tomato H",
+          "unit": "kg",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "2",
+          "product_name": "Tomato N",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "12",
+          "product_name": "Carrot",
+          "unit": "kg",
+          "quantity": 12.0
+        },
+        {
+          "product_sku": "15",
+          "product_name": "ladies Finger",
+          "unit": "kg",
+          "quantity": 12.0
+        },
+        {
+          "product_sku": "16",
+          "product_name": "Green Peas",
+          "unit": "kg",
+          "quantity": 3.5
+        },
+        {
+          "product_sku": "17",
+          "product_name": "Broad beans S / Belt",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "18",
+          "product_name": "Paper Chikkdi",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "20",
+          "product_name": "Green Karamani",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "22",
+          "product_name": "Cluster Beans / Gorikkai",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "23",
+          "product_name": "Green Chilli Normal",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "24",
+          "product_name": "Chilli Spicy / Akash G4",
+          "unit": "kg",
+          "quantity": 4.0
+        },
+        {
+          "product_sku": "28",
+          "product_name": "Brinjal Big (Bertha)",
+          "unit": "kg",
+          "quantity": 3.8
+        },
+        {
+          "product_sku": "29",
+          "product_name": "Brinjal Small",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "33",
+          "product_name": "Capsicum",
+          "unit": "kg",
+          "quantity": 4.3
+        },
+        {
+          "product_sku": "34",
+          "product_name": "Beetroot Ootty",
+          "unit": "kg",
+          "quantity": 4.0
+        },
+        {
+          "product_sku": "37",
+          "product_name": "Radish",
+          "unit": "kg",
+          "quantity": 4.4
+        },
+        {
+          "product_sku": "39",
+          "product_name": "Bitter Gourd Big",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "40",
+          "product_name": "Bitter Gourd Small",
+          "unit": "kg",
+          "quantity": 1.8
+        },
+        {
+          "product_sku": "42",
+          "product_name": "Bottle Gourd (Loki)",
+          "unit": "kg",
+          "quantity": 15.2
+        },
+        {
+          "product_sku": "43",
+          "product_name": "Ridge Gourd",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "44",
+          "product_name": "Drum Stick",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "50",
+          "product_name": "Raw Banana",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "53",
+          "product_name": "Cucumber",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "54",
+          "product_name": "English Cucumber",
+          "unit": "kg",
+          "quantity": 5.6
+        },
+        {
+          "product_sku": "59",
+          "product_name": "Lemon",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "60",
+          "product_name": "Cauliflower",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "61",
+          "product_name": "Cabbage",
+          "unit": "kg",
+          "quantity": 9.5
+        },
+        {
+          "product_sku": "65",
+          "product_name": "Amla",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "71",
+          "product_name": "Kovakka Normal",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "72",
+          "product_name": "Parval / Potol",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "73",
+          "product_name": "Sweet Potato",
+          "unit": "kg",
+          "quantity": 3.5
+        },
+        {
+          "product_sku": "75",
+          "product_name": "Ginger",
+          "unit": "kg",
+          "quantity": 5.4
+        },
+        {
+          "product_sku": "80",
+          "product_name": "SP Natti Thondakai",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "81",
+          "product_name": "Armenian Cucumber / Kakdi",
+          "unit": "kg",
+          "quantity": 2.3
+        },
+        {
+          "product_sku": "84",
+          "product_name": "Yellow Pumkin",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "96",
+          "product_name": "Nenua gourd",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "101",
+          "product_name": "Corriander",
+          "unit": "kg",
+          "quantity": 12.0
+        },
+        {
+          "product_sku": "103",
+          "product_name": "Curry Leaf",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "104",
+          "product_name": "Pudina / Mint Leaf",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "105",
+          "product_name": "Palak",
+          "unit": "kg",
+          "quantity": 13.0
+        },
+        {
+          "product_sku": "106",
+          "product_name": "Green Cheera",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "107",
+          "product_name": "Red Cheera",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "108",
+          "product_name": "Methi / Menthaya",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "109",
+          "product_name": "Spring Onion",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "110",
+          "product_name": "Gongura",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "112",
+          "product_name": "Sabbakki / Dil Leaf",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "115",
+          "product_name": "Drum Stick Leaf",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "116",
+          "product_name": "Arai Keerai",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "117",
+          "product_name": "Siru Keerai",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "120",
+          "product_name": "Sweet Corn",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "128",
+          "product_name": "Mushroom",
+          "unit": "box",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "130",
+          "product_name": "Broccoli",
+          "unit": "kg",
+          "quantity": 2.9
+        },
+        {
+          "product_sku": "133",
+          "product_name": "Lettuce",
+          "unit": "kg",
+          "quantity": 6.6
+        },
+        {
+          "product_sku": "139",
+          "product_name": "Red Cabbage",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "162",
+          "product_name": "Banana yelakki Green",
+          "unit": "kg",
+          "quantity": 16.0
+        },
+        {
+          "product_sku": "164",
+          "product_name": "Banana Nendran",
+          "unit": "kg",
+          "quantity": 9.7
+        },
+        {
+          "product_sku": "166",
+          "product_name": "Banana Robusta",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "181",
+          "product_name": "Pappaya",
+          "unit": "kg",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "3",
+          "product_name": "Onion",
+          "unit": "kg",
+          "quantity": 24.0
+        },
+        {
+          "product_sku": "4",
+          "product_name": "Pickle Onion Bag",
+          "unit": "bag",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "6",
+          "product_name": "Potato Local",
+          "unit": "kg",
+          "quantity": 50.0
+        },
+        {
+          "product_sku": "11",
+          "product_name": "Garlic Ootty",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "170",
+          "product_name": "Coconut",
+          "unit": "pcs",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "183",
+          "product_name": "Gala Apple",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "193",
+          "product_name": "Mini Orange",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "195",
+          "product_name": "Pears",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "198",
+          "product_name": "Dragon Fruit",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "200",
+          "product_name": "Kiwi",
+          "unit": "box",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "221",
+          "product_name": "Pineapple",
+          "unit": "pcs",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "223",
+          "product_name": "Musambi",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "224",
+          "product_name": "Anar / Pomegranate",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "228",
+          "product_name": "Thai Guava",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "238",
+          "product_name": "Rambutan",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "254",
+          "product_name": "Mango Neelam",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "257",
+          "product_name": "Mango Dasari",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "312",
+          "product_name": "Billing Roll",
+          "unit": "roll",
+          "quantity": 10.0
+        }
+      ]
+    },
+    {
+      "shop_code": "AV_JINDAL_CITY",
+      "shop_name": "Families Jindal City",
+      "items": [
+        {
+          "product_sku": "1",
+          "product_name": "Tomato H",
+          "unit": "kg",
+          "quantity": 30.0
+        },
+        {
+          "product_sku": "2",
+          "product_name": "Tomato N",
+          "unit": "kg",
+          "quantity": 30.0
+        },
+        {
+          "product_sku": "20",
+          "product_name": "Green Karamani",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "23",
+          "product_name": "Green Chilli Normal",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "24",
+          "product_name": "Chilli Spicy / Akash G4",
+          "unit": "kg",
+          "quantity": 7.5
+        },
+        {
+          "product_sku": "53",
+          "product_name": "Cucumber",
+          "unit": "kg",
+          "quantity": 50.0
+        },
+        {
+          "product_sku": "58",
+          "product_name": "Raw Mango totapuri",
+          "unit": "kg",
+          "quantity": 5.3
+        },
+        {
+          "product_sku": "59",
+          "product_name": "Lemon",
+          "unit": "kg",
+          "quantity": 12.0
+        },
+        {
+          "product_sku": "73",
+          "product_name": "Sweet Potato",
+          "unit": "kg",
+          "quantity": 9.2
+        },
+        {
+          "product_sku": "76",
+          "product_name": "Ground Nut",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "83",
+          "product_name": "White Pumkin",
+          "unit": "kg",
+          "quantity": 7.8
+        },
+        {
+          "product_sku": "84",
+          "product_name": "Yellow Pumkin",
+          "unit": "kg",
+          "quantity": 10.7
+        },
+        {
+          "product_sku": "96",
+          "product_name": "Nenua gourd",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "123",
+          "product_name": "Peeled Garlic",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "124",
+          "product_name": "Peeled Onion",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "130",
+          "product_name": "Broccoli",
+          "unit": "kg",
+          "quantity": 4.3
+        },
+        {
+          "product_sku": "5",
+          "product_name": "Potato Agra",
+          "unit": "kg",
+          "quantity": 50.0
+        },
+        {
+          "product_sku": "11",
+          "product_name": "Garlic Ootty",
+          "unit": "kg",
+          "quantity": 4.0
+        },
+        {
+          "product_sku": "170",
+          "product_name": "Coconut",
+          "unit": "pcs",
+          "quantity": 40.0
+        },
+        {
+          "product_sku": "183",
+          "product_name": "Gala Apple",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "186",
+          "product_name": "Green Apple",
+          "unit": "kg",
+          "quantity": 0.25
+        },
+        {
+          "product_sku": "193",
+          "product_name": "Mini Orange",
+          "unit": "kg",
+          "quantity": 0.5
+        },
+        {
+          "product_sku": "195",
+          "product_name": "Pears",
+          "unit": "kg",
+          "quantity": 0.25
+        },
+        {
+          "product_sku": "196",
+          "product_name": "Citrus Orange",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "204",
+          "product_name": "Redglobe",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "221",
+          "product_name": "Pineapple",
+          "unit": "pcs",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "223",
+          "product_name": "Musambi",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "228",
+          "product_name": "Thai Guava",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "230",
+          "product_name": "Muskmelon",
+          "unit": "pcs",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "231",
+          "product_name": "Patta Jam",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "254",
+          "product_name": "Mango Neelam",
+          "unit": "kg",
+          "quantity": 1.0
+        }
+      ]
+    },
+    {
+      "shop_code": "DS_QUICK_MART",
+      "shop_name": "Quick Mart",
+      "items": [
+        {
+          "product_sku": "1",
+          "product_name": "Tomato H",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "8",
+          "product_name": "Sambar Onion",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "12",
+          "product_name": "Carrot",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "13",
+          "product_name": "French Beans",
+          "unit": "kg",
+          "quantity": 1.7
+        },
+        {
+          "product_sku": "15",
+          "product_name": "ladies Finger",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "24",
+          "product_name": "Chilli Spicy / Akash G4",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "40",
+          "product_name": "Bitter Gourd Small",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "43",
+          "product_name": "Ridge Gourd",
+          "unit": "kg",
+          "quantity": 1.2
+        },
+        {
+          "product_sku": "44",
+          "product_name": "Drum Stick",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "50",
+          "product_name": "Raw Banana",
+          "unit": "kg",
+          "quantity": 6.0
+        },
+        {
+          "product_sku": "53",
+          "product_name": "Cucumber",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "54",
+          "product_name": "English Cucumber",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "61",
+          "product_name": "Cabbage",
+          "unit": "kg",
+          "quantity": 2.7
+        },
+        {
+          "product_sku": "75",
+          "product_name": "Ginger",
+          "unit": "kg",
+          "quantity": 2.4
+        },
+        {
+          "product_sku": "79",
+          "product_name": "Raw Pappaya",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "91",
+          "product_name": "kakrol / Kantola",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "101",
+          "product_name": "Corriander",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "104",
+          "product_name": "Pudina / Mint Leaf",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "107",
+          "product_name": "Red Cheera",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "109",
+          "product_name": "Spring Onion",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "120",
+          "product_name": "Sweet Corn",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "166",
+          "product_name": "Banana Robusta",
+          "unit": "kg",
+          "quantity": 7.0
+        },
+        {
+          "product_sku": "181",
+          "product_name": "Pappaya",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "3",
+          "product_name": "Onion",
+          "unit": "kg",
+          "quantity": 50.0
+        },
+        {
+          "product_sku": "232",
+          "product_name": "Black Grapes",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "236",
+          "product_name": "Litchi",
+          "unit": "kg",
+          "quantity": 1.0
+        }
+      ]
+    },
+    {
+      "shop_code": "DS_FORTUNE_SM",
+      "shop_name": "Fortune SM",
+      "items": [
+        {
+          "product_sku": "1",
+          "product_name": "Tomato H",
+          "unit": "kg",
+          "quantity": 40.0
+        },
+        {
+          "product_sku": "8",
+          "product_name": "Sambar Onion",
+          "unit": "kg",
+          "quantity": 2.5
+        },
+        {
+          "product_sku": "12",
+          "product_name": "Carrot",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "13",
+          "product_name": "French Beans",
+          "unit": "kg",
+          "quantity": 7.5
+        },
+        {
+          "product_sku": "15",
+          "product_name": "ladies Finger",
+          "unit": "kg",
+          "quantity": 12.0
+        },
+        {
+          "product_sku": "17",
+          "product_name": "Broad beans S / Belt",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "19",
+          "product_name": "White Karamani",
+          "unit": "kg",
+          "quantity": 3.4
+        },
+        {
+          "product_sku": "20",
+          "product_name": "Green Karamani",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "27",
+          "product_name": "Brinjal White Long",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "28",
+          "product_name": "Brinjal Big (Bertha)",
+          "unit": "kg",
+          "quantity": 8.0
+        },
+        {
+          "product_sku": "29",
+          "product_name": "Brinjal Small",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "30",
+          "product_name": "Brinjal White Kolkata",
+          "unit": "kg",
+          "quantity": 2.4
+        },
+        {
+          "product_sku": "31",
+          "product_name": "Brinjol Rampuri",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "34",
+          "product_name": "Beetroot Ootty",
+          "unit": "kg",
+          "quantity": 7.0
+        },
+        {
+          "product_sku": "35",
+          "product_name": "Chow Chow",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "37",
+          "product_name": "Radish",
+          "unit": "kg",
+          "quantity": 9.6
+        },
+        {
+          "product_sku": "38",
+          "product_name": "Tinda (Round Gurad)",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "40",
+          "product_name": "Bitter Gourd Small",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "42",
+          "product_name": "Bottle Gourd (Loki)",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "43",
+          "product_name": "Ridge Gourd",
+          "unit": "kg",
+          "quantity": 7.2
+        },
+        {
+          "product_sku": "45",
+          "product_name": "Snake Gourd White",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "46",
+          "product_name": "Snake Gourd Green",
+          "unit": "kg",
+          "quantity": 2.2
+        },
+        {
+          "product_sku": "50",
+          "product_name": "Raw Banana",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "55",
+          "product_name": "Yam",
+          "unit": "kg",
+          "quantity": 13.0
+        },
+        {
+          "product_sku": "57",
+          "product_name": "Raw Mango Gund",
+          "unit": "kg",
+          "quantity": 3.6
+        },
+        {
+          "product_sku": "58",
+          "product_name": "Raw Mango totapuri",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "59",
+          "product_name": "Lemon",
+          "unit": "kg",
+          "quantity": 5.9
+        },
+        {
+          "product_sku": "61",
+          "product_name": "Cabbage",
+          "unit": "kg",
+          "quantity": 16.7
+        },
+        {
+          "product_sku": "62",
+          "product_name": "Arbi /Taroroot",
+          "unit": "kg",
+          "quantity": 2.4
+        },
+        {
+          "product_sku": "65",
+          "product_name": "Amla",
+          "unit": "kg",
+          "quantity": 2.4
+        },
+        {
+          "product_sku": "71",
+          "product_name": "Kovakka Normal",
+          "unit": "kg",
+          "quantity": 3.2
+        },
+        {
+          "product_sku": "72",
+          "product_name": "Parval / Potol",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "73",
+          "product_name": "Sweet Potato",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "74",
+          "product_name": "Tapioca",
+          "unit": "kg",
+          "quantity": 8.8
+        },
+        {
+          "product_sku": "76",
+          "product_name": "Ground Nut",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "77",
+          "product_name": "Round Lauki White",
+          "unit": "kg",
+          "quantity": 5.8
+        },
+        {
+          "product_sku": "79",
+          "product_name": "Raw Pappaya",
+          "unit": "kg",
+          "quantity": 4.3
+        },
+        {
+          "product_sku": "81",
+          "product_name": "Armenian Cucumber / Kakdi",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "83",
+          "product_name": "White Pumkin",
+          "unit": "kg",
+          "quantity": 9.2
+        },
+        {
+          "product_sku": "84",
+          "product_name": "Yellow Pumkin",
+          "unit": "kg",
+          "quantity": 13.5
+        },
+        {
+          "product_sku": "90",
+          "product_name": "Flower K",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "91",
+          "product_name": "kakrol / Kantola",
+          "unit": "kg",
+          "quantity": 2.7
+        },
+        {
+          "product_sku": "96",
+          "product_name": "Nenua gourd",
+          "unit": "kg",
+          "quantity": 2.3
+        },
+        {
+          "product_sku": "101",
+          "product_name": "Corriander",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "103",
+          "product_name": "Curry Leaf",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "104",
+          "product_name": "Pudina / Mint Leaf",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "105",
+          "product_name": "Palak",
+          "unit": "kg",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "107",
+          "product_name": "Red Cheera",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "108",
+          "product_name": "Methi / Menthaya",
+          "unit": "kg",
+          "quantity": 10.0
+        },
+        {
+          "product_sku": "109",
+          "product_name": "Spring Onion",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "110",
+          "product_name": "Gongura",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "111",
+          "product_name": "Basella leaf / Basala",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "112",
+          "product_name": "Sabbakki / Dil Leaf",
+          "unit": "kg",
+          "quantity": 2.0
+        },
+        {
+          "product_sku": "115",
+          "product_name": "Drum Stick Leaf",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "122",
+          "product_name": "Baby Corn",
+          "unit": "kg",
+          "quantity": 3.0
+        },
+        {
+          "product_sku": "123",
+          "product_name": "Peeled Garlic",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "128",
+          "product_name": "Mushroom",
+          "unit": "box",
+          "quantity": 15.0
+        },
+        {
+          "product_sku": "135",
+          "product_name": "Colur Capcicum Yellow",
+          "unit": "kg",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "136",
+          "product_name": "Colur Capcicum Red",
+          "unit": "kg",
+          "quantity": 1.5
+        },
+        {
+          "product_sku": "162",
+          "product_name": "Banana yelakki Green",
+          "unit": "kg",
+          "quantity": 23.3
+        },
+        {
+          "product_sku": "164",
+          "product_name": "Banana Nendran",
+          "unit": "kg",
+          "quantity": 7.9
+        },
+        {
+          "product_sku": "166",
+          "product_name": "Banana Robusta",
+          "unit": "kg",
+          "quantity": 20.0
+        },
+        {
+          "product_sku": "11",
+          "product_name": "Garlic Ootty",
+          "unit": "kg",
+          "quantity": 5.0
+        },
+        {
+          "product_sku": "170",
+          "product_name": "Coconut",
+          "unit": "pcs",
+          "quantity": 25.0
+        },
+        {
+          "product_sku": "207",
+          "product_name": "Cherry",
+          "unit": "box",
+          "quantity": 1.0
+        },
+        {
+          "product_sku": "256",
+          "product_name": "Mango Langada",
+          "unit": "kg",
+          "quantity": 3.0
+        }
+      ]
+    }
+  ],
+  "checks": {
+    "shop_count": 14,
+    "product_rows_with_nonzero_total": 158,
+    "shop_item_count": 963,
+    "row_totals": [
+      {
+        "product_sku": "1",
+        "product_name": "Tomato H",
+        "pdf_total": 225.0,
+        "calculated_total": 225.0
+      },
+      {
+        "product_sku": "2",
+        "product_name": "Tomato N",
+        "pdf_total": 120.0,
+        "calculated_total": 120.0
+      },
+      {
+        "product_sku": "8",
+        "product_name": "Sambar Onion",
+        "pdf_total": 14.3,
+        "calculated_total": 14.3
+      },
+      {
+        "product_sku": "12",
+        "product_name": "Carrot",
+        "pdf_total": 131.5,
+        "calculated_total": 131.5
+      },
+      {
+        "product_sku": "13",
+        "product_name": "French Beans",
+        "pdf_total": 58.2,
+        "calculated_total": 58.2
+      },
+      {
+        "product_sku": "15",
+        "product_name": "ladies Finger",
+        "pdf_total": 88.0,
+        "calculated_total": 88.0
+      },
+      {
+        "product_sku": "16",
+        "product_name": "Green Peas",
+        "pdf_total": 24.7,
+        "calculated_total": 24.7
+      },
+      {
+        "product_sku": "17",
+        "product_name": "Broad beans S / Belt",
+        "pdf_total": 21.0,
+        "calculated_total": 21.0
+      },
+      {
+        "product_sku": "18",
+        "product_name": "Paper Chikkdi",
+        "pdf_total": 11.0,
+        "calculated_total": 11.0
+      },
+      {
+        "product_sku": "19",
+        "product_name": "White Karamani",
+        "pdf_total": 14.6,
+        "calculated_total": 14.6
+      },
+      {
+        "product_sku": "20",
+        "product_name": "Green Karamani",
+        "pdf_total": 15.1,
+        "calculated_total": 15.1
+      },
+      {
+        "product_sku": "22",
+        "product_name": "Cluster Beans / Gorikkai",
+        "pdf_total": 11.0,
+        "calculated_total": 11.0
+      },
+      {
+        "product_sku": "23",
+        "product_name": "Green Chilli Normal",
+        "pdf_total": 22.5,
+        "calculated_total": 22.5
+      },
+      {
+        "product_sku": "24",
+        "product_name": "Chilli Spicy / Akash G4",
+        "pdf_total": 38.4,
+        "calculated_total": 38.4
+      },
+      {
+        "product_sku": "25",
+        "product_name": "Bajji Chilli",
+        "pdf_total": 3.1,
+        "calculated_total": 3.1
+      },
+      {
+        "product_sku": "27",
+        "product_name": "Brinjal White Long",
+        "pdf_total": 9.7,
+        "calculated_total": 9.7
+      },
+      {
+        "product_sku": "28",
+        "product_name": "Brinjal Big (Bertha)",
+        "pdf_total": 37.9,
+        "calculated_total": 37.9
+      },
+      {
+        "product_sku": "29",
+        "product_name": "Brinjal Small",
+        "pdf_total": 20.5,
+        "calculated_total": 20.5
+      },
+      {
+        "product_sku": "30",
+        "product_name": "Brinjal White Kolkata",
+        "pdf_total": 7.2,
+        "calculated_total": 7.2
+      },
+      {
+        "product_sku": "31",
+        "product_name": "Brinjol Rampuri",
+        "pdf_total": 9.5,
+        "calculated_total": 9.5
+      },
+      {
+        "product_sku": "32",
+        "product_name": "Brinjal Blue Long",
+        "pdf_total": 11.1,
+        "calculated_total": 11.1
+      },
+      {
+        "product_sku": "33",
+        "product_name": "Capsicum",
+        "pdf_total": 45.5,
+        "calculated_total": 45.5
+      },
+      {
+        "product_sku": "34",
+        "product_name": "Beetroot Ootty",
+        "pdf_total": 49.2,
+        "calculated_total": 49.2
+      },
+      {
+        "product_sku": "35",
+        "product_name": "Chow Chow",
+        "pdf_total": 8.0,
+        "calculated_total": 8.0
+      },
+      {
+        "product_sku": "36",
+        "product_name": "Noolkol (Kohlrbi)",
+        "pdf_total": 8.4,
+        "calculated_total": 8.4
+      },
+      {
+        "product_sku": "37",
+        "product_name": "Radish",
+        "pdf_total": 47.8,
+        "calculated_total": 47.8
+      },
+      {
+        "product_sku": "38",
+        "product_name": "Tinda (Round Gurad)",
+        "pdf_total": 9.8,
+        "calculated_total": 9.8
+      },
+      {
+        "product_sku": "39",
+        "product_name": "Bitter Gourd Big",
+        "pdf_total": 21.4,
+        "calculated_total": 21.4
+      },
+      {
+        "product_sku": "40",
+        "product_name": "Bitter Gourd Small",
+        "pdf_total": 23.4,
+        "calculated_total": 23.4
+      },
+      {
+        "product_sku": "41",
+        "product_name": "Bitter Gourd White",
+        "pdf_total": 5.0,
+        "calculated_total": 5.0
+      },
+      {
+        "product_sku": "42",
+        "product_name": "Bottle Gourd (Loki)",
+        "pdf_total": 85.6,
+        "calculated_total": 85.6
+      },
+      {
+        "product_sku": "43",
+        "product_name": "Ridge Gourd",
+        "pdf_total": 50.6,
+        "calculated_total": 50.6
+      },
+      {
+        "product_sku": "44",
+        "product_name": "Drum Stick",
+        "pdf_total": 18.5,
+        "calculated_total": 18.5
+      },
+      {
+        "product_sku": "45",
+        "product_name": "Snake Gourd White",
+        "pdf_total": 4.9,
+        "calculated_total": 4.9
+      },
+      {
+        "product_sku": "46",
+        "product_name": "Snake Gourd Green",
+        "pdf_total": 5.0,
+        "calculated_total": 5.0
+      },
+      {
+        "product_sku": "48",
+        "product_name": "Banana Flower",
+        "pdf_total": 4.0,
+        "calculated_total": 4.0
+      },
+      {
+        "product_sku": "49",
+        "product_name": "Banana Stem",
+        "pdf_total": 20.0,
+        "calculated_total": 20.0
+      },
+      {
+        "product_sku": "50",
+        "product_name": "Raw Banana",
+        "pdf_total": 149.0,
+        "calculated_total": 149.0
+      },
+      {
+        "product_sku": "52",
+        "product_name": "Sambar Cucbr / Southikai",
+        "pdf_total": 12.9,
+        "calculated_total": 12.9
+      },
+      {
+        "product_sku": "53",
+        "product_name": "Cucumber",
+        "pdf_total": 175.0,
+        "calculated_total": 175.0
+      },
+      {
+        "product_sku": "54",
+        "product_name": "English Cucumber",
+        "pdf_total": 46.8,
+        "calculated_total": 46.8
+      },
+      {
+        "product_sku": "55",
+        "product_name": "Yam",
+        "pdf_total": 27.7,
+        "calculated_total": 27.7
+      },
+      {
+        "product_sku": "57",
+        "product_name": "Raw Mango Gund",
+        "pdf_total": 17.1,
+        "calculated_total": 17.1
+      },
+      {
+        "product_sku": "58",
+        "product_name": "Raw Mango totapuri",
+        "pdf_total": 17.3,
+        "calculated_total": 17.3
+      },
+      {
+        "product_sku": "59",
+        "product_name": "Lemon",
+        "pdf_total": 67.3,
+        "calculated_total": 67.3
+      },
+      {
+        "product_sku": "60",
+        "product_name": "Cauliflower",
+        "pdf_total": 92.0,
+        "calculated_total": 92.0
+      },
+      {
+        "product_sku": "61",
+        "product_name": "Cabbage",
+        "pdf_total": 69.6,
+        "calculated_total": 69.6
+      },
+      {
+        "product_sku": "62",
+        "product_name": "Arbi /Taroroot",
+        "pdf_total": 11.5,
+        "calculated_total": 11.5
+      },
+      {
+        "product_sku": "65",
+        "product_name": "Amla",
+        "pdf_total": 14.8,
+        "calculated_total": 14.8
+      },
+      {
+        "product_sku": "67",
+        "product_name": "Jack Fruit Ripe",
+        "pdf_total": 13.0,
+        "calculated_total": 13.0
+      },
+      {
+        "product_sku": "69",
+        "product_name": "Raw Turmeric Kalkata",
+        "pdf_total": 2.0,
+        "calculated_total": 2.0
+      },
+      {
+        "product_sku": "71",
+        "product_name": "Kovakka Normal",
+        "pdf_total": 18.6,
+        "calculated_total": 18.6
+      },
+      {
+        "product_sku": "72",
+        "product_name": "Parval / Potol",
+        "pdf_total": 45.7,
+        "calculated_total": 45.7
+      },
+      {
+        "product_sku": "73",
+        "product_name": "Sweet Potato",
+        "pdf_total": 39.3,
+        "calculated_total": 39.3
+      },
+      {
+        "product_sku": "74",
+        "product_name": "Tapioca",
+        "pdf_total": 16.4,
+        "calculated_total": 16.4
+      },
+      {
+        "product_sku": "75",
+        "product_name": "Ginger",
+        "pdf_total": 44.5,
+        "calculated_total": 44.5
+      },
+      {
+        "product_sku": "76",
+        "product_name": "Ground Nut",
+        "pdf_total": 5.0,
+        "calculated_total": 5.0
+      },
+      {
+        "product_sku": "77",
+        "product_name": "Round Lauki White",
+        "pdf_total": 20.3,
+        "calculated_total": 20.3
+      },
+      {
+        "product_sku": "79",
+        "product_name": "Raw Pappaya",
+        "pdf_total": 19.7,
+        "calculated_total": 19.7
+      },
+      {
+        "product_sku": "80",
+        "product_name": "SP Natti Thondakai",
+        "pdf_total": 10.0,
+        "calculated_total": 10.0
+      },
+      {
+        "product_sku": "81",
+        "product_name": "Armenian Cucumber / Kakdi",
+        "pdf_total": 9.8,
+        "calculated_total": 9.8
+      },
+      {
+        "product_sku": "83",
+        "product_name": "White Pumkin",
+        "pdf_total": 33.0,
+        "calculated_total": 33.0
+      },
+      {
+        "product_sku": "84",
+        "product_name": "Yellow Pumkin",
+        "pdf_total": 54.1,
+        "calculated_total": 54.1
+      },
+      {
+        "product_sku": "90",
+        "product_name": "Flower K",
+        "pdf_total": 1.0,
+        "calculated_total": 1.0
+      },
+      {
+        "product_sku": "91",
+        "product_name": "kakrol / Kantola",
+        "pdf_total": 8.9,
+        "calculated_total": 8.9
+      },
+      {
+        "product_sku": "96",
+        "product_name": "Nenua gourd",
+        "pdf_total": 27.3,
+        "calculated_total": 27.3
+      },
+      {
+        "product_sku": "101",
+        "product_name": "Corriander",
+        "pdf_total": 149.0,
+        "calculated_total": 149.0
+      },
+      {
+        "product_sku": "102",
+        "product_name": "Corriander Natti",
+        "pdf_total": 17.0,
+        "calculated_total": 17.0
+      },
+      {
+        "product_sku": "103",
+        "product_name": "Curry Leaf",
+        "pdf_total": 10.0,
+        "calculated_total": 10.0
+      },
+      {
+        "product_sku": "104",
+        "product_name": "Pudina / Mint Leaf",
+        "pdf_total": 90.0,
+        "calculated_total": 90.0
+      },
+      {
+        "product_sku": "105",
+        "product_name": "Palak",
+        "pdf_total": 123.0,
+        "calculated_total": 123.0
+      },
+      {
+        "product_sku": "106",
+        "product_name": "Green Cheera",
+        "pdf_total": 16.0,
+        "calculated_total": 16.0
+      },
+      {
+        "product_sku": "107",
+        "product_name": "Red Cheera",
+        "pdf_total": 19.0,
+        "calculated_total": 19.0
+      },
+      {
+        "product_sku": "108",
+        "product_name": "Methi / Menthaya",
+        "pdf_total": 80.0,
+        "calculated_total": 80.0
+      },
+      {
+        "product_sku": "109",
+        "product_name": "Spring Onion",
+        "pdf_total": 26.0,
+        "calculated_total": 26.0
+      },
+      {
+        "product_sku": "110",
+        "product_name": "Gongura",
+        "pdf_total": 9.0,
+        "calculated_total": 9.0
+      },
+      {
+        "product_sku": "111",
+        "product_name": "Basella leaf / Basala",
+        "pdf_total": 6.0,
+        "calculated_total": 6.0
+      },
+      {
+        "product_sku": "112",
+        "product_name": "Sabbakki / Dil Leaf",
+        "pdf_total": 14.0,
+        "calculated_total": 14.0
+      },
+      {
+        "product_sku": "113",
+        "product_name": "Chakotha",
+        "pdf_total": 5.0,
+        "calculated_total": 5.0
+      },
+      {
+        "product_sku": "114",
+        "product_name": "Mustard Leaf",
+        "pdf_total": 6.0,
+        "calculated_total": 6.0
+      },
+      {
+        "product_sku": "115",
+        "product_name": "Drum Stick Leaf",
+        "pdf_total": 11.0,
+        "calculated_total": 11.0
+      },
+      {
+        "product_sku": "116",
+        "product_name": "Arai Keerai",
+        "pdf_total": 9.0,
+        "calculated_total": 9.0
+      },
+      {
+        "product_sku": "117",
+        "product_name": "Siru Keerai",
+        "pdf_total": 8.0,
+        "calculated_total": 8.0
+      },
+      {
+        "product_sku": "120",
+        "product_name": "Sweet Corn",
+        "pdf_total": 115.0,
+        "calculated_total": 115.0
+      },
+      {
+        "product_sku": "121",
+        "product_name": "Peeled Corn",
+        "pdf_total": 7.0,
+        "calculated_total": 7.0
+      },
+      {
+        "product_sku": "122",
+        "product_name": "Baby Corn",
+        "pdf_total": 16.0,
+        "calculated_total": 16.0
+      },
+      {
+        "product_sku": "123",
+        "product_name": "Peeled Garlic",
+        "pdf_total": 33.0,
+        "calculated_total": 33.0
+      },
+      {
+        "product_sku": "124",
+        "product_name": "Peeled Onion",
+        "pdf_total": 11.0,
+        "calculated_total": 11.0
+      },
+      {
+        "product_sku": "125",
+        "product_name": "Sprouds",
+        "pdf_total": 7.0,
+        "calculated_total": 7.0
+      },
+      {
+        "product_sku": "126",
+        "product_name": "Cherry Tomato Box",
+        "pdf_total": 3.0,
+        "calculated_total": 3.0
+      },
+      {
+        "product_sku": "128",
+        "product_name": "Mushroom",
+        "pdf_total": 120.0,
+        "calculated_total": 120.0
+      },
+      {
+        "product_sku": "130",
+        "product_name": "Broccoli",
+        "pdf_total": 33.2,
+        "calculated_total": 33.2
+      },
+      {
+        "product_sku": "133",
+        "product_name": "Lettuce",
+        "pdf_total": 8.65,
+        "calculated_total": 8.65
+      },
+      {
+        "product_sku": "134",
+        "product_name": "Ice Berg Lettuce",
+        "pdf_total": 2.5,
+        "calculated_total": 2.5
+      },
+      {
+        "product_sku": "135",
+        "product_name": "Colur Capcicum Yellow",
+        "pdf_total": 6.5,
+        "calculated_total": 6.5
+      },
+      {
+        "product_sku": "136",
+        "product_name": "Colur Capcicum Red",
+        "pdf_total": 7.0,
+        "calculated_total": 7.0
+      },
+      {
+        "product_sku": "137",
+        "product_name": "Zuchini Green",
+        "pdf_total": 2.0,
+        "calculated_total": 2.0
+      },
+      {
+        "product_sku": "138",
+        "product_name": "Zuchini Yellow",
+        "pdf_total": 1.0,
+        "calculated_total": 1.0
+      },
+      {
+        "product_sku": "139",
+        "product_name": "Red Cabbage",
+        "pdf_total": 3.0,
+        "calculated_total": 3.0
+      },
+      {
+        "product_sku": "140",
+        "product_name": "Chinees Cabbage",
+        "pdf_total": 6.0,
+        "calculated_total": 6.0
+      },
+      {
+        "product_sku": "147",
+        "product_name": "Misty Pumkin",
+        "pdf_total": 3.0,
+        "calculated_total": 3.0
+      },
+      {
+        "product_sku": "162",
+        "product_name": "Banana yelakki Green",
+        "pdf_total": 189.5,
+        "calculated_total": 189.5
+      },
+      {
+        "product_sku": "164",
+        "product_name": "Banana Nendran",
+        "pdf_total": 75.1,
+        "calculated_total": 75.1
+      },
+      {
+        "product_sku": "165",
+        "product_name": "Banana Nendran Color",
+        "pdf_total": 15.3,
+        "calculated_total": 15.3
+      },
+      {
+        "product_sku": "166",
+        "product_name": "Banana Robusta",
+        "pdf_total": 263.0,
+        "calculated_total": 263.0
+      },
+      {
+        "product_sku": "181",
+        "product_name": "Pappaya",
+        "pdf_total": 214.0,
+        "calculated_total": 214.0
+      },
+      {
+        "product_sku": "3",
+        "product_name": "Onion",
+        "pdf_total": 389.0,
+        "calculated_total": 389.0
+      },
+      {
+        "product_sku": "4",
+        "product_name": "Pickle Onion Bag",
+        "pdf_total": 10.0,
+        "calculated_total": 10.0
+      },
+      {
+        "product_sku": "5",
+        "product_name": "Potato Agra",
+        "pdf_total": 150.0,
+        "calculated_total": 150.0
+      },
+      {
+        "product_sku": "6",
+        "product_name": "Potato Local",
+        "pdf_total": 175.0,
+        "calculated_total": 175.0
+      },
+      {
+        "product_sku": "7",
+        "product_name": "Baby Potato",
+        "pdf_total": 12.0,
+        "calculated_total": 12.0
+      },
+      {
+        "product_sku": "11",
+        "product_name": "Garlic Ootty",
+        "pdf_total": 34.0,
+        "calculated_total": 34.0
+      },
+      {
+        "product_sku": "170",
+        "product_name": "Coconut",
+        "pdf_total": 197.0,
+        "calculated_total": 197.0
+      },
+      {
+        "product_sku": "182",
+        "product_name": "Gala NZ",
+        "pdf_total": 3.0,
+        "calculated_total": 3.0
+      },
+      {
+        "product_sku": "183",
+        "product_name": "Gala Apple",
+        "pdf_total": 3.0,
+        "calculated_total": 3.0
+      },
+      {
+        "product_sku": "186",
+        "product_name": "Green Apple",
+        "pdf_total": 0.25,
+        "calculated_total": 0.25
+      },
+      {
+        "product_sku": "187",
+        "product_name": "Apple Pink lady",
+        "pdf_total": 1.0,
+        "calculated_total": 1.0
+      },
+      {
+        "product_sku": "192",
+        "product_name": "Washington Apple",
+        "pdf_total": 0.5,
+        "calculated_total": 0.5
+      },
+      {
+        "product_sku": "193",
+        "product_name": "Mini Orange",
+        "pdf_total": 7.0,
+        "calculated_total": 7.0
+      },
+      {
+        "product_sku": "194",
+        "product_name": "Mini Orange SL",
+        "pdf_total": 0.5,
+        "calculated_total": 0.5
+      },
+      {
+        "product_sku": "195",
+        "product_name": "Pears",
+        "pdf_total": 3.65,
+        "calculated_total": 3.65
+      },
+      {
+        "product_sku": "196",
+        "product_name": "Citrus Orange",
+        "pdf_total": 6.0,
+        "calculated_total": 6.0
+      },
+      {
+        "product_sku": "198",
+        "product_name": "Dragon Fruit",
+        "pdf_total": 14.0,
+        "calculated_total": 14.0
+      },
+      {
+        "product_sku": "200",
+        "product_name": "Kiwi",
+        "pdf_total": 18.0,
+        "calculated_total": 18.0
+      },
+      {
+        "product_sku": "201",
+        "product_name": "Golden Kiwi",
+        "pdf_total": 10.0,
+        "calculated_total": 10.0
+      },
+      {
+        "product_sku": "202",
+        "product_name": "Imp Butter Fruit",
+        "pdf_total": 3.0,
+        "calculated_total": 3.0
+      },
+      {
+        "product_sku": "204",
+        "product_name": "Redglobe",
+        "pdf_total": 1.0,
+        "calculated_total": 1.0
+      },
+      {
+        "product_sku": "206",
+        "product_name": "Muscat Grape",
+        "pdf_total": 1.0,
+        "calculated_total": 1.0
+      },
+      {
+        "product_sku": "207",
+        "product_name": "Cherry",
+        "pdf_total": 1.0,
+        "calculated_total": 1.0
+      },
+      {
+        "product_sku": "210",
+        "product_name": "Blue Berry",
+        "pdf_total": 7.0,
+        "calculated_total": 7.0
+      },
+      {
+        "product_sku": "213",
+        "product_name": "Bare Apple",
+        "pdf_total": 1.0,
+        "calculated_total": 1.0
+      },
+      {
+        "product_sku": "215",
+        "product_name": "Golden Custard",
+        "pdf_total": 9.0,
+        "calculated_total": 9.0
+      },
+      {
+        "product_sku": "216",
+        "product_name": "Orange",
+        "pdf_total": 10.0,
+        "calculated_total": 10.0
+      },
+      {
+        "product_sku": "221",
+        "product_name": "Pineapple",
+        "pdf_total": 37.0,
+        "calculated_total": 37.0
+      },
+      {
+        "product_sku": "223",
+        "product_name": "Musambi",
+        "pdf_total": 12.0,
+        "calculated_total": 12.0
+      },
+      {
+        "product_sku": "224",
+        "product_name": "Anar / Pomegranate",
+        "pdf_total": 4.0,
+        "calculated_total": 4.0
+      },
+      {
+        "product_sku": "226",
+        "product_name": "Anar S S",
+        "pdf_total": 1.0,
+        "calculated_total": 1.0
+      },
+      {
+        "product_sku": "227",
+        "product_name": "Supporta / Chikoo",
+        "pdf_total": 8.0,
+        "calculated_total": 8.0
+      },
+      {
+        "product_sku": "228",
+        "product_name": "Thai Guava",
+        "pdf_total": 89.0,
+        "calculated_total": 89.0
+      },
+      {
+        "product_sku": "230",
+        "product_name": "Muskmelon",
+        "pdf_total": 13.0,
+        "calculated_total": 13.0
+      },
+      {
+        "product_sku": "231",
+        "product_name": "Patta Jam",
+        "pdf_total": 31.0,
+        "calculated_total": 31.0
+      },
+      {
+        "product_sku": "232",
+        "product_name": "Black Grapes",
+        "pdf_total": 1.0,
+        "calculated_total": 1.0
+      },
+      {
+        "product_sku": "233",
+        "product_name": "Green Grapes",
+        "pdf_total": 1.0,
+        "calculated_total": 1.0
+      },
+      {
+        "product_sku": "235",
+        "product_name": "Butter Fruit",
+        "pdf_total": 6.0,
+        "calculated_total": 6.0
+      },
+      {
+        "product_sku": "236",
+        "product_name": "Litchi",
+        "pdf_total": 1.0,
+        "calculated_total": 1.0
+      },
+      {
+        "product_sku": "238",
+        "product_name": "Rambutan",
+        "pdf_total": 3.0,
+        "calculated_total": 3.0
+      },
+      {
+        "product_sku": "241",
+        "product_name": "Jamun",
+        "pdf_total": 12.0,
+        "calculated_total": 12.0
+      },
+      {
+        "product_sku": "244",
+        "product_name": "Mango BP",
+        "pdf_total": 1.0,
+        "calculated_total": 1.0
+      },
+      {
+        "product_sku": "245",
+        "product_name": "Mango BP SPL",
+        "pdf_total": 1.0,
+        "calculated_total": 1.0
+      },
+      {
+        "product_sku": "254",
+        "product_name": "Mango Neelam",
+        "pdf_total": 19.0,
+        "calculated_total": 19.0
+      },
+      {
+        "product_sku": "256",
+        "product_name": "Mango Langada",
+        "pdf_total": 14.0,
+        "calculated_total": 14.0
+      },
+      {
+        "product_sku": "257",
+        "product_name": "Mango Dasari",
+        "pdf_total": 4.0,
+        "calculated_total": 4.0
+      },
+      {
+        "product_sku": "263",
+        "product_name": "Mango Chausa",
+        "pdf_total": 3.0,
+        "calculated_total": 3.0
+      },
+      {
+        "product_sku": "300",
+        "product_name": "Plate 1d",
+        "pdf_total": 1.5,
+        "calculated_total": 1.5
+      },
+      {
+        "product_sku": "302",
+        "product_name": "Wrapping Roll",
+        "pdf_total": 1.0,
+        "calculated_total": 1.0
+      },
+      {
+        "product_sku": "305",
+        "product_name": "Papper Bag 1kg",
+        "pdf_total": 27.0,
+        "calculated_total": 27.0
+      },
+      {
+        "product_sku": "306",
+        "product_name": "Papper Bag 3kg",
+        "pdf_total": 27.0,
+        "calculated_total": 27.0
+      },
+      {
+        "product_sku": "312",
+        "product_name": "Billing Roll",
+        "pdf_total": 10.0,
+        "calculated_total": 10.0
+      }
+    ],
+    "skipped_missing_product_skus": [],
+    "zero_total_missing_product_skus": [
+      "152",
+      "153",
+      "154",
+      "155",
+      "156"
+    ]
+  }
+}

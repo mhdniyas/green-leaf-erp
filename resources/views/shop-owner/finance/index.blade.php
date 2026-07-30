@@ -21,7 +21,7 @@
                 <a href="{{ route('shop-owner.finance.index', ['tab' => 'invoices']) }}" class="rounded-[0.9rem] px-4 py-3 text-center transition {{ $activeTab === 'invoices' ? 'bg-white text-slate-950 shadow-sm' : 'hover:bg-white/70' }}">
                     Invoices
                 </a>
-                <a href="{{ route('shop-owner.finance.index', ['tab' => 'payments']) }}" class="rounded-[0.9rem] px-4 py-3 text-center transition {{ $activeTab === 'payments' ? 'bg-white text-slate-950 shadow-sm' : 'hover:bg-white/70' }}">
+                <a href="{{ route('shop-owner.payments.index') }}" class="rounded-[0.9rem] px-4 py-3 text-center transition hover:bg-white/70">
                     Payments
                 </a>
             </div>
@@ -42,6 +42,10 @@
                 'outstandingBalance' => $outstandingBalance,
                 'pendingPaymentAmount' => $pendingPaymentAmount,
                 'availableInvoicePaymentCredit' => $availableInvoicePaymentCredit,
+                'isOwnedAccountingShop' => $isOwnedAccountingShop,
+                'latestBalanceDate' => $latestBalanceDate,
+                'latestClosingBalance' => $latestClosingBalance,
+                'pendingBillApprovalSummary' => $pendingBillApprovalSummary,
             ])
         @else
             <section class="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">

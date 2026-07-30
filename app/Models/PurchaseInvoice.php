@@ -9,6 +9,7 @@ use Database\Factories\PurchaseInvoiceFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -141,6 +142,11 @@ class PurchaseInvoice extends Model
     public function purchaserCart(): BelongsTo
     {
         return $this->belongsTo(PurchaserCart::class);
+    }
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(PurchaseInvoicePayment::class);
     }
 
     public function purchaserSubmittedBy(): BelongsTo

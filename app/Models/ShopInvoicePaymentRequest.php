@@ -20,6 +20,9 @@ class ShopInvoicePaymentRequest extends Model
         'shop_id',
         'requested_by',
         'request_type',
+        'payment_method',
+        'payment_reference',
+        'payment_date',
         'requested_amount',
         'approved_amount',
         'applied_amount',
@@ -38,6 +41,7 @@ class ShopInvoicePaymentRequest extends Model
             'approved_amount' => 'decimal:2',
             'applied_amount' => 'decimal:2',
             'credit_amount' => 'decimal:2',
+            'payment_date' => 'date',
             'reviewed_at' => 'datetime',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
@@ -93,6 +97,25 @@ class ShopInvoicePaymentRequest extends Model
             'approved' => 'Approved',
             'rejected' => 'Rejected',
             default => 'Pending Approval',
+        };
+    }
+
+    public function paymentMethodLabel(): string
+    {
+        return match ($this->payment_method) {
+            'cash' => 'Cash',
+            'online_upi' => 'Online UPI',
+            'cheque' => 'Cheque',
+            default => 'Not set',
+        };
+    }
+
+    public function applicationLabel(): string
+    {
+        return match ($this->request_type) {
+            'admin_client_balance' => 'Client Balance',
+            'shop_balance' => 'Closing Balance',
+            default => 'Bill Pending',
         };
     }
 

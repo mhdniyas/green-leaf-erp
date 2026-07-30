@@ -1,4 +1,4 @@
-@props(['title' => 'Accounting Dashboard'])
+@props(['title' => 'Accounting Dashboard', 'showMobileNav' => true])
 
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="h-full">
@@ -43,10 +43,28 @@
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18M7 14l3-3 3 2 5-6" /></svg>',
         ],
         [
+            'label' => 'Main Account',
+            'href' => route('admin.accounting.main-account.index', ['date' => request('date', today()->toDateString())]),
+            'active' => request()->routeIs('admin.accounting.main-account.*'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 7.5h16.5M5.25 7.5v10.5A2.25 2.25 0 0 0 7.5 20.25h9A2.25 2.25 0 0 0 18.75 18V7.5M8.25 11.25h7.5M8.25 15h4.5M9 3.75h6a1.5 1.5 0 0 1 1.5 1.5V7.5h-9V5.25A1.5 1.5 0 0 1 9 3.75Z" /></svg>',
+        ],
+        [
+            'label' => 'Green Leaf Summary',
+            'href' => route('admin.accounting.company-summary', ['date' => request('date', today()->toDateString())]),
+            'active' => request()->routeIs('admin.accounting.company-summary'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19.5V4.5m0 15h16M8 16V9m4 7V6m4 10v-4" /></svg>',
+        ],
+        [
             'label' => 'Cash Flow Report',
             'href' => route('admin.accounting.cash-flow', ['date' => request('date', today()->toDateString())]),
             'active' => request()->routeIs('admin.accounting.cash-flow'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m0 14h16M8 15l3-3 3 2 4-6M8 8h.01M8 12h.01" /></svg>',
+        ],
+        [
+            'label' => 'Loans',
+            'href' => route('admin.accounting.loans'),
+            'active' => request()->routeIs('admin.accounting.loans*'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m3.75-9.75h-6a2.25 2.25 0 1 0 0 4.5h4.5a2.25 2.25 0 1 1 0 4.5h-6M4.5 19.5h15" /></svg>',
         ],
         [
             'label' => 'Calendar',
@@ -70,6 +88,17 @@
                 'active' => request()->routeIs('admin.accounting.owned-shops.index'),
                 'badge' => $notificationCounts['owned_shop_total'],
             ],
+            [
+                'label' => 'Report',
+                'href' => route('admin.accounting.clients.report'),
+                'active' => request()->routeIs('admin.accounting.clients.report'),
+                'badge' => $shopPaymentPendingCount,
+            ],
+            [
+                'label' => 'Category Report',
+                'href' => route('admin.accounting.clients.category-report'),
+                'active' => request()->routeIs('admin.accounting.clients.category-report'),
+            ],
         ];
 
         if ($currentShop instanceof \App\Models\Shop) {
@@ -90,8 +119,8 @@
                     'active' => false,
                 ],
                 [
-                    'label' => 'Daily Balance',
-                    'href' => route('admin.accounting.owned-shops.show', ['shop' => $currentShop, 'tab' => 'cashbook', 'date' => $navDate]).'#owned-shop-cash-movements',
+                    'label' => 'Loan',
+                    'href' => route('admin.accounting.loans', ['shop' => $currentShop->code]),
                     'active' => false,
                 ],
                 [
@@ -202,12 +231,16 @@
     $mobileItems = [
         ['label' => 'Home', 'href' => route('admin.accounting.index', ['date' => $navDate]), 'active' => request()->routeIs('admin.accounting.index')],
         ['label' => 'Sales', 'href' => route('admin.accounting.daily-sales', ['date' => request('date', today()->toDateString())]), 'active' => request()->routeIs('admin.accounting.daily-sales')],
+        ['label' => 'Main', 'href' => route('admin.accounting.main-account.index', ['date' => request('date', today()->toDateString())]), 'active' => request()->routeIs('admin.accounting.main-account.*')],
+        ['label' => 'Summary', 'href' => route('admin.accounting.company-summary', ['date' => request('date', today()->toDateString())]), 'active' => request()->routeIs('admin.accounting.company-summary')],
         ['label' => 'Cash', 'href' => route('admin.accounting.cash-flow', ['date' => request('date', today()->toDateString())]), 'active' => request()->routeIs('admin.accounting.cash-flow')],
         ['label' => 'Vendor', 'href' => route('admin.accounting.vendor-reports', ['date' => request('date', today()->toDateString())]), 'active' => request()->routeIs('admin.accounting.vendor-reports')],
     ];
 
     if ($canManageOwnedShops) {
         $mobileItems[] = ['label' => 'Clients', 'href' => route('admin.accounting.owned-shops.index'), 'active' => request()->routeIs('admin.accounting.owned-shops.*') || request()->routeIs('admin.accounting.clients.*')];
+        $mobileItems[] = ['label' => 'Report', 'href' => route('admin.accounting.clients.report'), 'active' => request()->routeIs('admin.accounting.clients.report')];
+        $mobileItems[] = ['label' => 'Category', 'href' => route('admin.accounting.clients.category-report'), 'active' => request()->routeIs('admin.accounting.clients.category-report')];
     }
 
     if ($canManagePurchaserCash) {
@@ -302,7 +335,11 @@
             </div>
         </header>
 
-        <main class="flex-1 px-4 pb-24 pt-5 sm:px-6 lg:px-8 lg:pb-8 lg:pt-6">
+        <main @class([
+            'flex-1 px-4 pt-5 sm:px-6 lg:px-8 lg:pb-8 lg:pt-6',
+            'pb-24' => $showMobileNav,
+            'pb-8' => ! $showMobileNav,
+        ])>
             @if (session('success'))
                 <div class="mb-4 rounded-[1.35rem] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
                     {{ session('success') }}
@@ -328,15 +365,17 @@
 
 <x-global-footer />
 
-<div class="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 backdrop-blur lg:hidden">
-    <nav class="mx-auto grid max-w-xl grid-cols-4 gap-2">
-        @foreach($mobileItems as $item)
-            <a href="{{ $item['href'] }}" class="flex min-h-[52px] items-center justify-center rounded-2xl px-2 text-center text-[11px] font-black uppercase tracking-[0.12em] transition {{ $item['active'] ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-600' }}">
-                {{ $item['label'] }}
-            </a>
-        @endforeach
-    </nav>
-</div>
+@if($showMobileNav)
+    <div class="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 backdrop-blur lg:hidden">
+        <nav class="mx-auto grid max-w-xl grid-cols-4 gap-2">
+            @foreach($mobileItems as $item)
+                <a href="{{ $item['href'] }}" class="flex min-h-[52px] items-center justify-center rounded-2xl px-2 text-center text-[11px] font-black uppercase tracking-[0.12em] transition {{ $item['active'] ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-600' }}">
+                    {{ $item['label'] }}
+                </a>
+            @endforeach
+        </nav>
+    </div>
+@endif
 
 @include('components.app-dialogs')
 
@@ -352,5 +391,6 @@
     toggle-button-id="accounting-sidebar-toggle"
     label-selector="[data-accounting-sidebar-label]"
 />
+@stack('scripts')
 </body>
 </html>

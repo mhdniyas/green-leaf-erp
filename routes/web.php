@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Web\Admin\ActivityLogController;
 use App\Http\Controllers\Web\Admin\AdminAccountingController;
 use App\Http\Controllers\Web\Admin\AdminOverviewController;
+use App\Http\Controllers\Web\Admin\CompanySettingsController;
 use App\Http\Controllers\Web\Admin\DailyProgressController;
 use App\Http\Controllers\Web\Admin\DeliveryReviewController;
 use App\Http\Controllers\Web\Admin\DiscrepancyReportController;
@@ -89,6 +90,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/accounting/history', [ShopOwnerController::class, 'accountingHistory'])->name('accounting.history');
         Route::post('/accounting/entries', [ShopOwnerController::class, 'storeAccountingEntry'])->name('accounting.entries.store');
         Route::post('/accounting/payment-requests', [ShopOwnerController::class, 'storePaymentRequest'])->name('accounting.payment-requests.store');
+        Route::get('/payments', [ShopOwnerController::class, 'paymentsIndex'])->name('payments.index');
         Route::get('/finance', [ShopOwnerController::class, 'financeIndex'])->name('finance.index');
         Route::get('/finance/{invoice}', [ShopOwnerController::class, 'financeShow'])->name('finance.show');
         Route::get('/finance/{invoice}/pdf', [ShopOwnerController::class, 'financePdf'])->name('finance.pdf');
@@ -192,7 +194,9 @@ Route::middleware('auth')->group(function () {
     // ── Sales ──────────────────────────────────────────────────────────────
     Route::prefix('sales')->name('sales.')->middleware('can:sales.customer.view')->group(function () {
         // Customers
-        Route::resource('customers', CustomerController::class)->except(['show']);
+        Route::post('customers/shops', [CustomerController::class, 'storeShop'])->name('customers.shops.store');
+        Route::patch('customers/shops/{shop:code}', [CustomerController::class, 'updateShop'])->name('customers.shops.update');
+        Route::resource('customers', CustomerController::class)->only(['index']);
 
         // Sales Invoices
         Route::resource('invoices', SalesInvoiceController::class)->only(['index', 'create', 'store', 'show']);
@@ -259,6 +263,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/dashboard', [PurchaserDashboardController::class, 'index'])->name('purchaser.dashboard');
     Route::get('/purchaser/daily', [PurchaserDashboardController::class, 'daily'])->name('purchaser.daily');
     Route::get('/purchaser/daily/share', [PurchaserDashboardController::class, 'dailyShare'])->name('purchaser.daily.share');
+    Route::get('/purchaser/shop-orders', [PurchaserDashboardController::class, 'shopOrders'])->name('purchaser.shop-orders.index');
+    Route::get('/purchaser/shop-orders/{order_number}', [PurchaserDashboardController::class, 'shopOrderShow'])->name('purchaser.shop-orders.show');
+    Route::get('/purchaser/add-ons/create', [RequisitionController::class, 'createPurchaserDirectPurchase'])->name('purchaser.add-ons.create');
     Route::get('/purchaser/bulk-buy', [PurchaserDashboardController::class, 'bulkBuy'])->name('purchaser.bulk-buy');
     Route::get('/purchaser/bulk-buy/details', [PurchaserDashboardController::class, 'bulkBuyDetails'])->name('purchaser.bulk-buy.details');
     Route::get('/purchaser/cart', [PurchaserDashboardController::class, 'cart'])->name('purchaser.cart');
@@ -270,6 +277,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/cart/{cart}/bill', [PurchaserDashboardController::class, 'bill'])->name('purchaser.bill');
     Route::get('/purchaser/history', [PurchaserDashboardController::class, 'history'])->name('purchaser.history');
     Route::post('/purchaser/carts', [PurchaserDashboardController::class, 'storeCart'])->name('purchaser.carts.store');
+    Route::post('/purchaser/add-ons', [RequisitionController::class, 'storePurchaserDirectPurchase'])->name('purchaser.add-ons.store');
     Route::post('/purchaser/carts/bulk-store', [PurchaserDashboardController::class, 'bulkStoreCart'])->name('purchaser.carts.bulk-store');
     Route::post('/purchaser/carts/{cart}/merge-drafts', [PurchaserDashboardController::class, 'mergeDraftCarts'])->name('purchaser.carts.merge-drafts');
     Route::post('/purchaser/carts/{cart}/send', [PurchaserDashboardController::class, 'markCartSent'])->name('purchaser.carts.send');
@@ -307,6 +315,7 @@ Route::middleware('auth')->group(function () {
             Route::get('/generate', [SortSheetController::class, 'generate'])->name('generate');
             Route::get('/export/excel', [SortSheetController::class, 'exportExcel'])->name('export.excel');
             Route::get('/export/pdf', [SortSheetController::class, 'exportPdf'])->name('export.pdf');
+            Route::get('/segregation/pdf', [SortSheetController::class, 'segregationPdf'])->name('segregation.pdf');
             Route::get('/print', [SortSheetController::class, 'print'])->name('print');
         });
     });
@@ -324,18 +333,30 @@ Route::middleware('auth')->group(function () {
     // ── Admin ──────────────────────────────────────────────────────────────
     Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('/', AdminOverviewController::class)->name('overview');
+        Route::get('company-settings', [CompanySettingsController::class, 'edit'])->name('company-settings.edit');
+        Route::patch('company-settings', [CompanySettingsController::class, 'update'])->name('company-settings.update');
         Route::prefix('accounting')->name('accounting.')->middleware('can:accounting.dashboard.view')->group(function () {
             Route::get('/', [AdminAccountingController::class, 'index'])->name('index');
             Route::get('daily-sales', [AdminAccountingController::class, 'dailySalesReport'])->name('daily-sales');
+            Route::get('main-account', [AdminAccountingController::class, 'mainAccount'])->name('main-account.index');
+            Route::post('main-account/categories', [AdminAccountingController::class, 'storeMainAccountCategory'])->name('main-account.categories.store');
+            Route::post('main-account/entries', [AdminAccountingController::class, 'storeMainAccountEntry'])->name('main-account.entries.store');
+            Route::patch('main-account/entries/{entry}/reverse', [AdminAccountingController::class, 'reverseMainAccountEntry'])->name('main-account.entries.reverse');
             Route::patch('shop-invoices/{invoice}/discount', [AdminAccountingController::class, 'applyShopInvoiceDiscount'])->name('shop-invoices.discount');
             Route::patch('shop-invoices/{invoice}/payment', [AdminAccountingController::class, 'updateShopInvoicePayment'])->name('shop-invoices.payment');
             Route::patch('shop-invoice-payment-requests/{paymentRequest}/review', [AdminAccountingController::class, 'reviewShopInvoicePaymentRequest'])->name('shop-invoice-payment-requests.review');
+            Route::get('company-summary', [AdminAccountingController::class, 'companySummary'])->name('company-summary');
             Route::get('cash-flow', [AdminAccountingController::class, 'cashFlowReport'])->name('cash-flow');
+            Route::get('loans', [AdminAccountingController::class, 'loans'])->name('loans');
+            Route::patch('loans/{shop:code}/categories', [AdminAccountingController::class, 'updateLoanCategorySettings'])->name('loans.categories.update');
+            Route::post('loans/{shop:code}/entries', [AdminAccountingController::class, 'storeLoanEntry'])->name('loans.entries.store');
             Route::get('cash-flow/calendar', [AdminAccountingController::class, 'cashFlowCalendar'])->name('cash-flow.calendar');
             Route::get('cash-flow/export/excel', [AdminAccountingController::class, 'exportCashFlowDayJournalExcel'])->name('cash-flow.export.excel');
             Route::get('cash-flow/export/pdf', [AdminAccountingController::class, 'exportCashFlowDayJournalPdf'])->name('cash-flow.export.pdf');
             Route::get('vendor-reports', [AdminAccountingController::class, 'vendorReports'])->name('vendor-reports');
             Route::post('daily-workflow/invoices', [AdminAccountingController::class, 'generateDailyWorkflowInvoices'])->name('daily-workflow.invoices');
+            Route::get('clients/report', [AdminAccountingController::class, 'clientsReport'])->name('clients.report');
+            Route::get('clients/category-report', [AdminAccountingController::class, 'clientsCategoryReport'])->name('clients.category-report');
             Route::get('clients/{client}', [AdminAccountingController::class, 'clientDashboard'])->name('clients.show');
             Route::get('owned-shops', [AdminAccountingController::class, 'ownedShopsIndex'])->name('owned-shops.index');
             Route::post('owned-shops', [AdminAccountingController::class, 'storeOwnedShop'])->name('owned-shops.store');
@@ -348,12 +369,11 @@ Route::middleware('auth')->group(function () {
             Route::post('owned-shops/{shop:code}/categories', [AdminAccountingController::class, 'storeCategory'])->name('owned-shops.categories.store');
             Route::patch('owned-shops/{shop:code}/categories/{category}', [AdminAccountingController::class, 'updateCategory'])->name('owned-shops.categories.update');
             Route::delete('owned-shops/{shop:code}/categories/{category}', [AdminAccountingController::class, 'destroyCategory'])->name('owned-shops.categories.destroy');
-            Route::post('owned-shops/{shop:code}/cash-movement-categories', [AdminAccountingController::class, 'storeCashMovementCategory'])->name('owned-shops.cash-movement-categories.store');
-            Route::patch('owned-shops/{shop:code}/cash-movement-categories/{category}', [AdminAccountingController::class, 'updateCashMovementCategory'])->name('owned-shops.cash-movement-categories.update');
             Route::post('owned-shops/{shop:code}/entries', [AdminAccountingController::class, 'storeEntry'])->name('owned-shops.entries.store');
             Route::patch('owned-shops/{shop:code}/entries/{entry}', [AdminAccountingController::class, 'updateEntry'])->name('owned-shops.entries.update');
+            Route::patch('owned-shops/{shop:code}/entries/{entry}/lines/{line}', [AdminAccountingController::class, 'updateEntryLine'])->name('owned-shops.entries.lines.update');
+            Route::delete('owned-shops/{shop:code}/entries/{entry}/clear', [AdminAccountingController::class, 'clearEntry'])->name('owned-shops.entries.clear');
             Route::patch('owned-shops/{shop:code}/entries/{entry}/review', [AdminAccountingController::class, 'reviewEntry'])->name('owned-shops.entries.review');
-            Route::post('owned-shops/{shop:code}/credits', [AdminAccountingController::class, 'storeShopCredit'])->name('owned-shops.credits.store');
             Route::post('owned-shops/{shop:code}/period-closures', [AdminAccountingController::class, 'closePeriod'])->name('owned-shops.period-closures.store');
             Route::patch('owned-shops/{shop:code}/daily-bills/{invoice}/payment', [AdminAccountingController::class, 'updateDailyBillPayment'])->name('owned-shops.daily-bills.payment');
             Route::patch('owned-shops/{shop:code}/payment-requests/{paymentRequest}/review', [AdminAccountingController::class, 'reviewOwnedShopPaymentRequest'])->name('owned-shops.payment-requests.review');
@@ -417,6 +437,14 @@ Route::middleware('auth')->group(function () {
         Route::get('/generate', [SortSheetController::class, 'generate'])->name('generate');
         Route::get('/export/excel', [SortSheetController::class, 'exportExcel'])->name('export.excel');
         Route::get('/export/pdf', [SortSheetController::class, 'exportPdf'])->name('export.pdf');
+        Route::get('/segregation/pdf', [SortSheetController::class, 'segregationPdf'])->name('segregation.pdf');
         Route::get('/print', [SortSheetController::class, 'print'])->name('print');
+    });
+
+    Route::prefix('segregation')->name('segregation.')->middleware('can:sort.sheet.view')->group(function () {
+        Route::get('/', [SortSheetController::class, 'segregationIndex'])->name('index');
+        Route::get('/generate', [SortSheetController::class, 'segregationGenerate'])->name('generate');
+        Route::get('/export/excel', [SortSheetController::class, 'exportExcel'])->name('export.excel');
+        Route::get('/print', [SortSheetController::class, 'segregationPdf'])->name('print');
     });
 });

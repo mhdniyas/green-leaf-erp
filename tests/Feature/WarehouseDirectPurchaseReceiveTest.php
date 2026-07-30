@@ -37,14 +37,23 @@ class WarehouseDirectPurchaseReceiveTest extends TestCase
         $warehouseReceiver = User::factory()->create();
         $warehouseReceiver->assignRole('warehouse_receiver');
 
-        $warehouse = Warehouse::query()->create([
+        $fruitWarehouse = Warehouse::query()->create([
             'name' => 'Main Warehouse',
             'code' => 'MAIN',
+            'is_active' => true,
+        ]);
+        $vegWarehouse = Warehouse::query()->create([
+            'name' => 'Veg Warehouse',
+            'code' => 'VEG',
             'is_active' => true,
         ]);
 
         $product = Product::factory()->create([
             'name' => 'Tomato',
+            'unit' => 'kg',
+        ]);
+        $secondProduct = Product::factory()->create([
+            'name' => 'Apple',
             'unit' => 'kg',
         ]);
 
@@ -60,11 +69,20 @@ class WarehouseDirectPurchaseReceiveTest extends TestCase
             'reviewed_at' => now(),
         ]);
 
-        ShopOrderItem::query()->create([
+        $firstItem = ShopOrderItem::query()->create([
             'shop_order_id' => $order->id,
             'product_id' => $product->id,
             'requested_qty' => 15,
             'approved_qty' => 15,
+            'unit' => 'kg',
+            'sorting_status' => 'pending',
+            'notes' => 'Green Leaf Direct Purchase',
+        ]);
+        $secondItem = ShopOrderItem::query()->create([
+            'shop_order_id' => $order->id,
+            'product_id' => $secondProduct->id,
+            'requested_qty' => 8,
+            'approved_qty' => 8,
             'unit' => 'kg',
             'sorting_status' => 'pending',
             'notes' => 'Green Leaf Direct Purchase',
@@ -81,19 +99,28 @@ class WarehouseDirectPurchaseReceiveTest extends TestCase
         $this
             ->actingAs($warehouseReceiver)
             ->post(route('warehouse.receiver.direct-purchase.receive', $order), [
-                'warehouse_id' => $warehouse->id,
+                'items' => [
+                    $firstItem->id => ['warehouse_id' => $vegWarehouse->id],
+                    $secondItem->id => ['warehouse_id' => $fruitWarehouse->id],
+                ],
             ])
             ->assertRedirect(route('warehouse.receiver.checklist', ['date' => '2026-07-17', 'tab' => 'pending']));
 
         $this->assertDatabaseHas('stock_batches', [
             'product_id' => $product->id,
-            'warehouse_id' => $warehouse->id,
+            'warehouse_id' => $vegWarehouse->id,
             'total_kg' => 15,
+            'warehouse_receive_pending' => false,
+        ]);
+        $this->assertDatabaseHas('stock_batches', [
+            'product_id' => $secondProduct->id,
+            'warehouse_id' => $fruitWarehouse->id,
+            'total_kg' => 8,
             'warehouse_receive_pending' => false,
         ]);
 
         $this->assertSame('ready_for_dispatch', $order->fresh()->delivery_status);
-        $this->assertSame(1, StockBatch::query()->where('product_id', $product->id)->count());
+        $this->assertSame(2, StockBatch::query()->whereIn('product_id', [$product->id, $secondProduct->id])->count());
     }
 
     public function test_warehouse_receiver_can_search_pending_vendor_delivery_by_product_and_category(): void

@@ -18,7 +18,10 @@ class StoreShopInvoicePaymentRequest extends FormRequest
     {
         return [
             'invoice_id' => ['nullable', 'integer', 'exists:shop_invoices,id'],
-            'amount_mode' => ['required', 'string', Rule::in(['balance_due', 'custom'])],
+            'amount_mode' => ['required', 'string', Rule::in(['balance_due', 'custom', 'shop_balance'])],
+            'payment_method' => ['nullable', 'string', Rule::in(['cash', 'online_upi', 'cheque'])],
+            'payment_reference' => ['nullable', 'string', 'max:120'],
+            'payment_date' => ['nullable', 'date'],
             'amount' => ['nullable', 'numeric', 'gt:0'],
             'shop_note' => ['nullable', 'string', 'max:1000'],
         ];

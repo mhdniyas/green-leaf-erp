@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\ShopInvoices;
 
+use App\Models\Shop;
+use App\Models\ShopCredit;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoiceItem;
 use App\Models\ShopInvoicePaymentAllocation;
@@ -13,6 +15,7 @@ use App\Models\ShopOrderItem;
 use App\Services\Finance\JournalService;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Pricing\ApprovedDailyPriceResolver;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -299,11 +302,12 @@ class ShopInvoiceService
             if ($approvedPaymentIncrease > 0.00 && $this->shouldPostPaymentToJournal($invoice)) {
                 $paidAmountCents = (int) round((float) $invoice->paid_amount * 100);
 
-                $this->journalService->recordShopInvoicePayment(
+                $this->journalService->recordShopInvoicePaymentForMode(
                     $invoice,
                     $approvedPaymentIncrease,
                     $userId,
                     "payment:paid-{$paidAmountCents}",
+                    $payload['payment_method'] ?? null,
                 );
             }
 
@@ -362,11 +366,73 @@ class ShopInvoiceService
                 'shop_id' => $invoice->shop_id,
                 'requested_by' => $userId,
                 'request_type' => $payload['amount_mode'],
+                'payment_method' => $payload['payment_method'] ?? 'cash',
+                'payment_reference' => filled($payload['payment_reference'] ?? null) ? trim((string) $payload['payment_reference']) : null,
+                'payment_date' => $payload['payment_date'] ?? now()->toDateString(),
                 'requested_amount' => $requestedAmount,
                 'applied_amount' => 0,
                 'credit_amount' => 0,
                 'status' => 'pending',
                 'shop_note' => filled($payload['shop_note'] ?? null) ? trim((string) $payload['shop_note']) : null,
+            ]);
+        });
+    }
+
+    /**
+     * @param  array{amount_mode:string, amount?: float|int|string|null, shop_note?: string|null}  $payload
+     */
+    public function requestShopBalancePayment(Shop $shop, Carbon $balanceDate, float $closingBalance, array $payload, int $userId): ShopInvoicePaymentRequest
+    {
+        return DB::transaction(function () use ($shop, $balanceDate, $closingBalance, $payload, $userId): ShopInvoicePaymentRequest {
+            if (! $shop->isOwnedAccountingEnabled()) {
+                throw ValidationException::withMessages([
+                    'amount_mode' => 'Closing balance payments are only available for owned accounting shops.',
+                ]);
+            }
+
+            $payableBalance = round(max(0, $closingBalance), 2);
+
+            if ($payableBalance <= 0.0) {
+                throw ValidationException::withMessages([
+                    'amount' => 'There is no positive closing balance pending for this shop.',
+                ]);
+            }
+
+            $existingPendingRequest = ShopInvoicePaymentRequest::query()
+                ->where('shop_id', $shop->id)
+                ->where('status', 'pending')
+                ->first();
+
+            if ($existingPendingRequest instanceof ShopInvoicePaymentRequest) {
+                throw ValidationException::withMessages([
+                    'amount' => 'A payment request for this shop is already waiting for approval.',
+                ]);
+            }
+
+            $requestedAmount = round((float) ($payload['amount'] ?? $payableBalance), 2);
+
+            if ($requestedAmount <= 0.0) {
+                throw ValidationException::withMessages([
+                    'amount' => 'Requested amount must be greater than zero.',
+                ]);
+            }
+
+            return ShopInvoicePaymentRequest::query()->create([
+                'shop_invoice_id' => null,
+                'shop_id' => $shop->id,
+                'requested_by' => $userId,
+                'request_type' => 'shop_balance',
+                'payment_method' => $payload['payment_method'] ?? 'cash',
+                'payment_reference' => filled($payload['payment_reference'] ?? null) ? trim((string) $payload['payment_reference']) : null,
+                'payment_date' => $payload['payment_date'] ?? $balanceDate->toDateString(),
+                'requested_amount' => $requestedAmount,
+                'approved_amount' => null,
+                'applied_amount' => 0,
+                'credit_amount' => 0,
+                'status' => 'pending',
+                'shop_note' => filled($payload['shop_note'] ?? null)
+                    ? trim((string) $payload['shop_note'])
+                    : 'Closing balance payment for '.$balanceDate->toDateString(),
             ]);
         });
     }
@@ -385,6 +451,26 @@ class ShopInvoiceService
             if ($decision === 'approve') {
                 $invoice = $paymentRequest->invoice;
 
+                if ($paymentRequest->request_type === 'shop_balance') {
+                    $approvedAmount = round((float) $paymentRequest->requested_amount, 2);
+
+                    $paymentRequest->update([
+                        'status' => 'approved',
+                        'approved_amount' => $approvedAmount,
+                        'applied_amount' => 0,
+                        'credit_amount' => $approvedAmount,
+                        'admin_note' => filled($adminNote) ? trim((string) $adminNote) : null,
+                        'reviewed_by' => $userId,
+                        'reviewed_at' => now(),
+                    ]);
+
+                    $paymentRequest = $paymentRequest->fresh(['shop', 'invoice', 'requestedBy', 'reviewedBy', 'allocations.invoice']);
+                    $this->recordApprovedShopBalanceCashMovement($paymentRequest, $userId);
+                    $this->journalService->recordShopClientBalancePayment($paymentRequest, $userId);
+
+                    return $paymentRequest;
+                }
+
                 if (! $invoice instanceof ShopInvoice) {
                     throw ValidationException::withMessages([
                         'decision' => 'The related invoice could not be found.',
@@ -396,11 +482,12 @@ class ShopInvoiceService
                 $creditAmount = round(max(0, $approvedAmount - $appliedAmount), 2);
 
                 if ($this->shouldPostPaymentToJournal($invoice)) {
-                    $this->journalService->recordShopInvoicePayment(
+                    $this->journalService->recordShopInvoicePaymentForMode(
                         $invoice,
                         $approvedAmount,
                         $userId,
                         'shop-payment-request:'.$paymentRequest->id,
+                        $paymentRequest->payment_method,
                     );
                 }
 
@@ -434,6 +521,15 @@ class ShopInvoiceService
      */
     public function allocationPreviewForShopPayment(ShopInvoicePaymentRequest $paymentRequest): array
     {
+        if ($paymentRequest->request_type === 'shop_balance') {
+            return [
+                'total_due' => 0.0,
+                'applied_amount' => 0.0,
+                'credit_amount' => round((float) $paymentRequest->requested_amount, 2),
+                'invoices' => [],
+            ];
+        }
+
         $pendingInvoices = $this->pendingInvoicesForShop((int) $paymentRequest->shop_id);
         $remainingAmount = round((float) $paymentRequest->requested_amount, 2);
         $invoices = [];
@@ -487,14 +583,19 @@ class ShopInvoiceService
         return DB::transaction(function () use ($invoice, $payload, $userId): ShopInvoicePaymentRequest {
             $invoice->refresh();
 
+            $paymentApplication = (string) ($payload['payment_application'] ?? 'invoice_pending');
             $currentPaidAmount = round((float) $invoice->paid_amount, 2);
             $paidAmount = round((float) $payload['paid_amount'], 2);
-            $approvedAmount = round($paidAmount - $currentPaidAmount, 2);
+            $approvedAmount = $paymentApplication === 'client_balance'
+                ? $paidAmount
+                : round($paidAmount - $currentPaidAmount, 2);
             $adminNote = filled($payload['payment_note'] ?? null) ? trim((string) $payload['payment_note']) : null;
 
             if ($approvedAmount <= 0.0) {
                 throw ValidationException::withMessages([
-                    'paid_amount' => 'Paid amount must be greater than the current collected amount.',
+                    'paid_amount' => $paymentApplication === 'client_balance'
+                        ? 'Received amount must be greater than zero.'
+                        : 'Paid amount must be greater than the current collected amount.',
                 ]);
             }
 
@@ -502,27 +603,41 @@ class ShopInvoiceService
                 'shop_invoice_id' => $invoice->id,
                 'shop_id' => $invoice->shop_id,
                 'requested_by' => $userId,
-                'request_type' => 'admin_manual',
+                'request_type' => $paymentApplication === 'client_balance' ? 'admin_client_balance' : 'admin_manual',
+                'payment_method' => $payload['payment_method'] ?? 'cash',
+                'payment_reference' => filled($payload['payment_reference'] ?? null) ? trim((string) $payload['payment_reference']) : null,
+                'payment_date' => $payload['payment_date'] ?? $invoice->business_date?->toDateString() ?? now()->toDateString(),
                 'requested_amount' => $approvedAmount,
                 'approved_amount' => $approvedAmount,
                 'applied_amount' => 0,
-                'credit_amount' => 0,
+                'credit_amount' => $paymentApplication === 'client_balance' ? $approvedAmount : 0,
                 'status' => 'approved',
-                'shop_note' => 'Admin recorded payment received.',
+                'shop_note' => $paymentApplication === 'client_balance'
+                    ? 'Admin recorded client balance payment.'
+                    : 'Admin recorded payment received.',
                 'admin_note' => $adminNote,
                 'reviewed_by' => $userId,
                 'reviewed_at' => now(),
             ]);
 
+            if ($paymentApplication === 'client_balance') {
+                $paymentRequest->load('shop');
+                $this->recordApprovedShopBalanceCashMovement($paymentRequest, $userId);
+                $this->journalService->recordShopClientBalancePayment($paymentRequest, $invoice, $userId);
+
+                return $paymentRequest->fresh(['invoice', 'requestedBy', 'reviewedBy', 'allocations.invoice']);
+            }
+
             $appliedAmount = $this->allocateShopPaymentToPendingInvoices($paymentRequest, $approvedAmount, $userId, $adminNote);
             $creditAmount = round(max(0, $approvedAmount - $appliedAmount), 2);
 
             if ($this->shouldPostPaymentToJournal($invoice)) {
-                $this->journalService->recordShopInvoicePayment(
+                $this->journalService->recordShopInvoicePaymentForMode(
                     $invoice,
                     $approvedAmount,
                     $userId,
                     'admin-shop-payment:'.$paymentRequest->id,
+                    $paymentRequest->payment_method,
                 );
             }
 
@@ -685,6 +800,58 @@ class ShopInvoiceService
         }
 
         return $appliedAmount;
+    }
+
+    private function recordApprovedShopBalanceCashMovement(ShopInvoicePaymentRequest $paymentRequest, int $userId): void
+    {
+        if (! in_array($paymentRequest->request_type, ['shop_balance', 'admin_client_balance'], true)) {
+            return;
+        }
+
+        $paymentRequest->loadMissing('shop');
+
+        if (! $paymentRequest->shop instanceof Shop || ! $paymentRequest->shop->isOwnedAccountingEnabled()) {
+            return;
+        }
+
+        $amount = round((float) $paymentRequest->approved_amount, 2);
+
+        if ($amount <= 0.0) {
+            return;
+        }
+
+        $businessDate = ($paymentRequest->payment_date ?? $paymentRequest->reviewed_at ?? now())->format('Y-m-d');
+        $description = 'Approved shop balance payment #'.$paymentRequest->id;
+
+        $exists = ShopCredit::query()
+            ->where('shop_id', $paymentRequest->shop_id)
+            ->where('type', 'out')
+            ->where('amount', $amount)
+            ->where('description', $description)
+            ->exists();
+
+        if ($exists) {
+            return;
+        }
+
+        ShopCredit::query()->create([
+            'shop_id' => $paymentRequest->shop_id,
+            'type' => 'out',
+            'amount' => $amount,
+            'description' => $description,
+            'admin_note' => $paymentRequest->admin_note,
+            'created_by' => $paymentRequest->requested_by,
+            'business_date' => $businessDate,
+            'status' => 'approved',
+            'reviewed_by' => $userId,
+            'reviewed_at' => now(),
+        ]);
+
+        $this->ownedShopAccountingService->syncStoredClosingBalancesFromDate(
+            $paymentRequest->shop,
+            Carbon::parse($businessDate),
+            $userId,
+        );
     }
 
     private function applyInvoicePaymentWithoutJournal(ShopInvoice $invoice, float $amount, int $userId, ?string $adminNote = null): ShopInvoice

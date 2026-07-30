@@ -1,8 +1,12 @@
     @php
         $isWarehouseReceiverSortSheet = request()->routeIs('warehouse.receiver.sort-sheet.*');
+        $isSegregation = ($surface ?? null) === 'segregation' || request()->routeIs('segregation.*');
         $sortSheetLayout = $isWarehouseReceiverSortSheet ? 'layouts.app' : 'layouts.admin';
-        $sortSheetRouteBase = $isWarehouseReceiverSortSheet ? 'warehouse.receiver.sort-sheet' : 'sort-sheet';
+        $sortSheetRouteBase = $isWarehouseReceiverSortSheet ? 'warehouse.receiver.sort-sheet' : ($isSegregation ? 'segregation' : 'sort-sheet');
         $sortSheetRoute = fn (string $name, array $params = []) => route($sortSheetRouteBase.'.'.$name, $params);
+        $pageTitle = $isSegregation ? 'Selection' : 'Sort Sheet';
+        $categoryFilterLabel = $isSegregation ? 'Ordered Categories' : 'Product Categories';
+        $productFilterLabel = $isSegregation ? 'Ordered Products' : 'Products';
         $user = auth()->user();
         $canGenerate = $user->can('sort.sheet.generate');
         $canExport = $user->can('sort.sheet.export');
@@ -11,39 +15,88 @@
         $filters = $filters ?? [];
         $currentDate = $filters['date'] ?? date('Y-m-d');
         $currentShop = $filters['shopId'] ?? '';
-        $currentCategory = $filters['categoryId'] ?? '';
+        $currentCategoryIds = collect($filters['categoryIds'] ?? (isset($filters['categoryId']) && $filters['categoryId'] !== '' ? [$filters['categoryId']] : []))
+            ->map(fn ($value) => (string) $value)
+            ->all();
+        $currentProductIds = collect($filters['productIds'] ?? [])
+            ->map(fn ($value) => (string) $value)
+            ->all();
         $currentPriceGroup = $filters['priceGroupId'] ?? '';
+        $currentWarehouse = $filters['warehouseId'] ?? '';
+        $filterParams = array_filter([
+            'date' => $currentDate,
+            'shop_id' => $currentShop,
+            'price_group_id' => $currentPriceGroup,
+            'warehouse_id' => $currentWarehouse,
+        ]);
+        if (! empty($currentCategoryIds)) {
+            $filterParams['category_ids'] = $currentCategoryIds;
+        }
+        if (! empty($currentProductIds)) {
+            $filterParams['product_ids'] = $currentProductIds;
+        }
+        $categoryPickerOptions = $categories->map(fn ($category) => [
+            'id' => (string) $category->id,
+            'name' => $category->name,
+            'warehouse_ids' => $category->warehouses->pluck('id')->map(fn ($id) => (string) $id)->values(),
+        ])->values();
+        $productPickerOptions = $products->map(fn ($product) => [
+            'id' => (string) $product->id,
+            'sku' => (string) $product->sku,
+            'name' => $product->name,
+            'category_id' => (string) $product->category_id,
+            'category_name' => $product->category?->name ?? optional($categories->firstWhere('id', $product->category_id))->name ?? 'Uncategorized',
+        ])->values();
+        $warehousePickerOptions = $warehouses->map(fn ($warehouse) => [
+            'id' => (string) $warehouse->id,
+            'name' => $warehouse->name,
+            'code' => $warehouse->code,
+            'category_ids' => $warehouse->categories->pluck('id')->map(fn ($id) => (string) $id)->values(),
+        ])->values();
+        $priceGroupPickerOptions = $priceGroups->map(fn ($group) => [
+            'id' => (string) $group->id,
+            'name' => $group->name,
+        ])->values();
+        $shopPickerOptions = $shops->map(fn ($shop) => [
+            'id' => (string) $shop->id,
+            'name' => $shop->name,
+        ])->values();
     @endphp
 
-<x-dynamic-component :component="$sortSheetLayout" title="Sort Sheet">
+<x-dynamic-component :component="$sortSheetLayout" :title="$pageTitle">
     <x-slot:actions>
         @if($canExport && $hasMatrix)
-        <a href="{{ $sortSheetRoute('export.excel', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
-           id="export-excel-btn"
-           class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition-all shadow-md hover:shadow-lg">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-            </svg>
-            Export Excel
-        </a>
-        <a href="{{ $sortSheetRoute('export.pdf', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
-           id="export-pdf-btn"
-           target="_blank"
-           class="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-red-700 transition-all shadow-md hover:shadow-lg">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-            </svg>
-            Export PDF
-        </a>
-        <a href="{{ $sortSheetRoute('print', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
-           id="print-btn"
-           target="_blank"
-           class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5zm-3 0h.008v.008H15V10.5z" />
-            </svg>
-            Print
-        </a>
+            @if(!$isSegregation)
+                <a href="{{ $sortSheetRoute('export.excel', $filterParams) }}"
+                   id="export-excel-btn"
+                   class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition-all shadow-md hover:shadow-lg">
+                    Excel
+                </a>
+                <a href="{{ $sortSheetRoute('export.pdf', $filterParams) }}"
+                   id="export-pdf-btn"
+                   target="_blank"
+                   class="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-red-700 transition-all shadow-md hover:shadow-lg">
+                    PDF
+                </a>
+                <a href="{{ $sortSheetRoute('print', $filterParams) }}"
+                   id="print-btn"
+                   target="_blank"
+                   class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
+                    Print
+                </a>
+            @else
+                <a href="{{ $sortSheetRoute('export.excel', $filterParams) }}"
+                   id="selection-export-excel-btn"
+                   class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition-all shadow-md hover:shadow-lg">
+                    Excel
+                </a>
+                <a href="{{ $sortSheetRoute('print', $filterParams) }}"
+                   id="segregation-print-btn"
+                   target="_blank"
+                   class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-800 transition-all shadow-md hover:shadow-lg">
+                    Print Selection
+                </a>
+            @endif
         @endif
     </x-slot:actions>
 
@@ -59,10 +112,10 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M12 10.875v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125M13.125 12h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125M20.625 12c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5M12 14.625v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 14.625c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m0 1.5v-1.5m0 0c0-.621.504-1.125 1.125-1.125m0 0h7.5" />
                             </svg>
                         </div>
-                        Sort Sheet
+                        {{ $pageTitle }}
                     </h1>
                     <p class="text-xs text-slate-500 mt-1 ml-[52px]">
-                        Generate a product-wise sorting sheet from approved shop orders only.
+                        Generate {{ strtolower($pageTitle) }} prints from approved shop orders only.
                     </p>
                 </div>
                 @if($hasMatrix)
@@ -77,7 +130,7 @@
         {{-- Filters --}}
         <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
             <form method="GET" action="{{ $sortSheetRoute('generate') }}" id="sort-sheet-filter-form"
-                  class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+                  class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
 
                 {{-- Date --}}
                 <div>
@@ -93,52 +146,92 @@
                     >
                 </div>
 
-                {{-- Product Category --}}
-                <div>
-                    <label for="filter-category" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                        Product Category
+                {{-- Warehouse --}}
+                <div class="relative" data-picker-root="warehouses">
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                        Warehouse
                     </label>
-                    <select id="filter-category" name="category_id"
-                            class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-xs font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white">
-                        <option value="">All Categories</option>
-                        @foreach($categories as $cat)
-                            <option value="{{ $cat->id }}" {{ $currentCategory == $cat->id ? 'selected' : '' }}>
-                                {{ $cat->name }}
-                            </option>
-                        @endforeach
-                    </select>
+                    <button type="button" id="warehouse-picker-trigger"
+                            class="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                        <span id="warehouse-picker-label">All Warehouses</span>
+                        <span class="text-slate-400">▾</span>
+                    </button>
+                    <div id="warehouse-picker-panel" class="absolute left-0 right-0 top-full z-30 mt-2 hidden max-h-72 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl"></div>
+                    <input type="hidden" name="warehouse_id" id="warehouse-hidden-input" value="{{ $currentWarehouse }}">
+                </div>
+
+                {{-- Product Categories --}}
+                <div class="relative lg:col-span-2" data-picker-root="categories">
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                        {{ $categoryFilterLabel }}
+                    </label>
+                    <button type="button"
+                            id="category-picker-trigger"
+                            class="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                        <span id="category-picker-label">All Categories</span>
+                        <span class="text-slate-400">▾</span>
+                    </button>
+                    <div id="category-picker-panel" class="absolute left-0 right-0 top-full z-30 mt-2 hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-xl">
+                        <input type="search" id="category-picker-search" placeholder="Search categories"
+                               class="h-9 w-full rounded-xl border border-slate-200 px-3 text-xs font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                        <div class="mt-3 flex gap-2">
+                            <button type="button" id="category-select-all" class="rounded-lg border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-slate-700 hover:bg-slate-50">Select all</button>
+                            <button type="button" id="category-clear" class="rounded-lg border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-slate-700 hover:bg-slate-50">Clear</button>
+                        </div>
+                        <div id="category-picker-list" class="mt-3 max-h-64 space-y-1 overflow-y-auto"></div>
+                    </div>
+                    <div id="category-hidden-inputs"></div>
+                </div>
+
+                {{-- Products --}}
+                <div class="relative lg:col-span-2" data-picker-root="products">
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                        {{ $productFilterLabel }}
+                    </label>
+                    <button type="button"
+                            id="product-picker-trigger"
+                            class="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                        <span id="product-picker-label">All Products</span>
+                        <span class="text-slate-400">▾</span>
+                    </button>
+                    <div id="product-picker-panel" class="absolute left-0 right-0 top-full z-30 mt-2 hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-xl lg:w-[520px]">
+                        <input type="search" id="product-picker-search" placeholder="Search item code or name"
+                               class="h-9 w-full rounded-xl border border-slate-200 px-3 text-xs font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                        <div class="mt-3 flex gap-2">
+                            <button type="button" id="product-select-visible" class="rounded-lg border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-slate-700 hover:bg-slate-50">Select visible</button>
+                            <button type="button" id="product-clear" class="rounded-lg border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-slate-700 hover:bg-slate-50">Clear products</button>
+                        </div>
+                        <div id="product-picker-list" class="mt-3 max-h-80 space-y-3 overflow-y-auto"></div>
+                    </div>
+                    <div id="product-hidden-inputs"></div>
                 </div>
 
                 {{-- Shop Price Group (shop category) --}}
-                <div>
-                    <label for="filter-price-group" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                <div class="relative" data-picker-root="price-groups">
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
                         Shop Category
                     </label>
-                    <select id="filter-price-group" name="price_group_id"
-                            class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-xs font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white">
-                        <option value="">All Shop Categories</option>
-                        @foreach($priceGroups as $pg)
-                            <option value="{{ $pg->id }}" {{ $currentPriceGroup == $pg->id ? 'selected' : '' }}>
-                                {{ $pg->name }}
-                            </option>
-                        @endforeach
-                    </select>
+                    <button type="button" id="price-group-picker-trigger"
+                            class="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                        <span id="price-group-picker-label">All Shop Categories</span>
+                        <span class="text-slate-400">▾</span>
+                    </button>
+                    <div id="price-group-picker-panel" class="absolute left-0 right-0 top-full z-30 mt-2 hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-xl"></div>
+                    <input type="hidden" name="price_group_id" id="price-group-hidden-input" value="{{ $currentPriceGroup }}">
                 </div>
 
                 {{-- Individual Shop --}}
-                <div>
-                    <label for="filter-shop" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                <div class="relative" data-picker-root="shops">
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
                         Shop
                     </label>
-                    <select id="filter-shop" name="shop_id"
-                            class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-xs font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white">
-                        <option value="">All Shops</option>
-                        @foreach($shops as $shop)
-                            <option value="{{ $shop->id }}" {{ $currentShop == $shop->id ? 'selected' : '' }}>
-                                {{ $shop->name }}
-                            </option>
-                        @endforeach
-                    </select>
+                    <button type="button" id="shop-picker-trigger"
+                            class="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                        <span id="shop-picker-label">All Shops</span>
+                        <span class="text-slate-400">▾</span>
+                    </button>
+                    <div id="shop-picker-panel" class="absolute left-0 right-0 top-full z-30 mt-2 hidden max-h-72 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl"></div>
+                    <input type="hidden" name="shop_id" id="shop-hidden-input" value="{{ $currentShop }}">
                 </div>
 
                 {{-- Buttons --}}
@@ -149,7 +242,7 @@
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
                         </svg>
-                        Generate
+                        {{ $isSegregation ? 'Generate Selection' : 'Generate' }}
                     </button>
                     @endif
                     @if($hasMatrix || $noOrders)
@@ -172,18 +265,18 @@
             </div>
             <h3 class="text-base font-black text-amber-900">No Approved Shop Orders Found</h3>
             <p class="text-sm text-amber-700 mt-1">No approved shop orders exist for <strong>{{ \Carbon\Carbon::parse($currentDate)->format('d M Y') }}</strong> with the selected filters.</p>
-            <p class="text-xs text-amber-600 mt-2">Only orders with status <span class="font-bold">Approved</span> are included in the Sort Sheet.</p>
+            <p class="text-xs text-amber-600 mt-2">Only orders with status <span class="font-bold">Approved</span> are included.</p>
         </div>
         @endif
 
-        {{-- Sort Sheet Table --}}
+        {{-- Generated Table --}}
         @if($hasMatrix)
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
             {{-- Table Header --}}
             <div class="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                     <h2 class="text-sm font-black text-slate-900 tracking-tight">
-                        Sort Sheet — {{ \Carbon\Carbon::parse($currentDate)->format('d M Y') }}
+                        {{ $pageTitle }} — {{ \Carbon\Carbon::parse($currentDate)->format('d M Y') }}
                     </h2>
                     <p class="text-[10px] text-slate-500 mt-0.5">
                         {{ count($matrix) }} products · {{ $filteredShops->count() }} shops · Approved quantities only
@@ -191,29 +284,32 @@
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
                     @if($canExport)
-                    <a href="{{ $sortSheetRoute('export.excel', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
-                       class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-emerald-700 transition-all shadow-sm">
-                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                        </svg>
-                        Excel
-                    </a>
-                    <a href="{{ $sortSheetRoute('export.pdf', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
-                       target="_blank"
-                       class="inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-red-700 transition-all shadow-sm">
-                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                        </svg>
-                        PDF
-                    </a>
-                    <a href="{{ $sortSheetRoute('print', array_filter(['date' => $currentDate, 'shop_id' => $currentShop, 'category_id' => $currentCategory, 'price_group_id' => $currentPriceGroup])) }}"
-                       target="_blank"
-                       class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-[10px] font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
-                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5zm-3 0h.008v.008H15V10.5z" />
-                        </svg>
-                        Print
-                    </a>
+                    @if(!$isSegregation)
+                        <a href="{{ $sortSheetRoute('export.excel', $filterParams) }}"
+                           class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-emerald-700 transition-all shadow-sm">
+                            Excel
+                        </a>
+                        <a href="{{ $sortSheetRoute('export.pdf', $filterParams) }}"
+                           target="_blank"
+                           class="inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-red-700 transition-all shadow-sm">
+                            PDF
+                        </a>
+                        <a href="{{ $sortSheetRoute('print', $filterParams) }}"
+                           target="_blank"
+                           class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-[10px] font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
+                            Print
+                        </a>
+                    @else
+                        <a href="{{ $sortSheetRoute('export.excel', $filterParams) }}"
+                           class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-emerald-700 transition-all shadow-sm">
+                            Excel
+                        </a>
+                        <a href="{{ $sortSheetRoute('print', $filterParams) }}"
+                           target="_blank"
+                           class="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-slate-800 transition-all shadow-sm">
+                            Print Selection
+                        </a>
+                    @endif
                     @endif
                 </div>
             </div>
@@ -305,7 +401,7 @@
             </div>
             <h3 class="text-base font-black text-slate-900">Ready to Generate</h3>
             <p class="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
-                Select a date and apply filters, then click <strong>Generate Sort Sheet</strong> to build the product-wise sorting matrix from approved shop orders.
+                Select a date and apply filters, then click <strong>Generate</strong> to build the product-wise matrix from approved shop orders.
             </p>
             @if(!$canGenerate)
             <p class="text-xs text-slate-400 mt-3 italic">Your role allows viewing and exporting. Ask your manager to generate the sheet first.</p>
@@ -313,4 +409,397 @@
         </div>
         @endif
     </div>
+@push('scripts')
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const categories = @json($categoryPickerOptions);
+    const products = @json($productPickerOptions);
+    const warehouses = @json($warehousePickerOptions);
+    const priceGroups = @json($priceGroupPickerOptions);
+    const shops = @json($shopPickerOptions);
+    const allCategoryLabel = @json($isSegregation ? 'All Ordered Categories' : 'All Categories');
+    const allProductLabel = @json($isSegregation ? 'All Ordered Products' : 'All Products');
+
+    const selectedCategoryIds = new Set(@json($currentCategoryIds));
+    const selectedProductIds = new Set(@json($currentProductIds));
+    let selectedWarehouseId = @json((string) $currentWarehouse);
+    let selectedPriceGroupId = @json((string) $currentPriceGroup);
+    let selectedShopId = @json((string) $currentShop);
+
+    const categoryTrigger = document.getElementById('category-picker-trigger');
+    const categoryPanel = document.getElementById('category-picker-panel');
+    const categorySearch = document.getElementById('category-picker-search');
+    const categoryList = document.getElementById('category-picker-list');
+    const categoryLabel = document.getElementById('category-picker-label');
+    const categoryInputs = document.getElementById('category-hidden-inputs');
+
+    const productTrigger = document.getElementById('product-picker-trigger');
+    const productPanel = document.getElementById('product-picker-panel');
+    const productSearch = document.getElementById('product-picker-search');
+    const productList = document.getElementById('product-picker-list');
+    const productLabel = document.getElementById('product-picker-label');
+    const productInputs = document.getElementById('product-hidden-inputs');
+
+    const warehouseTrigger = document.getElementById('warehouse-picker-trigger');
+    const warehousePanel = document.getElementById('warehouse-picker-panel');
+    const warehouseLabel = document.getElementById('warehouse-picker-label');
+    const warehouseInput = document.getElementById('warehouse-hidden-input');
+
+    const priceGroupTrigger = document.getElementById('price-group-picker-trigger');
+    const priceGroupPanel = document.getElementById('price-group-picker-panel');
+    const priceGroupLabel = document.getElementById('price-group-picker-label');
+    const priceGroupInput = document.getElementById('price-group-hidden-input');
+
+    const shopTrigger = document.getElementById('shop-picker-trigger');
+    const shopPanel = document.getElementById('shop-picker-panel');
+    const shopLabel = document.getElementById('shop-picker-label');
+    const shopInput = document.getElementById('shop-hidden-input');
+
+    const form = document.getElementById('sort-sheet-filter-form');
+
+    const closeOtherPanels = (openPanel) => {
+        [categoryPanel, productPanel, warehousePanel, priceGroupPanel, shopPanel].forEach((panel) => {
+            if (panel !== openPanel) {
+                panel.classList.add('hidden');
+            }
+        });
+    };
+
+    const hiddenInput = (name, value) => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        input.value = value;
+        return input;
+    };
+
+    const syncHiddenInputs = () => {
+        categoryInputs.replaceChildren(...Array.from(selectedCategoryIds).map((id) => hiddenInput('category_ids[]', id)));
+        productInputs.replaceChildren(...Array.from(selectedProductIds).map((id) => hiddenInput('product_ids[]', id)));
+        warehouseInput.value = selectedWarehouseId;
+        priceGroupInput.value = selectedPriceGroupId;
+        shopInput.value = selectedShopId;
+    };
+
+    const updateLabels = () => {
+        categoryLabel.textContent = selectedCategoryIds.size === 0
+            ? allCategoryLabel
+            : `${selectedCategoryIds.size} categories selected`;
+        productLabel.textContent = selectedProductIds.size === 0
+            ? allProductLabel
+            : `${selectedProductIds.size} products selected`;
+        const warehouse = warehouses.find((item) => item.id === selectedWarehouseId);
+        warehouseLabel.textContent = warehouse ? `${warehouse.name} (${warehouse.code})` : 'All Warehouses';
+        priceGroupLabel.textContent = priceGroups.find((group) => group.id === selectedPriceGroupId)?.name || 'All Shop Categories';
+        shopLabel.textContent = shops.find((shop) => shop.id === selectedShopId)?.name || 'All Shops';
+    };
+
+    const rowClasses = (selected) => [
+        'flex', 'w-full', 'items-center', 'justify-between', 'gap-3', 'rounded-xl', 'border', 'px-3', 'py-2',
+        'text-left', 'text-xs', 'font-semibold', 'transition',
+        selected ? 'border-emerald-500' : 'border-slate-200',
+        selected ? 'bg-emerald-50' : 'bg-white',
+        selected ? 'text-emerald-900' : 'text-slate-700',
+        'hover:bg-slate-50',
+    ].join(' ');
+
+    const checkMark = (selected) => {
+        const mark = document.createElement('span');
+        mark.className = [
+            'flex', 'h-5', 'w-5', 'shrink-0', 'items-center', 'justify-center', 'rounded-md', 'border', 'text-[10px]', 'font-black',
+            selected ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-white',
+        ].join(' ');
+        mark.textContent = selected ? '✓' : '';
+        return mark;
+    };
+
+    const warehouseCategoryIds = () => {
+        if (selectedWarehouseId === '') {
+            return null;
+        }
+
+        return warehouses.find((warehouse) => warehouse.id === selectedWarehouseId)?.category_ids || [];
+    };
+
+    const availableCategories = () => {
+        const warehouseLimitedCategoryIds = warehouseCategoryIds();
+        if (warehouseLimitedCategoryIds === null) {
+            return categories;
+        }
+
+        return categories.filter((category) => warehouseLimitedCategoryIds.includes(category.id));
+    };
+
+    const renderCategories = () => {
+        const query = categorySearch.value.trim().toLowerCase();
+        const rows = availableCategories()
+            .filter((category) => category.name.toLowerCase().includes(query))
+            .map((category) => {
+                const selected = selectedCategoryIds.has(category.id);
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = rowClasses(selected);
+                button.dataset.categoryId = category.id;
+                const label = document.createElement('span');
+                label.textContent = category.name;
+                button.append(label, checkMark(selected));
+                button.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (selectedCategoryIds.has(category.id)) {
+                        selectedCategoryIds.delete(category.id);
+                    } else {
+                        selectedCategoryIds.add(category.id);
+                    }
+                    renderAll();
+                    categoryPanel.classList.remove('hidden');
+                });
+                return button;
+            });
+
+        if (rows.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'rounded-xl border border-dashed border-slate-200 p-4 text-center text-xs font-semibold text-slate-500';
+            empty.textContent = 'No ordered categories match the current date and shop filters.';
+            categoryList.replaceChildren(empty);
+            return;
+        }
+
+        categoryList.replaceChildren(...rows);
+    };
+
+    const visibleProducts = () => {
+        const warehouseLimitedCategoryIds = warehouseCategoryIds();
+        const warehouseLimited = warehouseLimitedCategoryIds === null
+            ? products
+            : products.filter((product) => warehouseLimitedCategoryIds.includes(product.category_id));
+        const categoryLimited = selectedCategoryIds.size === 0
+            ? warehouseLimited
+            : warehouseLimited.filter((product) => selectedCategoryIds.has(product.category_id));
+        const query = productSearch.value.trim().toLowerCase();
+
+        return categoryLimited.filter((product) => {
+            const text = `${product.sku} ${product.name} ${product.category_name}`.toLowerCase();
+            return text.includes(query);
+        });
+    };
+
+    const pruneProductSelections = () => {
+        const warehouseLimitedCategoryIds = warehouseCategoryIds();
+
+        selectedProductIds.forEach((productId) => {
+            const product = products.find((item) => item.id === productId);
+            if (! product) {
+                selectedProductIds.delete(productId);
+                return;
+            }
+            if (warehouseLimitedCategoryIds !== null && ! warehouseLimitedCategoryIds.includes(product.category_id)) {
+                selectedProductIds.delete(productId);
+                return;
+            }
+            if (selectedCategoryIds.size > 0 && !selectedCategoryIds.has(product.category_id)) {
+                selectedProductIds.delete(productId);
+            }
+        });
+    };
+
+    const pruneCategorySelections = () => {
+        const warehouseLimitedCategoryIds = warehouseCategoryIds();
+        if (warehouseLimitedCategoryIds === null) {
+            return;
+        }
+
+        selectedCategoryIds.forEach((categoryId) => {
+            if (! warehouseLimitedCategoryIds.includes(categoryId)) {
+                selectedCategoryIds.delete(categoryId);
+            }
+        });
+    };
+
+    const renderProducts = () => {
+        const grouped = new Map();
+        visibleProducts().forEach((product) => {
+            if (! grouped.has(product.category_name)) {
+                grouped.set(product.category_name, []);
+            }
+            grouped.get(product.category_name).push(product);
+        });
+
+        const sections = [];
+        grouped.forEach((groupProducts, categoryName) => {
+            const section = document.createElement('section');
+            const heading = document.createElement('div');
+            heading.className = 'sticky top-0 z-10 bg-white py-1 text-[10px] font-black uppercase tracking-wider text-slate-500';
+            heading.textContent = categoryName;
+            const rows = document.createElement('div');
+            rows.className = 'space-y-1';
+
+            groupProducts.forEach((product) => {
+                const selected = selectedProductIds.has(product.id);
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = rowClasses(selected);
+                button.dataset.productId = product.id;
+                const text = document.createElement('span');
+                text.textContent = `${product.sku} · ${product.name}`;
+                button.append(text, checkMark(selected));
+                button.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (selectedProductIds.has(product.id)) {
+                        selectedProductIds.delete(product.id);
+                    } else {
+                        selectedProductIds.add(product.id);
+                    }
+                    renderAll();
+                    productPanel.classList.remove('hidden');
+                });
+                rows.append(button);
+            });
+
+            section.append(heading, rows);
+            sections.push(section);
+        });
+
+        if (sections.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'rounded-xl border border-dashed border-slate-200 p-4 text-center text-xs font-semibold text-slate-500';
+            empty.textContent = 'No products match the current filters.';
+            productList.replaceChildren(empty);
+            return;
+        }
+
+        productList.replaceChildren(...sections);
+    };
+
+    const renderSinglePicker = (panel, items, selectedId, allLabel, onSelect) => {
+        const allButton = document.createElement('button');
+        allButton.type = 'button';
+        allButton.className = rowClasses(selectedId === '');
+        allButton.append(document.createTextNode(allLabel), checkMark(selectedId === ''));
+        allButton.addEventListener('click', () => {
+            onSelect('');
+            panel.classList.add('hidden');
+            renderAll();
+        });
+
+        const rows = items.map((item) => {
+            const selected = item.id === selectedId;
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = rowClasses(selected);
+            button.append(document.createTextNode(item.name), checkMark(selected));
+            button.addEventListener('click', () => {
+                onSelect(item.id);
+                panel.classList.add('hidden');
+                renderAll();
+            });
+            return button;
+        });
+
+        panel.replaceChildren(allButton, ...rows);
+    };
+
+    const renderAll = () => {
+        pruneCategorySelections();
+        pruneProductSelections();
+        renderCategories();
+        renderProducts();
+        renderSinglePicker(warehousePanel, warehouses.map((warehouse) => ({
+            id: warehouse.id,
+            name: `${warehouse.name} (${warehouse.code})`,
+        })), selectedWarehouseId, 'All Warehouses', (id) => selectedWarehouseId = id);
+        renderSinglePicker(priceGroupPanel, priceGroups, selectedPriceGroupId, 'All Shop Categories', (id) => selectedPriceGroupId = id);
+        renderSinglePicker(shopPanel, shops, selectedShopId, 'All Shops', (id) => selectedShopId = id);
+        updateLabels();
+        syncHiddenInputs();
+    };
+
+    categoryTrigger.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        categoryPanel.classList.toggle('hidden');
+        closeOtherPanels(categoryPanel);
+        categorySearch.focus();
+    });
+    productTrigger.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        productPanel.classList.toggle('hidden');
+        closeOtherPanels(productPanel);
+        productSearch.focus();
+    });
+    warehouseTrigger.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        warehousePanel.classList.toggle('hidden');
+        closeOtherPanels(warehousePanel);
+    });
+    priceGroupTrigger.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        priceGroupPanel.classList.toggle('hidden');
+        closeOtherPanels(priceGroupPanel);
+    });
+    shopTrigger.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        shopPanel.classList.toggle('hidden');
+        closeOtherPanels(shopPanel);
+    });
+
+    categoryPanel.addEventListener('click', (event) => event.stopPropagation());
+    productPanel.addEventListener('click', (event) => event.stopPropagation());
+    warehousePanel.addEventListener('click', (event) => event.stopPropagation());
+    priceGroupPanel.addEventListener('click', (event) => event.stopPropagation());
+    shopPanel.addEventListener('click', (event) => event.stopPropagation());
+
+    document.getElementById('category-select-all').addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        availableCategories().forEach((category) => selectedCategoryIds.add(category.id));
+        renderAll();
+        categoryPanel.classList.remove('hidden');
+    });
+    document.getElementById('category-clear').addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        selectedCategoryIds.clear();
+        renderAll();
+        categoryPanel.classList.remove('hidden');
+    });
+    document.getElementById('product-select-visible').addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        visibleProducts().forEach((product) => selectedProductIds.add(product.id));
+        renderAll();
+        productPanel.classList.remove('hidden');
+    });
+    document.getElementById('product-clear').addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        selectedProductIds.clear();
+        renderAll();
+        productPanel.classList.remove('hidden');
+    });
+
+    categorySearch.addEventListener('input', renderCategories);
+    productSearch.addEventListener('input', renderProducts);
+    form.addEventListener('submit', syncHiddenInputs);
+
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('[data-picker-root]')) {
+            categoryPanel.classList.add('hidden');
+            productPanel.classList.add('hidden');
+            warehousePanel.classList.add('hidden');
+            priceGroupPanel.classList.add('hidden');
+            shopPanel.classList.add('hidden');
+        }
+    });
+
+    renderAll();
+});
+</script>
+@endpush
+
 </x-dynamic-component>

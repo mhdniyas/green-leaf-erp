@@ -77,6 +77,8 @@ class EssentialUserSeeder extends Seeder
             $this->ensureAssignedShopStaff($shop, $owner);
         }
 
+        $this->call(ShopAccountingCategorySeeder::class);
+
         $this->deactivateRemovedSeedShops();
 
         $this->command?->info('Essential role users and real shop-owner users seeded successfully.');

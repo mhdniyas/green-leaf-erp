@@ -15,16 +15,33 @@
     @php
         $hasEntry = $entry instanceof \App\Models\ShopAccountingEntry;
         $canEdit = ! $hasEntry || $entry->canBeEditedByShopOwner();
+        $loanCategoryIds = $loanCategoryIds ?? collect();
         $recheckLines = $hasEntry
             ? $entry->lines->filter(fn ($line) => $line->review_status === 'recheck_required')->values()
             : collect();
+        $loanSettingsByCategory = ($loanCategorySettings ?? collect())->keyBy('shop_accounting_category_id');
+        $loanDefaultLines = ! $hasEntry && ! old('lines')
+            ? $loanSettingsByCategory
+                ->filter(fn ($setting) => (float) $setting->default_daily_amount > 0 && $setting->category?->type === 'expense')
+                ->map(fn ($setting) => [
+                    'shop_accounting_category_id' => (string) $setting->shop_accounting_category_id,
+                    'amount' => (string) $setting->default_daily_amount,
+                    'description' => 'Auto paid from loan',
+                    'is_loan_entry' => '1',
+                    'loan_cashbook_offset_enabled' => '0',
+                ])
+                ->values()
+                ->all()
+            : [];
         $cashbookInitialLines = collect(old('lines', $hasEntry
             ? $entry->lines->map(fn ($line) => [
                 'shop_accounting_category_id' => (string) $line->shop_accounting_category_id,
                 'amount' => (string) $line->amount,
                 'description' => (string) ($line->description ?? ''),
+                'is_loan_entry' => (string) (int) ((bool) $line->is_loan_entry),
+                'loan_cashbook_offset_enabled' => (string) (int) ((bool) $line->loan_cashbook_offset_enabled),
             ])->all()
-            : []))
+            : $loanDefaultLines))
             ->filter(fn ($line) => is_array($line))
             ->values();
         $cashbookCategories = $availableCategories->map(fn ($category) => [
@@ -33,6 +50,9 @@
             'cash_effect' => (bool) $category->cash_effect,
             'purpose' => (string) $category->purpose,
             'name' => (string) $category->name,
+            'is_loan_category' => $loanCategoryIds->contains((int) $category->id),
+            'loan_cashbook_offset_enabled' => (bool) ($loanSettingsByCategory->get($category->id)?->cashbook_offset_enabled ?? false),
+            'loan_default_daily_amount' => (float) ($loanSettingsByCategory->get($category->id)?->default_daily_amount ?? 0),
         ])->values();
         $calculatedClosing = (float) ($receiptSummary['entered_closing'] ?? $receiptSummary['expected_closing']);
         $calculatedClosingTone = $calculatedClosing < 0 ? 'rose' : 'emerald';
@@ -179,7 +199,7 @@
                         <h3 class="mt-2 text-lg font-black text-slate-950">Recent bill history</h3>
                     </div>
                     <div class="flex flex-wrap gap-2">
-                        <a href="{{ route('shop-owner.finance.index', ['tab' => 'payments']) }}" class="inline-flex h-10 items-center rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">Open Payments</a>
+                        <a href="{{ route('shop-owner.payments.index') }}" class="inline-flex h-10 items-center rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">Open Payments</a>
                         <a href="{{ route('shop-owner.accounting.history', ['tab' => 'bills']) }}" class="inline-flex h-10 items-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-800 transition hover:bg-slate-50">Full History</a>
                     </div>
                 </div>
@@ -203,6 +223,63 @@
                 @if ($invoices->hasPages())
                     <div class="mt-5">{{ $invoices->withQueryString()->links() }}</div>
                 @endif
+            </section>
+        @elseif ($tab === 'loan')
+            <section class="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-700">Loan</p>
+                        <h2 class="mt-2 text-xl font-black text-slate-950">Loan movements</h2>
+                        <p class="mt-2 text-sm font-semibold text-slate-600">Cash given, repayments, and cashbook categories paid from loan.</p>
+                    </div>
+                    <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-right">
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">{{ $loanBalance < 0 ? 'Overused Balance' : 'Available Balance' }}</p>
+                        <p class="mt-1 text-xl font-black {{ $loanBalance < 0 ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format($loanBalance, 2) }}</p>
+                    </div>
+                </div>
+
+                <div class="mt-5 overflow-x-auto rounded-[1.25rem] border border-slate-200">
+                    <table class="min-w-full text-left text-sm">
+                        <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                            <tr>
+                                <th class="px-4 py-3">Date</th>
+                                <th class="px-4 py-3">Category</th>
+                                <th class="px-4 py-3">Title</th>
+                                <th class="px-4 py-3">Status</th>
+                                <th class="px-4 py-3 text-right">Total</th>
+                                <th class="px-4 py-3 text-right">Balance</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @forelse($loanRows as $row)
+                                <tr>
+                                    <td class="px-4 py-3 font-black text-slate-950">{{ \Illuminate\Support\Carbon::parse($row['date'])->format('d M Y') }}</td>
+                                    <td class="px-4 py-3 font-black text-slate-950">{{ $row['category'] }}</td>
+                                    <td class="px-4 py-3">
+                                        <p class="font-semibold text-slate-700">{{ $row['title'] }}</p>
+                                        @if($row['description'])
+                                            <p class="mt-1 text-xs font-semibold text-slate-500">{{ $row['description'] }}</p>
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <span class="rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] {{ in_array($row['status'], ['approved', 'finalized'], true) ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700' }}">{{ str_replace('_', ' ', $row['status']) }}</span>
+                                    </td>
+                                    <td class="px-4 py-3 text-right font-black {{ (float) $row['signed_amount'] < 0 ? 'text-rose-700' : 'text-emerald-700' }}">{{ (float) $row['signed_amount'] < 0 ? '-' : '+' }} Rs. {{ number_format((float) $row['amount'], 2) }}</td>
+                                    <td class="px-4 py-3 text-right font-black text-slate-950">
+                                        Rs. {{ number_format((float) $row['balance'], 2) }}
+                                        @if($row['pending_balance'] !== null)
+                                            <span class="block text-xs font-semibold text-amber-700">After approval Rs. {{ number_format((float) $row['pending_balance'], 2) }}</span>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="6" class="px-4 py-10 text-center font-bold text-slate-500">No loan movements yet.</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
             </section>
         @else
             <section class="rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
@@ -243,6 +320,10 @@
                             <p class="font-black tabular-nums">Rs. {{ number_format($receiptSummary['total_income'], 2) }}</p>
                         </div>
                         <div class="grid grid-cols-[1fr_auto] items-center gap-3">
+                            <p class="font-bold">Daily Net Sale</p>
+                            <p data-cashbook-net-sale-display class="font-black tabular-nums {{ (float) $receiptSummary['daily_net_sale'] < 0 ? 'text-rose-900' : 'text-emerald-900' }}">Rs. {{ number_format((float) $receiptSummary['daily_net_sale'], 2) }}</p>
+                        </div>
+                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
                             <p class="font-bold">Opening</p>
                             <p class="font-black tabular-nums">Rs. {{ number_format($receiptSummary['opening_balance'], 2) }}</p>
                         </div>
@@ -251,15 +332,15 @@
                             <p class="font-black text-emerald-900 tabular-nums">Rs. {{ number_format($receiptSummary['cash_credit'], 2) }}</p>
                         </div>
                         <div class="grid grid-cols-[1fr_auto] items-center gap-3">
-                            <p class="font-bold text-emerald-900">Cash Given</p>
+                            <p class="font-bold text-emerald-900">Legacy Cash In / Cash Given</p>
                             <p class="font-black text-emerald-900 tabular-nums">Rs. {{ number_format($receiptSummary['cash_given_to_shop'], 2) }}</p>
                         </div>
                         <div class="grid grid-cols-[1fr_auto] items-center gap-3">
                             <p class="font-bold text-cyan-900">Online Payment</p>
                             <p class="font-black text-cyan-900 tabular-nums">Rs. {{ number_format($receiptSummary['non_cash_income'], 2) }}</p>
                         </div>
-                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
-                            <p class="font-bold text-amber-900">Paid Company</p>
+http://green-leaf-erp.test/shop-owner/finance                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
+                            <p class="font-bold text-amber-900">Paid Company / Cash Out</p>
                             <p class="font-black text-amber-900 tabular-nums">Rs. {{ number_format($receiptSummary['payment_to_company'], 2) }}</p>
                         </div>
                         <div class="grid grid-cols-[1fr_auto] items-center gap-3">
@@ -278,6 +359,10 @@
                         <div class="grid grid-cols-[1fr_auto] items-center gap-3">
                             <p class="font-bold">Closing</p>
                             <p data-cashbook-closing-display class="font-black tabular-nums {{ $calculatedClosingTone === 'rose' ? 'text-rose-900' : 'text-emerald-900' }}">Rs. {{ number_format($calculatedClosing, 2) }}</p>
+                        </div>
+                        <div class="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-emerald-900/20 bg-white/40 px-3 py-2">
+                            <p class="font-black">Balance</p>
+                            <p data-cashbook-net-sale-display class="font-black tabular-nums {{ (float) $receiptSummary['daily_net_sale'] < 0 ? 'text-rose-900' : 'text-emerald-900' }}">Rs. {{ number_format((float) $receiptSummary['daily_net_sale'], 2) }}</p>
                         </div>
                     </div>
 
@@ -377,11 +462,11 @@
                                                 <p class="mt-1 font-black text-slate-950">Rs. {{ number_format($ledgerDay['income'], 2) }}</p>
                                             </div>
                                             <div class="rounded-xl bg-emerald-50 p-3">
-                                                <p class="font-black uppercase tracking-[0.12em] text-emerald-700">Cash Given</p>
+                                                <p class="font-black uppercase tracking-[0.12em] text-emerald-700">Legacy Cash In / Cash Given</p>
                                                 <p class="mt-1 font-black text-emerald-800">Rs. {{ number_format($ledgerDay['cash_given_to_shop'], 2) }}</p>
                                             </div>
                                             <div class="rounded-xl bg-amber-50 p-3">
-                                                <p class="font-black uppercase tracking-[0.12em] text-amber-700">Paid Company</p>
+                                                <p class="font-black uppercase tracking-[0.12em] text-amber-700">Paid Company / Cash Out</p>
                                                 <p class="mt-1 font-black text-amber-800">Rs. {{ number_format($ledgerDay['payment_to_company'], 2) }}</p>
                                             </div>
                                             <div class="rounded-xl bg-rose-50 p-3">
@@ -404,8 +489,8 @@
                                             <th class="px-4 py-3">Date</th>
                                             <th class="px-4 py-3">Status</th>
                                             <th class="px-4 py-3 text-right">Income</th>
-                                            <th class="px-4 py-3 text-right">Cash Given</th>
-                                            <th class="px-4 py-3 text-right">Paid Company</th>
+                                            <th class="px-4 py-3 text-right">Legacy Cash In / Cash Given</th>
+                                            <th class="px-4 py-3 text-right">Paid Company / Cash Out</th>
                                             <th class="px-4 py-3 text-right">Manual Expense</th>
                                             <th class="px-4 py-3 text-right">Warehouse Invoice</th>
                                             <th class="px-4 py-3 text-right">Closing</th>
@@ -543,7 +628,7 @@
                         @csrf
                         <input type="hidden" name="business_date" value="{{ $selectedDate->format('Y-m-d') }}">
 
-                        <div class="grid gap-4 md:grid-cols-3">
+                        <div class="grid gap-4 md:grid-cols-4">
                             <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
                                 <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Opening Balance</span>
                                 <p id="cashbook-opening-display" data-opening-cash="{{ number_format($receiptSummary['opening_balance'], 2, '.', '') }}" class="mt-2 text-lg font-black text-slate-950 tabular-nums">Rs. {{ number_format($receiptSummary['opening_balance'], 2) }}</p>
@@ -553,6 +638,11 @@
                                 <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Closing Balance</span>
                                 <p id="cashbook-closing-display" data-cashbook-closing-display class="mt-2 text-lg font-black text-slate-950 tabular-nums">Rs. {{ number_format($calculatedClosing, 2) }}</p>
                                 <p class="mt-1 text-xs font-semibold text-slate-500">Auto calculated from cash credits and debits</p>
+                            </div>
+                            <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+                                <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Balance</span>
+                                <p data-cashbook-net-sale-display class="mt-2 text-lg font-black {{ (float) $receiptSummary['daily_net_sale'] < 0 ? 'text-rose-700' : 'text-emerald-700' }} tabular-nums">Rs. {{ number_format((float) $receiptSummary['daily_net_sale'], 2) }}</p>
+                                <p class="mt-1 text-xs font-semibold text-slate-500">Includes loan expenses</p>
                             </div>
                             <label class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
                                 <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Daily Note</span>
@@ -617,7 +707,7 @@
                     </form>
                     @elseif ($hasEntry)
                         <div class="space-y-4">
-                            <div class="grid gap-4 md:grid-cols-3">
+                            <div class="grid gap-4 md:grid-cols-4">
                                 <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
                                     <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Opening Cash</p>
                                     <p class="mt-2 text-lg font-black text-slate-950">Rs. {{ number_format($receiptSummary['opening_balance'], 2) }}</p>
@@ -625,6 +715,10 @@
                                 <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
                                     <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Closing Cash</p>
                                     <p class="mt-2 text-lg font-black {{ $calculatedClosingTone === 'rose' ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format($calculatedClosing, 2) }}</p>
+                                </div>
+                                <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+                                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Balance</p>
+                                    <p class="mt-2 text-lg font-black {{ (float) $receiptSummary['daily_net_sale'] < 0 ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format((float) $receiptSummary['daily_net_sale'], 2) }}</p>
                                 </div>
                                 <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
                                     <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Approved By</p>
@@ -649,7 +743,12 @@
                                                 <td class="px-4 py-3">
                                                     <span class="inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] {{ $line->type === 'income' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700' }}">{{ $line->type }}</span>
                                                 </td>
-                                                <td class="px-4 py-3 font-black text-slate-950">{{ $line->category?->name ?? 'Category removed' }}</td>
+                                                <td class="px-4 py-3 font-black text-slate-950">
+                                                    {{ $line->category?->name ?? 'Category removed' }}
+                                                    @if((bool) $line->is_loan_entry && $line->type === 'expense')
+                                                        <span class="mt-1 block w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-violet-700">Paid from loan</span>
+                                                    @endif
+                                                </td>
                                                 <td class="px-4 py-3 font-semibold text-slate-600">{{ $line->description ?: 'No note added' }}</td>
                                                 <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $line->amount, 2) }}</td>
                                             </tr>
@@ -712,6 +811,13 @@
                             <label class="block">
                                 <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Amount</span>
                                 <input id="cashbook-line-amount" type="number" min="0.01" step="0.01" class="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none" placeholder="Enter amount">
+                            </label>
+                            <label class="flex items-start gap-3 rounded-[1.25rem] border border-violet-200 bg-violet-50 p-4">
+                                <input id="cashbook-line-loan" type="checkbox" class="mt-1 h-5 w-5 rounded border-violet-300 text-violet-700 focus:ring-violet-500">
+                                <span>
+                                    <span class="block text-sm font-black text-violet-950">Under loan</span>
+                                    <span id="cashbook-line-loan-help" class="mt-1 block text-xs font-semibold text-violet-700">This line goes to the shop loan ledger instead of changing shop cash.</span>
+                                </span>
                             </label>
                             <label class="block">
                                 <span id="cashbook-line-description-label" class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Notes</span>
@@ -908,19 +1014,30 @@
             const categoryLabel = document.getElementById('cashbook-line-category-label');
             const categoryPanel = document.getElementById('cashbook-line-category-panel');
             const amountInput = document.getElementById('cashbook-line-amount');
+            const loanInput = document.getElementById('cashbook-line-loan');
+            const loanHelp = document.getElementById('cashbook-line-loan-help');
             const descriptionInput = document.getElementById('cashbook-line-description');
             const descriptionLabel = document.getElementById('cashbook-line-description-label');
             const helpText = document.getElementById('cashbook-line-help');
             const modalTitle = document.getElementById('cashbook-modal-title');
             const openingDisplay = document.getElementById('cashbook-opening-display');
             const closingDisplays = document.querySelectorAll('[data-cashbook-closing-display]');
+            const netSaleDisplays = document.querySelectorAll('[data-cashbook-net-sale-display]');
 
-            if (!listEl || !inputsEl || !modalEl || !openButton || !closeButton || !cancelButton || !saveButton || !typeInput || !categoryInput || !typeTrigger || !typeLabel || !typePanel || !categoryTrigger || !categoryLabel || !categoryPanel || !amountInput || !descriptionInput || !descriptionLabel || !helpText || !modalTitle) {
+            if (!listEl || !inputsEl || !modalEl || !openButton || !closeButton || !cancelButton || !saveButton || !typeInput || !categoryInput || !typeTrigger || !typeLabel || !typePanel || !categoryTrigger || !categoryLabel || !categoryPanel || !amountInput || !loanInput || !loanHelp || !descriptionInput || !descriptionLabel || !helpText || !modalTitle) {
                 return;
             }
 
             let editIndex = null;
-            let lines = Array.isArray(initialLines) ? initialLines.filter(line => line && line.shop_accounting_category_id && line.amount) : [];
+            let lines = Array.isArray(initialLines)
+                ? initialLines
+                    .filter(line => line && line.shop_accounting_category_id && line.amount)
+                    .map(line => ({
+                        ...line,
+                        is_loan_entry: ['1', 1, true, 'true'].includes(line.is_loan_entry),
+                        loan_cashbook_offset_enabled: ['1', 1, true, 'true'].includes(line.loan_cashbook_offset_enabled),
+                    }))
+                : [];
             const openingCash = Number(openingDisplay?.dataset.openingCash ?? 0);
 
             const escapeHtml = (value) => String(value ?? '')
@@ -931,9 +1048,19 @@
                 .replaceAll("'", '&#039;');
 
             const categoryMeta = (categoryId) => categories.find((category) => String(category.id) === String(categoryId)) ?? null;
-            const cashbookLabel = (meta) => {
+            const isLoanLine = (line) => {
+                const meta = categoryMeta(line?.shop_accounting_category_id);
+
+                return meta?.type === 'expense' && ['1', 1, true, 'true'].includes(line?.is_loan_entry);
+            };
+            const isLoanOffsetLine = (line) => ['1', 1, true, 'true'].includes(line?.loan_cashbook_offset_enabled);
+            const cashbookLabel = (meta, line = null) => {
                 if (!meta) {
                     return 'Entry';
+                }
+
+                if (isLoanLine(line)) {
+                    return 'Paid from loan';
                 }
 
                 if (meta.type === 'income') {
@@ -944,28 +1071,44 @@
             };
             const formatMoney = (amount) => `Rs. ${Number(amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
             const renderClosingPreview = () => {
-                if (!closingDisplays.length) {
+                if (!closingDisplays.length && !netSaleDisplays.length) {
                     return;
                 }
 
-                const cashMovement = lines.reduce((total, line) => {
+                const totals = lines.reduce((carry, line) => {
                     const meta = categoryMeta(line.shop_accounting_category_id);
-
-                    if (!meta?.cash_effect) {
-                        return total;
-                    }
-
                     const amount = Number(line.amount);
 
-                    if (!Number.isFinite(amount)) {
-                        return total;
+                    if (!meta || !Number.isFinite(amount)) {
+                        return carry;
                     }
 
-                    return total + (meta.type === 'income' ? amount : -amount);
-                }, 0);
+                    carry.netSale += meta.type === 'income' ? amount : -amount;
+
+                    if (!meta.cash_effect) {
+                        return carry;
+                    }
+
+                    if (isLoanLine(line)) {
+                        return carry;
+                    }
+
+                    carry.cashMovement += meta.type === 'income' ? amount : -amount;
+
+                    return carry;
+                }, { cashMovement: 0, netSale: 0 });
+
+                const closingBalance = openingCash + totals.cashMovement;
 
                 closingDisplays.forEach((display) => {
-                    display.textContent = formatMoney(openingCash + cashMovement);
+                    display.textContent = formatMoney(closingBalance);
+                });
+                netSaleDisplays.forEach((display) => {
+                    display.textContent = formatMoney(totals.netSale);
+                    display.classList.toggle('text-rose-700', totals.netSale < 0);
+                    display.classList.toggle('text-rose-900', totals.netSale < 0);
+                    display.classList.toggle('text-emerald-700', totals.netSale >= 0);
+                    display.classList.toggle('text-emerald-900', totals.netSale >= 0);
                 });
             };
             const requiresDescription = (meta) => Boolean(meta && String(meta.name).toLowerCase().startsWith('other'));
@@ -1003,7 +1146,7 @@
                         }"
                     >
                         <span>${escapeHtml(category.name)}</span>
-                        <span class="ml-auto text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">${escapeHtml(cashbookLabel(category))}</span>
+                        <span class="ml-auto text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">${category.is_loan_category ? 'Loan default' : escapeHtml(cashbookLabel(category))}</span>
                     </button>
                 `).join('');
 
@@ -1019,6 +1162,29 @@
                 helpText.textContent = isOther
                     ? 'Other income or expense needs notes so admin can understand the entry.'
                     : 'Add any short detail if this entry needs context.';
+                refreshLoanState();
+            };
+
+            const refreshLoanState = () => {
+                const meta = categoryMeta(categoryInput.value);
+
+                if (!meta) {
+                    loanInput.checked = false;
+                    loanInput.disabled = true;
+                    loanHelp.textContent = 'This line goes to the shop loan ledger instead of changing shop cash.';
+                    return;
+                }
+
+                const canUseLoan = meta.type === 'expense';
+                loanInput.disabled = !canUseLoan;
+
+                if (!canUseLoan) {
+                    loanInput.checked = false;
+                    loanHelp.textContent = 'Under loan is available only for expense lines.';
+                    return;
+                }
+
+                loanHelp.textContent = 'Expense under loan reduces the shop loan ledger. Shop cash is unchanged.';
             };
 
             const renderInputs = () => {
@@ -1026,6 +1192,8 @@
                     <input type="hidden" name="lines[${index}][shop_accounting_category_id]" value="${escapeHtml(line.shop_accounting_category_id)}">
                     <input type="hidden" name="lines[${index}][amount]" value="${escapeHtml(line.amount)}">
                     <input type="hidden" name="lines[${index}][description]" value="${escapeHtml(line.description ?? '')}">
+                    <input type="hidden" name="lines[${index}][is_loan_entry]" value="${isLoanLine(line) ? '1' : '0'}">
+                    <input type="hidden" name="lines[${index}][loan_cashbook_offset_enabled]" value="${isLoanOffsetLine(line) ? '1' : '0'}">
                 `).join('');
             };
 
@@ -1043,11 +1211,13 @@
 
                 listEl.innerHTML = lines.map((line, index) => {
                     const meta = categoryMeta(line.shop_accounting_category_id);
-                    const typeTone = meta?.type === 'income' && meta?.cash_effect
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                        : meta?.type === 'income'
-                            ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
-                            : 'border-amber-200 bg-amber-50 text-amber-700';
+                    const typeTone = isLoanLine(line)
+                        ? 'border-violet-200 bg-violet-50 text-violet-700'
+                        : meta?.type === 'income' && meta?.cash_effect
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                            : meta?.type === 'income'
+                                ? 'border-cyan-200 bg-cyan-50 text-cyan-700'
+                                : 'border-amber-200 bg-amber-50 text-amber-700';
 
                     return `
                         <div class="rounded-[1.5rem] border border-slate-200 bg-white p-4">
@@ -1055,7 +1225,7 @@
                                 <div>
                                     <div class="flex flex-wrap items-center gap-2">
                                         <span class="inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] ${typeTone}">
-                                            ${escapeHtml(cashbookLabel(meta))}
+                                            ${escapeHtml(cashbookLabel(meta, line))}
                                         </span>
                                         <span class="text-sm font-black text-slate-950">${escapeHtml(meta?.name ?? 'Category')}</span>
                                     </div>
@@ -1080,6 +1250,7 @@
                 closeDropdowns();
                 editIndex = null;
                 amountInput.value = '';
+                loanInput.checked = false;
                 descriptionInput.value = '';
                 setTypeValue('income', 'Income');
                 fillCategoryOptions('income');
@@ -1093,6 +1264,7 @@
                     setTypeValue('income', 'Income');
                     fillCategoryOptions('income');
                     amountInput.value = '';
+                    loanInput.checked = false;
                     descriptionInput.value = '';
                     modalTitle.textContent = 'Add credit or debit';
                 } else {
@@ -1101,10 +1273,12 @@
                     setTypeValue(meta?.type ?? 'income', meta?.type === 'expense' ? 'Expense' : 'Income');
                     fillCategoryOptions(typeInput.value, line.shop_accounting_category_id);
                     amountInput.value = line.amount;
+                    loanInput.checked = isLoanLine(line);
                     descriptionInput.value = line.description ?? '';
                     modalTitle.textContent = 'Update receipt line';
                 }
 
+                refreshLoanState();
                 modalEl.classList.remove('hidden');
                 amountInput.focus();
             };
@@ -1182,6 +1356,8 @@
                     shop_accounting_category_id: categoryId,
                     amount,
                     description,
+                    is_loan_entry: meta?.type === 'expense' && loanInput.checked,
+                    loan_cashbook_offset_enabled: false,
                 };
 
                 if (editIndex === null) {

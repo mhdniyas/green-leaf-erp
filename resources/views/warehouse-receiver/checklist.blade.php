@@ -137,35 +137,39 @@
                                             </div>
                                         </div>
 
-                                        <div class="mt-3 space-y-1.5 rounded-xl bg-slate-50 p-3">
-                                            @foreach($order->items->take(4) as $item)
-                                                <div class="flex items-center justify-between gap-3 text-[11px] font-bold text-slate-600">
-                                                    <span class="truncate">{{ $item->product?->name ?? 'Product #'.$item->product_id }}</span>
-                                                    <span class="shrink-0 text-slate-900">{{ number_format((float) ($item->approved_qty > 0 ? $item->approved_qty : $item->requested_qty), 2) }} {{ $item->unit }}</span>
-                                                </div>
-                                            @endforeach
-                                        </div>
-
-                                        <form action="{{ route('warehouse.receiver.direct-purchase.receive', $order) }}" method="POST" class="warehouse-confirm-form mt-3 flex items-center gap-2 border-t border-dashed border-slate-100 pt-3"
+                                        <form action="{{ route('warehouse.receiver.direct-purchase.receive', $order) }}" method="POST" class="warehouse-confirm-form mt-3 space-y-3 border-t border-dashed border-slate-100 pt-3"
                                               data-confirm-title="Receive direct purchase"
                                               data-confirm-message="Receive {{ $order->order_number }} directly into warehouse inventory?"
                                               data-confirm-button="Receive">
                                             @csrf
-                                            <div class="relative min-w-0 flex-1">
-                                                <select name="warehouse_id" required class="w-full appearance-none rounded-xl border border-slate-200 bg-white py-2.5 pl-3 pr-9 text-xs font-semibold text-slate-900 shadow-sm transition-all hover:bg-slate-50/50 focus:border-indigo-500 focus:outline-none cursor-pointer">
-                                                    @foreach($warehouses as $wh)
-                                                        <option value="{{ $wh->id }}">
-                                                            {{ $wh->name }} ({{ $wh->code }})
-                                                        </option>
-                                                    @endforeach
-                                                </select>
-                                                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400">
-                                                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                                                    </svg>
+                                        <div class="space-y-2 rounded-xl bg-slate-50 p-3">
+                                            @foreach($order->items as $item)
+                                                <div class="grid gap-2 rounded-xl bg-white p-2 shadow-sm sm:grid-cols-[1fr_180px] sm:items-center">
+                                                    <div class="min-w-0 text-[11px] font-bold">
+                                                        <div class="flex items-center justify-between gap-3 text-slate-600">
+                                                            <span class="truncate">{{ $item->product?->name ?? 'Product #'.$item->product_id }}</span>
+                                                            <span class="shrink-0 text-slate-900">{{ number_format((float) ($item->approved_qty > 0 ? $item->approved_qty : $item->requested_qty), 2) }} {{ $item->unit }}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div class="relative min-w-0">
+                                                        <select name="items[{{ $item->id }}][warehouse_id]" required class="w-full appearance-none rounded-xl border border-slate-200 bg-white py-2.5 pl-3 pr-9 text-xs font-semibold text-slate-900 shadow-sm transition-all hover:bg-slate-50/50 focus:border-indigo-500 focus:outline-none cursor-pointer">
+                                                            @foreach($warehouses as $wh)
+                                                                <option value="{{ $wh->id }}" @selected(old("items.{$item->id}.warehouse_id", $item->product?->default_warehouse_id) == $wh->id)>
+                                                                    {{ $wh->name }} ({{ $wh->code }})
+                                                                </option>
+                                                            @endforeach
+                                                        </select>
+                                                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400">
+                                                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                                                            </svg>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                            <button type="submit" class="shrink-0 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-black text-white shadow-sm transition-colors hover:bg-emerald-700 border-none cursor-pointer">
+                                            @endforeach
+                                        </div>
+
+                                            <button type="submit" class="w-full rounded-xl bg-emerald-600 px-3 py-2.5 text-xs font-black text-white shadow-sm transition-colors hover:bg-emerald-700 border-none cursor-pointer">
                                                 Receive
                                             </button>
                                         </form>

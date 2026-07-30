@@ -349,7 +349,8 @@ class WarehouseReceiverController extends Controller
         }
 
         $validated = $request->validate([
-            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+            'items' => ['required', 'array'],
+            'items.*.warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
         ]);
 
         $order->loadMissing('items.product');
@@ -362,6 +363,13 @@ class WarehouseReceiverController extends Controller
 
         DB::transaction(function () use ($order, $validated, $userId): void {
             foreach ($order->items as $item) {
+                $itemData = $validated['items'][$item->id] ?? null;
+                if (! is_array($itemData)) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        "items.{$item->id}.warehouse_id" => 'Select a warehouse for every direct purchase item.',
+                    ]);
+                }
+
                 $quantity = (float) ($item->approved_qty > 0 ? $item->approved_qty : $item->requested_qty);
 
                 if ($quantity <= 0.0) {
@@ -370,7 +378,7 @@ class WarehouseReceiverController extends Controller
 
                 StockBatch::query()->create([
                     'product_id' => $item->product_id,
-                    'warehouse_id' => (int) $validated['warehouse_id'],
+                    'warehouse_id' => (int) $itemData['warehouse_id'],
                     'created_by' => $userId,
                     'reference' => $this->generateDirectPurchaseBatchReference(),
                     'received_at' => $order->business_date,

@@ -9,6 +9,7 @@ use App\Enums\Purchasing\InvoiceStatus;
 use App\Enums\Purchasing\POStatus;
 use App\Models\GoodsReceived;
 use App\Models\PurchaseInvoice;
+use App\Models\PurchaseInvoicePayment;
 use App\Models\PurchaserCredit;
 use App\Repositories\Purchasing\PurchaseInvoiceRepository;
 use App\Services\Finance\JournalService;
@@ -84,6 +85,7 @@ class PurchaseInvoiceService
         return DB::transaction(function () use ($invoice, $payload): PurchaseInvoice {
             $invoice->loadMissing(['supplier', 'purchaserCart']);
             $previousPaidAmount = round((float) ($invoice->paid_amount ?? 0), 2);
+            $previousDiscountAmount = round((float) ($invoice->discount_amount ?? 0), 2);
 
             $invoiceAmount = round((float) $invoice->amount, 2);
             $discountAmount = min($invoiceAmount, max(0, round((float) ($payload['discount_amount'] ?? $invoice->discount_amount ?? 0), 2)));
@@ -159,18 +161,35 @@ class PurchaseInvoiceService
 
             $updatedInvoice = $invoice->fresh(['supplier', 'purchaserCart']);
             $paidIncrease = round((float) $updatedInvoice->paid_amount - $previousPaidAmount, 2);
+            $discountIncrease = round((float) $updatedInvoice->discount_amount - $previousDiscountAmount, 2);
+
+            if ($paidIncrease > 0.0 || $discountIncrease > 0.0) {
+                PurchaseInvoicePayment::query()->create([
+                    'purchase_invoice_id' => $updatedInvoice->id,
+                    'supplier_id' => $updatedInvoice->supplier_id,
+                    'payment_date' => today()->toDateString(),
+                    'amount' => max(0, $paidIncrease),
+                    'discount_amount' => max(0, $discountIncrease),
+                    'payment_method' => $paymentMethod,
+                    'payment_paid_by' => $paymentPaidBy,
+                    'note' => $payload['payment_note'],
+                    'created_by' => auth()->id() ?: $updatedInvoice->purchaser_submitted_by,
+                ]);
+            }
 
             if ($paymentPaidBy === 'company' && $paidIncrease > 0) {
                 $this->journalService->recordCompanyVendorCreditPayment(
                     invoice: $updatedInvoice,
                     amount: $paidIncrease,
-                    userId: (int) (auth()->id() ?: $updatedInvoice->purchaser_submitted_by ?: 1)
+                    userId: (int) (auth()->id() ?: $updatedInvoice->purchaser_submitted_by ?: 1),
+                    paymentMode: $paymentMethod,
                 );
             } elseif ($updatedInvoice->isGreenLeafDirectPurchase() && $paidIncrease > 0) {
                 $this->journalService->recordGreenLeafDirectPurchasePayment(
                     invoice: $updatedInvoice,
                     amount: $paidIncrease,
-                    userId: (int) (auth()->id() ?: $updatedInvoice->purchaser_submitted_by ?: 1)
+                    userId: (int) (auth()->id() ?: $updatedInvoice->purchaser_submitted_by ?: 1),
+                    paymentMode: $paymentMethod,
                 );
             }
 

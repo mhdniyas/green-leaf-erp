@@ -221,7 +221,7 @@
         [
             'label' => 'Daily',
             'route' => 'purchaser.daily',
-            'active' => request()->routeIs('purchaser.daily'),
+            'active' => request()->routeIs('purchaser.daily') || request()->routeIs('purchaser.shop-orders.*'),
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 7.5h16M4 12h16M4 16.5h10" /></svg>',
             'type' => 'link',
         ],
@@ -240,10 +240,10 @@
             'type' => 'link',
         ],
         [
-            'label' => 'Report',
-            'route' => 'purchaser.history',
-            'active' => request()->routeIs('purchaser.history'),
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2m5-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
+            'label' => 'Add-ons',
+            'route' => 'purchaser.add-ons.create',
+            'active' => request()->routeIs('purchaser.add-ons.*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m7-7H5" /></svg>',
             'type' => 'link',
         ],
     ];
@@ -408,6 +408,12 @@
                     <x-nav-item href="{{ route('purchaser.daily') }}" :active="request()->routeIs('purchaser.daily')" :sub="true">
                         Daily
                     </x-nav-item>
+                    <x-nav-item href="{{ route('purchaser.shop-orders.index') }}" :active="request()->routeIs('purchaser.shop-orders.*')" :sub="true">
+                        Shop Orders
+                    </x-nav-item>
+                    <x-nav-item href="{{ route('purchaser.add-ons.create') }}" :active="request()->routeIs('purchaser.add-ons.*')" :sub="true">
+                        Add-ons
+                    </x-nav-item>
                     <x-nav-item href="{{ route('purchaser.vendors') }}" :active="request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill')" :sub="true">
                         Daily Carts
                     </x-nav-item>
@@ -528,7 +534,7 @@
                     <div class="sidebar-group-items ml-6 space-y-1 border-l border-slate-200 py-1 pl-4 pr-1 transition-all duration-200 {{ $isSalesActive ? '' : 'hidden' }}">
                         @can('sales.customer.view')
                         <x-nav-item href="{{ route('sales.customers.index') }}" :active="request()->routeIs('sales.customers.*')" :sub="true">
-                            Customers
+                            Shops
                         </x-nav-item>
                         @endcan
                         @can('sales.invoice.view')

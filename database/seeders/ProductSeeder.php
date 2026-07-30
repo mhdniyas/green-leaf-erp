@@ -6,6 +6,7 @@ namespace Database\Seeders;
 
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\ProductUnit;
 use Illuminate\Database\Seeder;
 
 class ProductSeeder extends Seeder
@@ -131,7 +132,7 @@ class ProductSeeder extends Seeder
 122|Baby Corn
 123|Peeled Garlic
 124|Peeled Onion
-125|Sprouds
+125|Cherry Tomato Box SP
 126|Cherry Tomato Box
 127|Cherry Tomato Loose
 128|Mushroom
@@ -152,12 +153,17 @@ class ProductSeeder extends Seeder
 143|Basaley Leaf
 144|Lemon Grass
 145|Leaks
-146|Bel (Kolkata Item)
-147|Misty Pumkin
-148|Kolkata Lemon
-149|Kochu Loti
-150|White Parwal
-151|Maankochoo
+146|Sprouds Mix
+147|Sprouds Green Gram
+148|Sprouds chickpeas / chana
+149|Sprouds Horse Gram
+150|Sprouds Cowpea
+151|Bel (Kolkata Item)
+152|Misty Pumkin
+153|Kolkata Lemon
+154|Kochu Loti
+155|White Parwal
+156|Maankochoo
 161|Garlic Leafs
 162|Banana yelakki Green
 163|Banana Yelakki Color
@@ -266,6 +272,114 @@ class ProductSeeder extends Seeder
 302|Wrapping Roll
 303|Container 250G
 304|Container 500 G
+305|Papper Bag 1kg
+306|Papper Bag 3kg
+307|Papper Bag 5kg
+308|Cover 13X16
+309|Cover 16X20
+310|Cover 20X26
+311|Cover 26X34
+312|Billing Roll
+DATA;
+
+
+    private const MEASURE_LINES = <<<'DATA'
+Tomato H|kg|kg:KG:1:1:1:0;crate:CRATE:20:0:1:1
+Tomato N|kg|kg:KG:1:1:1:0;crate:CRATE:20:0:1:1
+Onion|kg|kg:KG:1:1:1:0;bag:BAG:50:0:1:1
+Pickle Onion Bag|bag|bag:BAG:1:1:1:0
+Potato Agra|kg|kg:KG:1:1:1:0;bag:BAG:50:0:1:1
+Potato Local|kg|kg:KG:1:1:1:0;bag:BAG:50:0:1:1
+Baby Potato|bag|bag:BAG:1:1:1:0
+Banana Flower|piece|piece:PIECE:1:1:1:0
+Banana Stem|piece|piece:PIECE:1:1:1:0
+Cherry Tomato Box SP|box|box:BOX:1:1:1:0
+Cherry Tomato Box|box|box:BOX:1:1:1:0
+Mushroom|box|box:BOX:1:1:1:0
+Oyster Mushroom|box|box:BOX:1:1:1:0
+Coconut|piece|piece:PCS:1:1:1:0
+Gala NZ|kg|kg:KG:1:1:0:0;box:BOX 18 KG:18:0:0:1
+Gala Apple|kg|kg:KG:1:1:1:0;box:BOX:18:0:1:1
+Irani Apple|kg|kg:KG:1:1:0:0;box:BOX 10 KG:10:0:0:1
+Fuji Apple|kg|kg:KG:1:1:0:0;box:BOX 10 KG:10:0:0:1
+Green Apple|kg|kg:KG:1:1:0:0;box:BOX 18 KG:18:0:0:1
+Apple Pink lady|kg|kg:KG:1:1:0:0;box:BOX 18 KG:18:0:0:1
+Red Apple|kg|kg:KG:1:1:0:0;box:BOX 14 KG:14:0:1:1;box:BOX 18 KG:18:0:1:2
+Indian Apple|kg|kg:KG:1:1:0:0;box:BOX 20 KG:20:0:0:1
+Apple Misri|kg|kg:KG:1:1:1:0;box:BOX 7 KG:7:0:0:1
+Rockit Apple|box|box:BOX:1:1:1:0
+Washington Apple|kg|kg:KG:1:1:0:0;box:BOX 11 KG:11:0:1:1
+Mini Orange|kg|kg:KG:1:1:1:0;box:BOX 10 KG:10:0:0:1
+Mini Orange SL|kg|kg:KG:1:1:1:0;box:BOX 10 KG:10:0:0:1
+Pears|kg|kg:KG:1:1:1:0;box:BOX 13 KG:13:0:0:1
+Citrus Orange|kg|kg:KG:1:1:1:0;box:BOX 15 KG:15:0:0:1
+Kinnow Orange|kg|kg:KG:1:1:1:0;box:BOX 20 KG:20:0:0:1
+Dragon Fruit|piece|piece:PIECE:1:1:0:2
+Kiwi|piece|box:BOX 1 PIECE:1:0:0:1;piece:PIECE:1:1:1:2
+Golden Kiwi|piece|box:BOX 1 PIECE:1:0:0:1;piece:PIECE:1:1:0:2
+Imp Butter Fruit|kg|kg:KG:1:1:1:0;box:BOX 4 KG:4:0:0:1
+Red Pear|kg|kg:KG:1:1:1:0;box:BOX 13 KG:13:0:0:1
+Redglobe|kg|kg:KG:1:1:1:0;box:BOX 7 KG:7:0:0:1
+Redglobe SL|kg|kg:KG:1:1:1:0;box:BOX 5 KG:5:0:0:1
+Muscat Grape|kg|kg:KG:1:1:1:0;box:BOX 5 KG:5:0:0:1
+Cherry|kg|kg:KG:1:1:0:0;box:BOX 2 KG:2:0:0:1;piece:PIECE:1:0:0:2
+Plum|kg|kg:KG:1:1:1:0;box:BOX 5 KG:5:0:0:1
+Persimmon Fruit|kg|kg:KG:1:1:1:0;box:BOX 7 KG:7:0:0:1
+Blue Berry|piece|box:BOX 1 PIECE:1:0:0:1;piece:PIECE:1:1:0:2
+Raspberry|piece|box:BOX 1 PIECE:1:0:0:1;piece:PIECE:1:1:0:2
+Bare Apple|kg|kg:KG:1:1:1:0;box:BOX 10 KG:10:0:0:1
+Watermelon|kg|kg:KG:1:1:1:0;bag:BAG 30 KG:30:0:0:1
+Watermelon Namdhari|piece|piece:PCS:1:1:1:0
+Watermelon Outside Yellow|piece|piece:PCS:1:1:1:0
+Watermelon Inside Yellow|piece|piece:PCS:1:1:1:0
+Pineapple|kg|kg:KG:1:1:0:0;piece:PIECE:1:0:0:2
+Strawberry|piece|piece:PIECE:1:1:1:0
+Anar / Pomegranate|kg|kg:KG:1:1:0:0;box:BOX 10 KG:10:0:1:1;crate:CRATE:20:0:1:6
+Anar Gujrath|kg|kg:KG:1:1:0:0;box:BOX 10 KG:10:0:1:1;crate:CRATE:20:0:1:6
+Anar S S|kg|kg:KG:1:1:0:0;box:BOX 10 KG:10:0:1:1;crate:CRATE:20:0:1:6
+Muskmelon|piece|piece:PCS:1:1:1:0
+Black Grapes|kg|kg:KG:1:1:0:0;crate:CRATE:9:0:1:6
+Green Grapes|kg|kg:KG:1:1:0:0;crate:CRATE:9:0:1:6
+Local Redglobe|kg|kg:KG:1:1:0:0;crate:CRATE:9:0:1:6
+Litchi|kg|kg:KG:1:1:0:0;box:BOX 10 KG:10:0:1:1
+Fig / Anjeer|box|box:BOX:1:1:1:1;bag:BAG:0.0054:0:0:3
+Mulberry|piece|piece:PIECE:1:1:1:0
+Mango BP|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Mango BP SPL|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Mango Bdmi|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Mango Bdmi SPL|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Mango Malliga|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Mango Malliga SPL|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Mango IP|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Mango IP SPL|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Mango Sindura|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Mango Kesar|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Mango Neelam|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Mango Malgova|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Mango Langada|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Mango Dasari|kg|kg:KG:1:1:1:0;crate:CRATE:20:0:0:6
+Mango Raspuri|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Amrapalli Mango|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Kalapad Mango|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Sugar Baby Mango|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Nambiar Mango|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Mango Chausa|kg|kg:KG:1:1:1:0;box:BOX 5 KG:5:0:0:1
+Mango Javvari|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Himsagar Mango|kg|kg:KG:1:1:0:0;crate:CRATE:20:0:1:6
+Alphonso Mango / Hapus|kg|kg:KG:1:1:0:0;box:BOX 5 KG:5:0:1:1
+Plate 1d|piece|piece:PCS:1:1:1:0
+Plate 2D|piece|piece:PCS:1:1:1:0
+Wrapping Roll|roll|roll:ROLL:1:1:1:0
+Container 250G|piece|piece:PCS:1:1:1:0
+Container 500 G|piece|piece:PCS:1:1:1:0
+Papper Bag 1kg|piece|piece:PCS:1:1:1:0
+Papper Bag 3kg|piece|piece:PCS:1:1:1:0
+Papper Bag 5kg|piece|piece:PCS:1:1:1:0
+Cover 13X16|piece|piece:PCS:1:1:1:0
+Cover 16X20|piece|piece:PCS:1:1:1:0
+Cover 20X26|piece|piece:PCS:1:1:1:0
+Cover 26X34|piece|piece:PCS:1:1:1:0
+Billing Roll|roll|roll:ROLL:1:1:1:0
 DATA;
 
     public function run(): void
@@ -310,6 +424,7 @@ DATA;
                 ]);
             }
 
+            $this->syncUnits($product, $data['units']);
             $seededProductIds[] = $product->id;
         }
 
@@ -321,11 +436,12 @@ DATA;
     }
 
     /**
-     * @return array<int, array{category: string, name: string, sku: string, unit: string}>
+     * @return array<int, array{category: string, name: string, sku: string, unit: string, units: array<int, array{unit: string, label: string, conversion_to_base: ?float, is_base: bool, is_orderable: bool, sort_order: int}>}>
      */
     private function catalog(): array
     {
         $products = [];
+        $measuresByName = $this->measuresByName();
 
         foreach (preg_split('/\r\n|\r|\n/', self::PRODUCT_LINES) as $line) {
             if (! $line) {
@@ -333,16 +449,113 @@ DATA;
             }
 
             [$sku, $name] = explode('|', $line, 2);
+            $units = $measuresByName[$name]['units'] ?? $this->defaultUnits($this->resolveUnit((int) $sku));
+            $baseUnit = $measuresByName[$name]['base_unit'] ?? $this->resolveUnit((int) $sku);
 
             $products[] = [
                 'category' => $this->resolveCategory((int) $sku),
                 'name' => $name,
                 'sku' => $sku,
-                'unit' => $this->resolveUnit((int) $sku),
+                'unit' => $baseUnit,
+                'units' => $units,
             ];
         }
 
         return $products;
+    }
+
+    /**
+     * @return array<string, array{base_unit: string, units: array<int, array{unit: string, label: string, conversion_to_base: ?float, is_base: bool, is_orderable: bool, sort_order: int}>}>
+     */
+    private function measuresByName(): array
+    {
+        $measures = [];
+
+        foreach (preg_split('/\r\n|\r|\n/', trim(self::MEASURE_LINES)) as $line) {
+            if (! $line) {
+                continue;
+            }
+
+            [$name, $baseUnit, $unitLines] = explode('|', $line, 3);
+
+            $measures[$name] = [
+                'base_unit' => ProductUnit::normalizeUnit($baseUnit),
+                'units' => collect(explode(';', $unitLines))
+                    ->map(function (string $unitLine): array {
+                        [$unit, $label, $conversion, $isBase, $isOrderable, $sortOrder] = explode(':', $unitLine);
+
+                        return [
+                            'unit' => ProductUnit::normalizeUnit($unit),
+                            'label' => $label,
+                            'conversion_to_base' => $conversion === '' ? null : (float) $conversion,
+                            'is_base' => (bool) (int) $isBase,
+                            'is_orderable' => (bool) (int) $isOrderable,
+                            'sort_order' => (int) $sortOrder,
+                        ];
+                    })
+                    ->values()
+                    ->all(),
+            ];
+        }
+
+        return $measures;
+    }
+
+    /**
+     * @return array<int, array{unit: string, label: string, conversion_to_base: float, is_base: bool, is_orderable: bool, sort_order: int}>
+     */
+    private function defaultUnits(string $baseUnit): array
+    {
+        $unit = ProductUnit::normalizeUnit($baseUnit);
+
+        return [[
+            'unit' => $unit,
+            'label' => $unit === 'piece' ? 'PCS' : strtoupper($unit),
+            'conversion_to_base' => 1.0,
+            'is_base' => true,
+            'is_orderable' => true,
+            'sort_order' => 0,
+        ]];
+    }
+
+    /**
+     * @param  array<int, array{unit: string, label: string, conversion_to_base: ?float, is_base: bool, is_orderable: bool, sort_order: int}>  $units
+     */
+    private function syncUnits(Product $product, array $units): void
+    {
+        $existingUnits = $product->orderUnits()->get()->keyBy('id');
+        $keptIds = [];
+
+        foreach ($units as $unit) {
+            $attributes = [
+                'unit' => $unit['unit'],
+                'label' => $unit['label'],
+                'conversion_to_base' => $unit['conversion_to_base'],
+                'is_base' => $unit['is_base'],
+                'is_orderable' => $unit['is_orderable'],
+                'sort_order' => $unit['sort_order'],
+            ];
+
+            $existing = $product->orderUnits()
+                ->whereRaw('LOWER(label) = ?', [mb_strtolower($unit['label'])])
+                ->first();
+
+            if ($existing) {
+                $existing->update($attributes);
+                $keptIds[] = $existing->id;
+
+                continue;
+            }
+
+            $created = $product->orderUnits()->create($attributes);
+            $keptIds[] = $created->id;
+        }
+
+        if ($keptIds !== []) {
+            $product->orderUnits()->whereNotIn('id', $keptIds)->delete();
+        } elseif ($existingUnits->isNotEmpty()) {
+            $product->orderUnits()->delete();
+        }
     }
 
     private function resolveCategory(int $sku): string
@@ -366,8 +579,8 @@ DATA;
         return match (true) {
             $sku === 4 => 'bag',
             in_array($sku, [126, 128, 129, 191, 200, 201, 207, 210, 212, 222, 237, 243], true) => 'box',
-            in_array($sku, [170, 218, 219, 220, 221, 230, 300, 301, 303, 304], true) => 'pcs',
-            $sku === 302 => 'roll',
+            in_array($sku, [48, 49, 170, 198, 200, 201, 210, 212, 218, 219, 220, 221, 222, 230, 243, 300, 301, 303, 304, 305, 306, 307, 308, 309, 310, 311], true) => 'piece',
+            in_array($sku, [302, 312], true) => 'roll',
             default => 'kg',
         };
     }

@@ -25,7 +25,9 @@ class StoreShopAccountingEntryRequest extends FormRequest
 
                 return filled($line['shop_accounting_category_id'] ?? null)
                     || filled($line['amount'] ?? null)
-                    || filled($line['description'] ?? null);
+                    || filled($line['description'] ?? null)
+                    || filled($line['is_loan_entry'] ?? null)
+                    || filled($line['loan_cashbook_offset_enabled'] ?? null);
             })
             ->values()
             ->all();
@@ -72,6 +74,8 @@ class StoreShopAccountingEntryRequest extends FormRequest
             'lines.*.shop_accounting_category_id' => ['required', 'integer', 'exists:shop_accounting_categories,id'],
             'lines.*.amount' => ['required', 'numeric', 'gt:0'],
             'lines.*.description' => ['nullable', 'string', 'max:255'],
+            'lines.*.is_loan_entry' => ['nullable', 'boolean'],
+            'lines.*.loan_cashbook_offset_enabled' => ['nullable', 'boolean'],
         ];
     }
 

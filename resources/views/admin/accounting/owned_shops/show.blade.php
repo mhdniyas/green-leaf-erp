@@ -137,6 +137,7 @@
                                         <div>
                                             <p class="text-sm font-black text-slate-950">{{ $paymentRequest->invoice?->invoice_number }}</p>
                                             <p class="mt-1 text-sm font-semibold text-slate-600">Requested Rs. {{ number_format((float) $paymentRequest->requested_amount, 2) }}</p>
+                                            <p class="mt-2 inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-600">{{ $paymentRequest->applicationLabel() }}</p>
                                             @if ($paymentRequest->shop_note)
                                                 <p class="mt-2 text-sm font-semibold text-slate-700">{{ $paymentRequest->shop_note }}</p>
                                             @endif
@@ -249,8 +250,10 @@
 
                             <div class="grid grid-cols-3 gap-3 rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
                                 <div>
-                                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Bill Total</p>
-                                    <p id="payment-modal-final-total" class="mt-1 text-sm font-black text-slate-950">Rs. 0.00</p>
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Bill Total</p>
+                        <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Daily Balance</span>
+                        <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Cash Given</span>
+                        <p id="payment-modal-final-total" class="mt-1 text-sm font-black text-slate-950">Rs. 0.00</p>
                                 </div>
                                 <div>
                                     <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Current Paid</p>
@@ -264,12 +267,48 @@
 
                             <input type="hidden" name="discount_total" id="payment-modal-discount-total" value="0.00">
 
+                            <div class="grid gap-3 sm:grid-cols-2">
+                                <label class="flex cursor-pointer items-start gap-3 rounded-[1.15rem] border border-cyan-200 bg-cyan-50 px-4 py-3">
+                                    <input type="radio" name="payment_application" value="invoice_pending" checked class="mt-1 h-4 w-4 border-slate-300 text-cyan-600 focus:ring-cyan-500">
+                                    <span>
+                                        <span class="block text-xs font-black uppercase tracking-[0.14em] text-cyan-700">Bill pending</span>
+                                        <span class="mt-1 block text-xs font-semibold text-slate-600">Apply against invoice pending.</span>
+                                    </span>
+                                </label>
+                                <label class="flex cursor-pointer items-start gap-3 rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3">
+                                    <input type="radio" name="payment_application" value="client_balance" class="mt-1 h-4 w-4 border-slate-300 text-slate-900 focus:ring-slate-500">
+                                    <span>
+                                        <span class="block text-xs font-black uppercase tracking-[0.14em] text-slate-700">Client balance</span>
+                                        <span class="mt-1 block text-xs font-semibold text-slate-600">Total without invoice allocation.</span>
+                                    </span>
+                                </label>
+                            </div>
+
+                            <div class="grid gap-3 sm:grid-cols-3">
+                                <label class="block">
+                                    <span class="mb-2 block text-xs font-black uppercase tracking-[0.16em] text-slate-500">Mode</span>
+                                    <select name="payment_method" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-cyan-400 focus:outline-none">
+                                        <option value="cash">Cash</option>
+                                        <option value="online_upi">Online UPI</option>
+                                        <option value="cheque">Cheque</option>
+                                    </select>
+                                </label>
+                                <label class="block">
+                                    <span class="mb-2 block text-xs font-black uppercase tracking-[0.16em] text-slate-500">Reference / Check No.</span>
+                                    <input type="text" name="payment_reference" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none" placeholder="Optional">
+                                </label>
+                                <label class="block">
+                                    <span class="mb-2 block text-xs font-black uppercase tracking-[0.16em] text-slate-500">Payment Date</span>
+                                    <input type="date" name="payment_date" value="{{ today()->toDateString() }}" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-cyan-400 focus:outline-none">
+                                </label>
+                            </div>
+
                             <div>
                                 <label class="block">
-                                    <span class="mb-2 block text-xs font-black uppercase tracking-[0.16em] text-slate-500">Total Paid Amount (Rs.)</span>
+                                    <span id="payment-modal-amount-label" class="mb-2 block text-xs font-black uppercase tracking-[0.16em] text-slate-500">Total Paid Amount (Rs.)</span>
                                     <input type="number" step="0.01" min="0" name="paid_amount" id="payment-modal-paid-amount-input" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-cyan-400 focus:outline-none">
                                 </label>
-                                <p class="mt-1.5 text-xs text-slate-500">Enter the cumulative collected amount. The newly received balance will be recorded as an approved paid request for the shop owner.</p>
+                                <p id="payment-modal-amount-help" class="mt-1.5 text-xs text-slate-500">Enter the cumulative collected amount. The newly received balance will be recorded as an approved paid request for the shop owner.</p>
                                 <button type="button" id="payment-modal-set-full-btn" class="mt-2 inline-flex h-8 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-700 transition hover:bg-slate-100">
                                     Set to Full
                                 </button>
@@ -306,12 +345,29 @@
                     const modalRemainingDue = document.getElementById('payment-modal-remaining-due');
                     const modalDiscountTotal = document.getElementById('payment-modal-discount-total');
                     const modalPaidAmountInput = document.getElementById('payment-modal-paid-amount-input');
+                    const modalAmountLabel = document.getElementById('payment-modal-amount-label');
+                    const modalAmountHelp = document.getElementById('payment-modal-amount-help');
                     const modalPaymentNoteInput = document.getElementById('payment-modal-payment-note-input');
                     const modalSetFullBtn = document.getElementById('payment-modal-set-full-btn');
+                    const applicationInputs = dailyBillPaymentForm?.querySelectorAll('input[name="payment_application"]') ?? [];
 
                     let currentInvoiceFinalTotal = 0;
+                    let currentInvoiceBalance = 0;
 
                     const money = (amount) => 'Rs. ' + amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    const selectedApplication = () => dailyBillPaymentForm?.querySelector('input[name="payment_application"]:checked')?.value ?? 'invoice_pending';
+                    const refreshApplicationText = () => {
+                        const clientBalanceMode = selectedApplication() === 'client_balance';
+
+                        if (modalAmountLabel) modalAmountLabel.textContent = clientBalanceMode ? 'Received Client Balance Amount (Rs.)' : 'Total Paid Amount (Rs.)';
+                        if (modalAmountHelp) {
+                            modalAmountHelp.textContent = clientBalanceMode
+                                ? 'Records cash received as client balance without updating invoice paid amounts.'
+                                : 'Enter the cumulative collected amount. The newly received balance will be recorded as an approved paid request for the shop owner.';
+                        }
+                        if (modalSetFullBtn) modalSetFullBtn.textContent = clientBalanceMode ? 'Use invoice balance as amount' : 'Set to Full';
+                        if (modalPaidAmountInput) modalPaidAmountInput.value = (clientBalanceMode ? currentInvoiceBalance : currentInvoiceFinalTotal).toFixed(2);
+                    };
                     const closeModal = () => {
                         dailyBillPaymentModal?.classList.add('hidden');
                         document.body.classList.remove('overflow-hidden');
@@ -329,6 +385,7 @@
                             const discountTotal = parseFloat(button.dataset.discountTotal ?? '0');
 
                             currentInvoiceFinalTotal = finalTotal;
+                            currentInvoiceBalance = balanceAmount;
                             dailyBillPaymentForm.action = button.dataset.action ?? '';
                             if (modalInvoiceNumber) modalInvoiceNumber.textContent = button.dataset.invoiceNumber ?? '';
                             if (modalFinalTotal) modalFinalTotal.textContent = money(finalTotal);
@@ -337,6 +394,10 @@
                             if (modalDiscountTotal) modalDiscountTotal.value = discountTotal.toFixed(2);
                             if (modalPaidAmountInput) modalPaidAmountInput.value = finalTotal.toFixed(2);
                             if (modalPaymentNoteInput) modalPaymentNoteInput.value = button.dataset.paymentNote ?? '';
+                            applicationInputs.forEach((input) => {
+                                input.checked = input.value === 'invoice_pending';
+                            });
+                            refreshApplicationText();
 
                             dailyBillPaymentModal.classList.remove('hidden');
                             document.body.classList.add('overflow-hidden');
@@ -345,9 +406,10 @@
 
                     modalSetFullBtn?.addEventListener('click', () => {
                         if (modalPaidAmountInput) {
-                            modalPaidAmountInput.value = currentInvoiceFinalTotal.toFixed(2);
+                            modalPaidAmountInput.value = (selectedApplication() === 'client_balance' ? currentInvoiceBalance : currentInvoiceFinalTotal).toFixed(2);
                         }
                     });
+                    applicationInputs.forEach((input) => input.addEventListener('change', refreshApplicationText));
                     dailyBillPaymentModal?.querySelectorAll('.daily-bill-payment-modal-close').forEach((button) => button.addEventListener('click', closeModal));
                     dailyBillPaymentModal?.addEventListener('click', (event) => {
                         if (event.target instanceof HTMLElement && event.target.classList.contains('daily-bill-payment-modal-overlay')) {
@@ -560,85 +622,49 @@
                     </button>
                 </div>
 
-                <section id="owned-shop-cash-movements" class="mt-6 grid gap-6">
-                    <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                        <div class="flex items-center justify-between gap-3">
-                            <div>
-                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Green Leaf Loan Ledger</p>
-                                <h3 class="mt-2 text-lg font-black text-slate-950">Latest client-shop loan movements</h3>
-                            </div>
-                            @php
-                                $shopCashTotal = (float) $shopCredits->sum(fn ($credit) => $credit->signedAccountingAmount());
-                            @endphp
-                            <div class="flex flex-wrap items-center justify-end gap-2">
-                                <p class="text-sm font-black {{ $shopCashTotal >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format($shopCashTotal, 2) }}</p>
-                                <button type="button" id="shop-cash-open-modal" class="inline-flex h-10 items-center rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white transition hover:bg-emerald-500">
-                                    Add loan
-                                </button>
-                            </div>
+                <section id="owned-shop-loan-section" class="mt-6 rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Loan</p>
+                            <h3 class="mt-2 text-lg font-black text-slate-950">Dedicated shop loan ledger</h3>
+                            <p class="mt-1 text-sm font-semibold text-slate-600">Cash given, repayments, and paid-from-loan categories are managed in the Loan section.</p>
                         </div>
-                        <div class="mt-4">
-                            <div class="rounded-2xl border border-slate-200 bg-white p-4">
-                                <div class="flex items-center justify-between gap-3">
-                                    <div>
-                                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Loan Category Report</p>
-                                        <p class="mt-1 text-sm font-black text-slate-950">Green Leaf loans by category</p>
-                                    </div>
-                                    <span class="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-600">{{ $cashMovementCategoryTotals->count() }} active</span>
-                                </div>
-                                <div class="mt-3 space-y-2">
-                                    @forelse($cashMovementCategoryTotals as $categoryTotal)
-                                        <div class="flex items-center justify-between gap-3 rounded-xl border border-slate-100 px-3 py-2">
-                                            <div>
-                                                <p class="text-sm font-black text-slate-950">{{ $categoryTotal['category'] }}</p>
-                                                <p class="text-[11px] font-bold text-slate-500">{{ $categoryTotal['count'] }} movement{{ $categoryTotal['count'] === 1 ? '' : 's' }}</p>
-                                            </div>
-                                            <p class="text-sm font-black {{ $categoryTotal['amount'] >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">Rs. {{ number_format((float) $categoryTotal['amount'], 2) }}</p>
-                                        </div>
-                                    @empty
-                                        <p class="rounded-xl border border-dashed border-slate-200 px-3 py-4 text-sm font-bold text-slate-500">No category movements for this period.</p>
-                                    @endforelse
-                                </div>
+                        <div class="flex flex-wrap items-center gap-3 sm:justify-end">
+                            <div class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-right">
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">{{ $loanBalance < 0 ? 'Overused Balance' : 'Available Balance' }}</p>
+                                <p class="mt-1 text-lg font-black {{ $loanBalance < 0 ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format($loanBalance, 2) }}</p>
                             </div>
-                        </div>
-                        <div class="mt-4 overflow-x-auto rounded-[1rem] border border-slate-200 bg-white">
-                            <table class="min-w-full text-left text-sm">
-                                <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
-                                    <tr>
-                                        <th class="px-4 py-3">Date</th>
-                                        <th class="px-4 py-3">Type</th>
-                                        <th class="px-4 py-3">Category</th>
-                                        <th class="px-4 py-3">Description</th>
-                                        <th class="px-4 py-3 text-right">Ledger Amount</th>
-                                        <th class="px-4 py-3 text-right">By</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-slate-100">
-                                    @forelse($shopCredits as $credit)
-                                        <tr>
-                                            <td class="px-4 py-3 font-black text-slate-950">{{ $credit->business_date->format('d M Y') }}</td>
-                                            <td class="px-4 py-3">
-                                                <span class="inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] {{ $credit->isAccountingOut() ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700' }}">
-                                                    {{ $credit->accountingLabel() }}
-                                                </span>
-                                            </td>
-                                            <td class="px-4 py-3 font-black text-slate-950">{{ $credit->cashMovementCategory?->name ?? 'Uncategorized' }}</td>
-                                            <td class="px-4 py-3 font-semibold text-slate-600">{{ $credit->description }}</td>
-                                            <td class="px-4 py-3 text-right font-black {{ $credit->isAccountingOut() ? 'text-rose-700' : 'text-emerald-700' }}">{{ $credit->isAccountingOut() ? '-' : '+' }} Rs. {{ number_format((float) $credit->amount, 2) }}</td>
-                                            <td class="px-4 py-3 text-right font-semibold text-slate-500">{{ $credit->creator?->name ?? 'System' }}</td>
-                                        </tr>
-                                    @empty
-                                        <tr>
-                                            <td colspan="6" class="px-4 py-8 text-center font-bold text-slate-500">No Green Leaf loan movements added yet.</td>
-                                        </tr>
-                                    @endforelse
-                                </tbody>
-                            </table>
+                            <a href="{{ route('admin.accounting.loans', ['shop' => $shop->code]) }}" class="inline-flex h-11 items-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
+                                Open Loan
+                            </a>
                         </div>
                     </div>
                 </section>
 
                 @if ($hasEntry)
+                    <section class="mt-6 rounded-[1.25rem] border border-rose-200 bg-rose-50 p-4">
+                        <div class="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-rose-700">Admin Reset</p>
+                                <h3 class="mt-2 text-lg font-black text-rose-950">Clear cashbook only</h3>
+                                <p class="mt-1 max-w-3xl text-sm font-semibold text-rose-800">Removes this date's manual cashbook lines so the shop owner can submit again. Bills, invoices, payment requests, and loan cash given / repayments stay unchanged.</p>
+                                <div class="mt-3 flex flex-wrap gap-2 text-[11px] font-black uppercase tracking-[0.12em] text-rose-800">
+                                    <span class="rounded-full border border-rose-200 bg-white px-3 py-1">Skip invoices and bills</span>
+                                    <span class="rounded-full border border-rose-200 bg-white px-3 py-1">Skip payment requests</span>
+                                    <span class="rounded-full border border-rose-200 bg-white px-3 py-1">Skip loan cash movements</span>
+                                </div>
+                            </div>
+                            <form method="POST" action="{{ route('admin.accounting.owned-shops.entries.clear', ['shop' => $shop, 'entry' => $entry]) }}" class="flex flex-col gap-2 sm:min-w-80" onsubmit="return confirm('Clear only this cashbook entry? Invoices, bills, payment requests, and loan cash movements will be skipped.');">
+                                @csrf
+                                @method('DELETE')
+                                <input type="text" name="confirmation" required pattern="CLEAR CASHBOOK" placeholder="Type CLEAR CASHBOOK" class="h-11 rounded-2xl border border-rose-200 bg-white px-4 text-sm font-black text-rose-950 placeholder:text-rose-300 focus:border-rose-400 focus:outline-none">
+                                <button type="submit" class="inline-flex h-11 items-center justify-center rounded-2xl bg-rose-700 px-5 text-sm font-black text-white transition hover:bg-rose-600">
+                                    Clear Cashbook Only
+                                </button>
+                            </form>
+                        </div>
+                    </section>
+
                     <div class="mt-6 space-y-4">
                         <div class="rounded-[1.25rem] border {{ $entry->status === 'recheck_required' ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-slate-50' }} p-4">
                             <p class="text-[10px] font-black uppercase tracking-[0.16em] {{ $entry->status === 'recheck_required' ? 'text-red-700' : 'text-slate-500' }}">Review Timeline</p>
@@ -681,41 +707,66 @@
                         <div class="mt-4 overflow-x-auto rounded-[1.15rem] border border-slate-200 bg-white">
                             <table class="min-w-full text-left">
                                 <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
-                                    <tr>
-                                        <th class="px-4 py-3">Type</th>
-                                        <th class="px-4 py-3">Category</th>
-                                        <th class="px-4 py-3">Notes</th>
-                                        <th class="px-4 py-3">Review</th>
-                                        <th class="px-4 py-3 text-right">Amount</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-slate-100 text-sm">
-                                    @foreach ($entry->lines as $line)
-                                        <tr>
-                                            <td class="px-4 py-3">
-                                                <span class="inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] {{ $line->type === 'income' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700' }}">
-                                                    {{ $line->type }}
-                                                </span>
-                                            </td>
-                                            <td class="px-4 py-3 font-black text-slate-950">{{ $line->category?->name ?? 'Category removed' }}</td>
-                                            <td class="px-4 py-3 text-sm font-semibold text-slate-600">{{ $line->description ?: 'No note added' }}</td>
-                                            <td class="px-4 py-3">
-                                                <div class="flex flex-col gap-2">
-                                                    <span class="inline-flex w-fit rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] {{ $line->reviewStatusTone() === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($line->reviewStatusTone() === 'danger' ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700') }}">
-                                                        {{ $line->reviewStatusLabel() }}
+	                                    <tr>
+	                                        <th class="px-4 py-3">Type</th>
+	                                        <th class="px-4 py-3">Category</th>
+	                                        <th class="px-4 py-3">Notes</th>
+	                                        <th class="px-4 py-3">Review</th>
+	                                        <th class="px-4 py-3 text-right">Amount</th>
+	                                        <th class="px-4 py-3 text-right">Update</th>
+	                                    </tr>
+	                                </thead>
+	                                <tbody class="divide-y divide-slate-100 text-sm">
+	                                    @foreach ($entry->lines as $line)
+                                            @php
+                                                $lineUpdateFormId = 'entry-line-update-'.$line->id;
+                                            @endphp
+	                                        <tr>
+	                                            <td class="px-4 py-3">
+                                                    <form id="{{ $lineUpdateFormId }}" method="POST" action="{{ route('admin.accounting.owned-shops.entries.lines.update', ['shop' => $shop, 'entry' => $entry, 'line' => $line]) }}">
+                                                        @csrf
+                                                        @method('PATCH')
+                                                    </form>
+	                                                <span class="inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] {{ $line->type === 'income' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700' }}">
+	                                                    {{ $line->type }}
+	                                                </span>
+	                                            </td>
+	                                            <td class="px-4 py-3">
+                                                    <select name="shop_accounting_category_id" form="{{ $lineUpdateFormId }}" class="h-10 min-w-[13rem] rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-900 focus:border-cyan-400 focus:outline-none">
+                                                        @foreach($availableCategories as $category)
+                                                            <option value="{{ $category->id }}" @selected((int) $line->shop_accounting_category_id === (int) $category->id)>
+                                                                {{ strtoupper($category->type) }} · {{ $category->name }}{{ $category->shop_id ? ' (Shop)' : ' (Global)' }}
+                                                            </option>
+                                                        @endforeach
+                                                    </select>
+                                                </td>
+	                                            <td class="px-4 py-3">
+                                                    <input type="text" name="description" form="{{ $lineUpdateFormId }}" value="{{ $line->description }}" placeholder="No note added" class="h-10 min-w-[14rem] rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-900 focus:border-cyan-400 focus:outline-none">
+                                                </td>
+	                                            <td class="px-4 py-3">
+	                                                <div class="flex flex-col gap-2">
+	                                                    <span class="inline-flex w-fit rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] {{ $line->reviewStatusTone() === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($line->reviewStatusTone() === 'danger' ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-700') }}">
+	                                                        {{ $line->reviewStatusLabel() }}
                                                     </span>
                                                     @if ($line->review_note)
                                                         <p class="text-xs font-semibold text-slate-500">{{ $line->review_note }}</p>
-                                                    @endif
-                                                </div>
-                                            </td>
-                                            <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $line->amount, 2) }}</td>
-                                        </tr>
-                                    @endforeach
-                                    <tr class="bg-slate-50/80">
-                                        <td colspan="4" class="px-4 py-3 font-black text-rose-900">Warehouse Delivery Invoice</td>
-                                        <td class="px-4 py-3 text-right font-black text-rose-700">Shown in shop ledger totals from bill data</td>
-                                    </tr>
+	                                                    @endif
+	                                                </div>
+	                                            </td>
+	                                            <td class="px-4 py-3 text-right">
+                                                    <input type="number" step="0.01" min="0.01" name="amount" form="{{ $lineUpdateFormId }}" value="{{ number_format((float) $line->amount, 2, '.', '') }}" class="h-10 w-32 rounded-xl border border-slate-200 bg-white px-3 text-right text-xs font-black text-slate-950 focus:border-cyan-400 focus:outline-none">
+                                                </td>
+                                                <td class="px-4 py-3 text-right">
+                                                    <button type="submit" form="{{ $lineUpdateFormId }}" class="inline-flex h-10 items-center rounded-xl bg-cyan-600 px-3 text-xs font-black uppercase tracking-[0.12em] text-white transition hover:bg-cyan-500">
+                                                        Update
+                                                    </button>
+                                                </td>
+	                                        </tr>
+	                                    @endforeach
+	                                    <tr class="bg-slate-50/80">
+	                                        <td colspan="5" class="px-4 py-3 font-black text-rose-900">Warehouse Delivery Invoice</td>
+	                                        <td class="px-4 py-3 text-right font-black text-rose-700">Shown in shop ledger totals from bill data</td>
+	                                    </tr>
                                 </tbody>
                             </table>
                         </div>
@@ -813,81 +864,6 @@
             </div>
         </section>
 
-        <div id="shop-cash-modal" class="hidden fixed inset-0 z-[70]">
-            <div class="shop-cash-modal-overlay absolute inset-0 bg-slate-950/50 backdrop-blur-sm"></div>
-            <div class="relative flex min-h-full items-center justify-center p-4">
-                <div class="w-full max-w-lg rounded-[2rem] border border-slate-200 bg-white shadow-[0_30px_80px_rgba(15,23,42,0.22)]">
-                    <div class="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
-                        <div>
-	                            <p class="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-700">Green Leaf Loan</p>
-	                            <h2 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Add loan</h2>
-	                            <p class="mt-2 text-sm font-semibold text-slate-500">This records Green Leaf cash out and increases the client shop loan balance. Sales income stays in approved daily receipts.</p>
-	                        </div>
-                        <button type="button" class="shop-cash-modal-close inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">
-                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                    </div>
-
-                    <div class="space-y-4 px-6 py-6">
-                        <form id="shop-cash-credit-form" method="POST" action="{{ route('admin.accounting.owned-shops.credits.store', $shop) }}">
-                            @csrf
-                            <input type="hidden" name="type" value="in">
-                        </form>
-	                        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-	                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Movement Type</p>
-	                            <p class="mt-1 text-sm font-black text-slate-950">Loan given to client shop</p>
-	                            <p class="mt-1 text-xs font-semibold text-slate-600">Green Leaf view: cash out. Client dashboard: loan balance increases.</p>
-	                        </div>
-                        <label>
-                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Amount</span>
-                            <input form="shop-cash-credit-form" type="number" step="0.01" min="0.01" name="amount" value="{{ old('amount') }}" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
-                        </label>
-                        <label>
-                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Movement Date</span>
-                            <input form="shop-cash-credit-form" type="date" name="business_date" value="{{ old('business_date', $selectedDate->format('Y-m-d')) }}" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
-                        </label>
-                        <div data-shop-cash-category-dropdown class="relative">
-                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Category</span>
-                            @php
-                                $selectedCashCategory = $cashMovementCategories->firstWhere('id', (int) old('shop_cash_movement_category_id', $defaultCashMovementCategory->id)) ?? $defaultCashMovementCategory;
-                            @endphp
-                            <input form="shop-cash-credit-form" type="hidden" name="shop_cash_movement_category_id" value="{{ old('shop_cash_movement_category_id', $selectedCashCategory->id) }}" data-shop-cash-category-input>
-                            <button type="button" data-shop-cash-category-button class="flex h-11 w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 text-left text-sm font-black text-slate-950 transition hover:bg-slate-50 focus:border-emerald-500 focus:outline-none">
-                                <span data-shop-cash-category-label>{{ $selectedCashCategory->name }}</span>
-                                <svg class="h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.4">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
-                                </svg>
-                            </button>
-                            <div data-shop-cash-category-menu class="absolute left-0 right-0 top-[4.4rem] z-20 hidden overflow-hidden rounded-2xl border border-slate-200 bg-white py-2 shadow-xl">
-                                @foreach($cashMovementCategories as $category)
-                                    <button type="button" data-shop-cash-category-option data-value="{{ $category->id }}" data-label="{{ $category->name }}" class="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-black text-slate-800 transition hover:bg-emerald-50 hover:text-emerald-700">
-                                        <span>{{ $category->name }}</span>
-                                        @if($category->is_default)
-                                            <span class="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700">Default</span>
-                                        @endif
-                                    </button>
-                                @endforeach
-                            </div>
-                        </div>
-	                        <label>
-                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Description</span>
-	                            <input form="shop-cash-credit-form" type="text" name="description" value="{{ old('description') }}" placeholder="Loan given to client shop" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
-                        </label>
-                        <div class="flex justify-end gap-3 pt-2">
-                            <button type="button" class="shop-cash-modal-close inline-flex h-11 items-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50">
-                                Cancel
-                            </button>
-                            <button form="shop-cash-credit-form" type="submit" class="inline-flex h-11 items-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
-                                Record loan
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
         <div id="daily-entry-modal" class="hidden fixed inset-0 z-[70]">
             <div class="daily-entry-modal-overlay absolute inset-0 bg-slate-950/50 backdrop-blur-sm"></div>
             <div class="relative flex min-h-full items-center justify-center p-4">
@@ -928,6 +904,8 @@
                                     </select>
                                     <input type="number" step="0.01" min="0.01" name="lines[{{ $index }}][amount]" value="{{ old("lines.$index.amount", $line?->amount) }}" placeholder="Amount" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none">
                                     <input type="text" name="lines[{{ $index }}][description]" value="{{ old("lines.$index.description", $line?->description) }}" placeholder="Description" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none">
+                                    <input type="hidden" name="lines[{{ $index }}][is_loan_entry]" value="{{ old("lines.$index.is_loan_entry", (int) ((bool) $line?->is_loan_entry)) }}">
+                                    <input type="hidden" name="lines[{{ $index }}][loan_cashbook_offset_enabled]" value="{{ old("lines.$index.loan_cashbook_offset_enabled", (int) ((bool) $line?->loan_cashbook_offset_enabled)) }}">
                                 </div>
                             @endfor
                         </div>
@@ -1102,7 +1080,6 @@
                     });
                 };
 
-                bindModal('shop-cash-open-modal', 'shop-cash-modal', '.shop-cash-modal-close', {{ $errors->has('type') || $errors->has('amount') || $errors->has('description') || $errors->has('shop_cash_movement_category_id') ? 'true' : 'false' }});
                 bindModal('daily-entry-open-modal', 'daily-entry-modal', '.daily-entry-modal-close', {{ $errors->has('lines') || $errors->has('business_date') ? 'true' : 'false' }});
                 bindModal('approve-entry-open-modal', 'approve-entry-modal', '.approve-entry-modal-close');
                 bindModal('review-details-open-modal', 'approve-entry-modal', '.approve-entry-modal-close');
@@ -1123,36 +1100,6 @@
                 const lineReviewNoteInput = document.getElementById('line-review-note-input');
                 const lineReviewNoteLabel = document.getElementById('line-review-note-label');
                 const lineReviewSubmitButton = document.getElementById('line-review-submit-button');
-                const shopCashCategoryDropdown = document.querySelector('[data-shop-cash-category-dropdown]');
-                const shopCashCategoryButton = shopCashCategoryDropdown?.querySelector('[data-shop-cash-category-button]');
-                const shopCashCategoryMenu = shopCashCategoryDropdown?.querySelector('[data-shop-cash-category-menu]');
-                const shopCashCategoryInput = shopCashCategoryDropdown?.querySelector('[data-shop-cash-category-input]');
-                const shopCashCategoryLabel = shopCashCategoryDropdown?.querySelector('[data-shop-cash-category-label]');
-
-                shopCashCategoryButton?.addEventListener('click', () => {
-                    shopCashCategoryMenu?.classList.toggle('hidden');
-                });
-
-                shopCashCategoryDropdown?.querySelectorAll('[data-shop-cash-category-option]').forEach((option) => {
-                    option.addEventListener('click', () => {
-                        if (shopCashCategoryInput instanceof HTMLInputElement) {
-                            shopCashCategoryInput.value = option.dataset.value ?? '';
-                        }
-
-                        if (shopCashCategoryLabel) {
-                            shopCashCategoryLabel.textContent = option.dataset.label ?? 'Loan';
-                        }
-
-                        shopCashCategoryMenu?.classList.add('hidden');
-                    });
-                });
-
-                document.addEventListener('click', (event) => {
-                    if (!shopCashCategoryDropdown?.contains(event.target)) {
-                        shopCashCategoryMenu?.classList.add('hidden');
-                    }
-                });
-
                 approveEntryOpenModal?.addEventListener('click', () => {
                     const note = approvalNoteInput instanceof HTMLTextAreaElement ? approvalNoteInput.value.trim() : '';
                     if (approveEntryNoteHidden instanceof HTMLInputElement) {

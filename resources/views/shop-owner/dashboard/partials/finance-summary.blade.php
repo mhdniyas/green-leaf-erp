@@ -6,7 +6,7 @@
         </div>
         <div class="flex flex-wrap gap-2">
             @include('shop-owner.components.action-button', ['href' => route('shop-owner.accounting.index', ['tab' => 'bills', 'date' => $businessDate->toDateString()]), 'label' => 'Open Bills', 'classes' => 'border border-slate-200 bg-white text-slate-800'])
-            @include('shop-owner.components.action-button', ['href' => route('shop-owner.finance.index', ['tab' => 'payments']), 'label' => 'Open Payments', 'classes' => 'bg-slate-950 text-white'])
+            @include('shop-owner.components.action-button', ['href' => route('shop-owner.payments.index'), 'label' => 'Open Payments', 'classes' => 'bg-slate-950 text-white'])
         </div>
     </div>
 

@@ -19,6 +19,7 @@ use App\Models\ShopOrderItem;
 use App\Models\ShopPreset;
 use App\Models\User;
 use App\Services\Finance\OwnedShopAccountingService;
+use App\Services\Finance\ShopLoanService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\ShopInvoices\ShopInvoiceService;
@@ -40,6 +41,7 @@ class ShopOwnerController extends Controller
     public function __construct(
         private readonly PriceBoardService $priceBoardService,
         private readonly OwnedShopAccountingService $ownedShopAccountingService,
+        private readonly ShopLoanService $shopLoanService,
         private readonly PurchaserBusinessDayService $businessDayService,
         private readonly ShopInvoiceService $shopInvoiceService,
         private readonly ActiveShopResolver $activeShopResolver,
@@ -287,14 +289,28 @@ class ShopOwnerController extends Controller
 
     public function financeIndex(Request $request): View
     {
+        $tab = (string) $request->input('tab', 'invoices');
+
+        if ($tab === 'payments') {
+            return view('shop-owner.payments.index', $this->financeViewData($request, 'payments'));
+        }
+
+        return view('shop-owner.finance.index', $this->financeViewData($request, 'invoices'));
+    }
+
+    public function paymentsIndex(Request $request): View
+    {
+        return view('shop-owner.payments.index', $this->financeViewData($request, 'payments'));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function financeViewData(Request $request, string $tab): array
+    {
         $activeShop = $this->currentShop($request);
         $isOwnedAccountingShop = $activeShop->isOwnedAccountingEnabled();
-        $tab = (string) $request->input('tab', 'invoices');
         [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
-
-        if ($tab !== 'payments') {
-            $tab = 'invoices';
-        }
 
         $invoiceQuery = ShopInvoice::query()
             ->where('shop_id', $activeShop->id)
@@ -339,7 +355,7 @@ class ShopOwnerController extends Controller
             ->sum('requested_amount');
         $availableInvoicePaymentCredit = $this->shopInvoiceService->availableShopCredit((int) $activeShop->id);
 
-        return view('shop-owner.finance.index', [
+        return [
             'invoices' => $invoices,
             'payableInvoices' => $payableInvoices,
             'payableInvoiceTotal' => $payableInvoiceTotal,
@@ -357,7 +373,7 @@ class ShopOwnerController extends Controller
             'pendingBillApprovalSummary' => $pendingBillApprovalSummary,
             'filterStartDate' => $filterStartDate,
             'filterEndDate' => $filterEndDate,
-        ]);
+        ];
     }
 
     public function financeShow(Request $request, ShopInvoice $invoice): View
@@ -432,7 +448,6 @@ class ShopOwnerController extends Controller
         $shopCreditByDate = collect();
         $cashGivenToShopByDate = collect();
         $paymentToCompanyByDate = collect();
-        $shopCredits = collect();
         $greenLeafDirectLedgerDates = collect();
         $selectedDeliveryExpense = 0.0;
         $selectedShopCredit = 0.0;
@@ -441,11 +456,22 @@ class ShopOwnerController extends Controller
         $netAmount = 0.0;
         $suggestedOpeningBalance = 0.0;
         $receiptSummary = $this->ownedShopAccountingService->receiptSummary(null);
+        $loanRows = collect();
+        $loanBalance = 0.0;
+        $loanCategoryIds = collect();
+        $loanCategorySettings = collect();
 
         if ($shop->isOwnedAccountingEnabled()) {
             $entry = $this->ownedShopAccountingService->entryForDate($shop, $selectedDate);
             $suggestedOpeningBalance = $this->ownedShopAccountingService->previousClosingBalance($shop, $selectedDate);
             $availableCategories = $this->ownedShopAccountingService->availableCategoriesForShop($shop);
+            $loanRows = $this->shopLoanService->ledgerRows($shop);
+            $loanBalance = $this->shopLoanService->approvedBalance($shop);
+            $loanCategorySettings = $this->shopLoanService->settingsForShop($shop);
+            $loanCategoryIds = $loanCategorySettings
+                ->pluck('shop_accounting_category_id')
+                ->map(fn ($categoryId): int => (int) $categoryId)
+                ->values();
             $recentEntries = ShopAccountingEntry::query()
                 ->where('shop_id', $shop->id)
                 ->with(['lines.category', 'submittedBy', 'reviewedBy'])
@@ -535,13 +561,6 @@ class ShopOwnerController extends Controller
                 ->groupByRaw('DATE(business_date)')
                 ->pluck('total', 'ledger_date')
                 ->map(fn ($total): float => round((float) $total, 2));
-            $shopCredits = ShopCredit::query()
-                ->where('shop_id', $shop->id)
-                ->with('creator')
-                ->latest('business_date')
-                ->latest('id')
-                ->limit(8)
-                ->get();
             $selectedDeliveryExpense = (float) ($deliveryExpenseByDate->get($selectedDate->toDateString()) ?? 0);
             $selectedShopCredit = (float) ($shopCreditByDate->get($selectedDate->toDateString()) ?? 0);
             $receiptSummary = $this->ownedShopAccountingService->receiptSummaryForDate($shop, $selectedDate);
@@ -605,7 +624,6 @@ class ShopOwnerController extends Controller
             'shopCreditByDate' => $shopCreditByDate,
             'cashGivenToShopByDate' => $cashGivenToShopByDate,
             'paymentToCompanyByDate' => $paymentToCompanyByDate,
-            'shopCredits' => $shopCredits,
             'greenLeafDirectLedgerDates' => $greenLeafDirectLedgerDates,
             'selectedDeliveryExpense' => $selectedDeliveryExpense,
             'selectedShopCredit' => $selectedShopCredit,
@@ -614,6 +632,10 @@ class ShopOwnerController extends Controller
             'netAmount' => $netAmount,
             'suggestedOpeningBalance' => $suggestedOpeningBalance,
             'receiptSummary' => $receiptSummary,
+            'loanRows' => $loanRows,
+            'loanBalance' => $loanBalance,
+            'loanCategoryIds' => $loanCategoryIds,
+            'loanCategorySettings' => $loanCategorySettings,
             'reserveAmount' => round((float) ($shop->reserve_amount ?? 0), 2),
             'ledgerDateFilterActive' => $ledgerDateFilterActive,
             'ledgerSourceFilter' => $ledgerSourceFilter,
@@ -983,11 +1005,37 @@ class ShopOwnerController extends Controller
     {
         $user = $this->shopUser($request);
         $shop = $this->currentShop($request);
+        $validated = $request->validated();
+
+        if (($validated['amount_mode'] ?? null) === 'shop_balance') {
+            if (! $shop->isOwnedAccountingEnabled()) {
+                abort(403);
+            }
+
+            $latestBalanceDate = $this->latestShopBalanceDate($shop);
+            $closingBalance = $this->ownedShopAccountingService->closingBalanceForDate($shop, $latestBalanceDate);
+
+            try {
+                $this->shopInvoiceService->requestShopBalancePayment(
+                    $shop,
+                    $latestBalanceDate,
+                    $closingBalance,
+                    $validated,
+                    (int) $user->id,
+                );
+            } catch (ValidationException $exception) {
+                return back()->withErrors($exception->errors())->withInput();
+            }
+
+            return redirect()->route('shop-owner.finance.index', ['tab' => 'payments'])
+                ->with('success', 'Closing balance payment request sent for admin approval.');
+        }
+
         $invoice = ShopInvoice::query()
             ->where('shop_id', $shop->id)
             ->when(
-                filled($request->validated('invoice_id')),
-                fn ($query) => $query->whereKey((int) $request->validated('invoice_id')),
+                filled($validated['invoice_id'] ?? null),
+                fn ($query) => $query->whereKey((int) $validated['invoice_id']),
                 fn ($query) => $query->where('balance_amount', '>', 0)
                     ->oldest('business_date')
                     ->oldest('id'),
@@ -997,14 +1045,14 @@ class ShopOwnerController extends Controller
         try {
             $this->shopInvoiceService->requestPayment(
                 $invoice,
-                $request->validated(),
+                $validated,
                 (int) $user->id,
             );
         } catch (ValidationException $exception) {
             return back()->withErrors($exception->errors())->withInput();
         }
 
-        $fallbackUrl = route('shop-owner.finance.index', ['tab' => 'payments']);
+        $fallbackUrl = route('shop-owner.payments.index');
         $redirectUrl = url()->previous();
 
         if ($redirectUrl === url()->current()) {
@@ -1272,7 +1320,7 @@ class ShopOwnerController extends Controller
 
     private function normalizeAccountingTab(Shop $shop, string $tab): string
     {
-        if (in_array($tab, ['cashbook', 'create'], true)) {
+        if (in_array($tab, ['cashbook', 'create', 'loan'], true)) {
             abort_unless($shop->isOwnedAccountingEnabled(), 404);
 
             return $tab;

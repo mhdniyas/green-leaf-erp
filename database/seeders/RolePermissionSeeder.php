@@ -186,6 +186,15 @@ class RolePermissionSeeder extends Seeder
                 'hr.payroll.view',
                 'hr.payroll.process',
             ],
+
+            'accounts' => [
+                'accounting.ledger.view',
+                'accounting.entry.create',
+                'accounting.report.view',
+                'accounting.report.export',
+                'accounting.dashboard.view',
+                'accounting.invoice.approve',
+            ],
         ];
 
         // Clean up legacy roles that are no longer supported

@@ -6,6 +6,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -37,10 +38,27 @@ class Warehouse extends Model
             ->dontLogEmptyChanges();
     }
 
+    public function getRouteKeyName(): string
+    {
+        return 'code';
+    }
+
+    public function resolveRouteBinding($value, $field = null): ?self
+    {
+        return $this->where($field ?? 'code', $value)
+            ->when(is_numeric($value), fn ($query) => $query->orWhere($this->getKeyName(), (int) $value))
+            ->first();
+    }
+
     // Relationships
     public function products(): HasMany
     {
         return $this->hasMany(Product::class, 'default_warehouse_id');
+    }
+
+    public function categories(): BelongsToMany
+    {
+        return $this->belongsToMany(Category::class)->withTimestamps();
     }
 
     public function stockBatches(): HasMany

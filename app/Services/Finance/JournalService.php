@@ -6,6 +6,7 @@ namespace App\Services\Finance;
 
 use App\DTOs\Finance\JournalEntryData;
 use App\Models\Account;
+use App\Models\CompanyAccountingEntry;
 use App\Models\GoodsReceived;
 use App\Models\JournalEntry;
 use App\Models\Payment;
@@ -13,6 +14,7 @@ use App\Models\PurchaseInvoice;
 use App\Models\PurchaserCredit;
 use App\Models\SalesInvoice;
 use App\Models\ShopInvoice;
+use App\Models\ShopInvoicePaymentRequest;
 use App\Models\User;
 use App\Models\WastageEntry;
 use App\Repositories\Finance\JournalEntryRepository;
@@ -136,13 +138,18 @@ class JournalService
      */
     public function recordShopInvoicePayment(ShopInvoice $invoice, float $amount, int $userId, ?string $sourceEvent = null): JournalEntry
     {
+        return $this->recordShopInvoicePaymentForMode($invoice, $amount, $userId, $sourceEvent);
+    }
+
+    public function recordShopInvoicePaymentForMode(ShopInvoice $invoice, float $amount, int $userId, ?string $sourceEvent = null, ?string $paymentMode = null): JournalEntry
+    {
         $amount = round($amount, 2);
 
         if ($amount <= 0.00) {
             throw new RuntimeException('Shop invoice payment journal amount must be positive.');
         }
 
-        $cashAccountId = $this->getAccountIdByCode('1010');
+        $cashAccountId = $this->cashAccountIdForPaymentMode($paymentMode);
         $salesAccountId = $this->getAccountIdByCode('4100');
 
         $paidAmountCents = (int) round((float) $invoice->paid_amount * 100);
@@ -161,6 +168,124 @@ class JournalService
             sourceType: ShopInvoice::class,
             sourceId: $invoice->id,
             sourceEvent: $event
+        );
+
+        return $this->createEntry($data, $userId);
+    }
+
+    /**
+     * Record cash received against a shop/client balance without allocating an invoice.
+     * Debit Cash (1010), Credit AR (1100).
+     */
+    public function recordShopClientBalancePayment(ShopInvoicePaymentRequest $paymentRequest, int|ShopInvoice $userIdOrReferenceInvoice, ?int $userId = null): JournalEntry
+    {
+        $paymentRequest->loadMissing('shop');
+        $referenceInvoice = $userIdOrReferenceInvoice instanceof ShopInvoice ? $userIdOrReferenceInvoice : null;
+        $userId = $referenceInvoice instanceof ShopInvoice ? (int) $userId : (int) $userIdOrReferenceInvoice;
+        $amount = round((float) $paymentRequest->approved_amount, 2);
+
+        if ($amount <= 0.00) {
+            throw new RuntimeException('Shop client balance payment journal amount must be positive.');
+        }
+
+        $event = 'client-balance-payment:'.$paymentRequest->id;
+        $existingEntry = $this->entryForSource(ShopInvoicePaymentRequest::class, $paymentRequest->id, $event);
+        if ($existingEntry instanceof JournalEntry) {
+            return $existingEntry;
+        }
+
+        $cashAccountId = $this->cashAccountIdForPaymentMode($paymentRequest->payment_method);
+        $arAccountId = $this->getAccountIdByCode('1100');
+
+        $lines = [
+            ['account_id' => $cashAccountId, 'type' => 'debit', 'amount' => $amount],
+            ['account_id' => $arAccountId, 'type' => 'credit', 'amount' => $amount],
+        ];
+
+        $data = new JournalEntryData(
+            entryDate: ($referenceInvoice?->business_date ?? $paymentRequest->reviewed_at ?? now())->format('Y-m-d'),
+            reference: "SHOP-CLIENT-BAL-{$paymentRequest->id}",
+            description: 'Shop client balance payment received from '.($paymentRequest->shop?->name ?? 'shop'),
+            lines: $lines,
+            sourceType: ShopInvoicePaymentRequest::class,
+            sourceId: $paymentRequest->id,
+            sourceEvent: $event,
+        );
+
+        return $this->createEntry($data, $userId);
+    }
+
+    public function recordCompanyAccountingEntry(CompanyAccountingEntry $entry, int $userId): JournalEntry
+    {
+        $entry->loadMissing('category.account');
+        $amount = round((float) $entry->amount, 2);
+
+        if ($amount <= 0.00) {
+            throw new RuntimeException('Company accounting journal amount must be positive.');
+        }
+
+        if (! $entry->category?->account instanceof Account) {
+            throw new RuntimeException('Company accounting category must map to an active ledger account.');
+        }
+
+        $cashAccountId = $this->cashAccountIdForPaymentMode($entry->payment_mode);
+        $categoryAccountId = (int) $entry->category->account->id;
+        $lines = $entry->type === 'income'
+            ? [
+                ['account_id' => $cashAccountId, 'type' => 'debit', 'amount' => $amount],
+                ['account_id' => $categoryAccountId, 'type' => 'credit', 'amount' => $amount],
+            ]
+            : [
+                ['account_id' => $categoryAccountId, 'type' => 'debit', 'amount' => $amount],
+                ['account_id' => $cashAccountId, 'type' => 'credit', 'amount' => $amount],
+            ];
+
+        $data = new JournalEntryData(
+            entryDate: $entry->business_date->format('Y-m-d'),
+            reference: $entry->reference ?: "MAIN-ACCOUNT-{$entry->id}",
+            description: $entry->description ?: $entry->category->name,
+            lines: $lines,
+            sourceType: CompanyAccountingEntry::class,
+            sourceId: $entry->id,
+            sourceEvent: 'final',
+        );
+
+        return $this->createEntry($data, $userId);
+    }
+
+    public function recordCompanyAccountingReversal(CompanyAccountingEntry $entry, int $userId, ?string $note = null): JournalEntry
+    {
+        $entry->loadMissing('category.account');
+        $amount = round((float) $entry->amount, 2);
+
+        if ($amount <= 0.00) {
+            throw new RuntimeException('Company accounting reversal amount must be positive.');
+        }
+
+        if (! $entry->category?->account instanceof Account) {
+            throw new RuntimeException('Company accounting category must map to an active ledger account.');
+        }
+
+        $cashAccountId = $this->cashAccountIdForPaymentMode($entry->payment_mode);
+        $categoryAccountId = (int) $entry->category->account->id;
+        $lines = $entry->type === 'income'
+            ? [
+                ['account_id' => $categoryAccountId, 'type' => 'debit', 'amount' => $amount],
+                ['account_id' => $cashAccountId, 'type' => 'credit', 'amount' => $amount],
+            ]
+            : [
+                ['account_id' => $cashAccountId, 'type' => 'debit', 'amount' => $amount],
+                ['account_id' => $categoryAccountId, 'type' => 'credit', 'amount' => $amount],
+            ];
+
+        $data = new JournalEntryData(
+            entryDate: now()->toDateString(),
+            reference: "REV-MAIN-ACCOUNT-{$entry->id}",
+            description: trim('Reversal: '.($note ?: $entry->description ?: $entry->category->name)),
+            lines: $lines,
+            sourceType: CompanyAccountingEntry::class,
+            sourceId: $entry->id,
+            sourceEvent: 'reversal',
         );
 
         return $this->createEntry($data, $userId);
@@ -207,7 +332,7 @@ class JournalService
      * Record cash paid for Green Leaf direct purchase invoice.
      * Debit Graded Inventory (1200), Credit Cash (1010).
      */
-    public function recordGreenLeafDirectPurchasePayment(PurchaseInvoice $invoice, float $amount, int $userId, ?string $sourceEvent = null): JournalEntry
+    public function recordGreenLeafDirectPurchasePayment(PurchaseInvoice $invoice, float $amount, int $userId, ?string $sourceEvent = null, ?string $paymentMode = null): JournalEntry
     {
         $amount = round($amount, 2);
 
@@ -218,7 +343,7 @@ class JournalService
         $invoice->loadMissing(['purchaserCart', 'supplier']);
 
         $inventoryAccountId = $this->getAccountIdByCode('1200');
-        $cashAccountId = $this->getAccountIdByCode('1010');
+        $cashAccountId = $this->cashAccountIdForPaymentMode($paymentMode ?? $invoice->payment_method);
         $paidAmountCents = (int) round((float) $invoice->paid_amount * 100);
         $event = $sourceEvent ?? "green_leaf_direct_purchase_payment:paid-{$paidAmountCents}";
         $businessDate = $invoice->purchaserCart?->business_date?->format('Y-m-d')
@@ -247,7 +372,7 @@ class JournalService
      * Record company cash paid to settle vendor credit.
      * Debit Graded Inventory (1200), Credit Cash (1010).
      */
-    public function recordCompanyVendorCreditPayment(PurchaseInvoice $invoice, float $amount, int $userId, ?string $sourceEvent = null): JournalEntry
+    public function recordCompanyVendorCreditPayment(PurchaseInvoice $invoice, float $amount, int $userId, ?string $sourceEvent = null, ?string $paymentMode = null): JournalEntry
     {
         $amount = round($amount, 2);
 
@@ -258,7 +383,7 @@ class JournalService
         $invoice->loadMissing(['purchaserCart', 'supplier']);
 
         $inventoryAccountId = $this->getAccountIdByCode('1200');
-        $cashAccountId = $this->getAccountIdByCode('1010');
+        $cashAccountId = $this->cashAccountIdForPaymentMode($paymentMode ?? $invoice->payment_method);
         $paidAmountCents = (int) round((float) $invoice->paid_amount * 100);
         $event = $sourceEvent ?? "company_vendor_credit_payment:paid-{$paidAmountCents}";
         $businessDate = $invoice->purchaserCart?->business_date?->format('Y-m-d')
@@ -381,6 +506,16 @@ class JournalService
         }
 
         return (int) $account->id;
+    }
+
+    private function cashAccountIdForPaymentMode(?string $paymentMode): int
+    {
+        $mode = str((string) ($paymentMode ?: 'cash'))->lower()->replace([' ', '-'], '_')->toString();
+
+        return match ($mode) {
+            'cash' => $this->getAccountIdByCode('1010'),
+            default => $this->getAccountIdByCode('1020'),
+        };
     }
 
     private function entryForReference(string $reference): ?JournalEntry

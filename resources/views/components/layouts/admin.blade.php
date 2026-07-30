@@ -70,15 +70,6 @@
         ];
     }
 
-    if ($currentUser?->can('sort.sheet.view')) {
-        $workspaceItems[] = [
-            'label' => 'Sort Sheet',
-            'href' => route('sort-sheet.index'),
-            'active' => request()->routeIs('sort-sheet.*'),
-            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>',
-        ];
-    }
-
     if (count($workspaceItems) > 0) {
         $sidebarSections[] = [
             'label' => 'Workspace',
@@ -86,11 +77,31 @@
         ];
     }
 
+    if ($currentUser?->can('sort.sheet.view')) {
+        $sidebarSections[] = [
+            'label' => 'Printing',
+            'items' => [
+                [
+                    'label' => 'Sort Sheet',
+                    'href' => route('sort-sheet.index'),
+                    'active' => request()->routeIs('sort-sheet.*'),
+                    'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>',
+                ],
+                [
+                    'label' => 'Selection',
+                    'href' => route('segregation.index'),
+                    'active' => request()->routeIs('segregation.*'),
+                    'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 6.75h15m-15 5.25h15m-15 5.25h15M8.25 4.5v15m7.5-15v15" /></svg>',
+                ],
+            ],
+        ];
+    }
+
     $salesItems = [];
 
     if ($currentUser?->can('sales.customer.view')) {
         $salesItems[] = [
-            'label' => 'Customers',
+            'label' => 'Shops',
             'href' => route('sales.customers.index'),
             'active' => request()->routeIs('sales.customers.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg>',
@@ -133,6 +144,12 @@
             'href' => route('admin.warehouses.index'),
             'active' => request()->routeIs('admin.warehouses.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5 12 3l9 4.5M4.5 8.25v8.25A2.25 2.25 0 0 0 6.75 18.75h10.5A2.25 2.25 0 0 0 19.5 16.5V8.25M9 12h6" /></svg>',
+        ];
+        $adminItems[] = [
+            'label' => 'Company Settings',
+            'href' => route('admin.company-settings.edit'),
+            'active' => request()->routeIs('admin.company-settings.*'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 21V6.75A2.25 2.25 0 0 1 6.75 4.5h10.5a2.25 2.25 0 0 1 2.25 2.25V21M8.25 8.25h2.25m-2.25 3h2.25m-2.25 3h2.25m3-6h2.25m-2.25 3h2.25m-2.25 3h2.25" /></svg>',
         ];
     }
 
@@ -261,9 +278,26 @@
                     <h1 class="mt-1 truncate text-2xl font-black tracking-[-0.04em] text-slate-950 sm:text-[2rem]">{{ $title }}</h1>
                 </div>
 
-                <div class="hidden rounded-[1.35rem] border border-slate-200 bg-slate-50/90 px-5 py-3 text-right shadow-sm sm:block">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Today</p>
-                    <p class="mt-1 text-sm font-black text-slate-950">{{ today()->format('d M Y') }}</p>
+                <div class="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
+                    <button
+                        id="admin-theme-toggle"
+                        type="button"
+                        class="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-700 transition hover:bg-slate-100 hover:text-slate-950"
+                        title="Toggle dark/light theme"
+                        aria-label="Toggle dark/light theme"
+                    >
+                        <svg id="admin-theme-toggle-moon" class="hidden h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0 1 18 15.75C12.365 15.75 8 11.385 8 5.75c0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998z" />
+                        </svg>
+                        <svg id="admin-theme-toggle-sun" class="hidden h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1.5m0 15V21m-9-9h1.5m15 0H21m-2.121-6.879l-1.061 1.061m-10.606 10.606l-1.061 1.061M6.343 6.343l1.061 1.061m10.606 10.606l1.061 1.061M12 7.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z" />
+                        </svg>
+                    </button>
+
+                    <div class="hidden rounded-[1.35rem] border border-slate-200 bg-slate-50/90 px-5 py-3 text-right shadow-sm sm:block">
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Today</p>
+                        <p class="mt-1 text-sm font-black text-slate-950">{{ today()->format('d M Y') }}</p>
+                    </div>
                 </div>
             </div>
 
@@ -332,5 +366,33 @@
     toggle-button-id="admin-sidebar-toggle"
     label-selector="[data-admin-sidebar-label]"
 />
+<script>
+    (() => {
+        const themeToggle = document.getElementById('admin-theme-toggle');
+        const moonIcon = document.getElementById('admin-theme-toggle-moon');
+        const sunIcon = document.getElementById('admin-theme-toggle-sun');
+
+        if (! themeToggle || ! moonIcon || ! sunIcon) {
+            return;
+        }
+
+        const syncThemeIcon = () => {
+            const isDark = document.documentElement.classList.contains('dark');
+            moonIcon.classList.toggle('hidden', isDark);
+            sunIcon.classList.toggle('hidden', ! isDark);
+        };
+
+        syncThemeIcon();
+
+        themeToggle.addEventListener('click', () => {
+            const shouldUseDark = ! document.documentElement.classList.contains('dark');
+
+            document.documentElement.classList.toggle('dark', shouldUseDark);
+            localStorage.setItem('theme', shouldUseDark ? 'dark' : 'light');
+            syncThemeIcon();
+        });
+    })();
+</script>
+@stack('scripts')
 </body>
 </html>

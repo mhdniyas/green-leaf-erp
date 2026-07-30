@@ -20,146 +20,128 @@
     $bottomTitle = match (true) {
         $isPendingApproval => 'Submitted For Admin Review',
         ! $deliveryEligibility['allowed'] => 'Delivery Pending',
-        default => 'Submit Each Product',
+        default => 'Confirm Delivery',
     };
     $bottomMessage = match (true) {
         $isPendingApproval => 'Your received quantities are submitted. Admin recheck is required before final invoice totals are confirmed.',
         ! $deliveryEligibility['allowed'] => $deliveryEligibility['message'],
-        default => 'Edit a received quantity, then use the tick button on that product row. Admin review starts after every product is submitted.',
+        default => 'Check received quantities against the invoice, then submit delivery verification once.',
     };
 @endphp
 
-<section class="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
     <div
         id="shop-delivery-item-verification"
         data-csrf-token="{{ csrf_token() }}"
         data-complete-title="Submitted For Admin Review"
         data-complete-message="All products are submitted. Admin recheck is required before final invoice totals are confirmed."
     >
-        <div class="border-b border-slate-100 bg-emerald-50 px-4 py-4 sm:px-6">
-            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-700">Approved Invoice Pricing</p>
-                    <h3 class="mt-1 text-base font-black text-slate-950 sm:text-lg">
-                        {{ $invoice?->invoice_number ?? $order->order_number }} · {{ $order->business_date?->format('d/m/Y') }}
-                    </h3>
+        <div class="relative mx-auto min-h-[36rem] max-w-[38rem] bg-white px-3 py-5 text-slate-950 sm:px-6 sm:py-7">
+            <header class="border-b border-dashed border-slate-400 pb-3 text-center">
+                <h3 class="text-xl font-black uppercase tracking-wide text-slate-950">Delivery Verification</h3>
+                <p class="mt-2 text-base font-black uppercase leading-tight text-slate-950">{{ $order->shop?->name }}</p>
+                <p class="mt-0.5 text-[11px] font-semibold leading-tight text-slate-700">{{ $invoice?->invoice_number ?? $order->order_number }} · {{ $order->business_date?->format('d M Y') }}</p>
+            </header>
+
+            <div class="grid grid-cols-1 gap-3 border-b border-dashed border-slate-400 py-3 text-[11px] font-bold text-slate-800 sm:grid-cols-2">
+                <div class="min-w-0">
+                    <p class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Delivery Ref</p>
+                    <p class="mt-1 font-black text-slate-950">{{ $order->order_number }}</p>
+                    <p class="mt-1">Items: {{ $totalVerifiableCount }}</p>
                 </div>
-                <div class="rounded-2xl bg-white px-4 py-2 sm:text-right">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Net Total</p>
-                    <p class="mt-1 text-lg font-black tabular-nums text-slate-950">Rs. {{ number_format((float) ($invoice?->final_total ?? 0), 2) }}</p>
+                <div class="sm:text-right">
+                    <p>Invoice Total</p>
+                    <p class="mt-1 text-sm font-black text-slate-950">Rs. {{ number_format((float) ($invoice?->final_total ?? 0), 2) }}</p>
                 </div>
             </div>
-        </div>
 
-        <div class="hidden border-b border-slate-100 bg-white px-4 py-3 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500 md:grid md:grid-cols-[minmax(0,1fr)_6rem_6rem_7rem_8rem_8rem] md:gap-3">
-            <span>Item</span>
-            <span class="text-right">Qty</span>
-            <span class="text-right">Rate</span>
-            <span class="text-right">Total</span>
-            <span class="text-right">Received</span>
-            <span class="text-right">Submit</span>
-        </div>
-
-        <div class="divide-y divide-slate-100">
-            @foreach ($sortedItems as $item)
-                @php
-                    $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
-                    $priceRow = $priceRowsByProductId->get($item->product_id);
-                    $approvedQty = (float) ($item->loaded_qty ?? $item->approved_qty ?? $invoiceItem?->approved_qty ?? 0);
-                    $unitRate = (float) ($invoiceItem?->unit_price ?? $priceRow['unit_price'] ?? 0);
-                    $lineTotal = round($approvedQty * $unitRate, 2);
-                    $receivedQty = $isPendingApproval
-                        ? (float) ($item->shop_reported_received_qty ?? 0)
-                        : (float) ($item->delivered_qty ?? $approvedQty);
-                    $isItemVerified = $item->shop_verified_at !== null;
-                    $itemShortQty = (float) ($item->shop_reported_missing_qty ?? 0);
-                    $itemExcessQty = (float) ($item->shop_reported_excess_qty ?? 0);
-                    $statusLabel = match (true) {
-                        ! $deliveryEligibility['allowed'] => $priceRow['status_label'] ?? ($invoiceItem ? 'Pending' : 'Not Updated'),
-                        $isItemVerified && $itemExcessQty > 0 => 'Excess Submitted',
-                        $isItemVerified && $itemShortQty > 0 => 'Short Submitted',
-                        $isItemVerified => 'Submitted',
-                        default => 'Pending',
-                    };
-                    $statusTone = match (true) {
-                        ! $deliveryEligibility['allowed'] => $priceRow['status_tone'] ?? ($invoiceItem ? 'info' : 'warning'),
-                        $isItemVerified && $itemExcessQty > 0 => 'info',
-                        $isItemVerified && $itemShortQty > 0 => 'warning',
-                        $isItemVerified => 'success',
-                        default => 'neutral',
-                    };
-                @endphp
-
-                <article
-                    class="shop-item-row px-4 py-3 transition sm:px-6"
-                    data-item-id="{{ $item->id }}"
-                    data-verify-url="{{ route('shop-owner.deliveries.items.verify', [$order->order_number, $item]) }}"
-                    data-approved-qty="{{ $approvedQty }}"
-                    data-unit="{{ $item->unit }}"
-                >
-                    <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_6rem_6rem_7rem_8rem_8rem] md:items-center">
-                        <div class="min-w-0">
-                            <p class="truncate text-sm font-black text-slate-950">{{ $item->product->name }}</p>
-                            <p class="mt-0.5 truncate text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
-                                Code {{ $item->product->sku }} · {{ strtoupper($item->unit) }}
-                            </p>
-                            <p class="mt-1 truncate text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700">
-                                Ordered {{ $item->requestedMeasureBreakdownLabel() }}
-                            </p>
-                        </div>
-
-                        <div class="grid grid-cols-3 gap-2 md:contents">
-                            <div class="rounded-2xl bg-slate-50 px-3 py-2 md:bg-transparent md:p-0 md:text-right">
-                                <p class="text-[9px] font-black uppercase tracking-[0.12em] text-slate-500 md:hidden">Qty</p>
-                                <p class="mt-1 text-sm font-black tabular-nums text-slate-800 md:mt-0">{{ number_format($approvedQty, 2) }}</p>
-                            </div>
-                            <div class="rounded-2xl bg-slate-50 px-3 py-2 md:bg-transparent md:p-0 md:text-right">
-                                <p class="text-[9px] font-black uppercase tracking-[0.12em] text-slate-500 md:hidden">Rate</p>
-                                <p class="mt-1 text-sm font-black tabular-nums text-slate-950 md:mt-0">Rs. {{ number_format($unitRate, 2) }}</p>
-                            </div>
-                            <div class="rounded-2xl bg-slate-50 px-3 py-2 md:bg-transparent md:p-0 md:text-right">
-                                <p class="text-[9px] font-black uppercase tracking-[0.12em] text-slate-500 md:hidden">Total</p>
-                                <p class="mt-1 text-sm font-black tabular-nums text-slate-950 md:mt-0">Rs. {{ number_format($lineTotal, 2) }}</p>
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 md:block md:text-right">
-                            <div class="rounded-2xl border border-slate-200 bg-white px-3 py-2">
-                                <label class="block text-[9px] font-black uppercase tracking-[0.12em] text-slate-500 md:hidden">Received</label>
-                                <div class="flex items-center">
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        name="delivered_qty[{{ $item->id }}]"
-                                        value="{{ number_format($receivedQty, 2, '.', '') }}"
-                                        @disabled(! $isEditable || $isItemVerified)
-                                        class="shop-delivered-qty-input w-full min-w-0 border-0 bg-transparent py-0.5 text-right text-base font-black tabular-nums text-slate-950 outline-none focus:ring-0 disabled:text-slate-500"
-                                    >
-                                    <span class="ml-1 text-[10px] font-black uppercase tracking-[0.1em] text-slate-400">{{ $item->unit }}</span>
-                                </div>
-                            </div>
-                            <p class="shop-difference-value text-right text-[11px] font-black uppercase tracking-[0.12em] text-slate-500 md:mt-1"></p>
-                        </div>
-
-                        <div class="flex items-center justify-between gap-2 md:justify-end">
-                            <span class="md:hidden text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Submit</span>
-                            <button
-                                type="button"
-                                class="shop-item-submit inline-flex h-10 min-w-[6.75rem] items-center justify-center gap-1.5 rounded-2xl border px-3 text-[10px] font-black uppercase tracking-[0.14em] transition disabled:cursor-not-allowed {{ $statusTone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($statusTone === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-700' : ($statusTone === 'info' ? 'border-cyan-200 bg-cyan-50 text-cyan-700' : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700')) }}"
-                                @disabled(! $isEditable || $isItemVerified)
-                                data-default-label="{{ $statusLabel }}"
+            <div class="overflow-x-auto border-b border-dashed border-slate-400 py-3">
+                <table class="w-full table-fixed text-left text-[11px]">
+                    <thead class="border-b border-dashed border-slate-400 text-[10px] font-black uppercase text-slate-950">
+                        <tr>
+                            <th class="w-7 py-1 pr-1">SN</th>
+                            <th class="py-1 pr-2">Item</th>
+                            <th class="w-12 py-1 pr-1 text-right">Qty</th>
+                            <th class="w-16 py-1 pr-1 text-right">Rate</th>
+                            <th class="w-20 py-1 pr-1 text-right">Amt</th>
+                            <th class="w-20 py-1 text-right">Received</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($sortedItems as $item)
+                            @php
+                                $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
+                                $priceRow = $priceRowsByProductId->get($item->product_id);
+                                $approvedQty = (float) ($item->loaded_qty ?? $item->approved_qty ?? $invoiceItem?->approved_qty ?? 0);
+                                $unitRate = (float) ($invoiceItem?->unit_price ?? $priceRow['unit_price'] ?? 0);
+                                $lineTotal = round($approvedQty * $unitRate, 2);
+                                $receivedQty = $isPendingApproval
+                                    ? (float) ($item->shop_reported_received_qty ?? 0)
+                                    : (float) ($item->delivered_qty ?? $approvedQty);
+                                $isItemVerified = $item->shop_verified_at !== null;
+                                $itemShortQty = (float) ($item->shop_reported_missing_qty ?? 0);
+                                $itemExcessQty = (float) ($item->shop_reported_excess_qty ?? 0);
+                                $statusLabel = match (true) {
+                                    ! $deliveryEligibility['allowed'] => $priceRow['status_label'] ?? ($invoiceItem ? 'Pending' : 'Not Updated'),
+                                    $isItemVerified && $itemExcessQty > 0 => 'Excess Submitted',
+                                    $isItemVerified && $itemShortQty > 0 => 'Short Submitted',
+                                    $isItemVerified => 'Submitted',
+                                    default => 'Pending',
+                                };
+                            @endphp
+                            <tr
+                                class="shop-item-row align-top"
+                                data-item-id="{{ $item->id }}"
+                                data-verify-url="{{ route('shop-owner.deliveries.items.verify', [$order->order_number, $item]) }}"
+                                data-approved-qty="{{ $approvedQty }}"
+                                data-unit="{{ $item->unit }}"
+                                data-verified="{{ $isItemVerified ? 'true' : 'false' }}"
                             >
-                                <svg class="shop-item-submit-icon h-3.5 w-3.5 {{ $isItemVerified ? '' : 'hidden' }}" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                                </svg>
-                                <span class="shop-item-submit-label">{{ $isItemVerified ? $statusLabel : 'Submit' }}</span>
-                            </button>
-                        </div>
-                    </div>
-                    <p class="shop-item-error mt-2 hidden rounded-2xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700"></p>
-                </article>
-            @endforeach
+                                <td class="py-2 pr-1 font-bold">{{ $loop->iteration }}</td>
+                                <td class="py-2 pr-2">
+                                    <p class="font-black text-slate-950">{{ $item->product->name }}</p>
+                                    <p class="mt-0.5 text-[10px] font-semibold text-slate-500">{{ $item->product->sku }} · {{ $item->requestedMeasureBreakdownLabel() }}</p>
+                                    <p class="shop-difference-value mt-0.5 text-[10px] font-black uppercase tracking-[0.08em] text-slate-500"></p>
+                                    <p class="shop-item-status mt-0.5 text-[10px] font-black uppercase tracking-[0.08em] {{ $isItemVerified ? 'text-emerald-700' : 'text-slate-400' }}">{{ $statusLabel }}</p>
+                                    <p class="shop-item-error mt-1 hidden rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700"></p>
+                                </td>
+                                <td class="py-2 pr-1 text-right font-bold">{{ number_format($approvedQty, 2) }}</td>
+                                <td class="py-2 pr-1 text-right font-bold">Rs. {{ number_format($unitRate, 2) }}</td>
+                                <td class="py-2 pr-1 text-right font-black text-slate-950">Rs. {{ number_format($lineTotal, 2) }}</td>
+                                <td class="py-2 text-right">
+                                    <div class="flex items-center justify-end rounded-md border border-slate-200 bg-slate-50 px-1">
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            name="delivered_qty[{{ $item->id }}]"
+                                            value="{{ number_format($receivedQty, 2, '.', '') }}"
+                                            @disabled(! $isEditable || $isItemVerified)
+                                            class="shop-delivered-qty-input h-7 w-12 border-0 bg-transparent px-0 text-right text-[11px] font-black tabular-nums text-slate-950 outline-none focus:ring-0 disabled:text-slate-500"
+                                        >
+                                        <span class="ml-0.5 text-[9px] font-black uppercase text-slate-400">{{ $item->unit }}</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="ml-auto w-full max-w-full border-b border-dashed border-slate-400 py-3 text-[11px] font-bold text-slate-800 sm:max-w-[20rem]">
+                <div class="flex items-center justify-between">
+                    <span>Invoice Total</span>
+                    <span>Rs. {{ number_format((float) ($invoice?->final_total ?? 0), 2) }}</span>
+                </div>
+                <div class="mt-1.5 flex items-center justify-between">
+                    <span>Verification</span>
+                    <span id="shop-delivery-progress-count">{{ $progressLabel }}</span>
+                </div>
+            </div>
+
+            <footer class="pt-3 text-center">
+                <p class="text-xs font-black text-slate-800">Please confirm delivered quantity</p>
+            </footer>
         </div>
 
         <div class="border-t border-slate-100 bg-slate-50 px-4 py-4 sm:px-6">
@@ -169,9 +151,9 @@
                         <p id="shop-delivery-progress-title" class="text-[10px] font-black uppercase tracking-[0.16em] {{ $isEditable ? 'text-slate-400' : 'text-amber-700' }}">{{ $bottomTitle }}</p>
                         <p id="shop-delivery-progress-message" class="mt-1 text-sm font-semibold leading-6 {{ $isEditable ? 'text-slate-200' : 'text-amber-900' }}">{{ $bottomMessage }}</p>
                     </div>
-                    <span id="shop-delivery-progress-count" class="shrink-0 rounded-2xl {{ $isEditable ? 'bg-white/10 text-white' : 'bg-white text-amber-800' }} px-4 py-2 text-xs font-black uppercase tracking-[0.14em]">
-                        {{ $progressLabel }}
-                    </span>
+                    <button type="button" id="shop-delivery-submit-all" class="shrink-0 rounded-2xl {{ $isEditable ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400' : 'bg-white text-amber-800' }} px-4 py-3 text-xs font-black uppercase tracking-[0.14em] transition disabled:cursor-not-allowed disabled:opacity-60" @disabled(! $isEditable || $verifiedCount === $totalVerifiableCount)>
+                        Submit Delivery Verification
+                    </button>
                 </div>
             </div>
         </div>
@@ -186,6 +168,7 @@
         const progressTitle = document.getElementById('shop-delivery-progress-title');
         const progressMessage = document.getElementById('shop-delivery-progress-message');
         const progressCount = document.getElementById('shop-delivery-progress-count');
+        const submitAllButton = document.getElementById('shop-delivery-submit-all');
 
         function normalizeValue(input) {
             let val = parseFloat(input.value);
@@ -222,21 +205,18 @@
 
         function setSubmittedState(row, result) {
             const input = row.querySelector('.shop-delivered-qty-input');
-            const button = row.querySelector('.shop-item-submit');
-            const icon = row.querySelector('.shop-item-submit-icon');
-            const label = row.querySelector('.shop-item-submit-label');
+            const status = row.querySelector('.shop-item-status');
 
             input.value = result.item.received_qty;
             input.disabled = true;
-            button.disabled = true;
-            button.classList.remove('border-slate-200', 'bg-white', 'text-slate-600', 'hover:border-emerald-200', 'hover:bg-emerald-50', 'hover:text-emerald-700');
-            button.classList.add(
-                result.item.status === 'short' ? 'border-amber-200' : (result.item.status === 'excess' ? 'border-cyan-200' : 'border-emerald-200'),
-                result.item.status === 'short' ? 'bg-amber-50' : (result.item.status === 'excess' ? 'bg-cyan-50' : 'bg-emerald-50'),
-                result.item.status === 'short' ? 'text-amber-700' : (result.item.status === 'excess' ? 'text-cyan-700' : 'text-emerald-700')
-            );
-            icon.classList.remove('hidden');
-            label.textContent = result.item.status_label;
+            row.dataset.verified = 'true';
+
+            if (status) {
+                status.textContent = result.item.status_label;
+                status.classList.remove('text-slate-400', 'text-emerald-700', 'text-amber-700', 'text-cyan-700');
+                status.classList.add(result.item.status === 'short' ? 'text-amber-700' : (result.item.status === 'excess' ? 'text-cyan-700' : 'text-emerald-700'));
+            }
+
             setRowError(row, null);
             updateRow(row);
         }
@@ -244,15 +224,15 @@
         function lockAllRows() {
             rows.forEach((row) => {
                 row.querySelector('.shop-delivered-qty-input').disabled = true;
-                row.querySelector('.shop-item-submit').disabled = true;
             });
+
+            if (submitAllButton) {
+                submitAllButton.disabled = true;
+            }
         }
 
         rows.forEach((row) => {
             const input = row.querySelector('.shop-delivered-qty-input');
-            const approvedQty = parseFloat(row.dataset.approvedQty) || 0;
-            const button = row.querySelector('.shop-item-submit');
-            const label = row.querySelector('.shop-item-submit-label');
 
             input.addEventListener('input', function () {
                 updateRow(row);
@@ -264,15 +244,24 @@
             });
 
             updateRow(row);
+        });
 
-            button.addEventListener('click', async function () {
-                if (button.disabled || !csrfToken) {
-                    return;
-                }
+        submitAllButton?.addEventListener('click', async function () {
+            if (submitAllButton.disabled || !csrfToken) {
+                return;
+            }
 
+            const pendingRows = Array.from(rows).filter((row) => row.dataset.verified !== 'true');
+            if (pendingRows.length === 0) {
+                return;
+            }
+
+            submitAllButton.disabled = true;
+            submitAllButton.textContent = 'Submitting';
+
+            for (const row of pendingRows) {
+                const input = row.querySelector('.shop-delivered-qty-input');
                 input.value = normalizeValue(input).toFixed(2);
-                button.disabled = true;
-                label.textContent = 'Saving';
                 setRowError(row, null);
 
                 try {
@@ -302,13 +291,19 @@
                         lockAllRows();
                         progressTitle.textContent = wrapper.dataset.completeTitle || result.order_status_label;
                         progressMessage.textContent = wrapper.dataset.completeMessage || result.message;
+                        submitAllButton.textContent = 'Submitted';
+                        return;
                     }
                 } catch (error) {
-                    button.disabled = false;
-                    label.textContent = 'Submit';
                     setRowError(row, error.message || 'Unable to submit this product.');
+                    submitAllButton.disabled = false;
+                    submitAllButton.textContent = 'Submit Delivery Verification';
+                    return;
                 }
-            });
+            }
+
+            submitAllButton.disabled = false;
+            submitAllButton.textContent = 'Submit Delivery Verification';
         });
     });
 </script>

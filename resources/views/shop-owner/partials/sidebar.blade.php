@@ -19,6 +19,11 @@
             'active' => request()->routeIs('shop-owner.accounting.index') && request()->query('tab', 'cashbook') === 'cashbook',
         ];
         $accountingChildren[] = [
+            'label' => 'Loan',
+            'href' => route('shop-owner.accounting.index', ['tab' => 'loan']),
+            'active' => request()->routeIs('shop-owner.accounting.index') && request()->query('tab') === 'loan',
+        ];
+        $accountingChildren[] = [
             'label' => 'Create',
             'href' => route('shop-owner.accounting.index', ['tab' => 'create']),
             'active' => request()->routeIs('shop-owner.accounting.index') && request()->query('tab') === 'create',
@@ -42,14 +47,6 @@
             'active' => request()->routeIs('shop-owner.finance.index') && request()->query('tab', 'invoices') === 'invoices',
         ],
     ];
-
-    if ($hasOwnedAccountingAccess) {
-        $financeChildren[] = [
-            'label' => 'Payments',
-            'href' => route('shop-owner.finance.index', ['tab' => 'payments']),
-            'active' => request()->routeIs('shop-owner.finance.index') && request()->query('tab') === 'payments',
-        ];
-    }
 
     $shopOwnerNavItems = [
         [
@@ -79,6 +76,11 @@
             'route' => 'shop-owner.finance.index',
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5m-18 3.75h16.5m-14.25 5.25h4.5m-6.75 2.25h16.5A2.25 2.25 0 0 0 22.5 17.25V6.75A2.25 2.25 0 0 0 20.25 4.5H3.75A2.25 2.25 0 0 0 1.5 6.75v10.5A2.25 2.25 0 0 0 3.75 19.5Z" /></svg>',
             'children' => $financeChildren,
+        ],
+        [
+            'label' => 'Payments',
+            'route' => 'shop-owner.payments.index',
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m0 0c-2.21 0-4-1.343-4-3s1.79-3 4-3 4-1.343 4-3-1.79-3-4-3m0 12c2.21 0 4-1.343 4-3" /><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5h15" /></svg>',
         ],
         [
             'label' => 'Approval History',

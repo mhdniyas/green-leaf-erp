@@ -6,13 +6,13 @@ namespace App\Http\Controllers\Web;
 
 use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
-use App\Models\Customer;
 use App\Models\GoodsReceived;
 use App\Models\Product;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\SalesInvoice;
+use App\Models\Shop;
 use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
@@ -96,7 +96,7 @@ class DashboardController extends Controller
         $salesStats = null;
         if ($user->can('sales.customer.view') || $user->can('sales.invoice.view')) {
             $salesStats = [
-                'active_customers' => Customer::where('is_active', true)->count(),
+                'active_shops' => Shop::query()->active()->count(),
                 'monthly_sales' => (float) SalesInvoice::whereYear('created_at', today()->year)
                     ->whereMonth('created_at', today()->month)
                     ->sum('amount'),

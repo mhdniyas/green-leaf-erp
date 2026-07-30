@@ -43,7 +43,7 @@
         <div class="mt-5 rounded-[1.5rem] border border-cyan-200 bg-cyan-50 p-4">
             <p class="text-sm font-black text-cyan-900">This bill is handled through the cashbook.</p>
             <p class="mt-2 text-sm font-semibold text-cyan-800">Once approved, the bill amount is automatically included as Cash Debit. Use Finance > Payments only when paying the company from the latest closing balance.</p>
-            <a href="{{ route('shop-owner.finance.index', ['tab' => 'payments']) }}" class="mt-4 inline-flex h-10 items-center rounded-2xl bg-cyan-700 px-4 text-sm font-black text-white transition hover:bg-cyan-600">
+            <a href="{{ route('shop-owner.payments.index') }}" class="mt-4 inline-flex h-10 items-center rounded-2xl bg-cyan-700 px-4 text-sm font-black text-white transition hover:bg-cyan-600">
                 Open Payments
             </a>
         </div>

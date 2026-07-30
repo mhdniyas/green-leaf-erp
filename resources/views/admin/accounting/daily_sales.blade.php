@@ -116,7 +116,7 @@
             </div>
         </section>
 
-        @if (($pendingPaymentRequests ?? collect())->isNotEmpty())
+        @if (($pendingPaymentRequests ?? collect())->isNotEmpty() || ($clientBalanceCredits ?? collect())->isNotEmpty())
             <section id="shop-payment-requests" class="rounded-[1.9rem] border border-amber-200 bg-amber-50/70 p-5 shadow-sm">
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                     <div>
@@ -127,6 +127,66 @@
                     <span class="inline-flex h-9 items-center rounded-2xl bg-white px-4 text-xs font-black uppercase tracking-[0.16em] text-amber-800">
                         {{ $pendingPaymentRequests->count() }} pending
                     </span>
+                </div>
+
+                <div class="mt-5 grid gap-4 xl:grid-cols-2">
+                    <article class="rounded-[1.35rem] border border-cyan-200 bg-white p-4">
+                        <div class="flex items-center justify-between gap-3">
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-700">Bill Pending</p>
+                                <h4 class="mt-1 text-base font-black text-slate-950">Against invoices to pay</h4>
+                            </div>
+                            <p class="text-sm font-black text-cyan-700">Rs. {{ number_format($pendingBillPaymentRequests->sum(fn ($paymentRequest) => (float) (($paymentRequestPreviews ?? collect())->get($paymentRequest->id)['applied_amount'] ?? 0)), 2) }}</p>
+                        </div>
+                        <div class="mt-3 space-y-2">
+                            @forelse ($pendingBillPaymentRequests as $paymentRequest)
+                                @php($preview = ($paymentRequestPreviews ?? collect())->get($paymentRequest->id, ['applied_amount' => 0, 'invoices' => []]))
+                                <div class="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <p class="text-sm font-black text-slate-950">{{ $paymentRequest->shop?->name ?? 'Shop removed' }}</p>
+                                        <p class="text-sm font-black text-cyan-700">Rs. {{ number_format((float) $preview['applied_amount'], 2) }}</p>
+                                    </div>
+                                    <p class="mt-1 text-xs font-semibold text-slate-500">{{ count($preview['invoices']) }} invoice allocation(s)</p>
+                                </div>
+                            @empty
+                                <p class="rounded-xl border border-dashed border-slate-200 px-3 py-4 text-center text-xs font-bold text-slate-500">No pending invoice payment approvals.</p>
+                            @endforelse
+                        </div>
+                    </article>
+
+                    <article class="rounded-[1.35rem] border border-slate-200 bg-white p-4">
+                        <div class="flex items-center justify-between gap-3">
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">Client Balance</p>
+                                <h4 class="mt-1 text-base font-black text-slate-950">Total without invoice</h4>
+                            </div>
+                            <p class="text-sm font-black text-slate-800">Rs. {{ number_format($clientBalanceCredits->sum(fn ($paymentRequest) => (float) $paymentRequest->remainingCreditAmount()), 2) }}</p>
+                        </div>
+                        <div class="mt-3 space-y-2">
+                            @forelse ($pendingClientBalanceRequests as $paymentRequest)
+                                @php($preview = ($paymentRequestPreviews ?? collect())->get($paymentRequest->id, ['credit_amount' => 0]))
+                                <div class="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <p class="text-sm font-black text-slate-950">{{ $paymentRequest->shop?->name ?? 'Shop removed' }}</p>
+                                        <p class="text-sm font-black text-amber-700">Rs. {{ number_format((float) $preview['credit_amount'], 2) }}</p>
+                                    </div>
+                                    <p class="mt-1 text-xs font-semibold text-amber-700">Pending approval client balance</p>
+                                </div>
+                            @empty
+                                <p class="rounded-xl border border-dashed border-slate-200 px-3 py-4 text-center text-xs font-bold text-slate-500">No pending client balance approvals.</p>
+                            @endforelse
+
+                            @foreach ($clientBalanceCredits as $paymentRequest)
+                                <div class="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <p class="text-sm font-black text-slate-950">{{ $paymentRequest->shop?->name ?? 'Shop removed' }}</p>
+                                        <p class="text-sm font-black text-emerald-700">Rs. {{ number_format((float) $paymentRequest->remainingCreditAmount(), 2) }}</p>
+                                    </div>
+                                    <p class="mt-1 text-xs font-semibold text-emerald-700">Available client balance credit</p>
+                                </div>
+                            @endforeach
+                        </div>
+                    </article>
                 </div>
 
                 <div class="mt-4 overflow-x-auto rounded-[1.25rem] border border-amber-200 bg-white">
@@ -147,6 +207,7 @@
                                     <td class="px-4 py-3">
                                         <p class="font-black text-slate-950">{{ $paymentRequest->shop?->name ?? 'Shop removed' }}</p>
                                         <p class="mt-1 text-xs font-semibold text-slate-500">{{ $paymentRequest->requestedBy?->name ?? 'Shop owner' }}</p>
+                                        <p class="mt-2 inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-600">{{ $paymentRequest->applicationLabel() }}</p>
                                     </td>
                                     <td class="px-4 py-3">
                                         <p class="font-bold text-slate-700">{{ count($preview['invoices']) }} invoice(s)</p>
@@ -413,14 +474,51 @@
 
                     <input type="hidden" name="discount_total" id="daily-sales-payment-discount-total" value="0.00">
 
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <label class="flex cursor-pointer items-start gap-3 rounded-[1.15rem] border border-cyan-200 bg-cyan-50 px-4 py-3">
+                            <input type="radio" name="payment_application" value="invoice_pending" checked class="mt-1 h-4 w-4 border-slate-300 text-cyan-600 focus:ring-cyan-500">
+                            <span>
+                                <span class="block text-xs font-black uppercase tracking-[0.14em] text-cyan-700">Bill pending</span>
+                                <span class="mt-1 block text-xs font-semibold text-slate-600">Apply received cash against pending invoices.</span>
+                            </span>
+                        </label>
+                        <label class="flex cursor-pointer items-start gap-3 rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3">
+                            <input type="radio" name="payment_application" value="client_balance" class="mt-1 h-4 w-4 border-slate-300 text-slate-900 focus:ring-slate-500">
+                            <span>
+                                <span class="block text-xs font-black uppercase tracking-[0.14em] text-slate-700">Client balance</span>
+                                <span class="mt-1 block text-xs font-semibold text-slate-600">Record total without changing invoice paid amounts.</span>
+                            </span>
+                        </label>
+                    </div>
+
                     <label class="block">
-                        <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Total collected amount</span>
+                        <span id="daily-sales-payment-amount-label" class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Total collected amount</span>
                         <input type="number" step="0.01" min="0" name="paid_amount" id="daily-sales-payment-paid-amount-input" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-cyan-400 focus:outline-none">
+                        <span id="daily-sales-payment-amount-help" class="mt-1.5 block text-xs font-semibold text-slate-500">Bill pending uses cumulative paid amount for invoice allocation.</span>
                     </label>
 
                     <button type="button" id="daily-sales-payment-set-full-btn" class="inline-flex h-8 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-700 transition hover:bg-slate-100">
                         Set full payable amount
                     </button>
+
+                    <div class="grid gap-3 sm:grid-cols-3">
+                        <label class="block">
+                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Mode</span>
+                            <select name="payment_method" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-cyan-400 focus:outline-none">
+                                <option value="cash">Cash</option>
+                                <option value="online_upi">Online UPI</option>
+                                <option value="cheque">Cheque</option>
+                            </select>
+                        </label>
+                        <label class="block">
+                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Reference / Check No.</span>
+                            <input type="text" name="payment_reference" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none" placeholder="Optional">
+                        </label>
+                        <label class="block">
+                            <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Payment Date</span>
+                            <input type="date" name="payment_date" value="{{ today()->toDateString() }}" class="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-cyan-400 focus:outline-none">
+                        </label>
+                    </div>
 
                     <label class="block">
                         <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Payment Note</span>
@@ -517,11 +615,28 @@
             const remainingDueDisplay = document.getElementById('daily-sales-payment-remaining-due');
             const discountInput = document.getElementById('daily-sales-payment-discount-total');
             const paidInput = document.getElementById('daily-sales-payment-paid-amount-input');
+            const amountLabel = document.getElementById('daily-sales-payment-amount-label');
+            const amountHelp = document.getElementById('daily-sales-payment-amount-help');
             const noteInput = document.getElementById('daily-sales-payment-note-input');
             const setFullButton = document.getElementById('daily-sales-payment-set-full-btn');
+            const applicationInputs = form?.querySelectorAll('input[name="payment_application"]') ?? [];
 
             let currentInvoiceFinalTotal = 0;
+            let currentInvoiceBalance = 0;
             const money = (amount) => 'Rs. ' + amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const selectedApplication = () => form?.querySelector('input[name="payment_application"]:checked')?.value ?? 'invoice_pending';
+            const refreshApplicationText = () => {
+                const clientBalanceMode = selectedApplication() === 'client_balance';
+
+                if (amountLabel) amountLabel.textContent = clientBalanceMode ? 'Received client balance amount' : 'Total collected amount';
+                if (amountHelp) {
+                    amountHelp.textContent = clientBalanceMode
+                        ? 'Client balance records cash received without updating any invoice paid amount.'
+                        : 'Bill pending uses cumulative paid amount for invoice allocation.';
+                }
+                if (setFullButton) setFullButton.textContent = clientBalanceMode ? 'Use invoice balance as amount' : 'Set full payable amount';
+                if (paidInput) paidInput.value = (clientBalanceMode ? currentInvoiceBalance : currentInvoiceFinalTotal).toFixed(2);
+            };
             const closeModal = () => {
                 modal?.classList.add('hidden');
                 document.body.classList.remove('overflow-hidden');
@@ -539,6 +654,7 @@
                     const discountTotal = parseFloat(button.dataset.discountTotal ?? '0');
 
                     currentInvoiceFinalTotal = finalTotal;
+                    currentInvoiceBalance = balanceAmount;
                     form.action = button.dataset.action ?? '';
                     if (invoiceNumber) invoiceNumber.textContent = button.dataset.invoiceNumber ?? '';
                     if (finalTotalDisplay) finalTotalDisplay.textContent = money(finalTotal);
@@ -547,6 +663,10 @@
                     if (discountInput) discountInput.value = discountTotal.toFixed(2);
                     if (paidInput) paidInput.value = finalTotal.toFixed(2);
                     if (noteInput) noteInput.value = button.dataset.paymentNote ?? '';
+                    applicationInputs.forEach((input) => {
+                        input.checked = input.value === 'invoice_pending';
+                    });
+                    refreshApplicationText();
 
                     modal.classList.remove('hidden');
                     document.body.classList.add('overflow-hidden');
@@ -555,9 +675,10 @@
 
             setFullButton?.addEventListener('click', () => {
                 if (paidInput) {
-                    paidInput.value = currentInvoiceFinalTotal.toFixed(2);
+                    paidInput.value = (selectedApplication() === 'client_balance' ? currentInvoiceBalance : currentInvoiceFinalTotal).toFixed(2);
                 }
             });
+            applicationInputs.forEach((input) => input.addEventListener('change', refreshApplicationText));
 
             modal?.querySelectorAll('.daily-sales-payment-modal-close').forEach((button) => button.addEventListener('click', closeModal));
             modal?.addEventListener('click', (event) => {

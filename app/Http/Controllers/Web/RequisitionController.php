@@ -349,7 +349,28 @@ class RequisitionController extends Controller
     {
         $this->authorizeAdminDirectPurchase($request);
 
-        $businessDate = Carbon::parse($request->input('date', today()->toDateString()));
+        return view('admin.accounting.purchasers.direct-purchase', [
+            ...$this->directPurchaseFormData($request, route('admin.accounting.purchasers.direct-purchase.store')),
+            'directPurchaseAudience' => 'admin',
+        ]);
+    }
+
+    public function createPurchaserDirectPurchase(Request $request): View
+    {
+        $this->authorizePurchaserDirectPurchase($request);
+
+        return view('purchasing.purchaser.direct_purchase', [
+            ...$this->directPurchaseFormData($request, route('purchaser.add-ons.store')),
+            'directPurchaseAudience' => 'purchaser',
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function directPurchaseFormData(Request $request, string $formAction): array
+    {
+        $businessDate = Carbon::parse($request->input('date', $this->businessDayService->operationalDate()->toDateString()));
         $productsByCategory = Category::with(['products' => function ($query): void {
             $query->where('is_active', true)->with('orderUnits')->ordered();
         }])
@@ -364,7 +385,7 @@ class RequisitionController extends Controller
             });
         });
 
-        return view('admin.accounting.purchasers.direct-purchase', [
+        return [
             'productsByCategory' => $productsByCategory,
             'frequentProducts' => collect(),
             'presets' => ShopPreset::query()->whereRaw('1 = 0')->with('items.product')->get(),
@@ -375,16 +396,45 @@ class RequisitionController extends Controller
             'cutoffLabel' => $this->businessDayService->cutoffLabel(),
             'purchaseOrdersLockedForTomorrow' => false,
             'businessDate' => $businessDate,
-            'orderFormAction' => route('admin.accounting.purchasers.direct-purchase.store'),
+            'orderFormAction' => $formAction,
             'orderFormMode' => 'admin-direct-purchase',
             'allowPresetSave' => false,
-        ]);
+        ];
     }
 
     public function storeAdminDirectPurchase(Request $request): RedirectResponse
     {
         $this->authorizeAdminDirectPurchase($request);
 
+        return $this->storeDirectPurchaseDemand(
+            request: $request,
+            emptyRedirectRoute: 'admin.accounting.purchasers.direct-purchase.create',
+            successRedirectRoute: 'purchaser.vendors',
+            managerNote: 'Green Leaf Direct Purchase',
+            successPrefix: 'Green Leaf Direct Purchase order',
+        );
+    }
+
+    public function storePurchaserDirectPurchase(Request $request): RedirectResponse
+    {
+        $this->authorizePurchaserDirectPurchase($request);
+
+        return $this->storeDirectPurchaseDemand(
+            request: $request,
+            emptyRedirectRoute: 'purchaser.add-ons.create',
+            successRedirectRoute: 'purchaser.daily',
+            managerNote: 'Purchaser Add-on',
+            successPrefix: 'Purchaser add-on order',
+        );
+    }
+
+    private function storeDirectPurchaseDemand(
+        Request $request,
+        string $emptyRedirectRoute,
+        string $successRedirectRoute,
+        string $managerNote,
+        string $successPrefix,
+    ): RedirectResponse {
         $validated = $request->validate([
             'business_date' => ['required', 'date'],
             'items' => ['required', 'array'],
@@ -393,7 +443,7 @@ class RequisitionController extends Controller
         $items = $this->resolveRequestedProducts($validated['items'], $request->input('item_units', []), $request->input('item_measures', []));
 
         if ($items === []) {
-            return redirect()->route('admin.accounting.purchasers.direct-purchase.create', [
+            return redirect()->route($emptyRedirectRoute, [
                 'date' => Carbon::parse($validated['business_date'])->toDateString(),
             ])
                 ->withErrors(['items' => 'Direct purchase order cannot be empty.'])
@@ -403,7 +453,7 @@ class RequisitionController extends Controller
         $businessDate = Carbon::parse($validated['business_date']);
         $user = $request->user();
 
-        $order = DB::transaction(function () use ($businessDate, $user, $items): ShopOrder {
+        $order = DB::transaction(function () use ($businessDate, $user, $items, $managerNote): ShopOrder {
             $shopOrder = ShopOrder::query()->create([
                 'shop_id' => null,
                 'business_date' => $businessDate,
@@ -414,21 +464,21 @@ class RequisitionController extends Controller
                 'reviewed_by' => $user->id,
                 'reviewed_at' => now(),
                 'created_by' => $user->id,
-                'manager_note' => 'Green Leaf Direct Purchase',
+                'manager_note' => $managerNote,
             ]);
 
             $this->syncShopOrderItems($shopOrder, $items);
 
             $shopOrder->items()->update([
                 'approved_qty' => DB::raw('requested_qty'),
-                'notes' => 'Green Leaf Direct Purchase',
+                'notes' => $managerNote,
             ]);
 
             return $shopOrder->fresh(['items.product']);
         });
 
-        return redirect()->route('purchaser.vendors', ['date' => $businessDate->toDateString()])
-            ->with('success', 'Green Leaf Direct Purchase order '.$order->order_number.' added to purchaser demand.');
+        return redirect()->route($successRedirectRoute, ['date' => $businessDate->toDateString()])
+            ->with('success', $successPrefix.' '.$order->order_number.' added to purchaser demand.');
     }
 
     /**
@@ -2223,6 +2273,11 @@ class RequisitionController extends Controller
         $user = $request->user();
 
         abort_unless($user?->hasRole('admin') && $user->hasRole('purchaser'), 403, 'Unauthorized access.');
+    }
+
+    private function authorizePurchaserDirectPurchase(Request $request): void
+    {
+        abort_unless($request->user()?->hasRole('purchaser'), 403, 'Unauthorized access.');
     }
 
     /**

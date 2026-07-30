@@ -6,11 +6,13 @@ namespace App\Services\Finance;
 
 use App\Models\JournalEntry;
 use App\Models\JournalTransaction;
+use App\Models\CompanyAccountingEntry;
 use App\Models\PayrollPayment;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaserCredit;
 use App\Models\ShopCredit;
 use App\Models\ShopInvoice;
+use App\Models\ShopLoanEntry;
 use App\Models\Supplier;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
@@ -129,8 +131,10 @@ class AdminFinancePillarService
 
         $journalEntries = $this->cashFlowJournalEntriesForPeriod($startDate, $endDate);
         $pettyCashCredits = $this->pettyCashCreditsForPeriod($startDate, $endDate);
+        $shopLoanEntries = $this->shopLoanEntriesForPeriod($startDate, $endDate);
         $journalRows = $this->buildCashFlowJournalRows($journalEntries)
             ->merge($this->buildPettyCashCreditCashFlowRows($pettyCashCredits))
+            ->merge($this->buildShopLoanEntryCashFlowRows($shopLoanEntries))
             ->sortBy([
                 ['date', 'asc'],
                 ['sort_at', 'asc'],
@@ -505,6 +509,22 @@ class AdminFinancePillarService
     }
 
     /**
+     * @return Collection<int, ShopLoanEntry>
+     */
+    private function shopLoanEntriesForPeriod(Carbon $startDate, Carbon $endDate): Collection
+    {
+        return ShopLoanEntry::query()
+            ->approved()
+            ->with(['shop', 'creator'])
+            ->whereIn('type', [ShopLoanEntry::TypeCashGiven, ShopLoanEntry::TypeRepayment])
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
+            ->orderBy('business_date')
+            ->orderBy('id')
+            ->get();
+    }
+
+    /**
      * @param  Collection<int, JournalEntry>  $journalEntries
      * @return Collection<int, array<string, mixed>>
      */
@@ -566,6 +586,28 @@ class AdminFinancePillarService
         })->values();
     }
 
+    /**
+     * @param  Collection<int, ShopLoanEntry>  $entries
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function buildShopLoanEntryCashFlowRows(Collection $entries): Collection
+    {
+        return $entries->map(function (ShopLoanEntry $entry): array {
+            $shopName = (string) ($entry->shop?->name ?? 'Unknown shop');
+
+            return [
+                'date' => $entry->business_date?->toDateString() ?? $entry->created_at?->toDateString(),
+                'amount' => round((float) $entry->amount, 2),
+                'direction' => $entry->cashJournalDirection(),
+                'journal' => $entry->typeLabel().' - '.$shopName,
+                'remarks' => $entry->description ?: $entry->title,
+                'category' => 'Shop Loan',
+                'source' => 'client_shop_loan',
+                'sort_at' => $entry->created_at?->timestamp ?? 0,
+            ];
+        })->values();
+    }
+
     private function cashFlowOpeningBalance(Carbon $startDate): float
     {
         $transactions = JournalTransaction::query()
@@ -587,7 +629,13 @@ class AdminFinancePillarService
             ->get()
             ->sum(fn (ShopCredit $credit): float => $credit->type === 'in' ? -1 * (float) $credit->amount : (float) $credit->amount), 2);
 
-        return round($journalOpeningBalance + $pettyCashOpeningBalance, 2);
+        $shopLoanOpeningBalance = round((float) ShopLoanEntry::query()
+            ->approved()
+            ->whereDate('business_date', '<', $startDate)
+            ->get()
+            ->sum(fn (ShopLoanEntry $entry): float => $entry->type === ShopLoanEntry::TypeCashGiven ? -1 * (float) $entry->amount : (float) $entry->amount), 2);
+
+        return round($journalOpeningBalance + $pettyCashOpeningBalance + $shopLoanOpeningBalance, 2);
     }
 
     /**
@@ -620,6 +668,12 @@ class AdminFinancePillarService
             return 'Staff Salary';
         }
 
+        if ($entry->source_type === CompanyAccountingEntry::class) {
+            return str_starts_with((string) $entry->source_event, 'reversal')
+                ? 'Main Account Reversal'
+                : 'Main Account';
+        }
+
         return $counterpartyAccounts->first() ?: 'Journal Entry';
     }
 
@@ -642,6 +696,7 @@ class AdminFinancePillarService
                 str_starts_with((string) $entry->source_event, 'company_vendor_credit_payment:') => 'vendor_credit_company_payment',
                 default => 'journal',
             },
+            CompanyAccountingEntry::class => 'main_account',
             default => 'journal',
         };
     }

@@ -11,9 +11,11 @@ use App\Models\ShopAccountingCategory;
 use App\Models\ShopAccountingEntry;
 use App\Models\ShopCredit;
 use App\Models\ShopInvoice;
+use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
 use App\Models\ShopStaffPayment;
 use App\Models\User;
+use Database\Seeders\ChartOfAccountsSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\ViewErrorBag;
@@ -239,5 +241,146 @@ class AdminAccountingDashboardTest extends TestCase
                 'start_date' => '2026-07-27',
                 'end_date' => '2026-07-27',
             ]));
+    }
+
+    public function test_admin_can_record_client_balance_payment_without_updating_invoice(): void
+    {
+        $this->seed(ChartOfAccountsSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $shop = Shop::factory()->create([
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+        $invoice = ShopInvoice::factory()->create([
+            'shop_id' => $shop->id,
+            'invoice_number' => 'SINV-CLIENT-BAL-001',
+            'business_date' => '2026-07-29',
+            'subtotal' => 1000,
+            'discount_total' => 0,
+            'final_total' => 1000,
+            'paid_amount' => 200,
+            'balance_amount' => 800,
+            'payment_status' => 'partially_paid',
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->patch(route('admin.accounting.shop-invoices.payment', $invoice), [
+                'payment_application' => 'client_balance',
+                'discount_total' => 0,
+                'paid_amount' => 500,
+                'payment_note' => 'Client balance received.',
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $invoice->refresh();
+        $paymentRequest = ShopInvoicePaymentRequest::query()->latest('id')->first();
+
+        $this->assertSame('200.00', $invoice->paid_amount);
+        $this->assertSame('800.00', $invoice->balance_amount);
+        $this->assertSame('admin_client_balance', $paymentRequest?->request_type);
+        $this->assertSame('0.00', $paymentRequest?->applied_amount);
+        $this->assertSame('500.00', $paymentRequest?->credit_amount);
+        $this->assertDatabaseHas('journal_entries', [
+            'source_type' => ShopInvoicePaymentRequest::class,
+            'source_id' => $paymentRequest?->id,
+            'source_event' => 'client-balance-payment:'.$paymentRequest?->id,
+        ]);
+    }
+
+    public function test_admin_can_view_client_category_wise_income_and_expense_report(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $shop = Shop::factory()->create([
+            'name' => 'Category Report Shop',
+            'code' => 'CATEGORY_REPORT_SHOP',
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+        $cashSales = ShopAccountingCategory::query()->create([
+            'shop_id' => $shop->id,
+            'type' => 'income',
+            'cash_effect' => true,
+            'purpose' => 'sales',
+            'name' => 'Cash Sales',
+            'is_active' => true,
+        ]);
+        $dailyExpense = ShopAccountingCategory::query()->create([
+            'shop_id' => $shop->id,
+            'type' => 'expense',
+            'cash_effect' => true,
+            'purpose' => 'general',
+            'name' => 'Daily Expense',
+            'is_active' => true,
+        ]);
+        $approvedEntry = ShopAccountingEntry::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-07-29',
+            'entry_type' => ShopAccountingEntry::TypeDaily,
+            'daily_entry_key' => ShopAccountingEntry::dailyEntryKey($shop->id, '2026-07-29'),
+            'status' => 'approved',
+            'opening_cash' => 0,
+            'closing_cash' => 825,
+            'created_by' => $admin->id,
+            'submitted_by' => $admin->id,
+            'submitted_at' => now(),
+            'reviewed_by' => $admin->id,
+            'reviewed_at' => now(),
+        ]);
+        $approvedEntry->lines()->createMany([
+            [
+                'shop_accounting_category_id' => $cashSales->id,
+                'type' => 'income',
+                'cash_effect' => true,
+                'amount' => 1000,
+                'description' => 'Cash Sales',
+                'review_status' => 'approved',
+            ],
+            [
+                'shop_accounting_category_id' => $dailyExpense->id,
+                'type' => 'expense',
+                'cash_effect' => true,
+                'amount' => 175,
+                'description' => 'Daily Expense',
+                'review_status' => 'approved',
+            ],
+        ]);
+        $draftEntry = ShopAccountingEntry::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-07-29',
+            'entry_type' => ShopAccountingEntry::TypeAdjustment,
+            'status' => 'draft',
+            'opening_cash' => 0,
+            'closing_cash' => 0,
+            'created_by' => $admin->id,
+        ]);
+        $draftEntry->lines()->create([
+            'shop_accounting_category_id' => $cashSales->id,
+            'type' => 'income',
+            'cash_effect' => true,
+            'amount' => 9999,
+            'description' => 'Draft income',
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->get(route('admin.accounting.clients.category-report', [
+                'start_date' => '2026-07-29',
+                'end_date' => '2026-07-29',
+            ]))
+            ->assertOk()
+            ->assertSeeText('Category Wise Report')
+            ->assertSeeText('Income Categories')
+            ->assertSeeText('Expense Categories')
+            ->assertSeeText('Cash Sales')
+            ->assertSeeText('Daily Expense')
+            ->assertSeeText('Rs. 1,000.00')
+            ->assertSeeText('Rs. 175.00')
+            ->assertSeeText('Rs. 825.00')
+            ->assertDontSeeText('Rs. 9,999.00');
     }
 }

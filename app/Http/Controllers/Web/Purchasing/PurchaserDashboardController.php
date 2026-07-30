@@ -10,6 +10,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\StorePurchaserCartItemRequest;
 use App\Http\Requests\Web\Purchasing\StorePurchaserCorrectionRequest;
 use App\Http\Requests\Web\Purchasing\SubmitPurchaserCartRequest;
+use App\Models\BusinessSetting;
 use App\Models\GoodsReceived;
 use App\Models\Product;
 use App\Models\PurchaseInvoice;
@@ -18,6 +19,7 @@ use App\Models\PurchaserCart;
 use App\Models\PurchaserCartItem;
 use App\Models\PurchaserCorrectionRequest;
 use App\Models\PurchaserCredit;
+use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Models\Supplier;
@@ -188,6 +190,99 @@ class PurchaserDashboardController extends Controller
         ]);
     }
 
+    public function shopOrders(Request $request): View|RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $date = $this->resolveBusinessDate($request);
+
+        if ($date instanceof RedirectResponse) {
+            return $date;
+        }
+
+        $status = $request->string('status')->toString();
+        $source = $request->string('source')->toString();
+        $search = trim($request->string('search')->toString());
+
+        if (! in_array($status, ['submitted', 'update_requested', 'approved', 'rejected'], true)) {
+            $status = '';
+        }
+
+        if (! in_array($source, ['shop_owner', 'admin_direct_purchase'], true)) {
+            $source = '';
+        }
+
+        $baseQuery = ShopOrder::query()
+            ->with(['shop.client', 'items.product', 'creator', 'reviewedBy'])
+            ->withCount('items')
+            ->whereDate('business_date', $date)
+            ->when($status !== '', fn ($query) => $query->where('state', $status))
+            ->when($source !== '', fn ($query) => $query->where('order_source', $source))
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($innerQuery) use ($search): void {
+                    $innerQuery
+                        ->where('order_number', 'like', '%'.$search.'%')
+                        ->orWhereHas('shop', function ($shopQuery) use ($search): void {
+                            $shopQuery
+                                ->where('name', 'like', '%'.$search.'%')
+                                ->orWhere('code', 'like', '%'.$search.'%');
+                        })
+                        ->orWhereHas('items.product', function ($productQuery) use ($search): void {
+                            $productQuery
+                                ->where('name', 'like', '%'.$search.'%')
+                                ->orWhere('sku', 'like', '%'.$search.'%');
+                        });
+                });
+            });
+
+        $orders = (clone $baseQuery)
+            ->orderByRaw("CASE state WHEN 'submitted' THEN 1 WHEN 'update_requested' THEN 2 WHEN 'approved' THEN 3 WHEN 'rejected' THEN 4 ELSE 5 END")
+            ->latest('id')
+            ->paginate(15, ['*'], 'orders_page')
+            ->withQueryString();
+
+        $statusCounts = ShopOrder::query()
+            ->whereDate('business_date', $date)
+            ->selectRaw('state, count(*) as aggregate')
+            ->groupBy('state')
+            ->pluck('aggregate', 'state')
+            ->all();
+
+        return view('purchasing.purchaser.shop_orders.index', [
+            'date' => $date->format('Y-m-d'),
+            'orders' => $orders,
+            'status' => $status,
+            'source' => $source,
+            'search' => $search,
+            'statusCounts' => $statusCounts,
+            'totalOrders' => array_sum($statusCounts),
+            'deadlineAlert' => $this->buildDeadlineAlert((int) $request->user()->id, $date),
+        ]);
+    }
+
+    public function shopOrderShow(Request $request, string $orderNumber): View
+    {
+        $this->ensurePurchaser($request);
+
+        $order = ShopOrder::query()
+            ->where('order_number', $orderNumber)
+            ->with([
+                'shop.client',
+                'items.product.category',
+                'creator',
+                'reviewedBy',
+                'latestPendingRevision.items.product',
+                'latestResolvedRevision.items.product',
+                'latestResolvedRevision.reviewedBy',
+            ])
+            ->firstOrFail();
+
+        return view('purchasing.purchaser.shop_orders.show', [
+            'order' => $order,
+            'date' => $order->business_date->format('Y-m-d'),
+        ]);
+    }
+
     public function bulkBuy(Request $request): View|RedirectResponse
     {
         $this->ensurePurchaser($request);
@@ -324,12 +419,39 @@ class PurchaserDashboardController extends Controller
             'cart' => $cart,
             'suppliers' => Supplier::query()->orderBy('name')->get(),
             'subtotal' => (float) $cart->items->sum('line_total'),
+            'companyDetails' => $this->companyDetailsForBill(),
             'vendorPriceHints' => $this->vendorPriceService->previousPricesForSupplier(
                 $cart->supplier_id,
                 $cart->items->pluck('product_id')->all(),
             ),
             'deadlineAlert' => $this->buildDeadlineAlert((int) $request->user()->id, $cart->business_date),
         ]);
+    }
+
+    /**
+     * @return array{name: string, address: string|null, phone: string|null, email: string|null}
+     */
+    private function companyDetailsForBill(): array
+    {
+        $settings = BusinessSetting::query()
+            ->whereIn('key', [
+                'company_name',
+                'company_address',
+                'company_phone',
+                'company_email',
+                'business_name',
+                'business_address',
+                'business_phone',
+                'business_email',
+            ])
+            ->pluck('value', 'key');
+
+        return [
+            'name' => $settings->get('company_name') ?: $settings->get('business_name') ?: 'Green Leaf',
+            'address' => $settings->get('company_address') ?: $settings->get('business_address'),
+            'phone' => $settings->get('company_phone') ?: $settings->get('business_phone'),
+            'email' => $settings->get('company_email') ?: $settings->get('business_email'),
+        ];
     }
 
     public function history(Request $request): View|RedirectResponse
@@ -1576,7 +1698,8 @@ class PurchaserDashboardController extends Controller
                 $this->journalService->recordGreenLeafDirectPurchasePayment(
                     invoice: $invoice->fresh(['purchaserCart', 'supplier']),
                     amount: $paidAmount,
-                    userId: (int) $user->id
+                    userId: (int) $user->id,
+                    paymentMode: $paymentMethod,
                 );
             }
 

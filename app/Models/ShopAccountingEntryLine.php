@@ -14,6 +14,8 @@ class ShopAccountingEntryLine extends Model
         'shop_accounting_category_id',
         'type',
         'cash_effect',
+        'loan_cashbook_offset_enabled',
+        'is_loan_entry',
         'amount',
         'description',
         'review_status',
@@ -26,6 +28,8 @@ class ShopAccountingEntryLine extends Model
     protected $casts = [
         'amount' => 'decimal:2',
         'cash_effect' => 'boolean',
+        'loan_cashbook_offset_enabled' => 'boolean',
+        'is_loan_entry' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

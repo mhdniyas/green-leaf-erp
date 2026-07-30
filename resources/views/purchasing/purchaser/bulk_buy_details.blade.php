@@ -51,138 +51,159 @@
             </div>
 
             {{-- Products list --}}
-            <div class="space-y-4">
+            <div class="space-y-2.5">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                    <h2 class="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Selected Products</h2>
+                    <span class="rounded-lg bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">{{ $dailySummary->count() }} rows</span>
+                </div>
+
                 @foreach ($dailySummary as $summary)
                     @php
                         $step = $summary['unit'] === 'kg' ? '0.01' : '1';
                         $rowQuantity = old("items.{$summary['product_id']}.quantity", '0');
                         $rowPrice = old("items.{$summary['product_id']}.unit_price", '');
+                        $remainingPlaceholder = (float) ($summary['remaining_qty'] ?? 0);
+                        $remainingPlaceholder = $remainingPlaceholder > 0
+                            ? rtrim(rtrim(number_format($remainingPlaceholder, 2, '.', ''), '0'), '.')
+                            : '0';
                     @endphp
                     <input type="hidden" name="product_ids[]" value="{{ $summary['product_id'] }}">
 
-                    <div class="product-row rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition lg:rounded-[2rem] lg:p-5" data-product-id="{{ $summary['product_id'] }}" data-unit="{{ strtoupper($summary['unit']) }}">
+                    <article class="product-row rounded-xl border border-slate-200 bg-white px-2 py-1.5 shadow-sm transition sm:px-2.5 sm:py-2" data-product-id="{{ $summary['product_id'] }}" data-unit="{{ strtoupper($summary['unit']) }}">
                         {{-- Hidden inputs for form submission --}}
                         <input type="hidden" name="items[{{ $summary['product_id'] }}][quantity]" id="submit-qty-{{ $summary['product_id'] }}" value="{{ $rowQuantity }}">
                         <input type="hidden" name="items[{{ $summary['product_id'] }}][unit_price]" id="submit-price-{{ $summary['product_id'] }}" value="{{ $rowPrice }}">
                         <input type="hidden" id="basis-{{ $summary['product_id'] }}" value="kg">
                         <input type="hidden" id="unit-{{ $summary['product_id'] }}" value="{{ $summary['unit'] }}">
 
-                        <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                            {{-- Info --}}
-                            <div class="min-w-0">
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <span class="inline-flex h-7 min-w-7 items-center justify-center rounded-lg bg-slate-100 px-2 text-xs font-black text-slate-500">{{ str_pad((string) $loop->iteration, 2, '0', STR_PAD_LEFT) }}</span>
-                                    <h3 class="min-w-0 break-words font-black text-slate-955 text-base">{{ $summary['product_name'] }}</h3>
-                                    <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-600">{{ $summary['category_name'] ?: 'Other' }}</span>
+                        <div class="grid grid-cols-[2rem_minmax(0,1fr)_3.75rem_4rem_4.25rem_1.65rem] items-center gap-1.5 sm:grid-cols-[2rem_minmax(0,1fr)_4.25rem_4.75rem_5rem_2rem] lg:grid-cols-[2.75rem_minmax(0,1fr)_16rem_5.25rem_18rem_8rem] lg:gap-2">
+                            <div class="contents lg:block">
+                                <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[11px] font-black text-slate-600 lg:h-9 lg:w-9">{{ $summary['sku'] ?: str_pad((string) $loop->iteration, 2, '0', STR_PAD_LEFT) }}</span>
+                                <div class="min-w-0 lg:hidden">
+                                    <h3 class="truncate text-[13px] font-black leading-4 text-slate-950">{{ $summary['product_name'] }}</h3>
+                                    <p class="truncate text-[11px] font-semibold leading-3 text-slate-500">{{ $summary['category_name'] ?: 'Other' }}</p>
                                 </div>
-                                <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-slate-500">
-                                    <span>Need: {{ number_format($summary['total_approved_qty'], 1) }} {{ $summary['unit'] }}</span>
-                                    <span>Bought: {{ number_format($summary['bought_qty'], 1) }}</span>
-                                    <span>In Cart: {{ number_format($summary['draft_qty'], 1) }}</span>
+                            </div>
+
+                            <div class="hidden min-w-0 lg:block">
+                                <h3 class="truncate text-[13px] font-black leading-4 text-slate-950">{{ $summary['product_name'] }}</h3>
+                                <p class="truncate text-[11px] font-semibold leading-3 text-slate-500">{{ $summary['category_name'] ?: 'Other' }}</p>
+                            </div>
+
+                            <div class="hidden grid-cols-3 gap-1.5 lg:grid">
+                                <div class="rounded-lg bg-slate-50 px-2 py-1.5">
+                                    <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Need</p>
+                                    <p class="truncate text-[11px] font-black text-slate-800">{{ number_format($summary['total_approved_qty'], 1) }} {{ $summary['unit'] }}</p>
                                 </div>
-                                <p id="prev-price-hint-{{ $summary['product_id'] }}" class="mt-2 text-[11px] font-black text-amber-700">
-                                    @php
-                                        $fallbackHint = (float) ($bulkFallbackPriceHints[$summary['product_id']] ?? 0);
-                                    @endphp
-                                    {{ $fallbackHint > 0 ? 'Last purchase ₹'.number_format($fallbackHint, 2) : 'No recent purchase price yet' }}
-                                </p>
+                                <div class="rounded-lg bg-slate-50 px-2 py-1.5">
+                                    <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Bought</p>
+                                    <p class="truncate text-[11px] font-black text-slate-800">{{ number_format($summary['bought_qty'], 1) }}</p>
+                                </div>
+                                <div class="rounded-lg bg-slate-50 px-2 py-1.5">
+                                    <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Cart</p>
+                                    <p class="truncate text-[11px] font-black text-slate-800">{{ number_format($summary['draft_qty'], 1) }}</p>
+                                </div>
+                            </div>
+
+                            @if ($summary['unit'] === 'kg')
+                                <div class="flex h-8 items-center gap-1 rounded-lg bg-slate-100 p-0.5">
+                                    <button type="button" id="basis-kg-btn-{{ $summary['product_id'] }}" onclick="setRowBasis({{ $summary['product_id'] }}, 'kg')" class="flex-1 rounded-md px-2 py-1 text-[9px] font-black uppercase text-slate-950 shadow-xs transition-all bg-white">
+                                        KG
+                                    </button>
+                                    <button type="button" id="basis-box-btn-{{ $summary['product_id'] }}" onclick="setRowBasis({{ $summary['product_id'] }}, 'box')" class="flex-1 rounded-md px-2 py-1 text-[9px] font-black uppercase text-slate-600 transition-all hover:bg-slate-50">
+                                        BOX
+                                    </button>
+                                </div>
+                            @else
+                                <div class="flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-2 text-[10px] font-black uppercase text-slate-800">
+                                    {{ strtoupper($summary['unit']) }}
+                                </div>
+                            @endif
+
+                            <div class="contents lg:block lg:min-w-0">
+                                <div id="kg-inputs-{{ $summary['product_id'] }}" class="contents lg:grid lg:grid-cols-2 lg:gap-1.5">
+                                    <div>
+                                        <label class="sr-only" for="qty-kg-{{ $summary['product_id'] }}">Quantity for {{ $summary['product_name'] }}</label>
+                                        <input type="number"
+                                               inputmode="decimal"
+                                               step="any"
+                                               min="0"
+                                               id="qty-kg-{{ $summary['product_id'] }}"
+                                               value="{{ (float) $rowQuantity > 0 ? $rowQuantity : '' }}"
+                                               placeholder="{{ $remainingPlaceholder }}"
+                                               class="qty-input-kg h-8 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-right text-sm font-black text-slate-950 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 sm:px-2">
+                                    </div>
+                                    <div>
+                                        <label class="sr-only" for="price-kg-{{ $summary['product_id'] }}">Rate for {{ $summary['product_name'] }}</label>
+                                        <input type="number"
+                                               inputmode="decimal"
+                                               step="0.01"
+                                               min="0.01"
+                                               id="price-kg-{{ $summary['product_id'] }}"
+                                               value="{{ $rowPrice }}"
+                                               placeholder="Rate"
+                                               class="price-input-kg h-8 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-right text-sm font-black text-slate-950 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 sm:px-2">
+                                    </div>
+                                </div>
 
                                 @if ($summary['unit'] === 'kg')
-                                    <div class="mt-3">
-                                        <div class="flex items-center gap-1 rounded-lg bg-slate-100 p-0.5 w-max">
-                                            <button type="button" id="basis-kg-btn-{{ $summary['product_id'] }}" onclick="setRowBasis({{ $summary['product_id'] }}, 'kg')" class="rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all bg-white text-slate-955 shadow-xs">
-                                                KG
-                                            </button>
-                                            <button type="button" id="basis-box-btn-{{ $summary['product_id'] }}" onclick="setRowBasis({{ $summary['product_id'] }}, 'box')" class="rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all text-slate-600 hover:bg-slate-50">
-                                                BOX
-                                            </button>
+                                    <div id="box-inputs-{{ $summary['product_id'] }}" class="hidden contents lg:grid lg:grid-cols-3 lg:gap-1.5">
+                                        <div>
+                                            <label class="sr-only" for="qty-box-{{ $summary['product_id'] }}">Boxes for {{ $summary['product_name'] }}</label>
+                                            <input type="number"
+                                                   inputmode="numeric"
+                                                   step="1"
+                                                   min="0"
+                                                   id="qty-box-{{ $summary['product_id'] }}"
+                                                   value=""
+                                                   placeholder="Boxes"
+                                                   class="qty-input-box h-8 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-right text-sm font-black text-slate-950 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 sm:px-2">
+                                        </div>
+                                        <div>
+                                            <label class="sr-only" for="conv-box-{{ $summary['product_id'] }}">Kg per box for {{ $summary['product_name'] }}</label>
+                                            <input type="number"
+                                                   inputmode="decimal"
+                                                   step="0.1"
+                                                   min="0.1"
+                                                   id="conv-box-{{ $summary['product_id'] }}"
+                                                   value="15"
+                                                   placeholder="kg/Box"
+                                                   class="conv-input-box h-8 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-right text-sm font-black text-slate-950 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 sm:px-2">
+                                        </div>
+                                        <div>
+                                            <label class="sr-only" for="price-box-{{ $summary['product_id'] }}">Price per box for {{ $summary['product_name'] }}</label>
+                                            <input type="number"
+                                                   inputmode="decimal"
+                                                   step="0.01"
+                                                   min="0.01"
+                                                   id="price-box-{{ $summary['product_id'] }}"
+                                                   value=""
+                                                   placeholder="Box ₹"
+                                                   class="price-input-box h-8 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-right text-sm font-black text-slate-950 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 sm:px-2">
                                         </div>
                                     </div>
-                                @else
-                                    <p class="mt-3 text-xs font-black text-slate-500">Unit: <span class="text-slate-900">{{ strtoupper($summary['unit']) }}</span></p>
                                 @endif
                             </div>
 
-                            {{-- Inputs --}}
-                            <div class="flex flex-col gap-3 lg:flex-row lg:items-end">
-                                {{-- Kg Inputs --}}
-                                <div id="kg-inputs-{{ $summary['product_id'] }}" class="grid grid-cols-2 gap-2 sm:w-72">
-                                    {{-- Qty --}}
-                                    <div class="space-y-1">
-                                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-400">Qty</label>
-                                        <input type="number" 
-                                               step="any" 
-                                               min="0" 
-                                               id="qty-kg-{{ $summary['product_id'] }}"
-                                               value="{{ (float) $rowQuantity > 0 ? $rowQuantity : '' }}" 
-                                               placeholder="0"
-                                               class="qty-input-kg w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-right text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
-                                    </div>
-                                    {{-- Price --}}
-                                    <div class="space-y-1">
-                                        <label class="block text-[10px] font-black uppercase tracking-wider text-slate-400">Rate</label>
-                                        <input type="number" 
-                                               step="0.01" 
-                                               min="0.01" 
-                                               id="price-kg-{{ $summary['product_id'] }}"
-                                               value="{{ $rowPrice }}" 
-                                               placeholder="0.00" 
-                                               class="price-input-kg w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-right text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
-                                    </div>
+                            <div class="contents lg:flex lg:items-center lg:justify-between lg:gap-1.5">
+                                <div class="hidden min-w-0 lg:block">
+                                    <span class="row-total block truncate text-sm font-black text-slate-950">₹ 0.00</span>
+                                    <p id="prev-price-hint-{{ $summary['product_id'] }}" class="truncate text-[10px] font-black text-amber-700">
+                                        @php
+                                            $fallbackHint = (float) ($bulkFallbackPriceHints[$summary['product_id']] ?? 0);
+                                        @endphp
+                                        {{ $fallbackHint > 0 ? 'Last ₹'.number_format($fallbackHint, 2) : 'No price' }}
+                                    </p>
                                 </div>
-
-                                {{-- Box Inputs --}}
-                                @if ($summary['unit'] === 'kg')
-                                    <div id="box-inputs-{{ $summary['product_id'] }}" class="hidden grid grid-cols-3 gap-2 sm:w-80">
-                                        {{-- Boxes --}}
-                                        <div class="space-y-1">
-                                            <label class="block text-[10px] font-black uppercase tracking-wider text-slate-400">Boxes</label>
-                                            <input type="number" 
-                                                   step="1" 
-                                                   min="0" 
-                                                   id="qty-box-{{ $summary['product_id'] }}"
-                                                   value="" 
-                                                   placeholder="0"
-                                                   class="qty-input-box w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-right text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
-                                        </div>
-                                        {{-- kg/Box Conversion --}}
-                                        <div class="space-y-1">
-                                            <label class="block text-[10px] font-black uppercase tracking-wider text-slate-400">kg/Box</label>
-                                            <input type="number" 
-                                                   step="0.1" 
-                                                   min="0.1" 
-                                                   id="conv-box-{{ $summary['product_id'] }}"
-                                                   value="15" 
-                                                   class="conv-input-box w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-right text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
-                                        </div>
-                                        {{-- Price --}}
-                                        <div class="space-y-1">
-                                            <label class="block text-[10px] font-black uppercase tracking-wider text-slate-400">Price/Box</label>
-                                            <input type="number" 
-                                                   step="0.01" 
-                                                   min="0.01" 
-                                                   id="price-box-{{ $summary['product_id'] }}"
-                                                   value="" 
-                                                   placeholder="0.00" 
-                                                   class="price-input-box w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-right text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
-                                        </div>
-                                    </div>
-                                @endif
-
-                                {{-- Row Total --}}
-                                <div class="flex items-center justify-between gap-3 border-t border-slate-100 pt-2.5 sm:border-0 sm:pt-0 lg:w-52 lg:justify-end">
-                                    <span class="text-[10px] font-black uppercase tracking-wider text-slate-400 lg:hidden">Total</span>
-                                    <span class="row-total text-sm font-black text-slate-900">₹ 0.00</span>
-                                    <button type="button" onclick="focusNextProduct({{ $summary['product_id'] }})" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">
-                                        Next
-                                    </button>
-                                </div>
+                                <button type="button" onclick="focusNextProduct({{ $summary['product_id'] }})" class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-500 transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700 sm:h-8 sm:w-8" aria-label="Focus next product">
+                                    +
+                                </button>
                             </div>
                         </div>
                         @error("items.{$summary['product_id']}.unit_price")
                             <p class="mt-2 text-xs font-bold text-rose-600">{{ $message }}</p>
                         @enderror
-                    </div>
+                    </article>
                 @endforeach
             </div>
 
@@ -305,13 +326,13 @@
                 const boxInputs = document.getElementById(`box-inputs-${productId}`);
 
                 if (basis === 'box') {
-                    if (btnKg) btnKg.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all text-slate-600 hover:bg-slate-50';
-                    if (btnBox) btnBox.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all bg-white text-slate-955 shadow-xs';
+                    if (btnKg) btnKg.className = 'flex-1 rounded-md px-2 py-1 text-[9px] font-black uppercase text-slate-600 transition-all hover:bg-slate-50';
+                    if (btnBox) btnBox.className = 'flex-1 rounded-md px-2 py-1 text-[9px] font-black uppercase text-slate-950 shadow-xs transition-all bg-white';
                     if (kgInputs) kgInputs.classList.add('hidden');
                     if (boxInputs) boxInputs.classList.remove('hidden');
                 } else {
-                    if (btnBox) btnBox.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all text-slate-600 hover:bg-slate-50';
-                    if (btnKg) btnKg.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all bg-white text-slate-955 shadow-xs';
+                    if (btnBox) btnBox.className = 'flex-1 rounded-md px-2 py-1 text-[9px] font-black uppercase text-slate-600 transition-all hover:bg-slate-50';
+                    if (btnKg) btnKg.className = 'flex-1 rounded-md px-2 py-1 text-[9px] font-black uppercase text-slate-950 shadow-xs transition-all bg-white';
                     if (boxInputs) boxInputs.classList.add('hidden');
                     if (kgInputs) kgInputs.classList.remove('hidden');
                 }

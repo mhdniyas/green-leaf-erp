@@ -104,6 +104,16 @@ class Shop extends Model
         return $this->hasMany(ShopCredit::class);
     }
 
+    public function loanEntries(): HasMany
+    {
+        return $this->hasMany(ShopLoanEntry::class);
+    }
+
+    public function loanCategorySettings(): HasMany
+    {
+        return $this->hasMany(ShopLoanCategorySetting::class);
+    }
+
     public function pettyCashExpenses(): HasMany
     {
         return $this->hasMany(ShopPettyCashExpense::class);

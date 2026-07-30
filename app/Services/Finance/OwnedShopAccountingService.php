@@ -207,11 +207,15 @@ class OwnedShopAccountingService
             foreach ($payload['lines'] as $line) {
                 /** @var ShopAccountingCategory|null $category */
                 $category = $categories->get((int) $line['shop_accounting_category_id']);
+                $isLoanEntry = $category->type === 'expense'
+                    && filter_var($line['is_loan_entry'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
                 $entry->lines()->create([
                     'shop_accounting_category_id' => $category->id,
                     'type' => $category->type,
                     'cash_effect' => $category->cash_effect,
+                    'loan_cashbook_offset_enabled' => false,
+                    'is_loan_entry' => $isLoanEntry,
                     'amount' => round((float) $line['amount'], 2),
                     'description' => filled($line['description'] ?? null) ? trim((string) $line['description']) : null,
                     'review_status' => null,
@@ -288,7 +292,9 @@ class OwnedShopAccountingService
      *     lines: array<int, array{
      *         shop_accounting_category_id:int,
      *         amount: float|int|string,
-     *         description?: string|null
+     *         description?: string|null,
+     *         is_loan_entry?: bool|int|string|null,
+     *         loan_cashbook_offset_enabled?: bool|int|string|null
      *     }>
      * }  $payload
      */
@@ -329,7 +335,7 @@ class OwnedShopAccountingService
     }
 
     /**
-     * @param  array<int, array{shop_accounting_category_id:int, amount: float|int|string, description?: string|null}>  $lines
+     * @param  array<int, array{shop_accounting_category_id:int, amount: float|int|string, description?: string|null, is_loan_entry?: bool|int|string|null, loan_cashbook_offset_enabled?: bool|int|string|null}>  $lines
      */
     public function hasSimilarAdjustment(Shop $shop, Carbon $businessDate, array $lines, ?int $exceptEntryId = null): bool
     {
@@ -364,7 +370,7 @@ class OwnedShopAccountingService
     }
 
     /**
-     * @param  array<int, array{shop_accounting_category_id:int, amount: float|int|string, description?: string|null}>  $lines
+     * @param  array<int, array{shop_accounting_category_id:int, amount: float|int|string, description?: string|null, is_loan_entry?: bool|int|string|null, loan_cashbook_offset_enabled?: bool|int|string|null}>  $lines
      */
     private function calculatedClosingCash(Shop $shop, Carbon $businessDate, float $openingCash, array $lines): float
     {
@@ -396,6 +402,11 @@ class OwnedShopAccountingService
             }
 
             $amount = round((float) $line['amount'], 2);
+            $isLoanEntry = filter_var($line['is_loan_entry'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+            if ($isLoanEntry && $category->type === 'expense') {
+                return 0.0;
+            }
 
             return $category->type === 'income' ? $amount : -$amount;
         });
@@ -460,15 +471,22 @@ class OwnedShopAccountingService
         $approvedDeliveryBill = $this->approvedDeliveryBillTotalForDate($shop, $businessDate);
         $cashMovement = round((float) $entries->sum(function (ShopAccountingEntry $entry): float {
             $cashCredit = (float) $entry->lines
+                ->reject(fn (ShopAccountingEntryLine $line): bool => (bool) $line->is_loan_entry && $line->type === 'expense')
                 ->where('type', 'income')
                 ->where('cash_effect', true)
                 ->sum('amount');
             $cashDebit = (float) $entry->lines
+                ->reject(fn (ShopAccountingEntryLine $line): bool => (bool) $line->is_loan_entry && $line->type === 'expense')
                 ->where('type', 'expense')
                 ->where('cash_effect', true)
                 ->sum('amount');
+            $loanIncomeDebit = (float) $entry->lines
+                ->filter(fn (ShopAccountingEntryLine $line): bool => false)
+                ->where('type', 'income')
+                ->where('cash_effect', true)
+                ->sum('amount');
 
-            return $cashCredit - $cashDebit;
+            return $cashCredit - $cashDebit - $loanIncomeDebit;
         }), 2);
 
         return round($openingBalance + $shopCashMovement + $cashMovement - $approvedDeliveryBill, 2);
@@ -506,15 +524,22 @@ class OwnedShopAccountingService
 
             $entries->each(function (ShopAccountingEntry $entry, int $index) use (&$runningClosing, $openingBalance, $userId): void {
                 $cashCredit = (float) $entry->lines
+                    ->reject(fn (ShopAccountingEntryLine $line): bool => (bool) $line->is_loan_entry && $line->type === 'expense')
                     ->where('type', 'income')
                     ->where('cash_effect', true)
                     ->sum('amount');
                 $cashDebit = (float) $entry->lines
+                    ->reject(fn (ShopAccountingEntryLine $line): bool => (bool) $line->is_loan_entry && $line->type === 'expense')
                     ->where('type', 'expense')
                     ->where('cash_effect', true)
                     ->sum('amount');
+                $loanIncomeDebit = (float) $entry->lines
+                    ->filter(fn (ShopAccountingEntryLine $line): bool => false)
+                    ->where('type', 'income')
+                    ->where('cash_effect', true)
+                    ->sum('amount');
 
-                $runningClosing = round($runningClosing + $cashCredit - $cashDebit, 2);
+                $runningClosing = round($runningClosing + $cashCredit - $cashDebit - $loanIncomeDebit, 2);
 
                 $entry->forceFill([
                     'opening_cash' => $index === 0 ? $openingBalance : $entry->opening_cash,
@@ -569,7 +594,9 @@ class OwnedShopAccountingService
      *     shop_cash_credit:float,
      *     total_income:float,
      *     total_debit:float,
+     *     daily_net_sale:float,
      *     expected_closing:float,
+     *     to_be_paid_to_company:float,
      *     entered_closing:?float,
      *     difference:?float,
      *     owner_funded:float
@@ -578,27 +605,39 @@ class OwnedShopAccountingService
     public function receiptSummary(?ShopAccountingEntry $entry, float $fallbackOpeningBalance = 0.0, float $shopCashMovement = 0.0, float $approvedDeliveryBill = 0.0): array
     {
         $lines = $entry?->lines ?? collect();
+        $cashBalanceLines = $lines->reject(fn (ShopAccountingEntryLine $line): bool => (bool) $line->is_loan_entry && $line->type === 'expense');
         $openingBalance = round((float) ($entry?->opening_cash ?? $fallbackOpeningBalance), 2);
         $enteredClosing = $entry?->closing_cash !== null ? round((float) $entry->closing_cash, 2) : null;
+        $allIncome = round((float) $lines
+            ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'income')
+            ->sum('amount'), 2);
+        $allExpense = round((float) $lines
+            ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'expense')
+            ->sum('amount'), 2);
 
-        $cashCredit = round((float) $lines
+        $cashCredit = round((float) $cashBalanceLines
             ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'income' && (bool) $line->cash_effect)
             ->sum('amount'), 2);
-        $nonCashIncome = round((float) $lines
+        $nonCashIncome = round((float) $cashBalanceLines
             ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'income' && ! (bool) $line->cash_effect)
             ->sum('amount'), 2);
-        $cashDebit = round((float) $lines
+        $cashDebit = round((float) $cashBalanceLines
             ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'expense' && (bool) $line->cash_effect)
             ->sum('amount'), 2);
-        $nonCashDebit = round((float) $lines
+        $loanIncomeDebit = round((float) $lines
+            ->filter(fn (ShopAccountingEntryLine $line): bool => false)
+            ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'income' && (bool) $line->cash_effect)
+            ->sum('amount'), 2);
+        $nonCashDebit = round((float) $cashBalanceLines
             ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'expense' && ! (bool) $line->cash_effect)
             ->sum('amount'), 2);
         $shopCashMovement = round($shopCashMovement, 2);
         $approvedDeliveryBill = round($approvedDeliveryBill, 2);
         $cashGivenToShop = max(0.0, $shopCashMovement);
         $paymentToCompany = abs(min(0.0, $shopCashMovement));
-        $cashDebitWithBills = round($cashDebit + $approvedDeliveryBill, 2);
+        $cashDebitWithBills = round($cashDebit + $loanIncomeDebit + $approvedDeliveryBill, 2);
         $expectedClosing = round($openingBalance + $cashGivenToShop - $paymentToCompany + $cashCredit - $cashDebitWithBills, 2);
+        $toBePaidToCompany = round(max(0.0, $expectedClosing), 2);
 
         return [
             'opening_balance' => $openingBalance,
@@ -612,7 +651,9 @@ class OwnedShopAccountingService
             'shop_cash_credit' => $shopCashMovement,
             'total_income' => round($cashCredit + $nonCashIncome, 2),
             'total_debit' => round($cashDebitWithBills + $nonCashDebit, 2),
+            'daily_net_sale' => round($allIncome - $allExpense, 2),
             'expected_closing' => $expectedClosing,
+            'to_be_paid_to_company' => $toBePaidToCompany,
             'entered_closing' => $enteredClosing,
             'difference' => $enteredClosing === null ? null : round($enteredClosing - $expectedClosing, 2),
             'owner_funded' => $enteredClosing !== null && $enteredClosing < 0 ? abs($enteredClosing) : 0.0,
@@ -632,7 +673,9 @@ class OwnedShopAccountingService
      *     shop_cash_credit:float,
      *     total_income:float,
      *     total_debit:float,
+     *     daily_net_sale:float,
      *     expected_closing:float,
+     *     to_be_paid_to_company:float,
      *     entered_closing:?float,
      *     difference:?float,
      *     owner_funded:float
@@ -650,20 +693,32 @@ class OwnedShopAccountingService
         $cashMovement = $this->shopCashMovementBreakdownForDate($shop, $businessDate);
         $approvedDeliveryBill = $this->approvedDeliveryBillTotalForDate($shop, $businessDate);
         $lines = $entries->flatMap(fn (ShopAccountingEntry $entry): Collection => $entry->lines);
-        $cashCredit = round((float) $lines
+        $cashBalanceLines = $lines->reject(fn (ShopAccountingEntryLine $line): bool => (bool) $line->is_loan_entry && $line->type === 'expense');
+        $allIncome = round((float) $lines
+            ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'income')
+            ->sum('amount'), 2);
+        $allExpense = round((float) $lines
+            ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'expense')
+            ->sum('amount'), 2);
+        $cashCredit = round((float) $cashBalanceLines
             ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'income' && (bool) $line->cash_effect)
             ->sum('amount'), 2);
-        $nonCashIncome = round((float) $lines
+        $nonCashIncome = round((float) $cashBalanceLines
             ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'income' && ! (bool) $line->cash_effect)
             ->sum('amount'), 2);
-        $cashDebit = round((float) $lines
+        $cashDebit = round((float) $cashBalanceLines
             ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'expense' && (bool) $line->cash_effect)
             ->sum('amount'), 2);
-        $nonCashDebit = round((float) $lines
+        $loanIncomeDebit = round((float) $lines
+            ->filter(fn (ShopAccountingEntryLine $line): bool => false)
+            ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'income' && (bool) $line->cash_effect)
+            ->sum('amount'), 2);
+        $nonCashDebit = round((float) $cashBalanceLines
             ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'expense' && ! (bool) $line->cash_effect)
             ->sum('amount'), 2);
-        $cashDebitWithBills = round($cashDebit + $approvedDeliveryBill, 2);
+        $cashDebitWithBills = round($cashDebit + $loanIncomeDebit + $approvedDeliveryBill, 2);
         $expectedClosing = round($openingBalance + $cashMovement['cash_given_to_shop'] - $cashMovement['payment_to_company'] + $cashCredit - $cashDebitWithBills, 2);
+        $toBePaidToCompany = round(max(0.0, $expectedClosing), 2);
         $hasDayActivity = $entries->isNotEmpty()
             || $cashMovement['cash_given_to_shop'] > 0
             || $cashMovement['payment_to_company'] > 0
@@ -682,7 +737,9 @@ class OwnedShopAccountingService
             'shop_cash_credit' => $cashMovement['net'],
             'total_income' => round($cashCredit + $nonCashIncome, 2),
             'total_debit' => round($cashDebitWithBills + $nonCashDebit, 2),
+            'daily_net_sale' => round($allIncome - $allExpense, 2),
             'expected_closing' => $expectedClosing,
+            'to_be_paid_to_company' => $toBePaidToCompany,
             'entered_closing' => $enteredClosing,
             'difference' => $enteredClosing === null ? null : round($enteredClosing - $expectedClosing, 2),
             'owner_funded' => $enteredClosing !== null && $enteredClosing < 0 ? abs($enteredClosing) : 0.0,
@@ -801,7 +858,7 @@ class OwnedShopAccountingService
     private function staffPaymentCategory(Shop $shop, ShopStaffPayment $payment): ShopAccountingCategory
     {
         $purpose = $payment->payment_type === 'advance' ? 'staff_advance' : 'staff_salary';
-        $defaultName = $payment->payment_type === 'advance' ? 'Staff Salary Advance' : 'Staff Salary';
+        $defaultName = $payment->payment_type === 'advance' ? 'Salary Advance' : 'Salary';
 
         $category = ShopAccountingCategory::query()
             ->where('purpose', $purpose)
@@ -1127,6 +1184,42 @@ class OwnedShopAccountingService
         ])->save();
 
         return $entry->fresh(['lines.category', 'shop', 'createdBy', 'updatedBy', 'submittedBy', 'reviewedBy']);
+    }
+
+    public function clearCashbookEntry(ShopAccountingEntry $entry, int $userId): void
+    {
+        if ($entry->entry_type === ShopAccountingEntry::TypeSystem) {
+            throw ValidationException::withMessages([
+                'entry' => 'System balance rows cannot be cleared from the cashbook reset action.',
+            ]);
+        }
+
+        if ($entry->status === 'finalized') {
+            throw ValidationException::withMessages([
+                'entry' => 'Finalized entries cannot be cleared. Create a reversal or adjustment entry instead.',
+            ]);
+        }
+
+        $shop = $entry->shop;
+        $businessDate = $entry->business_date?->copy() ?? today();
+        $periodClosed = ShopAccountingPeriodClosure::query()
+            ->where('shop_id', $shop->id)
+            ->whereDate('period_start', '<=', $businessDate->toDateString())
+            ->whereDate('period_end', '>=', $businessDate->toDateString())
+            ->exists();
+
+        if ($periodClosed) {
+            throw ValidationException::withMessages([
+                'entry' => 'This accounting period is closed.',
+            ]);
+        }
+
+        DB::transaction(function () use ($entry, $shop, $businessDate, $userId): void {
+            $entry->lines()->delete();
+            $entry->delete();
+
+            $this->syncStoredClosingBalancesFromDate($shop, $businessDate, $userId);
+        });
     }
 
     public function entryForDate(Shop $shop, Carbon $date): ?ShopAccountingEntry

@@ -7,9 +7,11 @@ namespace App\Http\Controllers\Web;
 use App\Exports\SortSheetExport;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Models\Product;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopPriceGroup;
+use App\Models\Warehouse;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
@@ -26,11 +28,20 @@ class SortSheetController extends Controller
     {
         $this->authorizeAccess($request);
 
-        $shops = Shop::where('status', 'active')->orderBy('name')->get();
-        $categories = Category::where('is_active', true)->orderBy('name')->get();
-        $priceGroups = ShopPriceGroup::orderBy('name')->get();
+        [$shops, $categories, $priceGroups, $products, $warehouses] = $this->filterOptions($request);
+        $surface = 'sort-sheet';
 
-        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups'));
+        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'surface'));
+    }
+
+    public function segregationIndex(Request $request): View
+    {
+        $this->authorizeAccess($request);
+
+        [$shops, $categories, $priceGroups, $products, $warehouses] = $this->filterOptions($request, orderedOnly: true);
+        $surface = 'segregation';
+
+        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'surface'));
     }
 
     /**
@@ -40,88 +51,35 @@ class SortSheetController extends Controller
     {
         $this->authorizeAccess($request);
 
-        $date = $request->input('date', app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
-        $shopId = $request->input('shop_id');
-        $categoryId = $request->input('category_id');
-        $priceGroupId = $request->input('price_group_id');
+        [$shops, $categories, $priceGroups, $products, $warehouses] = $this->filterOptions($request, orderedOnly: $request->routeIs('segregation.*'));
+        [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse] = $this->buildMatrixData($request);
+        $filters = $this->filtersFromRequest($request);
+        $surface = $request->routeIs('segregation.*') ? 'segregation' : 'sort-sheet';
 
-        $shops = Shop::where('status', 'active')->orderBy('name')->get();
-        $categories = Category::where('is_active', true)->orderBy('name')->get();
-        $priceGroups = ShopPriceGroup::orderBy('name')->get();
-
-        // Apply shop-level filters
-        $shopQuery = Shop::where('status', 'active');
-        if ($shopId) {
-            $shopQuery->where('id', $shopId);
-        }
-        if ($priceGroupId) {
-            $shopQuery->where('shop_price_group_id', $priceGroupId);
-        }
-        $filteredShops = $shopQuery->orderBy('warehouse_tag')->get();
-
-        // Load approved orders for the date
-        $ordersQuery = ShopOrder::whereDate('business_date', $date)
-            ->where('state', 'approved')
-            ->whereIn('shop_id', $filteredShops->pluck('id'))
-            ->with(['items.product.category', 'shop']);
-
-        $orders = $ordersQuery->get();
-
-        if ($orders->isEmpty()) {
-            return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups'))
+        if (empty($matrix)) {
+            return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'surface', 'selectedWarehouse'))
                 ->with('noOrders', true)
-                ->with('filters', compact('date', 'shopId', 'categoryId', 'priceGroupId'));
+                ->with('filters', $filters);
         }
-
-        // Build the pivot matrix: [product_id => [shop_id => approved_qty]]
-        $matrix = [];    // [product_id => [shop_id => qty]]
-        $productMeta = []; // [product_id => ['name', 'unit', 'category_id']]
-
-        foreach ($orders as $order) {
-            foreach ($order->items as $item) {
-                $product = $item->product;
-                if (! $product) {
-                    continue;
-                }
-
-                // Apply product category filter
-                if ($categoryId && $product->category_id != $categoryId) {
-                    continue;
-                }
-
-                $pid = $product->id;
-                $sid = $order->shop_id;
-
-                if (! isset($matrix[$pid])) {
-                    $matrix[$pid] = [];
-                    $productMeta[$pid] = [
-                        'name' => $product->name,
-                        'unit' => $product->unit,
-                        'category_id' => $product->category_id,
-                        'category_name' => $product->category?->name ?? '—',
-                    ];
-                }
-
-                $matrix[$pid][$sid] = ($matrix[$pid][$sid] ?? 0) + (float) $item->approved_qty;
-            }
-        }
-
-        // Sort products alphabetically by name
-        uasort($matrix, fn ($a, $b): int => strcmp(
-            $productMeta[array_key_first((array) $a) ?? 0]['name'] ?? '',
-            $productMeta[array_key_first((array) $b) ?? 0]['name'] ?? '',
-        ));
-        uksort($matrix, fn ($a, $b): int => strcmp($productMeta[$a]['name'] ?? '', $productMeta[$b]['name'] ?? ''));
 
         return view('sort-sheet.index', compact(
             'shops',
             'categories',
             'priceGroups',
+            'products',
+            'warehouses',
             'filteredShops',
             'matrix',
             'productMeta',
             'date',
-        ))->with('filters', compact('date', 'shopId', 'categoryId', 'priceGroupId'));
+            'surface',
+            'selectedWarehouse',
+        ))->with('filters', $filters);
+    }
+
+    public function segregationGenerate(Request $request): View
+    {
+        return $this->generate($request);
     }
 
     /**
@@ -146,7 +104,7 @@ class SortSheetController extends Controller
     {
         $this->authorizeExport($request);
 
-        [$filteredShops, $matrix, $productMeta, $date] = $this->buildMatrixData($request);
+        [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse] = $this->buildMatrixData($request);
 
         $generatedBy = $request->user()->name;
         $generatedAt = now()->format('d M Y, h:i A');
@@ -160,6 +118,25 @@ class SortSheetController extends Controller
             'generatedBy',
             'generatedAt',
             'companyName',
+            'selectedWarehouse',
+        ));
+    }
+
+    public function segregationPdf(Request $request): View
+    {
+        $this->authorizeExport($request);
+
+        [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse] = $this->buildMatrixData($request);
+
+        $companyName = 'Green Leaf Distribution';
+
+        return view('sort-sheet.segregation-print', compact(
+            'filteredShops',
+            'matrix',
+            'productMeta',
+            'date',
+            'companyName',
+            'selectedWarehouse',
         ));
     }
 
@@ -170,7 +147,7 @@ class SortSheetController extends Controller
     {
         $this->authorizeAccess($request);
 
-        [$filteredShops, $matrix, $productMeta, $date] = $this->buildMatrixData($request);
+        [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse] = $this->buildMatrixData($request);
 
         $generatedBy = $request->user()->name;
         $generatedAt = now()->format('d M Y, h:i A');
@@ -184,6 +161,7 @@ class SortSheetController extends Controller
             'generatedBy',
             'generatedAt',
             'companyName',
+            'selectedWarehouse',
         ));
     }
 
@@ -205,17 +183,100 @@ class SortSheetController extends Controller
         }
     }
 
+    private function filterOptions(Request $request, bool $orderedOnly = false): array
+    {
+        $shops = Shop::where('status', 'active')->orderBy('name')->get();
+        $priceGroups = ShopPriceGroup::orderBy('name')->get();
+        $warehouses = Warehouse::active()->with('categories:id')->orderBy('name')->get(['id', 'name', 'code']);
+
+        if ($orderedOnly) {
+            [$categories, $products] = $this->orderedProductOptions($request);
+
+            return [$shops, $categories, $priceGroups, $products, $warehouses];
+        }
+
+        $warehouseCategoryIds = $this->warehouseCategoryIds($request);
+        $categoryQuery = Category::where('is_active', true)->with('warehouses:id');
+        if ($warehouseCategoryIds !== null) {
+            $categoryQuery->whereIn('id', $warehouseCategoryIds);
+        }
+        $productQuery = Product::active()->with('category.warehouses:id')->ordered();
+        if ($warehouseCategoryIds !== null) {
+            $productQuery->whereIn('category_id', $warehouseCategoryIds);
+        }
+
+        return [
+            $shops,
+            $categoryQuery->orderBy('name')->get(),
+            $priceGroups,
+            $productQuery->get(['id', 'name', 'sku', 'category_id']),
+            $warehouses,
+        ];
+    }
+
+    /**
+     * @return array{0: \Illuminate\Support\Collection<int, Category>, 1: \Illuminate\Support\Collection<int, Product>}
+     */
+    private function orderedProductOptions(Request $request): array
+    {
+        $filters = $this->filtersFromRequest($request);
+        $warehouseCategoryIds = $this->warehouseCategoryIds($request);
+
+        $shopQuery = Shop::where('status', 'active');
+        if ($filters['shopId']) {
+            $shopQuery->where('id', $filters['shopId']);
+        }
+        if ($filters['priceGroupId']) {
+            $shopQuery->where('shop_price_group_id', $filters['priceGroupId']);
+        }
+
+        $orders = ShopOrder::whereDate('business_date', $filters['date'])
+            ->where('state', 'approved')
+            ->whereIn('shop_id', $shopQuery->pluck('id'))
+            ->with(['items.product.category.warehouses:id'])
+            ->get();
+
+        $products = $orders
+            ->flatMap->items
+            ->filter(fn ($item): bool => (float) $item->approved_qty > 0 && $item->product !== null)
+            ->map(fn ($item): Product => $item->product)
+            ->when($warehouseCategoryIds !== null, fn ($products) => $products->filter(
+                fn (Product $product): bool => in_array((int) $product->category_id, $warehouseCategoryIds, true),
+            ))
+            ->unique('id')
+            ->sort(function (Product $a, Product $b): int {
+                return strcmp(Product::sortableSku((string) $a->sku), Product::sortableSku((string) $b->sku))
+                    ?: strcmp($a->name, $b->name);
+            })
+            ->values();
+
+        $categories = $products
+            ->map(fn (Product $product): ?Category => $product->category)
+            ->filter()
+            ->unique('id')
+            ->sortBy('name')
+            ->values();
+
+        return [$categories, $products];
+    }
+
     /**
      * Build the pivot matrix from request parameters — shared by export methods.
      *
-     * @return array{0: Collection<int, Shop>, 1: array<int, array<int, float>>, 2: array<int, array<string, mixed>>, 3: string}
+     * @return array{0: Collection<int, Shop>, 1: array<int, array<int, float>>, 2: array<int, array<string, mixed>>, 3: string, 4: Warehouse|null}
      */
     private function buildMatrixData(Request $request): array
     {
-        $date = $request->input('date', app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
-        $shopId = $request->input('shop_id');
-        $categoryId = $request->input('category_id');
-        $priceGroupId = $request->input('price_group_id');
+        $filters = $this->filtersFromRequest($request);
+        $date = $filters['date'];
+        $shopId = $filters['shopId'];
+        $categoryIds = $filters['categoryIds'];
+        $productIds = $filters['productIds'];
+        $priceGroupId = $filters['priceGroupId'];
+        $warehouseCategoryIds = $this->warehouseCategoryIds($request);
+        $selectedWarehouse = $filters['warehouseId']
+            ? Warehouse::find($filters['warehouseId'])
+            : null;
 
         $shopQuery = Shop::where('status', 'active');
         if ($shopId) {
@@ -241,7 +302,13 @@ class SortSheetController extends Controller
                 if (! $product) {
                     continue;
                 }
-                if ($categoryId && $product->category_id != $categoryId) {
+                if (! empty($categoryIds) && ! in_array((int) $product->category_id, $categoryIds, true)) {
+                    continue;
+                }
+                if ($warehouseCategoryIds !== null && ! in_array((int) $product->category_id, $warehouseCategoryIds, true)) {
+                    continue;
+                }
+                if (! empty($productIds) && ! in_array((int) $product->id, $productIds, true)) {
                     continue;
                 }
 
@@ -252,6 +319,7 @@ class SortSheetController extends Controller
                     $matrix[$pid] = [];
                     $productMeta[$pid] = [
                         'name' => $product->name,
+                        'sku' => $product->sku,
                         'unit' => $product->unit,
                         'category_id' => $product->category_id,
                         'category_name' => $product->category?->name ?? '—',
@@ -262,8 +330,75 @@ class SortSheetController extends Controller
             }
         }
 
-        uksort($matrix, fn ($a, $b): int => strcmp($productMeta[$a]['name'] ?? '', $productMeta[$b]['name'] ?? ''));
+        $this->sortMatrixByItemCode($matrix, $productMeta);
 
-        return [$filteredShops, $matrix, $productMeta, $date];
+        return [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse];
     }
+
+    /**
+     * @return array{date: string, shopId: string|null, categoryIds: array<int, int>, productIds: array<int, int>, priceGroupId: string|null, warehouseId: int|null}
+     */
+    private function filtersFromRequest(Request $request): array
+    {
+        $categoryIds = collect($request->input('category_ids', []))
+            ->when($request->filled('category_id'), fn ($values) => $values->push($request->input('category_id')))
+            ->filter(fn ($value): bool => $value !== null && $value !== '')
+            ->map(fn ($value): int => (int) $value)
+            ->unique()
+            ->values()
+            ->all();
+
+        $productIds = collect($request->input('product_ids', []))
+            ->filter(fn ($value): bool => $value !== null && $value !== '')
+            ->map(fn ($value): int => (int) $value)
+            ->unique()
+            ->values()
+            ->all();
+
+        return [
+            'date' => $request->input('date', app(PurchaserBusinessDayService::class)->operationalDate()->toDateString()),
+            'shopId' => $request->input('shop_id'),
+            'categoryIds' => $categoryIds,
+            'productIds' => $productIds,
+            'priceGroupId' => $request->input('price_group_id'),
+            'warehouseId' => $request->integer('warehouse_id') ?: null,
+        ];
+    }
+
+    /**
+     * @return array<int, int>|null
+     */
+    private function warehouseCategoryIds(Request $request): ?array
+    {
+        $warehouseId = $request->integer('warehouse_id');
+        if (! $warehouseId) {
+            return null;
+        }
+
+        $warehouse = Warehouse::find($warehouseId);
+        if (! $warehouse) {
+            return [];
+        }
+
+        return $warehouse
+            ->categories()
+            ->pluck('categories.id')
+            ->map(fn ($id): int => (int) $id)
+            ->all();
+    }
+
+    /**
+     * @param  array<int, array<int, float>>  $matrix
+     * @param  array<int, array<string, mixed>>  $productMeta
+     */
+    private function sortMatrixByItemCode(array &$matrix, array $productMeta): void
+    {
+        uksort($matrix, function (int $a, int $b) use ($productMeta): int {
+            return strcmp(
+                Product::sortableSku((string) ($productMeta[$a]['sku'] ?? '')),
+                Product::sortableSku((string) ($productMeta[$b]['sku'] ?? '')),
+            ) ?: strcmp((string) ($productMeta[$a]['name'] ?? ''), (string) ($productMeta[$b]['name'] ?? ''));
+        });
+    }
+
 }

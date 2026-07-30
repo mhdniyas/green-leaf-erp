@@ -4,14 +4,16 @@
     $isAdminDirectPurchase = $orderFormMode === 'admin-direct-purchase';
     $formAction = $orderFormAction ?? route('requisitions.store');
     $allowPresetSave = $allowPresetSave ?? true;
+    $directPurchaseTitle = $directPurchaseTitle ?? 'Green Leaf Direct Purchase';
+    $directPurchaseDescription = $directPurchaseDescription ?? 'Select products and quantities. The order will be approved immediately and shown to purchaser demand as Green Leaf Direct Purchase.';
 @endphp
 
 <section class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
     <div class="flex flex-col gap-4 border-b border-slate-100 pb-5 md:flex-row md:items-start md:justify-between">
         <div>
-            <p class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">{{ $isAdminDirectPurchase ? 'Green Leaf Direct Purchase' : (isset($isUpdateRequest) && $isUpdateRequest ? 'Request Items' : 'Marketplace') }}</p>
+            <p class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">{{ $isAdminDirectPurchase ? $directPurchaseTitle : (isset($isUpdateRequest) && $isUpdateRequest ? 'Request Items' : 'Marketplace') }}</p>
             <h2 class="mt-1 text-xl font-black text-slate-950">{{ $tomorrowDate->format('d F Y') }}</h2>
-            <p class="mt-2 text-sm text-slate-600">{{ $isAdminDirectPurchase ? 'Select products and quantities. The order will be approved immediately and shown to purchaser demand as Green Leaf Direct Purchase.' : 'Select products, add quantity or box packs, then submit the daily order from your cart before '.$cutoffLabel.'.' }}</p>
+            <p class="mt-2 text-sm text-slate-600">{{ $isAdminDirectPurchase ? $directPurchaseDescription : 'Select products, add quantity or box packs, then submit the daily order from your cart before '.$cutoffLabel.'.' }}</p>
         </div>
         @if ($presets->isNotEmpty())
             <div class="flex items-center gap-2 mt-2 md:mt-0 shrink-0">

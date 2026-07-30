@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\Customer;
+use App\Models\Client;
 use App\Models\SalesInvoice;
 use App\Models\Shop;
 use App\Models\User;
@@ -36,12 +37,14 @@ class SalesSurfaceTest extends TestCase
             ->get(route('sales.customers.index'))
             ->assertOk()
             ->assertSee('Admin Panel')
-            ->assertSee('Sales Destinations')
+            ->assertSee('Shop Deliveries')
+            ->assertSee('Add Shop')
             ->assertSee('Shop Deliveries')
             ->assertSee('Sales Invoices')
             ->assertDontSee('Sales Orders')
-            ->assertSee('External Customers')
-            ->assertSee('Add External Customer');
+            ->assertSee('Shops')
+            ->assertDontSee('External Customers')
+            ->assertDontSee('Add External Customer');
 
         $this
             ->actingAs($admin)
@@ -49,7 +52,7 @@ class SalesSurfaceTest extends TestCase
             ->assertOk()
             ->assertSee('Admin Panel')
             ->assertSee('Sales Invoices')
-            ->assertSee('Customers')
+            ->assertSee('Shops')
             ->assertDontSee('Sales Orders');
     }
 
@@ -61,76 +64,14 @@ class SalesSurfaceTest extends TestCase
             ->assertNotFound();
     }
 
-    public function test_external_customer_crud_web_surface_works(): void
+    public function test_external_customer_crud_web_surface_is_removed(): void
     {
         $admin = $this->salesAdmin();
 
         $this
             ->actingAs($admin)
             ->get('/sales/customers/create')
-            ->assertOk()
-            ->assertSee('Add Customer')
-            ->assertSee('Create Customer');
-
-        $this
-            ->actingAs($admin)
-            ->post('/sales/customers', [
-                'name' => 'External Customer',
-                'type' => 'Retailer',
-                'contact' => 'External Contact 999',
-                'email' => 'external@example.com',
-                'address' => 'External Road',
-                'payment_terms' => 'Net 15',
-                'credit_limit' => '1500',
-                'is_active' => '1',
-            ])
-            ->assertRedirect(route('sales.customers.index'));
-
-        $customer = Customer::query()->where('name', 'External Customer')->firstOrFail();
-
-        $this->assertDatabaseHas('customers', [
-            'id' => $customer->id,
-            'type' => 'Retailer',
-            'contact' => 'External Contact 999',
-            'email' => 'external@example.com',
-            'payment_terms' => 'Net 15',
-            'is_active' => true,
-        ]);
-
-        $this
-            ->actingAs($admin)
-            ->get(route('sales.customers.edit', $customer))
-            ->assertOk()
-            ->assertSee('Edit Customer')
-            ->assertSee('External Customer');
-
-        $this
-            ->actingAs($admin)
-            ->put(route('sales.customers.update', $customer), [
-                'name' => 'Updated External Customer',
-                'type' => 'Wholesaler',
-                'contact' => 'Updated Contact',
-                'email' => 'updated-external@example.com',
-                'address' => 'Updated Road',
-                'payment_terms' => 'Net 30',
-                'credit_limit' => '2500',
-                'is_active' => '0',
-            ])
-            ->assertRedirect(route('sales.customers.index'));
-
-        $this->assertDatabaseHas('customers', [
-            'id' => $customer->id,
-            'name' => 'Updated External Customer',
-            'type' => 'Wholesaler',
-            'is_active' => false,
-        ]);
-
-        $this
-            ->actingAs($admin)
-            ->delete(route('sales.customers.destroy', $customer))
-            ->assertRedirect(route('sales.customers.index'));
-
-        $this->assertSoftDeleted('customers', ['id' => $customer->id]);
+            ->assertNotFound();
     }
 
     public function test_sales_invoice_pages_tolerate_archived_related_records(): void
@@ -158,18 +99,10 @@ class SalesSurfaceTest extends TestCase
             ->assertSee($invoice->salesOrder->so_number);
     }
 
-    public function test_sales_customers_page_shows_external_customer_and_shop_delivery_rows(): void
+    public function test_sales_customers_page_shows_shop_delivery_rows_without_external_customers(): void
     {
         $admin = $this->salesAdmin();
         $shopRole = Role::findOrCreate('shop', 'web');
-        $customer = Customer::factory()->create([
-            'name' => 'Blue Valley Market',
-            'type' => 'Supermarket',
-            'contact' => 'Blue Valley Contact',
-            'email' => 'blue-valley@example.com',
-            'payment_terms' => 'Net 7',
-            'credit_limit' => 7500,
-        ]);
 
         $shop = Shop::factory()->create([
             'name' => 'Ashirwad',
@@ -194,13 +127,10 @@ class SalesSurfaceTest extends TestCase
             ->actingAs($admin)
             ->get(route('sales.customers.index'))
             ->assertOk()
-            ->assertSee('External Customers')
-            ->assertSee('Add External Customer')
-            ->assertSee($customer->name)
-            ->assertSee('Blue Valley Contact')
-            ->assertSee('blue-valley@example.com')
-            ->assertSee('Net 7')
+            ->assertDontSee('External Customers')
+            ->assertDontSee('Add External Customer')
             ->assertSee('Shop Deliveries')
+            ->assertSee('Add Shop')
             ->assertSee('Ashirwad')
             ->assertSee('SHOP_ASHIRWAD')
             ->assertSee('TAG D')
@@ -209,8 +139,75 @@ class SalesSurfaceTest extends TestCase
             ->assertSee('Main Road')
             ->assertSee('Ashirwad Owner')
             ->assertSee('shop-ashirwad@example.com')
-            ->assertSee('Shop Sale')
-            ->assertSee('Enabled');
+            ->assertSee('Direct sale');
+    }
+
+    public function test_sales_customers_page_creates_and_updates_shop_destinations(): void
+    {
+        $admin = $this->salesAdmin();
+        $client = Client::query()->firstOrCreate(
+            ['code' => 'AISHWARYA_VEG'],
+            [
+                'name' => 'Aishwarya Veg',
+                'status' => 'active',
+            ],
+        );
+
+        $this
+            ->actingAs($admin)
+            ->post(route('sales.customers.shops.store'), [
+                '_form_context' => 'create-shop',
+                'name' => 'New Shop',
+                'code' => 'new shop',
+                'warehouse_tag' => 'new-tag',
+                'destination_type' => 'client',
+                'client_id' => $client->id,
+                'status' => 'active',
+                'contact_name' => 'New Contact',
+                'contact_phone' => '9999999999',
+                'address' => 'New Road',
+            ])
+            ->assertRedirect(route('sales.customers.index'));
+
+        $shop = Shop::query()->where('code', 'NEW_SHOP')->firstOrFail();
+
+        $this->assertDatabaseHas('shops', [
+            'id' => $shop->id,
+            'name' => 'New Shop',
+            'warehouse_tag' => 'NEW-TAG',
+            'client_id' => $client->id,
+            'accounting_mode' => 'owned',
+            'accounting_enabled' => true,
+            'contact_name' => 'New Contact',
+            'contact_phone' => '9999999999',
+            'address' => 'New Road',
+        ]);
+
+        $this
+            ->actingAs($admin)
+            ->patch(route('sales.customers.shops.update', ['shop' => $shop->code]), [
+                '_form_context' => 'edit-shop-'.$shop->id,
+                'name' => 'Updated Shop',
+                'code' => 'updated-shop',
+                'warehouse_tag' => 'upd-tag',
+                'destination_type' => 'direct',
+                'status' => 'inactive',
+                'contact_name' => 'Updated Contact',
+                'contact_phone' => '8888888888',
+                'address' => 'Updated Road',
+            ])
+            ->assertRedirect(route('sales.customers.index'));
+
+        $this->assertDatabaseHas('shops', [
+            'id' => $shop->id,
+            'name' => 'Updated Shop',
+            'code' => 'UPDATED_SHOP',
+            'warehouse_tag' => 'UPD-TAG',
+            'client_id' => null,
+            'accounting_mode' => 'regular',
+            'accounting_enabled' => false,
+            'status' => 'inactive',
+        ]);
     }
 
     private function salesAdmin(): User

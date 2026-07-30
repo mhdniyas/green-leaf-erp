@@ -7,84 +7,86 @@
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
+        html {
+            background: #fff;
+        }
+
         body {
             font-family: 'Segoe UI', Arial, sans-serif;
             font-size: 10px;
-            color: #1a2e1a;
+            color: #000;
             background: #fff;
             padding: 12mm 10mm;
         }
 
-        /* ── Header ── */
-        .print-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            border-bottom: 2px solid #1a6632;
-            padding-bottom: 8px;
-            margin-bottom: 10px;
-        }
-        .company-name {
-            font-size: 16px;
-            font-weight: 900;
-            color: #1a6632;
-            letter-spacing: -0.3px;
-        }
-        .doc-title {
+        .page-summary {
+            border-bottom: 2px solid #000;
             font-size: 12px;
-            font-weight: 700;
-            color: #2d6a4f;
-            margin-top: 2px;
+            font-weight: 900;
+            line-height: 1.25;
+            margin-bottom: 4px;
+            padding-bottom: 3px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
-        .meta-block {
-            text-align: right;
-            font-size: 9px;
-            color: #555;
-            line-height: 1.6;
-        }
-        .meta-block strong { color: #1a2e1a; }
 
         /* ── Table ── */
         table {
             width: 100%;
             border-collapse: collapse;
+            table-layout: fixed;
             font-size: 9.5px;
-            margin-top: 4px;
         }
         thead tr th {
-            background: #1a6632;
-            color: #fff;
+            background: #fff;
+            color: #000;
             font-weight: 700;
             text-transform: uppercase;
             font-size: 8.5px;
             letter-spacing: 0.4px;
-            padding: 5px 6px;
-            border: 1px solid #155724;
+            padding: 4px 3px;
+            border: 1px solid #000;
             text-align: center;
-            white-space: nowrap;
+            line-height: 1.15;
+            white-space: normal;
+            word-break: break-word;
         }
-        thead tr th:nth-child(2) { text-align: left; }
+        thead tr th.item-heading { text-align: left; }
+        .shop-heading-name {
+            display: -webkit-box;
+            overflow: hidden;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+        }
+        .shop-heading-tag {
+            display: block;
+            font-family: monospace;
+            font-size: 7.5px;
+            font-weight: 900;
+            line-height: 1;
+            margin-top: 2px;
+        }
 
         tbody tr td {
-            padding: 4px 6px;
-            border: 1px solid #cde8d0;
+            padding: 4px 3px;
+            border: 1px solid #000;
             vertical-align: middle;
+            background: #fff;
+            color: #000;
         }
-        tbody tr:nth-child(even) td { background: #f5fbf6; }
-        tbody tr:hover td { background: #eaf7ed; }
 
         /* SL col */
         tbody tr td:first-child {
             text-align: center;
-            color: #888;
+            color: #000;
             font-size: 8px;
             font-family: monospace;
         }
-        /* Item col */
-        tbody tr td:nth-child(2) {
+        .item-cell {
             font-weight: 600;
             text-align: left;
-            white-space: nowrap;
+            word-break: break-word;
         }
         /* Qty cols (dynamic, all between item and unit) */
         .qty-cell {
@@ -92,36 +94,26 @@
             font-family: monospace;
             font-weight: 700;
         }
-        .qty-cell.zero { color: #ccc; font-weight: 400; }
+        .qty-cell.zero { color: #000; font-weight: 400; }
         /* Total col */
         .total-cell {
             text-align: center;
             font-weight: 900;
-            background: #d4edda !important;
-            color: #155724;
+            background: #fff !important;
+            color: #000;
             font-family: monospace;
         }
-        /* Unit col */
-        .unit-cell {
-            text-align: center;
-            font-size: 8px;
-            text-transform: uppercase;
-            color: #666;
-            letter-spacing: 0.3px;
+        tbody tr {
+            height: 24px;
         }
-
-        /* Footer row */
-        tfoot tr td {
-            background: #1a6632 !important;
-            color: #fff;
-            font-weight: 900;
-            padding: 5px 6px;
-            border: 1px solid #155724;
-            text-align: center;
-            font-size: 9px;
+        .sort-sheet-page {
+            page-break-after: always;
+            overflow: hidden;
+            width: 100%;
         }
-        tfoot tr td:nth-child(2) { text-align: left; }
-        .footer-total { color: #a8f0c4; }
+        .sort-sheet-page:last-child {
+            page-break-after: auto;
+        }
 
         /* ── Print Controls ── */
         .no-print {
@@ -138,18 +130,18 @@
             font-weight: 700;
             cursor: pointer;
             text-decoration: none;
-            border: none;
+            border: 1px solid #000;
             display: inline-flex;
             align-items: center;
             gap: 5px;
         }
-        .btn-print { background: #1a6632; color: #fff; }
-        .btn-close  { background: #f1f5f9; color: #334155; }
+        .btn-print { background: #000; color: #fff; }
+        .btn-close  { background: #fff; color: #000; }
         .badge {
             display: inline-block;
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #b7dfc2;
+            background: #fff;
+            color: #000;
+            border: 1px solid #000;
             border-radius: 20px;
             padding: 2px 10px;
             font-size: 9px;
@@ -158,13 +150,64 @@
 
         /* ── Print Media ── */
         @media print {
-            @page { size: A4 landscape; margin: 10mm 8mm; }
-            body { padding: 0; font-size: 9px; }
+            @page {
+                size: A4 {{ $filteredShops->count() === 1 ? 'portrait' : 'landscape' }};
+                margin: 3mm;
+            }
+            html,
+            body {
+                height: auto;
+                overflow: visible;
+                padding: 0;
+                width: auto;
+            }
             .no-print { display: none !important; }
-            table { font-size: 8.5px; }
-            thead { display: table-header-group; }
-            tfoot { display: table-footer-group; }
+            .sort-sheet-page {
+                break-after: page;
+                height: calc({{ $filteredShops->count() === 1 ? '297mm' : '210mm' }} - 6mm);
+                overflow: hidden;
+                padding: 2mm;
+                width: calc({{ $filteredShops->count() === 1 ? '210mm' : '297mm' }} - 6mm);
+            }
+            table { font-size: 12px; }
+            thead tr th {
+                font-size: 10px;
+                font-weight: 900;
+                padding: 3px 2px;
+            }
+            tbody tr { height: 29px; }
+            tbody tr td {
+                font-size: 12px;
+                padding: 3px 2px;
+            }
+            tbody tr td:first-child {
+                font-size: 11px;
+                font-weight: 900;
+            }
+            .item-cell {
+                font-size: 13px;
+                font-weight: 900;
+            }
+            .qty-cell,
+            .total-cell {
+                font-size: 13px;
+                font-weight: 900;
+            }
+            .page-summary {
+                font-size: 10px;
+                line-height: 1.1;
+                margin-bottom: 2px;
+                padding-bottom: 2px;
+            }
+            .shop-heading-name {
+                display: block;
+                overflow: visible;
+                -webkit-line-clamp: unset;
+            }
+            .shop-heading-tag { font-size: 9px; }
+            thead { display: table-row-group; }
             tr { page-break-inside: avoid; }
+            .sort-sheet-page:last-child { break-after: auto; }
             a { text-decoration: none; }
         }
     </style>
@@ -174,89 +217,81 @@
     {{-- Print / Close Buttons (hidden on print) --}}
     <div class="no-print">
         <button class="btn-print" onclick="window.print()">
-            🖨️ Print
+            Print
         </button>
         <button class="btn-close" onclick="window.close()">
-            ✕ Close
+            Close
         </button>
         <span class="badge">{{ count($matrix) }} products · {{ $filteredShops->count() }} shops</span>
     </div>
 
-    {{-- Document Header --}}
-    <div class="print-header">
-        <div>
-            <div class="company-name">{{ $companyName }}</div>
-            <div class="doc-title">📋 Sort Sheet — {{ \Carbon\Carbon::parse($date)->format('d M Y, l') }}</div>
-        </div>
-        <div class="meta-block">
-            <div><strong>Generated By:</strong> {{ $generatedBy }}</div>
-            <div><strong>Generated At:</strong> {{ $generatedAt }}</div>
-            <div><strong>Products:</strong> {{ count($matrix) }} &nbsp;|&nbsp; <strong>Shops:</strong> {{ $filteredShops->count() }}</div>
-            <div><strong>Date:</strong> {{ \Carbon\Carbon::parse($date)->format('Y-m-d') }}</div>
-        </div>
-    </div>
-
     {{-- Sort Sheet Table --}}
     @if(count($matrix) > 0)
+    @php
+        $rowsPerPage = 22;
+        $matrixPages = array_chunk($matrix, $rowsPerPage, true);
+        $singleShop = $filteredShops->count() === 1;
+        $slWidth = $singleShop ? 8 : 4;
+        $itemWidth = $singleShop ? 52 : 18;
+        $shopWidth = $filteredShops->count() > 0 ? ($singleShop ? 25 : 71 / $filteredShops->count()) : 0;
+        $totalWidth = $singleShop ? 15 : 7;
+        $formatQty = fn (float $qty): string => rtrim(rtrim(number_format($qty, 2, '.', ''), '0'), '.');
+    @endphp
+    @foreach($matrixPages as $pageIndex => $pageMatrix)
+    <div class="sort-sheet-page">
+    <div class="page-summary">
+        {{ $companyName }}. Order Summary Sheet — {{ \Carbon\Carbon::parse($date)->format('d M Y, l') }}{{ isset($selectedWarehouse) && $selectedWarehouse ? ' Warehouse: '.$selectedWarehouse->name : '' }} Products: {{ count($matrix) }} | Shops: {{ $filteredShops->count() }}
+    </div>
     <table>
+        <colgroup>
+            <col style="width:{{ $slWidth }}%">
+            <col style="width:{{ $itemWidth }}%">
+            @foreach($filteredShops as $shop)
+                <col style="width:{{ $shopWidth }}%">
+            @endforeach
+            <col style="width:{{ $totalWidth }}%">
+        </colgroup>
         <thead>
             <tr>
-                <th style="width:32px">SL</th>
-                <th style="text-align:left; min-width:120px">Item</th>
+                <th>SL</th>
+                <th class="item-heading">Item</th>
                 @foreach($filteredShops as $shop)
-                <th style="min-width:55px">
-                    {{ $shop->name }}
+                <th>
+                    <span class="shop-heading-name">{{ $shop->name }}</span>
                     @if($shop->warehouse_tag)
-                    <br><span style="font-size:7.5px; font-weight:900; color:#a8f0c4; letter-spacing:1px;">{{ $shop->warehouse_tag }}</span>
+                        <span class="shop-heading-tag">{{ $shop->warehouse_tag }}</span>
                     @endif
                 </th>
                 @endforeach
-                <th style="background:#0d4a24; min-width:55px">Total</th>
-                <th style="min-width:40px">Unit</th>
+                <th>Total</th>
             </tr>
         </thead>
         <tbody>
-            @php $sl = 1; @endphp
-            @foreach($matrix as $productId => $shopQtys)
+            @foreach($pageMatrix as $productId => $shopQtys)
             @php
                 $meta = $productMeta[$productId];
                 $total = array_sum($shopQtys);
             @endphp
             <tr>
-                <td>{{ $sl++ }}</td>
-                <td>{{ $meta['name'] }}</td>
+                <td>{{ ($pageIndex * $rowsPerPage) + $loop->iteration }}</td>
+                <td class="item-cell">{{ $meta['name'] }}</td>
                 @foreach($filteredShops as $shop)
                 @php $qty = $shopQtys[$shop->id] ?? 0; @endphp
                 <td class="qty-cell {{ $qty <= 0 ? 'zero' : '' }}">
-                    {{ $qty > 0 ? ($qty == intval($qty) ? intval($qty) : number_format($qty, 2)) : '0' }}
+                    {{ $qty > 0 ? $formatQty((float) $qty) : '0' }}
                 </td>
                 @endforeach
                 <td class="total-cell">
-                    {{ $total == intval($total) ? intval($total) : number_format($total, 2) }}
+                    {{ $formatQty((float) $total) }}
                 </td>
-                <td class="unit-cell">{{ $meta['unit'] }}</td>
             </tr>
             @endforeach
         </tbody>
-        <tfoot>
-            <tr>
-                <td colspan="2">Grand Total ({{ count($matrix) }} items)</td>
-                @foreach($filteredShops as $shop)
-                @php $colTotal = collect($matrix)->sum(fn($shopQtys) => $shopQtys[$shop->id] ?? 0); @endphp
-                <td class="footer-total">
-                    {{ $colTotal > 0 ? ($colTotal == intval($colTotal) ? intval($colTotal) : number_format($colTotal, 2)) : '—' }}
-                </td>
-                @endforeach
-                @php $grandTotal = collect($matrix)->sum(fn($shopQtys) => array_sum($shopQtys)); @endphp
-                <td class="footer-total" style="font-size:10px">
-                    {{ $grandTotal == intval($grandTotal) ? intval($grandTotal) : number_format($grandTotal, 2) }}
-                </td>
-                <td></td>
-            </tr>
-        </tfoot>
     </table>
+    </div>
+    @endforeach
     @else
-    <p style="padding: 20px; text-align: center; color: #888; font-size: 12px;">
+    <p style="padding: 20px; text-align: center; color: #000; font-size: 12px;">
         No approved shop orders found for this date.
     </p>
     @endif

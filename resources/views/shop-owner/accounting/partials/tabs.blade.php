@@ -13,6 +13,13 @@
     @endif
     @if ($shop->isOwnedAccountingEnabled())
         @include('shop-owner.components.action-button', [
+            'href' => route('shop-owner.accounting.index', ['tab' => 'loan']),
+            'label' => 'Loan',
+            'classes' => (request()->routeIs('shop-owner.accounting.index') && ($tab ?? 'bills') === 'loan' ? 'bg-slate-950 text-white' : 'border border-slate-200 bg-white text-slate-800') . ' justify-center w-full sm:w-auto text-center'
+        ])
+    @endif
+    @if ($shop->isOwnedAccountingEnabled())
+        @include('shop-owner.components.action-button', [
             'href' => route('shop-owner.accounting.index', ['tab' => 'create']),
             'label' => 'Create',
             'classes' => (request()->routeIs('shop-owner.accounting.index') && ($tab ?? 'bills') === 'create' ? 'bg-slate-950 text-white' : 'border border-slate-200 bg-white text-slate-800') . ' justify-center w-full sm:w-auto text-center'

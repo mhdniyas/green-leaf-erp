@@ -10,6 +10,8 @@ class AccountingAccess
 {
     public const DashboardView = 'accounting.dashboard.view';
 
+    public const EntryCreate = 'accounting.entry.create';
+
     public const OwnedShopManage = 'accounting.owned-shop.manage';
 
     public const EntryReview = 'accounting.entry.review';

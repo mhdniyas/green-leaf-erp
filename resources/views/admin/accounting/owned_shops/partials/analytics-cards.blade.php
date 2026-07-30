@@ -43,18 +43,27 @@
 @endphp
 
 <section id="owned-shop-summary" class="rounded-3xl border border-slate-200 bg-[#f7f8fa] p-3 shadow-sm sm:p-4">
-    <div class="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-[0_10px_30px_rgba(15,23,42,0.04)] sm:px-6">
-        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-                <p class="text-[11px] font-semibold uppercase text-slate-400">Client dashboard</p>
-                <h2 class="mt-1 text-2xl font-semibold text-slate-950">Sales and financial insights</h2>
-            </div>
-            <div class="inline-flex w-fit items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
-                <span>{{ $startDate->format('d M Y') }}</span>
-                <span class="h-px w-4 bg-slate-300"></span>
-                <span>{{ $endDate->format('d M Y') }}</span>
-            </div>
-        </div>
+    <details class="group rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-[0_10px_30px_rgba(15,23,42,0.04)] sm:px-6">
+        <summary class="flex cursor-pointer list-none flex-col gap-4 [&::-webkit-details-marker]:hidden lg:flex-row lg:items-center lg:justify-between">
+            <span>
+                <span class="block text-[11px] font-semibold uppercase text-slate-400">Client dashboard</span>
+                <span class="mt-1 block text-2xl font-semibold text-slate-950">Sales and financial insights</span>
+            </span>
+            <span class="flex flex-wrap items-center gap-2">
+                <span class="inline-flex w-fit items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
+                    <span>{{ $startDate->format('d M Y') }}</span>
+                    <span class="h-px w-4 bg-slate-300"></span>
+                    <span>{{ $endDate->format('d M Y') }}</span>
+                </span>
+                <span class="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 shadow-sm transition group-open:text-slate-950">
+                    <span class="group-open:hidden">Show</span>
+                    <span class="hidden group-open:inline">Hide</span>
+                    <svg class="h-4 w-4 transition-transform duration-200 group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                    </svg>
+                </span>
+            </span>
+        </summary>
 
         <div class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             @foreach ($primaryCards as $card)
@@ -248,5 +257,5 @@
                 </div>
             </article>
         </div>
-    </div>
+    </details>
 </section>

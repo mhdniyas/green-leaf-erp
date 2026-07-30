@@ -25,29 +25,79 @@ class ShopPettyCashTest extends TestCase
 
     public function test_default_daily_receipt_categories_include_shop_cash_and_staff_purposes(): void
     {
+        $bazaro = Shop::factory()->create(['code' => 'AV_BAZARO', 'name' => 'Bazaro']);
+        $varthur = Shop::factory()->create(['code' => 'AV_LULU_VARTHUR', 'name' => 'Lulu Varthur']);
+        $grandcity = Shop::factory()->create(['code' => 'AV_GRANDCITY', 'name' => 'Grandcity']);
+        $casio = Shop::factory()->create(['code' => 'AV_CASIO', 'name' => 'Casio']);
+        $sanaJp = Shop::factory()->create(['code' => 'AV_SANA_JP', 'name' => 'Sana JP']);
+        $jindal = Shop::factory()->create(['code' => 'AV_JINDAL_CITY', 'name' => 'Jindal City']);
+
         $this->seed(ShopAccountingCategorySeeder::class);
 
         $this->assertDatabaseHas('shop_accounting_categories', [
             'shop_id' => null,
             'type' => 'income',
-            'name' => 'Loan Given',
+            'name' => 'Cash',
             'cash_effect' => true,
-            'purpose' => 'shop_cash_credit',
+            'purpose' => 'sales_cash',
+        ]);
+        $this->assertDatabaseHas('shop_accounting_categories', [
+            'shop_id' => null,
+            'type' => 'income',
+            'name' => 'UPI Transactions / Paytm / GPay / PhonePe',
+            'cash_effect' => false,
+            'purpose' => 'sales_non_cash',
         ]);
         $this->assertDatabaseHas('shop_accounting_categories', [
             'shop_id' => null,
             'type' => 'expense',
-            'name' => 'Staff Salary',
+            'name' => 'Salary',
             'cash_effect' => true,
             'purpose' => 'staff_salary',
         ]);
         $this->assertDatabaseHas('shop_accounting_categories', [
             'shop_id' => null,
             'type' => 'expense',
-            'name' => 'Staff Salary Advance',
+            'name' => 'Cash Purchase',
             'cash_effect' => true,
-            'purpose' => 'staff_advance',
+            'purpose' => 'custom',
         ]);
+        $this->assertDatabaseMissing('shop_accounting_categories', [
+            'shop_id' => null,
+            'name' => 'Loan Given',
+        ]);
+        $this->assertDatabaseHas('shop_accounting_categories', [
+            'shop_id' => $bazaro->id,
+            'type' => 'expense',
+            'name' => 'Akash',
+        ]);
+        $this->assertDatabaseHas('shop_accounting_categories', [
+            'shop_id' => $varthur->id,
+            'type' => 'expense',
+            'name' => 'Tomato',
+        ]);
+        $this->assertDatabaseHas('shop_accounting_categories', [
+            'shop_id' => $grandcity->id,
+            'type' => 'income',
+            'name' => 'SM Delivery',
+        ]);
+        $this->assertDatabaseHas('shop_accounting_categories', [
+            'shop_id' => $casio->id,
+            'type' => 'expense',
+            'name' => 'To Casio',
+        ]);
+        $this->assertDatabaseHas('shop_accounting_categories', [
+            'shop_id' => $sanaJp->id,
+            'type' => 'income',
+            'name' => 'Rent',
+        ]);
+        foreach (['S/M P', 'Onion', 'Flower', 'Banana', 'Room / Kuri'] as $categoryName) {
+            $this->assertDatabaseHas('shop_accounting_categories', [
+                'shop_id' => $jindal->id,
+                'type' => 'expense',
+                'name' => $categoryName,
+            ]);
+        }
     }
 
     public function test_shop_cash_movement_categories_are_client_loan_categories(): void
