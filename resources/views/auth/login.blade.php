@@ -2,9 +2,9 @@
     <div class="min-h-screen bg-[radial-gradient(circle_at_top,rgba(22,163,74,0.16),transparent_34%),linear-gradient(180deg,#f7faf7_0%,#eef6ef_52%,#e6f0e8_100%)]">
         <div class="mx-auto grid min-h-screen w-full max-w-7xl gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(340px,480px)] lg:items-center lg:px-8 lg:py-10">
             <section class="order-2 rounded-[2rem] border border-white/70 bg-white/70 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:p-8 lg:order-1 lg:p-10">
-                <div class="inline-flex items-center gap-3 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] text-emerald-700">
-                    <span class="h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
-                    Green Leaf Traders
+                <div class="inline-flex items-center gap-3 rounded-full border border-emerald-200 bg-emerald-50/90 px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] text-emerald-800">
+                    <img src="{{ asset('images/logo.png') }}" alt="Green Leaf Logo" class="h-6 w-auto object-contain shrink-0">
+                    <span>Green Leaf Fruits & Vegetables</span>
                 </div>
 
                 <div class="mt-6 max-w-2xl space-y-4">

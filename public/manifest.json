@@ -1,14 +1,14 @@
 {
-    "name": "Green Leaf Shop Owner",
+    "name": "Green Leaf Fruits and Vegetables",
     "short_name": "Green Leaf",
-    "description": "Shop owner dashboard for Green Leaf Traders.",
-    "id": "/shop/dashboard",
-    "start_url": "/shop/dashboard",
+    "description": "Green Leaf ERP — Vegetable & Fruit Trading Management System",
+    "id": "/",
+    "start_url": "/",
     "scope": "/",
     "display": "standalone",
     "display_override": ["standalone", "minimal-ui"],
-    "background_color": "#f8fafc",
-    "theme_color": "#059669",
+    "background_color": "#ffffff",
+    "theme_color": "#84cc16",
     "orientation": "portrait",
     "icons": [
         {

@@ -6,8 +6,16 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{{ $title }} — Green Leaf Traders</title>
-    <meta name="description" content="Green Leaf Traders — Vegetable Trading & Distribution Management System">
+    <meta name="theme-color" content="#84cc16">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Green Leaf">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <title>{{ $title }} — Green Leaf Fruits and Vegetables</title>
+    <meta name="description" content="Green Leaf Fruits and Vegetables — Distribution Management System">
+    <link rel="manifest" href="{{ asset('manifest.json') }}">
+    <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
+    <link rel="icon" type="image/png" href="{{ asset('favicon.png') }}">
     <script>
         localStorage.setItem('theme', 'light');
         document.documentElement.classList.remove('dark');
@@ -291,16 +299,12 @@
         aria-label="Sidebar navigation"
     >
         {{-- Logo --}}
-        <div class="border-b border-slate-200 px-6 py-6">
+        <div class="border-b border-slate-200 px-6 py-5">
             <div class="flex items-center gap-3">
-                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-cyan-500 text-white shadow-sm">
-                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2.2" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m8.25-9H21M3 12h.75m13.364 6.364.53.53M6.106 6.106l.53.53m10.728-.53-.53.53M6.106 17.894l-.53.53M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                    </svg>
-                </div>
+                <img src="{{ asset('images/logo.png') }}" alt="Green Leaf Logo" class="h-10 w-auto object-contain shrink-0">
                 <div class="min-w-0">
                     <p class="truncate text-sm font-black leading-none text-slate-950">Green Leaf ERP</p>
-                    <p class="mt-1 text-[10px] font-black uppercase tracking-[0.2em] text-cyan-700">Workspace</p>
+                    <p class="mt-1 text-[10px] font-black uppercase tracking-[0.2em] text-lime-600">Fruits & Vegetables</p>
                 </div>
                 <button id="sidebar-close" class="ml-auto rounded-2xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 lg:hidden">
                     <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
