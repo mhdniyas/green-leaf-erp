@@ -3057,30 +3057,6 @@ $accessibleModules = array_filter($modules, fn ($m) => $user->hasPermissionTo($m
         @endforelse
     </div>
 
-    {{-- User profile & role info (admin-only) --}}
-    @if($user->hasRole('admin'))
-    <div class="mt-6 bg-white rounded-2xl border border-gray-200 p-5">
-        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Demo Accounts</h3>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            @foreach([
-                ['email' => 'admin@greenleaf.com',     'role' => 'Administrator',       'color' => 'bg-purple-100 text-purple-700'],
-                ['email' => 'shop@greenleaf.com',      'role' => 'Shop Owner',          'color' => 'bg-emerald-100 text-emerald-700'],
-                ['email' => 'purchase@greenleaf.com',  'role' => 'Purchase Manager',    'color' => 'bg-amber-100 text-amber-700'],
-                ['email' => 'receiver@greenleaf.com',  'role' => 'Warehouse Receiver',  'color' => 'bg-cyan-100 text-cyan-700'],
-            ] as $demo)
-            <div class="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
-                <div class="w-7 h-7 rounded-lg {{ $demo['color'] }} flex items-center justify-center shrink-0">
-                    <span class="text-[10px] font-bold">{{ strtoupper(substr($demo['role'], 0, 1)) }}</span>
-                </div>
-                <div class="min-w-0">
-                    <p class="text-xs font-semibold text-gray-800 truncate">{{ $demo['email'] }}</p>
-                    <p class="text-[10px] text-gray-500">{{ $demo['role'] }} · password</p>
-                </div>
-            </div>
-            @endforeach
-        </div>
-    </div>
-    @endif
-    @endif
+@endif
 
 </x-layouts.app>

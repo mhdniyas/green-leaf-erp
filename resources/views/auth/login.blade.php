@@ -1,34 +1,7 @@
 <x-layouts.auth title="Sign In">
     <div class="min-h-screen bg-[radial-gradient(circle_at_top,rgba(22,163,74,0.16),transparent_34%),linear-gradient(180deg,#f7faf7_0%,#eef6ef_52%,#e6f0e8_100%)]">
         <div class="mx-auto grid min-h-screen w-full max-w-7xl gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(340px,480px)] lg:items-center lg:px-8 lg:py-10">
-            <section class="order-1 rounded-[2rem] border border-emerald-200 bg-emerald-50 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.08)] sm:p-7 lg:col-span-2">
-                @if (($demoUsers ?? collect())->isNotEmpty())
-                    <div class="flex flex-col gap-3 border-b border-emerald-200 pb-4 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                            <p class="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-700">Demo Login</p>
-                            <p class="mt-2 text-sm leading-6 text-emerald-950">
-                                One-click access for local testing. These buttons are hidden in production.
-                            </p>
-                        </div>
-                        <span class="w-fit rounded-full bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">
-                            {{ $demoUsers->count() }} users
-                        </span>
-                    </div>
-
-                    <div class="mt-5 space-y-5">
-                        @include('auth.partials.demo-login-sections', ['demoUserSections' => $demoUserSections])
-                    </div>
-                @else
-                    <div>
-                        <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Access Notice</p>
-                        <p class="mt-2 text-sm leading-6 text-slate-600">
-                            Test credentials are not displayed on this page. Use the assigned shop-owner or staff account details provided separately.
-                        </p>
-                    </div>
-                @endif
-            </section>
-
-            <section class="order-3 rounded-[2rem] border border-white/70 bg-white/70 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:p-8 lg:order-2 lg:p-10">
+            <section class="order-2 rounded-[2rem] border border-white/70 bg-white/70 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:p-8 lg:order-1 lg:p-10">
                 <div class="inline-flex items-center gap-3 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] text-emerald-700">
                     <span class="h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
                     Green Leaf Traders
@@ -67,7 +40,7 @@
                 </div>
             </section>
 
-            <aside class="order-2 lg:order-3">
+            <aside class="order-1 lg:order-2">
                 <div class="rounded-[2rem] border border-slate-200/80 bg-white p-5 shadow-[0_24px_80px_rgba(15,23,42,0.10)] sm:p-7">
                     <div class="space-y-2">
                         <p class="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">Secure Access</p>

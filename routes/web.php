@@ -49,7 +49,6 @@ use App\Http\Controllers\Web\SortSheetController;
 use App\Http\Controllers\Web\Warehouse\WarehouseLoadoutController;
 use App\Http\Controllers\Web\Warehouse\WarehouseReceiverController;
 use App\Http\Controllers\Web\WebsiteEnquiryController;
-use App\Http\Controllers\Web\SeedTestController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -58,19 +57,12 @@ Route::view('/', 'welcome')->name('home');
 Route::view('/products', 'products.index')->name('products.index');
 Route::post('/enquiries', [WebsiteEnquiryController::class, 'store'])->middleware('throttle:public-form')->name('website-enquiries.store');
 
-// Diagnostic seeding routes
-Route::get('/seedtest', [SeedTestController::class, 'show'])->name('seedtest.show');
-Route::post('/seedtest', [SeedTestController::class, 'seed'])->name('seedtest.run');
-
 // Guest routes (unauthenticated only)
 Route::middleware('guest')->group(function () {
     Route::get('/login', [LoginController::class, 'show'])->name('login');
-    Route::get('/login/demo', [LoginController::class, 'demoIndex'])->name('login.demo.index');
-    Route::get('/demo_purchaser', [LoginController::class, 'demoPurchaser'])->name('login.demo.purchaser');
     Route::get('/shop-owner/register', [ShopOwnerRegistrationController::class, 'create'])->name('shop-owner.register');
     Route::post('/shop-owner/register', [ShopOwnerRegistrationController::class, 'store'])->middleware('throttle:public-form')->name('shop-owner.register.store');
     Route::post('/login', [LoginController::class, 'store'])->middleware('throttle:login')->name('login.submit');
-    Route::post('/login/demo/{user}', [LoginController::class, 'demo'])->middleware('throttle:login')->name('login.demo');
 });
 
 // Stub: password reset (required by blade for the link to work)
