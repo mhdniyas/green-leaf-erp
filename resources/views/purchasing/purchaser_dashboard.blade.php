@@ -161,7 +161,7 @@
                                             </select>
                                             <div class="grid grid-cols-2 gap-2">
                                                 <input type="number" step="0.01" min="0.01" name="quantity" value="{{ number_format(max($summary['remaining_qty'], 0.01), 2, '.', '') }}" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
-                                                <input type="number" step="0.01" min="0" name="unit_price" value="0" placeholder="Price" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
+                                                <input type="number" step="0.01" min="0" name="unit_price" value="" placeholder="Price" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
                                             </div>
                                             <button type="submit" class="w-full rounded-xl bg-cyan-600 px-3 py-3 text-xs font-black text-white">Add To Cart</button>
                                         </div>
@@ -209,7 +209,7 @@
                             </select>
                             <div class="grid grid-cols-2 gap-2">
                                 <input type="number" step="0.01" min="0.01" name="quantity" value="1" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
-                                <input type="number" step="0.01" min="0" name="unit_price" value="0" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
+                                <input type="number" step="0.01" min="0" name="unit_price" value="" placeholder="Price" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none">
                             </div>
                             <button type="submit" class="w-full rounded-xl bg-emerald-600 px-3 py-2.5 text-xs font-black text-white">Add Product</button>
                         </form>

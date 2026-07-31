@@ -31,4 +31,21 @@ class CategoryRepository extends BaseRepository
             ->orderBy('name')
             ->get();
     }
+
+    public function paginateFiltered(int $perPage = 15, ?string $search = null, ?string $status = null): LengthAwarePaginator
+    {
+        return $this->query()
+            ->when($search, function ($query, $search) {
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                      ->orWhere('description', 'like', "%{$search}%");
+                });
+            })
+            ->when($status, function ($query, $status) {
+                $query->where('is_active', $status === 'active');
+            })
+            ->orderBy('name')
+            ->paginate($perPage);
+    }
 }
+

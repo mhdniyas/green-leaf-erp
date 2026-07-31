@@ -435,11 +435,11 @@
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-[10px] font-bold text-slate-400 uppercase">Transport Cost</label>
-                                <input type="number" step="0.01" min="0" name="transport_cost" value="0.00" class="w-full mt-1 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                                <input type="number" step="0.01" min="0" name="transport_cost" value="" placeholder="0.00" class="w-full mt-1 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                             </div>
                             <div>
                                 <label class="block text-[10px] font-bold text-slate-400 uppercase">Labour Cost</label>
-                                <input type="number" step="0.01" min="0" name="labour_cost" value="0.00" class="w-full mt-1 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                                <input type="number" step="0.01" min="0" name="labour_cost" value="" placeholder="0.00" class="w-full mt-1 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
                             </div>
                         </div>
 

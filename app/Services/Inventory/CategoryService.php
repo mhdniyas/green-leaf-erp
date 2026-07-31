@@ -21,6 +21,11 @@ class CategoryService
         return $this->repository->findActive($perPage);
     }
 
+    public function paginateAdmin(int $perPage = 15, ?string $search = null, ?string $status = null): LengthAwarePaginator
+    {
+        return $this->repository->paginateFiltered($perPage, $search, $status);
+    }
+
     public function allActive(): Collection
     {
         return $this->repository->findAllActive();

@@ -14,6 +14,12 @@
                 Bulk Measures
             </a>
         @endcan
+        @can('inventory.category.view')
+            <a href="{{ route('inventory.categories.index') }}"
+               class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50">
+                Categories
+            </a>
+        @endcan
         <a href="{{ route('inventory.products.create') }}"
            id="add-product-btn"
            class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-700 transition-colors shadow-sm">

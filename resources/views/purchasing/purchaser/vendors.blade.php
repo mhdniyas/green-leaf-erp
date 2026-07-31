@@ -618,7 +618,7 @@
                     <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Discount in Share</label>
                     <div class="mt-2 flex items-center gap-2">
                         <div class="flex h-10 items-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600">Rs.</div>
-                        <input id="cart-share-discount-input" type="number" min="0" step="0.01" value="0" class="h-10 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 focus:border-teal-500 focus:outline-none" oninput="updateCartShareDiscount()">
+                        <input id="cart-share-discount-input" type="number" min="0" step="0.01" value="" placeholder="Discount" class="h-10 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 focus:border-teal-500 focus:outline-none" oninput="updateCartShareDiscount()">
                     </div>
                     <p class="mt-2 text-[10px] font-semibold text-slate-500">If discount is added, the share automatically uses the bill format with price.</p>
                 </div>

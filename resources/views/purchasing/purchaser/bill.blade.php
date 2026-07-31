@@ -124,7 +124,7 @@
                         </div>
                         <div class="mt-1.5 flex items-center justify-between gap-3">
                             <label for="discount_amount">Discount</label>
-                            <input id="discount_amount" type="number" step="0.01" min="0" name="discount_amount" value="{{ old('discount_amount', number_format((float) $cart->discount_amount, 2, '.', '')) }}" class="h-8 w-28 rounded-md border border-slate-200 bg-slate-50 px-2 text-right text-xs font-black text-slate-950 focus:bg-white focus:outline-none">
+                            <input id="discount_amount" type="number" step="0.01" min="0" name="discount_amount" value="{{ (float) old('discount_amount', $cart->discount_amount) > 0 ? old('discount_amount', number_format((float) $cart->discount_amount, 2, '.', '')) : '' }}" placeholder="0.00" class="h-8 w-28 rounded-md border border-slate-200 bg-slate-50 px-2 text-right text-xs font-black text-slate-950 focus:bg-white focus:outline-none">
                         </div>
                         <div class="mt-1.5 flex items-center justify-between text-sm font-black text-slate-950">
                             <span>TOTAL</span>
@@ -132,7 +132,7 @@
                         </div>
                         <div class="mt-1.5 flex items-center justify-between gap-3 text-[11px] text-emerald-700">
                             <label for="paid_amount">Paid</label>
-                            <input id="paid_amount" type="number" step="0.01" min="0" name="paid_amount" value="{{ old('paid_amount', number_format((float) $cart->paid_amount, 2, '.', '')) }}" class="h-8 w-28 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-right text-xs font-black text-emerald-800 focus:bg-white focus:outline-none">
+                            <input id="paid_amount" type="number" step="0.01" min="0" name="paid_amount" value="{{ (float) old('paid_amount', $cart->paid_amount) > 0 ? old('paid_amount', number_format((float) $cart->paid_amount, 2, '.', '')) : '' }}" placeholder="0.00" class="h-8 w-28 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-right text-xs font-black text-emerald-800 focus:bg-white focus:outline-none">
                         </div>
                         <div class="mt-1.5 flex items-center justify-between text-[11px] text-amber-700">
                             <span>Balance</span>

@@ -23,6 +23,7 @@ use App\Http\Controllers\Web\Inventory\BatchController;
 use App\Http\Controllers\Web\Inventory\DailyInventoryCloseController;
 use App\Http\Controllers\Web\Inventory\DeliveryDashboardController;
 use App\Http\Controllers\Web\Inventory\FulfillmentReportController;
+use App\Http\Controllers\Web\Inventory\CategoryController;
 use App\Http\Controllers\Web\Inventory\ProductController;
 use App\Http\Controllers\Web\Inventory\StockController;
 use App\Http\Controllers\Web\Inventory\WarehouseSortingController;
@@ -129,6 +130,9 @@ Route::middleware('auth')->group(function () {
         Route::post('products/measures/bulk/import-json', [ProductController::class, 'importBulkMeasures'])->name('products.measures.bulk.import-json');
         Route::patch('products/{product}/status', [ProductController::class, 'updateStatus'])->name('products.status.update');
         Route::resource('products', ProductController::class);
+        Route::get('categories/{category}/products', [CategoryController::class, 'products'])->name('categories.products');
+        Route::post('categories/{category}/products', [CategoryController::class, 'updateProducts'])->name('categories.products.update');
+        Route::resource('categories', CategoryController::class);
 
         // Stock levels
         Route::get('stock', [StockController::class, 'index'])->name('stock.index');

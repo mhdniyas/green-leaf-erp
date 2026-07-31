@@ -111,6 +111,7 @@ $unitRows = old('units', $existingUnitRows);
                             @endforeach
                         </select>
                         @error('category_id') <p class="text-red-600 text-xs">{{ $message }}</p> @enderror
+                        <p class="text-[11px] text-slate-400 mt-1">To manage categories, visit the <a href="{{ route('inventory.categories.index') }}" class="text-emerald-600 hover:text-emerald-700 hover:underline font-semibold">Product Categories</a> page.</p>
                     </div>
                 </div>
 

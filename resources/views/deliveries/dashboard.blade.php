@@ -335,7 +335,7 @@
                             @endphp
                             <tr class="hover:bg-slate-50/20">
                                 <td class="py-4 px-6 font-semibold text-slate-900">
-                                    {{ $order->shop->name }}
+                                    {{ $order->shop?->name ?? 'Unknown Shop' }}
                                 </td>
                                 <td class="py-4 px-6 font-mono text-[10px] font-bold text-slate-500">
                                     {{ $order->order_number }}
@@ -450,7 +450,7 @@
                                             <span class="block text-[9px] text-slate-400 font-normal mt-0.5">{{ $item->product->sku }}</span>
                                         </td>
                                         <td class="py-3.5 px-6 text-slate-600 font-medium">
-                                            {{ $item->order->shop->name }}
+                                            {{ $item->order?->shop?->name ?? 'Unknown Shop' }}
                                         </td>
                                         <td class="py-3.5 px-6 text-right font-bold text-red-600">
                                             {{ number_format((float) $item->shortage_qty, 2) }} {{ $item->unit }}
@@ -500,7 +500,7 @@
                                     @endphp
                                     <tr class="hover:bg-slate-50/20">
                                         <td class="py-3.5 px-6 font-semibold text-slate-900">
-                                            {{ $dOrder->shop->name }}
+                                            {{ $dOrder->shop?->name ?? 'Unknown Shop' }}
                                         </td>
                                         <td class="py-3.5 px-6 text-right text-slate-600 font-medium">
                                             Rs. {{ number_format($expValue, 2) }}
