@@ -105,11 +105,8 @@
     <title>{{ trim($__env->yieldContent('title', 'Purchasing Dashboard')) }} — Green Leaf Traders</title>
     <meta name="description" content="Green Leaf Traders — Purchasing Dashboard">
     <script>
-        if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            document.documentElement.classList.add('dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-        }
+        localStorage.setItem('theme', 'light');
+        document.documentElement.classList.remove('dark');
     </script>
     @vite($purchaseManagerAssets)
     @stack('styles')
