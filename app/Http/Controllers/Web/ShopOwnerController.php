@@ -11,6 +11,7 @@ use App\Http\Requests\Web\ShopOwner\StoreShopOwnerAccountingEntryRequest;
 use App\Models\Category;
 use App\Models\Shop;
 use App\Models\ShopAccountingEntry;
+use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopCredit;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
@@ -18,6 +19,7 @@ use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\ShopPreset;
 use App\Models\User;
+use App\Services\Finance\CompanyPayableService;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Finance\ShopLoanService;
 use App\Services\Pricing\PriceBoardService;
@@ -42,6 +44,7 @@ class ShopOwnerController extends Controller
         private readonly PriceBoardService $priceBoardService,
         private readonly OwnedShopAccountingService $ownedShopAccountingService,
         private readonly ShopLoanService $shopLoanService,
+        private readonly CompanyPayableService $companyPayableService,
         private readonly PurchaserBusinessDayService $businessDayService,
         private readonly ShopInvoiceService $shopInvoiceService,
         private readonly ActiveShopResolver $activeShopResolver,
@@ -473,6 +476,8 @@ class ShopOwnerController extends Controller
         $loanBalance = 0.0;
         $loanCategoryIds = collect();
         $loanCategorySettings = collect();
+        $othersSubtab = $this->normalizeOthersSubtab($request);
+        $companyPayableLines = collect();
 
         if ($shop->isOwnedAccountingEnabled()) {
             $entry = $this->ownedShopAccountingService->entryForDate($shop, $selectedDate);
@@ -480,6 +485,9 @@ class ShopOwnerController extends Controller
             $availableCategories = $this->ownedShopAccountingService->availableCategoriesForShop($shop);
             $loanRows = $this->shopLoanService->ledgerRows($shop);
             $loanBalance = $this->shopLoanService->approvedBalance($shop);
+            if ($tab === 'loan' && $othersSubtab === 'company') {
+                $companyPayableLines = $this->companyPayableService->linesForShop($shop);
+            }
             $loanCategorySettings = $this->shopLoanService->settingsForShop($shop);
             $loanCategoryIds = $loanCategorySettings
                 ->pluck('shop_accounting_category_id')
@@ -649,6 +657,8 @@ class ShopOwnerController extends Controller
             'loanBalance' => $loanBalance,
             'loanCategoryIds' => $loanCategoryIds,
             'loanCategorySettings' => $loanCategorySettings,
+            'othersSubtab' => $othersSubtab,
+            'companyPayableLines' => $companyPayableLines,
             'reserveAmount' => round((float) ($shop->reserve_amount ?? 0), 2),
             'ledgerDateFilterActive' => $ledgerDateFilterActive,
             'ledgerSourceFilter' => $ledgerSourceFilter,
@@ -1193,7 +1203,7 @@ class ShopOwnerController extends Controller
         $tomorrowDate = Carbon::tomorrow();
 
         $productsByCategory = Category::with(['products' => function ($query): void {
-            $query->where('is_active', true)->with('orderUnits')->ordered();
+            $query->where('is_active', true)->with(['orderUnits' => fn ($q) => $q->where('is_orderable', true)])->ordered();
         }])
             ->where('is_active', true)
             ->get()
@@ -1361,6 +1371,10 @@ class ShopOwnerController extends Controller
 
     private function normalizeAccountingTab(Shop $shop, string $tab): string
     {
+        if ($tab === 'others') {
+            $tab = 'loan';
+        }
+
         if (in_array($tab, ['cashbook', 'create', 'loan'], true)) {
             abort_unless($shop->isOwnedAccountingEnabled(), 404);
 
@@ -1368,6 +1382,13 @@ class ShopOwnerController extends Controller
         }
 
         return 'bills';
+    }
+
+    private function normalizeOthersSubtab(Request $request): string
+    {
+        $subtab = (string) $request->input('others', 'petty');
+
+        return in_array($subtab, ['petty', 'company'], true) ? $subtab : 'petty';
     }
 
     private function latestShopBalanceDate(Shop $shop): Carbon

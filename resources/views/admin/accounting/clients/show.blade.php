@@ -45,7 +45,7 @@
                     <p class="mt-1 text-xs font-bold text-rose-700">Balance to collect</p>
                 </article>
                 <article class="rounded-lg border border-cyan-200 bg-cyan-50 p-4">
-                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Loan Given</p>
+                    <p class="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Petty Given</p>
                     <p class="mt-3 text-2xl font-black text-cyan-950">Rs. {{ number_format($summary['loan_given'], 2) }}</p>
                     <p class="mt-1 text-xs font-bold text-cyan-700">A + B category total</p>
                 </article>
@@ -87,7 +87,7 @@
                             <th class="px-4 py-3 text-right">Total Expense</th>
                             <th class="px-4 py-3 text-right">{{ $loanCategoryLabels['primary'] }}</th>
                             <th class="px-4 py-3 text-right">{{ $loanCategoryLabels['salary_advance'] }}</th>
-                            <th class="px-4 py-3 text-right">Loan Total</th>
+                            <th class="px-4 py-3 text-right">Petty Total</th>
                             <th class="px-4 py-3 text-right">Opening Balance</th>
                             <th class="px-4 py-3 text-right">Closing Balance</th>
                             <th class="px-4 py-3 text-right">Open</th>

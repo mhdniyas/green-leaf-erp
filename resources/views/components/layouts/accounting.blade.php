@@ -61,7 +61,7 @@
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m0 14h16M8 15l3-3 3 2 4-6M8 8h.01M8 12h.01" /></svg>',
         ],
         [
-            'label' => 'Loans',
+            'label' => 'Petty',
             'href' => route('admin.accounting.loans'),
             'active' => request()->routeIs('admin.accounting.loans*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m3.75-9.75h-6a2.25 2.25 0 1 0 0 4.5h4.5a2.25 2.25 0 1 1 0 4.5h-6M4.5 19.5h15" /></svg>',
@@ -119,7 +119,7 @@
                     'active' => false,
                 ],
                 [
-                    'label' => 'Loan',
+                    'label' => 'Petty',
                     'href' => route('admin.accounting.loans', ['shop' => $currentShop->code]),
                     'active' => false,
                 ],
@@ -177,8 +177,8 @@
 
         $sidebarItems[] = [
             'label' => 'Shop Payments',
-            'href' => route('admin.accounting.daily-sales', ['date' => $navDate]).'#shop-payment-requests',
-            'active' => false,
+            'href' => route('admin.finance-v2.payments.index', ['date' => $navDate]),
+            'active' => request()->routeIs('admin.finance-v2.payments.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m3.75-9.75h-6a2.25 2.25 0 1 0 0 4.5h4.5a2.25 2.25 0 1 1 0 4.5h-6" /></svg>',
             'badge' => $shopPaymentPendingCount,
             'badge_tone' => 'danger',

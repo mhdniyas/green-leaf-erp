@@ -7,12 +7,14 @@ namespace App\Services\Finance;
 use App\DTOs\Finance\JournalEntryData;
 use App\Models\Account;
 use App\Models\CompanyAccountingEntry;
+use App\Models\CompanyPayableSettlement;
 use App\Models\GoodsReceived;
 use App\Models\JournalEntry;
 use App\Models\Payment;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaserCredit;
 use App\Models\SalesInvoice;
+use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\User;
@@ -494,6 +496,96 @@ class JournalService
         );
 
         return $this->createEntry($data, (int) $userId);
+    }
+
+    /**
+     * Debit expense (5900), Credit Company Payable to Shops (2200).
+     */
+    public function recordCompanyPayableApproval(ShopAccountingEntryLine $line, int $userId, ?string $sourceEvent = null): JournalEntry
+    {
+        $amount = round((float) ($line->company_approved_amount ?? $line->company_payable_amount ?? $line->amount), 2);
+        if ($amount <= 0) {
+            throw new RuntimeException('Company payable approval amount must be positive.');
+        }
+
+        $expenseAccountId = $this->getAccountIdByCode('5900');
+        $payableAccountId = $this->getAccountIdByCode('2200');
+        $event = $sourceEvent ?? 'company-payable-approved';
+
+        $data = new JournalEntryData(
+            entryDate: now()->toDateString(),
+            reference: 'CP-APPR-'.$line->id,
+            description: 'Company payable approved for shop expense line #'.$line->id,
+            lines: [
+                ['account_id' => $expenseAccountId, 'type' => 'debit', 'amount' => $amount],
+                ['account_id' => $payableAccountId, 'type' => 'credit', 'amount' => $amount],
+            ],
+            sourceType: ShopAccountingEntryLine::class,
+            sourceId: $line->id,
+            sourceEvent: $event,
+        );
+
+        return $this->createEntry($data, $userId);
+    }
+
+    /**
+     * Debit Company Payable to Shops (2200), Credit Accounts Receivable (1100).
+     */
+    public function recordCompanyPayableAdjustment(CompanyPayableSettlement $settlement, int $userId): JournalEntry
+    {
+        $amount = round((float) $settlement->amount, 2);
+        if ($amount <= 0) {
+            throw new RuntimeException('Company payable adjustment amount must be positive.');
+        }
+
+        $payableAccountId = $this->getAccountIdByCode('2200');
+        $arAccountId = $this->getAccountIdByCode('1100');
+
+        $data = new JournalEntryData(
+            entryDate: $settlement->settlement_date?->toDateString() ?? now()->toDateString(),
+            reference: 'CP-ADJ-'.$settlement->id,
+            description: 'Company payable adjusted against shop receivable #'.$settlement->shop_accounting_entry_line_id,
+            lines: [
+                ['account_id' => $payableAccountId, 'type' => 'debit', 'amount' => $amount],
+                ['account_id' => $arAccountId, 'type' => 'credit', 'amount' => $amount],
+            ],
+            sourceType: CompanyPayableSettlement::class,
+            sourceId: $settlement->id,
+            sourceEvent: 'adjust_against_shop_payment',
+        );
+
+        return $this->createEntry($data, $userId);
+    }
+
+    /**
+     * Debit Company Payable to Shops (2200), Credit Cash/Bank.
+     */
+    public function recordCompanyPayableDirectPayment(CompanyPayableSettlement $settlement, int $userId, ?string $paymentMode = null): JournalEntry
+    {
+        $amount = round((float) $settlement->amount, 2);
+        if ($amount <= 0) {
+            throw new RuntimeException('Company payable direct payment amount must be positive.');
+        }
+
+        $payableAccountId = $this->getAccountIdByCode('2200');
+        $cashAccountId = $settlement->payment_account_id
+            ? (int) $settlement->payment_account_id
+            : $this->cashAccountIdForPaymentMode($paymentMode);
+
+        $data = new JournalEntryData(
+            entryDate: $settlement->settlement_date?->toDateString() ?? now()->toDateString(),
+            reference: 'CP-PAY-'.$settlement->id,
+            description: 'Direct company payment for payable line #'.$settlement->shop_accounting_entry_line_id,
+            lines: [
+                ['account_id' => $payableAccountId, 'type' => 'debit', 'amount' => $amount],
+                ['account_id' => $cashAccountId, 'type' => 'credit', 'amount' => $amount],
+            ],
+            sourceType: CompanyPayableSettlement::class,
+            sourceId: $settlement->id,
+            sourceEvent: 'direct_company_payment',
+        );
+
+        return $this->createEntry($data, $userId);
     }
 
     private function getAccountIdByCode(string $code): int

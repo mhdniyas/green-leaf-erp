@@ -77,6 +77,25 @@ class RolePermissionSeeder extends Seeder
             'accounting.invoice.approve',
             'accounting.purchaser-cash.manage',
 
+            // Finance V2
+            'finance.dashboard.view',
+            'finance.payments.view',
+            'finance.payments.create',
+            'finance.payments.approve',
+            'finance.payments.reject',
+            'finance.payments.settle',
+            'finance.company-payables.view',
+            'finance.company-payables.review',
+            'finance.company-payables.settle',
+            'finance.petty.view',
+            'finance.petty.manage',
+            'finance.journals.view',
+            'finance.journals.reverse',
+            'shop.accounting.view',
+            'shop.accounting.create',
+            'shop.accounting.submit',
+            'shop.company-payables.view',
+
             // HR
             'hr.employee.view',
             'hr.employee.create',
@@ -131,6 +150,10 @@ class RolePermissionSeeder extends Seeder
                 'sales.order.cancel',
                 'hr.attendance.mark-owned-shop',
                 'hr.leave.submit-owned-shop',
+                'shop.accounting.view',
+                'shop.accounting.create',
+                'shop.accounting.submit',
+                'shop.company-payables.view',
             ],
 
             'purchase' => [
@@ -194,6 +217,19 @@ class RolePermissionSeeder extends Seeder
                 'accounting.report.export',
                 'accounting.dashboard.view',
                 'accounting.invoice.approve',
+                'finance.dashboard.view',
+                'finance.payments.view',
+                'finance.payments.create',
+                'finance.payments.approve',
+                'finance.payments.reject',
+                'finance.payments.settle',
+                'finance.company-payables.view',
+                'finance.company-payables.review',
+                'finance.company-payables.settle',
+                'finance.petty.view',
+                'finance.petty.manage',
+                'finance.journals.view',
+                'finance.journals.reverse',
             ],
         ];
 

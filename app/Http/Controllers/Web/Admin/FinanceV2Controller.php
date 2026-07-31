@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Web\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Client;
 use App\Models\Shop;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Services\Finance\FinanceV2DashboardService;
 use App\Services\ShopInvoices\ShopInvoiceService;
-use App\Support\AccountingAccess;
+use App\Support\FinanceAccess;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -27,65 +29,123 @@ class FinanceV2Controller extends Controller
 
     public function dashboard(Request $request): View
     {
-        $this->ensureAccess($request);
+        $this->ensureDashboardAccess($request);
 
         return view('admin.finance-v2.dashboard', $this->financeV2->dashboard($this->date($request)));
     }
 
     public function greenLeaf(Request $request, string $section): View
     {
-        $this->ensureAccess($request);
+        $this->ensureDashboardAccess($request);
         abort_unless(in_array($section, ['purchase', 'expense', 'salary', 'credit-loan', 'balance'], true), 404);
 
         return view('admin.finance-v2.green-leaf-section', $this->financeV2->greenLeafSection($section, $this->date($request)));
     }
 
-    public function aishwaryaVeg(Request $request): View
+    public function clientsIndex(Request $request): View
     {
-        $this->ensureAccess($request);
+        $this->ensureDashboardAccess($request);
+        $date = $this->date($request);
+        $payload = $this->financeV2->dashboard($date);
 
-        return view('admin.finance-v2.client', $this->financeV2->clientDashboard($this->date($request)));
+        return view('admin.finance-v2.clients-index', [
+            'date' => $payload['date'],
+            'month_start' => $payload['month_start'],
+            'month_end' => $payload['month_end'],
+            'client_summaries' => $payload['client_summaries'],
+            'company_position' => $payload['company_position'],
+        ]);
     }
 
-    public function aishwaryaVegSection(Request $request, string $section): View
+    public function clientShow(Request $request, Client $client): View
     {
-        $this->ensureAccess($request);
+        $this->ensureDashboardAccess($request);
+
+        return view('admin.finance-v2.client', $this->financeV2->clientDashboard($client, $this->date($request)));
+    }
+
+    public function clientSection(Request $request, Client $client, string $section): View
+    {
+        $this->ensureDashboardAccess($request);
         abort_unless(in_array($section, ['purchase', 'expense', 'salary', 'credit-loan', 'balance'], true), 404);
 
-        return view('admin.finance-v2.client-section', $this->financeV2->clientSection($section, $this->date($request)));
+        return view('admin.finance-v2.client-section', $this->financeV2->clientSection($client, $section, $this->date($request)));
+    }
+
+    public function aishwaryaVeg(Request $request): RedirectResponse
+    {
+        $this->ensureDashboardAccess($request);
+        $client = $this->legacyAishwaryaClient();
+
+        abort_unless($client instanceof Client, 404);
+
+        return redirect()->route('admin.finance-v2.clients.show', [
+            'client' => $client,
+            'date' => $this->date($request)->toDateString(),
+        ]);
+    }
+
+    public function aishwaryaVegSection(Request $request, string $section): RedirectResponse
+    {
+        $this->ensureDashboardAccess($request);
+        $client = $this->legacyAishwaryaClient();
+
+        abort_unless($client instanceof Client, 404);
+
+        return redirect()->route('admin.finance-v2.clients.section', [
+            'client' => $client,
+            'section' => $section,
+            'date' => $this->date($request)->toDateString(),
+        ]);
     }
 
     public function shop(Request $request, Shop $shop): View
     {
-        $this->ensureAccess($request);
+        $this->ensureDashboardAccess($request);
 
         return view('admin.finance-v2.shop', $this->financeV2->shopDashboard($shop, $this->date($request)));
     }
 
     public function reports(Request $request): View
     {
-        $this->ensureAccess($request);
+        $this->ensureDashboardAccess($request);
 
         return view('admin.finance-v2.reports', $this->financeV2->reports($this->date($request)));
     }
 
     public function payments(Request $request): View
     {
-        $this->ensureAccess($request);
+        $this->ensurePaymentsView($request);
 
         return view('admin.finance-v2.payments.index', $this->financeV2->payments($this->date($request)));
     }
 
     public function createPayment(Request $request): View
     {
-        $this->ensureAdmin($request);
+        abort_unless(FinanceAccess::canCreatePayments($request->user()), 403);
 
-        return view('admin.finance-v2.payments.create', $this->financeV2->createPayment($this->date($request)));
+        return view('admin.finance-v2.payments.create', [
+            ...$this->financeV2->createPayment($this->date($request)),
+            'prefill_shop_id' => $request->integer('shop_id') ?: null,
+            'prefill_requested_amount' => $request->input('requested_amount'),
+            'prefill_payment_method' => $request->input('payment_method', 'cash'),
+        ]);
+    }
+
+    public function shopPaymentContext(Request $request, Shop $shop): JsonResponse
+    {
+        abort_unless(FinanceAccess::canCreatePayments($request->user()), 403);
+
+        $amount = round((float) $request->input('amount', 0), 2);
+
+        return response()->json(
+            $this->financeV2->shopPaymentCreateContext($shop, $this->date($request), $amount)
+        );
     }
 
     public function storePayment(Request $request): RedirectResponse
     {
-        $this->ensureAdmin($request);
+        abort_unless(FinanceAccess::canCreatePayments($request->user()), 403);
 
         $validated = $request->validate([
             'shop_id' => ['required', 'integer', 'exists:shops,id'],
@@ -125,13 +185,16 @@ class FinanceV2Controller extends Controller
         ]);
 
         return redirect()
-            ->route('admin.finance-v2.payments.show', ['paymentRequest' => $paymentRequest])
+            ->route('admin.finance-v2.payments.show', [
+                'paymentRequest' => $paymentRequest,
+                'date' => $paymentRequest->payment_date?->toDateString(),
+            ])
             ->with('success', 'Payment created. Review pending bills before approval.');
     }
 
     public function showPayment(Request $request, ShopInvoicePaymentRequest $paymentRequest): View
     {
-        $this->ensureAccess($request);
+        $this->ensurePaymentsView($request);
 
         return view('admin.finance-v2.payments.show', $this->financeV2->paymentShow(
             $paymentRequest,
@@ -142,7 +205,7 @@ class FinanceV2Controller extends Controller
 
     public function approvePayment(Request $request, ShopInvoicePaymentRequest $paymentRequest): RedirectResponse
     {
-        $this->ensureAdmin($request);
+        abort_unless(FinanceAccess::canApprovePayments($request->user()), 403);
 
         $validated = $request->validate([
             'admin_verified_amount' => ['required', 'numeric', 'gt:0'],
@@ -178,7 +241,7 @@ class FinanceV2Controller extends Controller
 
     public function rejectPayment(Request $request, ShopInvoicePaymentRequest $paymentRequest): RedirectResponse
     {
-        $this->ensureAdmin($request);
+        abort_unless(FinanceAccess::canRejectPayments($request->user()), 403);
 
         $validated = $request->validate([
             'admin_note' => ['required', 'string', 'max:1000'],
@@ -202,7 +265,7 @@ class FinanceV2Controller extends Controller
 
     public function updateCheque(Request $request, ShopInvoicePaymentRequest $paymentRequest): RedirectResponse
     {
-        $this->ensureAdmin($request);
+        abort_unless(FinanceAccess::canApprovePayments($request->user()) || FinanceAccess::canRejectPayments($request->user()), 403);
 
         abort_unless($paymentRequest->payment_method === 'cheque', 404);
 
@@ -227,14 +290,22 @@ class FinanceV2Controller extends Controller
         return back()->with('success', 'Cheque status updated.');
     }
 
-    private function ensureAccess(Request $request): void
+    private function ensureDashboardAccess(Request $request): void
     {
-        abort_unless(AccountingAccess::canViewDashboard($request->user()), 403);
+        abort_unless(FinanceAccess::canViewDashboard($request->user()), 403);
     }
 
-    private function ensureAdmin(Request $request): void
+    private function ensurePaymentsView(Request $request): void
     {
-        abort_unless($request->user()?->hasRole('admin'), 403);
+        abort_unless(FinanceAccess::canViewPayments($request->user()), 403);
+    }
+
+    private function legacyAishwaryaClient(): ?Client
+    {
+        return Client::query()
+            ->where('code', 'AISHWARYA_VEG')
+            ->orWhere('name', 'Aishwarya Veg')
+            ->first();
     }
 
     private function date(Request $request): Carbon

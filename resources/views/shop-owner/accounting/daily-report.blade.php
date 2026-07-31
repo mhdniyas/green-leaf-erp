@@ -56,7 +56,7 @@
                             <th class="px-4 py-3 text-right">Opening Balance</th>
                             <th class="px-4 py-3 text-right">Income</th>
                             <th class="px-4 py-3 text-right">Daily Expense</th>
-                            <th class="px-4 py-3 text-right">Loan Total</th>
+                            <th class="px-4 py-3 text-right">Petty Total</th>
                             <th class="px-4 py-3 text-right">Closing Balance</th>
                             <th class="px-4 py-3 text-right">Net Difference</th>
                         </tr>

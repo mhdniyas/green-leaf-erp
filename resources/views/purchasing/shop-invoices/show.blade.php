@@ -485,10 +485,7 @@
                                 </button>
                             </form>
 
-                            <form method="POST" action="{{ route('admin.accounting.shop-invoices.payment', $invoice) }}" class="rounded-2xl border border-cyan-200 bg-cyan-50 p-4">
-                                @csrf
-                                @method('PATCH')
-                                <input type="hidden" name="discount_total" value="{{ number_format((float) $invoice->discount_total, 2, '.', '') }}">
+                            <div class="rounded-2xl border border-cyan-200 bg-cyan-50 p-4">
                                 <div class="grid gap-3 sm:grid-cols-3">
                                     <div>
                                         <p class="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Final Payable</p>
@@ -504,29 +501,16 @@
                                     </div>
                                 </div>
                                 @if ((float) $invoice->balance_amount > 0)
-                                    <label class="mt-4 block">
-                                        <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Total collected amount</span>
-                                        <input type="number" step="0.01" min="{{ number_format((float) $invoice->paid_amount, 2, '.', '') }}" max="{{ number_format((float) $invoice->final_total, 2, '.', '') }}" name="paid_amount" value="{{ old('paid_amount', number_format((float) $invoice->final_total, 2, '.', '')) }}" class="h-11 w-full rounded-2xl border border-cyan-200 bg-white px-4 text-sm font-bold text-slate-900 focus:border-cyan-400 focus:outline-none">
-                                        @error('paid_amount')
-                                            <span class="mt-1 block text-xs font-semibold text-rose-600">{{ $message }}</span>
-                                        @enderror
-                                    </label>
-                                    <label class="mt-4 block">
-                                        <span class="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Payment note</span>
-                                        <textarea name="payment_note" rows="3" class="w-full rounded-2xl border border-cyan-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-400 focus:outline-none" placeholder="e.g. Balance collected in cash.">{{ old('payment_note', $invoice->payment_note) }}</textarea>
-                                        @error('payment_note')
-                                            <span class="mt-1 block text-xs font-semibold text-rose-600">{{ $message }}</span>
-                                        @enderror
-                                    </label>
-                                    <button type="submit" class="mt-4 inline-flex h-11 w-full items-center justify-center rounded-2xl bg-cyan-600 px-5 text-sm font-black text-white transition hover:bg-cyan-500 sm:w-auto">
-                                        Update Payment
-                                    </button>
+                                    <p class="mt-4 text-sm font-semibold text-cyan-800">Payment collection, cheque clearance and approval are handled from Finance V2 Payments.</p>
+                                    <a href="{{ route('admin.finance-v2.payments.create', ['date' => $invoice->business_date?->toDateString() ?? today()->toDateString(), 'shop_id' => $invoice->shop_id, 'requested_amount' => round((float) $invoice->balance_amount, 2)]) }}" class="mt-4 inline-flex h-11 w-full items-center justify-center rounded-2xl bg-cyan-600 px-5 text-sm font-black text-white transition hover:bg-cyan-500 sm:w-auto">
+                                        Finance payment
+                                    </a>
                                 @else
                                     <div class="mt-4 rounded-2xl border border-emerald-200 bg-white p-4 text-sm font-black text-emerald-700">
                                         This bill is fully paid.
                                     </div>
                                 @endif
-                            </form>
+                            </div>
                         </div>
                     @endif
                 </section>

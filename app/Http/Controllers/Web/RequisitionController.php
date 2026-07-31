@@ -374,7 +374,7 @@ class RequisitionController extends Controller
         $user = $request->user();
 
         $categoryQuery = Category::with(['products' => function ($query): void {
-            $query->where('is_active', true)->with('orderUnits')->ordered();
+            $query->where('is_active', true)->with(['orderUnits' => fn ($q) => $q->where('is_orderable', true)])->ordered();
         }])
             ->where('is_active', true);
 

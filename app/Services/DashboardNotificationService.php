@@ -8,6 +8,7 @@ use App\Enums\Purchasing\InvoiceStatus;
 use App\Models\GoodsReceived;
 use App\Models\PurchaseInvoice;
 use App\Models\ShopAccountingEntry;
+use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopCredit;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
@@ -51,12 +52,19 @@ class DashboardNotificationService
             'supplier_invoices_pending' => PurchaseInvoice::query()
                 ->where('status', InvoiceStatus::Pending)
                 ->count(),
+            'company_payables_pending' => \Illuminate\Support\Facades\Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')
+                ? ShopAccountingEntryLine::query()
+                    ->where('funding_source', 'company')
+                    ->where('company_payable_status', 'pending')
+                    ->count()
+                : 0,
         ];
 
         $counts['accounting_total'] = $counts['owned_shop_receipts_pending']
             + $counts['owned_shop_recheck']
             + $counts['owned_shop_company_payments_pending']
-            + $counts['shop_payment_requests_pending'];
+            + $counts['shop_payment_requests_pending']
+            + $counts['company_payables_pending'];
 
         $counts['owned_shop_total'] = $counts['owned_shop_receipts_pending']
             + $counts['owned_shop_recheck']
@@ -99,6 +107,13 @@ class DashboardNotificationService
                 'href' => route('admin.accounting.owned-shops.index'),
                 'hint' => 'Owned shop cash payments waiting for approval.',
                 'tone' => 'amber',
+            ],
+            [
+                'label' => 'Company Expense Requests',
+                'count' => $counts['company_payables_pending'],
+                'href' => route('admin.finance-v2.company-payables.index'),
+                'hint' => 'Shop expenses waiting for company payable review.',
+                'tone' => 'violet',
             ],
             [
                 'label' => 'Delivery Reviews',

@@ -352,7 +352,7 @@ class PurchaserDashboardController extends Controller
 
         $summaryProductIds = $dailySummary->pluck('product_id')->all();
         $addOnProducts = Product::query()
-            ->with(['category', 'orderUnits'])
+            ->with(['category', 'orderUnits' => fn ($q) => $q->where('is_orderable', true)])
             ->active()
             ->ordered()
             ->whereNotIn('id', $summaryProductIds)
@@ -398,7 +398,7 @@ class PurchaserDashboardController extends Controller
 
         $dailySummaryMap = $this->buildDailySummary($date, $frequentProductIds)->keyBy('product_id');
         $products = Product::query()
-            ->with(['category', 'orderUnits'])
+            ->with(['category', 'orderUnits' => fn ($q) => $q->where('is_orderable', true)])
             ->whereIn('id', array_map('intval', $productIds))
             ->get();
 
@@ -2261,7 +2261,7 @@ class PurchaserDashboardController extends Controller
             ->whereHas('order', function ($query) use ($date): void {
                 $query->whereDate('business_date', $date)->where('state', 'approved');
             })
-            ->with(['product.category', 'product.orderUnits', 'order.shop', 'order'])
+            ->with(['product.category', 'product.orderUnits' => fn ($q) => $q->where('is_orderable', true), 'order.shop', 'order'])
             ->get();
 
         $authUser = auth()->user();

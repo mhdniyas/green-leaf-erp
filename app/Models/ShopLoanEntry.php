@@ -73,8 +73,8 @@ class ShopLoanEntry extends Model
     public function typeLabel(): string
     {
         return match ($this->type) {
-            self::TypeRepayment => 'Repayment received',
-            default => 'Cash loan given',
+            self::TypeRepayment => 'Petty returned',
+            default => 'Petty given',
         };
     }
 }

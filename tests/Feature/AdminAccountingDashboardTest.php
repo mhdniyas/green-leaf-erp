@@ -274,21 +274,14 @@ class AdminAccountingDashboardTest extends TestCase
                 'payment_note' => 'Client balance received.',
             ])
             ->assertRedirect()
-            ->assertSessionHas('success');
+            ->assertSessionHas('warning', 'Payment approvals are handled from Finance V2 Payments.');
 
         $invoice->refresh();
         $paymentRequest = ShopInvoicePaymentRequest::query()->latest('id')->first();
 
         $this->assertSame('200.00', $invoice->paid_amount);
         $this->assertSame('800.00', $invoice->balance_amount);
-        $this->assertSame('admin_client_balance', $paymentRequest?->request_type);
-        $this->assertSame('0.00', $paymentRequest?->applied_amount);
-        $this->assertSame('500.00', $paymentRequest?->credit_amount);
-        $this->assertDatabaseHas('journal_entries', [
-            'source_type' => ShopInvoicePaymentRequest::class,
-            'source_id' => $paymentRequest?->id,
-            'source_event' => 'client-balance-payment:'.$paymentRequest?->id,
-        ]);
+        $this->assertNull($paymentRequest);
     }
 
     public function test_admin_can_view_client_category_wise_income_and_expense_report(): void

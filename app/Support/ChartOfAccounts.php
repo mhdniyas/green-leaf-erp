@@ -19,6 +19,7 @@ class ChartOfAccounts
             ['code' => '1300', 'name' => 'Purchaser Advances', 'type' => 'asset', 'is_active' => true, 'parent_id' => null],
             ['code' => '2100', 'name' => 'Accounts Payable', 'type' => 'liability', 'is_active' => true, 'parent_id' => null],
             ['code' => '2150', 'name' => 'Goods Received Not Invoiced', 'type' => 'liability', 'is_active' => true, 'parent_id' => null],
+            ['code' => '2200', 'name' => 'Company Payable to Shops', 'type' => 'liability', 'is_active' => true, 'parent_id' => null],
             ['code' => '3100', 'name' => 'Owner\'s Equity', 'type' => 'equity', 'is_active' => true, 'parent_id' => null],
             ['code' => '3200', 'name' => 'Retained Earnings', 'type' => 'equity', 'is_active' => true, 'parent_id' => null],
             ['code' => '4100', 'name' => 'Sales Revenue', 'type' => 'revenue', 'is_active' => true, 'parent_id' => null],

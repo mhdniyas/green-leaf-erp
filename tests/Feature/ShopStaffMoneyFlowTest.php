@@ -1337,7 +1337,7 @@ class ShopStaffMoneyFlowTest extends TestCase
                 'end_date' => '2026-07-31',
             ]))
             ->assertOk()
-            ->assertSeeText('Daily Shop Receipt workflow')
+            ->assertSeeText('Review queue')
             ->assertSeeText('Expense Rs. 4,000.00')
             ->assertSee($reviewUrl, false)
             ->assertSee('name="decision" value="approve"', false)
@@ -1585,8 +1585,8 @@ class ShopStaffMoneyFlowTest extends TestCase
 
         $this
             ->actingAs($admin)
-            ->patch(route('admin.accounting.shop-invoice-payment-requests.review', $paymentRequest), [
-                'decision' => 'approve',
+            ->patch(route('admin.finance-v2.payments.approve', $paymentRequest), [
+                'admin_verified_amount' => 200,
                 'admin_note' => 'Verified cash received',
             ])
             ->assertSessionHas('success');
@@ -1599,7 +1599,7 @@ class ShopStaffMoneyFlowTest extends TestCase
         $this->assertSame(1, JournalEntry::query()->where('source_type', ShopInvoice::class)->where('source_id', $regularInvoice->id)->count());
     }
 
-    public function test_admin_client_shop_daily_bill_payment_posts_shop_invoice_journal(): void
+    public function test_admin_client_shop_daily_bill_payment_redirects_to_finance_v2(): void
     {
         $this->seed(RolePermissionSeeder::class);
 
@@ -1616,14 +1616,19 @@ class ShopStaffMoneyFlowTest extends TestCase
                 'paid_amount' => 750,
                 'payment_note' => 'Owned shop bill approved.',
             ])
-            ->assertSessionHas('success');
+            ->assertRedirect(route('admin.finance-v2.payments.create', [
+                'date' => '2026-07-18',
+                'shop_id' => $shop->id,
+                'requested_amount' => 750.0,
+            ]))
+            ->assertSessionHas('warning', 'Payment approvals are handled from Finance V2 Payments.');
 
         $invoice->refresh();
 
-        $this->assertSame('paid', $invoice->payment_status);
-        $this->assertSame('750.00', $invoice->paid_amount);
-        $this->assertSame('0.00', $invoice->balance_amount);
-        $this->assertSame(1, JournalEntry::query()
+        $this->assertSame('unpaid', $invoice->payment_status);
+        $this->assertSame('0.00', $invoice->paid_amount);
+        $this->assertSame('750.00', $invoice->balance_amount);
+        $this->assertSame(0, JournalEntry::query()
             ->where('source_type', ShopInvoice::class)
             ->where('source_id', $invoice->id)
             ->count());
@@ -1667,8 +1672,8 @@ class ShopStaffMoneyFlowTest extends TestCase
 
         $this
             ->actingAs($admin)
-            ->patch(route('admin.accounting.shop-invoice-payment-requests.review', $paymentRequest), [
-                'decision' => 'approve',
+            ->patch(route('admin.finance-v2.payments.approve', $paymentRequest), [
+                'admin_verified_amount' => 1000,
                 'admin_note' => 'Cash verified',
             ])
             ->assertSessionHas('success');
@@ -1750,8 +1755,8 @@ class ShopStaffMoneyFlowTest extends TestCase
 
         $this
             ->actingAs($admin)
-            ->patch(route('admin.accounting.owned-shops.payment-requests.review', ['shop' => $shop, 'paymentRequest' => $paymentRequest]), [
-                'decision' => 'approve',
+            ->patch(route('admin.finance-v2.payments.approve', $paymentRequest), [
+                'admin_verified_amount' => 1250,
                 'admin_note' => 'Closing cash received',
             ])
             ->assertSessionHas('success');

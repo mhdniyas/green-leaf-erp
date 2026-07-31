@@ -1,19 +1,24 @@
 <x-layouts.accounting title="Shop Finance Detail">
+    @php
+        $dateParam = $date->format('Y-m-d');
+    @endphp
+
     <div class="mx-auto max-w-[96rem] space-y-5">
         @include('admin.finance-v2.partials.nav')
 
-        <section class="rounded-[1.6rem] border border-slate-200 bg-slate-50 p-5 shadow-sm">
-            <p class="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">{{ $shop->client?->name ?? 'Direct Sales' }}</p>
-            <h2 class="mt-2 text-3xl font-black tracking-tight text-slate-950">{{ $shop->name }}</h2>
-            <p class="mt-2 text-sm font-semibold text-slate-600">{{ $month_start->format('d M Y') }} to {{ $month_end->format('d M Y') }}</p>
+        <section class="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white shadow-sm">
+            <div class="border-b border-slate-200 bg-slate-950 px-5 py-6 text-white sm:px-6">
+                <p class="text-[10px] font-black uppercase tracking-[0.28em] text-emerald-300">{{ $shop->client?->name ?? 'Direct Sales' }}</p>
+                <h1 class="mt-2 text-3xl font-black tracking-tight">{{ $shop->name }}</h1>
+                <p class="mt-2 text-sm font-semibold text-slate-300">{{ $month_start->format('d M Y') }} – {{ $month_end->format('d M Y') }}</p>
+            </div>
         </section>
 
         @if($summary)
-            <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <section class="grid gap-3 md:grid-cols-3">
                 @include('admin.finance-v2.partials.metric-card', ['label' => 'Bills', 'value' => $summary['bills'], 'href' => '#ledger'])
                 @include('admin.finance-v2.partials.metric-card', ['label' => 'Expense', 'value' => $summary['expense'], 'href' => '#ledger'])
                 @include('admin.finance-v2.partials.metric-card', ['label' => 'Salary', 'value' => $summary['salary'], 'href' => '#ledger'])
-                @include('admin.finance-v2.partials.metric-card', ['label' => 'Loan', 'value' => $summary['loan'], 'href' => '#ledger'])
             </section>
 
             <section class="grid gap-3 md:grid-cols-4">
@@ -36,12 +41,14 @@
             </section>
         @endif
 
-        <section id="ledger" class="space-y-4">
-            <div>
+        <section id="ledger" class="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white shadow-sm">
+            <div class="border-b border-slate-100 px-5 py-4">
                 <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Shop Ledger</p>
-                <h3 class="mt-1 text-xl font-black text-slate-950">Invoices, expenses, salary, loans and pending balances</h3>
+                <h2 class="mt-1 text-xl font-black text-slate-950">Invoices, expenses, salary and pending balances</h2>
             </div>
-            @include('admin.finance-v2.partials.detail-table', ['rows' => $ledger_rows])
+            <div class="p-4 sm:p-5">
+                @include('admin.finance-v2.partials.detail-table', ['rows' => $ledger_rows])
+            </div>
         </section>
     </div>
 </x-layouts.accounting>

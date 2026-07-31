@@ -16,6 +16,7 @@ use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopLoanEntry;
 use App\Models\ShopStaffPayment;
+use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -28,16 +29,28 @@ class FinanceV2DashboardService
     public function dashboard(Carbon $date): array
     {
         $period = $this->period($date);
-        $client = $this->aishwaryaVegClient();
+        $clients = $this->activeClients();
+        $clientSummaries = $clients->map(function (Client $client) use ($period): array {
+            $summary = $this->clientSummary($client, $period['month_start'], $period['month_end']);
+
+            return [
+                'client' => $client,
+                'summary' => $summary,
+            ];
+        })->values();
 
         return [
             ...$period,
             'green_leaf' => $this->greenLeafSummary($period['month_start'], $period['month_end']),
-            'client' => $client,
-            'client_summary' => $this->clientSummary($client, $period['month_start'], $period['month_end']),
+            'clients' => $clients,
+            'client_summaries' => $clientSummaries,
+            'client' => $clients->first(),
+            'client_summary' => $clientSummaries->first()['summary'] ?? $this->emptyShopSummaryTotals(),
             'direct_summary' => $this->directSalesSummary($period['month_start'], $period['month_end']),
             'pending_payments' => $this->pendingPayments(),
             'report_rows' => $this->dailyReportRows($period['month_start'], $period['date']),
+            'company_position' => $this->companyPositionSummary($period['month_start'], $period['month_end']),
+            'alerts' => $this->dashboardAlerts(),
         ];
     }
 
@@ -66,10 +79,9 @@ class FinanceV2DashboardService
     /**
      * @return array<string, mixed>
      */
-    public function clientDashboard(Carbon $date): array
+    public function clientDashboard(Client $client, Carbon $date): array
     {
         $period = $this->period($date);
-        $client = $this->aishwaryaVegClient();
 
         return [
             ...$period,
@@ -82,10 +94,9 @@ class FinanceV2DashboardService
     /**
      * @return array<string, mixed>
      */
-    public function clientSection(string $section, Carbon $date): array
+    public function clientSection(Client $client, string $section, Carbon $date): array
     {
         $period = $this->period($date);
-        $client = $this->aishwaryaVegClient();
         $shops = $this->clientShops($client);
 
         return [
@@ -119,13 +130,17 @@ class FinanceV2DashboardService
     public function reports(Carbon $date): array
     {
         $period = $this->period($date);
-        $client = $this->aishwaryaVegClient();
+        $clients = $this->activeClients();
+        $clientShops = $clients->flatMap(fn (Client $client) => $this->clientShops($client))->values();
 
         return [
             ...$period,
             'daily_rows' => $this->dailyReportRows($period['month_start'], $period['date']),
-            'shop_rows' => $this->shopSummaryRows($this->clientShops($client), $period['month_start'], $period['month_end']),
+            'shop_rows' => $this->shopSummaryRows($clientShops, $period['month_start'], $period['month_end']),
             'direct_rows' => $this->shopSummaryRows($this->directSalesShops(), $period['month_start'], $period['month_end']),
+            'clients' => $clients,
+            'company_position' => $this->companyPositionSummary($period['month_start'], $period['month_end']),
+            'payable_ageing' => $this->companyPayableAgeing(),
         ];
     }
 
@@ -155,12 +170,131 @@ class FinanceV2DashboardService
         return [
             ...$period,
             'shops' => Shop::query()
+                ->with('client')
                 ->where(function (Builder $query): void {
                     $query->whereNotNull('client_id')
                         ->orWhere('accounting_enabled', true);
                 })
                 ->orderBy('name')
                 ->get(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function shopPaymentCreateContext(Shop $shop, Carbon $date, float $amount = 0.0): array
+    {
+        $period = $this->period($date);
+        $shop->loadMissing('client');
+        $shopInvoiceService = app(ShopInvoiceService::class);
+        $preview = $shopInvoiceService->allocationPreviewForShop($shop->id, $amount);
+        $summary = $this->shopSummaryRows(collect([$shop]), $period['month_start'], $period['month_end'])->first() ?? [];
+        $availableCredit = $shopInvoiceService->availableShopCredit($shop->id);
+        $pendingInvoices = $shopInvoiceService->pendingInvoicesForShop($shop->id);
+        $companyPayableRemaining = 0.0;
+        $companyPayablePendingCount = 0;
+        $companyPayables = [];
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')) {
+            $payableLines = app(CompanyPayableService::class)->openPayables($shop);
+            $companyPayablePendingCount = $payableLines->where('company_payable_status', ShopAccountingEntryLine::PayablePending)->count();
+            $companyPayableRemaining = round($payableLines->sum(
+                fn (ShopAccountingEntryLine $line): float => $line->remainingCompanyPayableAmount()
+            ), 2);
+            $companyPayables = $payableLines->map(function (ShopAccountingEntryLine $line): array {
+                $status = (string) $line->company_payable_status;
+
+                return [
+                    'id' => $line->id,
+                    'category' => $line->category?->name ?? 'Expense',
+                    'status' => $status,
+                    'status_label' => match ($status) {
+                        ShopAccountingEntryLine::PayablePending => 'Ready for review',
+                        ShopAccountingEntryLine::PayableApproved => 'Approved',
+                        default => str($status)->replace('_', ' ')->title()->toString(),
+                    },
+                    'amount' => round((float) ($line->company_approved_amount ?? $line->company_payable_amount ?? $line->amount), 2),
+                    'remaining' => round($line->remainingCompanyPayableAmount(), 2),
+                    'business_date' => $line->entry?->business_date?->toDateString(),
+                    'url' => route('admin.finance-v2.company-payables.show', $line),
+                ];
+            })->values()->all();
+        }
+
+        $recentPayments = ShopInvoicePaymentRequest::query()
+            ->where('shop_id', $shop->id)
+            ->with(['invoice', 'requestedBy', 'reviewedBy'])
+            ->latest('id')
+            ->limit(8)
+            ->get()
+            ->map(fn (ShopInvoicePaymentRequest $payment): array => [
+                'id' => $payment->id,
+                'date' => $payment->payment_date?->toDateString() ?? $payment->created_at?->toDateString(),
+                'method' => $payment->paymentMethodLabel(),
+                'amount' => round((float) $payment->requested_amount, 2),
+                'verified_amount' => round((float) ($payment->admin_verified_amount ?? $payment->approved_amount ?? 0), 2),
+                'status' => $payment->statusLabel(),
+                'status_raw' => $payment->status,
+                'url' => route('admin.finance-v2.payments.show', $payment),
+            ])
+            ->values()
+            ->all();
+
+        $invoices = $pendingInvoices->map(fn (ShopInvoice $invoice): array => [
+            'id' => $invoice->id,
+            'invoice_number' => $invoice->invoice_number,
+            'business_date' => $invoice->business_date?->toDateString(),
+            'balance_amount' => round((float) $invoice->balance_amount, 2),
+            'final_total' => round((float) $invoice->final_total, 2),
+        ])->values()->all();
+
+        $allocationRows = collect($preview['invoices'])->map(fn (array $row): array => [
+            'id' => $row['invoice']->id,
+            'invoice_number' => $row['invoice']->invoice_number,
+            'business_date' => $row['invoice']->business_date?->toDateString(),
+            'balance_amount' => round((float) $row['invoice']->balance_amount, 2),
+            'allocate_amount' => round((float) $row['amount'], 2),
+        ])->values()->all();
+
+        $applied = (float) $preview['applied_amount'];
+        $credit = (float) $preview['credit_amount'];
+        $message = match (true) {
+            $amount <= 0 => 'Enter a payment amount to preview invoice allocation.',
+            $applied > 0 && $credit > 0 => 'This payment will cover Rs. '.number_format($applied, 2).' of bills; Rs. '.number_format($credit, 2).' becomes shop credit.',
+            $applied > 0 => 'This payment will cover Rs. '.number_format($applied, 2).' of pending bills.',
+            default => 'No pending bills. The full amount will become shop credit (Rs. '.number_format($credit, 2).').',
+        };
+
+        return [
+            'shop' => [
+                'id' => $shop->id,
+                'name' => $shop->name,
+                'code' => $shop->code,
+                'client_name' => $shop->client?->name,
+            ],
+            'summary' => [
+                'pending_bills' => (float) $preview['total_due'],
+                'available_credit' => $availableCredit,
+                'closing_balance' => (float) ($summary['closing_balance'] ?? 0),
+                'bills_mtd' => (float) ($summary['bills'] ?? 0),
+                'received_mtd' => (float) ($summary['received'] ?? 0),
+                'petty_mtd' => (float) ($summary['loan'] ?? 0),
+                'company_payable_remaining' => $companyPayableRemaining,
+                'company_payable_pending_count' => $companyPayablePendingCount,
+            ],
+            'preview' => [
+                'amount' => round($amount, 2),
+                'total_due' => (float) $preview['total_due'],
+                'applied_amount' => $applied,
+                'credit_amount' => $credit,
+                'message' => $message,
+                'allocations' => $allocationRows,
+            ],
+            'pending_invoices' => $invoices,
+            'recent_payments' => $recentPayments,
+            'company_payables' => $companyPayables,
+            'company_payables_url' => route('admin.finance-v2.company-payables.index', ['date' => $period['date']->toDateString()]),
         ];
     }
 
@@ -207,6 +341,232 @@ class FinanceV2DashboardService
             ->where('code', 'AISHWARYA_VEG')
             ->orWhere('name', 'Aishwarya Veg')
             ->first();
+    }
+
+    /**
+     * @return Collection<int, Client>
+     */
+    public function activeClients(): Collection
+    {
+        return Client::query()
+            ->active()
+            ->orderBy('name')
+            ->get();
+    }
+
+    public function resolveClient(Client|string|int|null $client = null): ?Client
+    {
+        if ($client instanceof Client) {
+            return $client;
+        }
+
+        if (is_int($client) || (is_string($client) && ctype_digit($client))) {
+            return Client::query()->find((int) $client);
+        }
+
+        if (is_string($client) && $client !== '') {
+            return Client::query()
+                ->where('code', $client)
+                ->orWhere('name', $client)
+                ->first();
+        }
+
+        return null;
+    }
+
+    /**
+     * @return Collection<int, Shop>
+     */
+    private function financeEnabledShops(?Client $client = null): Collection
+    {
+        if ($client instanceof Client) {
+            return $this->clientShops($client);
+        }
+
+        return Shop::query()
+            ->where(function (Builder $query): void {
+                $query->whereNotNull('client_id')
+                    ->orWhere('accounting_enabled', true);
+            })
+            ->orderBy('name')
+            ->get();
+    }
+
+    /**
+     * @return array<string, float|int>
+     */
+    private function emptyShopSummaryTotals(): array
+    {
+        return [
+            'shop_count' => 0,
+            'bills' => 0.0,
+            'expense' => 0.0,
+            'salary' => 0.0,
+            'loan' => 0.0,
+            'received' => 0.0,
+            'credit' => 0.0,
+            'balance' => 0.0,
+            'company_payable' => 0.0,
+            'petty_outstanding' => 0.0,
+            'net_position' => 0.0,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function companyPositionSummary(Carbon $startDate, Carbon $endDate): array
+    {
+        $purchase = $this->purchaseTotals($startDate, $endDate);
+        $shops = $this->financeEnabledShops();
+        $shopReceivable = round((float) $this->shopSummaryRows($shops, $startDate, $endDate)->sum('closing_balance'), 2);
+        $companyPayable = $this->totalCompanyPayableOutstanding();
+        $pettyOutstanding = $this->totalPettyOutstanding();
+        $pendingCompanyRequests = $this->pendingCompanyPayableCount();
+        $netPosition = round($shopReceivable - $companyPayable, 2);
+
+        return [
+            'company_cash_bank' => round((float) ($this->greenLeafSummary($startDate, $endDate)['balance'] ?? 0), 2),
+            'direct_bills_payable' => $purchase['pending'],
+            'total_shop_receivable' => $shopReceivable,
+            'total_company_payable' => $companyPayable,
+            'petty_outstanding' => $pettyOutstanding,
+            'pending_company_expense_requests' => $pendingCompanyRequests,
+            'net_client_position' => $netPosition,
+            'net_client_position_message' => $netPosition >= 0
+                ? 'Green Leaf must receive ₹'.number_format(abs($netPosition), 2)
+                : 'Green Leaf must pay shops ₹'.number_format(abs($netPosition), 2),
+        ];
+    }
+
+    public function totalCompanyPayableOutstanding(): float
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')) {
+            return 0.0;
+        }
+
+        return round((float) ShopAccountingEntryLine::query()
+            ->where('funding_source', 'company')
+            ->whereIn('company_payable_status', ['pending', 'approved'])
+            ->selectRaw('COALESCE(SUM(COALESCE(company_approved_amount, company_payable_amount, amount) - COALESCE(company_settled_amount, 0)), 0) as remaining')
+            ->value('remaining'), 2);
+    }
+
+    public function totalPettyOutstanding(): float
+    {
+        return round((float) ShopLoanEntry::query()
+            ->approved()
+            ->selectRaw("COALESCE(SUM(CASE WHEN type = 'cash_given' THEN amount WHEN type = 'repayment' THEN -amount ELSE 0 END), 0) as balance")
+            ->value('balance'), 2);
+    }
+
+    public function pendingCompanyPayableCount(): int
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')) {
+            return 0;
+        }
+
+        return ShopAccountingEntryLine::query()
+            ->where('funding_source', 'company')
+            ->where('company_payable_status', 'pending')
+            ->count();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function dashboardAlerts(): array
+    {
+        $pendingPayments = ShopInvoicePaymentRequest::query()->where('status', 'pending')->count();
+        $unallocatedCredits = ShopInvoicePaymentRequest::query()
+            ->where('status', 'approved')
+            ->where('credit_amount', '>', 0)
+            ->count();
+        $overduePurchaseInvoices = PurchaseInvoice::query()
+            ->whereRaw('amount > COALESCE(paid_amount, 0) + COALESCE(discount_amount, 0)')
+            ->where('created_at', '<', now()->subDays(30))
+            ->count();
+
+        $pendingCompany = 0;
+        $pendingOver7 = 0;
+        $pendingOver14 = 0;
+        $pendingOver30 = 0;
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')) {
+            $pendingCompany = $this->pendingCompanyPayableCount();
+            $pendingOver7 = ShopAccountingEntryLine::query()
+                ->where('funding_source', 'company')
+                ->where('company_payable_status', 'pending')
+                ->where('created_at', '<', now()->subDays(7))
+                ->count();
+            $pendingOver14 = ShopAccountingEntryLine::query()
+                ->where('funding_source', 'company')
+                ->where('company_payable_status', 'pending')
+                ->where('created_at', '<', now()->subDays(14))
+                ->count();
+            $pendingOver30 = ShopAccountingEntryLine::query()
+                ->where('funding_source', 'company')
+                ->where('company_payable_status', 'pending')
+                ->where('created_at', '<', now()->subDays(30))
+                ->count();
+        }
+
+        return [
+            'new_company_expense_requests' => $pendingCompany,
+            'company_requests_over_7_days' => $pendingOver7,
+            'company_requests_over_14_days' => $pendingOver14,
+            'company_requests_over_30_days' => $pendingOver30,
+            'shop_payments_awaiting_approval' => $pendingPayments,
+            'unallocated_shop_payments' => $unallocatedCredits,
+            'purchase_invoices_overdue' => $overduePurchaseInvoices,
+            'journal_posting_failures' => 0,
+        ];
+    }
+
+    /**
+     * @return array<string, float>
+     */
+    public function companyPayableAgeing(): array
+    {
+        $buckets = [
+            '0_7' => 0.0,
+            '8_14' => 0.0,
+            '15_30' => 0.0,
+            '31_60' => 0.0,
+            'above_60' => 0.0,
+        ];
+
+        if (! \Illuminate\Support\Facades\Schema::hasColumn('shop_accounting_entry_lines', 'company_payable_status')) {
+            return $buckets;
+        }
+
+        $lines = ShopAccountingEntryLine::query()
+            ->where('funding_source', 'company')
+            ->whereIn('company_payable_status', ['pending', 'approved'])
+            ->get(['amount', 'company_payable_amount', 'company_approved_amount', 'company_settled_amount', 'created_at']);
+
+        foreach ($lines as $line) {
+            $remaining = round(
+                (float) ($line->company_approved_amount ?? $line->company_payable_amount ?? $line->amount)
+                - (float) ($line->company_settled_amount ?? 0),
+                2
+            );
+            if ($remaining <= 0) {
+                continue;
+            }
+
+            $days = (int) ($line->created_at?->diffInDays(now()) ?? 0);
+            $key = match (true) {
+                $days <= 7 => '0_7',
+                $days <= 14 => '8_14',
+                $days <= 30 => '15_30',
+                $days <= 60 => '31_60',
+                default => 'above_60',
+            };
+            $buckets[$key] = round($buckets[$key] + $remaining, 2);
+        }
+
+        return $buckets;
     }
 
     /**
@@ -605,7 +965,11 @@ class FinanceV2DashboardService
                 'status' => $payment->fund_source,
             ]);
 
-        return $payroll->merge($shopStaff)->sortByDesc('date')->values();
+        return collect()
+            ->concat($payroll)
+            ->concat($shopStaff)
+            ->sortByDesc('date')
+            ->values();
     }
 
     /**
@@ -663,12 +1027,12 @@ class FinanceV2DashboardService
         $salaryRows = $this->salaryRows($startDate, $endDate);
         $loanRows = $this->greenLeafCreditLoanRows($startDate, $endDate);
 
-        return $receivedRows
-            ->toBase()
-            ->merge($purchaseRows)
-            ->merge($expenseRows)
-            ->merge($salaryRows)
-            ->merge($loanRows)
+        return collect()
+            ->concat($receivedRows)
+            ->concat($purchaseRows)
+            ->concat($expenseRows)
+            ->concat($salaryRows)
+            ->concat($loanRows)
             ->sortByDesc('date')
             ->values();
     }
@@ -758,7 +1122,12 @@ class FinanceV2DashboardService
                 'status' => $entry->typeLabel(),
             ]);
 
-        return $invoices->merge($expenses)->merge($loans)->sortByDesc('date')->values();
+        return collect()
+            ->concat($invoices)
+            ->concat($expenses)
+            ->concat($loans)
+            ->sortByDesc('date')
+            ->values();
     }
 
     /**
@@ -772,17 +1141,18 @@ class FinanceV2DashboardService
             $dayStart = $cursor->copy()->startOfDay();
             $dayEnd = $cursor->copy()->endOfDay();
             $greenLeaf = $this->greenLeafSummary($dayStart, $dayEnd);
-            $client = $this->clientSummary($this->aishwaryaVegClient(), $dayStart, $dayEnd);
+            $clientTotals = $this->activeClients()
+                ->map(fn (Client $client) => $this->clientSummary($client, $dayStart, $dayEnd));
 
             $rows->push([
                 'date' => $cursor->toDateString(),
                 'label' => $cursor->format('d M'),
                 'total_received' => round((float) $greenLeaf['total_received'], 2),
                 'total_paid' => round((float) $greenLeaf['total_paid'], 2),
-                'salary' => round((float) $greenLeaf['salary_total'] + (float) $client['salary'], 2),
-                'loan' => round((float) $greenLeaf['loan_total'] + (float) $client['loan'], 2),
-                'expense' => round((float) $greenLeaf['expense_total'] + (float) $client['expense'], 2),
-                'balance' => round((float) $greenLeaf['balance'] + (float) $client['balance'], 2),
+                'salary' => round((float) $greenLeaf['salary_total'] + (float) $clientTotals->sum('salary'), 2),
+                'loan' => round((float) $greenLeaf['loan_total'] + (float) $clientTotals->sum('loan'), 2),
+                'expense' => round((float) $greenLeaf['expense_total'] + (float) $clientTotals->sum('expense'), 2),
+                'balance' => round((float) $greenLeaf['balance'] + (float) $clientTotals->sum('balance'), 2),
             ]);
         }
 

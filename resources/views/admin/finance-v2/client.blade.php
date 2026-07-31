@@ -1,38 +1,39 @@
-<x-layouts.accounting title="Aishwarya Veg">
-    @php
-        $dateParam = $date->format('Y-m-d');
-        $clientName = $client?->name ?? 'Aishwarya Veg';
-        $sectionHref = fn (string $section): string => route('admin.finance-v2.aishwarya-veg.section', ['section' => $section, 'date' => $dateParam]);
-    @endphp
+@php
+    $dateParam = $date->format('Y-m-d');
+    $clientName = $client?->name ?? 'Client';
+    $sectionHref = fn (string $section): string => route('admin.finance-v2.clients.section', ['client' => $client, 'section' => $section, 'date' => $dateParam]);
+@endphp
+
+<x-layouts.accounting :title="$clientName">
 
     <div class="mx-auto max-w-[96rem] space-y-5">
         @include('admin.finance-v2.partials.nav')
 
-        <section class="rounded-[1.6rem] border border-slate-200 bg-slate-50 p-5 shadow-sm">
-            <p class="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Client Account</p>
-            <h2 class="mt-2 text-3xl font-black tracking-tight text-slate-950">{{ $clientName }}</h2>
-            <p class="mt-2 text-sm font-semibold text-slate-600">Same account structure as Green Leaf, split by all shops.</p>
+        <section class="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white shadow-sm">
+            <div class="border-b border-slate-200 bg-slate-950 px-5 py-6 text-white sm:px-6">
+                <p class="text-[10px] font-black uppercase tracking-[0.28em] text-emerald-300">Client Account</p>
+                <h1 class="mt-2 text-3xl font-black tracking-tight">{{ $clientName }}</h1>
+                <p class="mt-2 text-sm font-semibold text-slate-300">Shop-level bills, expenses, salary, receipts and closing balances for this period.</p>
+            </div>
         </section>
 
         <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            @include('admin.finance-v2.partials.metric-card', ['label' => 'Purchase / Bills', 'value' => $summary['bills'], 'hint' => 'Shop-wise bill split', 'href' => $sectionHref('purchase')])
-            @include('admin.finance-v2.partials.metric-card', ['label' => 'Expense', 'value' => $summary['expense'], 'hint' => 'Shop-wise expense split', 'href' => $sectionHref('expense')])
-            @include('admin.finance-v2.partials.metric-card', ['label' => 'Salary', 'value' => $summary['salary'], 'hint' => 'Shop staff salary split', 'href' => $sectionHref('salary')])
-            @include('admin.finance-v2.partials.metric-card', ['label' => 'Credit / Loan', 'value' => $summary['loan'], 'hint' => 'Shop-wise credit and loan', 'href' => $sectionHref('credit-loan')])
+            @include('admin.finance-v2.partials.metric-card', ['label' => 'Bills', 'value' => $summary['bills'], 'hint' => 'Shop invoice totals', 'href' => $sectionHref('purchase')])
+            @include('admin.finance-v2.partials.metric-card', ['label' => 'Expense', 'value' => $summary['expense'], 'hint' => 'Shop expense totals', 'href' => $sectionHref('expense')])
+            @include('admin.finance-v2.partials.metric-card', ['label' => 'Salary', 'value' => $summary['salary'], 'hint' => 'Shop staff salary', 'href' => $sectionHref('salary')])
+            @include('admin.finance-v2.partials.metric-card', ['label' => 'Unallocated Credit', 'value' => $summary['credit'], 'hint' => 'Approved payment credit remaining'])
         </section>
 
-        <section class="rounded-[1.6rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-            <div class="flex items-center justify-between gap-3">
-                <div>
-                    <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">All Shops</p>
-                    <h3 class="mt-1 text-xl font-black text-slate-950">Received, paid, salary, loan and balance</h3>
-                </div>
+        <section class="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white shadow-sm">
+            <div class="border-b border-slate-100 px-5 py-4">
+                <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Shop Summary</p>
+                <h2 class="mt-1 text-xl font-black text-slate-950">Opening, bills, expense, salary, received, credit and closing</h2>
             </div>
-            <div class="mt-4 overflow-x-auto">
+            <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-slate-100 text-left">
                     <thead class="bg-slate-50">
                         <tr>
-                            @foreach(['Shop', 'Opening', 'Bills', 'Expense', 'Salary', 'Loan', 'Received', 'Credit', 'Closing'] as $heading)
+                            @foreach(['Shop', 'Opening', 'Bills', 'Expense', 'Salary', 'Received', 'Credit', 'Closing'] as $heading)
                                 <th class="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 {{ $loop->first ? '' : 'text-right' }}">{{ $heading }}</th>
                             @endforeach
                         </tr>
@@ -40,17 +41,20 @@
                     <tbody class="divide-y divide-slate-100">
                         @forelse($shops as $row)
                             <tr class="hover:bg-slate-50/70">
-                                <td class="px-4 py-3">
-                                    <a href="{{ route('admin.finance-v2.shops.show', ['shop' => $row['shop'], 'date' => $dateParam]) }}" class="font-black text-slate-950 hover:text-cyan-700">{{ $row['shop']->name }}</a>
-                                    <p class="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{{ $row['shop']->code }}</p>
+                                <td class="px-4 py-3 text-sm font-black text-slate-950">
+                                    <a href="{{ route('admin.finance-v2.shops.show', ['shop' => $row['shop'], 'date' => $dateParam]) }}" class="hover:underline">{{ $row['shop']->name }}</a>
                                 </td>
-                                @foreach(['opening_balance', 'bills', 'expense', 'salary', 'loan', 'received', 'credit', 'closing_balance'] as $field)
-                                    <td class="px-4 py-3 text-right text-sm font-black {{ $field === 'closing_balance' ? 'text-slate-950' : 'text-slate-700' }}">Rs. {{ number_format((float) $row[$field], 2) }}</td>
-                                @endforeach
+                                <td class="px-4 py-3 text-right text-sm font-semibold text-slate-700">Rs. {{ number_format((float) $row['opening_balance'], 2) }}</td>
+                                <td class="px-4 py-3 text-right text-sm font-semibold text-slate-700">Rs. {{ number_format((float) $row['bills'], 2) }}</td>
+                                <td class="px-4 py-3 text-right text-sm font-semibold text-slate-700">Rs. {{ number_format((float) $row['expense'], 2) }}</td>
+                                <td class="px-4 py-3 text-right text-sm font-semibold text-slate-700">Rs. {{ number_format((float) $row['salary'], 2) }}</td>
+                                <td class="px-4 py-3 text-right text-sm font-semibold text-emerald-700">Rs. {{ number_format((float) $row['received'], 2) }}</td>
+                                <td class="px-4 py-3 text-right text-sm font-semibold text-cyan-700">Rs. {{ number_format((float) $row['credit'], 2) }}</td>
+                                <td class="px-4 py-3 text-right text-sm font-black text-slate-950">Rs. {{ number_format((float) $row['closing_balance'], 2) }}</td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="9" class="px-4 py-12 text-center text-sm font-bold text-slate-500">No shops found under {{ $clientName }}.</td>
+                                <td colspan="8" class="px-4 py-10 text-center text-sm font-bold text-slate-500">No shops for this client.</td>
                             </tr>
                         @endforelse
                     </tbody>

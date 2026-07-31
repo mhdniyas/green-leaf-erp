@@ -207,6 +207,16 @@
                             <div class="flex items-start justify-between gap-3">
                                 <div class="flex-1 min-w-0">
                                     <h3 class="truncate text-sm font-black text-slate-900">{{ $group['product']->name }}</h3>
+                                    @if (! empty($group['items']))
+                                        @php
+                                            $loadoutMeasures = collect($group['items'])->map(fn ($item) => $item->requestedMeasureBreakdownLabel())->filter()->unique();
+                                        @endphp
+                                        @if ($loadoutMeasures->isNotEmpty())
+                                            <p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-emerald-700">
+                                                {{ $loadoutMeasures->implode(' · ') }}
+                                            </p>
+                                        @endif
+                                    @endif
                                     <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] font-semibold text-slate-500">
                                         <span>Approved: <span class="font-black text-slate-700">{{ number_format($approved, 2) }} {{ $group['unit'] }}</span></span>
                                         <span class="{{ $stockShort ? 'text-rose-600 font-black' : '' }}">
@@ -305,6 +315,16 @@
                         <div class="flex items-center justify-between gap-3">
                             <div>
                                 <p class="text-sm font-black text-slate-900">{{ $group['product']->name }}</p>
+                                @if (! empty($group['items']))
+                                    @php
+                                        $loadoutMeasures = collect($group['items'])->map(fn ($item) => $item->requestedMeasureBreakdownLabel())->filter()->unique();
+                                    @endphp
+                                    @if ($loadoutMeasures->isNotEmpty())
+                                        <p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-emerald-700">
+                                            {{ $loadoutMeasures->implode(' · ') }}
+                                        </p>
+                                    @endif
+                                @endif
                                 <p class="mt-0.5 text-[11px] font-semibold text-slate-500">
                                     Loaded: <span class="font-black text-slate-800">{{ number_format($group['total_loaded'], 2) }} {{ $group['unit'] }}</span>
                                     @if($group['total_balance'] > 0)

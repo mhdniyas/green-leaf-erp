@@ -7,14 +7,16 @@
     <div class="mx-auto max-w-[96rem] space-y-5">
         @include('admin.finance-v2.partials.nav')
 
-        <section class="rounded-[1.6rem] border border-slate-200 bg-slate-50 p-5 shadow-sm">
-            <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                <div>
-                    <p class="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Payment Approval</p>
-                    <h2 class="mt-2 text-3xl font-black tracking-tight text-slate-950">{{ $paymentRequest->shop?->name ?? 'Shop Payment' }}</h2>
-                    <p class="mt-2 text-sm font-semibold text-slate-600">Admin must check pending invoices and manual payable items before approval.</p>
+        <section class="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white shadow-sm">
+            <div class="border-b border-slate-200 bg-slate-950 px-5 py-6 text-white sm:px-6">
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.28em] text-emerald-300">Payment Approval</p>
+                        <h1 class="mt-2 text-3xl font-black tracking-tight">{{ $paymentRequest->shop?->name ?? 'Shop Payment' }}</h1>
+                        <p class="mt-2 text-sm font-semibold text-slate-300">Review pending invoices and related payable items before approval.</p>
+                    </div>
+                    <a href="{{ route('admin.finance-v2.payments.index') }}" class="inline-flex h-11 items-center rounded-[1rem] border border-white/20 bg-white/10 px-5 text-xs font-black uppercase tracking-[0.16em] text-white hover:bg-white/15">Back to Payments</a>
                 </div>
-                <a href="{{ route('admin.finance-v2.payments.index') }}" class="inline-flex h-11 items-center rounded-[1rem] border border-slate-200 bg-white px-5 text-xs font-black uppercase tracking-[0.16em] text-slate-700 hover:bg-slate-50">Back to Payments</a>
             </div>
         </section>
 
@@ -146,8 +148,8 @@
         <section class="space-y-4">
             <div>
                 <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Manual Check Required</p>
-                <h3 class="mt-1 text-xl font-black text-slate-950">Expenses, salary, staff advance and loans</h3>
-                <p class="mt-1 text-sm font-semibold text-slate-500">These items are visible for admin checking. Allocation persistence for these item types is the next unified payable-table phase.</p>
+                <h3 class="mt-1 text-xl font-black text-slate-950">Expenses, salary and staff advances</h3>
+                <p class="mt-1 text-sm font-semibold text-slate-500">These items are visible for admin review. Invoice allocation is applied first; related payables stay listed for checking.</p>
             </div>
             @include('admin.finance-v2.partials.detail-table', ['rows' => $manualRows])
         </section>

@@ -76,7 +76,7 @@
             <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <div class="border-b border-slate-200 bg-slate-50 px-4 py-4 sm:px-6">
                     <h2 class="text-xl font-black text-slate-950">Payment Approvals</h2>
-                    <p class="mt-1 text-sm font-semibold text-slate-500">Approving a cash-flow payment updates the owner view and shop closing balance.</p>
+                    <p class="mt-1 text-sm font-semibold text-slate-500">Payment approval, rejection and cheque clearance are handled from Finance V2 Payments.</p>
                 </div>
 
                 <div class="space-y-3 p-4 md:hidden">
@@ -92,15 +92,9 @@
                                 </div>
                                 <p class="text-right text-sm font-black text-slate-950">Rs. {{ number_format((float) $paymentRequest->requested_amount, 2) }}</p>
                             </div>
-                            <form method="POST" action="{{ route('admin.accounting.owned-shops.payment-requests.review', ['shop' => $paymentRequest->shop?->code, 'paymentRequest' => $paymentRequest]) }}" class="mt-4 grid gap-2">
-                                @csrf
-                                @method('PATCH')
-                                <input type="text" name="admin_note" class="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900" placeholder="Optional note">
-                                <div class="grid grid-cols-2 gap-2">
-                                    <button type="submit" name="decision" value="approve" class="h-11 rounded-lg bg-emerald-600 px-3 text-xs font-black uppercase tracking-[0.12em] text-white">Approve</button>
-                                    <button type="submit" name="decision" value="reject" class="h-11 rounded-lg border border-rose-200 bg-white px-3 text-xs font-black uppercase tracking-[0.12em] text-rose-700">Reject</button>
-                                </div>
-                            </form>
+                            <a href="{{ route('admin.finance-v2.payments.show', ['paymentRequest' => $paymentRequest, 'date' => $endDate->toDateString()]) }}" class="mt-4 inline-flex h-11 w-full items-center justify-center rounded-lg bg-slate-950 px-3 text-xs font-black uppercase tracking-[0.12em] text-white">
+                                Open in Finance V2
+                            </a>
                         </article>
                     @empty
                         <p class="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500">No payment approvals pending.</p>
@@ -128,13 +122,9 @@
                                     <td class="px-4 py-4 font-semibold text-slate-500">{{ $paymentRequest->payment_reference ?: '-' }}</td>
                                     <td class="px-4 py-4 text-right font-black text-slate-950">Rs. {{ number_format((float) $paymentRequest->requested_amount, 2) }}</td>
                                     <td class="px-4 py-4">
-                                        <form method="POST" action="{{ route('admin.accounting.owned-shops.payment-requests.review', ['shop' => $paymentRequest->shop?->code, 'paymentRequest' => $paymentRequest]) }}" class="flex justify-end gap-2">
-                                            @csrf
-                                            @method('PATCH')
-                                            <input type="hidden" name="admin_note" value="">
-                                            <button type="submit" name="decision" value="approve" class="h-9 rounded-lg bg-emerald-600 px-3 text-xs font-black uppercase tracking-[0.12em] text-white">Approve</button>
-                                            <button type="submit" name="decision" value="reject" class="h-9 rounded-lg border border-rose-200 bg-white px-3 text-xs font-black uppercase tracking-[0.12em] text-rose-700">Reject</button>
-                                        </form>
+                                        <div class="flex justify-end">
+                                            <a href="{{ route('admin.finance-v2.payments.show', ['paymentRequest' => $paymentRequest, 'date' => $endDate->toDateString()]) }}" class="h-9 rounded-lg bg-slate-950 px-3 py-2 text-xs font-black uppercase tracking-[0.12em] text-white">Open</a>
+                                        </div>
                                     </td>
                                 </tr>
                             @empty

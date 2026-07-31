@@ -207,19 +207,25 @@ class OwnedShopAccountingService
             foreach ($payload['lines'] as $line) {
                 /** @var ShopAccountingCategory|null $category */
                 $category = $categories->get((int) $line['shop_accounting_category_id']);
+                $fundingSource = $this->resolveFundingSource($category->type, $line);
                 $isLoanEntry = $category->type === 'expense'
-                    && filter_var($line['is_loan_entry'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                    && ($fundingSource === 'petty' || filter_var($line['is_loan_entry'] ?? false, FILTER_VALIDATE_BOOLEAN));
 
-                $entry->lines()->create([
+                $createdLine = $entry->lines()->create([
                     'shop_accounting_category_id' => $category->id,
                     'type' => $category->type,
                     'cash_effect' => $category->cash_effect,
                     'is_loan_entry' => $isLoanEntry,
+                    'funding_source' => $fundingSource,
                     'amount' => round((float) $line['amount'], 2),
                     'description' => filled($line['description'] ?? null) ? trim((string) $line['description']) : null,
                     'review_status' => null,
                     'review_note' => null,
                 ]);
+
+                if ($fundingSource === 'company' && $category->type === 'expense') {
+                    app(CompanyPayableService::class)->markCompanyPayableOnLine($createdLine);
+                }
             }
 
             return $entry->fresh(['lines.category', 'shop', 'createdBy', 'updatedBy']);
@@ -329,6 +335,18 @@ class OwnedShopAccountingService
             'shop_reply_note' => filled($payload['shop_reply_note'] ?? null) ? trim((string) $payload['shop_reply_note']) : null,
         ])->save();
 
+        $entry = $entry->fresh(['lines.category', 'shop', 'createdBy', 'updatedBy', 'submittedBy', 'reviewedBy']);
+
+        if ($status === 'submitted') {
+            $payableService = app(CompanyPayableService::class);
+            foreach ($entry->lines as $line) {
+                if ($line->funding_source === 'company' && $line->type === 'expense') {
+                    $payableService->markCompanyPayableOnLine($line);
+                    $payableService->notifyAdmins($line->fresh(['entry.shop', 'category']));
+                }
+            }
+        }
+
         return $entry->fresh(['lines.category', 'shop', 'createdBy', 'updatedBy', 'submittedBy', 'reviewedBy']);
     }
 
@@ -400,9 +418,11 @@ class OwnedShopAccountingService
             }
 
             $amount = round((float) $line['amount'], 2);
-            $isLoanEntry = filter_var($line['is_loan_entry'] ?? false, FILTER_VALIDATE_BOOLEAN);
+            $fundingSource = strtolower(trim((string) ($line['funding_source'] ?? '')));
+            $isLoanEntry = $fundingSource === 'petty'
+                || filter_var($line['is_loan_entry'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
-            if ($isLoanEntry && $category->type === 'expense') {
+            if ($category->type === 'expense' && ($isLoanEntry || $fundingSource === 'company')) {
                 return 0.0;
             }
 
@@ -501,7 +521,8 @@ class OwnedShopAccountingService
                 ->get();
 
             $openingBalance = $this->previousClosingBalance($shop, $businessDate);
-            $runningClosing = round($openingBalance + $this->shopCashMovementForDate($shop, $businessDate), 2);
+            $approvedDeliveryBill = $this->approvedDeliveryBillTotalForDate($shop, $businessDate);
+            $runningClosing = round($openingBalance + $this->shopCashMovementForDate($shop, $businessDate) - $approvedDeliveryBill, 2);
 
             if ($entries->isEmpty()) {
                 return ShopAccountingEntry::query()->create([
@@ -713,7 +734,7 @@ class OwnedShopAccountingService
         $nonCashDebit = round((float) $cashBalanceLines
             ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'expense' && ! (bool) $line->cash_effect)
             ->sum('amount'), 2);
-        $cashDebitWithBills = round($cashDebit + $loanIncomeDebit, 2);
+        $cashDebitWithBills = round($cashDebit + $loanIncomeDebit + $approvedDeliveryBill, 2);
         $expectedClosing = round($openingBalance + $cashMovement['cash_given_to_shop'] - $cashMovement['payment_to_company'] + $cashCredit - $cashDebitWithBills, 2);
         $toBePaidToCompany = round(max(0.0, $expectedClosing), 2);
         $hasDayActivity = $entries->isNotEmpty()
@@ -1279,5 +1300,33 @@ class OwnedShopAccountingService
                 ->whereDate('created_at', $date)
                 ->count(),
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $line
+     */
+    private function resolveFundingSource(string $categoryType, array $line): ?string
+    {
+        $raw = strtolower(trim((string) ($line['funding_source'] ?? '')));
+
+        if ($categoryType === 'expense') {
+            if (in_array($raw, ['sales', 'petty', 'company'], true)) {
+                return $raw;
+            }
+
+            if (filter_var($line['is_loan_entry'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+                return 'petty';
+            }
+
+            return 'sales';
+        }
+
+        if ($categoryType === 'income') {
+            if (in_array($raw, ['sales', 'petty', 'company'], true)) {
+                return $raw;
+            }
+        }
+
+        return $raw !== '' ? $raw : null;
     }
 }

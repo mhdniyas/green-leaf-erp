@@ -150,6 +150,9 @@
                                                             <span class="truncate">{{ $item->product?->name ?? 'Product #'.$item->product_id }}</span>
                                                             <span class="shrink-0 text-slate-900">{{ number_format((float) ($item->approved_qty > 0 ? $item->approved_qty : $item->requested_qty), 2) }} {{ $item->unit }}</span>
                                                         </div>
+                                                        @if ($item->requestedMeasureBreakdownLabel())
+                                                            <p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-emerald-700">{{ $item->requestedMeasureBreakdownLabel() }}</p>
+                                                        @endif
                                                     </div>
                                                     <div class="relative min-w-0">
                                                         <select name="items[{{ $item->id }}][warehouse_id]" required class="w-full appearance-none rounded-xl border border-slate-200 bg-white py-2.5 pl-3 pr-9 text-xs font-semibold text-slate-900 shadow-sm transition-all hover:bg-slate-50/50 focus:border-indigo-500 focus:outline-none cursor-pointer">
@@ -569,6 +572,9 @@
                                             <div class="rounded-xl border border-slate-200 bg-white p-3 flex items-center justify-between gap-3 shadow-xs">
                                                 <div class="min-w-0">
                                                     <h5 class="truncate text-xs font-black text-slate-900">{{ $item->product->name }}</h5>
+                                                    @if ($item->requestedMeasureBreakdownLabel())
+                                                        <p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-emerald-700">{{ $item->requestedMeasureBreakdownLabel() }}</p>
+                                                    @endif
                                                     <p class="text-[10px] font-bold text-slate-500 mt-0.5">
                                                         Required: <span class="text-indigo-600 font-black">{{ number_format($appQty, 2) }}</span> {{ $item->unit }}
                                                         @if($isLoaded)

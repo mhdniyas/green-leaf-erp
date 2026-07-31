@@ -12,54 +12,128 @@
                 'pending_balance' => (float) $clientShops->sum(fn ($shop): float => (float) ($shop->pending_balance_amount ?? 0)),
             ];
         })->filter(fn ($row): bool => $row['shop_count'] > 0)->values();
+
+        $attentionShops = $shops
+            ->map(function ($shop) {
+                $recheckCount = (int) ($shop->recheck_updates_count ?? 0);
+                $pendingCount = (int) ($shop->pending_updates_count ?? 0);
+
+                if ($recheckCount > 0) {
+                    return [
+                        'shop' => $shop,
+                        'priority' => 1,
+                        'label' => 'Needs recheck',
+                        'message' => $shop->name.' needs recheck — shop sent updates after your review request.',
+                        'count' => $recheckCount,
+                    ];
+                }
+
+                if ($pendingCount > 0) {
+                    return [
+                        'shop' => $shop,
+                        'priority' => 2,
+                        'label' => 'Ready for review',
+                        'message' => $shop->name.' is ready for review — cashbook submitted and waiting for admin.',
+                        'count' => $pendingCount,
+                    ];
+                }
+
+                return null;
+            })
+            ->filter()
+            ->sortBy('priority')
+            ->values();
     @endphp
 
-    <div class="mx-auto max-w-[96rem] space-y-6">
-        <section class="rounded-[1.9rem] border border-slate-200 bg-white p-6 shadow-sm">
-            <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                <div>
-                    <p class="text-[10px] font-black uppercase tracking-[0.26em] text-slate-400">Client Accounting</p>
-                    <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-950">Client shops</h1>
-                    <p class="mt-3 max-w-3xl text-sm font-semibold leading-6 text-slate-600">Shops assigned to clients appear here. Use this page for client invoices, cashbook review, loans, and daily closing.</p>
-                </div>
-
-                <div class="flex flex-wrap items-center gap-3">
-                    <button
-                        type="button"
-                        id="owned-shop-open-modal"
-                        @disabled($availableShops->isEmpty())
-                        class="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-xs font-black uppercase tracking-[0.18em] text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                    >
-                        Add Client Shop
-                    </button>
-                    <a href="{{ route('admin.accounting.index') }}" class="inline-flex h-11 items-center rounded-2xl border border-slate-200 px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50">
-                        Back to Dashboard
-                    </a>
+    <div class="mx-auto max-w-[96rem] space-y-5">
+        <section class="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white shadow-sm">
+            <div class="border-b border-slate-200 bg-slate-950 px-5 py-6 text-white sm:px-6">
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.28em] text-emerald-300">Client Accounting</p>
+                        <h1 class="mt-2 text-3xl font-black tracking-tight">Client shops</h1>
+                        <p class="mt-2 max-w-2xl text-sm font-semibold text-slate-300">Review cashbooks, pending balances, and daily closing for client-assigned shops.</p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <a href="{{ route('admin.accounting.index') }}" class="inline-flex h-11 items-center rounded-[1rem] border border-white/20 bg-white/10 px-5 text-xs font-black uppercase tracking-[0.16em] text-white hover:bg-white/15">
+                            Back to Dashboard
+                        </a>
+                        <button
+                            type="button"
+                            id="owned-shop-open-modal"
+                            @disabled($availableShops->isEmpty())
+                            class="inline-flex h-11 items-center justify-center rounded-[1rem] bg-orange-500 px-5 text-xs font-black uppercase tracking-[0.16em] text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-slate-500"
+                        >
+                            Add Client Shop
+                        </button>
+                    </div>
                 </div>
             </div>
+        </section>
+
+        <section class="overflow-hidden rounded-[1.6rem] border {{ $attentionShops->isNotEmpty() ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50' }} shadow-sm">
+            <div class="border-b {{ $attentionShops->isNotEmpty() ? 'border-amber-200' : 'border-emerald-200' }} px-5 py-4 sm:px-6">
+                <p class="text-[10px] font-black uppercase tracking-[0.22em] {{ $attentionShops->isNotEmpty() ? 'text-amber-700' : 'text-emerald-700' }}">Needs attention</p>
+                <h2 class="mt-1 text-xl font-black {{ $attentionShops->isNotEmpty() ? 'text-amber-950' : 'text-emerald-950' }}">
+                    @if ($attentionShops->isNotEmpty())
+                        {{ $attentionShops->count() }} shop{{ $attentionShops->count() === 1 ? '' : 's' }} need action
+                    @else
+                        All shops are up to date
+                    @endif
+                </h2>
+            </div>
+            @if ($attentionShops->isNotEmpty())
+                <div class="divide-y divide-amber-200/70">
+                    @foreach ($attentionShops as $item)
+                        <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                            <div class="min-w-0">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <span @class([
+                                        'inline-flex rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em]',
+                                        'border border-red-200 bg-red-50 text-red-700' => $item['priority'] === 1,
+                                        'border border-amber-300 bg-white text-amber-800' => $item['priority'] === 2,
+                                    ])>
+                                        {{ $item['label'] }}
+                                        @if ($item['count'] > 1)
+                                            · {{ $item['count'] }}
+                                        @endif
+                                    </span>
+                                    <p class="text-sm font-black text-slate-950">{{ $item['shop']->name }}</p>
+                                </div>
+                                <p class="mt-1 text-sm font-semibold text-slate-600">{{ $item['message'] }}</p>
+                            </div>
+                            <a href="{{ route('admin.accounting.owned-shops.show', $item['shop']) }}" class="inline-flex h-10 shrink-0 items-center rounded-[1rem] bg-slate-950 px-4 text-xs font-black uppercase tracking-[0.14em] text-white hover:bg-slate-800">
+                                Open
+                            </a>
+                        </div>
+                    @endforeach
+                </div>
+            @else
+                <p class="px-5 py-4 text-sm font-semibold text-emerald-800 sm:px-6">No cashbooks waiting for review or recheck.</p>
+            @endif
         </section>
 
         @if ($clientRows->isNotEmpty())
             <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 @foreach ($clientRows as $row)
-                    <a href="{{ route('admin.accounting.clients.show', $row['client']) }}" class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md">
+                    <a href="{{ route('admin.accounting.clients.show', $row['client']) }}" class="rounded-[1.6rem] border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300">
                         <div class="flex items-start justify-between gap-4">
                             <div>
-                                <p class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Client Dashboard</p>
-                                <h2 class="mt-2 text-xl font-black text-slate-950">{{ $row['client']->name }}</h2>
+                                <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Client</p>
+                                <h2 class="mt-1 text-xl font-black text-slate-950">{{ $row['client']->name }}</h2>
                             </div>
-                            <span class="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">
+                            <span class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-600">
                                 Open
                             </span>
                         </div>
                         <div class="mt-5 grid grid-cols-2 gap-3">
-                            <div class="rounded-2xl bg-slate-50 p-4">
-                                <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Shops</p>
-                                <p class="mt-2 text-2xl font-black text-slate-950">{{ number_format($row['shop_count']) }}</p>
+                            <div class="rounded-[1rem] border border-slate-200 bg-slate-50 p-3">
+                                <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Shops</p>
+                                <p class="mt-1 text-xl font-black text-slate-950">{{ number_format($row['shop_count']) }}</p>
                             </div>
-                            <div class="rounded-2xl bg-rose-50 p-4">
-                                <p class="text-[10px] font-black uppercase tracking-[0.14em] text-rose-700">Pending</p>
-                                <p class="mt-2 text-lg font-black text-rose-900">Rs. {{ number_format($row['pending_balance'], 2) }}</p>
+                            <div class="rounded-[1rem] border border-slate-200 bg-slate-50 p-3">
+                                <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Pending</p>
+                                <p class="mt-1 text-lg font-black {{ $row['pending_balance'] > 0 ? 'text-rose-700' : 'text-slate-950' }}">Rs. {{ number_format($row['pending_balance'], 2) }}</p>
                             </div>
                         </div>
                     </a>
@@ -67,43 +141,52 @@
             </section>
         @endif
 
-        <section class="overflow-hidden rounded-[1.9rem] border border-slate-200 bg-white shadow-sm">
-            <div class="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-5 py-5 lg:flex-row lg:items-center lg:justify-between">
+        <section class="overflow-hidden rounded-[1.6rem] border border-slate-200 bg-white shadow-sm">
+            <div class="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Shop Register</p>
-                    <h2 class="mt-2 text-xl font-black text-slate-950">Client shops table</h2>
+                    <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Shop Register</p>
+                    <h2 class="mt-1 text-xl font-black text-slate-950">Client shops</h2>
                 </div>
-                <div class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                    {{ number_format($shops->count()) }} shop(s)
-                </div>
+                <p class="text-xs font-black uppercase tracking-[0.14em] text-slate-400">{{ number_format($shops->count()) }} shop(s)</p>
             </div>
 
             <div class="overflow-x-auto">
                 <table id="owned-shops-table" class="min-w-full table-auto text-left">
-                    <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.18em] text-slate-200">
+                    <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
                         <tr>
                             <th class="px-4 py-3">Shop</th>
                             <th class="px-4 py-3">Client</th>
-                            <th class="px-4 py-3">Code</th>
-                            <th class="px-4 py-3">Mode</th>
-                            <th class="px-4 py-3">Update Alert</th>
-                            <th class="px-4 py-3 text-right">Pending Balance</th>
+                            <th class="px-4 py-3">Status</th>
+                            <th class="px-4 py-3 text-right">Pending</th>
                             <th class="px-4 py-3 text-right">Closing Balance</th>
-                            <th class="px-4 py-3">Configured</th>
                             <th class="px-4 py-3 text-right">Actions</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 text-sm">
                         @forelse($shops as $shop)
                             @php
-                                $latestEntry = $shop->latestAccountingEntry;
-                                $hasRecheckUpdates = (int) ($shop->recheck_updates_count ?? 0) > 0;
-                                $hasPendingUpdates = (int) ($shop->pending_updates_count ?? 0) > 0;
+                                $recheckCount = (int) ($shop->recheck_updates_count ?? 0);
+                                $pendingCount = (int) ($shop->pending_updates_count ?? 0);
+                                $closingBalance = (float) ($shop->latestClosingAccountingEntry?->closing_cash ?? 0);
+                                $hasLedger = $shop->latestAccountingEntry !== null;
+
+                                if ($recheckCount > 0) {
+                                    $statusLabel = 'Needs recheck'.($recheckCount > 1 ? ' · '.$recheckCount : '');
+                                    $statusClass = 'border-red-200 bg-red-50 text-red-700';
+                                } elseif ($pendingCount > 0) {
+                                    $statusLabel = 'Ready for review'.($pendingCount > 1 ? ' · '.$pendingCount : '');
+                                    $statusClass = 'border-amber-200 bg-amber-50 text-amber-800';
+                                } elseif ($hasLedger) {
+                                    $statusLabel = 'Up to date';
+                                    $statusClass = 'border-emerald-200 bg-emerald-50 text-emerald-700';
+                                } else {
+                                    $statusLabel = 'No cashbook yet';
+                                    $statusClass = 'border-slate-200 bg-slate-100 text-slate-600';
+                                }
                             @endphp
-                            <tr class="transition hover:bg-slate-50">
+                            <tr class="hover:bg-slate-50/70">
                                 <td class="px-4 py-4">
                                     <p class="font-black text-slate-950">{{ $shop->name }}</p>
-                                    <p class="mt-1 text-xs font-semibold text-slate-500">{{ $shop->users->count() }} linked user(s)</p>
                                 </td>
                                 <td class="px-4 py-4">
                                     @if ($shop->client)
@@ -112,104 +195,73 @@
                                         <span class="font-black text-slate-700">Aishwarya Veg</span>
                                     @endif
                                 </td>
-                                <td class="px-4 py-4 font-black text-slate-700">{{ $shop->code }}</td>
                                 <td class="px-4 py-4">
-                                    <span class="inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">
-                                        {{ ucfirst($shop->accounting_mode) }}
+                                    <span class="inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] {{ $statusClass }}">
+                                        {{ $statusLabel }}
                                     </span>
                                 </td>
-                                <td class="px-4 py-4">
-                                    @if ($hasRecheckUpdates)
-                                        <div class="space-y-2">
-                                            <span class="inline-flex rounded-full border border-red-200 bg-red-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-red-700">
-                                                Recheck Update
-                                            </span>
-                                            <p class="text-xs font-semibold text-slate-600">{{ number_format((int) $shop->recheck_updates_count) }} item(s) need attention</p>
-                                            @if ($latestEntry)
-                                                <p class="text-xs font-semibold text-slate-500">Updated {{ $latestEntry->updated_at?->format('d M h:i A') }}</p>
-                                            @endif
-                                        </div>
-                                    @elseif ($hasPendingUpdates)
-                                        <div class="space-y-2">
-                                            <span class="inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">
-                                                New Update
-                                            </span>
-                                            <p class="text-xs font-semibold text-slate-600">{{ number_format((int) $shop->pending_updates_count) }} submitted update(s)</p>
-                                            @if ($latestEntry)
-                                                <p class="text-xs font-semibold text-slate-500">{{ $latestEntry->submittedBy?->name ?? 'Shop owner' }} · {{ $latestEntry->updated_at?->format('d M h:i A') }}</p>
-                                            @endif
-                                        </div>
-                                    @elseif ($latestEntry)
-                                        <div class="space-y-2">
-                                            <span class="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">
-                                                No New Update
-                                            </span>
-                                            <p class="text-xs font-semibold text-slate-500">Last {{ str($latestEntry->status)->replace('_', ' ')->title() }} · {{ $latestEntry->updated_at?->format('d M h:i A') }}</p>
-                                        </div>
-                                    @else
-                                        <span class="inline-flex rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-600">
-                                            No Ledger Yet
-                                        </span>
-                                    @endif
-                                </td>
-                                <td class="px-4 py-4 text-right font-black {{ (float) ($shop->pending_balance_amount ?? 0) > 0 ? 'text-rose-700' : 'text-emerald-700' }}">
+                                <td class="px-4 py-4 text-right font-black {{ (float) ($shop->pending_balance_amount ?? 0) > 0 ? 'text-rose-700' : 'text-slate-950' }}">
                                     Rs. {{ number_format((float) ($shop->pending_balance_amount ?? 0), 2) }}
                                 </td>
-                                @php
-                                    $closingBalance = (float) ($shop->latestClosingAccountingEntry?->closing_cash ?? 0);
-                                @endphp
-                                <td class="px-4 py-4 text-right font-black {{ $closingBalance >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">
-                                    {{ $closingBalance >= 0 ? '+' : '-' }} Rs. {{ number_format(abs($closingBalance), 2) }}
+                                <td class="px-4 py-4 text-right">
+                                    <p class="font-black {{ $closingBalance >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">
+                                        {{ $closingBalance >= 0 ? '+' : '-' }} Rs. {{ number_format(abs($closingBalance), 2) }}
+                                    </p>
                                     @if ($shop->latestClosingAccountingEntry?->business_date)
                                         <p class="mt-1 text-[11px] font-bold text-slate-400">{{ $shop->latestClosingAccountingEntry->business_date->format('d M Y') }}</p>
                                     @endif
                                 </td>
                                 <td class="px-4 py-4">
-                                    <span @class([
-                                        'inline-flex rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em]',
-                                        'border border-emerald-200 bg-emerald-50 text-emerald-700' => $shop->accounting_enabled,
-                                        'border border-slate-200 bg-slate-100 text-slate-600' => ! $shop->accounting_enabled,
-                                    ])>
-                                        {{ $shop->accounting_enabled ? 'Enabled' : 'No' }}
-                                    </span>
-                                </td>
-                                <td class="px-4 py-4 text-right">
-                                    <div class="flex flex-wrap items-center justify-end gap-2">
-                                        <a href="{{ route('admin.accounting.owned-shops.show', $shop) }}" class="inline-flex h-9 items-center rounded-xl border border-slate-200 px-3 text-xs font-black uppercase tracking-[0.14em] text-slate-700 transition hover:bg-slate-100">
+                                    <div class="flex items-center justify-end gap-2">
+                                        <a href="{{ route('admin.accounting.owned-shops.show', $shop) }}" class="inline-flex h-9 items-center rounded-[0.9rem] bg-slate-950 px-3 text-xs font-black uppercase tracking-[0.14em] text-white hover:bg-slate-800">
                                             Open
                                         </a>
-                                        <button type="button" data-owned-shop-edit="{{ $shop->id }}" class="inline-flex h-9 items-center rounded-xl border border-cyan-200 bg-cyan-50 px-3 text-xs font-black uppercase tracking-[0.14em] text-cyan-700 transition hover:bg-cyan-100">
-                                            Edit
-                                        </button>
-                                        <form method="POST" action="{{ route('admin.accounting.owned-shops.destroy', $shop) }}" onsubmit="return confirm('Remove {{ $shop->name }} from client accounting? Existing shop records will be kept.')">
-                                            @csrf
-                                            @method('DELETE')
-                                            <button type="submit" class="inline-flex h-9 items-center rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black uppercase tracking-[0.14em] text-rose-700 transition hover:bg-rose-100">
-                                                Remove
+                                        <div class="relative" data-owned-shop-menu>
+                                            <button
+                                                type="button"
+                                                class="inline-flex h-9 w-9 items-center justify-center rounded-[0.9rem] border border-slate-200 text-slate-600 hover:bg-slate-50"
+                                                data-owned-shop-menu-toggle
+                                                aria-label="More actions"
+                                            >
+                                                <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                                    <path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0z" />
+                                                </svg>
                                             </button>
-                                        </form>
+                                            <div class="absolute right-0 z-20 mt-2 hidden w-40 overflow-hidden rounded-[1rem] border border-slate-200 bg-white shadow-lg" data-owned-shop-menu-panel>
+                                                <button type="button" data-owned-shop-edit="{{ $shop->id }}" class="block w-full px-4 py-2.5 text-left text-xs font-black uppercase tracking-[0.14em] text-slate-700 hover:bg-slate-50">
+                                                    Edit
+                                                </button>
+                                                <form method="POST" action="{{ route('admin.accounting.owned-shops.destroy', $shop) }}" onsubmit="return confirm('Remove {{ $shop->name }} from client accounting? Existing shop records will be kept.')">
+                                                    @csrf
+                                                    @method('DELETE')
+                                                    <button type="submit" class="block w-full px-4 py-2.5 text-left text-xs font-black uppercase tracking-[0.14em] text-rose-700 hover:bg-rose-50">
+                                                        Remove
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="9" class="px-4 py-12 text-center text-sm font-bold text-slate-500">
+                                <td colspan="6" class="px-4 py-12 text-center text-sm font-bold text-slate-500">
                                     No accounting-enabled client shops were found.
                                 </td>
                             </tr>
                         @endforelse
                     </tbody>
                     @if($shops->isNotEmpty())
-                        <tfoot class="border-t border-slate-200 bg-slate-50 text-sm">
+                        <tfoot class="border-t-2 border-slate-200 bg-slate-50 text-sm">
                             <tr>
-                                <td colspan="5" class="px-4 py-4 text-right font-black uppercase tracking-[0.14em] text-slate-500">Total</td>
-                                <td class="px-4 py-4 text-right font-black {{ $pendingBalanceTotal > 0 ? 'text-rose-700' : 'text-emerald-700' }}">
+                                <td colspan="3" class="px-4 py-4 text-right text-xs font-black uppercase tracking-[0.14em] text-slate-500">Total</td>
+                                <td class="px-4 py-4 text-right font-black {{ $pendingBalanceTotal > 0 ? 'text-rose-700' : 'text-slate-950' }}">
                                     Rs. {{ number_format($pendingBalanceTotal, 2) }}
                                 </td>
                                 <td class="px-4 py-4 text-right font-black {{ $closingBalanceTotal >= 0 ? 'text-emerald-700' : 'text-rose-700' }}">
                                     {{ $closingBalanceTotal >= 0 ? '+' : '-' }} Rs. {{ number_format(abs($closingBalanceTotal), 2) }}
                                 </td>
-                                <td colspan="2" class="px-4 py-4"></td>
+                                <td class="px-4 py-4"></td>
                             </tr>
                         </tfoot>
                     @endif
@@ -226,7 +278,7 @@
                     <div>
                         <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Add Client Shop</p>
                         <h2 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Enable client accounting</h2>
-                        <p class="mt-2 text-sm font-semibold text-slate-600">Use this compact form instead of taking space on the table page.</p>
+                        <p class="mt-2 text-sm font-semibold text-slate-600">Assign a shop to a client and turn on cashbook review.</p>
                     </div>
                     <button type="button" id="owned-shop-close-modal" class="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">
                         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
@@ -413,6 +465,7 @@
             editButtons.forEach((button) => {
                 button.addEventListener('click', () => {
                     hideAll();
+                    document.querySelectorAll('[data-owned-shop-menu-panel]').forEach((panel) => panel.classList.add('hidden'));
                     const modal = document.getElementById(`owned-shop-edit-modal-${button.dataset.ownedShopEdit}`);
 
                     if (!modal) {
@@ -433,6 +486,32 @@
                     hideAll();
                 }
             });
+        })();
+
+        (() => {
+            const menus = document.querySelectorAll('[data-owned-shop-menu]');
+
+            const closeAllMenus = () => {
+                menus.forEach((menu) => {
+                    menu.querySelector('[data-owned-shop-menu-panel]')?.classList.add('hidden');
+                });
+            };
+
+            menus.forEach((menu) => {
+                const toggle = menu.querySelector('[data-owned-shop-menu-toggle]');
+                const panel = menu.querySelector('[data-owned-shop-menu-panel]');
+
+                toggle?.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    const wasHidden = panel?.classList.contains('hidden');
+                    closeAllMenus();
+                    if (wasHidden) {
+                        panel?.classList.remove('hidden');
+                    }
+                });
+            });
+
+            document.addEventListener('click', closeAllMenus);
         })();
     </script>
 </x-layouts.accounting>

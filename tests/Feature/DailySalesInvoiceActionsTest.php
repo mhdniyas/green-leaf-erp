@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Models\Account;
 use App\Models\JournalEntry;
 use App\Models\Product;
 use App\Models\ShopInvoice;
@@ -18,7 +17,7 @@ class DailySalesInvoiceActionsTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
-    public function test_daily_sales_invoices_have_show_and_approve_payment_actions(): void
+    public function test_daily_sales_invoices_link_payment_actions_to_finance_v2(): void
     {
         $this->seed(RolePermissionSeeder::class);
 
@@ -47,12 +46,17 @@ class DailySalesInvoiceActionsTest extends TestCase
         $response
             ->assertOk()
             ->assertSee('Show invoice')
-            ->assertSee('Approve payment')
+            ->assertSee('Finance payment')
             ->assertSee(route('purchasing.shop-invoices.show', $invoice), false)
-            ->assertSee(route('admin.accounting.shop-invoices.payment', $invoice), false);
+            ->assertSee(route('admin.finance-v2.payments.create', [
+                'date' => '2026-07-14',
+                'shop_id' => $invoice->shop_id,
+                'requested_amount' => 1471.8,
+            ]))
+            ->assertDontSee(route('admin.accounting.shop-invoices.payment', $invoice), false);
     }
 
-    public function test_approving_payment_from_daily_sales_returns_to_report_and_updates_invoice(): void
+    public function test_legacy_daily_sales_payment_route_redirects_to_finance_v2_without_updating_invoice(): void
     {
         $this->seed(RolePermissionSeeder::class);
 
@@ -83,17 +87,11 @@ class DailySalesInvoiceActionsTest extends TestCase
             'final_line_total' => 1713.80,
         ]);
 
-        $dailySalesUrl = route('admin.accounting.daily-sales', [
-            'date' => '2026-07-14',
-            'status' => 'all',
-            'tab' => 'invoices',
-        ]);
         $csrfToken = 'daily-sales-payment-token';
 
         $response = $this
             ->actingAs($admin)
             ->withSession(['_token' => $csrfToken])
-            ->from($dailySalesUrl)
             ->patch(route('admin.accounting.shop-invoices.payment', $invoice), [
                 '_token' => $csrfToken,
                 'discount_total' => 0,
@@ -102,38 +100,22 @@ class DailySalesInvoiceActionsTest extends TestCase
             ]);
 
         $response
-            ->assertRedirect($dailySalesUrl)
-            ->assertSessionHas('success', 'Shop payment approved and added to accounting journal.');
+            ->assertRedirect(route('admin.finance-v2.payments.create', [
+                'date' => '2026-07-14',
+                'shop_id' => $invoice->shop_id,
+                'requested_amount' => 1713.8,
+            ]))
+            ->assertSessionHas('warning', 'Payment approvals are handled from Finance V2 Payments.');
 
         $invoice->refresh();
 
-        $this->assertSame('paid', $invoice->payment_status);
-        $this->assertSame('1713.80', $invoice->paid_amount);
-        $this->assertSame('0.00', $invoice->balance_amount);
-
-        $journalEntry = JournalEntry::query()
+        $this->assertSame('unpaid', $invoice->payment_status);
+        $this->assertSame('0.00', $invoice->paid_amount);
+        $this->assertSame('1713.80', $invoice->balance_amount);
+        $this->assertSame(0, JournalEntry::query()
             ->where('source_type', ShopInvoice::class)
             ->where('source_id', $invoice->id)
-            ->firstOrFail();
-
-        $this->assertStringStartsWith('admin-shop-payment:', (string) $journalEntry->source_event);
-
-        $cashAccount = Account::query()->where('code', '1010')->firstOrFail();
-        $salesRevenueAccount = Account::query()->where('code', '4100')->firstOrFail();
-
-        $this->assertDatabaseHas('journal_transactions', [
-            'journal_entry_id' => $journalEntry->id,
-            'account_id' => $cashAccount->id,
-            'type' => 'debit',
-            'amount' => '1713.80',
-        ]);
-
-        $this->assertDatabaseHas('journal_transactions', [
-            'journal_entry_id' => $journalEntry->id,
-            'account_id' => $salesRevenueAccount->id,
-            'type' => 'credit',
-            'amount' => '1713.80',
-        ]);
+            ->count());
     }
 
     public function test_admin_applies_audited_discount_before_payment(): void
@@ -228,9 +210,14 @@ class DailySalesInvoiceActionsTest extends TestCase
             ->assertOk()
             ->assertSee('Admin Billing Actions')
             ->assertSee('Apply Discount')
-            ->assertSee('Update Payment')
+            ->assertSee('Finance payment')
             ->assertSee(route('admin.accounting.shop-invoices.discount', $invoice), false)
-            ->assertSee(route('admin.accounting.shop-invoices.payment', $invoice), false)
+            ->assertSee(route('admin.finance-v2.payments.create', [
+                'date' => '2026-07-14',
+                'shop_id' => $invoice->shop_id,
+                'requested_amount' => 700.0,
+            ]))
+            ->assertDontSee(route('admin.accounting.shop-invoices.payment', $invoice), false)
             ->assertSee('Opening discount');
     }
 }

@@ -445,6 +445,11 @@ class ShopInvoiceService
     public function reviewPaymentRequestWithAmount(ShopInvoicePaymentRequest $paymentRequest, string $decision, int $userId, ?string $adminNote = null, float|int|string|null $approvedAmountOverride = null): ShopInvoicePaymentRequest
     {
         return DB::transaction(function () use ($paymentRequest, $decision, $userId, $adminNote, $approvedAmountOverride): ShopInvoicePaymentRequest {
+            $paymentRequest = ShopInvoicePaymentRequest::query()
+                ->whereKey($paymentRequest->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
             $paymentRequest->loadMissing('invoice', 'allocations');
 
             if ($paymentRequest->status !== 'pending') {
@@ -550,8 +555,19 @@ class ShopInvoiceService
             ];
         }
 
-        $pendingInvoices = $this->pendingInvoicesForShop((int) $paymentRequest->shop_id);
-        $remainingAmount = round((float) $paymentRequest->requested_amount, 2);
+        return $this->allocationPreviewForShop(
+            (int) $paymentRequest->shop_id,
+            (float) $paymentRequest->requested_amount,
+        );
+    }
+
+    /**
+     * @return array{total_due: float, applied_amount: float, credit_amount: float, invoices: array<int, array{invoice: ShopInvoice, amount: float}>}
+     */
+    public function allocationPreviewForShop(int $shopId, float $amount): array
+    {
+        $pendingInvoices = $this->pendingInvoicesForShop($shopId);
+        $remainingAmount = round(max(0, $amount), 2);
         $invoices = [];
 
         foreach ($pendingInvoices as $invoice) {
@@ -577,9 +593,23 @@ class ShopInvoiceService
         return [
             'total_due' => round($pendingInvoices->sum(fn (ShopInvoice $invoice): float => (float) $invoice->balance_amount), 2),
             'applied_amount' => $appliedAmount,
-            'credit_amount' => round(max(0, (float) $paymentRequest->requested_amount - $appliedAmount), 2),
+            'credit_amount' => round(max(0, round($amount, 2) - $appliedAmount), 2),
             'invoices' => $invoices,
         ];
+    }
+
+    /**
+     * @return Collection<int, ShopInvoice>
+     */
+    public function pendingInvoicesForShop(int $shopId): Collection
+    {
+        return ShopInvoice::query()
+            ->where('shop_id', $shopId)
+            ->where('balance_amount', '>', 0)
+            ->with(['order'])
+            ->oldest('business_date')
+            ->oldest('id')
+            ->get();
     }
 
     public function availableShopCredit(int $shopId): float
@@ -913,17 +943,6 @@ class ShopInvoiceService
     /**
      * @return Collection<int, ShopInvoice>
      */
-    private function pendingInvoicesForShop(int $shopId): Collection
-    {
-        return ShopInvoice::query()
-            ->where('shop_id', $shopId)
-            ->where('balance_amount', '>', 0)
-            ->with(['order'])
-            ->oldest('business_date')
-            ->oldest('id')
-            ->get();
-    }
-
     public function recalculate(ShopInvoice $invoice): ShopInvoice
     {
         $invoice->loadMissing('items');

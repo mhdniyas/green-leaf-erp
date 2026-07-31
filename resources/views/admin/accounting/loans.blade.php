@@ -1,11 +1,11 @@
-<x-layouts.accounting title="Shop Loans">
+<x-layouts.accounting title="Shop Petty">
     <div class="mx-auto max-w-[96rem] space-y-5">
         <section class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
             <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <div>
-                    <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Owned Shop Loans</p>
-                    <h1 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Loan control</h1>
-                    <p class="mt-2 text-sm font-semibold text-slate-600">Cash given and repayments affect company cash journal. Selected daily categories only consume the loan balance.</p>
+                    <p class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Owned Shop Petty</p>
+                    <h1 class="mt-2 text-2xl font-black tracking-tight text-slate-950">Petty control</h1>
+                    <p class="mt-2 text-sm font-semibold text-slate-600">Cash given and repayments affect company cash journal. Selected daily categories only consume the Petty balance.</p>
                 </div>
                 @if($selectedShop)
                     <div class="flex flex-wrap items-center justify-end gap-3">
@@ -31,7 +31,7 @@
                             <div class="flex items-start justify-between gap-3">
                                 <div>
                                     <p class="text-sm font-black text-slate-950">{{ $shop->name }}</p>
-                                    <p class="mt-1 text-xs font-semibold text-slate-500">{{ $shop->client?->name ?? 'Owned shop' }} · {{ $summary['category_count'] }} loan categories</p>
+                                    <p class="mt-1 text-xs font-semibold text-slate-500">{{ $shop->client?->name ?? 'Owned shop' }} · {{ $summary['category_count'] }} Petty categories</p>
                                 </div>
                                 <p class="text-right text-sm font-black {{ (float) $summary['balance'] < 0 ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format((float) $summary['balance'], 2) }}</p>
                             </div>
@@ -48,7 +48,7 @@
                         <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                             <div>
                                 <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Settings</p>
-                                <h2 class="mt-2 text-xl font-black text-slate-950">{{ $selectedShop->name }} loan categories</h2>
+                                <h2 class="mt-2 text-xl font-black text-slate-950">{{ $selectedShop->name }} Petty categories</h2>
                                 <p class="mt-1 text-sm font-semibold text-slate-600">Mark expense categories that should show as paid from loan.</p>
                             </div>
                         </div>
@@ -69,7 +69,7 @@
                                                 <input type="number" step="0.01" min="0" name="loan_default_daily_amounts[{{ $category->id }}]" value="{{ old("loan_default_daily_amounts.$category->id", $setting?->default_daily_amount > 0 ? $setting->default_daily_amount : '') }}" placeholder="Optional" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900">
                                             </span>
                                             <span class="mt-3 block rounded-xl border border-white bg-white px-3 py-2 text-xs font-semibold text-slate-500">
-                                                Loan expense only updates the loan balance.
+                                                Loan expense only updates the Petty balance.
                                             </span>
                                         </span>
                                     </label>
@@ -78,7 +78,7 @@
                                 @endforelse
                             </div>
                             <div class="mt-4 flex justify-end">
-                                <button type="submit" class="inline-flex h-11 items-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800">Save loan categories</button>
+                                <button type="submit" class="inline-flex h-11 items-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800">Save Petty categories</button>
                             </div>
                         </form>
                     </section>
@@ -88,11 +88,11 @@
                             @csrf
                             <input type="hidden" name="type" value="cash_given">
                             <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Cash Journal OUT</p>
-                            <h3 class="mt-2 text-lg font-black text-slate-950">Cash loan given</h3>
+                            <h3 class="mt-2 text-lg font-black text-slate-950">Petty given</h3>
                             <div class="mt-4 grid gap-3">
                                 <input type="date" name="business_date" value="{{ today()->toDateString() }}" class="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-900">
                                 <input type="number" step="0.01" min="0.01" name="amount" placeholder="Amount" class="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-900">
-                                <input type="text" name="title" value="Cash loan given" class="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-900">
+                                <input type="text" name="title" value="Petty given" class="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-900">
                                 <input type="text" name="description" placeholder="Optional note" class="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-900">
                                 <button type="submit" class="inline-flex h-11 items-center justify-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">Record cash given</button>
                             </div>
@@ -106,7 +106,7 @@
                             <div class="mt-4 grid gap-3">
                                 <input type="date" name="business_date" value="{{ today()->toDateString() }}" class="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-900">
                                 <input type="number" step="0.01" min="0.01" name="amount" placeholder="Amount" class="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-900">
-                                <input type="text" name="title" value="Loan repayment received" class="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-900">
+                                <input type="text" name="title" value="Petty returned" class="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-900">
                                 <input type="text" name="description" placeholder="Optional note" class="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-900">
                                 <button type="submit" class="inline-flex h-11 items-center justify-center rounded-2xl bg-cyan-600 px-5 text-sm font-black text-white transition hover:bg-cyan-500">Record repayment</button>
                             </div>
@@ -115,7 +115,7 @@
 
                     <section class="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
                         <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Ledger</p>
-                        <h2 class="mt-2 text-xl font-black text-slate-950">Loan movements</h2>
+                        <h2 class="mt-2 text-xl font-black text-slate-950">Petty movements</h2>
                         <div class="mt-5 overflow-x-auto rounded-[1.25rem] border border-slate-200">
                             <table class="min-w-full text-left text-sm">
                                 <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">

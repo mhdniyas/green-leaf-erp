@@ -26,8 +26,9 @@
                 ->map(fn ($setting) => [
                     'shop_accounting_category_id' => (string) $setting->shop_accounting_category_id,
                     'amount' => (string) $setting->default_daily_amount,
-                    'description' => 'Auto paid from loan',
+                    'description' => 'Auto paid from Petty',
                     'is_loan_entry' => '1',
+                    'funding_source' => 'petty',
                 ])
                 ->values()
                 ->all()
@@ -38,6 +39,7 @@
                 'amount' => (string) $line->amount,
                 'description' => (string) ($line->description ?? ''),
                 'is_loan_entry' => (string) (int) ((bool) $line->is_loan_entry),
+                'funding_source' => (string) ($line->funding_source ?: (((bool) $line->is_loan_entry) ? 'petty' : ($line->type === 'expense' ? 'sales' : 'sales'))),
             ])->all()
             : $loanDefaultLines))
             ->filter(fn ($line) => is_array($line))
@@ -223,10 +225,26 @@
             </section>
         @elseif ($tab === 'loan')
             <section class="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <nav class="inline-flex w-fit flex-wrap gap-1 rounded-2xl bg-slate-100 p-1">
+                    <a
+                        href="{{ route('shop-owner.accounting.index', ['tab' => 'loan', 'others' => 'petty']) }}"
+                        class="{{ ($othersSubtab ?? 'petty') === 'petty' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-900' }} inline-flex h-10 items-center justify-center rounded-xl px-4 text-sm font-semibold transition"
+                    >
+                        Petty
+                    </a>
+                    <a
+                        href="{{ route('shop-owner.accounting.index', ['tab' => 'loan', 'others' => 'company']) }}"
+                        class="{{ ($othersSubtab ?? 'petty') === 'company' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-900' }} inline-flex h-10 items-center justify-center rounded-xl px-4 text-sm font-semibold transition"
+                    >
+                        Company
+                    </a>
+                </nav>
+
+                @if (($othersSubtab ?? 'petty') === 'petty')
+                <div class="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                        <p class="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-700">Loan</p>
-                        <h2 class="mt-2 text-xl font-black text-slate-950">Loan movements</h2>
+                        <p class="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-700">Others</p>
+                        <h2 class="mt-2 text-xl font-black text-slate-950">Petty movements</h2>
                         <p class="mt-2 text-sm font-semibold text-slate-600">Cash given, repayments, and cashbook categories paid from loan.</p>
                     </div>
                     <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-right">
@@ -277,6 +295,55 @@
                         </tbody>
                     </table>
                 </div>
+                @else
+                <div class="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-700">Others</p>
+                        <h2 class="mt-2 text-xl font-black text-slate-950">Company-funded expenses</h2>
+                        <p class="mt-2 text-sm font-semibold text-slate-600">Expenses submitted for Green Leaf review and settlement.</p>
+                    </div>
+                </div>
+
+                <div class="mt-5 overflow-x-auto rounded-[1.25rem] border border-slate-200">
+                    <table class="min-w-full text-left text-sm">
+                        <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                            <tr>
+                                <th class="px-4 py-3">Date</th>
+                                <th class="px-4 py-3">Category</th>
+                                <th class="px-4 py-3">Description</th>
+                                <th class="px-4 py-3">Status</th>
+                                <th class="px-4 py-3 text-right">Amount</th>
+                                <th class="px-4 py-3 text-right">Settled</th>
+                                <th class="px-4 py-3 text-right">Remaining</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @forelse($companyPayableLines as $line)
+                                @php
+                                    $remaining = $line->remainingCompanyPayableAmount();
+                                @endphp
+                                <tr>
+                                    <td class="px-4 py-3 font-black text-slate-950">{{ $line->entry?->business_date?->format('d M Y') ?? '—' }}</td>
+                                    <td class="px-4 py-3 font-black text-slate-950">{{ $line->category?->name ?? 'Expense' }}</td>
+                                    <td class="px-4 py-3">
+                                        <p class="font-semibold text-slate-700">{{ $line->description ?: 'Company expense' }}</p>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <span class="rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] {{ in_array($line->company_payable_status, ['approved'], true) ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : ($line->company_payable_status === 'rejected' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-amber-200 bg-amber-50 text-amber-700') }}">{{ str($line->company_payable_status)->replace('_', ' ')->title() }}</span>
+                                    </td>
+                                    <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) ($line->company_payable_amount ?? $line->amount), 2) }}</td>
+                                    <td class="px-4 py-3 text-right font-semibold text-slate-700">Rs. {{ number_format((float) ($line->company_settled_amount ?? 0), 2) }}</td>
+                                    <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($remaining, 2) }}</td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="7" class="px-4 py-10 text-center font-bold text-slate-500">No company-funded expenses yet.</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+                @endif
             </section>
         @else
             <section class="rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
@@ -742,8 +809,13 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                                                 </td>
                                                 <td class="px-4 py-3 font-black text-slate-950">
                                                     {{ $line->category?->name ?? 'Category removed' }}
-                                                    @if((bool) $line->is_loan_entry && $line->type === 'expense')
-                                                        <span class="mt-1 block w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-violet-700">Paid from loan</span>
+                                                    @if($line->type === 'expense' && in_array((string) $line->funding_source, ['sales', 'petty', 'company'], true))
+                                                        <span class="mt-1 block w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-violet-700">Paid from {{ str($line->funding_source)->title() }}</span>
+                                                    @elseif((bool) $line->is_loan_entry && $line->type === 'expense')
+                                                        <span class="mt-1 block w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-violet-700">Paid from Petty</span>
+                                                    @endif
+                                                    @if($line->company_payable_status === 'rejected' && filled($line->company_rejection_reason))
+                                                        <span class="mt-1 block text-xs font-semibold text-rose-700">Rejected: {{ $line->company_rejection_reason }}</span>
                                                     @endif
                                                 </td>
                                                 <td class="px-4 py-3 font-semibold text-slate-600">{{ $line->description ?: 'No note added' }}</td>
@@ -809,12 +881,15 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                                 <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Amount</span>
                                 <input id="cashbook-line-amount" type="number" min="0.01" step="0.01" class="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none" placeholder="Enter amount">
                             </label>
-                            <label class="flex items-start gap-3 rounded-[1.25rem] border border-violet-200 bg-violet-50 p-4">
-                                <input id="cashbook-line-loan" type="checkbox" class="mt-1 h-5 w-5 rounded border-violet-300 text-violet-700 focus:ring-violet-500">
-                                <span>
-                                    <span class="block text-sm font-black text-violet-950">Under loan</span>
-                                    <span id="cashbook-line-loan-help" class="mt-1 block text-xs font-semibold text-violet-700">This line goes to the shop loan ledger instead of changing shop cash.</span>
-                                </span>
+                            <label class="block" id="cashbook-funding-wrap">
+                                <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Paid From</span>
+                                <select id="cashbook-line-funding" class="mt-2 w-full rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-black text-violet-950 focus:border-violet-500 focus:outline-none">
+                                    <option value="sales">Sales</option>
+                                    <option value="petty">Petty</option>
+                                    <option value="company">Company</option>
+                                </select>
+                                <span id="cashbook-line-loan-help" class="mt-1 block text-xs font-semibold text-violet-700">This expense will be deducted from the shop’s sales collection.</span>
+                                <input id="cashbook-line-loan" type="checkbox" class="hidden">
                             </label>
                             <label class="block">
                                 <span id="cashbook-line-description-label" class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Notes</span>
@@ -1012,6 +1087,8 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
             const categoryPanel = document.getElementById('cashbook-line-category-panel');
             const amountInput = document.getElementById('cashbook-line-amount');
             const loanInput = document.getElementById('cashbook-line-loan');
+            const fundingInput = document.getElementById('cashbook-line-funding');
+            const fundingWrap = document.getElementById('cashbook-funding-wrap');
             const loanHelp = document.getElementById('cashbook-line-loan-help');
             const descriptionInput = document.getElementById('cashbook-line-description');
             const descriptionLabel = document.getElementById('cashbook-line-description-label');
@@ -1021,7 +1098,7 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
             const closingDisplays = document.querySelectorAll('[data-cashbook-closing-display]');
             const netSaleDisplays = document.querySelectorAll('[data-cashbook-net-sale-display]');
 
-            if (!listEl || !inputsEl || !modalEl || !openButton || !closeButton || !cancelButton || !saveButton || !typeInput || !categoryInput || !typeTrigger || !typeLabel || !typePanel || !categoryTrigger || !categoryLabel || !categoryPanel || !amountInput || !loanInput || !loanHelp || !descriptionInput || !descriptionLabel || !helpText || !modalTitle) {
+            if (!listEl || !inputsEl || !modalEl || !openButton || !closeButton || !cancelButton || !saveButton || !typeInput || !categoryInput || !typeTrigger || !typeLabel || !typePanel || !categoryTrigger || !categoryLabel || !categoryPanel || !amountInput || !loanInput || !fundingInput || !fundingWrap || !loanHelp || !descriptionInput || !descriptionLabel || !helpText || !modalTitle) {
                 return;
             }
 
@@ -1031,7 +1108,8 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                     .filter(line => line && line.shop_accounting_category_id && line.amount)
                     .map(line => ({
                         ...line,
-                        is_loan_entry: ['1', 1, true, 'true'].includes(line.is_loan_entry),
+                        funding_source: line.funding_source || (['1', 1, true, 'true'].includes(line.is_loan_entry) ? 'petty' : 'sales'),
+                        is_loan_entry: ['1', 1, true, 'true'].includes(line.is_loan_entry) || line.funding_source === 'petty',
                     }))
                 : [];
             const openingCash = Number(openingDisplay?.dataset.openingCash ?? 0);
@@ -1044,18 +1122,37 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                 .replaceAll("'", '&#039;');
 
             const categoryMeta = (categoryId) => categories.find((category) => String(category.id) === String(categoryId)) ?? null;
+            const fundingSourceOf = (line) => line?.funding_source || (['1', 1, true, 'true'].includes(line?.is_loan_entry) ? 'petty' : 'sales');
             const isLoanLine = (line) => {
                 const meta = categoryMeta(line?.shop_accounting_category_id);
 
-                return meta?.type === 'expense' && ['1', 1, true, 'true'].includes(line?.is_loan_entry);
+                return meta?.type === 'expense' && (fundingSourceOf(line) === 'petty' || ['1', 1, true, 'true'].includes(line?.is_loan_entry));
+            };
+            const fundingHelpText = (source) => {
+                if (source === 'petty') {
+                    return 'This expense will be deducted from the shop’s Petty balance.';
+                }
+                if (source === 'company') {
+                    return 'This expense will be submitted to Green Leaf for review and settlement.';
+                }
+
+                return 'This expense will be deducted from the shop’s sales collection.';
             };
             const cashbookLabel = (meta, line = null) => {
                 if (!meta) {
                     return 'Entry';
                 }
 
-                if (isLoanLine(line)) {
-                    return 'Paid from loan';
+                if (meta.type === 'expense') {
+                    const source = fundingSourceOf(line);
+                    if (source === 'petty') {
+                        return 'Paid from Petty';
+                    }
+                    if (source === 'company') {
+                        return 'Paid from Company';
+                    }
+
+                    return 'Paid from Sales';
                 }
 
                 if (meta.type === 'income') {
@@ -1084,7 +1181,7 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                         return carry;
                     }
 
-                    if (isLoanLine(line)) {
+                    if (isLoanLine(line) || fundingSourceOf(line) === 'company') {
                         return carry;
                     }
 
@@ -1141,7 +1238,7 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                         }"
                     >
                         <span>${escapeHtml(category.name)}</span>
-                        <span class="ml-auto text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">${category.is_loan_category ? 'Loan default' : escapeHtml(cashbookLabel(category))}</span>
+                        <span class="ml-auto text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">${category.is_loan_category ? 'Petty default' : escapeHtml(cashbookLabel(category))}</span>
                     </button>
                 `).join('');
 
@@ -1162,31 +1259,29 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
 
             const refreshLoanState = () => {
                 const meta = categoryMeta(categoryInput.value);
+                const canUseFunding = meta?.type === 'expense';
+                fundingWrap.classList.toggle('hidden', !canUseFunding);
+                fundingInput.disabled = !canUseFunding;
 
-                if (!meta) {
+                if (!canUseFunding) {
+                    fundingInput.value = 'sales';
                     loanInput.checked = false;
-                    loanInput.disabled = true;
-                    loanHelp.textContent = 'This line goes to the shop loan ledger instead of changing shop cash.';
+                    loanHelp.textContent = 'Paid From applies to expense lines.';
                     return;
                 }
 
-                const canUseLoan = meta.type === 'expense';
-                loanInput.disabled = !canUseLoan;
-
-                if (!canUseLoan) {
-                    loanInput.checked = false;
-                    loanHelp.textContent = 'Under loan is available only for expense lines.';
-                    return;
-                }
-
-                loanHelp.textContent = 'Expense under loan reduces the shop loan ledger. Shop cash is unchanged.';
+                loanHelp.textContent = fundingHelpText(fundingInput.value);
+                loanInput.checked = fundingInput.value === 'petty';
             };
+
+            fundingInput?.addEventListener('change', refreshLoanState);
 
             const renderInputs = () => {
                 inputsEl.innerHTML = lines.map((line, index) => `
                     <input type="hidden" name="lines[${index}][shop_accounting_category_id]" value="${escapeHtml(line.shop_accounting_category_id)}">
                     <input type="hidden" name="lines[${index}][amount]" value="${escapeHtml(line.amount)}">
                     <input type="hidden" name="lines[${index}][description]" value="${escapeHtml(line.description ?? '')}">
+                    <input type="hidden" name="lines[${index}][funding_source]" value="${escapeHtml(fundingSourceOf(line))}">
                     <input type="hidden" name="lines[${index}][is_loan_entry]" value="${isLoanLine(line) ? '1' : '0'}">
                 `).join('');
             };
@@ -1245,6 +1340,7 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                 editIndex = null;
                 amountInput.value = '';
                 loanInput.checked = false;
+                fundingInput.value = 'sales';
                 descriptionInput.value = '';
                 setTypeValue('income', 'Income');
                 fillCategoryOptions('income');
@@ -1259,6 +1355,7 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                     fillCategoryOptions('income');
                     amountInput.value = '';
                     loanInput.checked = false;
+                    fundingInput.value = 'sales';
                     descriptionInput.value = '';
                     modalTitle.textContent = 'Add credit or debit';
                 } else {
@@ -1267,6 +1364,7 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                     setTypeValue(meta?.type ?? 'income', meta?.type === 'expense' ? 'Expense' : 'Income');
                     fillCategoryOptions(typeInput.value, line.shop_accounting_category_id);
                     amountInput.value = line.amount;
+                    fundingInput.value = fundingSourceOf(line);
                     loanInput.checked = isLoanLine(line);
                     descriptionInput.value = line.description ?? '';
                     modalTitle.textContent = 'Update receipt line';
@@ -1350,7 +1448,8 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                     shop_accounting_category_id: categoryId,
                     amount,
                     description,
-                    is_loan_entry: meta?.type === 'expense' && loanInput.checked,
+                    funding_source: meta?.type === 'expense' ? fundingInput.value : null,
+                    is_loan_entry: meta?.type === 'expense' && fundingInput.value === 'petty',
                 };
 
                 if (editIndex === null) {

@@ -107,12 +107,30 @@
                                 <div class="min-w-0 lg:hidden">
                                     <h3 class="truncate text-[13px] font-black leading-4 text-slate-950">{{ $summary['product_name'] }}</h3>
                                     <p class="truncate text-[11px] font-semibold leading-3 text-slate-500">{{ $summary['category_name'] ?: 'Other' }}</p>
+                                    @if (! empty($summary['measure_breakdown']))
+                                        <div class="mt-0.5 flex flex-wrap gap-1">
+                                            @foreach ($summary['measure_breakdown'] as $measure)
+                                                <span class="text-[10px] font-black uppercase tracking-[0.08em] text-emerald-700">
+                                                    {{ number_format((float) $measure['requested_qty'], 1) }} {{ $measure['label'] }}
+                                                </span>
+                                            @endforeach
+                                        </div>
+                                    @endif
                                 </div>
                             </div>
 
                             <div class="bulk-row-title hidden min-w-0 lg:block">
                                 <h3 class="truncate text-[13px] font-black leading-4 text-slate-950">{{ $summary['product_name'] }}</h3>
                                 <p class="truncate text-[11px] font-semibold leading-3 text-slate-500">{{ $summary['category_name'] ?: 'Other' }}</p>
+                                @if (! empty($summary['measure_breakdown']))
+                                    <div class="mt-0.5 flex flex-wrap gap-1">
+                                        @foreach ($summary['measure_breakdown'] as $measure)
+                                            <span class="text-[10px] font-black uppercase tracking-[0.08em] text-emerald-700">
+                                                {{ number_format((float) $measure['requested_qty'], 1) }} {{ $measure['label'] }}
+                                            </span>
+                                        @endforeach
+                                    </div>
+                                @endif
                             </div>
 
                             <div class="bulk-row-stats hidden grid-cols-3 gap-1.5 lg:grid">

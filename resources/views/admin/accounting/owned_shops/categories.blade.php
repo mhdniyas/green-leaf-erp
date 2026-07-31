@@ -10,7 +10,7 @@
 
                 <div class="flex flex-wrap items-center gap-3">
                     <a href="{{ route('admin.accounting.loans', ['shop' => $shop->code]) }}" class="inline-flex h-11 items-center rounded-2xl bg-emerald-600 px-4 text-sm font-black text-white transition hover:bg-emerald-500">
-                        Loan section
+                        Petty section
                     </a>
                     <a href="{{ route('admin.accounting.owned-shops.show', ['shop' => $shop->code, 'tab' => 'cashbook']) }}" class="inline-flex h-11 items-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:bg-slate-50">
                         Back to Shop

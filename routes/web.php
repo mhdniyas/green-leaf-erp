@@ -11,6 +11,7 @@ use App\Http\Controllers\Web\Admin\DeliveryReviewController;
 use App\Http\Controllers\Web\Admin\DiscrepancyReportController;
 use App\Http\Controllers\Web\Admin\EnquiryController;
 use App\Http\Controllers\Web\Admin\FinanceV2Controller;
+use App\Http\Controllers\Web\Admin\FinanceV2PaymentsController;
 use App\Http\Controllers\Web\Admin\StaffManagementController;
 use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\Admin\WarehouseController;
@@ -352,19 +353,36 @@ Route::middleware('auth')->group(function () {
         Route::get('/', AdminOverviewController::class)->name('overview');
         Route::get('company-settings', [CompanySettingsController::class, 'edit'])->name('company-settings.edit');
         Route::patch('company-settings', [CompanySettingsController::class, 'update'])->name('company-settings.update');
-        Route::prefix('finance-v2')->name('finance-v2.')->middleware('can:accounting.dashboard.view')->group(function () {
+        Route::prefix('finance-v2')->name('finance-v2.')->group(function () {
             Route::get('/', [FinanceV2Controller::class, 'dashboard'])->name('dashboard');
             Route::get('green-leaf/{section}', [FinanceV2Controller::class, 'greenLeaf'])->name('green-leaf.section');
+            Route::get('clients', [FinanceV2Controller::class, 'clientsIndex'])->name('clients.index');
+            Route::get('clients/{client}', [FinanceV2Controller::class, 'clientShow'])->name('clients.show');
+            Route::get('clients/{client}/{section}', [FinanceV2Controller::class, 'clientSection'])->name('clients.section');
             Route::get('aishwarya-veg', [FinanceV2Controller::class, 'aishwaryaVeg'])->name('aishwarya-veg');
             Route::get('aishwarya-veg/{section}', [FinanceV2Controller::class, 'aishwaryaVegSection'])->name('aishwarya-veg.section');
             Route::get('reports', [FinanceV2Controller::class, 'reports'])->name('reports');
             Route::get('payments', [FinanceV2Controller::class, 'payments'])->name('payments.index');
             Route::get('payments/create', [FinanceV2Controller::class, 'createPayment'])->name('payments.create');
+            Route::get('payments/shop-context/{shop}', [FinanceV2Controller::class, 'shopPaymentContext'])->name('payments.shop-context');
             Route::post('payments', [FinanceV2Controller::class, 'storePayment'])->name('payments.store');
             Route::get('payments/{paymentRequest}', [FinanceV2Controller::class, 'showPayment'])->name('payments.show');
             Route::patch('payments/{paymentRequest}/approve', [FinanceV2Controller::class, 'approvePayment'])->name('payments.approve');
             Route::patch('payments/{paymentRequest}/reject', [FinanceV2Controller::class, 'rejectPayment'])->name('payments.reject');
             Route::patch('payments/{paymentRequest}/cheque', [FinanceV2Controller::class, 'updateCheque'])->name('payments.cheque');
+
+            Route::get('client-payments', [FinanceV2PaymentsController::class, 'clientPaymentsIndex'])->name('client-payments.index');
+            Route::get('client-payments/{client}/shops/{shop:code}', [FinanceV2PaymentsController::class, 'clientShopShow'])->name('client-payments.shop');
+            Route::get('company-payables', [FinanceV2PaymentsController::class, 'companyPayablesIndex'])->name('company-payables.index');
+            Route::get('company-payables/{line}', [FinanceV2PaymentsController::class, 'companyPayableShow'])->name('company-payables.show');
+            Route::patch('company-payables/{line}/approve', [FinanceV2PaymentsController::class, 'approveCompanyPayable'])->name('company-payables.approve');
+            Route::patch('company-payables/{line}/reject', [FinanceV2PaymentsController::class, 'rejectCompanyPayable'])->name('company-payables.reject');
+            Route::post('company-payables/{line}/settle-adjust', [FinanceV2PaymentsController::class, 'settleAdjust'])->name('company-payables.settle-adjust');
+            Route::post('company-payables/{line}/settle-direct', [FinanceV2PaymentsController::class, 'settleDirect'])->name('company-payables.settle-direct');
+            Route::get('direct-payments', [FinanceV2PaymentsController::class, 'directPaymentsIndex'])->name('direct-payments.index');
+            Route::get('direct-payments/{invoice}', [FinanceV2PaymentsController::class, 'directPaymentsCreate'])->name('direct-payments.create');
+            Route::post('direct-payments/{invoice}', [FinanceV2PaymentsController::class, 'directPaymentsStore'])->name('direct-payments.store');
+
             Route::get('shops/{shop:code}', [FinanceV2Controller::class, 'shop'])->name('shops.show');
         });
         Route::prefix('accounting')->name('accounting.')->middleware('can:accounting.dashboard.view')->group(function () {

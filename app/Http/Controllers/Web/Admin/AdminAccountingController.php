@@ -160,17 +160,7 @@ class AdminAccountingController extends Controller
 
     public function updateShopInvoicePayment(ApproveShopInvoicePaymentRequest $request, ShopInvoice $invoice): RedirectResponse
     {
-        try {
-            $this->shopInvoiceService->recordAdminPaymentReceived(
-                $invoice,
-                $request->validated(),
-                (int) $request->user()->id,
-            );
-        } catch (ValidationException $exception) {
-            return back()->withErrors($exception->errors())->withInput();
-        }
-
-        return back()->with('success', 'Shop payment approved and added to accounting journal.');
+        return $this->redirectLegacyInvoicePaymentToFinanceV2($invoice);
     }
 
     public function applyShopInvoiceDiscount(ApplyShopInvoiceDiscountRequest $request, ShopInvoice $invoice): RedirectResponse
@@ -190,23 +180,7 @@ class AdminAccountingController extends Controller
 
     public function reviewShopInvoicePaymentRequest(ReviewShopInvoicePaymentRequest $request, ShopInvoicePaymentRequest $paymentRequest): RedirectResponse
     {
-        try {
-            $paymentRequest = $this->shopInvoiceService->reviewPaymentRequest(
-                $paymentRequest,
-                $request->validated('decision'),
-                (int) $request->user()->id,
-                $request->validated('admin_note'),
-            );
-        } catch (ValidationException $exception) {
-            return back()->withErrors($exception->errors())->withInput();
-        }
-
-        return back()->with(
-            $paymentRequest->status === 'approved' ? 'success' : 'warning',
-            $paymentRequest->status === 'approved'
-                ? 'Shop payment request approved and added to accounting journal.'
-                : 'Shop payment request rejected.'
-        );
+        return $this->redirectPaymentRequestToFinanceV2($paymentRequest);
     }
 
     public function cashFlowReport(Request $request): View
@@ -952,16 +926,13 @@ class AdminAccountingController extends Controller
         $shop = $this->loadEligibleShop($shop);
 
         $selectedDate = Carbon::parse($request->input('date', today()->toDateString()));
-        $tab = in_array((string) $request->input('tab', 'bills'), ['bills', 'cashbook'], true)
-            ? (string) $request->input('tab', 'bills')
-            : 'bills';
-        $approvalTab = in_array((string) $request->input('approval_tab', 'pending'), ['pending', 'approved', 'recheck'], true)
-            ? (string) $request->input('approval_tab', 'pending')
-            : 'pending';
+        $legacyTab = in_array((string) $request->input('tab', ''), ['bills', 'cashbook'], true)
+            ? (string) $request->input('tab')
+            : null;
         $approvalStatuses = [
             'pending' => 'submitted',
-            'approved' => 'approved',
             'recheck' => 'recheck_required',
+            'approved' => 'approved',
         ];
         $startDate = Carbon::parse($request->input('start_date', $selectedDate->copy()->startOfMonth()->toDateString()));
         $endDate = Carbon::parse($request->input('end_date', $selectedDate->copy()->endOfMonth()->toDateString()));
@@ -977,13 +948,6 @@ class AdminAccountingController extends Controller
         $receiptSummary = $this->ownedShopAccountingService->receiptSummary($entry, $suggestedOpeningBalance, $selectedShopCredit, $selectedDeliveryExpense);
         $availableCategories = $this->ownedShopAccountingService->availableCategoriesForShop($shop);
         $loanBalance = $this->shopLoanService->approvedBalance($shop);
-        $recentEntries = ShopAccountingEntry::query()
-            ->where('shop_id', $shop->id)
-            ->with(['lines.category', 'submittedBy', 'reviewedBy'])
-            ->latest('business_date')
-            ->limit(12)
-            ->get();
-        $periodClosures = $this->ownedShopAccountingService->recentPeriodClosures($shop);
         $billingInvoices = ShopInvoice::query()
             ->where('shop_id', $shop->id)
             ->with(['order', 'paymentRequests' => fn ($query) => $query->latest('id')])
@@ -993,6 +957,7 @@ class AdminAccountingController extends Controller
         $paymentRequests = ShopInvoicePaymentRequest::query()
             ->where('shop_id', $shop->id)
             ->with(['invoice', 'requestedBy', 'reviewedBy'])
+            ->orderByRaw("CASE WHEN status = 'pending' THEN 0 ELSE 1 END")
             ->latest('id')
             ->paginate(12, ['*'], 'payment_requests_page');
         $paymentRequestPreviews = $paymentRequests
@@ -1000,14 +965,6 @@ class AdminAccountingController extends Controller
             ->mapWithKeys(fn (ShopInvoicePaymentRequest $paymentRequest): array => [
                 $paymentRequest->id => $this->shopInvoiceService->allocationPreviewForShopPayment($paymentRequest),
             ]);
-        $billPaymentRequests = $paymentRequests
-            ->getCollection()
-            ->filter(fn (ShopInvoicePaymentRequest $paymentRequest): bool => (float) ($paymentRequestPreviews->get($paymentRequest->id)['applied_amount'] ?? 0) > 0)
-            ->values();
-        $clientBalancePaymentRequests = $paymentRequests
-            ->getCollection()
-            ->filter(fn (ShopInvoicePaymentRequest $paymentRequest): bool => (float) $paymentRequest->credit_amount > 0 || (float) ($paymentRequestPreviews->get($paymentRequest->id)['credit_amount'] ?? 0) > 0)
-            ->values();
         $approvalEntriesByTab = collect($approvalStatuses)
             ->mapWithKeys(fn (string $status, string $key): array => [
                 $key => ShopAccountingEntry::query()
@@ -1021,35 +978,60 @@ class AdminAccountingController extends Controller
                     ->limit(20)
                     ->get(),
             ]);
-        $pettyCashRows = $this->ownedShopAccountingService->pettyCashRows($shop, $startDate, $endDate);
-        $pettyCashBalanceRows = $this->ownedShopAccountingService->pettyCashRows($shop, Carbon::parse('2000-01-01'), $endDate);
-        $pettyCashBalance = (float) ($pettyCashBalanceRows->first()['balance'] ?? 0.0);
+
+        $requestedApprovalTab = (string) $request->input('approval_tab', '');
+        if (in_array($requestedApprovalTab, ['pending', 'approved', 'recheck'], true)
+            && $approvalEntriesByTab->get($requestedApprovalTab, collect())->isNotEmpty()) {
+            $approvalTab = $requestedApprovalTab;
+        } elseif ($approvalEntriesByTab->get('pending', collect())->isNotEmpty()) {
+            $approvalTab = 'pending';
+        } elseif ($approvalEntriesByTab->get('recheck', collect())->isNotEmpty()) {
+            $approvalTab = 'recheck';
+        } else {
+            $approvalTab = 'approved';
+        }
+
+        $pendingPaymentRequestCount = (int) $paymentRequests->getCollection()
+            ->where('status', 'pending')
+            ->count();
+
+        $hasActionableApprovals = $approvalEntriesByTab->get('pending', collect())->isNotEmpty()
+            || $approvalEntriesByTab->get('recheck', collect())->isNotEmpty();
+
+        $requestedSection = (string) $request->input('section', '');
+        $defaultSection = match (true) {
+            in_array($requestedSection, ['approve', 'cashbook', 'bills'], true) => $requestedSection,
+            $legacyTab === 'bills' => 'bills',
+            $legacyTab === 'cashbook' => $hasActionableApprovals ? 'approve' : 'cashbook',
+            $hasActionableApprovals || $pendingPaymentRequestCount > 0 => 'approve',
+            default => 'cashbook',
+        };
+
         $periodInvoices = ShopInvoice::query()
             ->where('shop_id', $shop->id)
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
-            ->get();
+            ->get(['id', 'shop_id', 'business_date', 'final_total', 'paid_amount', 'balance_amount']);
         $periodEntries = ShopAccountingEntry::query()
             ->where('shop_id', $shop->id)
             ->whereIn('status', ['submitted', 'recheck_required', 'approved', 'finalized'])
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
-            ->with(['lines.category'])
+            ->with(['lines:id,shop_accounting_entry_id,type,amount,cash_effect'])
             ->get();
         $periodCredits = ShopCredit::query()
             ->approved()
             ->where('shop_id', $shop->id)
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
-            ->with('cashMovementCategory')
             ->get();
         $periodPayrollPayments = ShopStaffPayment::query()
             ->where('shop_id', $shop->id)
             ->whereDate('paid_on', '>=', $startDate)
             ->whereDate('paid_on', '<=', $endDate)
-            ->with('employee')
             ->get();
         $analytics = $this->ownedShopAnalytics($periodInvoices, $periodEntries, $periodCredits, $periodPayrollPayments);
+        $pettyCashBalance = (float) ($analytics['cards']['closing_balance'] ?? 0);
 
         $incomeTotal = $entry instanceof ShopAccountingEntry
             ? round((float) $entry->lines->where('type', 'income')->sum('amount'), 2)
@@ -1059,8 +1041,9 @@ class AdminAccountingController extends Controller
             : 0.0;
 
         return view('admin.accounting.owned_shops.show', [
-            'shop' => $shop->loadMissing(['users']),
-            'tab' => $tab,
+            'shop' => $shop->loadMissing(['client']),
+            'tab' => $legacyTab ?? 'cashbook',
+            'defaultSection' => $defaultSection,
             'approvalTab' => $approvalTab,
             'approvalEntriesByTab' => $approvalEntriesByTab,
             'selectedDate' => $selectedDate,
@@ -1068,16 +1051,10 @@ class AdminAccountingController extends Controller
             'endDate' => $endDate,
             'entry' => $entry,
             'availableCategories' => $availableCategories,
-            'globalCategories' => $availableCategories->whereNull('shop_id')->values(),
-            'shopCategories' => $availableCategories->where('shop_id', $shop->id)->values(),
-            'recentEntries' => $recentEntries,
-            'periodClosures' => $periodClosures,
             'billingInvoices' => $billingInvoices,
             'paymentRequests' => $paymentRequests,
             'paymentRequestPreviews' => $paymentRequestPreviews,
-            'billPaymentRequests' => $billPaymentRequests,
-            'clientBalancePaymentRequests' => $clientBalancePaymentRequests,
-            'pettyCashRows' => $pettyCashRows,
+            'pendingPaymentRequestCount' => $pendingPaymentRequestCount,
             'pettyCashBalance' => $pettyCashBalance,
             'analytics' => $analytics,
             'incomeTotal' => $incomeTotal,
@@ -1398,13 +1375,7 @@ class AdminAccountingController extends Controller
         $shop = $this->loadEligibleShop($shop);
         abort_unless($invoice->shop_id === $shop->id, 404);
 
-        try {
-            $this->shopInvoiceService->recordAdminPaymentReceived($invoice, $request->validated(), (int) $request->user()->id);
-        } catch (ValidationException $exception) {
-            return back()->withErrors($exception->errors())->withInput();
-        }
-
-        return back()->with('success', 'Daily invoice payment received and approved.');
+        return $this->redirectLegacyInvoicePaymentToFinanceV2($invoice);
     }
 
     public function reviewOwnedShopPaymentRequest(ReviewOwnedShopPaymentRequest $request, Shop $shop, ShopInvoicePaymentRequest $paymentRequest): RedirectResponse
@@ -1413,24 +1384,28 @@ class AdminAccountingController extends Controller
         $shop = $this->loadEligibleShop($shop);
         abort_unless($paymentRequest->shop_id === $shop->id, 404);
 
-        try {
-            $paymentRequest = $this->shopInvoiceService->reviewPaymentRequest(
-                $paymentRequest,
-                $request->validated('decision'),
-                (int) $request->user()->id,
-                $request->validated('admin_note'),
-            );
-        } catch (ValidationException $exception) {
-            return back()->withErrors($exception->errors())->withInput();
-        }
+        return $this->redirectPaymentRequestToFinanceV2($paymentRequest);
+    }
 
-        return redirect()->route('admin.accounting.owned-shops.show', ['shop' => $shop->code, 'tab' => 'bills'])
-            ->with(
-                $paymentRequest->status === 'approved' ? 'success' : 'warning',
-                $paymentRequest->status === 'approved'
-                    ? 'Shop payment request approved and marked as paid.'
-                    : 'Shop payment request rejected.'
-            );
+    private function redirectLegacyInvoicePaymentToFinanceV2(ShopInvoice $invoice): RedirectResponse
+    {
+        return redirect()
+            ->route('admin.finance-v2.payments.create', [
+                'date' => $invoice->business_date?->toDateString() ?? today()->toDateString(),
+                'shop_id' => $invoice->shop_id,
+                'requested_amount' => max(0, round((float) $invoice->balance_amount, 2)),
+            ])
+            ->with('warning', 'Payment approvals are handled from Finance V2 Payments.');
+    }
+
+    private function redirectPaymentRequestToFinanceV2(ShopInvoicePaymentRequest $paymentRequest): RedirectResponse
+    {
+        return redirect()
+            ->route('admin.finance-v2.payments.show', [
+                'paymentRequest' => $paymentRequest,
+                'date' => $paymentRequest->payment_date?->toDateString() ?? today()->toDateString(),
+            ])
+            ->with('warning', 'Payment approvals are handled from Finance V2 Payments.');
     }
 
     public function generateDailyWorkflowInvoices(Request $request): RedirectResponse

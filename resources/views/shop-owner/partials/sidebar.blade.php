@@ -19,9 +19,9 @@
             'active' => request()->routeIs('shop-owner.accounting.index') && request()->query('tab', 'cashbook') === 'cashbook',
         ];
         $accountingChildren[] = [
-            'label' => 'Loan',
+            'label' => 'Others',
             'href' => route('shop-owner.accounting.index', ['tab' => 'loan']),
-            'active' => request()->routeIs('shop-owner.accounting.index') && request()->query('tab') === 'loan',
+            'active' => request()->routeIs('shop-owner.accounting.index') && in_array(request()->query('tab'), ['loan', 'others'], true),
         ];
         $accountingChildren[] = [
             'label' => 'Create',
