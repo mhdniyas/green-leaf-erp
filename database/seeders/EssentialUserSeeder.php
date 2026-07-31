@@ -29,8 +29,8 @@ class EssentialUserSeeder extends Seeder
         $this->deactivateRemovedSeedShops();
 
         foreach ($this->roleAccounts() as $account) {
-            $roleFirstWord = explode(' ', trim($account['name']))[0];
-            $rolePassword = $roleFirstWord.'@123';
+            $prefix = explode('@', $account['email'])[0];
+            $rolePassword = ucfirst($prefix).'@123';
 
             $user = $this->upsertUser(
                 name: $account['name'],
@@ -60,8 +60,8 @@ class EssentialUserSeeder extends Seeder
                 ],
             );
 
-            $shopFirstWord = explode(' ', trim($shopSeed['name']))[0];
-            $shopPassword = $shopFirstWord.'@123';
+            $prefix = explode('@', $shopSeed['owner_email'])[0];
+            $shopPassword = ucfirst($prefix).'@123';
 
             $owner = $this->upsertUser(
                 name: $shopSeed['name'].' Owner',
@@ -260,7 +260,7 @@ class EssentialUserSeeder extends Seeder
                 'code' => 'AV_CASIO',
                 'name' => 'Casio',
                 'warehouse_tag' => 'AV-CASIO',
-                'owner_email' => 'shop-aishwarya-casio@greenleaf.com',
+                'owner_email' => 'casio@greenleaf.com',
                 'accounting_mode' => 'owned',
                 'accounting_enabled' => true,
                 'client_code' => 'AISHWARYA_VEG',
@@ -269,7 +269,7 @@ class EssentialUserSeeder extends Seeder
                 'code' => 'AV_LULU_BUDHIGERE',
                 'name' => 'Lulu Budhigere',
                 'warehouse_tag' => 'AV-BDG',
-                'owner_email' => 'shop-aishwarya-lulu-budhigere@greenleaf.com',
+                'owner_email' => 'budhigere@greenleaf.com',
                 'accounting_mode' => 'owned',
                 'accounting_enabled' => true,
                 'client_code' => 'AISHWARYA_VEG',
@@ -278,7 +278,7 @@ class EssentialUserSeeder extends Seeder
                 'code' => 'AV_GRANDCITY',
                 'name' => 'Grandcity',
                 'warehouse_tag' => 'AV-GCITY',
-                'owner_email' => 'shop-aishwarya-grancity@greenleaf.com',
+                'owner_email' => 'grandcity@greenleaf.com',
                 'accounting_mode' => 'owned',
                 'accounting_enabled' => true,
                 'client_code' => 'AISHWARYA_VEG',
@@ -287,7 +287,7 @@ class EssentialUserSeeder extends Seeder
                 'code' => 'AV_ASHIRWAD',
                 'name' => 'Ashirwad',
                 'warehouse_tag' => 'AV-ASH',
-                'owner_email' => 'shop-aishwarya-ashirwad@greenleaf.com',
+                'owner_email' => 'ashirwad@greenleaf.com',
                 'accounting_mode' => 'owned',
                 'accounting_enabled' => true,
                 'client_code' => 'AISHWARYA_VEG',
@@ -296,7 +296,7 @@ class EssentialUserSeeder extends Seeder
                 'code' => 'AV_SANA',
                 'name' => 'Sana',
                 'warehouse_tag' => 'AV-SANA',
-                'owner_email' => 'shop-aishwarya-sana@greenleaf.com',
+                'owner_email' => 'sana@greenleaf.com',
                 'accounting_mode' => 'owned',
                 'accounting_enabled' => true,
                 'client_code' => 'AISHWARYA_VEG',
@@ -305,7 +305,7 @@ class EssentialUserSeeder extends Seeder
                 'code' => 'AV_BAZARO',
                 'name' => 'Bazaro',
                 'warehouse_tag' => 'AV-BAZ',
-                'owner_email' => 'shop-aishwarya-bazaro@greenleaf.com',
+                'owner_email' => 'bazaro@greenleaf.com',
                 'accounting_mode' => 'owned',
                 'accounting_enabled' => true,
                 'client_code' => 'AISHWARYA_VEG',
@@ -314,7 +314,7 @@ class EssentialUserSeeder extends Seeder
                 'code' => 'AV_SANA_JP',
                 'name' => 'Sana JP',
                 'warehouse_tag' => 'AV-SANA-JP',
-                'owner_email' => 'shop-aishwarya-sana-jp@greenleaf.com',
+                'owner_email' => 'sanajp@greenleaf.com',
                 'accounting_mode' => 'owned',
                 'accounting_enabled' => true,
                 'client_code' => 'AISHWARYA_VEG',
@@ -323,7 +323,7 @@ class EssentialUserSeeder extends Seeder
                 'code' => 'AV_LULU_VARTHUR',
                 'name' => 'Lulu Varthur',
                 'warehouse_tag' => 'AV-VAR',
-                'owner_email' => 'shop-aishwarya-lulu-varthur@greenleaf.com',
+                'owner_email' => 'varthur@greenleaf.com',
                 'accounting_mode' => 'owned',
                 'accounting_enabled' => true,
                 'client_code' => 'AISHWARYA_VEG',
@@ -332,7 +332,7 @@ class EssentialUserSeeder extends Seeder
                 'code' => 'AV_GM_MIDLAND',
                 'name' => 'GM Midland',
                 'warehouse_tag' => 'AV-GM',
-                'owner_email' => 'shop-aishwarya-gm@greenleaf.com',
+                'owner_email' => 'gm@greenleaf.com',
                 'accounting_mode' => 'owned',
                 'accounting_enabled' => true,
                 'client_code' => 'AISHWARYA_VEG',
@@ -341,7 +341,7 @@ class EssentialUserSeeder extends Seeder
                 'code' => 'AV_FOOD_PALACE_HSR',
                 'name' => 'FOOD PALACE HSR',
                 'warehouse_tag' => 'AV-HSR',
-                'owner_email' => 'shop-aishwarya-hsr@greenleaf.com',
+                'owner_email' => 'hsr@greenleaf.com',
                 'accounting_mode' => 'owned',
                 'accounting_enabled' => true,
                 'client_code' => 'AISHWARYA_VEG',
@@ -350,7 +350,7 @@ class EssentialUserSeeder extends Seeder
                 'code' => 'AV_LULU_BEGUR',
                 'name' => 'Lulu Begur',
                 'warehouse_tag' => 'AV-BEGUR',
-                'owner_email' => 'shop-aishwarya-lulu-begur@greenleaf.com',
+                'owner_email' => 'begur@greenleaf.com',
                 'accounting_mode' => 'owned',
                 'accounting_enabled' => true,
                 'client_code' => 'AISHWARYA_VEG',
@@ -359,7 +359,7 @@ class EssentialUserSeeder extends Seeder
                 'code' => 'AV_JINDAL_CITY',
                 'name' => 'Families Jindal City',
                 'warehouse_tag' => 'AV-JINDAL',
-                'owner_email' => 'shop-aishwarya-jindal-city@greenleaf.com',
+                'owner_email' => 'jindal@greenleaf.com',
                 'accounting_mode' => 'owned',
                 'accounting_enabled' => true,
                 'client_code' => 'AISHWARYA_VEG',
@@ -368,7 +368,7 @@ class EssentialUserSeeder extends Seeder
                 'code' => 'DS_QUICK_MART',
                 'name' => 'Quick Mart',
                 'warehouse_tag' => 'DS-QM',
-                'owner_email' => 'shop-direct-quick-mart@greenleaf.com',
+                'owner_email' => 'quick@greenleaf.com',
                 'accounting_mode' => 'regular',
                 'accounting_enabled' => false,
                 'client_code' => null,
@@ -377,7 +377,7 @@ class EssentialUserSeeder extends Seeder
                 'code' => 'DS_FORTUNE_SM',
                 'name' => 'Fortune SM',
                 'warehouse_tag' => 'DS-FSM',
-                'owner_email' => 'shop-direct-fortune-sm@greenleaf.com',
+                'owner_email' => 'fortune@greenleaf.com',
                 'accounting_mode' => 'regular',
                 'accounting_enabled' => false,
                 'client_code' => null,
