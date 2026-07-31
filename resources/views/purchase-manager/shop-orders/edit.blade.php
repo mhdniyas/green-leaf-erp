@@ -2,7 +2,7 @@
 
 @section('title', $shop->name.' — Shop Order')
 @section('page_title', $shop->name)
-@section('page_description', 'Marketplace editor for '.$businessDate->format('d F Y').'. Add products and update quantities like the shop owner cart.')
+@section('page_description', 'Marketplace editor for '.$businessDate->format('d F Y').'. Add products and update quantities, then save the shop order.')
 
 @section('page_actions')
     <a href="{{ route('purchasing.shop-orders.index', ['date' => $businessDate->format('Y-m-d')]) }}"
@@ -106,6 +106,7 @@
                 'allowPresetSave' => $allowPresetSave,
                 'directPurchaseTitle' => $directPurchaseTitle,
                 'directPurchaseDescription' => $directPurchaseDescription,
+                'adminSubmitLabel' => $tomorrowOrder ? 'Update Order' : 'Create Order',
             ])
         @endif
     </div>

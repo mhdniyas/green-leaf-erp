@@ -122,7 +122,7 @@
                                 <td class="px-4 py-4 sm:px-6 text-right">
                                     <a href="{{ route('purchasing.shop-orders.edit', ['shop' => $shop->code, 'date' => $date]) }}"
                                         class="inline-flex items-center justify-center rounded-xl {{ $row['can_edit'] ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700' }} px-4 py-2 text-xs font-black transition">
-                                        {{ $order ? ($row['can_edit'] ? 'Edit' : 'View') : 'Create' }}
+                                        {{ $order ? ($row['can_edit'] ? 'Edit' : 'View') : 'New Order' }}
                                     </a>
                                 </td>
                             </tr>

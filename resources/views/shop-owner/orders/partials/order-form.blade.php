@@ -8,6 +8,10 @@
     $allowPresetSave = $allowPresetSave ?? true;
     $directPurchaseTitle = $directPurchaseTitle ?? 'Green Leaf Direct Purchase';
     $directPurchaseDescription = $directPurchaseDescription ?? 'Select products and quantities. The order will be approved immediately and shown to purchaser demand as Green Leaf Direct Purchase.';
+    $adminSubmitLabel = $adminSubmitLabel ?? ($tomorrowOrder ? 'Update Order' : 'Create Order');
+    $pageSubmitLabel = $isAdminShopOrder ? $adminSubmitLabel : 'Add Selected to Cart';
+    $stickySubmitLabel = $isAdminShopOrder ? $adminSubmitLabel : 'Add To Cart';
+    $stickySubmitHint = $isAdminShopOrder ? 'Ready to save' : 'Draft only';
 @endphp
 
 <section class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
@@ -59,7 +63,9 @@
                 'tomorrowOrder' => $tomorrowOrder,
                 'yesterdayOrder' => $yesterdayOrder,
                 'presets' => $presets,
-                'isUpdateRequest' => true
+                'isUpdateRequest' => true,
+                'stickySubmitLabel' => $stickySubmitLabel,
+                'stickySubmitHint' => $stickySubmitHint,
             ])
 
             <!-- Change Note Area -->
@@ -105,16 +111,25 @@
             @if ($isAdminDirectPurchase || $isAdminShopOrder)
                 <input type="hidden" name="business_date" value="{{ $tomorrowDate->format('Y-m-d') }}">
             @endif
-            @include('shop-owner.orders.partials.product-selection-table', ['productsByCategory' => $productsByCategory, 'frequentProducts' => $frequentProducts, 'tomorrowOrder' => $tomorrowOrder, 'yesterdayOrder' => $yesterdayOrder, 'presets' => $presets, 'allowPresetSave' => $allowPresetSave])
+            @include('shop-owner.orders.partials.product-selection-table', [
+                'productsByCategory' => $productsByCategory,
+                'frequentProducts' => $frequentProducts,
+                'tomorrowOrder' => $tomorrowOrder,
+                'yesterdayOrder' => $yesterdayOrder,
+                'presets' => $presets,
+                'allowPresetSave' => $allowPresetSave,
+                'stickySubmitLabel' => $stickySubmitLabel,
+                'stickySubmitHint' => $stickySubmitHint,
+            ])
 
             <div class="flex flex-col gap-4 border-t border-slate-100 pt-5 md:flex-row md:items-center md:justify-between">
                 @include('shop-owner.orders.partials.order-summary-card', ['order' => $tomorrowOrder, 'yesterdayOrder' => $yesterdayOrder, 'isDraft' => true])
                 <button type="button" data-open-cart-submit @class([
                     'rounded-xl px-6 py-3 text-sm font-bold text-white shadow-sm transition active:scale-95 duration-150 border-0 cursor-pointer',
-                    'bg-amber-600 hover:bg-amber-700' => $cutoffPassed,
-                    'bg-emerald-600 hover:bg-emerald-700' => ! $cutoffPassed,
+                    'bg-amber-600 hover:bg-amber-700' => $cutoffPassed && ! $isAdminShopOrder,
+                    'bg-emerald-600 hover:bg-emerald-700' => ! $cutoffPassed || $isAdminShopOrder,
                 ])>
-                    Add Selected to Cart
+                    {{ $pageSubmitLabel }}
                 </button>
             </div>
         </form>
