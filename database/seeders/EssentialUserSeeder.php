@@ -23,17 +23,19 @@ class EssentialUserSeeder extends Seeder
 {
     public function run(): void
     {
-        $password = env('BASE_ROLE_USER_PASSWORD');
         $defaultPriceGroup = $this->defaultShopPriceGroup();
         $this->defaultEmployeeAdvanceRule();
 
         $this->deactivateRemovedSeedShops();
 
         foreach ($this->roleAccounts() as $account) {
+            $roleFirstWord = explode(' ', trim($account['name']))[0];
+            $rolePassword = $roleFirstWord.'@123';
+
             $user = $this->upsertUser(
                 name: $account['name'],
                 email: $account['email'],
-                password: $password,
+                password: $rolePassword,
                 shop: null,
             );
 
@@ -58,10 +60,13 @@ class EssentialUserSeeder extends Seeder
                 ],
             );
 
+            $shopFirstWord = explode(' ', trim($shopSeed['name']))[0];
+            $shopPassword = $shopFirstWord.'@123';
+
             $owner = $this->upsertUser(
                 name: $shopSeed['name'].' Owner',
                 email: $shopSeed['owner_email'],
-                password: $password,
+                password: $shopPassword,
                 shop: $shop,
             );
 
