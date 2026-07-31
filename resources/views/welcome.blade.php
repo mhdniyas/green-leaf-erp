@@ -45,6 +45,7 @@
                     <a href="#wholesale" class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:text-brand-700 md:px-0 md:py-1">Wholesale</a>
                     <a href="#why-us" class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:text-brand-700 md:px-0 md:py-1">Why choose us</a>
                     <a href="#contact" class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:text-brand-700 md:px-0 md:py-1">Contact</a>
+                    <a href="{{ route('login') }}" class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:text-brand-700 md:hidden">Login</a>
                 </nav>
                 <div class="flex items-center gap-3">
                     <a href="{{ route('login') }}" class="hidden text-sm font-semibold text-slate-600 hover:text-brand-700 sm:inline">Login</a>
