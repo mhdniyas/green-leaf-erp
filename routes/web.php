@@ -21,15 +21,16 @@ use App\Http\Controllers\Web\BusinessDaySettingsController;
 use App\Http\Controllers\Web\DashboardController;
 use App\Http\Controllers\Web\Finance\FinanceController;
 use App\Http\Controllers\Web\Inventory\BatchController;
+use App\Http\Controllers\Web\Inventory\CategoryController;
 use App\Http\Controllers\Web\Inventory\DailyInventoryCloseController;
 use App\Http\Controllers\Web\Inventory\DeliveryDashboardController;
 use App\Http\Controllers\Web\Inventory\FulfillmentReportController;
-use App\Http\Controllers\Web\Inventory\CategoryController;
 use App\Http\Controllers\Web\Inventory\ProductController;
 use App\Http\Controllers\Web\Inventory\StockController;
 use App\Http\Controllers\Web\Inventory\WarehouseSortingController;
 use App\Http\Controllers\Web\Inventory\WastageController;
 use App\Http\Controllers\Web\ProfileController;
+use App\Http\Controllers\Web\Purchasing\AdminShopOrderController;
 use App\Http\Controllers\Web\Purchasing\DailyPriceBoardController;
 use App\Http\Controllers\Web\Purchasing\GoodsReceivedController;
 use App\Http\Controllers\Web\Purchasing\PurchaseInvoiceController;
@@ -178,6 +179,11 @@ Route::middleware('auth')->group(function () {
         Route::get('shop-invoices/{invoice}', [ShopInvoiceController::class, 'show'])->name('shop-invoices.show');
         Route::get('shop-invoices/{invoice}/pdf', [ShopInvoiceController::class, 'pdf'])->name('shop-invoices.pdf');
         Route::patch('shop-invoices/{invoice}/reprice', [ShopInvoiceController::class, 'reprice'])->name('shop-invoices.reprice');
+
+        // Daily shop orders (admin marketplace editor)
+        Route::get('shop-orders', [AdminShopOrderController::class, 'index'])->name('shop-orders.index');
+        Route::get('shop-orders/{shop:code}/edit', [AdminShopOrderController::class, 'edit'])->name('shop-orders.edit');
+        Route::post('shop-orders/{shop:code}', [AdminShopOrderController::class, 'store'])->name('shop-orders.store');
 
         // Purchase Orders
         Route::resource('orders', PurchaseOrderController::class);
