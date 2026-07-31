@@ -271,21 +271,17 @@
         @endforeach
     </div>
 
-    @php
-        $stickySubmitLabel = $stickySubmitLabel ?? 'Add To Cart';
-        $stickySubmitHint = $stickySubmitHint ?? 'Draft only';
-    @endphp
     <div id="draft-cart-bar" class="fixed inset-x-0 bottom-16 z-40 hidden border-t border-slate-800 bg-slate-950 px-4 py-3 text-white shadow-[0_-14px_30px_rgba(15,23,42,0.22)] sm:bottom-4 sm:left-1/2 sm:max-w-xl sm:-translate-x-1/2 sm:rounded-2xl sm:border">
         <div class="mx-auto flex max-w-xl items-center gap-3">
             <div class="min-w-0 flex-1">
                 <p id="draft-cart-summary" class="truncate text-sm font-black">0 selected</p>
-                <p class="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300">{{ $stickySubmitHint }}</p>
+                <p class="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300">{{ $stickySubmitHint ?? 'Draft only' }}</p>
             </div>
             <button type="button" id="draft-cart-clear" class="rounded-xl border border-white/15 px-3 py-2 text-[11px] font-black uppercase tracking-[0.12em] text-white transition hover:bg-white/10">
                 Clear
             </button>
             <button type="button" id="draft-cart-submit" class="rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase tracking-[0.12em] text-slate-950 transition hover:bg-emerald-400">
-                {{ $stickySubmitLabel }}
+                {{ $stickySubmitLabel ?? 'Add To Cart' }}
             </button>
         </div>
     </div>
