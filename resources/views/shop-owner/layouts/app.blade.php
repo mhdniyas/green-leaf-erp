@@ -39,6 +39,17 @@
     <x-page-jump-controls bottom-class="bottom-24 lg:bottom-6" />
 
     @include('shop-owner.partials.mobile-nav')
+    <button
+        type="button"
+        data-pwa-install-button
+        hidden
+        class="fixed bottom-24 left-1/2 z-[70] inline-flex -translate-x-1/2 items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 py-2.5 text-xs font-black text-emerald-700 shadow-xl shadow-slate-900/10 transition hover:border-emerald-300 hover:bg-emerald-50 lg:bottom-6"
+    >
+        <svg class="h-4 w-4" aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14" />
+        </svg>
+        <span data-pwa-install-label>Add to Home Screen</span>
+    </button>
     @include('components.app-dialogs')
     <x-global-footer />
     <x-sidebar-state-script
