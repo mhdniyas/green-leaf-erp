@@ -3,8 +3,9 @@
 @section('title', 'Daily Accounting Report')
 @section('page_title', 'Daily Report')
 @section('page_description', 'Daily opening and closing balance by month.')
+@section('page_back_url', route('shop-owner.accounting.index', ['tab' => 'cashbook']))
 @php
-    $breadcrumbs = [['label' => 'Accounting', 'url' => route('shop-owner.accounting.index', ['tab' => 'cashbook'])], ['label' => 'Daily Report']];
+    $breadcrumbs = [];
     $previousMonth = $month->copy()->subMonth();
     $nextMonth = $month->copy()->addMonth();
     $todayRow = $dailyRows->getCollection()->first(
@@ -14,14 +15,8 @@
     $todayPage = (int) ceil(today()->day / $dailyRows->perPage());
 @endphp
 
-@section('page_actions')
-    @include('shop-owner.components.action-button', ['href' => route('shop-owner.accounting.index', ['tab' => 'cashbook']), 'label' => 'Back', 'classes' => 'border border-slate-200 bg-white text-slate-800'])
-@endsection
-
 @section('content')
     <div class="space-y-6">
-        @include('shop-owner.accounting.partials.tabs', ['shop' => $shop, 'tab' => $tab])
-
         <section class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
             <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div>

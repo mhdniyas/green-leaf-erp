@@ -1,15 +1,20 @@
 @extends('shop-owner.layouts.app')
 
-@section('title', 'Accounting')
-@section('page_title', 'Shop Accounting')
-@section('page_description', 'Daily ledger and bill payments.')
 @php
-    $breadcrumbs = [['label' => 'Accounting']];
+    $accountingPageMeta = match ($tab ?? 'bills') {
+        'cashbook' => ['title' => 'Cashbook', 'description' => 'Daily receipt and closing balance.'],
+        'create' => ['title' => 'Create Entry', 'description' => 'Income and expense entry for the day.'],
+        'loan' => ['title' => 'Others', 'description' => 'Other shop payments and adjustments.'],
+        default => ['title' => 'Bills', 'description' => 'Daily delivery bills and payment status.'],
+    };
 @endphp
-
-@section('page_actions')
-    @include('shop-owner.components.action-button', ['href' => route('shop-owner.accounting.history', ['tab' => $tab]), 'label' => 'History', 'classes' => 'border border-slate-200 bg-white text-slate-800'])
-@endsection
+@section('title', 'Accounting')
+@section('page_title', $accountingPageMeta['title'])
+@section('page_description', $accountingPageMeta['description'])
+@section('page_back_url', route('shop.dashboard'))
+@php
+    $breadcrumbs = [];
+@endphp
 
 @section('content')
     @php
@@ -59,10 +64,6 @@
     @endphp
 
     <div class="space-y-6">
-        <div @class(['hidden sm:block' => $tab === 'create'])>
-            @include('shop-owner.accounting.partials.tabs', ['shop' => $shop, 'tab' => $tab])
-        </div>
-
         @if ($tab === 'bills')
             @php
                 $approvedBillInvoices = $selectedBillInvoices->filter(
@@ -83,7 +84,7 @@
                     ->values();
             @endphp
 
-            <section class="rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+            <section class="hidden rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm sm:block sm:p-4">
                 <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                         <p class="text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">{{ $shop->isOwnedAccountingEnabled() ? 'Client: '.($shop->client?->name ?? 'Aishwarya Veg') : 'Shop Bill' }}</p>
@@ -102,7 +103,17 @@
                 </div>
             </section>
 
-            <section class="overflow-hidden rounded-[1.6rem] border border-emerald-200 bg-[#dcffd6] p-4 text-slate-950 shadow-sm sm:p-5">
+            <form method="GET" action="{{ route('shop-owner.accounting.index') }}" class="grid grid-cols-[1fr_auto_auto] items-center gap-2 sm:hidden">
+                <input type="hidden" name="tab" value="bills">
+                <label class="min-w-0">
+                    <span class="sr-only">Bill Date</span>
+                    <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-900 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                </label>
+                <button type="submit" class="inline-flex h-10 items-center justify-center rounded-xl bg-slate-950 px-3 text-xs font-black text-white">Show</button>
+                <a href="{{ route('shop-owner.accounting.index', ['tab' => 'bills', 'date' => today()->toDateString()]) }}" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-800 shadow-sm">Today</a>
+            </form>
+
+            <section class="-mx-4 overflow-hidden border-y border-emerald-200 bg-[#dcffd6] p-3 text-slate-950 shadow-none sm:mx-0 sm:rounded-[1.6rem] sm:border sm:p-5 sm:shadow-sm">
                 <div class="font-mono">
                     <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                         <div>
@@ -351,7 +362,7 @@
         @else
             <section @class([
                 'rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm sm:p-4',
-                'hidden sm:block' => $tab === 'create',
+                'hidden sm:block' => in_array($tab, ['cashbook', 'create'], true),
             ])>
                 <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div>
@@ -371,8 +382,20 @@
                 </div>
             </section>
 
+            @if (in_array($tab, ['cashbook', 'create'], true))
+                <form method="GET" action="{{ route('shop-owner.accounting.index') }}" class="grid grid-cols-[1fr_auto_auto] items-center gap-2 sm:hidden">
+                    <input type="hidden" name="tab" value="{{ $tab }}">
+                    <label class="min-w-0">
+                        <span class="sr-only">Business Date</span>
+                        <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" class="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-900 shadow-sm focus:border-emerald-500 focus:ring-emerald-500">
+                    </label>
+                    <button type="submit" class="inline-flex h-10 items-center justify-center rounded-xl bg-slate-950 px-3 text-xs font-black text-white">Show</button>
+                    <a href="{{ route('shop-owner.accounting.index', ['tab' => $tab, 'date' => today()->toDateString()]) }}" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-800 shadow-sm">Today</a>
+                </form>
+            @endif
+
             @if ($tab === 'cashbook')
-            <section class="overflow-hidden rounded-[1.6rem] border border-emerald-200 bg-[#dcffd6] p-4 text-slate-950 shadow-sm sm:p-5">
+            <section class="-mx-4 overflow-hidden border-y border-emerald-200 bg-[#dcffd6] p-3 text-slate-950 shadow-none sm:mx-0 sm:rounded-[1.6rem] sm:border sm:p-5 sm:shadow-sm">
                 <div class="font-mono">
                     <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                         <div>

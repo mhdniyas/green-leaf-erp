@@ -3,18 +3,13 @@
 @section('title', 'Accounting History')
 @section('page_title', 'Accounting History')
 @section('page_description', 'Review previous bill approvals, balances, payment requests, and for client shops the cashbook approval history.')
+@section('page_back_url', route('shop-owner.accounting.index', ['tab' => $tab]))
 @php
-    $breadcrumbs = [['label' => 'Accounting', 'url' => route('shop-owner.accounting.index', ['tab' => $tab])], ['label' => 'History']];
+    $breadcrumbs = [];
 @endphp
-
-@section('page_actions')
-    @include('shop-owner.components.action-button', ['href' => route('shop-owner.accounting.index', ['tab' => $tab]), 'label' => 'Back', 'classes' => 'border border-slate-200 bg-white text-slate-800'])
-@endsection
 
 @section('content')
     <div class="space-y-6">
-        @include('shop-owner.accounting.partials.tabs', ['shop' => $shop, 'tab' => $tab])
-
         @include('shop-owner.partials.date-range-filter', [
             'action' => route('shop-owner.accounting.history'),
             'hidden' => ['tab' => $tab],
