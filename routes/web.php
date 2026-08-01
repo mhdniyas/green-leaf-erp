@@ -88,6 +88,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/dashboard', fn () => redirect()->route('shop.dashboard'))->name('dashboard');
         Route::get('/orders', [ShopOwnerController::class, 'ordersIndex'])->name('orders.index');
         Route::get('/orders/create', [ShopOwnerController::class, 'ordersCreate'])->name('orders.create');
+        Route::delete('/orders/create/clear', [ShopOwnerController::class, 'clearTomorrowOrder'])->name('orders.clear');
         Route::get('/orders/history', [ShopOwnerController::class, 'ordersHistory'])->name('orders.history');
         Route::get('/orders/{order_number}', [ShopOwnerController::class, 'ordersShow'])->name('orders.show');
         Route::get('/deliveries', [ShopOwnerController::class, 'deliveriesIndex'])->name('deliveries.index');

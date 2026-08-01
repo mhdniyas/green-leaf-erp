@@ -241,6 +241,13 @@
         </div>
     </div>
 
+    @if (($orderFormMode ?? 'shop-owner') === 'shop-owner')
+        <form method="POST" action="{{ route('shop-owner.orders.clear') }}" id="shop-owner-clear-order-form" class="hidden" aria-hidden="true">
+            @csrf
+            @method('DELETE')
+        </form>
+    @endif
+
     <style>
         .shop-order-row-name {
             display: -webkit-box;

@@ -84,6 +84,46 @@ class ShopOwnerController extends Controller
         return view('shop-owner.orders.create', $this->buildOrderFormData($activeShop));
     }
 
+    public function clearTomorrowOrder(Request $request): RedirectResponse
+    {
+        $activeShop = $this->currentShop($request);
+        $businessDate = Carbon::tomorrow()->toDateString();
+
+        $result = DB::transaction(function () use ($activeShop, $businessDate): array {
+            $orders = ShopOrder::query()
+                ->where('shop_id', $activeShop->id)
+                ->whereDate('business_date', $businessDate)
+                ->where(function ($query): void {
+                    $query
+                        ->where('order_source', 'shop_owner')
+                        ->orWhereNull('order_source');
+                })
+                ->where('state', '!=', 'approved')
+                ->with('invoice')
+                ->latest('id')
+                ->lockForUpdate()
+                ->get();
+
+            if ($orders->isEmpty()) {
+                return ['status' => 'success', 'message' => 'Cart already clear.'];
+            }
+
+            $lockedOrder = $orders->first(fn (ShopOrder $order): bool => $order->isFinanciallyLocked() || $order->is_delivered);
+
+            if ($lockedOrder) {
+                return ['status' => 'warning', 'message' => 'This order is already locked and cannot be cleared.'];
+            }
+
+            $orders->each->delete();
+
+            return ['status' => 'success', 'message' => 'Unapproved order cleared.'];
+        });
+
+        return redirect()
+            ->route('shop-owner.orders.create')
+            ->with($result['status'], $result['message']);
+    }
+
     public function ordersShow(Request $request, string $orderNumber): View
     {
         $activeShop = $this->currentShop($request);
