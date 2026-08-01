@@ -29,42 +29,42 @@
     };
 @endphp
 
-<section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+<section class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:rounded-2xl">
     <div
         id="shop-delivery-item-verification"
         data-csrf-token="{{ csrf_token() }}"
         data-complete-title="Submitted For Admin Review"
         data-complete-message="All products are submitted. Admin recheck is required before final invoice totals are confirmed."
     >
-        <div class="relative mx-auto min-h-[36rem] max-w-[38rem] bg-white px-3 py-5 text-slate-950 sm:px-6 sm:py-7">
-            <header class="border-b border-dashed border-slate-400 pb-3 text-center">
-                <h3 class="text-xl font-black uppercase tracking-wide text-slate-950">Delivery Verification</h3>
-                <p class="mt-2 text-base font-black uppercase leading-tight text-slate-950">{{ $order->shop?->name }}</p>
+        <div class="relative mx-auto max-w-[38rem] bg-white px-2 py-3 text-slate-950 sm:min-h-[36rem] sm:px-6 sm:py-7">
+            <header class="border-b border-dashed border-slate-400 pb-2 text-center sm:pb-3">
+                <h3 class="text-base font-black uppercase tracking-wide text-slate-950 sm:text-xl">Delivery Verification</h3>
+                <p class="mt-1 text-sm font-black uppercase leading-tight text-slate-950 sm:mt-2 sm:text-base">{{ $order->shop?->name }}</p>
                 <p class="mt-0.5 text-[11px] font-semibold leading-tight text-slate-700">{{ $invoice?->invoice_number ?? $order->order_number }} · {{ $order->business_date?->format('d M Y') }}</p>
             </header>
 
-            <div class="grid grid-cols-1 gap-3 border-b border-dashed border-slate-400 py-3 text-[11px] font-bold text-slate-800 sm:grid-cols-2">
+            <div class="grid grid-cols-2 gap-2 border-b border-dashed border-slate-400 py-2 text-[10px] font-bold leading-tight text-slate-800 sm:gap-3 sm:py-3 sm:text-[11px]">
                 <div class="min-w-0">
-                    <p class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Delivery Ref</p>
-                    <p class="mt-1 font-black text-slate-950">{{ $order->order_number }}</p>
-                    <p class="mt-1">Items: {{ $totalVerifiableCount }}</p>
+                    <p class="text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[10px] sm:tracking-[0.12em]">Delivery Ref</p>
+                    <p class="mt-0.5 break-all font-black text-slate-950 sm:mt-1">{{ $order->order_number }}</p>
+                    <p class="mt-0.5 sm:mt-1">Items: {{ $totalVerifiableCount }}</p>
                 </div>
-                <div class="sm:text-right">
+                <div class="text-right">
                     <p>Invoice Total</p>
-                    <p class="mt-1 text-sm font-black text-slate-950">Rs. {{ number_format((float) ($invoice?->final_total ?? 0), 2) }}</p>
+                    <p class="mt-0.5 text-xs font-black text-slate-950 sm:mt-1 sm:text-sm">Rs. {{ number_format((float) ($invoice?->final_total ?? 0), 2) }}</p>
                 </div>
             </div>
 
-            <div class="overflow-x-auto border-b border-dashed border-slate-400 py-3">
-                <table class="w-full table-fixed text-left text-[11px]">
-                    <thead class="border-b border-dashed border-slate-400 text-[10px] font-black uppercase text-slate-950">
+            <div class="overflow-x-auto border-b border-dashed border-slate-400 py-2 sm:py-3">
+                <table class="w-full table-fixed text-left text-[9px] sm:text-[11px]">
+                    <thead class="border-b border-dashed border-slate-400 text-[8px] font-black uppercase text-slate-950 sm:text-[10px]">
                         <tr>
-                            <th class="w-7 py-1 pr-1">SN</th>
-                            <th class="py-1 pr-2">Item</th>
-                            <th class="w-12 py-1 pr-1 text-right">Qty</th>
-                            <th class="w-16 py-1 pr-1 text-right">Rate</th>
-                            <th class="w-20 py-1 pr-1 text-right">Amt</th>
-                            <th class="w-20 py-1 text-right">Received</th>
+                            <th class="w-5 py-0.5 pr-0.5 sm:w-7 sm:py-1 sm:pr-1">SN</th>
+                            <th class="py-0.5 pr-1 sm:py-1 sm:pr-2">Item</th>
+                            <th class="w-10 py-0.5 pr-0.5 text-right sm:w-12 sm:py-1 sm:pr-1">Qty</th>
+                            <th class="w-12 py-0.5 pr-0.5 text-right sm:w-16 sm:py-1 sm:pr-1">Rate</th>
+                            <th class="w-14 py-0.5 pr-0.5 text-right sm:w-20 sm:py-1 sm:pr-1">Amt</th>
+                            <th class="w-16 py-0.5 text-right sm:w-20 sm:py-1">Received</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -97,19 +97,19 @@
                                 data-unit="{{ $item->unit }}"
                                 data-verified="{{ $isItemVerified ? 'true' : 'false' }}"
                             >
-                                <td class="py-2 pr-1 font-bold">{{ $loop->iteration }}</td>
-                                <td class="py-2 pr-2">
-                                    <p class="font-black text-slate-950">{{ $item->product->name }}</p>
-                                    <p class="mt-0.5 text-[10px] font-semibold text-slate-500">{{ $item->product->sku }} · {{ $item->requestedMeasureBreakdownLabel() }}</p>
-                                    <p class="shop-difference-value mt-0.5 text-[10px] font-black uppercase tracking-[0.08em] text-slate-500"></p>
-                                    <p class="shop-item-status mt-0.5 text-[10px] font-black uppercase tracking-[0.08em] {{ $isItemVerified ? 'text-emerald-700' : 'text-slate-400' }}">{{ $statusLabel }}</p>
+                                <td class="py-1 pr-0.5 font-bold sm:py-2 sm:pr-1">{{ $loop->iteration }}</td>
+                                <td class="py-1 pr-1 sm:py-2 sm:pr-2">
+                                    <p class="font-black leading-tight text-slate-950">{{ $item->product->name }}</p>
+                                    <p class="mt-0.5 text-[8px] font-semibold leading-tight text-slate-500 sm:text-[10px]">{{ $item->product->sku }} · {{ $item->requestedMeasureBreakdownLabel() }}</p>
+                                    <p class="shop-difference-value mt-0.5 text-[8px] font-black uppercase tracking-[0.06em] text-slate-500 sm:text-[10px] sm:tracking-[0.08em]"></p>
+                                    <p class="shop-item-status mt-0.5 text-[8px] font-black uppercase tracking-[0.06em] sm:text-[10px] sm:tracking-[0.08em] {{ $isItemVerified ? 'text-emerald-700' : 'text-slate-400' }}">{{ $statusLabel }}</p>
                                     <p class="shop-item-error mt-1 hidden rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700"></p>
                                 </td>
-                                <td class="py-2 pr-1 text-right font-bold">{{ number_format($approvedQty, 2) }}</td>
-                                <td class="py-2 pr-1 text-right font-bold">Rs. {{ number_format($unitRate, 2) }}</td>
-                                <td class="py-2 pr-1 text-right font-black text-slate-950">Rs. {{ number_format($lineTotal, 2) }}</td>
-                                <td class="py-2 text-right">
-                                    <div class="flex items-center justify-end rounded-md border border-slate-200 bg-slate-50 px-1">
+                                <td class="py-1 pr-0.5 text-right font-bold sm:py-2 sm:pr-1">{{ number_format($approvedQty, 2) }}</td>
+                                <td class="py-1 pr-0.5 text-right font-bold sm:py-2 sm:pr-1">Rs. {{ number_format($unitRate, 2) }}</td>
+                                <td class="py-1 pr-0.5 text-right font-black text-slate-950 sm:py-2 sm:pr-1">Rs. {{ number_format($lineTotal, 2) }}</td>
+                                <td class="py-1 text-right sm:py-2">
+                                    <div class="flex items-center justify-end rounded border border-slate-200 bg-slate-50 px-0.5 sm:rounded-md sm:px-1">
                                         <input
                                             type="number"
                                             step="0.01"
@@ -117,9 +117,9 @@
                                             name="delivered_qty[{{ $item->id }}]"
                                             value="{{ number_format($receivedQty, 2, '.', '') }}"
                                             @disabled(! $isEditable || $isItemVerified)
-                                            class="shop-delivered-qty-input h-7 w-12 border-0 bg-transparent px-0 text-right text-[11px] font-black tabular-nums text-slate-950 outline-none focus:ring-0 disabled:text-slate-500"
+                                            class="shop-delivered-qty-input h-6 w-10 border-0 bg-transparent px-0 text-right text-[10px] font-black tabular-nums text-slate-950 outline-none focus:ring-0 disabled:text-slate-500 sm:h-7 sm:w-12 sm:text-[11px]"
                                         >
-                                        <span class="ml-0.5 text-[9px] font-black uppercase text-slate-400">{{ $item->unit }}</span>
+                                        <span class="ml-0.5 text-[7px] font-black uppercase text-slate-400 sm:text-[9px]">{{ $item->unit }}</span>
                                     </div>
                                 </td>
                             </tr>
@@ -128,30 +128,30 @@
                 </table>
             </div>
 
-            <div class="ml-auto w-full max-w-full border-b border-dashed border-slate-400 py-3 text-[11px] font-bold text-slate-800 sm:max-w-[20rem]">
+            <div class="ml-auto w-full max-w-full border-b border-dashed border-slate-400 py-2 text-[10px] font-bold text-slate-800 sm:max-w-[20rem] sm:py-3 sm:text-[11px]">
                 <div class="flex items-center justify-between">
                     <span>Invoice Total</span>
                     <span>Rs. {{ number_format((float) ($invoice?->final_total ?? 0), 2) }}</span>
                 </div>
-                <div class="mt-1.5 flex items-center justify-between">
+                <div class="mt-1 flex items-center justify-between sm:mt-1.5">
                     <span>Verification</span>
                     <span id="shop-delivery-progress-count">{{ $progressLabel }}</span>
                 </div>
             </div>
 
-            <footer class="pt-3 text-center">
-                <p class="text-xs font-black text-slate-800">Please confirm delivered quantity</p>
+            <footer class="pt-2 text-center sm:pt-3">
+                <p class="text-[10px] font-black text-slate-800 sm:text-xs">Please confirm delivered quantity</p>
             </footer>
         </div>
 
-        <div class="border-t border-slate-100 bg-slate-50 px-4 py-4 sm:px-6">
-            <div id="shop-delivery-progress-panel" class="rounded-[1.5rem] {{ $isEditable ? 'bg-slate-950 text-white' : 'border border-amber-200 bg-amber-50 text-amber-950' }} p-4">
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div class="border-t border-slate-100 bg-slate-50 px-2.5 py-2.5 sm:px-6 sm:py-4">
+            <div id="shop-delivery-progress-panel" class="rounded-xl {{ $isEditable ? 'bg-slate-950 text-white' : 'border border-amber-200 bg-amber-50 text-amber-950' }} p-2.5 sm:rounded-[1.5rem] sm:p-4">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                     <div>
-                        <p id="shop-delivery-progress-title" class="text-[10px] font-black uppercase tracking-[0.16em] {{ $isEditable ? 'text-slate-400' : 'text-amber-700' }}">{{ $bottomTitle }}</p>
-                        <p id="shop-delivery-progress-message" class="mt-1 text-sm font-semibold leading-6 {{ $isEditable ? 'text-slate-200' : 'text-amber-900' }}">{{ $bottomMessage }}</p>
+                        <p id="shop-delivery-progress-title" class="text-[8px] font-black uppercase tracking-[0.1em] sm:text-[10px] sm:tracking-[0.16em] {{ $isEditable ? 'text-slate-400' : 'text-amber-700' }}">{{ $bottomTitle }}</p>
+                        <p id="shop-delivery-progress-message" class="mt-0.5 text-xs font-semibold leading-5 sm:mt-1 sm:text-sm sm:leading-6 {{ $isEditable ? 'text-slate-200' : 'text-amber-900' }}">{{ $bottomMessage }}</p>
                     </div>
-                    <button type="button" id="shop-delivery-submit-all" class="shrink-0 rounded-2xl {{ $isEditable ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400' : 'bg-white text-amber-800' }} px-4 py-3 text-xs font-black uppercase tracking-[0.14em] transition disabled:cursor-not-allowed disabled:opacity-60" @disabled(! $isEditable || $verifiedCount === $totalVerifiableCount)>
+                    <button type="button" id="shop-delivery-submit-all" class="shrink-0 rounded-xl {{ $isEditable ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400' : 'bg-white text-amber-800' }} px-3 py-2 text-[10px] font-black uppercase tracking-[0.1em] transition disabled:cursor-not-allowed disabled:opacity-60 sm:rounded-2xl sm:px-4 sm:py-3 sm:text-xs sm:tracking-[0.14em]" @disabled(! $isEditable || $verifiedCount === $totalVerifiableCount)>
                         Submit Delivery Verification
                     </button>
                 </div>
