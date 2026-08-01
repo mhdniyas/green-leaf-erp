@@ -19,6 +19,7 @@ use App\Http\Requests\Web\Admin\UpdateShopAccountingEntryRequest;
 use App\Http\Requests\Web\Admin\UpdateShopPettyCashSettingsRequest;
 use App\Models\CompanyAccountingEntry;
 use App\Models\Client;
+use App\Models\ProcurementExpense;
 use App\Models\PurchaserCredit;
 use App\Models\Shop;
 use App\Models\ShopAccountingCategory;
@@ -1433,10 +1434,22 @@ class AdminAccountingController extends Controller
         $sort = (string) $request->input('sort', 'name');
         $direction = strtolower((string) $request->input('direction', 'asc')) === 'desc' ? 'desc' : 'asc';
         $sortableColumns = ['name', 'total_in', 'total_out', 'balance'];
+        $reportTab = in_array($request->input('report_tab'), ['cash', 'procurement', 'summary'], true)
+            ? (string) $request->input('report_tab')
+            : 'cash';
+        $fromDate = Carbon::parse($request->input('from_date', now()->startOfMonth()->toDateString()))->startOfDay();
+        $toDate = Carbon::parse($request->input('to_date', now()->toDateString()))->endOfDay();
+        $selectedPurchaserId = $request->integer('purchaser_id') ?: null;
+        $selectedCategory = (string) $request->input('category', '');
 
         if (! in_array($sort, $sortableColumns, true)) {
             $sort = 'name';
         }
+
+        $purchaserOptions = User::query()
+            ->whereHas('roles', fn ($query) => $query->where('name', 'purchaser'))
+            ->orderBy('name')
+            ->get(['id', 'name', 'email', 'public_uuid']);
 
         $purchasers = User::query()
             ->whereHas('roles', fn ($query) => $query->where('name', 'purchaser'))
@@ -1475,7 +1488,126 @@ class AdminAccountingController extends Controller
             'balance' => round((float) $purchasers->sum('balance'), 2),
         ];
 
-        return view('admin.accounting.purchasers.index', compact('purchasers', 'totals', 'sort', 'direction'));
+        $cashQuery = PurchaserCredit::query()
+            ->with(['purchaser:id,name,email,public_uuid', 'purchaseInvoice:id,invoice_number,public_uuid,amount,payment_method,payment_status', 'creator:id,name'])
+            ->whereBetween('business_date', [$fromDate->toDateString(), $toDate->toDateString()])
+            ->when($selectedPurchaserId, fn ($query) => $query->where('purchaser_id', $selectedPurchaserId));
+
+        $cashTotals = [
+            'in' => round((float) (clone $cashQuery)->where('type', 'in')->sum('amount'), 2),
+            'out' => round((float) (clone $cashQuery)->where('type', 'out')->sum('amount'), 2),
+        ];
+        $cashTotals['balance'] = round($cashTotals['in'] - $cashTotals['out'], 2);
+
+        $cashTransactions = (clone $cashQuery)
+            ->orderByDesc('business_date')
+            ->orderByDesc('id')
+            ->limit(150)
+            ->get();
+
+        $procurementQuery = ProcurementExpense::query()
+            ->with(['purchaser:id,name,email,public_uuid', 'companyAccountingEntry:id,journal_entry_id,reference,business_date,amount,status', 'companyAccountingEntry.journalEntry:id,reference'])
+            ->whereBetween('expense_date', [$fromDate->toDateString(), $toDate->toDateString()])
+            ->when($selectedPurchaserId, fn ($query) => $query->where('user_id', $selectedPurchaserId))
+            ->when($selectedCategory !== '', fn ($query) => $query->where('category', $selectedCategory));
+
+        $procurementTotals = [
+            'amount' => round((float) (clone $procurementQuery)->sum('amount'), 2),
+            'count' => (clone $procurementQuery)->count(),
+        ];
+
+        $categoryTotals = (clone $procurementQuery)
+            ->select('category', DB::raw('SUM(amount) as total_amount'), DB::raw('COUNT(*) as rows_count'))
+            ->groupBy('category')
+            ->get()
+            ->mapWithKeys(fn (ProcurementExpense $expense): array => [
+                (string) $expense->category => [
+                    'label' => $expense->categoryLabel(),
+                    'amount' => round((float) $expense->total_amount, 2),
+                    'count' => (int) $expense->rows_count,
+                ],
+            ]);
+
+        $procurementTransactions = (clone $procurementQuery)
+            ->orderByDesc('expense_date')
+            ->orderByDesc('id')
+            ->limit(150)
+            ->get();
+
+        $cashByPurchaser = PurchaserCredit::query()
+            ->select('purchaser_id')
+            ->selectRaw("SUM(CASE WHEN type = 'in' THEN amount ELSE 0 END) as cash_in")
+            ->selectRaw("SUM(CASE WHEN type = 'out' THEN amount ELSE 0 END) as cash_out")
+            ->selectRaw('MAX(business_date) as last_cash_date')
+            ->whereBetween('business_date', [$fromDate->toDateString(), $toDate->toDateString()])
+            ->when($selectedPurchaserId, fn ($query) => $query->where('purchaser_id', $selectedPurchaserId))
+            ->groupBy('purchaser_id')
+            ->get()
+            ->keyBy('purchaser_id');
+
+        $procurementByPurchaser = ProcurementExpense::query()
+            ->select('user_id')
+            ->selectRaw('SUM(amount) as procurement_total')
+            ->selectRaw('MAX(expense_date) as last_procurement_date')
+            ->whereBetween('expense_date', [$fromDate->toDateString(), $toDate->toDateString()])
+            ->when($selectedPurchaserId, fn ($query) => $query->where('user_id', $selectedPurchaserId))
+            ->when($selectedCategory !== '', fn ($query) => $query->where('category', $selectedCategory))
+            ->groupBy('user_id')
+            ->get()
+            ->keyBy('user_id');
+
+        $summaryRows = $purchaserOptions
+            ->when($selectedPurchaserId, fn (Collection $users) => $users->where('id', $selectedPurchaserId))
+            ->map(function (User $purchaser) use ($cashByPurchaser, $procurementByPurchaser): array {
+                $cash = $cashByPurchaser->get($purchaser->id);
+                $procurement = $procurementByPurchaser->get($purchaser->id);
+                $cashIn = round((float) ($cash?->cash_in ?? 0), 2);
+                $cashOut = round((float) ($cash?->cash_out ?? 0), 2);
+                $procurementTotal = round((float) ($procurement?->procurement_total ?? 0), 2);
+                $lastDates = collect([$cash?->last_cash_date, $procurement?->last_procurement_date])->filter();
+
+                return [
+                    'purchaser' => $purchaser,
+                    'cash_in' => $cashIn,
+                    'cash_out' => $cashOut,
+                    'procurement' => $procurementTotal,
+                    'balance' => round($cashIn - $cashOut, 2),
+                    'last_activity' => $lastDates->isNotEmpty() ? Carbon::parse((string) $lastDates->max()) : null,
+                ];
+            })
+            ->filter(fn (array $row): bool => $row['cash_in'] > 0 || $row['cash_out'] > 0 || $row['procurement'] > 0)
+            ->sortByDesc(fn (array $row): string => $row['last_activity']?->toDateString() ?? '')
+            ->values();
+
+        $reportTotals = [
+            'cash_in' => $cashTotals['in'],
+            'cash_out' => $cashTotals['out'],
+            'procurement' => $procurementTotals['amount'],
+            'balance' => $cashTotals['balance'],
+        ];
+
+        $reportFilters = [
+            'tab' => $reportTab,
+            'from_date' => $fromDate->toDateString(),
+            'to_date' => $toDate->toDateString(),
+            'purchaser_id' => $selectedPurchaserId,
+            'category' => $selectedCategory,
+        ];
+
+        return view('admin.accounting.purchasers.index', compact(
+            'purchasers',
+            'totals',
+            'sort',
+            'direction',
+            'purchaserOptions',
+            'reportFilters',
+            'reportTotals',
+            'cashTransactions',
+            'procurementTransactions',
+            'procurementTotals',
+            'categoryTotals',
+            'summaryRows',
+        ));
     }
 
     public function purchaserShow(Request $request, User $user): View

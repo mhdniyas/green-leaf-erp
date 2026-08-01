@@ -9,6 +9,19 @@
         ];
         $currentUser = auth()->user();
         $canBuyAsPurchaser = $currentUser?->hasRole('admin') && $currentUser->hasRole('purchaser');
+        $activeReportTab = $reportFilters['tab'] ?? 'cash';
+        $reportQuery = [
+            'from_date' => $reportFilters['from_date'] ?? now()->startOfMonth()->toDateString(),
+            'to_date' => $reportFilters['to_date'] ?? now()->toDateString(),
+            'purchaser_id' => $reportFilters['purchaser_id'] ?? null,
+            'category' => $reportFilters['category'] ?? '',
+        ];
+        $reportTabs = [
+            'cash' => 'Cash Flow',
+            'procurement' => 'Procurement Expenses',
+            'summary' => 'Summary',
+        ];
+        $expenseCategories = \App\Models\ProcurementExpense::categories();
     @endphp
 
     <div class="mx-auto max-w-[96rem] space-y-6">
@@ -186,6 +199,212 @@
                         </tr>
                     </tfoot>
                 </table>
+            </div>
+        </section>
+
+        <section class="overflow-hidden rounded-[1.9rem] border border-slate-200 bg-white shadow-sm">
+            <div class="border-b border-slate-200 bg-slate-950 px-5 py-5 text-white">
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-200">Purchaser Reports</p>
+                        <h2 class="mt-2 text-2xl font-black tracking-tight">Cash flow details</h2>
+                        <p class="mt-2 max-w-3xl text-sm font-semibold text-slate-300">Every row shows who moved money, why it moved, and the related invoice or journal reference.</p>
+                    </div>
+                    <form method="GET" action="{{ route('admin.accounting.purchasers.index') }}" class="grid gap-2 rounded-2xl bg-white/10 p-2 sm:grid-cols-2 lg:grid-cols-5">
+                        <input type="hidden" name="report_tab" value="{{ $activeReportTab }}">
+                        <label>
+                            <span class="block text-[9px] font-black uppercase tracking-[0.14em] text-slate-300">From</span>
+                            <input type="date" name="from_date" value="{{ $reportQuery['from_date'] }}" class="mt-1 h-10 w-full rounded-xl border border-white/10 bg-white px-3 text-xs font-black text-slate-950 focus:outline-none">
+                        </label>
+                        <label>
+                            <span class="block text-[9px] font-black uppercase tracking-[0.14em] text-slate-300">To</span>
+                            <input type="date" name="to_date" value="{{ $reportQuery['to_date'] }}" class="mt-1 h-10 w-full rounded-xl border border-white/10 bg-white px-3 text-xs font-black text-slate-950 focus:outline-none">
+                        </label>
+                        <label>
+                            <span class="block text-[9px] font-black uppercase tracking-[0.14em] text-slate-300">Purchaser</span>
+                            <select name="purchaser_id" class="mt-1 h-10 w-full rounded-xl border border-white/10 bg-white px-3 text-xs font-black text-slate-950 focus:outline-none">
+                                <option value="">All</option>
+                                @foreach($purchaserOptions as $option)
+                                    <option value="{{ $option->id }}" @selected((int) $reportQuery['purchaser_id'] === (int) $option->id)>{{ $option->name }}</option>
+                                @endforeach
+                            </select>
+                        </label>
+                        <label>
+                            <span class="block text-[9px] font-black uppercase tracking-[0.14em] text-slate-300">Category</span>
+                            <select name="category" class="mt-1 h-10 w-full rounded-xl border border-white/10 bg-white px-3 text-xs font-black text-slate-950 focus:outline-none">
+                                <option value="">All</option>
+                                @foreach($expenseCategories as $value => $label)
+                                    <option value="{{ $value }}" @selected($reportQuery['category'] === $value)>{{ $label }}</option>
+                                @endforeach
+                            </select>
+                        </label>
+                        <button type="submit" class="mt-4 inline-flex h-10 items-center justify-center rounded-xl bg-emerald-500 px-4 text-xs font-black uppercase tracking-[0.14em] text-white transition hover:bg-emerald-400 lg:mt-5">
+                            Apply
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="space-y-5 p-4 sm:p-5">
+                <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Cash Given</p>
+                        <p class="mt-2 text-2xl font-black text-emerald-950">Rs. {{ number_format($reportTotals['cash_in'], 2) }}</p>
+                    </div>
+                    <div class="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-rose-700">Cash Spent</p>
+                        <p class="mt-2 text-2xl font-black text-rose-950">Rs. {{ number_format($reportTotals['cash_out'], 2) }}</p>
+                    </div>
+                    <div class="rounded-2xl border border-cyan-200 bg-cyan-50 p-4">
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-700">Procurement Expenses</p>
+                        <p class="mt-2 text-2xl font-black text-cyan-950">Rs. {{ number_format($reportTotals['procurement'], 2) }}</p>
+                    </div>
+                    <div class="rounded-2xl border {{ $reportTotals['balance'] >= 0 ? 'border-slate-200 bg-slate-50' : 'border-amber-200 bg-amber-50' }} p-4">
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] {{ $reportTotals['balance'] >= 0 ? 'text-slate-600' : 'text-amber-700' }}">Remaining Balance</p>
+                        <p class="mt-2 text-2xl font-black {{ $reportTotals['balance'] >= 0 ? 'text-slate-950' : 'text-amber-950' }}">Rs. {{ number_format($reportTotals['balance'], 2) }}</p>
+                    </div>
+                </div>
+
+                <div class="flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 p-1">
+                    @foreach($reportTabs as $tabKey => $tabLabel)
+                        <a href="{{ route('admin.accounting.purchasers.index', array_merge($reportQuery, ['report_tab' => $tabKey])) }}" class="inline-flex h-10 shrink-0 items-center rounded-xl px-4 text-xs font-black uppercase tracking-[0.14em] transition {{ $activeReportTab === $tabKey ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-950' }}">
+                            {{ $tabLabel }}
+                        </a>
+                    @endforeach
+                </div>
+
+                @if($activeReportTab === 'cash')
+                    <div class="overflow-hidden rounded-2xl border border-slate-200">
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full text-left text-sm">
+                                <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                                    <tr>
+                                        <th class="px-4 py-3">Date</th>
+                                        <th class="px-4 py-3">Purchaser</th>
+                                        <th class="px-4 py-3 text-right">Cash In</th>
+                                        <th class="px-4 py-3 text-right">Cash Out</th>
+                                        <th class="px-4 py-3">Reason</th>
+                                        <th class="px-4 py-3">Invoice / Reference</th>
+                                        <th class="px-4 py-3">Created By</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    @forelse($cashTransactions as $transaction)
+                                        <tr class="align-top hover:bg-slate-50">
+                                            <td class="px-4 py-3">
+                                                <p class="font-black text-slate-950">{{ $transaction->business_date?->format('d M Y') }}</p>
+                                                <p class="mt-1 text-xs font-semibold text-slate-500">{{ $transaction->created_at?->format('h:i A') }}</p>
+                                            </td>
+                                            <td class="px-4 py-3">
+                                                <p class="font-black text-slate-950">{{ $transaction->purchaser?->name ?? 'Purchaser removed' }}</p>
+                                                <p class="mt-1 text-xs font-semibold text-slate-500">{{ $transaction->purchaser?->email }}</p>
+                                            </td>
+                                            <td class="px-4 py-3 text-right font-black text-emerald-700">{{ $transaction->type === 'in' ? 'Rs. '.number_format((float) $transaction->amount, 2) : '-' }}</td>
+                                            <td class="px-4 py-3 text-right font-black text-rose-700">{{ $transaction->type === 'out' ? 'Rs. '.number_format((float) $transaction->amount, 2) : '-' }}</td>
+                                            <td class="max-w-sm px-4 py-3">
+                                                <p class="font-semibold text-slate-700">{{ $transaction->description ?: ($transaction->type === 'in' ? 'Cash given to purchaser' : 'Cash spent by purchaser') }}</p>
+                                                <p class="mt-1 text-[10px] font-black uppercase tracking-[0.12em] {{ $transaction->type === 'in' ? 'text-emerald-700' : 'text-rose-700' }}">{{ $transaction->type === 'in' ? 'Cash In' : 'Cash Out' }}</p>
+                                            </td>
+                                            <td class="px-4 py-3">
+                                                <p class="font-black text-slate-800">{{ $transaction->purchaseInvoice?->invoice_number ?? 'Manual cash entry' }}</p>
+                                                @if($transaction->purchaseInvoice)
+                                                    <p class="mt-1 text-xs font-semibold text-slate-500">Paid {{ $transaction->purchaseInvoice->payment_method ?: 'cash' }} / {{ $transaction->purchaseInvoice->payment_status ?: 'status unknown' }}</p>
+                                                @endif
+                                            </td>
+                                            <td class="px-4 py-3 font-semibold text-slate-700">{{ $transaction->creator?->name ?? 'System' }}</td>
+                                        </tr>
+                                    @empty
+                                        <tr><td colspan="7" class="px-4 py-10 text-center text-sm font-bold text-slate-500">No cash transactions for the selected filters.</td></tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                @elseif($activeReportTab === 'procurement')
+                    <div class="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+                        @foreach($expenseCategories as $value => $label)
+                            @php($categoryRow = $categoryTotals->get($value, ['amount' => 0, 'count' => 0]))
+                            <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                <p class="truncate text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">{{ $label }}</p>
+                                <p class="mt-1 text-lg font-black text-slate-950">Rs. {{ number_format($categoryRow['amount'], 2) }}</p>
+                                <p class="mt-0.5 text-[10px] font-bold text-slate-500">{{ $categoryRow['count'] }} row(s)</p>
+                            </div>
+                        @endforeach
+                    </div>
+
+                    <div class="overflow-hidden rounded-2xl border border-slate-200">
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full text-left text-sm">
+                                <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                                    <tr>
+                                        <th class="px-4 py-3">Date</th>
+                                        <th class="px-4 py-3">Purchaser</th>
+                                        <th class="px-4 py-3">Category</th>
+                                        <th class="px-4 py-3">Note</th>
+                                        <th class="px-4 py-3 text-right">Amount</th>
+                                        <th class="px-4 py-3">Company Expense Ref</th>
+                                        <th class="px-4 py-3">Journal Ref</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    @forelse($procurementTransactions as $expense)
+                                        <tr class="align-top hover:bg-slate-50">
+                                            <td class="px-4 py-3">
+                                                <p class="font-black text-slate-950">{{ $expense->expense_date?->format('d M Y') }}</p>
+                                                <p class="mt-1 text-xs font-semibold text-slate-500">{{ $expense->created_at?->format('h:i A') }}</p>
+                                            </td>
+                                            <td class="px-4 py-3">
+                                                <p class="font-black text-slate-950">{{ $expense->purchaser?->name ?? 'Purchaser removed' }}</p>
+                                                <p class="mt-1 text-xs font-semibold text-slate-500">{{ $expense->purchaser?->email }}</p>
+                                            </td>
+                                            <td class="px-4 py-3 font-semibold text-slate-700">{{ $expense->categoryLabel() }}</td>
+                                            <td class="max-w-md px-4 py-3 font-semibold text-slate-700">{{ $expense->note ?: 'No note' }}</td>
+                                            <td class="px-4 py-3 text-right font-black text-cyan-700">Rs. {{ number_format((float) $expense->amount, 2) }}</td>
+                                            <td class="px-4 py-3 font-black text-slate-800">{{ $expense->companyAccountingEntry?->reference ?? 'Not posted' }}</td>
+                                            <td class="px-4 py-3 font-semibold text-slate-700">{{ $expense->companyAccountingEntry?->journalEntry?->reference ?? '-' }}</td>
+                                        </tr>
+                                    @empty
+                                        <tr><td colspan="7" class="px-4 py-10 text-center text-sm font-bold text-slate-500">No procurement expenses for the selected filters.</td></tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                @else
+                    <div class="overflow-hidden rounded-2xl border border-slate-200">
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full text-left text-sm">
+                                <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                                    <tr>
+                                        <th class="px-4 py-3">Purchaser</th>
+                                        <th class="px-4 py-3 text-right">Cash Given</th>
+                                        <th class="px-4 py-3 text-right">Cash Spent</th>
+                                        <th class="px-4 py-3 text-right">Procurement Expenses</th>
+                                        <th class="px-4 py-3 text-right">Balance</th>
+                                        <th class="px-4 py-3">Last Transaction</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    @forelse($summaryRows as $row)
+                                        <tr class="hover:bg-slate-50">
+                                            <td class="px-4 py-3">
+                                                <p class="font-black text-slate-950">{{ $row['purchaser']->name }}</p>
+                                                <p class="mt-1 text-xs font-semibold text-slate-500">{{ $row['purchaser']->email }}</p>
+                                            </td>
+                                            <td class="px-4 py-3 text-right font-black text-emerald-700">Rs. {{ number_format($row['cash_in'], 2) }}</td>
+                                            <td class="px-4 py-3 text-right font-black text-rose-700">Rs. {{ number_format($row['cash_out'], 2) }}</td>
+                                            <td class="px-4 py-3 text-right font-black text-cyan-700">Rs. {{ number_format($row['procurement'], 2) }}</td>
+                                            <td class="px-4 py-3 text-right font-black {{ $row['balance'] >= 0 ? 'text-slate-950' : 'text-amber-700' }}">Rs. {{ number_format($row['balance'], 2) }}</td>
+                                            <td class="px-4 py-3 font-semibold text-slate-700">{{ $row['last_activity']?->format('d M Y') ?? '-' }}</td>
+                                        </tr>
+                                    @empty
+                                        <tr><td colspan="6" class="px-4 py-10 text-center text-sm font-bold text-slate-500">No purchaser activity for the selected filters.</td></tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                @endif
             </div>
         </section>
     </div>
