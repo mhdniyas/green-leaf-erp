@@ -71,8 +71,17 @@
         }
     }
 
+    $prioritizeSelectedProducts = (isset($isUpdateRequest) && $isUpdateRequest)
+        || ($orderFormMode ?? 'shop-owner') === 'admin-shop-order';
+
     $allProductsForOrder = $allProductsForOrder
-        ->sort(fn (array $left, array $right): int => strcmp($left['sku_sort_value'], $right['sku_sort_value']))
+        ->sort(function (array $left, array $right) use ($prioritizeSelectedProducts): int {
+            if ($prioritizeSelectedProducts && $left['is_selected'] !== $right['is_selected']) {
+                return $left['is_selected'] ? -1 : 1;
+            }
+
+            return strcmp($left['sku_sort_value'], $right['sku_sort_value']);
+        })
         ->values();
 
     $productCardsForOrder = $allProductsForOrder;

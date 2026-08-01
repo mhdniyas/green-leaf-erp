@@ -1,3 +1,13 @@
+@php
+    $approvedDisplayCutoff = today()->setTime(12, 0);
+    $showTodayOrder = $todayOrder
+        && (
+            $todayOrder->state !== 'approved'
+            || now()->lt($approvedDisplayCutoff)
+            || ($todayOrder->is_allocation_completed && ! $todayOrder->is_delivered)
+        );
+@endphp
+
 <section class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
     <div class="flex items-start justify-between gap-4">
         <div>
@@ -10,7 +20,7 @@
     <div class="mt-5 grid gap-4 md:grid-cols-2">
         <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
             <p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Today’s Delivery</p>
-            @if ($todayOrder)
+            @if ($showTodayOrder)
                 <p class="mt-3 text-lg font-black text-slate-900">{{ $todayOrder->order_number }}</p>
                 <p class="mt-1 text-sm text-slate-600">{{ $todayOrder->items->count() }} items</p>
                 <div class="mt-4 flex flex-wrap gap-2">
@@ -19,6 +29,11 @@
                         @include('shop-owner.components.action-button', ['href' => route('shop-owner.deliveries.show', $todayOrder->order_number), 'label' => 'Verify Delivery', 'classes' => 'bg-indigo-600 text-white'])
                     @endif
                 </div>
+            @elseif ($todayOrder && $todayOrder->state === 'approved')
+                @include('shop-owner.components.empty-state', [
+                    'title' => 'Today approved',
+                    'description' => 'Today’s approved order is hidden after 12:00 PM. Check tomorrow’s cart for the next order.',
+                ])
             @else
                 @include('shop-owner.components.empty-state', ['title' => 'No delivery scheduled', 'description' => 'There is no shop delivery assigned for today.'])
             @endif
