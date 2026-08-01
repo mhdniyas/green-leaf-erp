@@ -145,6 +145,24 @@ class SortSheetController extends Controller
         ));
     }
 
+    public function segregationMatrixPrint(Request $request): View
+    {
+        $this->authorizeExport($request);
+
+        [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse] = $this->buildMatrixData($request);
+
+        $companyName = 'Green Leaf Distribution';
+
+        return view('sort-sheet.segregation-matrix-print', compact(
+            'filteredShops',
+            'matrix',
+            'productMeta',
+            'date',
+            'companyName',
+            'selectedWarehouse',
+        ));
+    }
+
     /**
      * Print view — no sidebar, no buttons.
      */

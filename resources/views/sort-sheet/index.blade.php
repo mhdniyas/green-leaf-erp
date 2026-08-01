@@ -4,6 +4,9 @@
         $sortSheetLayout = $isWarehouseReceiverSortSheet ? 'layouts.app' : 'layouts.admin';
         $sortSheetRouteBase = $isWarehouseReceiverSortSheet ? 'warehouse.receiver.sort-sheet' : ($isSegregation ? 'segregation' : 'sort-sheet');
         $sortSheetRoute = fn (string $name, array $params = []) => route($sortSheetRouteBase.'.'.$name, $params);
+        $segregationMatrixPrintRoute = fn (array $params = []) => $isSegregation
+            ? $sortSheetRoute('matrix-print', $params)
+            : $sortSheetRoute('segregation.matrix-print', $params);
         $pageTitle = $isSegregation ? 'Selection' : 'Sort Sheet';
         $categoryFilterLabel = $isSegregation ? 'Ordered Categories' : 'Product Categories';
         $productFilterLabel = $isSegregation ? 'Ordered Products' : 'Products';
@@ -99,6 +102,12 @@
                    class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
                     Print
                 </a>
+                <a href="{{ $segregationMatrixPrintRoute($filterParams) }}"
+                   id="print-segregate-btn"
+                   target="_blank"
+                   class="inline-flex items-center gap-2 rounded-xl bg-cyan-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-cyan-800 transition-all shadow-md hover:shadow-lg">
+                    Print Segregate
+                </a>
                 @endif
             @else
                 @if($sortSheetShareUrl)
@@ -125,6 +134,12 @@
                    target="_blank"
                    class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-800 transition-all shadow-md hover:shadow-lg">
                     Print Selection
+                </a>
+                <a href="{{ $segregationMatrixPrintRoute($filterParams) }}"
+                   id="selection-matrix-print-btn"
+                   target="_blank"
+                   class="inline-flex items-center gap-2 rounded-xl bg-cyan-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-cyan-800 transition-all shadow-md hover:shadow-lg">
+                    Print Segregate
                 </a>
                 @endif
             @endif
@@ -342,6 +357,11 @@
                            class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-[10px] font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
                             Print
                         </a>
+                        <a href="{{ $segregationMatrixPrintRoute($filterParams) }}"
+                           target="_blank"
+                           class="inline-flex items-center gap-1.5 rounded-xl bg-cyan-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-cyan-800 transition-all shadow-sm">
+                            Print Segregate
+                        </a>
                         @endif
                     @else
                         @if($sortSheetShareUrl)
@@ -365,6 +385,11 @@
                            target="_blank"
                            class="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-slate-800 transition-all shadow-sm">
                             Print Selection
+                        </a>
+                        <a href="{{ $segregationMatrixPrintRoute($filterParams) }}"
+                           target="_blank"
+                           class="inline-flex items-center gap-1.5 rounded-xl bg-cyan-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-cyan-800 transition-all shadow-sm">
+                            Print Segregate
                         </a>
                         @endif
                     @endif

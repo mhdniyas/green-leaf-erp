@@ -344,6 +344,7 @@ Route::middleware('auth')->group(function () {
             Route::get('/export/excel', [SortSheetController::class, 'exportExcel'])->name('export.excel');
             Route::get('/export/pdf', [SortSheetController::class, 'exportPdf'])->name('export.pdf');
             Route::get('/segregation/pdf', [SortSheetController::class, 'segregationPdf'])->name('segregation.pdf');
+            Route::get('/segregation/matrix-print', [SortSheetController::class, 'segregationMatrixPrint'])->name('segregation.matrix-print');
             Route::get('/print', [SortSheetController::class, 'print'])->name('print');
         });
     });
@@ -498,6 +499,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/export/excel', [SortSheetController::class, 'exportExcel'])->name('export.excel');
         Route::get('/export/pdf', [SortSheetController::class, 'exportPdf'])->name('export.pdf');
         Route::get('/segregation/pdf', [SortSheetController::class, 'segregationPdf'])->name('segregation.pdf');
+        Route::get('/segregation/matrix-print', [SortSheetController::class, 'segregationMatrixPrint'])->name('segregation.matrix-print');
         Route::get('/print', [SortSheetController::class, 'print'])->name('print');
     });
 
@@ -505,6 +507,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/', [SortSheetController::class, 'segregationIndex'])->name('index');
         Route::get('/generate', [SortSheetController::class, 'segregationGenerate'])->name('generate');
         Route::get('/export/excel', [SortSheetController::class, 'exportExcel'])->name('export.excel');
+        Route::get('/matrix-print', [SortSheetController::class, 'segregationMatrixPrint'])->name('matrix-print');
         Route::get('/print', [SortSheetController::class, 'segregationPdf'])->name('print');
     });
 });
