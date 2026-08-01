@@ -69,12 +69,30 @@
                         <input type="date" name="expense_date" value="{{ old('expense_date', $editingExpense?->expense_date?->toDateString() ?? $date->toDateString()) }}" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-black text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100" required>
                     </label>
                     <label>
+                        @php
+                            $selectedCategory = old('category', $editingExpense?->category ?? array_key_first($categories));
+                            $selectedCategoryLabel = $categories[$selectedCategory] ?? reset($categories);
+                        @endphp
                         <span class="text-[9px] font-black uppercase tracking-[0.12em] text-slate-500">Category</span>
-                        <select name="category" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-black text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100" required>
-                            @foreach($categories as $value => $label)
-                                <option value="{{ $value }}" @selected(old('category', $editingExpense?->category) === $value)>{{ $label }}</option>
-                            @endforeach
-                        </select>
+                        <div class="procurement-category-select relative mt-1">
+                            <button type="button" class="procurement-category-trigger flex h-9 w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-2 text-left text-xs font-black text-slate-900 transition focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100" aria-haspopup="listbox" aria-expanded="false">
+                                <span class="procurement-category-label truncate">{{ $selectedCategoryLabel }}</span>
+                                <svg class="h-4 w-4 shrink-0 text-slate-500 transition-transform duration-200" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="m6 9 6 6 6-6"/>
+                                </svg>
+                            </button>
+                            <input type="hidden" name="category" value="{{ $selectedCategory }}" class="procurement-category-input" required>
+                            <div class="procurement-category-options absolute left-0 right-0 top-[calc(100%+0.25rem)] z-40 hidden max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl" role="listbox" aria-label="Category">
+                                @foreach($categories as $value => $label)
+                                    <button type="button" data-value="{{ $value }}" data-label="{{ $label }}" class="procurement-category-option flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs {{ $selectedCategory === $value ? 'bg-teal-50 font-black text-teal-800' : 'font-bold text-slate-700 hover:bg-slate-50 hover:text-slate-950' }}" role="option" aria-selected="{{ $selectedCategory === $value ? 'true' : 'false' }}">
+                                        <span class="truncate">{{ $label }}</span>
+                                        <svg class="procurement-category-check h-3.5 w-3.5 shrink-0 text-teal-600 {{ $selectedCategory === $value ? '' : 'hidden' }}" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M20 6 9 17l-5-5"/>
+                                        </svg>
+                                    </button>
+                                @endforeach
+                            </div>
+                        </div>
                     </label>
                     <label class="col-span-2">
                         <span class="text-[9px] font-black uppercase tracking-[0.12em] text-slate-500">Amount</span>
@@ -191,4 +209,70 @@
             </section>
         </section>
     </div>
+
+    <script>
+        document.addEventListener('click', (event) => {
+            const trigger = event.target.closest('.procurement-category-trigger');
+
+            if (trigger) {
+                const container = trigger.closest('.procurement-category-select');
+                const options = container?.querySelector('.procurement-category-options');
+
+                document.querySelectorAll('.procurement-category-options').forEach((panel) => {
+                    if (panel !== options) {
+                        panel.classList.add('hidden');
+                        panel.closest('.procurement-category-select')?.querySelector('.procurement-category-trigger')?.setAttribute('aria-expanded', 'false');
+                        panel.closest('.procurement-category-select')?.querySelector('.procurement-category-trigger svg')?.classList.remove('rotate-180');
+                    }
+                });
+
+                options?.classList.toggle('hidden');
+                const isOpen = options ? ! options.classList.contains('hidden') : false;
+                trigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+                trigger.querySelector('svg')?.classList.toggle('rotate-180', isOpen);
+                return;
+            }
+
+            const option = event.target.closest('.procurement-category-option');
+
+            if (option) {
+                const container = option.closest('.procurement-category-select');
+                const input = container?.querySelector('.procurement-category-input');
+                const label = container?.querySelector('.procurement-category-label');
+                const options = container?.querySelector('.procurement-category-options');
+                const selectedValue = option.dataset.value ?? '';
+                const selectedLabel = option.dataset.label ?? option.textContent.trim();
+
+                if (input) input.value = selectedValue;
+                if (label) label.textContent = selectedLabel;
+
+                container?.querySelectorAll('.procurement-category-option').forEach((item) => {
+                    const isSelected = item === option;
+                    item.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+                    item.classList.toggle('bg-teal-50', isSelected);
+                    item.classList.toggle('font-black', isSelected);
+                    item.classList.toggle('text-teal-800', isSelected);
+                    item.classList.toggle('font-bold', ! isSelected);
+                    item.classList.toggle('text-slate-700', ! isSelected);
+                    item.classList.toggle('hover:bg-slate-50', ! isSelected);
+                    item.classList.toggle('hover:text-slate-950', ! isSelected);
+                    item.querySelector('.procurement-category-check')?.classList.toggle('hidden', ! isSelected);
+                });
+
+                options?.classList.add('hidden');
+                const selectedTrigger = container?.querySelector('.procurement-category-trigger');
+                selectedTrigger?.setAttribute('aria-expanded', 'false');
+                selectedTrigger?.querySelector('svg')?.classList.remove('rotate-180');
+                return;
+            }
+
+            if (! event.target.closest('.procurement-category-select')) {
+                document.querySelectorAll('.procurement-category-options').forEach((panel) => {
+                    panel.classList.add('hidden');
+                    panel.closest('.procurement-category-select')?.querySelector('.procurement-category-trigger')?.setAttribute('aria-expanded', 'false');
+                    panel.closest('.procurement-category-select')?.querySelector('.procurement-category-trigger svg')?.classList.remove('rotate-180');
+                });
+            }
+        });
+    </script>
 </x-layouts.app>
