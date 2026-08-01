@@ -165,7 +165,7 @@
 
             <div class="page">
                 <div class="shop-title">
-                    <strong>{{ $shop->warehouse_tag ?: $shop->name }}</strong>
+                    <strong>{{ $shop->warehouse_tag ? $shop->warehouse_tag.' - '.$shop->name : $shop->name }}</strong>
                     <strong>{{ \Carbon\Carbon::parse($date)->format('d-M') }}</strong>
                 </div>
                 <table>

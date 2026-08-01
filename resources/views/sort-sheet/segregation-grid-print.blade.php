@@ -12,7 +12,7 @@
             color: #000;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 10px;
-            padding: 5px;
+            padding: 8mm;
         }
         .no-print {
             align-items: center;
@@ -57,14 +57,14 @@
         th {
             font-size: 9px;
             font-weight: 500;
-            height: 32px;
+            height: 30px;
         }
         td {
             font-size: 10px;
         }
         .qty-row,
         .tag-row {
-            height: 39px;
+            height: 37px;
         }
         .sl-cell,
         .total-cell {
@@ -79,7 +79,7 @@
             font-weight: 400;
         }
         @media print {
-            @page { size: A4 landscape; margin: 5px; }
+            @page { size: A4 landscape; margin: 8mm; }
             html,
             body {
                 height: auto;
@@ -89,14 +89,14 @@
             }
             .no-print { display: none !important; }
             .page {
-                height: calc(210mm - 10px);
-                overflow: hidden;
+                height: auto;
+                overflow: visible;
                 padding: 0;
-                width: calc(297mm - 10px);
+                width: 100%;
             }
             th {
                 font-size: 9px;
-                height: 32px;
+                height: 30px;
                 padding: 1px;
             }
             td {
@@ -105,7 +105,7 @@
             }
             .qty-row,
             .tag-row {
-                height: 39px;
+                height: 37px;
             }
             tr {
                 break-inside: avoid;
@@ -157,6 +157,14 @@
                                 $meta = $productMeta[$productId];
                                 $total = array_sum($shopQtys);
                             @endphp
+                            <tr class="tag-row">
+                                <td></td>
+                                <td></td>
+                                @foreach($filteredShops as $shop)
+                                    <td class="tag-cell">{{ $shop->warehouse_tag ?: '-' }}</td>
+                                @endforeach
+                                <td></td>
+                            </tr>
                             <tr class="qty-row">
                                 <td class="sl-cell">{{ $meta['sku'] ?: $productId }}</td>
                                 <td class="item-cell">{{ $meta['name'] }}</td>
@@ -165,14 +173,6 @@
                                     <td>{{ $qty > 0 ? $formatQty($qty) : '0' }}</td>
                                 @endforeach
                                 <td class="total-cell">{{ $formatQty((float) $total) }}</td>
-                            </tr>
-                            <tr class="tag-row">
-                                <td></td>
-                                <td></td>
-                                @foreach($filteredShops as $shop)
-                                    <td class="tag-cell">{{ $shop->warehouse_tag ?: '-' }}</td>
-                                @endforeach
-                                <td></td>
                             </tr>
                         @endforeach
                     </tbody>
