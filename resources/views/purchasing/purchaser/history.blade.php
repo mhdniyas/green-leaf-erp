@@ -110,11 +110,20 @@
 
             <!-- Table / Cards View Switcher -->
             <div class="flex items-center justify-end rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
-                <button type="button" id="view-mode-table-btn" onclick="setReportViewMode('table')" class="rounded-lg bg-slate-950 px-3 py-1.5 text-[10px] font-black text-white shadow-xs transition-all">
-                    📋 Table View
+                <button type="button" id="view-mode-table-btn" onclick="setReportViewMode('table')" class="inline-flex items-center gap-1.5 rounded-lg bg-slate-950 px-2.5 py-1.5 text-[10px] font-black text-white shadow-xs transition-all sm:px-3">
+                    <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M3 12h18M3 18h18" />
+                    </svg>
+                    Table View
                 </button>
-                <button type="button" id="view-mode-cards-btn" onclick="setReportViewMode('cards')" class="rounded-lg px-3 py-1.5 text-[10px] font-black text-slate-500 hover:text-slate-800 transition-all">
-                    🎴 Cards View
+                <button type="button" id="view-mode-cards-btn" onclick="setReportViewMode('cards')" class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] font-black text-slate-500 transition-all hover:text-slate-800 sm:px-3">
+                    <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                        <rect width="7" height="7" x="3" y="3" rx="1.5" />
+                        <rect width="7" height="7" x="14" y="3" rx="1.5" />
+                        <rect width="7" height="7" x="3" y="14" rx="1.5" />
+                        <rect width="7" height="7" x="14" y="14" rx="1.5" />
+                    </svg>
+                    Cards View
                 </button>
             </div>
         </div>

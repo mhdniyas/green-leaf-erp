@@ -322,10 +322,20 @@
         {{-- Navigation --}}
         <nav class="flex-1 space-y-3 overflow-y-auto px-4 py-6">
 
+            @php
+                $isPurchaserOnlyWorkspace = $currentUser?->hasRole('purchaser')
+                    && ! $currentUser?->hasRole('admin')
+                    && ! $currentUser?->hasRole('shop')
+                    && ! $currentUser?->hasRole('warehouse_receiver')
+                    && ! $canAccessStaffWorkspace;
+            @endphp
+
             {{-- Dashboard --}}
-            <x-nav-item href="{{ route('dashboard') }}" icon="squares-2x2" :active="request()->routeIs('dashboard')">
-                Dashboard
-            </x-nav-item>
+            @unless($isPurchaserOnlyWorkspace)
+                <x-nav-item href="{{ route('dashboard') }}" icon="squares-2x2" :active="request()->routeIs('dashboard')">
+                    Dashboard
+                </x-nav-item>
+            @endunless
 
             @if($currentUser?->hasRole('admin') && $currentUser?->hasRole('purchaser'))
                 @php
@@ -369,6 +379,9 @@
                         <x-nav-item href="{{ route('purchaser.vendors', ['date' => $navDate]) }}" :active="request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill')" :sub="true">
                             Vendor Carts
                         </x-nav-item>
+                        <x-nav-item href="{{ route('purchaser.procurement-expenses.index', ['date' => $navDate]) }}" :active="request()->routeIs('purchaser.procurement-expenses.*')" :sub="true">
+                            Procurement Expenses
+                        </x-nav-item>
                         <x-nav-item href="{{ route('purchasing.invoices.index', ['date' => $navDate]) }}" :active="request()->routeIs('purchasing.invoices.*')" :sub="true">
                             Purchase Invoices
                         </x-nav-item>
@@ -402,37 +415,69 @@
                     Staff Management
                 </x-nav-item>
             @elseif(auth()->user()->hasRole('purchaser'))
-                <x-nav-item href="{{ route('purchaser.daily') }}" icon="squares-2x2" :active="request()->routeIs('purchaser.daily')">
-                    Purchaser Dashboard
-                </x-nav-item>
-                <div class="space-y-1 pl-3 pr-1">
-                    <x-nav-item href="{{ route('purchaser.daily') }}" :active="request()->routeIs('purchaser.daily')" :sub="true">
-                        Daily
-                    </x-nav-item>
-                    <x-nav-item href="{{ route('purchaser.shop-orders.index') }}" :active="request()->routeIs('purchaser.shop-orders.*')" :sub="true">
-                        Shop Orders
-                    </x-nav-item>
-                    <x-nav-item href="{{ route('purchaser.add-ons.create') }}" :active="request()->routeIs('purchaser.add-ons.*')" :sub="true">
-                        Add-ons
-                    </x-nav-item>
-                    <x-nav-item href="{{ route('purchaser.vendors') }}" :active="request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill')" :sub="true">
-                        Daily Carts
-                    </x-nav-item>
-                    <x-nav-item href="{{ route('purchaser.suppliers') }}" :active="request()->routeIs('purchaser.suppliers.*') || request()->routeIs('purchaser.suppliers')" :sub="true">
-                        Vendor Hub
-                    </x-nav-item>
-                    <x-nav-item href="{{ route('purchaser.finance') }}" :active="request()->routeIs('purchaser.finance')" :sub="true">
-                        Finance
-                    </x-nav-item>
-                    <x-nav-item href="{{ route('purchaser.cash') }}" :active="request()->routeIs('purchaser.cash')" :sub="true">
-                        Cash
-                    </x-nav-item>
-                    <x-nav-item href="{{ route('purchaser.history') }}" :active="request()->routeIs('purchaser.history')" :sub="true">
-                        Report
-                    </x-nav-item>
-                    <x-nav-item href="{{ route('purchaser.settings') }}" :active="request()->routeIs('purchaser.settings')" :sub="true">
-                        Settings
-                    </x-nav-item>
+                @php
+                    $isPurchaserActive = request()->routeIs('purchaser.*');
+                @endphp
+                <div class="sidebar-group space-y-1">
+                    <button
+                        type="button"
+                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isPurchaserActive ? 'bg-white text-slate-950 shadow-[0_10px_24px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/80' : 'text-slate-500 hover:bg-white/70 hover:text-slate-950 hover:shadow-sm' }}"
+                        aria-expanded="{{ $isPurchaserActive ? 'true' : 'false' }}"
+                    >
+                        <span class="flex items-center gap-3">
+                            <svg class="h-4 w-4 shrink-0 opacity-80 transition-opacity group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M8 2v4m8-4v4M3 10h18M5 4h14a2 2 0 0 1 2 2v13a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a2 2 0 0 1 2-2Z" />
+                            </svg>
+                            <span>Purchaser</span>
+                        </span>
+                        <svg class="chevron-icon h-3.5 w-3.5 transition-transform duration-200 {{ $isPurchaserActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
+                    </button>
+                    <div class="sidebar-group-items ml-6 space-y-3 border-l border-slate-200 py-1 pl-4 pr-1 transition-all duration-200 {{ $isPurchaserActive ? '' : 'hidden' }}">
+                        <div class="space-y-1">
+                            <p class="px-3 text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Today</p>
+                            <x-nav-item href="{{ route('purchaser.daily') }}" :active="request()->routeIs('purchaser.daily')" :sub="true">
+                                Daily
+                            </x-nav-item>
+                        </div>
+                        <div class="space-y-1">
+                            <p class="px-3 text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Orders</p>
+                            <x-nav-item href="{{ route('purchaser.shop-orders.index') }}" :active="request()->routeIs('purchaser.shop-orders.*')" :sub="true">
+                                Shop Orders
+                            </x-nav-item>
+                            <x-nav-item href="{{ route('purchaser.add-ons.create') }}" :active="request()->routeIs('purchaser.add-ons.*')" :sub="true">
+                                Add-ons
+                            </x-nav-item>
+                            <x-nav-item href="{{ route('purchaser.vendors') }}" :active="request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill')" :sub="true">
+                                Daily Carts
+                            </x-nav-item>
+                            <x-nav-item href="{{ route('purchaser.suppliers') }}" :active="request()->routeIs('purchaser.suppliers.*') || request()->routeIs('purchaser.suppliers')" :sub="true">
+                                Vendor Hub
+                            </x-nav-item>
+                        </div>
+                        <div class="space-y-1">
+                            <p class="px-3 text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Money</p>
+                            <x-nav-item href="{{ route('purchaser.finance') }}" :active="request()->routeIs('purchaser.finance')" :sub="true">
+                                Finance
+                            </x-nav-item>
+                            <x-nav-item href="{{ route('purchaser.cash') }}" :active="request()->routeIs('purchaser.cash')" :sub="true">
+                                Cash
+                            </x-nav-item>
+                            <x-nav-item href="{{ route('purchaser.procurement-expenses.index', ['date' => $navDate]) }}" :active="request()->routeIs('purchaser.procurement-expenses.*')" :sub="true">
+                                Procurement Expenses
+                            </x-nav-item>
+                        </div>
+                        <div class="space-y-1">
+                            <p class="px-3 text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">More</p>
+                            <x-nav-item href="{{ route('purchaser.history') }}" :active="request()->routeIs('purchaser.history')" :sub="true">
+                                Report
+                            </x-nav-item>
+                            <x-nav-item href="{{ route('purchaser.settings') }}" :active="request()->routeIs('purchaser.settings')" :sub="true">
+                                Settings
+                            </x-nav-item>
+                        </div>
+                    </div>
                 </div>
             @elseif(auth()->user()->hasRole('warehouse_receiver'))
                 @php

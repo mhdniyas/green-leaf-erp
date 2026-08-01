@@ -86,7 +86,7 @@
                         <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Daily queue</p>
                         <p class="mt-1 text-sm font-semibold text-slate-600">{{ $dailySummary->count() }} products for {{ \Illuminate\Support\Carbon::parse($date)->format('d M Y') }}</p>
                     </div>
-                    <div class="flex flex-row gap-2 w-full sm:w-auto shrink-0">
+                    <div class="flex w-full shrink-0 flex-row flex-wrap gap-2 sm:w-auto">
                         <a href="{{ route('purchaser.suppliers', ['date' => $date]) }}" class="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-black text-slate-700 sm:w-auto lg:min-h-12 lg:rounded-2xl">
                             <span>Vendor Hub</span>
                             @if (($deadlineAlert['pending_total_count'] ?? 0) > 0)
@@ -94,6 +94,9 @@
                                     {{ $deadlineAlert['pending_total_count'] }}
                                 </span>
                             @endif
+                        </a>
+                        <a href="{{ route('purchaser.procurement-expenses.index', ['date' => $date]) }}" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl border border-teal-200 bg-teal-50 px-4 text-sm font-black text-teal-800 sm:w-auto lg:min-h-12 lg:rounded-2xl">
+                            Expenses
                         </a>
                         <a href="{{ route('purchaser.bulk-buy', ['date' => $date]) }}" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-teal-600 px-4 text-sm font-black text-white sm:w-auto lg:min-h-12 lg:rounded-2xl">
                             Bulk Purchase
