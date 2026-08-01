@@ -253,7 +253,7 @@
         </colgroup>
         <thead>
             <tr>
-                <th>SL</th>
+                <th>Code</th>
                 <th class="item-heading">Item</th>
                 @foreach($filteredShops as $shop)
                 <th>
@@ -273,7 +273,7 @@
                 $total = array_sum($shopQtys);
             @endphp
             <tr>
-                <td>{{ ($pageIndex * $rowsPerPage) + $loop->iteration }}</td>
+                <td>{{ $meta['sku'] }}</td>
                 <td class="item-cell">{{ $meta['name'] }}</td>
                 @foreach($filteredShops as $shop)
                 @php $qty = $shopQtys[$shop->id] ?? 0; @endphp

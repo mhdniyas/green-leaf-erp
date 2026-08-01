@@ -74,6 +74,10 @@
                    rel="noopener"
                    id="share-whatsapp-btn"
                    class="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-green-700 transition-all shadow-md hover:shadow-lg">
+                    <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+                        <path d="M11.998 2.166C6.525 2.166 2.09 6.6 2.09 12.073c0 1.742.455 3.378 1.25 4.793L2 22l5.292-1.387c1.36.74 2.912 1.162 4.566 1.162 5.472 0 9.908-4.433 9.908-9.905 0-5.474-4.436-9.704-9.768-9.704z"/>
+                    </svg>
                     WhatsApp
                 </a>
                 @endif
@@ -103,6 +107,10 @@
                    rel="noopener"
                    id="selection-share-whatsapp-btn"
                    class="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-green-700 transition-all shadow-md hover:shadow-lg">
+                    <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+                        <path d="M11.998 2.166C6.525 2.166 2.09 6.6 2.09 12.073c0 1.742.455 3.378 1.25 4.793L2 22l5.292-1.387c1.36.74 2.912 1.162 4.566 1.162 5.472 0 9.908-4.433 9.908-9.905 0-5.474-4.436-9.704-9.768-9.704z"/>
+                    </svg>
                     WhatsApp
                 </a>
                 @endif
@@ -312,6 +320,10 @@
                            target="_blank"
                            rel="noopener"
                            class="inline-flex items-center gap-1.5 rounded-xl bg-green-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-green-700 transition-all shadow-sm">
+                            <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+                                <path d="M11.998 2.166C6.525 2.166 2.09 6.6 2.09 12.073c0 1.742.455 3.378 1.25 4.793L2 22l5.292-1.387c1.36.74 2.912 1.162 4.566 1.162 5.472 0 9.908-4.433 9.908-9.905 0-5.474-4.436-9.704-9.768-9.704z"/>
+                            </svg>
                             WhatsApp
                         </a>
                         @endif
@@ -337,6 +349,10 @@
                            target="_blank"
                            rel="noopener"
                            class="inline-flex items-center gap-1.5 rounded-xl bg-green-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-green-700 transition-all shadow-sm">
+                            <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+                                <path d="M11.998 2.166C6.525 2.166 2.09 6.6 2.09 12.073c0 1.742.455 3.378 1.25 4.793L2 22l5.292-1.387c1.36.74 2.912 1.162 4.566 1.162 5.472 0 9.908-4.433 9.908-9.905 0-5.474-4.436-9.704-9.768-9.704z"/>
+                            </svg>
                             WhatsApp
                         </a>
                         @endif
@@ -360,7 +376,7 @@
                 <table class="w-full text-left border-collapse min-w-[600px]" id="sort-sheet-table">
                     <thead>
                         <tr class="bg-slate-800 text-white text-[10px] font-bold uppercase tracking-wider sticky top-0 z-10">
-                            <th class="py-3 px-4 text-center w-12 border-r border-slate-700">SL</th>
+                            <th class="py-3 px-4 text-center w-16 border-r border-slate-700">Code</th>
                             <th class="py-3 px-4 min-w-[160px] border-r border-slate-700">Item</th>
                             @foreach($filteredShops as $shop)
                             <th class="py-2.5 px-3 text-center border-r border-slate-700 whitespace-nowrap min-w-[70px]">
@@ -377,16 +393,17 @@
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 text-xs">
-                        @php $sl = 1; @endphp
+                        @php $rowIdx = 0; @endphp
                         @foreach($matrix as $productId => $shopQtys)
                         @php
                             $meta = $productMeta[$productId];
                             $total = array_sum($shopQtys);
-                            $isEven = $sl % 2 === 0;
+                            $isEven = $rowIdx % 2 === 0;
+                            $rowIdx++;
                         @endphp
                         <tr class="{{ $isEven ? 'bg-slate-50/40' : 'bg-white' }} hover:bg-emerald-50/30 transition-colors group">
-                            <td class="py-2.5 px-4 text-center text-slate-500 font-mono text-[10px] border-r border-slate-100">
-                                {{ $sl++ }}
+                            <td class="py-2.5 px-3 text-center text-slate-700 font-mono text-xs font-bold border-r border-slate-100 whitespace-nowrap">
+                                {{ $meta['sku'] }}
                             </td>
                             <td class="py-2.5 px-4 font-semibold text-slate-900 border-r border-slate-100">
                                 {{ $meta['name'] }}

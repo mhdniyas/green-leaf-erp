@@ -114,7 +114,7 @@ class SortSheetMainSheet implements FromArray, ShouldAutoSize, WithEvents, WithT
 
         // ── Row 2: Header ─────────────────────────────────────────────────────
         $headerRow = 2;
-        $sheet->setCellValue('A2', 'SL');
+        $sheet->setCellValue('A2', 'Code');
         $sheet->setCellValue('B2', 'Item');
 
         foreach ($shops as $idx => $shop) {
@@ -135,7 +135,6 @@ class SortSheetMainSheet implements FromArray, ShouldAutoSize, WithEvents, WithT
 
         // ── Data rows (2 rows per product) ───────────────────────────────────
         $currentRow = 3;
-        $sl = 1;
 
         foreach ($this->matrix as $productId => $shopQtys) {
             $meta = $this->productMeta[$productId];
@@ -143,9 +142,9 @@ class SortSheetMainSheet implements FromArray, ShouldAutoSize, WithEvents, WithT
             $tagRow = $currentRow + 1;
 
             // --- Quantity Row ---
-            // SL (merged over 2 rows)
+            // Code (merged over 2 rows)
             $sheet->mergeCells("A{$qtyRow}:A{$tagRow}");
-            $sheet->setCellValue("A{$qtyRow}", $sl++);
+            $sheet->setCellValue("A{$qtyRow}", $meta['sku']);
             $sheet->getStyle("A{$qtyRow}:A{$tagRow}")->applyFromArray([
                 'font' => ['bold' => true, 'size' => 9],
                 'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
