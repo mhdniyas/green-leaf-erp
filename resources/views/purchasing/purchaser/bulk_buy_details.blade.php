@@ -38,12 +38,16 @@
                     <div class="custom-select-options hidden absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
                         <button type="button" data-value="" class="custom-select-option flex w-full items-center justify-between px-4 py-2.5 text-left text-sm font-bold text-slate-900 hover:bg-slate-100">
                             <span>New cart</span>
-                            <span class="checkmark text-teal-600">✓</span>
+                            <svg class="checkmark h-4 w-4 text-teal-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M20 6 9 17l-5-5" />
+                            </svg>
                         </button>
                         @foreach ($draftCarts as $cart)
                             <button type="button" data-value="{{ $cart->id }}" data-supplier="{{ $cart->supplier?->name ?: '' }}" class="custom-select-option flex w-full items-center justify-between px-4 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100">
                                 <span>{{ $cart->cart_number }}</span>
-                                <span class="checkmark hidden text-teal-600">✓</span>
+                                <svg class="checkmark hidden h-4 w-4 text-teal-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M20 6 9 17l-5-5" />
+                                </svg>
                             </button>
                         @endforeach
                     </div>
@@ -57,13 +61,8 @@
                         <h2 class="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Selected Products</h2>
                         <span class="rounded-lg bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">{{ $dailySummary->count() }} rows</span>
                     </div>
-                    <div class="flex h-9 w-full items-center rounded-xl bg-slate-100 p-1 sm:w-auto" role="group" aria-label="Bulk purchase row layout">
-                        <button type="button" id="bulk-layout-compact" class="bulk-layout-toggle flex-1 rounded-lg px-3 py-1.5 text-[11px] font-black uppercase text-slate-600 transition sm:flex-none" data-layout="compact">
-                            Row
-                        </button>
-                        <button type="button" id="bulk-layout-two-row" class="bulk-layout-toggle flex-1 rounded-lg px-3 py-1.5 text-[11px] font-black uppercase text-slate-600 transition sm:flex-none" data-layout="two-row">
-                            Two row
-                        </button>
+                    <div class="inline-flex h-9 items-center rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-black uppercase tracking-wider text-slate-500 shadow-sm">
+                        Quantity selects row
                     </div>
                 </div>
 
@@ -94,14 +93,21 @@
                     @endphp
                     <input type="hidden" name="product_ids[]" value="{{ $summary['product_id'] }}">
 
-                    <article class="product-row rounded-xl border border-slate-200 bg-white px-2 py-1.5 shadow-sm transition sm:px-2.5 sm:py-2" data-product-id="{{ $summary['product_id'] }}" data-unit="{{ strtoupper($summary['unit']) }}">
+                    <article class="product-row overflow-x-auto rounded-xl border border-slate-200 bg-white px-2 py-1.5 shadow-sm transition hover:border-slate-300 sm:px-2.5 sm:py-2" data-product-id="{{ $summary['product_id'] }}" data-unit="{{ strtoupper($summary['unit']) }}">
                         {{-- Hidden inputs for form submission --}}
                         <input type="hidden" name="items[{{ $summary['product_id'] }}][quantity]" id="submit-qty-{{ $summary['product_id'] }}" value="{{ $rowQuantity }}">
                         <input type="hidden" name="items[{{ $summary['product_id'] }}][unit_price]" id="submit-price-{{ $summary['product_id'] }}" value="{{ $rowPrice }}">
                         <input type="hidden" id="basis-{{ $summary['product_id'] }}" value="{{ $defaultBasis }}">
                         <input type="hidden" id="unit-{{ $summary['product_id'] }}" value="{{ $summary['unit'] }}">
 
-                        <div class="bulk-row-grid grid grid-cols-[2rem_minmax(0,1fr)_3.75rem_4rem_4.25rem_1.65rem] items-center gap-1.5 sm:grid-cols-[2rem_minmax(0,1fr)_4.25rem_4.75rem_5rem_2rem] lg:grid-cols-[2.75rem_minmax(0,1fr)_16rem_5.25rem_18rem_8rem] lg:gap-2">
+                        <div class="bulk-row-grid grid min-w-[22rem] grid-cols-[1.5rem_1.85rem_minmax(4.75rem,1fr)_3.5rem_3.85rem_3.85rem_1.6rem] items-center gap-1 sm:min-w-0 sm:grid-cols-[1.75rem_2rem_minmax(0,1fr)_4rem_4.5rem_4.75rem_1.9rem] sm:gap-1.5 lg:grid-cols-[2.15rem_2.75rem_minmax(0,1fr)_16rem_5.25rem_18rem_8rem] lg:gap-2">
+                            <div class="flex items-center justify-center">
+                                <button type="button" class="row-select-toggle flex h-6 w-6 items-center justify-center rounded-md border border-slate-300 bg-white text-transparent transition hover:border-teal-500 hover:bg-teal-50 sm:h-7 sm:w-7" data-product-id="{{ $summary['product_id'] }}" aria-pressed="false" aria-label="Select {{ $summary['product_name'] }}">
+                                    <svg class="h-3.5 w-3.5 sm:h-4 sm:w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M20 6 9 17l-5-5" />
+                                    </svg>
+                                </button>
+                            </div>
                             <div class="bulk-row-code contents lg:block">
                                 <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[11px] font-black text-slate-600 lg:h-9 lg:w-9">{{ $summary['sku'] ?: str_pad((string) $loop->iteration, 2, '0', STR_PAD_LEFT) }}</span>
                                 <div class="min-w-0 lg:hidden">
@@ -252,8 +258,11 @@
                                         {{ $fallbackHint > 0 ? 'Last ₹'.number_format($fallbackHint, 2) : 'No price' }}
                                     </p>
                                 </div>
-                                <button type="button" onclick="focusNextProduct({{ $summary['product_id'] }})" class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-500 transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700 sm:h-8 sm:w-8" aria-label="Focus next product">
-                                    +
+                                <button type="button" onclick="focusNextProduct({{ $summary['product_id'] }})" class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700 sm:h-8 sm:w-8" aria-label="Focus next product">
+                                    <svg class="h-3.5 w-3.5 sm:h-4 sm:w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M5 12h14" />
+                                        <path d="M12 5v14" />
+                                    </svg>
                                 </button>
                             </div>
                         </div>
@@ -285,116 +294,10 @@
         </form>
     </div>
 
-    <style>
-        #bulk-buy-details-form.bulk-layout-two-row .product-row {
-            padding: 0.65rem;
-        }
-
-        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-grid {
-            display: grid;
-            grid-template-columns: 2.25rem minmax(0, 1fr) 6.5rem;
-            gap: 0.5rem;
-            align-items: center;
-        }
-
-        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-code {
-            display: block;
-            grid-column: 1 / 2;
-        }
-
-        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-code > div {
-            display: none;
-        }
-
-        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-title {
-            display: block;
-            grid-column: 2 / 3;
-            min-width: 0;
-        }
-
-        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-stats {
-            display: grid;
-            grid-column: 1 / -1;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 0.375rem;
-        }
-
-        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-basis {
-            grid-column: 1 / 2;
-            width: 100%;
-        }
-
-        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-inputs {
-            display: block;
-            grid-column: 2 / -1;
-            min-width: 0;
-        }
-
-        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-inputs [id^="kg-inputs-"]:not(.hidden),
-        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-inputs [id^="box-inputs-"]:not(.hidden) {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 0.375rem;
-        }
-
-        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-inputs [id^="box-inputs-"]:not(.hidden) {
-            grid-template-columns: repeat(auto-fit, minmax(5.25rem, 1fr));
-        }
-
-        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-action {
-            display: flex;
-            grid-column: 3 / 4;
-            grid-row: 1;
-            align-items: center;
-            justify-content: flex-end;
-            gap: 0.375rem;
-        }
-
-        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-action > div {
-            display: block;
-            min-width: 0;
-        }
-
-        @media (max-width: 640px) {
-            #bulk-buy-details-form.bulk-layout-two-row .bulk-row-grid {
-                grid-template-columns: 2rem minmax(0, 1fr) 1.75rem;
-            }
-
-            #bulk-buy-details-form.bulk-layout-two-row .bulk-row-action > div {
-                display: none;
-            }
-        }
-    </style>
-
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const bulkPriceHintsByCart = @json($bulkPriceHintsByCart);
             const bulkFallbackPriceHints = @json($bulkFallbackPriceHints);
-            const layoutStorageKey = 'greenleaf:purchaser-bulk-buy-layout';
-            const form = document.getElementById('bulk-buy-details-form');
-            const layoutButtons = Array.from(document.querySelectorAll('.bulk-layout-toggle'));
-
-            function setBulkLayout(layout) {
-                const selectedLayout = layout === 'two-row' ? 'two-row' : 'compact';
-
-                form?.classList.toggle('bulk-layout-two-row', selectedLayout === 'two-row');
-                layoutButtons.forEach((button) => {
-                    const isActive = button.dataset.layout === selectedLayout;
-                    button.classList.toggle('bg-white', isActive);
-                    button.classList.toggle('text-slate-950', isActive);
-                    button.classList.toggle('shadow-sm', isActive);
-                    button.classList.toggle('text-slate-600', !isActive);
-                    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-                });
-
-                window.localStorage?.setItem(layoutStorageKey, selectedLayout);
-            }
-
-            layoutButtons.forEach((button) => {
-                button.addEventListener('click', () => setBulkLayout(button.dataset.layout || 'compact'));
-            });
-
-            setBulkLayout(window.localStorage?.getItem(layoutStorageKey) || 'compact');
 
             function updateBulkPriceHints(cartId) {
                 document.querySelectorAll('.product-row').forEach((row) => {
@@ -521,6 +424,7 @@
                 const submitPrice = document.getElementById(`submit-price-${productId}`);
                 const row = document.querySelector(`.product-row[data-product-id="${productId}"]`);
                 const rowTotalDisplay = row?.querySelector('.row-total');
+                const selectionToggle = row?.querySelector('.row-select-toggle');
 
                 let qty = 0;
                 let price = 0;
@@ -548,10 +452,20 @@
                 if (row) {
                     row.dataset.draftQty = qty.toFixed(3);
                     row.classList.toggle('border-teal-300', qty > 0);
-                    row.classList.toggle('bg-teal-50', qty > 0);
+                    row.classList.toggle('bg-teal-50/70', qty > 0);
                     row.classList.toggle('shadow-[0_10px_24px_rgba(13,148,136,0.10)]', qty > 0);
                     row.classList.toggle('border-slate-200', qty <= 0);
                     row.classList.toggle('bg-white', qty <= 0);
+                }
+
+                if (selectionToggle) {
+                    selectionToggle.classList.toggle('border-teal-600', qty > 0);
+                    selectionToggle.classList.toggle('bg-teal-600', qty > 0);
+                    selectionToggle.classList.toggle('text-white', qty > 0);
+                    selectionToggle.classList.toggle('border-slate-300', qty <= 0);
+                    selectionToggle.classList.toggle('bg-white', qty <= 0);
+                    selectionToggle.classList.toggle('text-transparent', qty <= 0);
+                    selectionToggle.setAttribute('aria-pressed', qty > 0 ? 'true' : 'false');
                 }
 
                 if (rowTotalDisplay) {
@@ -626,6 +540,49 @@
 
                 calculateGrandTotal();
             }
+
+            function activeQuantityInput(productId) {
+                const basis = document.getElementById(`basis-${productId}`)?.value || 'kg';
+
+                return document.getElementById(`qty-${basis}-${productId}`)
+                    || document.getElementById(`qty-kg-${productId}`)
+                    || document.getElementById(`qty-box-${productId}`);
+            }
+
+            function activePriceInput(productId) {
+                const basis = document.getElementById(`basis-${productId}`)?.value || 'kg';
+
+                return document.getElementById(`price-${basis}-${productId}`)
+                    || document.getElementById(`price-kg-${productId}`)
+                    || document.getElementById(`price-box-${productId}`);
+            }
+
+            document.querySelectorAll('.row-select-toggle').forEach((button) => {
+                button.addEventListener('click', () => {
+                    const productId = button.getAttribute('data-product-id');
+                    const row = document.querySelector(`.product-row[data-product-id="${productId}"]`);
+                    const qtyInput = activeQuantityInput(productId);
+                    const currentQty = Number(row?.dataset.draftQty || 0);
+
+                    if (!qtyInput) {
+                        return;
+                    }
+
+                    if (currentQty > 0) {
+                        qtyInput.value = '';
+                        calculateGrandTotal();
+                        qtyInput.focus();
+                        return;
+                    }
+
+                    const suggestedQty = Number(qtyInput.getAttribute('placeholder') || 0);
+                    qtyInput.value = Number.isFinite(suggestedQty) && suggestedQty > 0 ? String(suggestedQty) : '1';
+                    calculateGrandTotal();
+
+                    const priceInput = activePriceInput(productId);
+                    (priceInput && Number(priceInput.value || 0) <= 0 ? priceInput : qtyInput)?.focus();
+                });
+            });
 
             // Bind input event listeners for calculations
             const rows = document.querySelectorAll('.product-row');
