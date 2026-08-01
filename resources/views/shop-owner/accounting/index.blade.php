@@ -55,10 +55,13 @@
         ])->values();
         $calculatedClosing = (float) ($receiptSummary['entered_closing'] ?? $receiptSummary['expected_closing']);
         $calculatedClosingTone = $calculatedClosing < 0 ? 'rose' : 'emerald';
+        $shopAccountingModeLabel = $shop->isOwnedAccountingEnabled() ? 'Manager Managed' : 'Owner Managed';
     @endphp
 
     <div class="space-y-6">
-        @include('shop-owner.accounting.partials.tabs', ['shop' => $shop, 'tab' => $tab])
+        <div @class(['hidden sm:block' => $tab === 'create'])>
+            @include('shop-owner.accounting.partials.tabs', ['shop' => $shop, 'tab' => $tab])
+        </div>
 
         @if ($tab === 'bills')
             @php
@@ -346,10 +349,13 @@
                 @endif
             </section>
         @else
-            <section class="rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+            <section @class([
+                'rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm sm:p-4',
+                'hidden sm:block' => $tab === 'create',
+            ])>
                 <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div>
-                        <p class="text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">{{ strtoupper($shop->accounting_mode) }} Shop</p>
+                        <p class="text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">{{ $shopAccountingModeLabel }}</p>
                         <h2 class="mt-1 text-lg font-black text-slate-950">Daily Shop Receipt</h2>
                     </div>
 
@@ -666,8 +672,8 @@
                 </section>
             @endif
 
-            <section class="space-y-6">
-                <article class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+            <section class="space-y-3 sm:space-y-6">
+                <article class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:rounded-[2rem] sm:p-6">
                     @if ($hasEntry && $entry->status === 'approved')
                         <div class="mb-5 rounded-[1.5rem] border border-cyan-200 bg-cyan-50 px-4 py-4">
                             <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -688,11 +694,11 @@
                     @endif
 
                     @if ($canEdit)
-                    <form method="POST" action="{{ route('shop-owner.accounting.entries.store') }}" class="space-y-5">
+                    <form method="POST" action="{{ route('shop-owner.accounting.entries.store') }}" class="space-y-3 sm:space-y-5">
                         @csrf
                         <input type="hidden" name="business_date" value="{{ $selectedDate->format('Y-m-d') }}">
 
-                        <div class="grid gap-4 md:grid-cols-4">
+                        <div class="hidden gap-4 sm:grid md:grid-cols-3">
                             <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
                                 <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Opening Balance</span>
                                 <p id="cashbook-opening-display" data-opening-cash="{{ number_format($receiptSummary['opening_balance'], 2, '.', '') }}" class="mt-2 text-lg font-black text-slate-950 tabular-nums">Rs. {{ number_format($receiptSummary['opening_balance'], 2) }}</p>
@@ -708,11 +714,12 @@
                                 <p data-cashbook-net-sale-display class="mt-2 text-lg font-black {{ (float) $receiptSummary['daily_net_sale'] < 0 ? 'text-rose-700' : 'text-emerald-700' }} tabular-nums">Rs. {{ number_format((float) $receiptSummary['daily_net_sale'], 2) }}</p>
                                 <p class="mt-1 text-xs font-semibold text-slate-500">Includes loan expenses</p>
                             </div>
-                            <label class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
-                                <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Daily Note</span>
-                                <input type="text" name="notes" value="{{ old('notes', $entry?->notes) }}" class="mt-2 w-full border-0 bg-transparent p-0 text-sm font-semibold text-slate-950 focus:outline-none focus:ring-0">
-                            </label>
                         </div>
+
+                        <label class="block sm:rounded-[1.5rem] sm:border sm:border-slate-200 sm:bg-slate-50 sm:p-4">
+                            <span class="text-[9px] font-black uppercase tracking-[0.12em] text-slate-500">Daily Note</span>
+                            <input type="text" name="notes" value="{{ old('notes', $entry?->notes) }}" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-950 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100 sm:mt-2 sm:border-0 sm:bg-transparent sm:p-0 sm:text-sm sm:focus:ring-0" placeholder="Optional">
+                        </label>
 
                         @if ($hasEntry && in_array($entry->status, ['recheck_required', 'approved', 'submitted'], true))
                             <label class="block rounded-[1.5rem] border border-red-200 bg-red-50 p-4">
@@ -721,24 +728,24 @@
                             </label>
                         @endif
 
-                        <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 sm:p-5">
-                            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div class="rounded-xl border border-slate-200 bg-white p-3 sm:rounded-[1.5rem] sm:bg-slate-50 sm:p-5">
+                            <div class="flex items-center justify-between gap-3 sm:items-start">
                                 <div>
-                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Ledger Items</p>
-                            <h3 class="mt-2 text-lg font-black text-slate-950">Add receipt lines</h3>
-	                            <p class="mt-2 text-sm font-semibold text-slate-600">Cash-effect income is cash from sales. Company cash and petty movements are tracked separately. Approved delivery bills are added automatically as Cash Debit.</p>
+                            <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500 sm:text-[10px] sm:tracking-[0.16em]">Ledger Items</p>
+                            <h3 class="mt-0.5 text-base font-black text-slate-950 sm:mt-2 sm:text-lg">Add receipt lines</h3>
+	                            <p class="mt-2 hidden text-sm font-semibold text-slate-600 sm:block">Cash-effect income is cash from sales. Company cash and petty movements are tracked separately. Approved delivery bills are added automatically as Cash Debit.</p>
                         </div>
                                 <button
                                     type="button"
                                     id="cashbook-open-modal"
-                                    class="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800"
+                                    class="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-slate-950 px-3 text-[11px] font-black uppercase tracking-[0.12em] text-white transition hover:bg-slate-800 sm:h-11 sm:rounded-2xl sm:px-5 sm:text-sm sm:normal-case sm:tracking-normal"
                                 >
-                                    Add Credit / Debit
+                                    Add
                                 </button>
                             </div>
 
-                            <div id="cashbook-lines-list" class="mt-5 space-y-3"></div>
-                            <div class="mt-4 rounded-[1.35rem] border border-rose-200 bg-rose-50 px-4 py-4">
+                            <div id="cashbook-lines-list" class="mt-3 space-y-2 sm:mt-5 sm:space-y-3"></div>
+                            <div class="mt-4 hidden rounded-[1.35rem] border border-rose-200 bg-rose-50 px-4 py-4 sm:block">
                                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                     <div>
                                         <p class="text-[10px] font-black uppercase tracking-[0.16em] text-rose-700">System Expense</p>
@@ -765,10 +772,10 @@
                         </div>
 
                         <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-                            <button type="submit" name="submission_action" value="submit" class="inline-flex h-11 items-center justify-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
+                            <button type="submit" name="submission_action" value="submit" class="inline-flex h-10 items-center justify-center rounded-lg bg-emerald-600 px-4 text-[11px] font-black uppercase tracking-[0.12em] text-white transition hover:bg-emerald-500 sm:h-11 sm:rounded-2xl sm:px-5 sm:text-sm sm:normal-case sm:tracking-normal">
                                 {{ $hasEntry ? 'Submit Update To Admin' : 'Submit To Admin Approval' }}
                             </button>
-                            <p class="text-xs font-bold text-slate-500">This sends the daily receipt to accounting approval.</p>
+                            <p class="hidden text-xs font-bold text-slate-500 sm:block">This sends the daily receipt to accounting approval.</p>
                         </div>
                     </form>
                     @elseif ($hasEntry)
@@ -839,78 +846,109 @@
 
             </section>
 
+            <section class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:hidden">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="min-w-0">
+                        <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">{{ $shopAccountingModeLabel }}</p>
+                        <h3 class="mt-0.5 truncate text-sm font-black text-slate-950">{{ $shop->name }}</h3>
+                    </div>
+                    <a href="{{ route('shop-owner.accounting.history', ['tab' => $tab]) }}" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700" title="History" aria-label="History">
+                        <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M3 3v5h5" />
+                            <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
+                            <path d="M12 7v5l4 2" />
+                        </svg>
+                    </a>
+                </div>
+
+                <form method="GET" action="{{ route('shop-owner.accounting.index') }}" class="mt-3 grid grid-cols-[1fr_auto_auto] gap-2">
+                    <input type="hidden" name="tab" value="create">
+                    <label class="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                        <span class="block text-[8px] font-black uppercase tracking-[0.12em] text-slate-500">Date</span>
+                        <input type="date" name="date" value="{{ $selectedDate->format('Y-m-d') }}" class="mt-0.5 w-full border-0 bg-transparent p-0 text-[11px] font-black text-slate-950 focus:outline-none focus:ring-0">
+                    </label>
+                    <button type="submit" class="inline-flex h-10 items-center justify-center rounded-lg bg-slate-950 px-3 text-[10px] font-black uppercase tracking-[0.12em] text-white">Show</button>
+                    <a href="{{ route('shop-owner.accounting.index', ['tab' => 'create', 'date' => today()->toDateString()]) }}" class="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700">Today</a>
+                </form>
+            </section>
+
             @if ($canEdit)
-                <div id="cashbook-line-modal" class="fixed inset-0 z-[80] hidden overflow-y-auto bg-slate-950/50 px-4 py-8">
-                    <div class="mx-auto w-full max-w-lg rounded-[2rem] border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
+                <div id="cashbook-line-modal" class="fixed inset-0 z-[80] hidden overflow-y-auto bg-slate-950/50 px-3 py-4 sm:px-4 sm:py-8">
+                    <div class="mx-auto w-full max-w-lg rounded-xl border border-slate-200 bg-white p-3 shadow-2xl sm:rounded-[2rem] sm:p-6">
                         <div class="flex items-start justify-between gap-4">
-                            <div>
-                                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Daily Shop Receipt</p>
-                                <h3 id="cashbook-modal-title" class="mt-2 text-xl font-black text-slate-950">Add credit or debit</h3>
-                                <p class="mt-2 text-sm font-semibold text-slate-600">Select a category. Cash-effect categories change the closing balance; online categories do not.</p>
+                            <div class="min-w-0">
+                                <p class="text-[9px] font-black uppercase tracking-[0.14em] text-emerald-700 sm:text-[10px] sm:tracking-[0.18em]">Daily Shop Receipt</p>
+                                <h3 id="cashbook-modal-title" class="mt-0.5 truncate text-base font-black text-slate-950 sm:mt-2 sm:text-xl">Add credit or debit</h3>
+                                <p class="mt-2 hidden text-sm font-semibold text-slate-600 sm:block">Select a category. Cash-effect categories change the closing balance; online categories do not.</p>
                             </div>
-                            <button type="button" id="cashbook-close-modal" class="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-xl font-black text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">×</button>
+                            <button type="button" id="cashbook-close-modal" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 sm:h-11 sm:w-11 sm:rounded-2xl" aria-label="Close">
+                                <svg class="h-4 w-4 sm:h-5 sm:w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M18 6 6 18" />
+                                    <path d="m6 6 12 12" />
+                                </svg>
+                            </button>
                         </div>
 
-                        <div class="mt-5 space-y-4">
+                        <div class="mt-3 space-y-3 sm:mt-5 sm:space-y-4">
                             <label class="block">
-                                <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Type</span>
+                                <span class="block text-[9px] font-black uppercase tracking-[0.12em] text-slate-500 sm:text-[10px] sm:tracking-[0.16em]">Type</span>
                                 <input id="cashbook-line-type" type="hidden" value="income">
-                                <div class="relative mt-2">
-                                    <button id="cashbook-line-type-trigger" type="button" class="flex w-full items-center justify-between rounded-[1.6rem] border border-slate-200 bg-slate-50 px-5 py-3.5 text-left text-base font-black text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] transition focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-emerald-500/10" aria-haspopup="listbox" aria-expanded="false">
+                                <div class="relative mt-1 sm:mt-2">
+                                    <button id="cashbook-line-type-trigger" type="button" class="flex h-9 w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-2 text-left text-xs font-black text-slate-900 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100 sm:h-auto sm:rounded-[1.6rem] sm:bg-slate-50 sm:px-5 sm:py-3.5 sm:text-base sm:shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] sm:focus:bg-white sm:focus:ring-4 sm:focus:ring-emerald-500/10" aria-haspopup="listbox" aria-expanded="false">
                                         <span id="cashbook-line-type-label">Income</span>
-                                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                                        <svg class="h-4 w-4 sm:h-5 sm:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
                                         </svg>
                                     </button>
-                                    <div id="cashbook-line-type-panel" class="absolute inset-x-0 top-[calc(100%+0.6rem)] z-20 hidden rounded-[1.45rem] border border-slate-200 bg-white p-2 shadow-[0_20px_45px_rgba(15,23,42,0.16)]" role="listbox" aria-label="Cashbook type">
-                                        <button type="button" data-cashbook-type-option data-value="income" data-label="Income" class="flex w-full items-center rounded-[1rem] px-4 py-3 text-left text-sm font-black text-slate-900 transition hover:bg-emerald-50 hover:text-emerald-700">
+                                    <div id="cashbook-line-type-panel" class="absolute inset-x-0 top-[calc(100%+0.25rem)] z-20 hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl sm:top-[calc(100%+0.6rem)] sm:rounded-[1.45rem] sm:p-2 sm:shadow-[0_20px_45px_rgba(15,23,42,0.16)]" role="listbox" aria-label="Cashbook type">
+                                        <button type="button" data-cashbook-type-option data-value="income" data-label="Income" class="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-xs font-black text-slate-900 transition hover:bg-emerald-50 hover:text-emerald-700 sm:rounded-[1rem] sm:px-4 sm:py-3 sm:text-sm">
                                             Income / Credit
                                         </button>
-                                        <button type="button" data-cashbook-type-option data-value="expense" data-label="Expense" class="flex w-full items-center rounded-[1rem] px-4 py-3 text-left text-sm font-black text-slate-900 transition hover:bg-amber-50 hover:text-amber-700">
+                                        <button type="button" data-cashbook-type-option data-value="expense" data-label="Expense" class="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-xs font-black text-slate-900 transition hover:bg-amber-50 hover:text-amber-700 sm:rounded-[1rem] sm:px-4 sm:py-3 sm:text-sm">
                                             Expense / Debit
                                         </button>
                                     </div>
                                 </div>
                             </label>
                             <label class="block">
-                                <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Category</span>
+                                <span class="block text-[9px] font-black uppercase tracking-[0.12em] text-slate-500 sm:text-[10px] sm:tracking-[0.16em]">Category</span>
                                 <input id="cashbook-line-category" type="hidden" value="">
-                                <div class="relative mt-2">
-                                    <button id="cashbook-line-category-trigger" type="button" class="flex w-full items-center justify-between rounded-[1.6rem] border border-slate-200 bg-slate-50 px-5 py-3.5 text-left text-base font-black text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] transition focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-emerald-500/10" aria-haspopup="listbox" aria-expanded="false">
+                                <div class="relative mt-1 sm:mt-2">
+                                    <button id="cashbook-line-category-trigger" type="button" class="flex h-9 w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-2 text-left text-xs font-black text-slate-900 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100 sm:h-auto sm:rounded-[1.6rem] sm:bg-slate-50 sm:px-5 sm:py-3.5 sm:text-base sm:shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] sm:focus:bg-white sm:focus:ring-4 sm:focus:ring-emerald-500/10" aria-haspopup="listbox" aria-expanded="false">
                                         <span id="cashbook-line-category-label" class="text-slate-400">Select category</span>
-                                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                                        <svg class="h-4 w-4 sm:h-5 sm:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
                                         </svg>
                                     </button>
-                                    <div id="cashbook-line-category-panel" class="absolute inset-x-0 top-[calc(100%+0.6rem)] z-20 hidden max-h-72 overflow-y-auto rounded-[1.45rem] border border-slate-200 bg-white p-2 shadow-[0_20px_45px_rgba(15,23,42,0.16)]" role="listbox" aria-label="Cashbook category"></div>
+                                    <div id="cashbook-line-category-panel" class="absolute inset-x-0 top-[calc(100%+0.25rem)] z-20 hidden max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl sm:top-[calc(100%+0.6rem)] sm:max-h-72 sm:rounded-[1.45rem] sm:p-2 sm:shadow-[0_20px_45px_rgba(15,23,42,0.16)]" role="listbox" aria-label="Cashbook category"></div>
                                 </div>
                             </label>
                             <label class="block">
-                                <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Amount</span>
-                                <input id="cashbook-line-amount" type="number" min="0.01" step="0.01" class="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none" placeholder="Enter amount">
+                                <span class="block text-[9px] font-black uppercase tracking-[0.12em] text-slate-500 sm:text-[10px] sm:tracking-[0.16em]">Amount</span>
+                                <input id="cashbook-line-amount" type="number" min="0.01" step="0.01" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-right text-sm font-black text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100 sm:mt-2 sm:h-auto sm:rounded-2xl sm:bg-slate-50 sm:px-4 sm:py-3 sm:font-semibold sm:focus:ring-0" placeholder="0.00">
                             </label>
                             <label class="block" id="cashbook-funding-wrap">
-                                <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Paid From</span>
-                                <select id="cashbook-line-funding" class="mt-2 w-full rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-black text-violet-950 focus:border-violet-500 focus:outline-none">
+                                <span class="block text-[9px] font-black uppercase tracking-[0.12em] text-slate-500 sm:text-[10px] sm:tracking-[0.16em]">Paid From</span>
+                                <select id="cashbook-line-funding" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-black text-slate-950 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-100 sm:mt-2 sm:h-auto sm:rounded-2xl sm:border-violet-200 sm:bg-violet-50 sm:px-4 sm:py-3 sm:text-sm sm:text-violet-950 sm:focus:border-violet-500 sm:focus:ring-0">
                                     <option value="sales">Cash From Sales</option>
                                     <option value="petty">Petty Cash</option>
                                     <option value="company">Company</option>
                                 </select>
-                                <span id="cashbook-line-loan-help" class="mt-1 block text-xs font-semibold text-violet-700">This expense will be deducted from cash from sales.</span>
+                                <span id="cashbook-line-loan-help" class="mt-1 block text-[10px] font-semibold text-slate-500 sm:text-xs sm:text-violet-700">This expense will be deducted from cash from sales.</span>
                                 <input id="cashbook-line-loan" type="checkbox" class="hidden">
                             </label>
                             <label class="block">
-                                <span id="cashbook-line-description-label" class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Notes</span>
-                                <textarea id="cashbook-line-description" rows="4" class="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none" placeholder="Add notes"></textarea>
+                                <span id="cashbook-line-description-label" class="block text-[9px] font-black uppercase tracking-[0.12em] text-slate-500 sm:text-[10px] sm:tracking-[0.16em]">Notes</span>
+                                <textarea id="cashbook-line-description" rows="2" class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100 sm:mt-2 sm:rounded-2xl sm:bg-slate-50 sm:px-4 sm:py-3 sm:text-sm sm:focus:ring-0" placeholder="Add notes"></textarea>
                             </label>
-                            <p id="cashbook-line-help" class="text-xs font-semibold text-slate-500">Other needs notes so admin can understand the entry.</p>
+                            <p id="cashbook-line-help" class="text-[10px] font-semibold text-slate-500 sm:text-xs">Other needs notes so admin can understand the entry.</p>
                         </div>
 
-                        <div class="mt-6 flex flex-col gap-3 sm:flex-row">
-                            <button type="button" id="cashbook-save-line" class="inline-flex h-11 items-center justify-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
+                        <div class="mt-4 grid grid-cols-2 gap-2 sm:mt-6 sm:flex sm:flex-row sm:gap-3">
+                            <button type="button" id="cashbook-save-line" class="inline-flex h-10 items-center justify-center rounded-lg bg-emerald-600 px-3 text-[11px] font-black uppercase tracking-[0.12em] text-white transition hover:bg-emerald-500 sm:h-11 sm:rounded-2xl sm:px-5 sm:text-sm sm:normal-case sm:tracking-normal">
                                 Save Item
                             </button>
-                            <button type="button" id="cashbook-cancel-line" class="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-800 transition hover:bg-slate-50">
+                            <button type="button" id="cashbook-cancel-line" class="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-black uppercase tracking-[0.12em] text-slate-800 transition hover:bg-slate-50 sm:h-11 sm:rounded-2xl sm:px-5 sm:text-sm sm:normal-case sm:tracking-normal">
                                 Cancel
                             </button>
                         </div>
@@ -1239,14 +1277,14 @@
                         data-cashbook-category-option
                         data-value="${category.id}"
                         data-label="${escapeHtml(category.name)}"
-                        class="flex w-full items-center rounded-[1rem] px-4 py-3 text-left text-sm font-black transition ${
+                        class="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-xs font-black transition sm:rounded-[1rem] sm:px-4 sm:py-3 sm:text-sm ${
                             String(category.id) === String(selectedId)
                                 ? 'bg-emerald-50 text-emerald-700'
                                 : 'text-slate-900 hover:bg-slate-100'
                         }"
                     >
                         <span>${escapeHtml(category.name)}</span>
-                        <span class="ml-auto text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">${category.is_loan_category ? 'Petty default' : escapeHtml(cashbookLabel(category))}</span>
+                        <span class="ml-auto text-[8px] font-black uppercase tracking-[0.1em] text-slate-400 sm:text-[10px] sm:tracking-[0.12em]">${category.is_loan_category ? 'Petty default' : escapeHtml(cashbookLabel(category))}</span>
                     </button>
                 `).join('');
 
@@ -1297,9 +1335,9 @@
             const renderList = () => {
                 if (lines.length === 0) {
                     listEl.innerHTML = `
-                        <div class="rounded-[1.5rem] border border-dashed border-slate-300 bg-white px-4 py-8 text-center">
-                            <p class="text-sm font-black text-slate-900">No items added yet.</p>
-                            <p class="mt-2 text-sm font-semibold text-slate-500">Use Add Credit / Debit to build the daily receipt.</p>
+                        <div class="rounded-xl border border-dashed border-slate-300 bg-white px-3 py-6 text-center sm:rounded-[1.5rem] sm:px-4 sm:py-8">
+                            <p class="text-xs font-black text-slate-900 sm:text-sm">No items added yet.</p>
+                            <p class="mt-1 text-[11px] font-semibold text-slate-500 sm:mt-2 sm:text-sm">Use Add to create income or expense.</p>
                         </div>
                     `;
                     renderInputs();
@@ -1317,21 +1355,27 @@
                                 : 'border-amber-200 bg-amber-50 text-amber-700';
 
                     return `
-                        <div class="rounded-[1.5rem] border border-slate-200 bg-white p-4">
-                            <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                                <div>
-                                    <div class="flex flex-wrap items-center gap-2">
-                                        <span class="inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] ${typeTone}">
+                        <div class="rounded-xl border border-slate-200 bg-white p-2.5 sm:rounded-[1.5rem] sm:p-4">
+                            <div class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 sm:flex sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                                <div class="min-w-0">
+                                    <div class="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+                                        <span class="inline-flex rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.1em] sm:px-3 sm:py-1 sm:text-[10px] sm:tracking-[0.16em] ${typeTone}">
                                             ${escapeHtml(cashbookLabel(meta, line))}
                                         </span>
-                                        <span class="text-sm font-black text-slate-950">${escapeHtml(meta?.name ?? 'Category')}</span>
+                                        <span class="truncate text-xs font-black text-slate-950 sm:text-sm">${escapeHtml(meta?.name ?? 'Category')}</span>
                                     </div>
-                                    <p class="mt-3 text-2xl font-black text-slate-950">Rs. ${Number(line.amount).toFixed(2)}</p>
-                                    ${line.description ? `<p class="mt-2 text-sm font-semibold text-slate-600">${escapeHtml(line.description)}</p>` : ''}
+                                    <p class="mt-1 text-sm font-black text-slate-950 sm:mt-3 sm:text-2xl">Rs. ${Number(line.amount).toFixed(2)}</p>
+                                    ${line.description ? `<p class="mt-1 truncate text-[10px] font-semibold text-slate-600 sm:mt-2 sm:text-sm">${escapeHtml(line.description)}</p>` : ''}
                                 </div>
-                                <div class="flex gap-2">
-                                    <button type="button" data-edit-index="${index}" class="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-100">Edit</button>
-                                    <button type="button" data-remove-index="${index}" class="inline-flex h-10 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-rose-700 transition hover:bg-rose-100">Remove</button>
+                                <div class="flex gap-1 sm:gap-2">
+                                    <button type="button" data-edit-index="${index}" class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-slate-700 transition hover:bg-slate-100 sm:h-10 sm:w-auto sm:rounded-2xl sm:px-4 sm:text-xs sm:font-black sm:uppercase sm:tracking-[0.16em]" aria-label="Edit">
+                                        <svg class="h-3.5 w-3.5 sm:hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                                        <span class="hidden sm:inline">Edit</span>
+                                    </button>
+                                    <button type="button" data-remove-index="${index}" class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 sm:h-10 sm:w-auto sm:rounded-2xl sm:border-rose-200 sm:bg-rose-50 sm:px-4 sm:text-xs sm:font-black sm:uppercase sm:tracking-[0.16em] sm:text-rose-700 sm:hover:bg-rose-100" aria-label="Remove">
+                                        <svg class="h-3.5 w-3.5 sm:hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                                        <span class="hidden sm:inline">Remove</span>
+                                    </button>
                                 </div>
                             </div>
                         </div>
