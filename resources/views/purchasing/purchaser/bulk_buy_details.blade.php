@@ -61,8 +61,13 @@
                         <h2 class="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Selected Products</h2>
                         <span class="rounded-lg bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">{{ $dailySummary->count() }} rows</span>
                     </div>
-                    <div class="inline-flex h-9 items-center rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-black uppercase tracking-wider text-slate-500 shadow-sm">
-                        Quantity selects row
+                    <div class="flex h-8 w-full items-center rounded-xl bg-slate-100 p-0.5 sm:w-auto" role="group" aria-label="Bulk purchase row layout">
+                        <button type="button" id="bulk-layout-compact" class="bulk-layout-toggle flex-1 rounded-lg px-2.5 py-1.5 text-[10px] font-black uppercase text-slate-600 transition sm:flex-none" data-layout="compact">
+                            Row
+                        </button>
+                        <button type="button" id="bulk-layout-two-row" class="bulk-layout-toggle flex-1 rounded-lg px-2.5 py-1.5 text-[10px] font-black uppercase text-slate-600 transition sm:flex-none" data-layout="two-row">
+                            Two row
+                        </button>
                     </div>
                 </div>
 
@@ -100,8 +105,8 @@
                         <input type="hidden" id="basis-{{ $summary['product_id'] }}" value="{{ $defaultBasis }}">
                         <input type="hidden" id="unit-{{ $summary['product_id'] }}" value="{{ $summary['unit'] }}">
 
-                        <div class="bulk-row-grid grid min-w-[22rem] grid-cols-[1.5rem_1.85rem_minmax(4.75rem,1fr)_3.5rem_3.85rem_3.85rem_1.6rem] items-center gap-1 sm:min-w-0 sm:grid-cols-[1.75rem_2rem_minmax(0,1fr)_4rem_4.5rem_4.75rem_1.9rem] sm:gap-1.5 lg:grid-cols-[2.15rem_2.75rem_minmax(0,1fr)_16rem_5.25rem_18rem_8rem] lg:gap-2">
-                            <div class="flex items-center justify-center">
+                        <div class="bulk-row-grid grid min-w-[21rem] grid-cols-[1.35rem_1.75rem_minmax(4.5rem,1fr)_3.35rem_3.65rem_3.7rem_1.55rem] items-center gap-1 sm:min-w-0 sm:grid-cols-[1.6rem_1.9rem_minmax(0,1fr)_3.85rem_4.35rem_4.65rem_1.8rem] sm:gap-1.5 lg:grid-cols-[1.9rem_2.5rem_minmax(0,1fr)_15rem_5rem_17rem_7.5rem] lg:gap-2">
+                            <div class="bulk-row-select flex items-center justify-center">
                                 <button type="button" class="row-select-toggle flex h-6 w-6 items-center justify-center rounded-md border border-slate-300 bg-white text-transparent transition hover:border-teal-500 hover:bg-teal-50 sm:h-7 sm:w-7" data-product-id="{{ $summary['product_id'] }}" aria-pressed="false" aria-label="Select {{ $summary['product_name'] }}">
                                     <svg class="h-3.5 w-3.5 sm:h-4 sm:w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                                         <path d="M20 6 9 17l-5-5" />
@@ -294,10 +299,121 @@
         </form>
     </div>
 
+    <style>
+        #bulk-buy-details-form.bulk-layout-two-row .product-row {
+            padding: 0.65rem;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-grid {
+            display: grid;
+            grid-template-columns: 1.75rem 2rem minmax(0, 1fr) 6.25rem;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-select {
+            grid-column: 1 / 2;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-code {
+            display: block;
+            grid-column: 2 / 3;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-code > div {
+            display: none;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-title {
+            display: block;
+            grid-column: 3 / 4;
+            min-width: 0;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-stats {
+            display: grid;
+            grid-column: 1 / -1;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.375rem;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-basis {
+            grid-column: 1 / 3;
+            width: 100%;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-inputs {
+            display: block;
+            grid-column: 3 / -1;
+            min-width: 0;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-inputs [id^="kg-inputs-"]:not(.hidden),
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-inputs [id^="box-inputs-"]:not(.hidden) {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.375rem;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-inputs [id^="box-inputs-"]:not(.hidden) {
+            grid-template-columns: repeat(auto-fit, minmax(5rem, 1fr));
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-action {
+            display: flex;
+            grid-column: 4 / 5;
+            grid-row: 1;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 0.375rem;
+        }
+
+        #bulk-buy-details-form.bulk-layout-two-row .bulk-row-action > div {
+            display: block;
+            min-width: 0;
+        }
+
+        @media (max-width: 640px) {
+            #bulk-buy-details-form.bulk-layout-two-row .bulk-row-grid {
+                min-width: 0;
+                grid-template-columns: 1.5rem 1.75rem minmax(0, 1fr) 1.75rem;
+            }
+
+            #bulk-buy-details-form.bulk-layout-two-row .bulk-row-action > div {
+                display: none;
+            }
+        }
+    </style>
+
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const bulkPriceHintsByCart = @json($bulkPriceHintsByCart);
             const bulkFallbackPriceHints = @json($bulkFallbackPriceHints);
+            const layoutStorageKey = 'greenleaf:purchaser-bulk-buy-layout';
+            const form = document.getElementById('bulk-buy-details-form');
+            const layoutButtons = Array.from(document.querySelectorAll('.bulk-layout-toggle'));
+
+            function setBulkLayout(layout) {
+                const selectedLayout = layout === 'two-row' ? 'two-row' : 'compact';
+
+                form?.classList.toggle('bulk-layout-two-row', selectedLayout === 'two-row');
+                layoutButtons.forEach((button) => {
+                    const isActive = button.dataset.layout === selectedLayout;
+                    button.classList.toggle('bg-white', isActive);
+                    button.classList.toggle('text-slate-950', isActive);
+                    button.classList.toggle('shadow-sm', isActive);
+                    button.classList.toggle('text-slate-600', !isActive);
+                    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                });
+
+                window.localStorage?.setItem(layoutStorageKey, selectedLayout);
+            }
+
+            layoutButtons.forEach((button) => {
+                button.addEventListener('click', () => setBulkLayout(button.dataset.layout || 'compact'));
+            });
+
+            setBulkLayout(window.localStorage?.getItem(layoutStorageKey) || 'compact');
 
             function updateBulkPriceHints(cartId) {
                 document.querySelectorAll('.product-row').forEach((row) => {
