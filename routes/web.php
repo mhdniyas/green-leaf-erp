@@ -95,6 +95,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/deliveries/{order_number}', [ShopOwnerController::class, 'deliveriesShow'])->name('deliveries.show');
         Route::post('/deliveries/{order_number}/items/{item}/verify', [ShopOwnerController::class, 'verifyDeliveryItem'])->name('deliveries.items.verify');
         Route::get('/accounting', [ShopOwnerController::class, 'accountingIndex'])->name('accounting.index');
+        Route::get('/accounting/cashbook/pdf', [ShopOwnerController::class, 'accountingCashbookPdf'])->name('accounting.cashbook.pdf');
         Route::get('/accounting/daily-report', [ShopOwnerController::class, 'accountingDailyReport'])->name('accounting.daily-report');
         Route::get('/accounting/history', [ShopOwnerController::class, 'accountingHistory'])->name('accounting.history');
         Route::post('/accounting/entries', [ShopOwnerController::class, 'storeAccountingEntry'])->name('accounting.entries.store');

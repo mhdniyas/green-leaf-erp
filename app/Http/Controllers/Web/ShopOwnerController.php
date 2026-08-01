@@ -452,6 +452,22 @@ class ShopOwnerController extends Controller
         ]);
     }
 
+    public function accountingCashbookPdf(Request $request): View
+    {
+        $shop = $this->currentShop($request);
+        abort_unless($shop->isOwnedAccountingEnabled(), 404);
+
+        $selectedDate = Carbon::parse($request->input('date', today()->toDateString()));
+        $entry = $this->ownedShopAccountingService->entryForDate($shop, $selectedDate);
+
+        return view('shop-owner.accounting.cashbook-pdf', [
+            'shop' => $shop,
+            'selectedDate' => $selectedDate,
+            'entry' => $entry?->load(['lines.category', 'submittedBy', 'reviewedBy']),
+            'receiptSummary' => $this->ownedShopAccountingService->receiptSummaryForDate($shop, $selectedDate),
+        ]);
+    }
+
     public function accountingIndex(Request $request): View
     {
         $shop = $this->currentShop($request);

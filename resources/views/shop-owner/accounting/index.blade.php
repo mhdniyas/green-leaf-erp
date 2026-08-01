@@ -395,68 +395,67 @@
             @endif
 
             @if ($tab === 'cashbook')
-            <section class="-mx-4 overflow-hidden border-y border-slate-200 bg-white p-3 text-slate-950 shadow-none sm:mx-0 sm:rounded-2xl sm:border sm:p-5 sm:shadow-sm">
-                <div class="font-mono">
-                    <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+            <section class="-mx-4 overflow-hidden border-y border-slate-200 bg-white text-slate-950 shadow-none sm:mx-0 sm:rounded-2xl sm:border sm:shadow-sm">
+                <div class="border-b border-dashed border-slate-300 px-3 py-3 sm:px-5 sm:py-4">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <p class="text-[9px] font-black uppercase tracking-[0.16em] text-slate-500 sm:text-[10px]">Cashbook Receipt</p>
+                            <h2 class="mt-0.5 truncate text-base font-black uppercase tracking-wide text-slate-950 sm:text-xl">{{ $shop->name }}</h2>
+                            <p class="mt-1 text-xs font-semibold text-slate-600">Opening + cash in - cash out = closing</p>
+                        </div>
+                        <div class="shrink-0 text-right">
+                            <p class="text-xs font-black text-slate-950">{{ $selectedDate->format('d/m/Y') }}</p>
+                            <p class="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">CB-{{ $selectedDate->format('Ymd') }}</p>
+                            <a href="{{ route('shop-owner.accounting.cashbook.pdf', ['date' => $selectedDate->toDateString()]) }}" target="_blank" class="mt-2 inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700 hover:bg-slate-100">
+                                PDF
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="px-3 py-3 sm:px-5 sm:py-4">
+                    <div class="grid grid-cols-3 gap-2">
+                        <div class="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+                            <p class="truncate text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[10px]">Opening</p>
+                            <p class="mt-1 truncate text-sm font-black text-slate-950 sm:text-xl">Rs. {{ number_format($receiptSummary['opening_balance'], 2) }}</p>
+                        </div>
+                        <div class="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+                            <p class="truncate text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[10px]">Income</p>
+                            <p class="mt-1 truncate text-sm font-black text-emerald-700 sm:text-xl">Rs. {{ number_format($receiptSummary['total_income'], 2) }}</p>
+                        </div>
+                        <div class="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+                            <p class="truncate text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[10px]">Closing</p>
+                            <p data-cashbook-closing-display class="mt-1 truncate text-sm font-black sm:text-xl {{ $calculatedClosingTone === 'rose' ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format($calculatedClosing, 2) }}</p>
+                        </div>
+                    </div>
+
+                    <div class="mt-3 overflow-hidden rounded-xl border border-slate-200">
+                        <div class="grid grid-cols-[1fr_auto] border-b border-slate-100 bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
+                            <span>Particulars</span>
+                            <span class="text-right">Amount</span>
+                        </div>
+                        <div class="divide-y divide-slate-100 text-sm">
+                            @foreach ([
+                                ['label' => 'Cash From Sales', 'value' => $receiptSummary['cash_credit'], 'tone' => 'text-emerald-700'],
+                                ['label' => 'Cash From Company', 'value' => $receiptSummary['cash_given_to_shop'], 'tone' => 'text-emerald-700'],
+                                ['label' => 'Online Payment', 'value' => $receiptSummary['non_cash_income'], 'tone' => 'text-cyan-700'],
+                                ['label' => 'Cash Paid To Company', 'value' => $receiptSummary['payment_to_company'], 'tone' => 'text-amber-700'],
+                                ['label' => 'Cash Debit', 'value' => $receiptSummary['cash_debit'], 'tone' => 'text-rose-700'],
+                            ] as $receiptLine)
+                                <div class="grid grid-cols-[1fr_auto] items-center gap-3 px-3 py-2">
+                                    <p class="font-bold text-slate-800">{{ $receiptLine['label'] }}</p>
+                                    <p class="font-black tabular-nums {{ $receiptLine['tone'] }}">Rs. {{ number_format((float) $receiptLine['value'], 2) }}</p>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    <div class="mt-3 grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                         <div>
-                            <p class="text-base font-black leading-tight sm:text-lg">Daily Shop Receipt</p>
-                            <p class="mt-1 text-sm font-bold leading-tight text-slate-800">Opening + credit - debit = closing</p>
+                            <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Net Sale Balance</p>
+                            <p class="mt-0.5 text-xs font-semibold text-slate-600">Daily income minus daily expense</p>
                         </div>
-                        <p class="text-sm font-bold text-slate-700">{{ $selectedDate->format('d/m/Y') }}</p>
-                    </div>
-
-                    <div class="my-4 border-t border-dashed border-slate-400"></div>
-
-                    <div class="space-y-2 text-sm sm:text-base">
-                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
-                            <p class="font-bold">Total Income</p>
-                            <p class="font-black tabular-nums">Rs. {{ number_format($receiptSummary['total_income'], 2) }}</p>
-                        </div>
-                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
-                            <p class="font-bold">Daily Net Sale</p>
-                            <p data-cashbook-net-sale-display class="font-black tabular-nums {{ (float) $receiptSummary['daily_net_sale'] < 0 ? 'text-rose-900' : 'text-emerald-900' }}">Rs. {{ number_format((float) $receiptSummary['daily_net_sale'], 2) }}</p>
-                        </div>
-                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
-                            <p class="font-bold">Opening</p>
-                            <p class="font-black tabular-nums">Rs. {{ number_format($receiptSummary['opening_balance'], 2) }}</p>
-                        </div>
-                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
-                            <p class="font-bold text-emerald-900">Cash From Sales</p>
-                            <p class="font-black text-emerald-900 tabular-nums">Rs. {{ number_format($receiptSummary['cash_credit'], 2) }}</p>
-                        </div>
-                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
-                            <p class="font-bold text-emerald-900">Cash From Company</p>
-                            <p class="font-black text-emerald-900 tabular-nums">Rs. {{ number_format($receiptSummary['cash_given_to_shop'], 2) }}</p>
-                        </div>
-                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
-                            <p class="font-bold text-cyan-900">Online Payment</p>
-                            <p class="font-black text-cyan-900 tabular-nums">Rs. {{ number_format($receiptSummary['non_cash_income'], 2) }}</p>
-                        </div>
-                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
-                            <p class="font-bold text-amber-900">Cash Paid To Company</p>
-                            <p class="font-black text-amber-900 tabular-nums">Rs. {{ number_format($receiptSummary['payment_to_company'], 2) }}</p>
-                        </div>
-                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
-                            <p class="font-bold text-rose-900">Cash Debit</p>
-                            <p class="font-black text-rose-900 tabular-nums">Rs. {{ number_format($receiptSummary['cash_debit'], 2) }}</p>
-                        </div>
-                    </div>
-
-                    <div class="my-4 border-t border-dashed border-slate-400"></div>
-
-                    <div class="space-y-2 text-sm sm:text-base">
-                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
-                            <p class="font-bold">Expected</p>
-                            <p class="font-black tabular-nums">Rs. {{ number_format($receiptSummary['expected_closing'], 2) }}</p>
-                        </div>
-                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
-                            <p class="font-bold">Closing</p>
-                            <p data-cashbook-closing-display class="font-black tabular-nums {{ $calculatedClosingTone === 'rose' ? 'text-rose-900' : 'text-emerald-900' }}">Rs. {{ number_format($calculatedClosing, 2) }}</p>
-                        </div>
-                        <div class="grid grid-cols-[1fr_auto] items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                            <p class="font-black">Balance</p>
-                            <p data-cashbook-net-sale-display class="font-black tabular-nums {{ (float) $receiptSummary['daily_net_sale'] < 0 ? 'text-rose-900' : 'text-emerald-900' }}">Rs. {{ number_format((float) $receiptSummary['daily_net_sale'], 2) }}</p>
-                        </div>
+                        <p data-cashbook-net-sale-display class="text-right text-sm font-black tabular-nums sm:text-base {{ (float) $receiptSummary['daily_net_sale'] < 0 ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format((float) $receiptSummary['daily_net_sale'], 2) }}</p>
                     </div>
 
                     @if ($receiptSummary['owner_funded'] > 0)
