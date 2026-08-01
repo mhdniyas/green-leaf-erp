@@ -45,10 +45,6 @@
             font-weight: 900;
             justify-content: space-between;
             margin-bottom: 3px;
-            width: 75%;
-        }
-        .sheet {
-            width: 75%;
         }
         table {
             border-collapse: collapse;
@@ -83,17 +79,18 @@
         .qty-row {
             height: 7.3mm;
         }
+        .tag-row {
+            height: 6.7mm;
+        }
         .tag-cell {
-            display: block;
             font-size: 10px;
             font-weight: 400;
-            margin-top: 1px;
         }
         .total-cell {
             font-weight: 500;
         }
         @media print {
-            @page { size: A4 portrait; margin: 3mm; }
+            @page { size: A4 landscape; margin: 3mm; }
             html,
             body {
                 height: auto;
@@ -103,18 +100,14 @@
             }
             .no-print { display: none !important; }
             .page {
-                height: calc(297mm - 6mm);
+                height: calc(210mm - 6mm);
                 overflow: hidden;
-                padding: 6mm 7mm;
-                width: calc(210mm - 6mm);
+                padding: 1.5mm;
+                width: calc(297mm - 6mm);
             }
             .summary {
                 font-size: 10px;
                 margin-bottom: 2px;
-                width: 75%;
-            }
-            .sheet {
-                width: 75%;
             }
             th {
                 font-size: 9px;
@@ -125,6 +118,7 @@
                 padding: 2px 1px;
             }
             .qty-row { height: 7.1mm; }
+            .tag-row { height: 6.5mm; }
             .tag-cell { font-size: 9px; }
             tr { page-break-inside: avoid; }
         }
@@ -140,78 +134,67 @@
     @if(count($matrix) > 0)
         @php
             $rowsPerPage = 9;
+            $matrixPages = array_chunk($matrix, $rowsPerPage, true);
+            $shopCount = max(1, $filteredShops->count());
+            $shopWidth = (100 - 3 - 15 - 7) / $shopCount;
             $formatQty = fn (float $qty): string => rtrim(rtrim(number_format($qty, 2, '.', ''), '0'), '.');
-            $shopPages = [];
-
-            foreach ($filteredShops as $shop) {
-                $rows = [];
-
-                foreach ($matrix as $productId => $shopQtys) {
-                    $qty = (float) ($shopQtys[$shop->id] ?? 0);
-
-                    if ($qty <= 0) {
-                        continue;
-                    }
-
-                    $meta = $productMeta[$productId];
-                    $rows[] = [
-                        'code' => $meta['sku'] ?: $productId,
-                        'name' => $meta['name'],
-                        'qty' => $formatQty($qty),
-                    ];
-                }
-
-                foreach (array_chunk($rows, $rowsPerPage) as $chunk) {
-                    $shopPages[] = [
-                        'shop' => $shop,
-                        'rows' => $chunk,
-                        'product_count' => count($rows),
-                    ];
-                }
-            }
         @endphp
 
-        @forelse($shopPages as $shopPage)
+        @foreach($matrixPages as $pageIndex => $pageMatrix)
             <div class="page">
                 <div class="summary">
-                    <div>{{ $companyName }}{{ isset($selectedWarehouse) && $selectedWarehouse ? ' - '.$selectedWarehouse->name : '' }} · {{ $shopPage['shop']->name }}</div>
+                    <div>{{ $companyName }}{{ isset($selectedWarehouse) && $selectedWarehouse ? ' - '.$selectedWarehouse->name : '' }}</div>
                     <div>{{ \Carbon\Carbon::parse($date)->format('d-M') }}</div>
                 </div>
-                <div class="sheet">
-                    <table>
-                        <colgroup>
-                            <col style="width:12%">
-                            <col style="width:48%">
-                            <col style="width:20%">
-                            <col style="width:20%">
-                        </colgroup>
-                        <thead>
-                            <tr>
-                                <th>Code</th>
-                                <th>Item</th>
+                <table>
+                    <colgroup>
+                        <col style="width:3%">
+                        <col style="width:15%">
+                        @foreach($filteredShops as $shop)
+                            <col style="width:{{ $shopWidth }}%">
+                        @endforeach
+                        <col style="width:7%">
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th>SL</th>
+                            <th>Item</th>
+                            @foreach($filteredShops as $shop)
                                 <th>
-                                    {{ $shopPage['shop']->name }}
-                                    <span class="tag-cell">{{ $shopPage['shop']->warehouse_tag ?: '-' }}</span>
+                                    {{ $shop->name }}
                                 </th>
-                                <th>Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach($shopPage['rows'] as $row)
-                                <tr class="qty-row">
-                                    <td class="sl-cell">{{ $row['code'] }}</td>
-                                    <td class="item-cell">{{ $row['name'] }}</td>
-                                    <td>{{ $row['qty'] }}</td>
-                                    <td class="total-cell"></td>
-                                </tr>
                             @endforeach
-                        </tbody>
-                    </table>
-                </div>
+                            <th>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($pageMatrix as $productId => $shopQtys)
+                            @php
+                                $meta = $productMeta[$productId];
+                                $total = array_sum($shopQtys);
+                            @endphp
+                            <tr class="qty-row">
+                                <td class="sl-cell">{{ $meta['sku'] ?: $productId }}</td>
+                                <td class="item-cell">{{ $meta['name'] }}</td>
+                                @foreach($filteredShops as $shop)
+                                    @php $qty = (float) ($shopQtys[$shop->id] ?? 0); @endphp
+                                    <td>{{ $qty > 0 ? $formatQty($qty) : '0' }}</td>
+                                @endforeach
+                                <td class="total-cell">{{ $formatQty((float) $total) }}</td>
+                            </tr>
+                            <tr class="tag-row">
+                                <td></td>
+                                <td></td>
+                                @foreach($filteredShops as $shop)
+                                    <td class="tag-cell">{{ $shop->warehouse_tag ?: '-' }}</td>
+                                @endforeach
+                                <td></td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
             </div>
-        @empty
-            <p>No approved shop order quantities found for this selection.</p>
-        @endforelse
+        @endforeach
     @else
         <p>No approved shop orders found for this date.</p>
     @endif
