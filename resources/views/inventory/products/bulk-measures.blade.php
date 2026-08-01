@@ -118,9 +118,13 @@
                                     <td class="sticky left-0 z-10 border-b border-slate-100 bg-white px-3 py-2 group-hover:bg-emerald-50">
                                         <input type="hidden" name="products[{{ $rowIndex }}][public_uuid]" value="{{ $product->public_uuid }}">
                                         <div class="flex items-center gap-2">
-                                            <code class="flex h-7 min-w-8 items-center justify-center rounded-lg bg-slate-100 px-2 text-[11px] font-black text-slate-600">{{ $product->sku }}</code>
+                                            <a href="{{ route('inventory.products.edit', $product) }}" target="_blank" class="flex h-7 min-w-8 items-center justify-center rounded-lg bg-slate-100 px-2 text-[11px] font-black text-slate-600 transition-colors hover:bg-emerald-100 hover:text-emerald-800" title="Edit {{ $product->name }} product details">
+                                                {{ $product->sku }}
+                                            </a>
                                             <div class="min-w-0">
-                                                <p class="truncate text-xs font-black text-slate-950">{{ $product->name }}</p>
+                                                <a href="{{ route('inventory.products.edit', $product) }}" target="_blank" class="block truncate text-xs font-black text-slate-950 transition-colors hover:text-emerald-600 hover:underline" title="Edit {{ $product->name }}">
+                                                    {{ $product->name }}
+                                                </a>
                                                 <p class="truncate text-[11px] font-semibold text-slate-400">{{ $product->category?->name ?? 'No category' }}</p>
                                             </div>
                                         </div>
