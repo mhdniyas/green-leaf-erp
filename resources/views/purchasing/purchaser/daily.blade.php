@@ -3,38 +3,41 @@
         @include('purchasing.purchaser.partials.feedback')
         @include('purchasing.purchaser.partials.deadline_alert')
 
-        <section class="overflow-hidden rounded-2xl bg-slate-950 text-white shadow-[0_12px_28px_rgba(15,23,42,0.16)] lg:rounded-[2rem] lg:shadow-[0_20px_48px_rgba(15,23,42,0.22)]">
-            <div class="bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.28),_transparent_36%),linear-gradient(135deg,_#0f172a_0%,_#111827_55%,_#134e4a_100%)] px-4 py-3 sm:px-5 lg:px-4 lg:py-4">
-                <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div class="min-w-0">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-teal-200 sm:text-[11px] sm:tracking-[0.22em]">Purchaser Flow</p>
-                        <h1 class="mt-1 text-lg font-black tracking-tight sm:text-[1.75rem]">Daily demand</h1>
-                        <p class="mt-1.5 max-w-xl text-xs font-medium leading-5 text-slate-200 sm:text-sm">Select today&apos;s products, add them into carts, and move fast from market demand to purchase.</p>
+        <section class="overflow-hidden rounded-2xl bg-slate-950 text-white shadow-[0_10px_24px_rgba(15,23,42,0.14)]">
+            <div class="bg-[linear-gradient(135deg,_#0f172a_0%,_#111827_58%,_#134e4a_100%)] px-3 py-2.5 sm:px-4">
+                <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                    <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                        <div class="min-w-0">
+                            <p class="text-[9px] font-black uppercase tracking-[0.16em] text-teal-200">Purchaser Flow</p>
+                            <h1 class="text-base font-black tracking-tight sm:text-lg">Daily demand</h1>
+                        </div>
+                        <div class="grid grid-cols-4 gap-1.5 text-center">
+                            <div class="rounded-lg bg-white/10 px-2 py-1">
+                                <p class="text-[8px] font-black uppercase text-slate-300">Need</p>
+                                <p class="text-sm font-black">{{ number_format($dailyFulfillment['approved_qty'], 0) }}</p>
+                            </div>
+                            <div class="rounded-lg bg-amber-400/15 px-2 py-1">
+                                <p class="text-[8px] font-black uppercase text-amber-100">Bought</p>
+                                <p class="text-sm font-black text-amber-200">{{ number_format($dailyFulfillment['bought_qty'], 0) }}</p>
+                            </div>
+                            <div class="rounded-lg bg-emerald-400/15 px-2 py-1">
+                                <p class="text-[8px] font-black uppercase text-emerald-100">Left</p>
+                                <p class="text-sm font-black text-emerald-200">{{ number_format($dailyFulfillment['remaining_qty'], 0) }}</p>
+                            </div>
+                            <div class="rounded-lg bg-cyan-400/15 px-2 py-1">
+                                <p class="text-[8px] font-black uppercase text-cyan-100">Carts</p>
+                                <p class="text-sm font-black text-cyan-200">{{ $dailyFulfillment['draft_carts'] }}</p>
+                            </div>
+                        </div>
                     </div>
-                    <form action="{{ route('purchaser.daily') }}" method="GET" class="w-full md:w-auto">
-                        <label for="business-date" class="text-[11px] font-black uppercase tracking-[0.16em] text-teal-100">Business Date</label>
-                        <input id="business-date" type="date" name="date" value="{{ $date }}" onchange="this.form.submit()" class="mt-1.5 h-12 w-full rounded-xl border border-white/10 bg-white/10 px-3 text-sm font-bold text-white outline-none ring-0 md:w-48 lg:rounded-2xl lg:px-4">
+                    <form action="{{ route('purchaser.daily') }}" method="GET" class="w-full lg:w-auto">
+                        <input id="business-date" type="date" name="date" value="{{ $date }}" onchange="this.form.submit()" class="h-9 w-full rounded-lg border border-white/10 bg-white/10 px-3 text-xs font-bold text-white outline-none ring-0 lg:w-40">
                     </form>
                 </div>
-
-                <div class="mt-3 grid grid-cols-4 gap-2 lg:mt-4">
-                    <div class="rounded-xl bg-white/10 px-2.5 py-2 lg:rounded-2xl lg:px-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">Need</p>
-                        <p class="mt-1 text-lg font-black lg:text-xl">{{ number_format($dailyFulfillment['approved_qty'], 0) }}</p>
-                    </div>
-                    <div class="rounded-xl bg-amber-400/15 px-2.5 py-2 lg:rounded-2xl lg:px-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-amber-100">Bought</p>
-                        <p class="mt-1 text-lg font-black text-amber-200 lg:text-xl">{{ number_format($dailyFulfillment['bought_qty'], 0) }}</p>
-                    </div>
-                    <div class="rounded-xl bg-emerald-400/15 px-2.5 py-2 lg:rounded-2xl lg:px-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-100">Left</p>
-                        <p class="mt-1 text-lg font-black text-emerald-200 lg:text-xl">{{ number_format($dailyFulfillment['remaining_qty'], 0) }}</p>
-                    </div>
-                    <div class="rounded-xl bg-cyan-400/15 px-2.5 py-2 lg:rounded-2xl lg:px-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-100">Carts</p>
-                        <p class="mt-1 text-lg font-black text-cyan-200 lg:text-xl">{{ $dailyFulfillment['draft_carts'] }}</p>
-                    </div>
-                </div>
+                <details class="mt-1 text-xs text-slate-300">
+                    <summary class="cursor-pointer list-none text-[10px] font-black uppercase tracking-[0.14em] text-teal-100">Details</summary>
+                    <p class="mt-1 leading-5">Select today&apos;s products, add them into carts, and move from market demand to purchase.</p>
+                </details>
             </div>
         </section>
 
@@ -43,69 +46,43 @@
 
             {{-- LEFT: product list --}}
             <div class="min-w-0 flex-1 space-y-4">
-                <form action="{{ route('purchaser.daily') }}" method="GET" id="purchaser-daily-filter-form" class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
+                <form action="{{ route('purchaser.daily') }}" method="GET" id="purchaser-daily-filter-form" class="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm lg:p-3">
                     <input type="hidden" name="date" value="{{ $date }}">
                     <input type="hidden" name="chip" id="daily-chip-input" value="{{ $selectedChip }}">
-                    <div class="flex flex-col gap-3">
-                        <div class="flex flex-col gap-3 md:flex-row md:items-center">
-                            <div class="relative flex-1">
-                                <input type="search" name="search" value="{{ $search }}" placeholder="Search product..." class="w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:px-4">
-                            </div>
-                            <div class="relative w-full md:w-64 shrink-0">
-                                <select onchange="document.getElementById('daily-chip-input').value=this.value; this.form.submit()" class="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-4 pr-10 py-3.5 text-xs font-black text-slate-700 focus:border-teal-500 focus:bg-white focus:outline-none lg:rounded-2xl lg:pl-5">
-                                    @foreach ($quickFilters as $filter)
-                                        <option value="{{ $filter }}" {{ $selectedChip === $filter ? 'selected' : '' }}>
-                                            {{ $filter }}
-                                        </option>
-                                    @endforeach
-                                </select>
-                                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-500">
-                                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                                    </svg>
-                                </div>
+                    <div class="flex min-w-0 gap-2">
+                        <input type="search" name="search" value="{{ $search }}" placeholder="Search product..." class="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
+                        <div class="relative w-32 shrink-0 sm:w-44">
+                            <select onchange="document.getElementById('daily-chip-input').value=this.value; this.form.submit()" class="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-3 pr-8 text-xs font-black text-slate-700 focus:border-teal-500 focus:bg-white focus:outline-none">
+                                @foreach ($quickFilters as $filter)
+                                    <option value="{{ $filter }}" {{ $selectedChip === $filter ? 'selected' : '' }}>
+                                        {{ $filter }}
+                                    </option>
+                                @endforeach
+                            </select>
+                            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2.5 text-slate-500">
+                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                                </svg>
                             </div>
                         </div>
-
-                        {{-- Horizontal Category Filter Pills --}}
-                        <div class="-mx-1 flex snap-x snap-mandatory gap-1.5 overflow-x-auto px-1 pb-1">
-                            @foreach ($quickFilters as $filter)
-                                @php
-                                    $isSelected = ($selectedChip === $filter);
-                                @endphp
-                                <button type="button" onclick="document.getElementById('daily-chip-input').value='{{ $filter }}'; document.getElementById('purchaser-daily-filter-form').submit()" class="snap-start shrink-0 rounded-full px-3.5 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] transition {{ $isSelected ? 'bg-teal-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
-                                    {{ $filter }}
-                                </button>
-                            @endforeach
-                        </div>
+                        <button type="submit" class="inline-flex h-10 shrink-0 items-center justify-center rounded-xl bg-slate-950 px-3 text-xs font-black text-white sm:px-5">Search</button>
                     </div>
                 </form>
 
-                <div class="flex min-w-0 flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between lg:rounded-[2rem] lg:px-4 lg:py-4">
+                <div class="flex min-w-0 flex-col gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Daily queue</p>
-                        <p class="mt-1 text-sm font-semibold text-slate-600">{{ $dailySummary->count() }} products for {{ \Illuminate\Support\Carbon::parse($date)->format('d M Y') }}</p>
+                        <p class="text-xs font-semibold text-slate-600">{{ $dailySummary->count() }} products · {{ \Illuminate\Support\Carbon::parse($date)->format('d M Y') }}</p>
                     </div>
-                    <div class="flex w-full shrink-0 flex-row flex-wrap gap-2 sm:w-auto">
-                        <a href="{{ route('purchaser.suppliers', ['date' => $date]) }}" class="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-black text-slate-700 sm:w-auto lg:min-h-12 lg:rounded-2xl">
-                            <span>Vendor Hub</span>
-                            @if (($deadlineAlert['pending_total_count'] ?? 0) > 0)
-                                <span class="inline-flex min-w-5 items-center justify-center rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-black text-rose-700">
-                                    {{ $deadlineAlert['pending_total_count'] }}
-                                </span>
-                            @endif
+                    <div class="grid w-full shrink-0 grid-cols-3 gap-2 sm:w-auto">
+                        <a href="{{ route('purchaser.add-ons.create', ['date' => $date]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-950 px-3 text-xs font-black text-white sm:w-24">
+                            Add-on
                         </a>
-                        <a href="{{ route('purchaser.procurement-expenses.index', ['date' => $date]) }}" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-800 sm:w-auto lg:min-h-12 lg:rounded-2xl">
-                            Procurement
+                        <a href="{{ route('purchaser.bulk-buy', ['date' => $date]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-teal-600 px-3 text-xs font-black text-white sm:w-24">
+                            Bulk
                         </a>
-                        <a href="{{ route('purchaser.other-expenses.index', ['date' => $date]) }}" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-black text-slate-700 sm:w-auto lg:min-h-12 lg:rounded-2xl">
-                            Other Expense
-                        </a>
-                        <a href="{{ route('purchaser.bulk-buy', ['date' => $date]) }}" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-teal-600 px-4 text-sm font-black text-white sm:w-auto lg:min-h-12 lg:rounded-2xl">
-                            Bulk Purchase
-                        </a>
-                        <a href="{{ route('purchaser.daily.share', ['date' => $date]) }}" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-black text-white sm:w-auto lg:min-h-12 lg:rounded-2xl">
-                            Share Summary
+                        <a href="{{ route('purchaser.daily.share', ['date' => $date]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-3 text-xs font-black text-white sm:w-24">
+                            Share
                         </a>
                     </div>
                 </div>
@@ -129,7 +106,7 @@
                 </div>
 
                 <div class="space-y-6">
-                    <div id="section-pending" class="space-y-4 hidden">
+                    <div id="section-pending" class="space-y-2 hidden">
                         @forelse ($pendingSummary as $summary)
                             @include('purchasing.purchaser.partials.daily_item', ['summary' => $summary, 'currentDate' => $date])
                         @empty
@@ -139,7 +116,7 @@
                         @endforelse
                     </div>
 
-                    <div id="section-completed" class="space-y-4 hidden">
+                    <div id="section-completed" class="space-y-2 hidden">
                         @forelse ($completedSummary as $summary)
                             <div class="opacity-80 hover:opacity-100 transition-opacity duration-200">
                                 @include('purchasing.purchaser.partials.daily_item', ['summary' => $summary, 'currentDate' => $date])
@@ -153,7 +130,7 @@
 
                     @if ($dailySummary->isEmpty())
                         <div class="rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-sm font-bold text-slate-500 lg:rounded-[2rem] lg:px-4 lg:py-12">
-                            No demand for this date. Try a different date or use Buy Other.
+                            No demand for this date. Try a different date or create an add-on.
                         </div>
                     @endif
                 </div>
@@ -161,73 +138,6 @@
 
             {{-- RIGHT: aside (hidden on mobile, shown on lg+) --}}
             <aside class="w-full space-y-4 lg:w-88 lg:shrink-0">
-                <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
-                    <div class="flex items-center justify-between gap-3">
-                        <div>
-                            <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Buy Other</p>
-                            <p class="mt-1 text-sm font-semibold text-slate-600">Add off-list products into a draft cart.</p>
-                        </div>
-                        <a href="{{ route('purchaser.vendors', ['date' => $date]) }}" class="text-sm font-black text-teal-700">Open Carts</a>
-                    </div>
-
-                    <form action="{{ route('purchaser.cart-items.store') }}" method="POST" class="mt-4 space-y-2">
-                        @csrf
-                        <input type="hidden" name="business_date" value="{{ $date }}">
-                        <input type="hidden" name="return_to" value="daily">
-                        <input type="hidden" name="chip" value="{{ $selectedChip }}">
-                        <input type="hidden" name="search" value="{{ $search }}">
-                        <div class="relative custom-select-container w-full min-w-0">
-                            <button type="button" class="custom-select-trigger flex h-9 w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 text-left text-xs font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
-                                <span class="custom-select-label truncate">New cart</span>
-                                <svg class="h-4 w-4 shrink-0 text-slate-500 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                                </svg>
-                            </button>
-                            <input type="hidden" name="cart_id" value="" class="custom-select-input">
-                            <div class="custom-select-options hidden absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
-                                <button type="button" data-value="" class="custom-select-option flex w-full items-center justify-between px-3 py-2.5 text-left text-sm font-bold text-slate-900 hover:bg-slate-100">
-                                    <span>New cart</span>
-                                    <span class="checkmark text-teal-600">✓</span>
-                                </button>
-                                @foreach ($draftCarts as $cart)
-                                    <button type="button" data-value="{{ $cart->id }}" class="custom-select-option flex w-full items-center justify-between px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100">
-                                        <span>{{ $cart->cart_number }}</span>
-                                        <span class="checkmark hidden text-teal-600">✓</span>
-                                    </button>
-                                @endforeach
-                            </div>
-                        </div>
-                        @if($buyOtherProducts->isNotEmpty())
-                        <div class="relative custom-select-container w-full min-w-0">
-                            <button type="button" class="custom-select-trigger flex h-9 w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 text-left text-xs font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
-                                <span class="custom-select-label truncate">
-                                    {{ $buyOtherProducts->first()->name }}{{ $buyOtherProducts->first()->category?->name ? ' - '.$buyOtherProducts->first()->category->name : '' }}
-                                </span>
-                                <svg class="h-4 w-4 shrink-0 text-slate-500 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                                </svg>
-                            </button>
-                            <input type="hidden" name="product_id" value="{{ $buyOtherProducts->first()->id }}" class="custom-select-input">
-                            <div class="custom-select-options hidden absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
-                                @foreach ($buyOtherProducts as $index => $product)
-                                    <button type="button" data-value="{{ $product->id }}" class="custom-select-option flex w-full items-center justify-between px-3 py-2.5 text-left text-sm {{ $index === 0 ? 'font-bold text-slate-900' : 'font-semibold text-slate-700' }} hover:bg-slate-100">
-                                        <span>{{ $product->name }}{{ $product->category?->name ? ' - '.$product->category->name : '' }}</span>
-                                        <span class="checkmark {{ $index === 0 ? '' : 'hidden' }} text-teal-600">✓</span>
-                                    </button>
-                                @endforeach
-                            </div>
-                        </div>
-                        @endif
-                        <div class="grid grid-cols-2 gap-2">
-                            <input type="number" step="0.5" min="0.5" name="quantity" value="1" class="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
-                            <input type="number" step="0.01" min="0.01" name="unit_price" value="" class="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none" placeholder="Price">
-                        </div>
-                        <button type="submit" class="flex h-9 w-full items-center justify-center rounded-lg bg-slate-950 px-4 text-xs font-black text-white">
-                            + Buy Other Product
-                        </button>
-                    </form>
-                </section>
-
                 <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
                     <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Active carts</p>
                     <div class="mt-3 space-y-3">
@@ -560,6 +470,17 @@
         function closeAddToCartModal() {
             document.getElementById('add-to-cart-modal').classList.add('hidden');
             document.body.classList.remove('overflow-hidden');
+        }
+
+        function toggleDailyItemDetails(id) {
+            const details = document.getElementById(id);
+            const icon = document.getElementById(`${id}-icon`);
+
+            if (!details) return;
+
+            const willOpen = details.classList.contains('hidden');
+            details.classList.toggle('hidden', !willOpen);
+            icon?.classList.toggle('rotate-180', willOpen);
         }
 
         function switchDailyTab(tab) {

@@ -86,6 +86,7 @@
         ->values();
 
     $productCardsForOrder = $allProductsForOrder;
+    $rowSelectionLabel = $rowSelectionLabel ?? 'Selected for cart';
 @endphp
 
 <div class="space-y-5 pb-28">
@@ -218,7 +219,7 @@
                     >
                 </div>
 
-                <span data-row-selection-label class="{{ (float) $productData['current_qty'] > 0 ? '' : 'hidden' }} sr-only">Selected for cart</span>
+                <span data-row-selection-label class="{{ (float) $productData['current_qty'] > 0 ? '' : 'hidden' }} sr-only">{{ $rowSelectionLabel }}</span>
                 <p data-unit-conversion-info class="mt-2 hidden rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-[11px] font-black uppercase tracking-[0.08em] text-emerald-700"></p>
                 <p data-row-error class="mt-2 hidden text-[11px] font-bold text-rose-700"></p>
             </article>

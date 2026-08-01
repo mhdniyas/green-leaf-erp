@@ -3,51 +3,57 @@
         @include('purchasing.purchaser.partials.feedback')
         @include('purchasing.purchaser.partials.deadline_alert')
 
-        <section class="overflow-hidden rounded-2xl bg-slate-950 text-white shadow-sm lg:rounded-[2rem]">
-            <div class="bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.24),_transparent_34%),linear-gradient(135deg,_#0f172a_0%,_#111827_58%,_#164e63_100%)] px-4 py-4 sm:px-5">
-                <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-                    <div>
-                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-200">Purchaser Reference</p>
-                        <h1 class="mt-1 text-xl font-black tracking-tight sm:text-2xl">Shop orders</h1>
-                        <p class="mt-1.5 max-w-2xl text-sm font-semibold leading-6 text-slate-200">Read-only view of shop demand and direct-purchase add-ons for the selected business date.</p>
+        <section class="overflow-hidden rounded-2xl bg-slate-950 text-white shadow-sm">
+            <div class="bg-[linear-gradient(135deg,_#0f172a_0%,_#111827_58%,_#164e63_100%)] px-3 py-2.5 sm:px-4">
+                <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                    <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                        <div class="min-w-0">
+                            <p class="text-[9px] font-black uppercase tracking-[0.16em] text-cyan-200">Purchaser Reference</p>
+                            <h1 class="truncate text-base font-black tracking-tight sm:text-lg">Shop orders</h1>
+                        </div>
+                        <div class="grid grid-cols-4 gap-1.5 text-center">
+                            @foreach (['submitted' => 'Sub', 'update_requested' => 'Upd', 'approved' => 'Appr', 'rejected' => 'Rej'] as $stateKey => $label)
+                                <a href="{{ route('purchaser.shop-orders.index', array_filter(['date' => $date, 'status' => $stateKey, 'source' => $source, 'search' => $search])) }}" class="rounded-lg bg-white/10 px-2 py-1 transition hover:bg-white/15">
+                                    <p class="text-[8px] font-black uppercase text-slate-300">{{ $label }}</p>
+                                    <p class="text-sm font-black">{{ (int) ($statusCounts[$stateKey] ?? 0) }}</p>
+                                </a>
+                            @endforeach
+                        </div>
                     </div>
-                    <div class="grid grid-cols-2 gap-2 sm:flex">
-                        <a href="{{ route('purchaser.add-ons.create', ['date' => $date]) }}" class="inline-flex h-11 items-center justify-center rounded-xl bg-emerald-500 px-4 text-sm font-black text-white transition hover:bg-emerald-400">
-                            Add-ons
+                    <div class="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 lg:flex lg:items-center">
+                        <form method="GET" action="{{ route('purchaser.shop-orders.index') }}" class="min-w-0">
+                            <input type="hidden" name="status" value="{{ $status }}">
+                            <input type="hidden" name="source" value="{{ $source }}">
+                            <input type="hidden" name="search" value="{{ $search }}">
+                            <input type="date" name="date" value="{{ $date }}" onchange="this.form.submit()" class="h-9 w-full rounded-lg border border-white/10 bg-white/10 px-3 text-xs font-bold text-white outline-none lg:w-40">
+                        </form>
+                        <a href="{{ route('purchaser.add-ons.create', ['date' => $date]) }}" class="inline-flex h-9 items-center justify-center rounded-lg bg-emerald-500 px-3 text-xs font-black text-white transition hover:bg-emerald-400">
+                            Add-on
                         </a>
-                        <a href="{{ route('purchaser.daily', ['date' => $date]) }}" class="inline-flex h-11 items-center justify-center rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-black text-white transition hover:bg-white/15">
+                        <a href="{{ route('purchaser.daily', ['date' => $date]) }}" class="inline-flex h-9 items-center justify-center rounded-lg border border-white/15 bg-white/10 px-3 text-xs font-black text-white transition hover:bg-white/15">
                             Daily
                         </a>
                     </div>
                 </div>
-
-                <div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    @foreach (['submitted' => 'Submitted', 'update_requested' => 'Updates', 'approved' => 'Approved', 'rejected' => 'Rejected'] as $stateKey => $label)
-                        <a href="{{ route('purchaser.shop-orders.index', array_filter(['date' => $date, 'status' => $stateKey, 'source' => $source, 'search' => $search])) }}" class="rounded-xl bg-white/10 px-3 py-2 transition hover:bg-white/15">
-                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">{{ $label }}</p>
-                            <p class="mt-1 text-lg font-black">{{ (int) ($statusCounts[$stateKey] ?? 0) }}</p>
-                        </a>
-                    @endforeach
-                </div>
             </div>
         </section>
 
-        <form method="GET" action="{{ route('purchaser.shop-orders.index') }}" class="grid gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm md:grid-cols-[160px_180px_180px_1fr_auto] lg:rounded-[2rem] lg:p-4">
-            <input type="date" name="date" value="{{ $date }}" class="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
-            <select name="status" class="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
+        <form method="GET" action="{{ route('purchaser.shop-orders.index') }}" class="grid gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm md:grid-cols-[140px_160px_160px_1fr_auto] lg:p-3">
+            <input type="date" name="date" value="{{ $date }}" class="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
+            <select name="status" class="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
                 <option value="">All status</option>
                 <option value="submitted" @selected($status === 'submitted')>Submitted</option>
                 <option value="update_requested" @selected($status === 'update_requested')>Update requested</option>
                 <option value="approved" @selected($status === 'approved')>Approved</option>
                 <option value="rejected" @selected($status === 'rejected')>Rejected</option>
             </select>
-            <select name="source" class="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
+            <select name="source" class="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
                 <option value="">All source</option>
                 <option value="shop_owner" @selected($source === 'shop_owner')>Shop orders</option>
                 <option value="admin_direct_purchase" @selected($source === 'admin_direct_purchase')>Direct purchase</option>
             </select>
-            <input type="search" name="search" value="{{ $search }}" placeholder="Search order, shop, product..." class="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
-            <button type="submit" class="h-11 rounded-xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800">
+            <input type="search" name="search" value="{{ $search }}" placeholder="Search order, shop, product..." class="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
+            <button type="submit" class="h-10 rounded-xl bg-slate-950 px-5 text-xs font-black text-white transition hover:bg-slate-800">
                 Filter
             </button>
         </form>

@@ -9,9 +9,23 @@
     $directPurchaseTitle = $directPurchaseTitle ?? 'Green Leaf Direct Purchase';
     $directPurchaseDescription = $directPurchaseDescription ?? 'Select products and quantities. The order will be approved immediately and shown to purchaser demand as Green Leaf Direct Purchase.';
     $adminSubmitLabel = $adminSubmitLabel ?? ($tomorrowOrder ? 'Update Order' : 'Create Order');
-    $pageSubmitLabel = $isAdminShopOrder ? $adminSubmitLabel : 'Add Selected to Cart';
-    $stickySubmitLabel = $isAdminShopOrder ? $adminSubmitLabel : 'Add To Cart';
-    $stickySubmitHint = $isAdminShopOrder ? 'Ready to save' : 'Draft only';
+    $directPurchaseSubmitLabel = $directPurchaseSubmitLabel ?? 'Create Direct Purchase';
+    $pageSubmitLabel = match (true) {
+        $isAdminDirectPurchase => $directPurchaseSubmitLabel,
+        $isAdminShopOrder => $adminSubmitLabel,
+        default => 'Add Selected to Cart',
+    };
+    $stickySubmitLabel = match (true) {
+        $isAdminDirectPurchase => $directPurchaseSubmitLabel,
+        $isAdminShopOrder => $adminSubmitLabel,
+        default => 'Add To Cart',
+    };
+    $stickySubmitHint = match (true) {
+        $isAdminDirectPurchase => 'Approved demand',
+        $isAdminShopOrder => 'Ready to save',
+        default => 'Draft only',
+    };
+    $rowSelectionLabel = $rowSelectionLabel ?? ($isAdminDirectPurchase ? 'Selected for direct purchase demand' : 'Selected for cart');
 @endphp
 
 <section class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">

@@ -398,14 +398,17 @@ class PurchaserDashboardController extends Controller
 
         $dailySummaryMap = $this->buildDailySummary($date, $frequentProductIds)->keyBy('product_id');
         $products = Product::query()
-            ->with(['category', 'orderUnits' => fn ($q) => $q->where('is_orderable', true)])
+            ->with(['category', 'orderUnits'])
             ->whereIn('id', array_map('intval', $productIds))
             ->get();
 
         $selectedSummary = collect();
         foreach ($products as $product) {
             if ($dailySummaryMap->has($product->id)) {
-                $selectedSummary->push($dailySummaryMap->get($product->id));
+                $selectedSummary->push([
+                    ...$dailySummaryMap->get($product->id),
+                    'orderable_units' => $this->allMeasurementUnitOptions($product),
+                ]);
             } else {
                 $selectedSummary->push([
                     'product_id' => $product->id,
@@ -413,7 +416,7 @@ class PurchaserDashboardController extends Controller
                     'category_name' => $product->category?->name,
                     'sku' => $product->sku,
                     'unit' => $product->unit,
-                    'orderable_units' => $this->orderableUnitOptions($product),
+                    'orderable_units' => $this->allMeasurementUnitOptions($product),
                     'total_approved_qty' => 0.0,
                     'bought_qty' => 0.0,
                     'draft_qty' => 0.0,
@@ -2421,6 +2424,38 @@ class PurchaserDashboardController extends Controller
         }
 
         return $orderableUnits
+            ->map(fn ($unit): array => [
+                'unit' => (string) $unit->unit,
+                'label' => (string) ($unit->label ?: strtoupper((string) $unit->unit)),
+                'conversion_to_base' => (float) $unit->conversion_to_base,
+                'is_base' => (bool) $unit->is_base,
+            ])
+            ->all();
+    }
+
+    /**
+     * @return array<int, array{unit:string,label:string,conversion_to_base:float,is_base:bool}>
+     */
+    private function allMeasurementUnitOptions(Product $product): array
+    {
+        $units = $product->relationLoaded('orderUnits')
+            ? $product->orderUnits
+            : $product->orderUnits()->orderBy('sort_order')->orderBy('id')->get();
+
+        $measurementUnits = $units
+            ->filter(fn ($unit): bool => (float) $unit->conversion_to_base > 0)
+            ->values();
+
+        if ($measurementUnits->isEmpty()) {
+            return [[
+                'unit' => $product->unit,
+                'label' => strtoupper((string) $product->unit),
+                'conversion_to_base' => 1.0,
+                'is_base' => true,
+            ]];
+        }
+
+        return $measurementUnits
             ->map(fn ($unit): array => [
                 'unit' => (string) $unit->unit,
                 'label' => (string) ($unit->label ?: strtoupper((string) $unit->unit)),
