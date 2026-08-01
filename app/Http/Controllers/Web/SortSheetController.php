@@ -152,6 +152,7 @@ class SortSheetController extends Controller
         [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse] = $this->buildMatrixData($request);
 
         $companyName = 'Green Leaf Distribution';
+        $orientation = $request->input('orientation') === 'portrait' ? 'portrait' : 'landscape';
 
         return view('sort-sheet.segregation-matrix-print', compact(
             'filteredShops',
@@ -160,6 +161,7 @@ class SortSheetController extends Controller
             'date',
             'companyName',
             'selectedWarehouse',
+            'orientation',
         ));
     }
 

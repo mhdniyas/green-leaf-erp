@@ -4,6 +4,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Shop Wise Segregation - {{ \Carbon\Carbon::parse($date)->format('d M Y') }}</title>
+    @php
+        $printOrientation = ($orientation ?? 'landscape') === 'portrait' ? 'portrait' : 'landscape';
+        $isPortraitPrint = $printOrientation === 'portrait';
+    @endphp
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html {
@@ -101,7 +105,7 @@
             page-break-inside: avoid;
         }
         @media print {
-            @page { size: A4 landscape; margin: 5px; }
+            @page { size: A4 {{ $printOrientation }}; margin: 8mm; }
             html,
             body {
                 height: auto;
@@ -112,10 +116,10 @@
             .no-print { display: none !important; }
             .page {
                 break-after: page;
-                min-height: calc(210mm - 10px);
+                min-height: auto;
                 overflow: visible;
                 padding: 0;
-                width: calc(297mm - 10px);
+                width: 100%;
             }
             .shop-title {
                 font-size: 14px;
@@ -170,10 +174,17 @@
                 </div>
                 <table>
                     <colgroup>
-                        <col style="width:6%">
-                        <col style="width:54%">
-                        <col style="width:25%">
-                        <col style="width:15%">
+                        @if($isPortraitPrint)
+                            <col style="width:10%">
+                            <col style="width:45%">
+                            <col style="width:25%">
+                            <col style="width:20%">
+                        @else
+                            <col style="width:6%">
+                            <col style="width:54%">
+                            <col style="width:25%">
+                            <col style="width:15%">
+                        @endif
                     </colgroup>
                     <thead>
                         <tr>

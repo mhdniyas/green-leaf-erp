@@ -42,6 +42,8 @@
         if (! empty($currentProductIds)) {
             $filterParams['product_ids'] = $currentProductIds;
         }
+        $shopWiseWidePrintParams = array_merge($filterParams, ['orientation' => 'landscape']);
+        $shopWisePortraitPrintParams = array_merge($filterParams, ['orientation' => 'portrait']);
         $categoryPickerOptions = $categories->map(fn ($category) => [
             'id' => (string) $category->id,
             'name' => $category->name,
@@ -105,11 +107,17 @@
                    class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
                     Print
                 </a>
-                <a href="{{ $segregationMatrixPrintRoute($filterParams) }}"
+                <a href="{{ $segregationMatrixPrintRoute($shopWisePortraitPrintParams) }}"
                    id="print-segregate-btn"
                    target="_blank"
                    class="inline-flex items-center gap-2 rounded-xl bg-cyan-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-cyan-800 transition-all shadow-md hover:shadow-lg">
-                    Shop Wise Print
+                    Shop Wise Portrait
+                </a>
+                <a href="{{ $segregationMatrixPrintRoute($shopWiseWidePrintParams) }}"
+                   id="print-segregate-wide-btn"
+                   target="_blank"
+                   class="inline-flex items-center gap-2 rounded-xl bg-sky-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-sky-800 transition-all shadow-md hover:shadow-lg">
+                    Shop Wise Wide
                 </a>
                 <a href="{{ $segregationGridPrintRoute($filterParams) }}"
                    id="print-segregate-grid-btn"
@@ -144,11 +152,17 @@
                    class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-800 transition-all shadow-md hover:shadow-lg">
                     Print Selection
                 </a>
-                <a href="{{ $segregationMatrixPrintRoute($filterParams) }}"
+                <a href="{{ $segregationMatrixPrintRoute($shopWisePortraitPrintParams) }}"
                    id="selection-matrix-print-btn"
                    target="_blank"
                    class="inline-flex items-center gap-2 rounded-xl bg-cyan-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-cyan-800 transition-all shadow-md hover:shadow-lg">
-                    Shop Wise Print
+                    Shop Wise Portrait
+                </a>
+                <a href="{{ $segregationMatrixPrintRoute($shopWiseWidePrintParams) }}"
+                   id="selection-matrix-wide-print-btn"
+                   target="_blank"
+                   class="inline-flex items-center gap-2 rounded-xl bg-sky-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-sky-800 transition-all shadow-md hover:shadow-lg">
+                    Shop Wise Wide
                 </a>
                 <a href="{{ $segregationGridPrintRoute($filterParams) }}"
                    id="selection-grid-print-btn"
@@ -372,10 +386,15 @@
                            class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-[10px] font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
                             Print
                         </a>
-                        <a href="{{ $segregationMatrixPrintRoute($filterParams) }}"
+                        <a href="{{ $segregationMatrixPrintRoute($shopWisePortraitPrintParams) }}"
                            target="_blank"
                            class="inline-flex items-center gap-1.5 rounded-xl bg-cyan-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-cyan-800 transition-all shadow-sm">
-                            Shop Wise Print
+                            Shop Wise Portrait
+                        </a>
+                        <a href="{{ $segregationMatrixPrintRoute($shopWiseWidePrintParams) }}"
+                           target="_blank"
+                           class="inline-flex items-center gap-1.5 rounded-xl bg-sky-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-sky-800 transition-all shadow-sm">
+                            Shop Wise Wide
                         </a>
                         <a href="{{ $segregationGridPrintRoute($filterParams) }}"
                            target="_blank"
@@ -406,10 +425,15 @@
                            class="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-slate-800 transition-all shadow-sm">
                             Print Selection
                         </a>
-                        <a href="{{ $segregationMatrixPrintRoute($filterParams) }}"
+                        <a href="{{ $segregationMatrixPrintRoute($shopWisePortraitPrintParams) }}"
                            target="_blank"
                            class="inline-flex items-center gap-1.5 rounded-xl bg-cyan-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-cyan-800 transition-all shadow-sm">
-                            Shop Wise Print
+                            Shop Wise Portrait
+                        </a>
+                        <a href="{{ $segregationMatrixPrintRoute($shopWiseWidePrintParams) }}"
+                           target="_blank"
+                           class="inline-flex items-center gap-1.5 rounded-xl bg-sky-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-sky-800 transition-all shadow-sm">
+                            Shop Wise Wide
                         </a>
                         <a href="{{ $segregationGridPrintRoute($filterParams) }}"
                            target="_blank"
