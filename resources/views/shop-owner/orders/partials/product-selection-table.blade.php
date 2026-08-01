@@ -231,7 +231,7 @@
                 Clear
             </button>
             @if ($canCancelSubmittedOrder)
-                <button type="button" id="submitted-order-cancel" class="rounded-xl border border-rose-300/50 px-3 py-2 text-[11px] font-black uppercase tracking-[0.12em] text-rose-100 transition hover:bg-rose-500/20">
+                <button type="button" id="submitted-order-cancel" data-clear-order-action="{{ route('shop-owner.orders.clear') }}" class="rounded-xl border border-rose-300/50 px-3 py-2 text-[11px] font-black uppercase tracking-[0.12em] text-rose-100 transition hover:bg-rose-500/20">
                     Cancel Order
                 </button>
             @endif
@@ -240,13 +240,6 @@
             </button>
         </div>
     </div>
-
-    @if (($orderFormMode ?? 'shop-owner') === 'shop-owner')
-        <form method="POST" action="{{ route('shop-owner.orders.clear') }}" id="shop-owner-clear-order-form" class="hidden" aria-hidden="true">
-            @csrf
-            @method('DELETE')
-        </form>
-    @endif
 
     <style>
         .shop-order-row-name {

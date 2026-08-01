@@ -18,7 +18,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const draftCartSummary = document.getElementById('draft-cart-summary');
     const draftCartClear = document.getElementById('draft-cart-clear');
     const draftCartSubmit = document.getElementById('draft-cart-submit');
-    const clearOrderForm = document.getElementById('shop-owner-clear-order-form');
     const cancelSubmittedOrder = document.getElementById('submitted-order-cancel');
     const pageSubmitButtons = Array.from(document.querySelectorAll('[data-open-cart-submit]'));
     const itemsErrorBanner = document.querySelector('[data-items-error-banner]');
@@ -509,7 +508,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         window.localStorage.removeItem(draftStorageKey);
-        clearOrderForm?.submit();
+        const clearOrderForm = document.createElement('form');
+        clearOrderForm.method = 'POST';
+        clearOrderForm.action = cancelSubmittedOrder.dataset.clearOrderAction ?? '';
+        clearOrderForm.hidden = true;
+
+        const csrfInput = formNode.querySelector('input[name="_token"]');
+        if (csrfInput) {
+            const tokenInput = document.createElement('input');
+            tokenInput.type = 'hidden';
+            tokenInput.name = '_token';
+            tokenInput.value = csrfInput.value;
+            clearOrderForm.appendChild(tokenInput);
+        }
+
+        const methodInput = document.createElement('input');
+        methodInput.type = 'hidden';
+        methodInput.name = '_method';
+        methodInput.value = 'DELETE';
+        clearOrderForm.appendChild(methodInput);
+        document.body.appendChild(clearOrderForm);
+        clearOrderForm.submit();
     });
 
     const submitSelectedRows = () => {
