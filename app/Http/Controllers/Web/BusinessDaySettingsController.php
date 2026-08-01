@@ -36,7 +36,7 @@ class BusinessDaySettingsController extends Controller
 
     public function updateAutoApprove(Request $request): RedirectResponse
     {
-        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('admin') && ! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
