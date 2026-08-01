@@ -7,6 +7,9 @@
         $segregationMatrixPrintRoute = fn (array $params = []) => $isSegregation
             ? $sortSheetRoute('matrix-print', $params)
             : $sortSheetRoute('segregation.matrix-print', $params);
+        $segregationGridPrintRoute = fn (array $params = []) => $isSegregation
+            ? $sortSheetRoute('grid-print', $params)
+            : $sortSheetRoute('segregation.grid-print', $params);
         $pageTitle = $isSegregation ? 'Selection' : 'Sort Sheet';
         $categoryFilterLabel = $isSegregation ? 'Ordered Categories' : 'Product Categories';
         $productFilterLabel = $isSegregation ? 'Ordered Products' : 'Products';
@@ -108,6 +111,12 @@
                    class="inline-flex items-center gap-2 rounded-xl bg-cyan-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-cyan-800 transition-all shadow-md hover:shadow-lg">
                     Print Segregate
                 </a>
+                <a href="{{ $segregationGridPrintRoute($filterParams) }}"
+                   id="print-segregate-grid-btn"
+                   target="_blank"
+                   class="inline-flex items-center gap-2 rounded-xl bg-indigo-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-indigo-800 transition-all shadow-md hover:shadow-lg">
+                    Segregate Grid
+                </a>
                 @endif
             @else
                 @if($sortSheetShareUrl)
@@ -140,6 +149,12 @@
                    target="_blank"
                    class="inline-flex items-center gap-2 rounded-xl bg-cyan-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-cyan-800 transition-all shadow-md hover:shadow-lg">
                     Print Segregate
+                </a>
+                <a href="{{ $segregationGridPrintRoute($filterParams) }}"
+                   id="selection-grid-print-btn"
+                   target="_blank"
+                   class="inline-flex items-center gap-2 rounded-xl bg-indigo-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-indigo-800 transition-all shadow-md hover:shadow-lg">
+                    Segregate Grid
                 </a>
                 @endif
             @endif
@@ -362,6 +377,11 @@
                            class="inline-flex items-center gap-1.5 rounded-xl bg-cyan-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-cyan-800 transition-all shadow-sm">
                             Print Segregate
                         </a>
+                        <a href="{{ $segregationGridPrintRoute($filterParams) }}"
+                           target="_blank"
+                           class="inline-flex items-center gap-1.5 rounded-xl bg-indigo-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-indigo-800 transition-all shadow-sm">
+                            Segregate Grid
+                        </a>
                         @endif
                     @else
                         @if($sortSheetShareUrl)
@@ -390,6 +410,11 @@
                            target="_blank"
                            class="inline-flex items-center gap-1.5 rounded-xl bg-cyan-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-cyan-800 transition-all shadow-sm">
                             Print Segregate
+                        </a>
+                        <a href="{{ $segregationGridPrintRoute($filterParams) }}"
+                           target="_blank"
+                           class="inline-flex items-center gap-1.5 rounded-xl bg-indigo-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-indigo-800 transition-all shadow-sm">
+                            Segregate Grid
                         </a>
                         @endif
                     @endif
