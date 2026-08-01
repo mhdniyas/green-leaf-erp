@@ -62,6 +62,10 @@ class SortSheetController extends Controller
                 ->with('filters', $filters);
         }
 
+        $sortSheetShareUrl = 'https://api.whatsapp.com/send?text='.rawurlencode(
+            $this->buildSortSheetShareText($matrix, $productMeta, $date),
+        );
+
         return view('sort-sheet.index', compact(
             'shops',
             'categories',
@@ -74,6 +78,7 @@ class SortSheetController extends Controller
             'date',
             'surface',
             'selectedWarehouse',
+            'sortSheetShareUrl',
         ))->with('filters', $filters);
     }
 
@@ -399,6 +404,38 @@ class SortSheetController extends Controller
                 Product::sortableSku((string) ($productMeta[$b]['sku'] ?? '')),
             ) ?: strcmp((string) ($productMeta[$a]['name'] ?? ''), (string) ($productMeta[$b]['name'] ?? ''));
         });
+    }
+
+    /**
+     * @param  array<int, array<int, float>>  $matrix
+     * @param  array<int, array<string, mixed>>  $productMeta
+     */
+    private function buildSortSheetShareText(array $matrix, array $productMeta, string $date): string
+    {
+        $lines = [
+            '*Sort Sheet Summary*',
+            \Carbon\Carbon::parse($date)->format('d M Y'),
+            '---',
+            '',
+        ];
+
+        foreach ($matrix as $productId => $shopQtys) {
+            $meta = $productMeta[$productId] ?? [];
+            $lines[] = '*'.($meta['name'] ?? 'Product').'*';
+            $lines[] = 'Total '.$this->formatShareQuantity(array_sum($shopQtys), (string) ($meta['unit'] ?? ''));
+            $lines[] = '';
+        }
+
+        return trim(implode("\n", $lines));
+    }
+
+    private function formatShareQuantity(float $quantity, string $unit): string
+    {
+        $formatted = $quantity == (int) $quantity
+            ? (string) (int) $quantity
+            : rtrim(rtrim(number_format($quantity, 2, '.', ''), '0'), '.');
+
+        return trim($formatted.' '.$unit);
     }
 
 }

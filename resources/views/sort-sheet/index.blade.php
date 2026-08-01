@@ -11,6 +11,7 @@
         $canGenerate = $user->can('sort.sheet.generate');
         $canExport = $user->can('sort.sheet.export');
         $hasMatrix = isset($matrix) && count($matrix) > 0;
+        $sortSheetShareUrl = $sortSheetShareUrl ?? null;
         $noOrders = session('noOrders', false) || (isset($noOrders) && $noOrders);
         $filters = $filters ?? [];
         $currentDate = $filters['date'] ?? date('Y-m-d');
@@ -65,8 +66,18 @@
 
 <x-dynamic-component :component="$sortSheetLayout" :title="$pageTitle">
     <x-slot:actions>
-        @if($canExport && $hasMatrix)
+        @if($hasMatrix)
             @if(!$isSegregation)
+                @if($sortSheetShareUrl)
+                <a href="{{ $sortSheetShareUrl }}"
+                   target="_blank"
+                   rel="noopener"
+                   id="share-whatsapp-btn"
+                   class="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-green-700 transition-all shadow-md hover:shadow-lg">
+                    WhatsApp
+                </a>
+                @endif
+                @if($canExport)
                 <a href="{{ $sortSheetRoute('export.excel', $filterParams) }}"
                    id="export-excel-btn"
                    class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition-all shadow-md hover:shadow-lg">
@@ -84,7 +95,18 @@
                    class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
                     Print
                 </a>
+                @endif
             @else
+                @if($sortSheetShareUrl)
+                <a href="{{ $sortSheetShareUrl }}"
+                   target="_blank"
+                   rel="noopener"
+                   id="selection-share-whatsapp-btn"
+                   class="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-green-700 transition-all shadow-md hover:shadow-lg">
+                    WhatsApp
+                </a>
+                @endif
+                @if($canExport)
                 <a href="{{ $sortSheetRoute('export.excel', $filterParams) }}"
                    id="selection-export-excel-btn"
                    class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition-all shadow-md hover:shadow-lg">
@@ -96,6 +118,7 @@
                    class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-800 transition-all shadow-md hover:shadow-lg">
                     Print Selection
                 </a>
+                @endif
             @endif
         @endif
     </x-slot:actions>
@@ -283,8 +306,16 @@
                     </p>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
-                    @if($canExport)
                     @if(!$isSegregation)
+                        @if($sortSheetShareUrl)
+                        <a href="{{ $sortSheetShareUrl }}"
+                           target="_blank"
+                           rel="noopener"
+                           class="inline-flex items-center gap-1.5 rounded-xl bg-green-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-green-700 transition-all shadow-sm">
+                            WhatsApp
+                        </a>
+                        @endif
+                        @if($canExport)
                         <a href="{{ $sortSheetRoute('export.excel', $filterParams) }}"
                            class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-emerald-700 transition-all shadow-sm">
                             Excel
@@ -299,7 +330,17 @@
                            class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-[10px] font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
                             Print
                         </a>
+                        @endif
                     @else
+                        @if($sortSheetShareUrl)
+                        <a href="{{ $sortSheetShareUrl }}"
+                           target="_blank"
+                           rel="noopener"
+                           class="inline-flex items-center gap-1.5 rounded-xl bg-green-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-green-700 transition-all shadow-sm">
+                            WhatsApp
+                        </a>
+                        @endif
+                        @if($canExport)
                         <a href="{{ $sortSheetRoute('export.excel', $filterParams) }}"
                            class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-emerald-700 transition-all shadow-sm">
                             Excel
@@ -309,7 +350,7 @@
                            class="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-slate-800 transition-all shadow-sm">
                             Print Selection
                         </a>
-                    @endif
+                        @endif
                     @endif
                 </div>
             </div>
