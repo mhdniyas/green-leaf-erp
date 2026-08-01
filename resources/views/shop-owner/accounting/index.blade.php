@@ -896,8 +896,8 @@
             </section>
 
             @if ($canEdit)
-                <div id="cashbook-line-modal" class="fixed inset-0 z-[80] hidden overflow-y-auto bg-slate-950/50 px-3 py-4 sm:px-4 sm:py-8">
-                    <div class="mx-auto w-full max-w-lg rounded-xl border border-slate-200 bg-white p-3 shadow-2xl sm:rounded-[2rem] sm:p-6">
+                <div id="cashbook-line-modal" class="fixed inset-0 z-[80] hidden items-center justify-center overflow-y-auto bg-slate-950/50 px-3 py-4 sm:px-4 sm:py-8">
+                    <div class="mx-auto max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 shadow-2xl sm:rounded-[2rem] sm:p-6">
                         <div class="flex items-start justify-between gap-4">
                             <div class="min-w-0">
                                 <p class="text-[9px] font-black uppercase tracking-[0.14em] text-emerald-700 sm:text-[10px] sm:tracking-[0.18em]">Daily Shop Receipt</p>
@@ -1411,6 +1411,7 @@
 
             const closeModal = () => {
                 modalEl.classList.add('hidden');
+                modalEl.classList.remove('flex');
                 closeDropdowns();
                 editIndex = null;
                 amountInput.value = '';
@@ -1447,6 +1448,7 @@
 
                 refreshLoanState();
                 modalEl.classList.remove('hidden');
+                modalEl.classList.add('flex');
                 amountInput.focus();
             };
 
