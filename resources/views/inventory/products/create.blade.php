@@ -6,6 +6,7 @@ $units = [
     'piece' => 'Piece',
     'bag' => 'Bag',
     'bunch' => 'Bunch',
+    'full_bunch' => 'Full Bunch',
     'packet' => 'Packet',
     'crate' => 'Crate',
     'tray' => 'Tray',

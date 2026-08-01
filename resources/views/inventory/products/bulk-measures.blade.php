@@ -89,8 +89,8 @@
                                 <th class="border-b border-slate-200 px-3 py-3 text-left">Extra Box KG</th>
                                 <th class="border-b border-slate-200 px-3 py-3 text-center">Piece</th>
                                 <th class="border-b border-slate-200 px-3 py-3 text-right">KG per Piece</th>
-                                @foreach(['bag', 'bunch', 'packet', 'crate', 'tray', 'roll'] as $unit)
-                                    <th class="border-b border-slate-200 px-2 py-3 text-right">{{ strtoupper($unit) }}</th>
+                                @foreach(['bag', 'bunch', 'full_bunch', 'packet', 'crate', 'tray', 'roll'] as $unit)
+                                    <th class="border-b border-slate-200 px-2 py-3 text-right">{{ strtoupper(str_replace('_', ' ', $unit)) }}</th>
                                 @endforeach
                                 <th class="border-b border-slate-200 px-3 py-3 text-left">Shop Owner Preview</th>
                                 <th class="border-b border-slate-200 px-3 py-3 text-right">Row</th>
@@ -149,7 +149,7 @@
                                     <td class="border-b border-slate-100 px-3 py-2">
                                         <input type="number" step="0.0001" min="0.0001" name="products[{{ $rowIndex }}][units][piece]" value="{{ old("products.{$rowIndex}.units.piece", $baseUnit === 'piece' ? 1 : ($pieceUnit?->conversion_to_base ?? '')) }}" data-measure-input data-unit="piece" class="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-right text-xs font-black text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:border-emerald-200 disabled:bg-emerald-50 disabled:text-emerald-800" placeholder="Optional">
                                     </td>
-                                    @foreach(['bag', 'bunch', 'packet', 'crate', 'tray', 'roll'] as $unit)
+                                    @foreach(['bag', 'bunch', 'full_bunch', 'packet', 'crate', 'tray', 'roll'] as $unit)
                                         @php($measureUnit = $unitMap->get($unit))
                                         <td class="border-b border-slate-100 px-2 py-2">
                                             <input type="number" step="0.0001" min="0.0001" name="products[{{ $rowIndex }}][units][{{ $unit }}]" value="{{ old("products.{$rowIndex}.units.{$unit}", $baseUnit === $unit ? 1 : ($measureUnit?->conversion_to_base ?? '')) }}" data-measure-input data-unit="{{ $unit }}" class="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-right text-xs font-black text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:border-emerald-200 disabled:bg-emerald-50 disabled:text-emerald-800">
@@ -370,7 +370,7 @@
                     const saveButton = row.querySelector('[data-save-row]');
                     const boxInput = row.querySelector('[data-measure-input][data-unit="box"]');
                     const pieceInput = row.querySelector('[data-measure-input][data-unit="piece"]');
-                    const enabledUnits = ['box', 'piece', 'bag', 'bunch', 'packet', 'crate', 'tray', 'roll']
+                    const enabledUnits = ['box', 'piece', 'bag', 'bunch', 'full_bunch', 'packet', 'crate', 'tray', 'roll']
                         .filter(unitEnabled);
 
                     if (!enabledUnits.includes(baseUnit)) {

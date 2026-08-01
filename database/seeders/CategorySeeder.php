@@ -16,6 +16,7 @@ class CategorySeeder extends Seeder
             ['name' => 'VEG', 'description' => 'Regular vegetables.'],
             ['name' => 'HAL', 'description' => 'Special selection items.'],
             ['name' => 'Leaf', 'description' => 'Leafy greens and herbs.'],
+            ['name' => 'Full Bunch', 'description' => 'Full bunch produce items.'],
             ['name' => 'English', 'description' => 'English and premium vegetables.'],
             ['name' => 'Kolkata', 'description' => 'Special Kolkata produce items.'],
             ['name' => 'Banana', 'description' => 'Banana varieties.'],

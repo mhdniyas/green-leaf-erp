@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const itemsErrorBanner = document.querySelector('[data-items-error-banner]');
     const savePresetForm = document.querySelector('[data-save-preset-form]');
     const hiddenPresetNameInput = document.querySelector('[data-preset-name-input]');
+    const layoutButtons = Array.from(document.querySelectorAll('[data-shop-order-layout-toggle]'));
     const mobileNav = document.getElementById('layout-mobile-nav');
 
     if (!formNode || !productCatalogNode || quantityInputs.length === 0 || !draftCartBar || !draftCartSummary || !draftCartClear || !draftCartSubmit) {
@@ -42,6 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const inputsByLineKey = new Map(quantityInputs.map((input) => [String(input.getAttribute('data-line-key') ?? input.getAttribute('data-product-id')), input]));
     const unitInputsByLineKey = new Map(unitInputs.map((input) => [String(input.getAttribute('data-line-key') ?? input.getAttribute('data-product-id')), input]));
     const draftStorageKey = `shop-owner-order-draft:${formNode.action}:${formNode.querySelector('[name="business_date"]')?.value ?? window.location.pathname}`;
+    const layoutStorageKey = `shop-owner-order-layout:${window.location.pathname}`;
 
     let activeCategory = categoryPills.find((pill) => pill.hasAttribute('data-default-category'))?.getAttribute('data-default-category') ?? 'all';
     let mobileNavRestoreTimer = null;
@@ -50,6 +52,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const quantity = Number.parseFloat(String(value));
 
         return Number.isFinite(quantity) && quantity > 0 ? quantity : 0;
+    };
+
+    const setShopOrderLayout = (layout) => {
+        const selectedLayout = layout === 'two-row' ? 'two-row' : 'compact';
+
+        formNode.classList.toggle('shop-order-layout-two-row', selectedLayout === 'two-row');
+        layoutButtons.forEach((button) => {
+            const isActive = button.getAttribute('data-layout') === selectedLayout;
+            button.classList.toggle('bg-white', isActive);
+            button.classList.toggle('text-slate-950', isActive);
+            button.classList.toggle('shadow-sm', isActive);
+            button.classList.toggle('text-slate-600', !isActive);
+            button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+
+        window.localStorage?.setItem(layoutStorageKey, selectedLayout);
     };
 
     const formatQuantity = (value) => {
@@ -398,6 +416,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     searchInput?.addEventListener('input', filterProducts);
 
+    layoutButtons.forEach((button) => {
+        button.addEventListener('click', () => setShopOrderLayout(button.getAttribute('data-layout') ?? 'compact'));
+    });
+
     document.querySelectorAll('[data-add-measure-line]').forEach((button) => {
         button.addEventListener('click', () => {
             const row = button.closest('[data-product-card]');
@@ -678,6 +700,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     loadDraft();
     autoAddProductFromQuery();
+    setShopOrderLayout(window.localStorage?.getItem(layoutStorageKey) || 'compact');
     syncAll({ persist: false });
     filterProducts();
 });

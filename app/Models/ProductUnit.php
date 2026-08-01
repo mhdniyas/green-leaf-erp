@@ -11,13 +11,16 @@ use Illuminate\Support\Str;
 
 class ProductUnit extends Model
 {
-    public const AVAILABLE_UNITS = ['kg', 'box', 'piece', 'bag', 'bunch', 'packet', 'crate', 'tray', 'roll'];
+    public const AVAILABLE_UNITS = ['kg', 'box', 'piece', 'bag', 'bunch', 'full_bunch', 'packet', 'crate', 'tray', 'roll'];
 
     public const UNIT_ALIASES = [
         'pc' => 'piece',
         'pcs' => 'piece',
         'pcs.' => 'piece',
         'pieces' => 'piece',
+        'full bunch' => 'full_bunch',
+        'full-bunch' => 'full_bunch',
+        'fullbunch' => 'full_bunch',
     ];
 
     private static ?bool $hasPublicUuidColumn = null;

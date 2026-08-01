@@ -122,9 +122,19 @@
         </div>
     </div>
 
-    <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
-        <h3 id="current-list-title" class="text-xs font-black uppercase tracking-[0.16em] text-slate-400">All Products</h3>
-        <span id="list-results-count" class="rounded-lg bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">0 products</span>
+    <div class="flex flex-col gap-2 border-b border-slate-100 pb-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex items-center justify-between gap-3">
+            <h3 id="current-list-title" class="text-xs font-black uppercase tracking-[0.16em] text-slate-400">All Products</h3>
+            <span id="list-results-count" class="rounded-lg bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">0 products</span>
+        </div>
+        <div class="flex h-9 w-full items-center rounded-xl bg-slate-100 p-1 sm:w-auto" role="group" aria-label="Product row layout">
+            <button type="button" data-shop-order-layout-toggle data-layout="compact" class="shop-order-layout-toggle flex-1 rounded-lg px-3 py-1.5 text-[11px] font-black uppercase text-slate-600 transition sm:flex-none">
+                Row
+            </button>
+            <button type="button" data-shop-order-layout-toggle data-layout="two-row" class="shop-order-layout-toggle flex-1 rounded-lg px-3 py-1.5 text-[11px] font-black uppercase text-slate-600 transition sm:flex-none">
+                Two row
+            </button>
+        </div>
     </div>
 
     <div id="no-search-results" class="hidden rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-8 text-center text-xs text-slate-400">
@@ -150,16 +160,16 @@
                     'border-slate-200 bg-white' => (float) $productData['current_qty'] <= 0,
                 ])
             >
-                <div class="relative grid grid-cols-[2rem_minmax(0,1fr)_4.25rem_minmax(4.5rem,5.5rem)] items-center gap-1.5 pr-7">
-                    <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[11px] font-black text-slate-600">
+                <div class="shop-order-row-grid relative grid grid-cols-[2rem_minmax(0,1fr)_4.25rem_minmax(4.5rem,5.5rem)] items-center gap-1.5 pr-7">
+                    <div class="shop-order-row-code flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[11px] font-black text-slate-600">
                         {{ $productData['sku'] }}
                     </div>
-                    <div class="min-w-0">
+                    <div class="shop-order-row-title min-w-0">
                         <h4 class="truncate text-[13px] font-black leading-4 text-slate-950">{{ $productData['name'] }}</h4>
                         <p class="truncate text-[11px] font-semibold leading-3 text-slate-500">{{ $productData['category'] }}</p>
                     </div>
                     @if(count($productData['order_units']) > 1)
-                        <div class="relative" data-inline-unit-picker data-product-id="{{ $productData['id'] }}" data-line-key="{{ $productData['line_key'] }}">
+                        <div class="shop-order-row-unit relative" data-inline-unit-picker data-product-id="{{ $productData['id'] }}" data-line-key="{{ $productData['line_key'] }}">
                             <input type="hidden" name="item_units[{{ $productData['line_key'] }}]" value="{{ $productData['current_unit'] }}" data-inline-unit data-product-id="{{ $productData['id'] }}" data-line-key="{{ $productData['line_key'] }}">
                             <input type="hidden" name="item_measures[{{ $productData['line_key'] }}]" value="{{ $productData['current_measure_uuid'] }}" data-inline-measure data-product-id="{{ $productData['id'] }}" data-line-key="{{ $productData['line_key'] }}">
                             <button type="button" data-unit-picker-trigger class="flex h-8 w-full items-center justify-between gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[10px] font-black uppercase text-slate-800 shadow-sm transition hover:border-emerald-300 hover:bg-white focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" aria-haspopup="listbox" aria-expanded="false" aria-label="Unit for {{ $productData['name'] }}">
@@ -183,7 +193,7 @@
                             </div>
                         </div>
                     @else
-                        <div class="flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-1.5 text-[10px] font-black uppercase text-slate-800">
+                        <div class="shop-order-row-unit flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-1.5 text-[10px] font-black uppercase text-slate-800">
                             {{ $productData['current_unit_label'] }}
                         </div>
                         <input type="hidden" name="item_units[{{ $productData['line_key'] }}]" value="{{ $productData['current_unit'] }}" data-inline-unit data-product-id="{{ $productData['id'] }}" data-line-key="{{ $productData['line_key'] }}">
@@ -202,11 +212,11 @@
                         data-inline-qty
                         data-product-id="{{ $productData['id'] }}"
                         data-line-key="{{ $productData['line_key'] }}"
-                        class="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-right text-sm font-black text-slate-950 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        class="shop-order-row-qty h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-right text-sm font-black text-slate-950 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                         placeholder="0"
                         aria-label="Quantity for {{ $productData['name'] }}"
                     >
-                    <button type="button" data-add-measure-line class="absolute right-0 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border border-slate-200 bg-white text-xs font-black text-slate-500 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700" aria-label="Add another unit for {{ $productData['name'] }}">
+                    <button type="button" data-add-measure-line class="shop-order-row-action absolute right-0 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border border-slate-200 bg-white text-xs font-black text-slate-500 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700" aria-label="Add another unit for {{ $productData['name'] }}">
                         +
                     </button>
                 </div>
@@ -285,6 +295,53 @@
             </button>
         </div>
     </div>
+
+    <style>
+        #shop-owner-order-form.shop-order-layout-two-row [data-product-card] {
+            padding: 0.65rem;
+        }
+
+        #shop-owner-order-form.shop-order-layout-two-row .shop-order-row-grid {
+            grid-template-columns: 4.25rem minmax(0, 1fr) 1.75rem;
+            gap: 0.5rem;
+            padding-right: 0;
+        }
+
+        #shop-owner-order-form.shop-order-layout-two-row .shop-order-row-unit {
+            grid-column: 1 / 2;
+            width: 100%;
+        }
+
+        #shop-owner-order-form.shop-order-layout-two-row .shop-order-row-qty {
+            grid-column: 2 / -1;
+        }
+
+        #shop-owner-order-form.shop-order-layout-two-row .shop-order-row-action {
+            position: static;
+            grid-column: 3 / 4;
+            grid-row: 1;
+            transform: none;
+            justify-self: end;
+        }
+
+        @media (min-width: 640px) {
+            #shop-owner-order-form.shop-order-layout-two-row .shop-order-row-grid {
+                grid-template-columns: 2.25rem minmax(0, 1fr) 5rem 6rem 2rem;
+            }
+
+            #shop-owner-order-form.shop-order-layout-two-row .shop-order-row-unit {
+                grid-column: 3 / 4;
+            }
+
+            #shop-owner-order-form.shop-order-layout-two-row .shop-order-row-qty {
+                grid-column: 4 / 5;
+            }
+
+            #shop-owner-order-form.shop-order-layout-two-row .shop-order-row-action {
+                grid-column: 5 / 6;
+            }
+        }
+    </style>
 
     @if ($allowPresetSave ?? true)
         <form method="POST" action="{{ route('requisitions.presets.store') }}" data-save-preset-form class="hidden" aria-hidden="true">
