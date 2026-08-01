@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const draftCartClear = document.getElementById('draft-cart-clear');
     const draftCartSubmit = document.getElementById('draft-cart-submit');
     const clearOrderForm = document.getElementById('shop-owner-clear-order-form');
+    const cancelSubmittedOrder = document.getElementById('submitted-order-cancel');
     const pageSubmitButtons = Array.from(document.querySelectorAll('[data-open-cart-submit]'));
     const itemsErrorBanner = document.querySelector('[data-items-error-banner]');
     const savePresetForm = document.querySelector('[data-save-preset-form]');
@@ -497,6 +498,16 @@ document.addEventListener('DOMContentLoaded', () => {
             input.value = '';
         });
         syncAll();
+        window.localStorage.removeItem(draftStorageKey);
+    });
+
+    cancelSubmittedOrder?.addEventListener('click', () => {
+        const confirmed = window.confirm('Cancel this submitted order? This removes the unapproved order for tomorrow.');
+
+        if (!confirmed) {
+            return;
+        }
+
         window.localStorage.removeItem(draftStorageKey);
         clearOrderForm?.submit();
     });

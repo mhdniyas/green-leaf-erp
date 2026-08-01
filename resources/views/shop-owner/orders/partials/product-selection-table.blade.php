@@ -87,6 +87,11 @@
 
     $productCardsForOrder = $allProductsForOrder;
     $rowSelectionLabel = $rowSelectionLabel ?? 'Selected for cart';
+    $canCancelSubmittedOrder = ($orderFormMode ?? 'shop-owner') === 'shop-owner'
+        && $tomorrowOrder
+        && $tomorrowOrder->state !== 'approved'
+        && ! $tomorrowOrder->isFinanciallyLocked()
+        && ! $tomorrowOrder->is_delivered;
 @endphp
 
 <div class="space-y-5 pb-28">
@@ -235,6 +240,11 @@
             <button type="button" id="draft-cart-clear" class="rounded-xl border border-white/15 px-3 py-2 text-[11px] font-black uppercase tracking-[0.12em] text-white transition hover:bg-white/10">
                 Clear
             </button>
+            @if ($canCancelSubmittedOrder)
+                <button type="button" id="submitted-order-cancel" class="rounded-xl border border-rose-300/50 px-3 py-2 text-[11px] font-black uppercase tracking-[0.12em] text-rose-100 transition hover:bg-rose-500/20">
+                    Cancel Order
+                </button>
+            @endif
             <button type="button" id="draft-cart-submit" class="rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black uppercase tracking-[0.12em] text-slate-950 transition hover:bg-emerald-400">
                 {{ $stickySubmitLabel ?? 'Add To Cart' }}
             </button>

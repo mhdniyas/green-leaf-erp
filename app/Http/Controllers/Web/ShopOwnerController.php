@@ -116,7 +116,7 @@ class ShopOwnerController extends Controller
 
             $orders->each->delete();
 
-            return ['status' => 'success', 'message' => 'Unapproved order cleared.'];
+            return ['status' => 'success', 'message' => 'Unapproved order cancelled.'];
         });
 
         return redirect()
