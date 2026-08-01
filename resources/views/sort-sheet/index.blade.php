@@ -109,7 +109,7 @@
                    id="print-segregate-btn"
                    target="_blank"
                    class="inline-flex items-center gap-2 rounded-xl bg-cyan-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-cyan-800 transition-all shadow-md hover:shadow-lg">
-                    Print Segregate
+                    Shop Wise Print
                 </a>
                 <a href="{{ $segregationGridPrintRoute($filterParams) }}"
                    id="print-segregate-grid-btn"
@@ -148,7 +148,7 @@
                    id="selection-matrix-print-btn"
                    target="_blank"
                    class="inline-flex items-center gap-2 rounded-xl bg-cyan-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-cyan-800 transition-all shadow-md hover:shadow-lg">
-                    Print Segregate
+                    Shop Wise Print
                 </a>
                 <a href="{{ $segregationGridPrintRoute($filterParams) }}"
                    id="selection-grid-print-btn"
@@ -375,7 +375,7 @@
                         <a href="{{ $segregationMatrixPrintRoute($filterParams) }}"
                            target="_blank"
                            class="inline-flex items-center gap-1.5 rounded-xl bg-cyan-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-cyan-800 transition-all shadow-sm">
-                            Print Segregate
+                            Shop Wise Print
                         </a>
                         <a href="{{ $segregationGridPrintRoute($filterParams) }}"
                            target="_blank"
@@ -409,7 +409,7 @@
                         <a href="{{ $segregationMatrixPrintRoute($filterParams) }}"
                            target="_blank"
                            class="inline-flex items-center gap-1.5 rounded-xl bg-cyan-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-cyan-800 transition-all shadow-sm">
-                            Print Segregate
+                            Shop Wise Print
                         </a>
                         <a href="{{ $segregationGridPrintRoute($filterParams) }}"
                            target="_blank"

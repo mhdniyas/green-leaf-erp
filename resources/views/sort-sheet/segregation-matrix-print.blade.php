@@ -44,12 +44,15 @@
         .shop-title {
             align-items: flex-end;
             display: flex;
-            font-size: 12px;
+            font-size: 14px;
             font-weight: 900;
             justify-content: space-between;
             line-height: 1.1;
-            margin-bottom: 2px;
-            min-height: 18px;
+            margin: 5px 0 6px;
+            min-height: 20px;
+        }
+        .shop-title strong {
+            font-weight: 900;
         }
         table {
             border-collapse: collapse;
@@ -115,8 +118,8 @@
                 width: calc(297mm - 10px);
             }
             .shop-title {
-                font-size: 12px;
-                margin-bottom: 2px;
+                font-size: 14px;
+                margin: 5px 0 6px;
             }
             th,
             td {
@@ -162,8 +165,8 @@
 
             <div class="page">
                 <div class="shop-title">
-                    <div>{{ $shop->name }}{{ $shop->warehouse_tag ? ' - '.$shop->warehouse_tag : '' }}</div>
-                    <div>{{ \Carbon\Carbon::parse($date)->format('d-M') }}</div>
+                    <strong>{{ $shop->warehouse_tag ?: $shop->name }}</strong>
+                    <strong>{{ \Carbon\Carbon::parse($date)->format('d-M') }}</strong>
                 </div>
                 <table>
                     <colgroup>
@@ -176,7 +179,7 @@
                         <tr>
                             <th>Code</th>
                             <th>Item</th>
-                            <th class="shop-head">{{ $shop->name }}<br>{{ $shop->warehouse_tag ?: '-' }}</th>
+                            <th class="shop-head">{{ $shop->name }}</th>
                             <th>Total</th>
                         </tr>
                     </thead>
@@ -186,7 +189,7 @@
                                 <td class="code-cell">{{ $row['code'] }}</td>
                                 <td class="item-cell">{{ $row['name'] }}</td>
                                 <td>{{ $row['qty'] }}</td>
-                                <td class="total-cell">{{ $row['qty'] }}</td>
+                                <td class="total-cell"></td>
                             </tr>
                         @endforeach
                     </tbody>
