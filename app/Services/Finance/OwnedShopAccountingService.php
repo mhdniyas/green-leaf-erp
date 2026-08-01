@@ -488,12 +488,12 @@ class OwnedShopAccountingService
         $shopCashMovement = $this->shopCashMovementForDate($shop, $businessDate);
         $cashMovement = round((float) $entries->sum(function (ShopAccountingEntry $entry): float {
             $cashCredit = (float) $entry->lines
-                ->reject(fn (ShopAccountingEntryLine $line): bool => (bool) $line->is_loan_entry && $line->type === 'expense')
+                ->pipe(fn (Collection $lines): Collection => $this->cashBalanceLines($lines))
                 ->where('type', 'income')
                 ->where('cash_effect', true)
                 ->sum('amount');
             $cashDebit = (float) $entry->lines
-                ->reject(fn (ShopAccountingEntryLine $line): bool => (bool) $line->is_loan_entry && $line->type === 'expense')
+                ->pipe(fn (Collection $lines): Collection => $this->cashBalanceLines($lines))
                 ->where('type', 'expense')
                 ->where('cash_effect', true)
                 ->sum('amount');
@@ -542,12 +542,12 @@ class OwnedShopAccountingService
 
             $entries->each(function (ShopAccountingEntry $entry, int $index) use (&$runningClosing, $openingBalance, $userId): void {
                 $cashCredit = (float) $entry->lines
-                    ->reject(fn (ShopAccountingEntryLine $line): bool => (bool) $line->is_loan_entry && $line->type === 'expense')
+                    ->pipe(fn (Collection $lines): Collection => $this->cashBalanceLines($lines))
                     ->where('type', 'income')
                     ->where('cash_effect', true)
                     ->sum('amount');
                 $cashDebit = (float) $entry->lines
-                    ->reject(fn (ShopAccountingEntryLine $line): bool => (bool) $line->is_loan_entry && $line->type === 'expense')
+                    ->pipe(fn (Collection $lines): Collection => $this->cashBalanceLines($lines))
                     ->where('type', 'expense')
                     ->where('cash_effect', true)
                     ->sum('amount');
@@ -623,7 +623,7 @@ class OwnedShopAccountingService
     public function receiptSummary(?ShopAccountingEntry $entry, float $fallbackOpeningBalance = 0.0, float $shopCashMovement = 0.0, float $approvedDeliveryBill = 0.0): array
     {
         $lines = $entry?->lines ?? collect();
-        $cashBalanceLines = $lines->reject(fn (ShopAccountingEntryLine $line): bool => (bool) $line->is_loan_entry && $line->type === 'expense');
+        $cashBalanceLines = $this->cashBalanceLines($lines);
         $openingBalance = round((float) ($entry?->opening_cash ?? $fallbackOpeningBalance), 2);
         $enteredClosing = $entry?->closing_cash !== null ? round((float) $entry->closing_cash, 2) : null;
         $allIncome = round((float) $lines
@@ -711,7 +711,7 @@ class OwnedShopAccountingService
         $cashMovement = $this->shopCashMovementBreakdownForDate($shop, $businessDate);
         $approvedDeliveryBill = $this->approvedDeliveryBillTotalForDate($shop, $businessDate);
         $lines = $entries->flatMap(fn (ShopAccountingEntry $entry): Collection => $entry->lines);
-        $cashBalanceLines = $lines->reject(fn (ShopAccountingEntryLine $line): bool => (bool) $line->is_loan_entry && $line->type === 'expense');
+        $cashBalanceLines = $this->cashBalanceLines($lines);
         $allIncome = round((float) $lines
             ->filter(fn (ShopAccountingEntryLine $line): bool => $line->type === 'income')
             ->sum('amount'), 2);
@@ -772,6 +772,22 @@ class OwnedShopAccountingService
             ->whereDate('business_date', $businessDate->toDateString())
             ->get()
             ->sum(fn (ShopCredit $credit): float => $credit->shopSignedAmount()), 2);
+    }
+
+    /**
+     * @param  Collection<int, ShopAccountingEntryLine>  $lines
+     * @return Collection<int, ShopAccountingEntryLine>
+     */
+    private function cashBalanceLines(Collection $lines): Collection
+    {
+        return $lines->reject(function (ShopAccountingEntryLine $line): bool {
+            if ($line->type !== 'expense') {
+                return false;
+            }
+
+            return (bool) $line->is_loan_entry
+                || in_array((string) $line->funding_source, ['petty', 'company'], true);
+        });
     }
 
     /**

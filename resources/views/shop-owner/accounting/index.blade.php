@@ -392,19 +392,19 @@
                             <p class="font-black tabular-nums">Rs. {{ number_format($receiptSummary['opening_balance'], 2) }}</p>
                         </div>
                         <div class="grid grid-cols-[1fr_auto] items-center gap-3">
-                            <p class="font-bold text-emerald-900">Cash Sales</p>
+                            <p class="font-bold text-emerald-900">Cash From Sales</p>
                             <p class="font-black text-emerald-900 tabular-nums">Rs. {{ number_format($receiptSummary['cash_credit'], 2) }}</p>
                         </div>
                         <div class="grid grid-cols-[1fr_auto] items-center gap-3">
-                            <p class="font-bold text-emerald-900">Legacy Cash In / Cash Given</p>
+                            <p class="font-bold text-emerald-900">Cash From Company</p>
                             <p class="font-black text-emerald-900 tabular-nums">Rs. {{ number_format($receiptSummary['cash_given_to_shop'], 2) }}</p>
                         </div>
                         <div class="grid grid-cols-[1fr_auto] items-center gap-3">
                             <p class="font-bold text-cyan-900">Online Payment</p>
                             <p class="font-black text-cyan-900 tabular-nums">Rs. {{ number_format($receiptSummary['non_cash_income'], 2) }}</p>
                         </div>
-http://green-leaf-erp.test/shop-owner/finance                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
-                            <p class="font-bold text-amber-900">Paid Company / Cash Out</p>
+                        <div class="grid grid-cols-[1fr_auto] items-center gap-3">
+                            <p class="font-bold text-amber-900">Cash Paid To Company</p>
                             <p class="font-black text-amber-900 tabular-nums">Rs. {{ number_format($receiptSummary['payment_to_company'], 2) }}</p>
                         </div>
                         <div class="grid grid-cols-[1fr_auto] items-center gap-3">
@@ -526,11 +526,11 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                                                 <p class="mt-1 font-black text-slate-950">Rs. {{ number_format($ledgerDay['income'], 2) }}</p>
                                             </div>
                                             <div class="rounded-xl bg-emerald-50 p-3">
-                                                <p class="font-black uppercase tracking-[0.12em] text-emerald-700">Legacy Cash In / Cash Given</p>
+                                                <p class="font-black uppercase tracking-[0.12em] text-emerald-700">Cash From Company</p>
                                                 <p class="mt-1 font-black text-emerald-800">Rs. {{ number_format($ledgerDay['cash_given_to_shop'], 2) }}</p>
                                             </div>
                                             <div class="rounded-xl bg-amber-50 p-3">
-                                                <p class="font-black uppercase tracking-[0.12em] text-amber-700">Paid Company / Cash Out</p>
+                                                <p class="font-black uppercase tracking-[0.12em] text-amber-700">Cash Paid To Company</p>
                                                 <p class="mt-1 font-black text-amber-800">Rs. {{ number_format($ledgerDay['payment_to_company'], 2) }}</p>
                                             </div>
                                             <div class="rounded-xl bg-rose-50 p-3">
@@ -553,8 +553,8 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                                             <th class="px-4 py-3">Date</th>
                                             <th class="px-4 py-3">Status</th>
                                             <th class="px-4 py-3 text-right">Income</th>
-                                            <th class="px-4 py-3 text-right">Legacy Cash In / Cash Given</th>
-                                            <th class="px-4 py-3 text-right">Paid Company / Cash Out</th>
+                                            <th class="px-4 py-3 text-right">Cash From Company</th>
+                                            <th class="px-4 py-3 text-right">Cash Paid To Company</th>
                                             <th class="px-4 py-3 text-right">Manual Expense</th>
                                             <th class="px-4 py-3 text-right">Warehouse Invoice</th>
                                             <th class="px-4 py-3 text-right">Closing</th>
@@ -726,7 +726,7 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                                 <div>
                             <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Ledger Items</p>
                             <h3 class="mt-2 text-lg font-black text-slate-950">Add receipt lines</h3>
-	                            <p class="mt-2 text-sm font-semibold text-slate-600">Cash-effect income is Cash Sales. Approved delivery bills are added automatically as Cash Debit. Do not add the same delivery bill manually.</p>
+	                            <p class="mt-2 text-sm font-semibold text-slate-600">Cash-effect income is cash from sales. Company cash and petty movements are tracked separately. Approved delivery bills are added automatically as Cash Debit.</p>
                         </div>
                                 <button
                                     type="button"
@@ -758,6 +758,8 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                                     <input type="hidden" name="lines[{{ $index }}][shop_accounting_category_id]" value="{{ $line['shop_accounting_category_id'] ?? '' }}">
                                     <input type="hidden" name="lines[{{ $index }}][amount]" value="{{ $line['amount'] ?? '' }}">
                                     <input type="hidden" name="lines[{{ $index }}][description]" value="{{ $line['description'] ?? '' }}">
+                                    <input type="hidden" name="lines[{{ $index }}][funding_source]" value="{{ $line['funding_source'] ?? '' }}">
+                                    <input type="hidden" name="lines[{{ $index }}][is_loan_entry]" value="{{ $line['is_loan_entry'] ?? '0' }}">
                                 @endforeach
                             </div>
                         </div>
@@ -810,9 +812,15 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                                                 <td class="px-4 py-3 font-black text-slate-950">
                                                     {{ $line->category?->name ?? 'Category removed' }}
                                                     @if($line->type === 'expense' && in_array((string) $line->funding_source, ['sales', 'petty', 'company'], true))
-                                                        <span class="mt-1 block w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-violet-700">Paid from {{ str($line->funding_source)->title() }}</span>
+                                                        <span class="mt-1 block w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-violet-700">
+                                                            {{ match ((string) $line->funding_source) {
+                                                                'petty' => 'Petty Cash',
+                                                                'company' => 'Cash From Company',
+                                                                default => 'Cash From Sales',
+                                                            } }}
+                                                        </span>
                                                     @elseif((bool) $line->is_loan_entry && $line->type === 'expense')
-                                                        <span class="mt-1 block w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-violet-700">Paid from Petty</span>
+                                                        <span class="mt-1 block w-fit rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-violet-700">Petty Cash</span>
                                                     @endif
                                                     @if($line->company_payable_status === 'rejected' && filled($line->company_rejection_reason))
                                                         <span class="mt-1 block text-xs font-semibold text-rose-700">Rejected: {{ $line->company_rejection_reason }}</span>
@@ -884,11 +892,11 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                             <label class="block" id="cashbook-funding-wrap">
                                 <span class="block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Paid From</span>
                                 <select id="cashbook-line-funding" class="mt-2 w-full rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-black text-violet-950 focus:border-violet-500 focus:outline-none">
-                                    <option value="sales">Sales</option>
-                                    <option value="petty">Petty</option>
+                                    <option value="sales">Cash From Sales</option>
+                                    <option value="petty">Petty Cash</option>
                                     <option value="company">Company</option>
                                 </select>
-                                <span id="cashbook-line-loan-help" class="mt-1 block text-xs font-semibold text-violet-700">This expense will be deducted from the shop’s sales collection.</span>
+                                <span id="cashbook-line-loan-help" class="mt-1 block text-xs font-semibold text-violet-700">This expense will be deducted from cash from sales.</span>
                                 <input id="cashbook-line-loan" type="checkbox" class="hidden">
                             </label>
                             <label class="block">
@@ -1130,13 +1138,13 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
             };
             const fundingHelpText = (source) => {
                 if (source === 'petty') {
-                    return 'This expense will be deducted from the shop’s Petty balance.';
+                    return 'This expense will be deducted from the shop petty cash balance.';
                 }
                 if (source === 'company') {
-                    return 'This expense will be submitted to Green Leaf for review and settlement.';
+                    return 'This expense will be submitted as cash from company for review and settlement.';
                 }
 
-                return 'This expense will be deducted from the shop’s sales collection.';
+                return 'This expense will be deducted from cash from sales.';
             };
             const cashbookLabel = (meta, line = null) => {
                 if (!meta) {
@@ -1146,17 +1154,17 @@ http://green-leaf-erp.test/shop-owner/finance                        <div class=
                 if (meta.type === 'expense') {
                     const source = fundingSourceOf(line);
                     if (source === 'petty') {
-                        return 'Paid from Petty';
+                        return 'Petty Cash';
                     }
                     if (source === 'company') {
-                        return 'Paid from Company';
+                        return 'Cash From Company';
                     }
 
-                    return 'Paid from Sales';
+                    return 'Cash From Sales';
                 }
 
                 if (meta.type === 'income') {
-                    return meta.cash_effect ? 'Cash Sales' : 'Online Payment';
+                    return meta.cash_effect ? 'Cash From Sales' : 'Online Payment';
                 }
 
                 return meta.cash_effect ? 'Cash Debit' : 'Online Payment Debit';
