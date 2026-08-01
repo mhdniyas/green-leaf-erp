@@ -250,6 +250,7 @@ Route::middleware('auth')->group(function () {
     Route::resource('requisitions/presets', ShopPresetController::class)->names('requisitions.presets');
 
     // ── Requisitions ───────────────────────────────────────────────────────
+    Route::post('/requisitions', [RequisitionController::class, 'store'])->name('requisitions.store');
     Route::get('/requisitions/{order_number}', [RequisitionController::class, 'show'])->name('requisitions.show');
     Route::get('/requisitions/{order_number}/edit', [RequisitionController::class, 'edit'])->name('requisitions.edit');
     Route::post('/requisitions/{order_number}/edit', [RequisitionController::class, 'update'])->name('requisitions.update');
@@ -277,7 +278,6 @@ Route::middleware('auth')->group(function () {
     Route::post('/business-day-settings/auto-approve', [BusinessDaySettingsController::class, 'updateAutoApprove'])->name('business-day-settings.auto-approve.update');
     Route::get('/requisitions/{order_number}/export/csv', [RequisitionController::class, 'exportCsv'])->name('requisitions.export.csv');
     Route::get('/requisitions/{order_number}/export/pdf', [RequisitionController::class, 'exportPdf'])->name('requisitions.export.pdf');
-    Route::post('/requisitions', [RequisitionController::class, 'store'])->name('requisitions.store');
 
     // ── Purchaser Dashboard ────────────────────────────────────────────────
     Route::get('/purchaser/dashboard', [PurchaserDashboardController::class, 'index'])->name('purchaser.dashboard');
