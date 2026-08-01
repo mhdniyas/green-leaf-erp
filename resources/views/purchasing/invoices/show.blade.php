@@ -9,6 +9,10 @@
         $paidBy = $invoice->payment_paid_by ?? 'purchaser';
         $clearedByCompany = $paidBy === 'company';
         $clearedByVendorCredit = $paidBy === 'vendor_credit';
+        $billUpdateRequests = $billUpdateRequests ?? collect();
+        $latestBillUpdateRequest = $billUpdateRequests->first();
+        $hasApprovedBillUpdateAccess = $billUpdateRequests->contains(fn($request) => $request->isActiveApproval());
+        $canSubmitBillUpdate = ($canUpdateBillNow ?? true) || $hasApprovedBillUpdateAccess;
 
         $statusRibbonText = match(true) {
             $invoice->status->value === 'paid' => 'PAID',
@@ -53,6 +57,8 @@
             'paymentNote' => $invoice->payment_note,
             'paymentDetails' => $invoice->payment_details,
             'creditApproved' => (bool) $invoice->supplier?->credit_approved,
+            'billNumber' => $invoice->invoice_number,
+            'businessDate' => $businessDate?->format('Y-m-d'),
         ];
     @endphp
 
@@ -70,9 +76,15 @@
                 <a href="{{ route($billPdfRouteName, $invoice) }}" target="_blank" class="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-3.5 text-xs font-black text-slate-700 hover:bg-slate-100">
                     Open Bill PDF
                 </a>
-                <button type="button" onclick='openShowPaymentModal(@json($paymentModalData), "{{ route($paymentUpdateRouteName, $invoice) }}")' class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-950 px-4 text-xs font-black text-white hover:bg-slate-800">
-                    Update Payment
-                </button>
+                @if ($canSubmitBillUpdate)
+                    <button type="button" onclick='openShowPaymentModal(@json($paymentModalData), "{{ route($paymentUpdateRouteName, $invoice) }}")' class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-950 px-4 text-xs font-black text-white hover:bg-slate-800">
+                        Update Bill
+                    </button>
+                @else
+                    <span class="inline-flex h-9 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 px-3.5 text-xs font-black text-amber-700">
+                        Access Required
+                    </span>
+                @endif
             </div>
         </div>
 
@@ -310,6 +322,39 @@
                         <div class="flex items-center justify-between"><span class="text-slate-500">Payment Status</span><span class="font-semibold text-slate-950">{{ str($invoice->payment_status ?: 'unpaid')->replace('_', ' ')->title() }}</span></div>
                     </div>
                 </div>
+
+                @if (($financeAudience ?? '') === 'purchaser')
+                    <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+                        <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Old Bill Access</p>
+                        @if ($canUpdateBillNow ?? false)
+                            <p class="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">Current purchase date is still inside purchaser entry cutoff.</p>
+                        @elseif ($hasApprovedBillUpdateAccess)
+                            <p class="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">Admin approved this old bill update. You can edit it for a limited time.</p>
+                        @else
+                            <form method="POST" action="{{ route($billUpdateRequestRouteName, $invoice) }}" class="mt-3 space-y-3">
+                                @csrf
+                                <label class="block">
+                                    <span class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Correct Purchase Date</span>
+                                    <input type="date" name="requested_business_date" value="{{ old('requested_business_date', $businessDate?->format('Y-m-d')) }}" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
+                                </label>
+                                <label class="block">
+                                    <span class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Reason</span>
+                                    <textarea name="reason" rows="3" required class="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none" placeholder="Explain bill number, payment, or date correction needed.">{{ old('reason') }}</textarea>
+                                </label>
+                                <button type="submit" class="h-10 w-full rounded-xl bg-amber-600 text-xs font-black text-white hover:bg-amber-500">Request Access</button>
+                            </form>
+                        @endif
+
+                        @if ($latestBillUpdateRequest)
+                            <div class="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-600">
+                                Latest request: <span class="font-black text-slate-900">{{ str($latestBillUpdateRequest->status)->title() }}</span>
+                                @if ($latestBillUpdateRequest->requested_business_date)
+                                    • Date {{ $latestBillUpdateRequest->requested_business_date->format('d M Y') }}
+                                @endif
+                            </div>
+                        @endif
+                    </div>
+                @endif
             </aside>
         </div>
     </div>
@@ -346,6 +391,16 @@
                         <span id="show-payment-balance" class="text-amber-700"></span>
                     </div>
                     <p id="show-payment-warning" class="mt-2 text-[10px] font-semibold text-amber-700"></p>
+                </div>
+
+                <div>
+                    <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Bill No</label>
+                    <input id="show_bill_number" type="text" name="bill_number" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
+                </div>
+
+                <div>
+                    <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Purchase Date</label>
+                    <input id="show_business_date" type="date" name="business_date" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
                 </div>
 
                 <div>
@@ -397,6 +452,8 @@
             document.getElementById('show-payment-title').textContent = `${invoice.number} • ${invoice.supplier ?? 'Supplier pending'}`;
             document.getElementById('show-payment-total').textContent = `₹${Number(invoice.amount || 0).toFixed(2)}`;
             document.getElementById('show_discount_amount').value = Number(invoice.discountAmount || 0).toFixed(2);
+            document.getElementById('show_bill_number').value = invoice.billNumber || invoice.number || '';
+            document.getElementById('show_business_date').value = invoice.businessDate || '';
             document.getElementById('show_payment_method').value = invoice.paymentMethod || 'Cash';
             document.getElementById('show_paid_amount').value = Number(invoice.paidAmount || 0).toFixed(2);
             document.getElementById('show_payment_note').value = invoice.paymentNote || '';

@@ -425,6 +425,7 @@ class RequisitionController extends Controller
             successRedirectRoute: 'purchaser.vendors',
             managerNote: 'Green Leaf Direct Purchase',
             successPrefix: 'Green Leaf Direct Purchase order',
+            enforcePurchaserCutoff: false,
         );
     }
 
@@ -438,6 +439,7 @@ class RequisitionController extends Controller
             successRedirectRoute: 'purchaser.daily',
             managerNote: 'Purchaser Add-on',
             successPrefix: 'Purchaser add-on order',
+            enforcePurchaserCutoff: true,
         );
     }
 
@@ -447,11 +449,18 @@ class RequisitionController extends Controller
         string $successRedirectRoute,
         string $managerNote,
         string $successPrefix,
+        bool $enforcePurchaserCutoff = false,
     ): RedirectResponse {
         $validated = $request->validate([
             'business_date' => ['required', 'date'],
             'items' => ['required', 'array'],
         ]);
+
+        if ($enforcePurchaserCutoff && ! $this->businessDayService->isPurchaserEntryOpenForDate($validated['business_date'])) {
+            throw ValidationException::withMessages([
+                'business_date' => 'Purchaser entry is closed for this purchase date. Request admin access for old bill updates.',
+            ]);
+        }
 
         $items = $this->resolveRequestedProducts($validated['items'], $request->input('item_units', []), $request->input('item_measures', []));
 

@@ -149,6 +149,11 @@ class PurchaseInvoice extends Model
         return $this->hasMany(PurchaseInvoicePayment::class);
     }
 
+    public function billUpdateRequests(): HasMany
+    {
+        return $this->hasMany(PurchaserBillUpdateRequest::class);
+    }
+
     public function purchaserSubmittedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'purchaser_submitted_by');

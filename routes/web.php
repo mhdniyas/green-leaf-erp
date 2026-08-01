@@ -35,6 +35,7 @@ use App\Http\Controllers\Web\Purchasing\DailyPriceBoardController;
 use App\Http\Controllers\Web\Purchasing\GoodsReceivedController;
 use App\Http\Controllers\Web\Purchasing\OtherExpenseController;
 use App\Http\Controllers\Web\Purchasing\ProcurementExpenseController;
+use App\Http\Controllers\Web\Purchasing\PurchaserBillUpdateAccessController;
 use App\Http\Controllers\Web\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Web\Purchasing\PurchaseOrderController;
 use App\Http\Controllers\Web\Purchasing\PurchaserDashboardController;
@@ -272,6 +273,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/approved-board/export/csv', [RequisitionController::class, 'exportApprovedBoardCsv'])->name('requisitions.approved_board.export.csv');
     Route::get('/approved-board/export/pdf', [RequisitionController::class, 'exportApprovedBoardPdf'])->name('requisitions.approved_board.export.pdf');
     Route::post('/business-day-settings/cutoff', [BusinessDaySettingsController::class, 'updateCutoff'])->name('business-day-settings.cutoff.update');
+    Route::post('/business-day-settings/purchaser-entry-cutoff', [BusinessDaySettingsController::class, 'updatePurchaserEntryCutoff'])->name('business-day-settings.purchaser-entry-cutoff.update');
     Route::post('/business-day-settings/auto-approve', [BusinessDaySettingsController::class, 'updateAutoApprove'])->name('business-day-settings.auto-approve.update');
     Route::get('/requisitions/{order_number}/export/csv', [RequisitionController::class, 'exportCsv'])->name('requisitions.export.csv');
     Route::get('/requisitions/{order_number}/export/pdf', [RequisitionController::class, 'exportPdf'])->name('requisitions.export.pdf');
@@ -319,6 +321,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/invoices/{invoice}', [PurchaserDashboardController::class, 'invoiceShow'])->name('purchaser.invoices.show');
     Route::get('/purchaser/invoices/{invoice}/pdf', [PurchaserDashboardController::class, 'invoicePdf'])->name('purchaser.invoices.pdf');
     Route::patch('/purchaser/invoices/{invoice}/payment', [PurchaserDashboardController::class, 'updateInvoicePayment'])->name('purchaser.invoices.payment');
+    Route::post('/purchaser/invoices/{invoice}/bill-update-access', [PurchaserBillUpdateAccessController::class, 'store'])->name('purchaser.invoices.bill-update-access.store');
     Route::post('/purchaser/corrections', [PurchaserDashboardController::class, 'storeCorrectionRequest'])->name('purchaser.corrections.store');
     Route::post('/purchaser/corrections/{correctionRequest}/approve', [PurchaserDashboardController::class, 'approveCorrectionRequest'])->name('purchaser.corrections.approve');
     Route::post('/purchaser/corrections/{correctionRequest}/reject', [PurchaserDashboardController::class, 'rejectCorrectionRequest'])->name('purchaser.corrections.reject');
@@ -443,6 +446,8 @@ Route::middleware('auth')->group(function () {
             Route::get('purchasers/{user:public_uuid}', [AdminAccountingController::class, 'purchaserShow'])->name('purchasers.show');
             Route::post('purchasers/{user:public_uuid}/credits', [AdminAccountingController::class, 'storePurchaserCredit'])->name('purchasers.credits.store');
             Route::post('purchasers/{user:public_uuid}/buy', [AdminAccountingController::class, 'buyAsPurchaser'])->name('purchasers.buy');
+            Route::post('purchaser-bill-update-requests/{billUpdateRequest}/approve', [PurchaserBillUpdateAccessController::class, 'approve'])->name('purchaser-bill-update-requests.approve');
+            Route::post('purchaser-bill-update-requests/{billUpdateRequest}/reject', [PurchaserBillUpdateAccessController::class, 'reject'])->name('purchaser-bill-update-requests.reject');
         });
         Route::post('users/{user}/approve', [UserController::class, 'approve'])->name('users.approve');
         Route::resource('users', UserController::class)->middleware('can:admin.user.view');
