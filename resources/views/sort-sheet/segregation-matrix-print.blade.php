@@ -133,7 +133,7 @@
 
     @if(count($matrix) > 0)
         @php
-            $rowsPerPage = 14;
+            $rowsPerPage = 10;
             $matrixPages = array_chunk($matrix, $rowsPerPage, true);
             $shopCount = max(1, $filteredShops->count());
             $shopWidth = (100 - 3 - 15 - 7) / $shopCount;
