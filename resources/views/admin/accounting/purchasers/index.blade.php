@@ -202,7 +202,7 @@
             </div>
         </section>
 
-        <section class="overflow-hidden rounded-[1.9rem] border border-slate-200 bg-white shadow-sm">
+        <section id="purchaser-reports-section" class="overflow-hidden rounded-[1.9rem] border border-slate-200 bg-white shadow-sm">
             <div class="border-b border-slate-200 bg-slate-950 px-5 py-5 text-white">
                 <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                     <div>
@@ -210,7 +210,7 @@
                         <h2 class="mt-2 text-2xl font-black tracking-tight">Cash flow details</h2>
                         <p class="mt-2 max-w-3xl text-sm font-semibold text-slate-300">Every row shows who moved money, why it moved, and the related invoice or journal reference.</p>
                     </div>
-                    <form method="GET" action="{{ route('admin.accounting.purchasers.index') }}" class="grid gap-2 rounded-2xl bg-white/10 p-2 sm:grid-cols-2 lg:grid-cols-5">
+                    <form method="GET" action="{{ route('admin.accounting.purchasers.index') }}" data-purchaser-report-form class="grid gap-2 rounded-2xl bg-white/10 p-2 sm:grid-cols-2 lg:grid-cols-5">
                         <input type="hidden" name="report_tab" value="{{ $activeReportTab }}">
                         <label>
                             <span class="block text-[9px] font-black uppercase tracking-[0.14em] text-slate-300">From</span>
@@ -267,7 +267,7 @@
 
                 <div class="flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 p-1">
                     @foreach($reportTabs as $tabKey => $tabLabel)
-                        <a href="{{ route('admin.accounting.purchasers.index', array_merge($reportQuery, ['report_tab' => $tabKey])) }}" class="inline-flex h-10 shrink-0 items-center rounded-xl px-4 text-xs font-black uppercase tracking-[0.14em] transition {{ $activeReportTab === $tabKey ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-950' }}">
+                        <a href="{{ route('admin.accounting.purchasers.index', array_merge($reportQuery, ['report_tab' => $tabKey])) }}" data-purchaser-report-tab="{{ $tabKey }}" class="inline-flex h-10 shrink-0 items-center rounded-xl px-4 text-xs font-black uppercase tracking-[0.14em] transition {{ $activeReportTab === $tabKey ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-950' }}">
                             {{ $tabLabel }}
                         </a>
                     @endforeach
@@ -410,4 +410,79 @@
     </div>
 
     <script src="{{ asset('js/accounting-purchasers-export.js') }}" defer></script>
+    <script>
+        (() => {
+            const sectionSelector = '#purchaser-reports-section';
+            let activeController = null;
+
+            const loadPurchaserReports = async (url) => {
+                const currentSection = document.querySelector(sectionSelector);
+                if (! currentSection) return;
+
+                activeController?.abort();
+                activeController = new AbortController();
+                currentSection.classList.add('opacity-60', 'pointer-events-none');
+
+                try {
+                    const response = await fetch(url, {
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Accept': 'text/html',
+                        },
+                        signal: activeController.signal,
+                    });
+
+                    if (! response.ok) {
+                        window.location.href = url;
+                        return;
+                    }
+
+                    const html = await response.text();
+                    const parsed = new DOMParser().parseFromString(html, 'text/html');
+                    const nextSection = parsed.querySelector(sectionSelector);
+
+                    if (! nextSection) {
+                        window.location.href = url;
+                        return;
+                    }
+
+                    currentSection.replaceWith(nextSection);
+                    window.history.replaceState({}, '', url);
+                } catch (error) {
+                    if (error.name !== 'AbortError') {
+                        window.location.href = url;
+                    }
+                } finally {
+                    document.querySelector(sectionSelector)?.classList.remove('opacity-60', 'pointer-events-none');
+                }
+            };
+
+            document.addEventListener('click', (event) => {
+                const tab = event.target.closest('[data-purchaser-report-tab]');
+                if (! tab) return;
+
+                event.preventDefault();
+                loadPurchaserReports(tab.href);
+            });
+
+            document.addEventListener('submit', (event) => {
+                const form = event.target.closest('[data-purchaser-report-form]');
+                if (! form) return;
+
+                event.preventDefault();
+                const formData = new FormData(form);
+                const url = new URL(form.action, window.location.origin);
+
+                formData.forEach((value, key) => {
+                    if (value !== '') {
+                        url.searchParams.set(key, value.toString());
+                    } else {
+                        url.searchParams.delete(key);
+                    }
+                });
+
+                loadPurchaserReports(url.toString());
+            });
+        })();
+    </script>
 </x-layouts.accounting>
