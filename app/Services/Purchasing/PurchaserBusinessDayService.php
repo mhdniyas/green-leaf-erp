@@ -11,15 +11,11 @@ class PurchaserBusinessDayService
 {
     private const CUTOFF_SETTING_KEY = 'business_day_cutoff_time';
 
-    private const PURCHASER_ENTRY_CUTOFF_SETTING_KEY = 'purchaser_entry_cutoff_time';
-
     private const AUTO_APPROVE_SHOP_ORDERS_KEY = 'auto_approve_shop_orders';
 
     public const AUTO_APPROVE_MANAGER_NOTE = 'Automatically approved by purchase setting.';
 
     private ?string $cachedCutoffTime = null;
-
-    private ?string $cachedPurchaserEntryCutoffTime = null;
 
     private ?bool $cachedAutoApproveShopOrders = null;
 
@@ -95,21 +91,9 @@ class PurchaserBusinessDayService
             ->format('H:i');
     }
 
-    public function purchaserEntryCutoffInputValue(): string
-    {
-        return Carbon::createFromFormat('H:i:s', $this->normalizedPurchaserEntryCutoffTime())
-            ->format('H:i');
-    }
-
     public function cutoffLabel(): string
     {
         return Carbon::createFromFormat('H:i:s', $this->normalizedCutoffTime())
-            ->format('g:i A');
-    }
-
-    public function purchaserEntryCutoffLabel(): string
-    {
-        return Carbon::createFromFormat('H:i:s', $this->normalizedPurchaserEntryCutoffTime())
             ->format('g:i A');
     }
 
@@ -123,37 +107,6 @@ class PurchaserBusinessDayService
         );
 
         $this->cachedCutoffTime = $normalizedTime;
-    }
-
-    public function updatePurchaserEntryCutoffTime(string $time): void
-    {
-        $normalizedTime = strlen($time) === 5 ? "{$time}:00" : $time;
-
-        BusinessSetting::query()->updateOrCreate(
-            ['key' => self::PURCHASER_ENTRY_CUTOFF_SETTING_KEY],
-            ['value' => $normalizedTime],
-        );
-
-        $this->cachedPurchaserEntryCutoffTime = $normalizedTime;
-    }
-
-    public function purchaserEntryCutoffStartsAt(Carbon|string $date): Carbon
-    {
-        [$hour, $minute, $second] = $this->purchaserEntryCutoffTimeParts();
-
-        return Carbon::parse($date)->startOfDay()->setTime($hour, $minute, $second);
-    }
-
-    public function isPurchaserEntryOpenForDate(Carbon|string $date, ?Carbon $moment = null): bool
-    {
-        $moment ??= now();
-        $date = Carbon::parse($date)->startOfDay();
-
-        if (! $date->isSameDay($this->operationalDate($moment))) {
-            return false;
-        }
-
-        return $moment->lt($this->purchaserEntryCutoffStartsAt($date));
     }
 
     public function autoApproveShopOrders(): bool
@@ -191,39 +144,9 @@ class PurchaserBusinessDayService
         );
     }
 
-    /**
-     * @return array{0: int, 1: int, 2: int}
-     */
-    private function purchaserEntryCutoffTimeParts(): array
-    {
-        return array_map(
-            static fn (string $segment): int => (int) $segment,
-            explode(':', $this->normalizedPurchaserEntryCutoffTime())
-        );
-    }
-
     private function normalizedCutoffTime(): string
     {
         $cutoffTime = $this->cutoffTime();
-
-        return strlen($cutoffTime) === 5 ? "{$cutoffTime}:00" : $cutoffTime;
-    }
-
-    private function purchaserEntryCutoffTime(): string
-    {
-        if ($this->cachedPurchaserEntryCutoffTime !== null) {
-            return $this->cachedPurchaserEntryCutoffTime;
-        }
-
-        return $this->cachedPurchaserEntryCutoffTime = BusinessSetting::query()
-            ->where('key', self::PURCHASER_ENTRY_CUTOFF_SETTING_KEY)
-            ->value('value')
-            ?? $this->cutoffTime();
-    }
-
-    private function normalizedPurchaserEntryCutoffTime(): string
-    {
-        $cutoffTime = $this->purchaserEntryCutoffTime();
 
         return strlen($cutoffTime) === 5 ? "{$cutoffTime}:00" : $cutoffTime;
     }

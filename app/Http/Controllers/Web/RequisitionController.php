@@ -425,7 +425,6 @@ class RequisitionController extends Controller
             successRedirectRoute: 'purchaser.vendors',
             managerNote: 'Green Leaf Direct Purchase',
             successPrefix: 'Green Leaf Direct Purchase order',
-            enforcePurchaserCutoff: false,
         );
     }
 
@@ -439,7 +438,6 @@ class RequisitionController extends Controller
             successRedirectRoute: 'purchaser.daily',
             managerNote: 'Purchaser Add-on',
             successPrefix: 'Purchaser add-on order',
-            enforcePurchaserCutoff: true,
         );
     }
 
@@ -449,18 +447,11 @@ class RequisitionController extends Controller
         string $successRedirectRoute,
         string $managerNote,
         string $successPrefix,
-        bool $enforcePurchaserCutoff = false,
     ): RedirectResponse {
         $validated = $request->validate([
             'business_date' => ['required', 'date'],
             'items' => ['required', 'array'],
         ]);
-
-        if ($enforcePurchaserCutoff && ! $this->businessDayService->isPurchaserEntryOpenForDate($validated['business_date'])) {
-            throw ValidationException::withMessages([
-                'business_date' => 'Purchaser entry is closed for this purchase date. Request admin access for old bill updates.',
-            ]);
-        }
 
         $items = $this->resolveRequestedProducts($validated['items'], $request->input('item_units', []), $request->input('item_measures', []));
 
@@ -753,7 +744,7 @@ class RequisitionController extends Controller
         $order = ShopOrder::where('order_number', $orderNumber)->firstOrFail();
 
         // Enforce authorization: only purchase or users with purchasing.order.approve permission
-        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('admin') && ! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -803,7 +794,7 @@ class RequisitionController extends Controller
 
     public function acceptLateRequisition(Request $request, string $orderNumber): RedirectResponse
     {
-        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('admin') && ! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -826,7 +817,7 @@ class RequisitionController extends Controller
 
     public function rejectLateRequisition(Request $request, string $orderNumber): RedirectResponse
     {
-        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('admin') && ! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -850,7 +841,7 @@ class RequisitionController extends Controller
 
     public function approveUpdate(Request $request, string $orderNumber): RedirectResponse
     {
-        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('admin') && ! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -909,7 +900,7 @@ class RequisitionController extends Controller
 
     public function rejectUpdate(Request $request, string $orderNumber): RedirectResponse
     {
-        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('admin') && ! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -947,7 +938,7 @@ class RequisitionController extends Controller
 
     public function approveAllForDate(Request $request): RedirectResponse
     {
-        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('admin') && ! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -991,7 +982,7 @@ class RequisitionController extends Controller
     public function board(Request $request): View
     {
         // Enforce authorization: purchase or can approve orders
-        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('admin') && ! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -1054,7 +1045,7 @@ class RequisitionController extends Controller
     public function saveBoard(Request $request): RedirectResponse
     {
         // Enforce authorization
-        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('admin') && ! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -1190,7 +1181,7 @@ class RequisitionController extends Controller
     public function approvedBoard(Request $request): View
     {
         // Enforce authorization: purchase or can approve orders
-        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('admin') && ! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -1295,7 +1286,7 @@ class RequisitionController extends Controller
     public function saveApprovedBoard(Request $request): RedirectResponse
     {
         // Enforce authorization
-        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('admin') && ! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -1452,7 +1443,7 @@ class RequisitionController extends Controller
      */
     public function exportApprovedBoardCsv(Request $request): StreamedResponse
     {
-        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('admin') && ! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -1522,7 +1513,7 @@ class RequisitionController extends Controller
      */
     public function exportApprovedBoardPdf(Request $request): View
     {
-        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('admin') && ! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -1556,7 +1547,7 @@ class RequisitionController extends Controller
 
     public function exportBoardCsv(Request $request): StreamedResponse
     {
-        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('admin') && ! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 
@@ -1621,7 +1612,7 @@ class RequisitionController extends Controller
 
     public function exportBoardPdf(Request $request): View
     {
-        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('admin') && ! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 

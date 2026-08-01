@@ -14,7 +14,6 @@ use App\Models\PurchaserCredit;
 use App\Repositories\Purchasing\PurchaseInvoiceRepository;
 use App\Services\Finance\JournalService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class PurchaseInvoiceService
@@ -79,12 +78,12 @@ class PurchaseInvoiceService
     }
 
     /**
-     * @param  array{payment_method:string, discount_amount?:float, paid_amount:float, payment_note:?string, payment_details:?string, payment_paid_by?:string, bill_number?:string, business_date?:string}  $payload
+     * @param  array{payment_method:string, discount_amount?:float, paid_amount:float, payment_note:?string, payment_details:?string, payment_paid_by?:string, bill_number?:string}  $payload
      */
     public function updatePayment(PurchaseInvoice $invoice, array $payload): PurchaseInvoice
     {
         return DB::transaction(function () use ($invoice, $payload): PurchaseInvoice {
-            $invoice->loadMissing(['supplier', 'purchaserCart.purchaseOrder', 'goodsReceived']);
+            $invoice->loadMissing(['supplier', 'purchaserCart']);
             $previousPaidAmount = round((float) ($invoice->paid_amount ?? 0), 2);
             $previousDiscountAmount = round((float) ($invoice->discount_amount ?? 0), 2);
 
@@ -140,17 +139,6 @@ class PurchaseInvoiceService
                 }
 
                 $invoice->purchaserCart->update($cartUpdateData);
-
-                if (! empty($payload['business_date'])) {
-                    $businessDate = Carbon::parse($payload['business_date'])->toDateString();
-
-                    $invoice->purchaserCart->update(['business_date' => $businessDate]);
-                    $invoice->purchaserCart->purchaseOrder?->update(['order_date' => $businessDate]);
-
-                    if ($invoice->goodsReceived) {
-                        $invoice->goodsReceived->update(['received_at' => $businessDate]);
-                    }
-                }
             }
 
             $effectivePurchaserId = $invoice->purchaser_submitted_by

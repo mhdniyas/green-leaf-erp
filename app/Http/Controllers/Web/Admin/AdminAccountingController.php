@@ -21,7 +21,6 @@ use App\Models\CompanyAccountingEntry;
 use App\Models\Client;
 use App\Models\OtherExpense;
 use App\Models\ProcurementExpense;
-use App\Models\PurchaserBillUpdateRequest;
 use App\Models\PurchaserCredit;
 use App\Models\PurchaseInvoice;
 use App\Models\Shop;
@@ -1721,19 +1720,6 @@ class AdminAccountingController extends Controller
             'category' => $selectedCategory,
         ];
 
-        $billUpdateRequests = PurchaserBillUpdateRequest::query()
-            ->with([
-                'invoice:id,invoice_number,public_uuid,amount,discount_amount,paid_amount',
-                'cart:id,cart_number,business_date,supplier_id',
-                'cart.supplier:id,name',
-                'requestedBy:id,name,email,public_uuid',
-                'reviewedBy:id,name',
-            ])
-            ->orderByRaw("CASE WHEN status = 'pending' THEN 0 WHEN status = 'approved' THEN 1 ELSE 2 END")
-            ->latest('id')
-            ->limit(30)
-            ->get();
-
         return view('admin.accounting.purchasers.index', compact(
             'purchasers',
             'totals',
@@ -1751,7 +1737,6 @@ class AdminAccountingController extends Controller
             'categoryTotals',
             'otherCategoryTotals',
             'summaryRows',
-            'billUpdateRequests',
         ));
     }
 

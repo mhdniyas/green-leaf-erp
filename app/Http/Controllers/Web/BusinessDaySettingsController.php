@@ -25,18 +25,9 @@ class BusinessDaySettingsController extends Controller
             ->with('success', 'Business-day cutoff updated to '.$this->businessDayService->cutoffLabel().'.');
     }
 
-    public function updatePurchaserEntryCutoff(UpdateBusinessDayCutoffRequest $request): RedirectResponse
-    {
-        $this->businessDayService->updatePurchaserEntryCutoffTime($request->validated('cutoff_time'));
-
-        return redirect()
-            ->back()
-            ->with('success', 'Purchaser entry cutoff updated to '.$this->businessDayService->purchaserEntryCutoffLabel().'.');
-    }
-
     public function updateAutoApprove(Request $request): RedirectResponse
     {
-        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('admin') && ! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
+        if ($request->user()->hasRole('shop') || (! $request->user()->hasRole('purchase') && ! $request->user()->can('purchasing.order.approve'))) {
             abort(403, 'Unauthorized access.');
         }
 

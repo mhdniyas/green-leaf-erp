@@ -16,7 +16,6 @@ use App\Models\GoodsReceived;
 use App\Models\Product;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
-use App\Models\PurchaserBillUpdateRequest;
 use App\Models\PurchaserCart;
 use App\Models\PurchaserCartItem;
 use App\Models\PurchaserCorrectionRequest;
@@ -34,7 +33,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class PurchaserDashboardController extends Controller
@@ -85,10 +83,6 @@ class PurchaserDashboardController extends Controller
             'categories' => $categories,
             'assignedCategoryIds' => $user->assignedCategoryIds(),
             'date' => $date->format('Y-m-d'),
-            'purchaserEntryCutoffLabel' => $this->businessDayService->purchaserEntryCutoffLabel(),
-            'purchaserEntryCutoffInputValue' => $this->businessDayService->purchaserEntryCutoffInputValue(),
-            'purchaserEntryOpen' => $this->businessDayService->isPurchaserEntryOpenForDate($date),
-            'canUpdatePurchaserEntryCutoff' => $user->hasRole('admin') || $user->hasRole('purchase') || $user->can('purchasing.order.approve'),
         ]);
     }
 
@@ -1142,15 +1136,8 @@ class PurchaserDashboardController extends Controller
                 'goodsReceived.items.product',
                 'goodsReceived.purchaseOrder',
                 'purchaserCart',
-                'billUpdateRequests.requestedBy',
-                'billUpdateRequests.reviewedBy',
             ])
             ->firstOrFail();
-
-        $billUpdateRequests = $invoice->billUpdateRequests
-            ->where('requested_by', $request->user()->id)
-            ->sortByDesc('id')
-            ->values();
 
         return view('purchasing.invoices.show', [
             'invoice' => $invoice,
@@ -1159,11 +1146,6 @@ class PurchaserDashboardController extends Controller
             'backRouteName' => 'purchaser.finance',
             'backRouteParameters' => ['date' => $invoice->purchaserCart?->business_date?->format('Y-m-d')],
             'financeAudience' => 'purchaser',
-            'billUpdateRequests' => $billUpdateRequests,
-            'billUpdateRequestRouteName' => 'purchaser.invoices.bill-update-access.store',
-            'canUpdateBillNow' => $invoice->purchaserCart?->business_date
-                ? $this->businessDayService->isPurchaserEntryOpenForDate($invoice->purchaserCart->business_date)
-                : false,
         ]);
     }
 
@@ -1172,7 +1154,6 @@ class PurchaserDashboardController extends Controller
         $this->ensurePurchaser($request);
 
         $cart = $this->ownedCart($request, $cart, ['draft']);
-        $this->ensurePurchaserEntryOpen($cart->business_date);
         $mergeGroup = $this->mergeGroupDraftCarts($cart)->values();
 
         if ($mergeGroup->count() <= 1) {
@@ -1241,7 +1222,6 @@ class PurchaserDashboardController extends Controller
         }
 
         $date = Carbon::parse($validated['business_date']);
-        $this->ensurePurchaserEntryOpen($date);
         $user = $request->user();
         $cartId = filled($validated['cart_id'] ?? null) ? (int) $validated['cart_id'] : null;
 
@@ -1332,7 +1312,6 @@ class PurchaserDashboardController extends Controller
         ]);
 
         $date = Carbon::parse($validated['business_date']);
-        $this->ensurePurchaserEntryOpen($date);
         $cart = $this->findReusableDraftCart(
             userId: (int) $request->user()->id,
             date: $date,
@@ -1352,7 +1331,6 @@ class PurchaserDashboardController extends Controller
     public function storeCartItem(StorePurchaserCartItemRequest $request): RedirectResponse
     {
         $date = Carbon::parse($request->validated('business_date'));
-        $this->ensurePurchaserEntryOpen($date);
         $user = $request->user();
         $cartId = $request->integer('cart_id');
 
@@ -1435,7 +1413,6 @@ class PurchaserDashboardController extends Controller
             ->where('status', 'draft')
             ->with('items')
             ->firstOrFail();
-        $this->ensurePurchaserEntryOpen($cart->business_date);
 
         $validated = $request->validate([
             'quantity' => ['required', 'numeric', 'min:0.01'],
@@ -1468,7 +1445,6 @@ class PurchaserDashboardController extends Controller
         $this->ensurePurchaser($request);
 
         $cart = $this->ownedCart($request, $cart, ['draft']);
-        $this->ensurePurchaserEntryOpen($cart->business_date);
 
         $validated = $request->validate([
             'items' => ['required', 'array', 'min:1'],
@@ -1517,7 +1493,6 @@ class PurchaserDashboardController extends Controller
         $this->ensurePurchaser($request);
 
         $cart = $item->cart()->where('user_id', $request->user()->id)->where('status', 'draft')->firstOrFail();
-        $this->ensurePurchaserEntryOpen($cart->business_date);
         $item->delete();
 
         if ($cart->items()->count() === 0) {
@@ -1550,7 +1525,6 @@ class PurchaserDashboardController extends Controller
         $this->ensurePurchaser($request);
 
         $cart = $this->ownedCart($request, $cart, ['draft', 'submitted']);
-        $this->ensurePurchaserEntryOpen($cart->business_date);
 
         $returnTo = $request->input('return_to', 'cart');
 
@@ -1638,7 +1612,6 @@ class PurchaserDashboardController extends Controller
         $this->ensurePurchaser($request);
 
         $cart = $this->ownedCart($request, $cart, ['draft', 'submitted']);
-        $this->ensurePurchaserEntryOpen($cart->business_date);
 
         $returnTo = $request->input('return_to', 'vendors');
 
@@ -1673,7 +1646,6 @@ class PurchaserDashboardController extends Controller
     public function submitCart(SubmitPurchaserCartRequest $request): RedirectResponse
     {
         $date = Carbon::parse($request->validated('business_date'));
-        $this->ensurePurchaserEntryOpen($date);
         $user = $request->user();
 
         /** @var PurchaserCart $cart */
@@ -1975,13 +1947,7 @@ class PurchaserDashboardController extends Controller
             'payment_note' => ['nullable', 'string', 'max:1000'],
             'payment_details' => ['nullable', 'string', 'max:1000'],
             'bill_number' => ['nullable', 'string', 'max:255'],
-            'business_date' => ['nullable', 'date'],
         ]);
-
-        $requestedBusinessDate = filled($validated['business_date'] ?? null)
-            ? Carbon::parse($validated['business_date'])->startOfDay()
-            : null;
-        $this->ensureInvoiceUpdateAllowed($invoice, $requestedBusinessDate);
 
         $existingPaidAmount = (float) ($invoice->paid_amount ?? 0);
         $hasAdditionalPaidAmount = $request->filled('additional_paid_amount');
@@ -1997,7 +1963,6 @@ class PurchaserDashboardController extends Controller
             'payment_note' => $validated['payment_note'] ?? null,
             'payment_details' => $validated['payment_details'] ?? null,
             'bill_number' => $validated['bill_number'] ?? null,
-            'business_date' => $requestedBusinessDate?->toDateString(),
         ]);
 
         $remainingBalance = max(
@@ -3706,56 +3671,6 @@ class PurchaserDashboardController extends Controller
 
         $operationalDate = $this->businessDayService->operationalDate();
         PurchaserCart::cancelOverdueCartsAndOrders($operationalDate);
-    }
-
-    private function ensurePurchaserEntryOpen(Carbon $date): void
-    {
-        $user = auth()->user();
-
-        if ($user && ($user->hasRole('admin') || $user->hasRole('purchase') || $user->can('purchasing.order.approve'))) {
-            return;
-        }
-
-        if ($this->businessDayService->isPurchaserEntryOpenForDate($date)) {
-            return;
-        }
-
-        throw ValidationException::withMessages([
-            'business_date' => 'Purchaser entry is closed for this purchase date. Request bill update access or contact admin.',
-        ]);
-    }
-
-    private function ensureInvoiceUpdateAllowed(PurchaseInvoice $invoice, ?Carbon $requestedBusinessDate): void
-    {
-        $cartDate = $invoice->purchaserCart?->business_date;
-        $isTodayOpen = $cartDate instanceof Carbon
-            && $this->businessDayService->isPurchaserEntryOpenForDate($cartDate);
-
-        $dateWillChange = $requestedBusinessDate instanceof Carbon
-            && $cartDate instanceof Carbon
-            && ! $requestedBusinessDate->isSameDay($cartDate);
-
-        if ($isTodayOpen && ! $dateWillChange) {
-            return;
-        }
-
-        $hasApprovedAccess = PurchaserBillUpdateRequest::query()
-            ->where('purchase_invoice_id', $invoice->id)
-            ->where('requested_by', auth()->id())
-            ->where('status', 'approved')
-            ->where(function ($query): void {
-                $query->whereNull('expires_at')
-                    ->orWhere('expires_at', '>', now());
-            })
-            ->exists();
-
-        if ($hasApprovedAccess) {
-            return;
-        }
-
-        throw ValidationException::withMessages([
-            'bill_update_access' => 'Admin approval is required before updating an old bill or changing the purchase date.',
-        ]);
     }
 
     private function ensurePurchaseManager(Request $request): void

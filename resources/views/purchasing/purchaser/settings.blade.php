@@ -25,29 +25,6 @@
             </div>
         @endif
 
-        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6 lg:rounded-[2rem]">
-            <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                    <h2 class="text-base font-black text-slate-900">Purchaser Entry Cutoff</h2>
-                    <p class="mt-1 text-xs font-semibold text-slate-500">Purchaser cart, bill, and add-on entry closes at {{ $purchaserEntryCutoffLabel }} for the active business day.</p>
-                    <p class="mt-2 inline-flex rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] {{ $purchaserEntryOpen ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700' }}">
-                        {{ $purchaserEntryOpen ? 'Entry Open' : 'Entry Closed' }}
-                    </p>
-                </div>
-
-                @if ($canUpdatePurchaserEntryCutoff)
-                    <form method="POST" action="{{ route('business-day-settings.purchaser-entry-cutoff.update') }}" class="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:w-64">
-                        @csrf
-                        <label class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Cutoff Time</label>
-                        <input type="time" name="cutoff_time" value="{{ old('cutoff_time', $purchaserEntryCutoffInputValue) }}" required class="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-950 focus:outline-none">
-                        <button type="submit" class="mt-3 h-10 w-full rounded-xl bg-slate-950 text-xs font-black text-white hover:bg-slate-800">
-                            Save Cutoff
-                        </button>
-                    </form>
-                @endif
-            </div>
-        </section>
-
         {{-- Form card --}}
         <form action="{{ route('purchaser.settings.update') }}" method="POST" class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6 lg:rounded-[2rem]">
             @csrf
