@@ -143,6 +143,8 @@ class RequisitionController extends Controller
                         'approved_qty' => DB::raw('requested_qty'),
                         'notes' => PurchaserBusinessDayService::AUTO_APPROVE_MANAGER_NOTE,
                     ]);
+
+                    $this->syncPurchaseOrdersForDate($businessDate);
                 }
 
                 return [
@@ -328,6 +330,8 @@ class RequisitionController extends Controller
                 'approved_qty' => DB::raw('requested_qty'),
                 'notes' => PurchaserBusinessDayService::AUTO_APPROVE_MANAGER_NOTE,
             ]);
+
+            $this->syncPurchaseOrdersForDate($order->business_date);
         } else {
             $order->items()->update([
                 'approved_qty' => null,

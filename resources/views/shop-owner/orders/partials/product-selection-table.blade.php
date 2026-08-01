@@ -72,17 +72,7 @@
     }
 
     $allProductsForOrder = $allProductsForOrder
-        ->sort(function (array $left, array $right): int {
-            if ($left['is_selected'] !== $right['is_selected']) {
-                return $left['is_selected'] ? -1 : 1;
-            }
-
-            if ($left['is_frequent'] !== $right['is_frequent']) {
-                return $left['is_frequent'] ? -1 : 1;
-            }
-
-            return strcmp($left['sku_sort_value'], $right['sku_sort_value']);
-        })
+        ->sort(fn (array $left, array $right): int => strcmp($left['sku_sort_value'], $right['sku_sort_value']))
         ->values();
 
     $productCardsForOrder = $allProductsForOrder;
@@ -166,8 +156,8 @@
                     'border-slate-200 bg-white' => (float) $productData['current_qty'] <= 0,
                 ])
             >
-                <div class="shop-order-row-grid grid grid-cols-[2rem_minmax(0,1fr)_3.45rem_3.75rem] items-center gap-1 sm:grid-cols-[2rem_minmax(0,1fr)_4rem_4.5rem] sm:gap-1.5">
-                    <div class="shop-order-row-code flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[11px] font-black text-slate-600">
+                <div class="shop-order-row-grid grid min-w-0 grid-cols-[1.75rem_minmax(0,1fr)_3.35rem_3.55rem] items-center gap-1 sm:grid-cols-[2rem_minmax(0,1fr)_4rem_4.5rem] sm:gap-1.5">
+                    <div class="shop-order-row-code flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[10px] font-black text-slate-600 sm:h-8 sm:w-8 sm:text-[11px]">
                         {{ $productData['sku'] }}
                     </div>
                     <div class="shop-order-row-title min-w-0">
@@ -298,6 +288,31 @@
                 grid-column: 4 / 5;
             }
 
+        }
+
+        @media (max-width: 374px) {
+            #shop-owner-order-form:not(.shop-order-layout-two-row) .shop-order-row-grid {
+                grid-template-columns: 1.75rem minmax(0, 1fr) 3.35rem 3.55rem;
+            }
+
+            #shop-owner-order-form:not(.shop-order-layout-two-row) .shop-order-row-code,
+            #shop-owner-order-form:not(.shop-order-layout-two-row) .shop-order-row-title {
+                grid-row: 1;
+            }
+
+            #shop-owner-order-form:not(.shop-order-layout-two-row) .shop-order-row-title {
+                grid-column: 2 / -1;
+            }
+
+            #shop-owner-order-form:not(.shop-order-layout-two-row) .shop-order-row-unit {
+                grid-column: 3 / 4;
+                grid-row: 2;
+            }
+
+            #shop-owner-order-form:not(.shop-order-layout-two-row) .shop-order-row-qty {
+                grid-column: 4 / 5;
+                grid-row: 2;
+            }
         }
     </style>
 
