@@ -95,8 +95,11 @@
                                 </span>
                             @endif
                         </a>
-                        <a href="{{ route('purchaser.procurement-expenses.index', ['date' => $date]) }}" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl border border-teal-200 bg-teal-50 px-4 text-sm font-black text-teal-800 sm:w-auto lg:min-h-12 lg:rounded-2xl">
-                            Expenses
+                        <a href="{{ route('purchaser.procurement-expenses.index', ['date' => $date]) }}" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-800 sm:w-auto lg:min-h-12 lg:rounded-2xl">
+                            Procurement
+                        </a>
+                        <a href="{{ route('purchaser.other-expenses.index', ['date' => $date]) }}" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-black text-slate-700 sm:w-auto lg:min-h-12 lg:rounded-2xl">
+                            Other Expense
                         </a>
                         <a href="{{ route('purchaser.bulk-buy', ['date' => $date]) }}" class="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-teal-600 px-4 text-sm font-black text-white sm:w-auto lg:min-h-12 lg:rounded-2xl">
                             Bulk Purchase

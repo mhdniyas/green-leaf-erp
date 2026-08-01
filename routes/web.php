@@ -33,6 +33,7 @@ use App\Http\Controllers\Web\ProfileController;
 use App\Http\Controllers\Web\Purchasing\AdminShopOrderController;
 use App\Http\Controllers\Web\Purchasing\DailyPriceBoardController;
 use App\Http\Controllers\Web\Purchasing\GoodsReceivedController;
+use App\Http\Controllers\Web\Purchasing\OtherExpenseController;
 use App\Http\Controllers\Web\Purchasing\ProcurementExpenseController;
 use App\Http\Controllers\Web\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Web\Purchasing\PurchaseOrderController;
@@ -290,6 +291,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/finance', [PurchaserDashboardController::class, 'finance'])->name('purchaser.finance');
     Route::get('/purchaser/cash', [PurchaserDashboardController::class, 'cash'])->name('purchaser.cash');
     Route::get('/purchaser/procurement-expenses', [ProcurementExpenseController::class, 'index'])->name('purchaser.procurement-expenses.index');
+    Route::get('/purchaser/other-expenses', [OtherExpenseController::class, 'index'])->name('purchaser.other-expenses.index');
     Route::get('/purchaser/cart/{cart}/bill', [PurchaserDashboardController::class, 'bill'])->name('purchaser.bill');
     Route::get('/purchaser/history', [PurchaserDashboardController::class, 'history'])->name('purchaser.history');
     Route::get('/purchaser/settings', [PurchaserDashboardController::class, 'settings'])->name('purchaser.settings');
@@ -299,6 +301,9 @@ Route::middleware('auth')->group(function () {
     Route::post('/purchaser/procurement-expenses', [ProcurementExpenseController::class, 'store'])->name('purchaser.procurement-expenses.store');
     Route::patch('/purchaser/procurement-expenses/{expense}', [ProcurementExpenseController::class, 'update'])->name('purchaser.procurement-expenses.update');
     Route::delete('/purchaser/procurement-expenses/{expense}', [ProcurementExpenseController::class, 'destroy'])->name('purchaser.procurement-expenses.destroy');
+    Route::post('/purchaser/other-expenses', [OtherExpenseController::class, 'store'])->name('purchaser.other-expenses.store');
+    Route::patch('/purchaser/other-expenses/{expense}', [OtherExpenseController::class, 'update'])->name('purchaser.other-expenses.update');
+    Route::delete('/purchaser/other-expenses/{expense}', [OtherExpenseController::class, 'destroy'])->name('purchaser.other-expenses.destroy');
     Route::post('/purchaser/carts/bulk-store', [PurchaserDashboardController::class, 'bulkStoreCart'])->name('purchaser.carts.bulk-store');
     Route::post('/purchaser/carts/{cart}/merge-drafts', [PurchaserDashboardController::class, 'mergeDraftCarts'])->name('purchaser.carts.merge-drafts');
     Route::post('/purchaser/carts/{cart}/send', [PurchaserDashboardController::class, 'markCartSent'])->name('purchaser.carts.send');

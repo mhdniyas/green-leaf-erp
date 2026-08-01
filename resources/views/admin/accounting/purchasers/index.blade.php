@@ -19,9 +19,11 @@
         $reportTabs = [
             'cash' => 'Cash Flow',
             'procurement' => 'Procurement Expenses',
+            'other' => 'Other Expenses',
             'summary' => 'Summary',
         ];
         $expenseCategories = \App\Models\ProcurementExpense::categories();
+        $otherExpenseCategories = \App\Models\OtherExpense::categories();
     @endphp
 
     <div class="mx-auto max-w-[96rem] space-y-6">
@@ -233,9 +235,16 @@
                             <span class="block text-[9px] font-black uppercase tracking-[0.14em] text-slate-300">Category</span>
                             <select name="category" class="mt-1 h-10 w-full rounded-xl border border-white/10 bg-white px-3 text-xs font-black text-slate-950 focus:outline-none">
                                 <option value="">All</option>
-                                @foreach($expenseCategories as $value => $label)
-                                    <option value="{{ $value }}" @selected($reportQuery['category'] === $value)>{{ $label }}</option>
-                                @endforeach
+                                <optgroup label="Procurement">
+                                    @foreach($expenseCategories as $value => $label)
+                                        <option value="{{ $value }}" @selected($reportQuery['category'] === $value)>{{ $label }}</option>
+                                    @endforeach
+                                </optgroup>
+                                <optgroup label="Other">
+                                    @foreach($otherExpenseCategories as $value => $label)
+                                        <option value="{{ $value }}" @selected($reportQuery['category'] === $value)>{{ $label }}</option>
+                                    @endforeach
+                                </optgroup>
                             </select>
                         </label>
                         <button type="submit" class="mt-4 inline-flex h-10 items-center justify-center rounded-xl bg-slate-100 px-4 text-xs font-black uppercase tracking-[0.14em] text-slate-950 transition hover:bg-white lg:mt-5">
@@ -246,11 +255,11 @@
             </div>
 
             <div class="space-y-5 p-4 sm:p-5">
-                <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">Total Company Out</p>
                         <p class="mt-2 text-2xl font-black text-slate-950">Rs. {{ number_format($reportTotals['company_total_out'], 2) }}</p>
-                        <p class="mt-1 text-[10px] font-semibold text-slate-500">Cash purchases + online bills + procurement</p>
+                        <p class="mt-1 text-[10px] font-semibold text-slate-500">Cash purchases + online bills + purchaser expenses</p>
                     </div>
                     <div class="rounded-2xl border border-blue-200 bg-blue-50 p-4">
                         <p class="text-[10px] font-black uppercase tracking-[0.18em] text-blue-700">Company Online Paid</p>
@@ -264,6 +273,19 @@
                     <div class="rounded-2xl border border-slate-200 bg-white p-4">
                         <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">Purchaser Cash Spent</p>
                         <p class="mt-2 text-2xl font-black text-slate-950">Rs. {{ number_format($reportTotals['cash_out'], 2) }}</p>
+                    </div>
+                    <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">Procurement Expenses</p>
+                        <p class="mt-2 text-2xl font-black text-slate-950">Rs. {{ number_format($reportTotals['procurement'], 2) }}</p>
+                    </div>
+                    <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">Other Expenses</p>
+                        <p class="mt-2 text-2xl font-black text-slate-950">Rs. {{ number_format($reportTotals['other_expenses'], 2) }}</p>
+                    </div>
+                    <div class="rounded-2xl border border-slate-300 bg-slate-950 p-4 text-white">
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-300">Total Purchaser Expenses</p>
+                        <p class="mt-2 text-2xl font-black">Rs. {{ number_format($reportTotals['total_purchaser_expenses'], 2) }}</p>
+                        <p class="mt-1 text-[10px] font-semibold text-slate-300">Procurement + Other</p>
                     </div>
                     <div class="rounded-2xl border border-slate-200 bg-white p-4">
                         <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">Cash Balance</p>
@@ -382,6 +404,22 @@
                         </div>
                     </div>
                 @elseif($activeReportTab === 'procurement')
+                    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div class="grid gap-3 sm:grid-cols-3">
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Procurement Expenses</p>
+                                <p class="mt-1 text-xl font-black text-slate-950">Rs. {{ number_format($reportTotals['procurement'], 2) }}</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Other Expenses</p>
+                                <p class="mt-1 text-xl font-black text-slate-950">Rs. {{ number_format($reportTotals['other_expenses'], 2) }}</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Total Purchaser Expenses</p>
+                                <p class="mt-1 text-xl font-black text-slate-950">Rs. {{ number_format($reportTotals['total_purchaser_expenses'], 2) }}</p>
+                            </div>
+                        </div>
+                    </div>
                     <div class="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
                         @foreach($expenseCategories as $value => $label)
                             @php($categoryRow = $categoryTotals->get($value, ['amount' => 0, 'count' => 0]))
@@ -431,6 +469,73 @@
                             </table>
                         </div>
                     </div>
+                @elseif($activeReportTab === 'other')
+                    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div class="grid gap-3 sm:grid-cols-3">
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Other Expenses</p>
+                                <p class="mt-1 text-xl font-black text-slate-950">Rs. {{ number_format($reportTotals['other_expenses'], 2) }}</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Procurement Expenses</p>
+                                <p class="mt-1 text-xl font-black text-slate-950">Rs. {{ number_format($reportTotals['procurement'], 2) }}</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Total Purchaser Expenses</p>
+                                <p class="mt-1 text-xl font-black text-slate-950">Rs. {{ number_format($reportTotals['total_purchaser_expenses'], 2) }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+                        @foreach($otherExpenseCategories as $value => $label)
+                            @php($categoryRow = $otherCategoryTotals->get($value, ['amount' => 0, 'count' => 0]))
+                            <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                <p class="truncate text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">{{ $label }}</p>
+                                <p class="mt-1 text-lg font-black text-slate-950">Rs. {{ number_format($categoryRow['amount'], 2) }}</p>
+                                <p class="mt-0.5 text-[10px] font-bold text-slate-500">{{ $categoryRow['count'] }} row(s)</p>
+                            </div>
+                        @endforeach
+                    </div>
+
+                    <div class="overflow-hidden rounded-2xl border border-slate-200">
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full text-left text-sm">
+                                <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                                    <tr>
+                                        <th class="px-4 py-3">Date</th>
+                                        <th class="px-4 py-3">Purchaser</th>
+                                        <th class="px-4 py-3">Category</th>
+                                        <th class="px-4 py-3">Note</th>
+                                        <th class="px-4 py-3 text-right">Amount</th>
+                                        <th class="px-4 py-3">Company Expense Ref</th>
+                                        <th class="px-4 py-3">Journal Ref</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    @forelse($otherExpenseTransactions as $expense)
+                                        <tr class="align-top hover:bg-slate-50">
+                                            <td class="px-4 py-3">
+                                                <p class="font-black text-slate-950">{{ $expense->expense_date?->format('d M Y') }}</p>
+                                                <p class="mt-1 text-xs font-semibold text-slate-500">{{ $expense->created_at?->format('h:i A') }}</p>
+                                            </td>
+                                            <td class="px-4 py-3">
+                                                <p class="font-black text-slate-950">{{ $expense->purchaser?->name ?? 'Purchaser removed' }}</p>
+                                                <p class="mt-1 text-xs font-semibold text-slate-500">{{ $expense->purchaser?->email }}</p>
+                                            </td>
+                                            <td class="px-4 py-3 font-semibold text-slate-700">{{ $expense->categoryLabel() }}</td>
+                                            <td class="max-w-md px-4 py-3 font-semibold text-slate-700">{{ $expense->note ?: 'No note' }}</td>
+                                            <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $expense->amount, 2) }}</td>
+                                            <td class="px-4 py-3 font-black text-slate-800">{{ $expense->companyAccountingEntry?->reference ?? 'Not posted' }}</td>
+                                            <td class="px-4 py-3 font-semibold text-slate-700">{{ $expense->companyAccountingEntry?->journalEntry?->reference ?? '-' }}</td>
+                                        </tr>
+                                    @empty
+                                        <tr><td colspan="7" class="px-4 py-10 text-center text-sm font-bold text-slate-500">No other expenses for the selected filters.</td></tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 @else
                     <div class="overflow-hidden rounded-2xl border border-slate-200">
                         <div class="overflow-x-auto">
@@ -443,6 +548,8 @@
                                         <th class="px-4 py-3 text-right">Company Online</th>
                                         <th class="px-4 py-3 text-right">Credit Pending</th>
                                         <th class="px-4 py-3 text-right">Procurement</th>
+                                        <th class="px-4 py-3 text-right">Other Expenses</th>
+                                        <th class="px-4 py-3 text-right">Total Purchaser Expenses</th>
                                         <th class="px-4 py-3 text-right">Company Out</th>
                                         <th class="px-4 py-3 text-right">Balance</th>
                                         <th class="px-4 py-3">Last Transaction</th>
@@ -460,12 +567,14 @@
                                             <td class="px-4 py-3 text-right font-black text-blue-700">Rs. {{ number_format($row['company_online'], 2) }}</td>
                                             <td class="px-4 py-3 text-right font-black text-amber-700">Rs. {{ number_format($row['credit_pending'], 2) }}</td>
                                             <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($row['procurement'], 2) }}</td>
+                                            <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($row['other_expenses'], 2) }}</td>
+                                            <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($row['total_purchaser_expenses'], 2) }}</td>
                                             <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($row['company_out'], 2) }}</td>
                                             <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($row['balance'], 2) }}</td>
                                             <td class="px-4 py-3 font-semibold text-slate-700">{{ $row['last_activity']?->format('d M Y') ?? '-' }}</td>
                                         </tr>
                                     @empty
-                                        <tr><td colspan="9" class="px-4 py-10 text-center text-sm font-bold text-slate-500">No purchaser activity for the selected filters.</td></tr>
+                                        <tr><td colspan="11" class="px-4 py-10 text-center text-sm font-bold text-slate-500">No purchaser activity for the selected filters.</td></tr>
                                     @endforelse
                                 </tbody>
                             </table>

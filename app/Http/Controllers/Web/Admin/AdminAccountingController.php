@@ -19,6 +19,7 @@ use App\Http\Requests\Web\Admin\UpdateShopAccountingEntryRequest;
 use App\Http\Requests\Web\Admin\UpdateShopPettyCashSettingsRequest;
 use App\Models\CompanyAccountingEntry;
 use App\Models\Client;
+use App\Models\OtherExpense;
 use App\Models\ProcurementExpense;
 use App\Models\PurchaserCredit;
 use App\Models\PurchaseInvoice;
@@ -1435,13 +1436,15 @@ class AdminAccountingController extends Controller
         $sort = (string) $request->input('sort', 'name');
         $direction = strtolower((string) $request->input('direction', 'asc')) === 'desc' ? 'desc' : 'asc';
         $sortableColumns = ['name', 'total_in', 'total_out', 'balance'];
-        $reportTab = in_array($request->input('report_tab'), ['cash', 'procurement', 'summary'], true)
+        $reportTab = in_array($request->input('report_tab'), ['cash', 'procurement', 'other', 'summary'], true)
             ? (string) $request->input('report_tab')
             : 'cash';
         $fromDate = Carbon::parse($request->input('from_date', now()->startOfMonth()->toDateString()))->startOfDay();
         $toDate = Carbon::parse($request->input('to_date', now()->toDateString()))->endOfDay();
         $selectedPurchaserId = $request->integer('purchaser_id') ?: null;
         $selectedCategory = (string) $request->input('category', '');
+        $procurementCategoryFilter = in_array($selectedCategory, array_keys(ProcurementExpense::categories()), true) ? $selectedCategory : '';
+        $otherCategoryFilter = in_array($selectedCategory, array_keys(OtherExpense::categories()), true) ? $selectedCategory : '';
 
         if (! in_array($sort, $sortableColumns, true)) {
             $sort = 'name';
@@ -1567,7 +1570,7 @@ class AdminAccountingController extends Controller
             ->with(['purchaser:id,name,email,public_uuid', 'companyAccountingEntry:id,journal_entry_id,reference,business_date,amount,status', 'companyAccountingEntry.journalEntry:id,reference'])
             ->whereBetween('expense_date', [$fromDate->toDateString(), $toDate->toDateString()])
             ->when($selectedPurchaserId, fn ($query) => $query->where('user_id', $selectedPurchaserId))
-            ->when($selectedCategory !== '', fn ($query) => $query->where('category', $selectedCategory));
+            ->when($procurementCategoryFilter !== '', fn ($query) => $query->where('category', $procurementCategoryFilter));
 
         $procurementTotals = [
             'amount' => round((float) (clone $procurementQuery)->sum('amount'), 2),
@@ -1592,6 +1595,35 @@ class AdminAccountingController extends Controller
             ->limit(150)
             ->get();
 
+        $otherExpenseQuery = OtherExpense::query()
+            ->with(['purchaser:id,name,email,public_uuid', 'companyAccountingEntry:id,journal_entry_id,reference,business_date,amount,status', 'companyAccountingEntry.journalEntry:id,reference'])
+            ->whereBetween('expense_date', [$fromDate->toDateString(), $toDate->toDateString()])
+            ->when($selectedPurchaserId, fn ($query) => $query->where('user_id', $selectedPurchaserId))
+            ->when($otherCategoryFilter !== '', fn ($query) => $query->where('category', $otherCategoryFilter));
+
+        $otherExpenseTotals = [
+            'amount' => round((float) (clone $otherExpenseQuery)->sum('amount'), 2),
+            'count' => (clone $otherExpenseQuery)->count(),
+        ];
+
+        $otherCategoryTotals = (clone $otherExpenseQuery)
+            ->select('category', DB::raw('SUM(amount) as total_amount'), DB::raw('COUNT(*) as rows_count'))
+            ->groupBy('category')
+            ->get()
+            ->mapWithKeys(fn (OtherExpense $expense): array => [
+                (string) $expense->category => [
+                    'label' => $expense->categoryLabel(),
+                    'amount' => round((float) $expense->total_amount, 2),
+                    'count' => (int) $expense->rows_count,
+                ],
+            ]);
+
+        $otherExpenseTransactions = (clone $otherExpenseQuery)
+            ->orderByDesc('expense_date')
+            ->orderByDesc('id')
+            ->limit(150)
+            ->get();
+
         $cashByPurchaser = PurchaserCredit::query()
             ->select('purchaser_id')
             ->selectRaw("SUM(CASE WHEN type = 'in' THEN amount ELSE 0 END) as cash_in")
@@ -1609,23 +1641,37 @@ class AdminAccountingController extends Controller
             ->selectRaw('MAX(expense_date) as last_procurement_date')
             ->whereBetween('expense_date', [$fromDate->toDateString(), $toDate->toDateString()])
             ->when($selectedPurchaserId, fn ($query) => $query->where('user_id', $selectedPurchaserId))
-            ->when($selectedCategory !== '', fn ($query) => $query->where('category', $selectedCategory))
+            ->when($procurementCategoryFilter !== '', fn ($query) => $query->where('category', $procurementCategoryFilter))
+            ->groupBy('user_id')
+            ->get()
+            ->keyBy('user_id');
+
+        $otherExpensesByPurchaser = OtherExpense::query()
+            ->select('user_id')
+            ->selectRaw('SUM(amount) as other_expense_total')
+            ->selectRaw('MAX(expense_date) as last_other_expense_date')
+            ->whereBetween('expense_date', [$fromDate->toDateString(), $toDate->toDateString()])
+            ->when($selectedPurchaserId, fn ($query) => $query->where('user_id', $selectedPurchaserId))
+            ->when($otherCategoryFilter !== '', fn ($query) => $query->where('category', $otherCategoryFilter))
             ->groupBy('user_id')
             ->get()
             ->keyBy('user_id');
 
         $summaryRows = $purchaserOptions
             ->when($selectedPurchaserId, fn (Collection $users) => $users->where('id', $selectedPurchaserId))
-            ->map(function (User $purchaser) use ($cashByPurchaser, $procurementByPurchaser, $companyBillsByPurchaser): array {
+            ->map(function (User $purchaser) use ($cashByPurchaser, $procurementByPurchaser, $otherExpensesByPurchaser, $companyBillsByPurchaser): array {
                 $cash = $cashByPurchaser->get($purchaser->id);
                 $procurement = $procurementByPurchaser->get($purchaser->id);
+                $otherExpense = $otherExpensesByPurchaser->get($purchaser->id);
                 $companyBills = $companyBillsByPurchaser->get($purchaser->id, collect());
                 $cashIn = round((float) ($cash?->cash_in ?? 0), 2);
                 $cashOut = round((float) ($cash?->cash_out ?? 0), 2);
                 $procurementTotal = round((float) ($procurement?->procurement_total ?? 0), 2);
+                $otherExpenseTotal = round((float) ($otherExpense?->other_expense_total ?? 0), 2);
+                $totalPurchaserExpenses = round($procurementTotal + $otherExpenseTotal, 2);
                 $companyOnlineTotal = round((float) $companyBills->sum('paid_amount'), 2);
                 $creditPendingTotal = round((float) $companyBills->sum('pending_amount'), 2);
-                $lastDates = collect([$cash?->last_cash_date, $procurement?->last_procurement_date])->filter();
+                $lastDates = collect([$cash?->last_cash_date, $procurement?->last_procurement_date, $otherExpense?->last_other_expense_date])->filter();
                 $lastCompanyDate = $companyBills
                     ->pluck('date')
                     ->filter()
@@ -1643,12 +1689,14 @@ class AdminAccountingController extends Controller
                     'company_online' => $companyOnlineTotal,
                     'credit_pending' => $creditPendingTotal,
                     'procurement' => $procurementTotal,
-                    'company_out' => round($cashOut + $companyOnlineTotal + $procurementTotal, 2),
+                    'other_expenses' => $otherExpenseTotal,
+                    'total_purchaser_expenses' => $totalPurchaserExpenses,
+                    'company_out' => round($cashOut + $companyOnlineTotal + $totalPurchaserExpenses, 2),
                     'balance' => round($cashIn - $cashOut, 2),
                     'last_activity' => $lastDates->isNotEmpty() ? Carbon::parse((string) $lastDates->max()) : null,
                 ];
             })
-            ->filter(fn (array $row): bool => $row['cash_in'] > 0 || $row['cash_out'] > 0 || $row['company_online'] > 0 || $row['credit_pending'] > 0 || $row['procurement'] > 0)
+            ->filter(fn (array $row): bool => $row['cash_in'] > 0 || $row['cash_out'] > 0 || $row['company_online'] > 0 || $row['credit_pending'] > 0 || $row['total_purchaser_expenses'] > 0)
             ->sortByDesc(fn (array $row): string => $row['last_activity']?->toDateString() ?? '')
             ->values();
 
@@ -1657,8 +1705,10 @@ class AdminAccountingController extends Controller
             'cash_out' => $cashTotals['out'],
             'company_online_out' => $companyOnlinePaid,
             'credit_pending' => $companyCreditPending,
-            'company_total_out' => round($cashTotals['out'] + $companyOnlinePaid + $procurementTotals['amount'], 2),
             'procurement' => $procurementTotals['amount'],
+            'other_expenses' => $otherExpenseTotals['amount'],
+            'total_purchaser_expenses' => round($procurementTotals['amount'] + $otherExpenseTotals['amount'], 2),
+            'company_total_out' => round($cashTotals['out'] + $companyOnlinePaid + $procurementTotals['amount'] + $otherExpenseTotals['amount'], 2),
             'balance' => $cashTotals['balance'],
         ];
 
@@ -1681,8 +1731,11 @@ class AdminAccountingController extends Controller
             'cashTransactions',
             'companyBillTransactions',
             'procurementTransactions',
+            'otherExpenseTransactions',
             'procurementTotals',
+            'otherExpenseTotals',
             'categoryTotals',
+            'otherCategoryTotals',
             'summaryRows',
         ));
     }

@@ -382,6 +382,9 @@
                         <x-nav-item href="{{ route('purchaser.procurement-expenses.index', ['date' => $navDate]) }}" :active="request()->routeIs('purchaser.procurement-expenses.*')" :sub="true">
                             Procurement Expenses
                         </x-nav-item>
+                        <x-nav-item href="{{ route('purchaser.other-expenses.index', ['date' => $navDate]) }}" :active="request()->routeIs('purchaser.other-expenses.*')" :sub="true">
+                            Other Expenses
+                        </x-nav-item>
                         <x-nav-item href="{{ route('purchasing.invoices.index', ['date' => $navDate]) }}" :active="request()->routeIs('purchasing.invoices.*')" :sub="true">
                             Purchase Invoices
                         </x-nav-item>
@@ -466,6 +469,9 @@
                             </x-nav-item>
                             <x-nav-item href="{{ route('purchaser.procurement-expenses.index', ['date' => $navDate]) }}" :active="request()->routeIs('purchaser.procurement-expenses.*')" :sub="true">
                                 Procurement Expenses
+                            </x-nav-item>
+                            <x-nav-item href="{{ route('purchaser.other-expenses.index', ['date' => $navDate]) }}" :active="request()->routeIs('purchaser.other-expenses.*')" :sub="true">
+                                Other Expenses
                             </x-nav-item>
                         </div>
                         <div class="space-y-1">
