@@ -21,6 +21,7 @@ use App\Models\CompanyAccountingEntry;
 use App\Models\Client;
 use App\Models\ProcurementExpense;
 use App\Models\PurchaserCredit;
+use App\Models\PurchaseInvoice;
 use App\Models\Shop;
 use App\Models\ShopAccountingCategory;
 use App\Models\ShopAccountingEntry;
@@ -1505,6 +1506,63 @@ class AdminAccountingController extends Controller
             ->limit(150)
             ->get();
 
+        $companyBillQuery = PurchaseInvoice::query()
+            ->with([
+                'purchaserCart:id,user_id,supplier_id,business_date,cart_number',
+                'purchaserCart.user:id,name,email,public_uuid',
+                'supplier:id,name',
+            ])
+            ->whereHas('purchaserCart', function ($query) use ($fromDate, $toDate, $selectedPurchaserId): void {
+                $query->whereBetween('business_date', [$fromDate->toDateString(), $toDate->toDateString()])
+                    ->when($selectedPurchaserId, fn ($cartQuery) => $cartQuery->where('user_id', $selectedPurchaserId));
+            })
+            ->where(function ($query): void {
+                $query->where(function ($paidQuery): void {
+                    $paidQuery->where('payment_paid_by', 'company')
+                        ->whereIn('payment_method', ['Online', 'GPay', 'online', 'online_upi', 'upi', 'bank'])
+                        ->where('paid_amount', '>', 0);
+                })->orWhere(function ($creditQuery): void {
+                    $creditQuery->where(function ($methodQuery): void {
+                        $methodQuery->where('payment_method', 'Credit')
+                            ->orWhere('payment_status', 'credit_pending_approval');
+                    })->whereRaw('(amount - COALESCE(discount_amount, 0) - COALESCE(paid_amount, 0)) > 0');
+                });
+            });
+
+        $companyBillTransactions = (clone $companyBillQuery)
+            ->orderByDesc(
+                \App\Models\PurchaserCart::query()
+                    ->select('business_date')
+                    ->whereColumn('purchaser_carts.id', 'purchase_invoices.purchaser_cart_id')
+                    ->limit(1)
+            )
+            ->orderByDesc('id')
+            ->limit(150)
+            ->get()
+            ->map(function (PurchaseInvoice $invoice): array {
+                $netAmount = round((float) $invoice->amount - (float) $invoice->discount_amount, 2);
+                $paidAmount = round((float) $invoice->paid_amount, 2);
+                $pendingAmount = max(0, round($netAmount - $paidAmount, 2));
+                $isCreditPending = strcasecmp((string) $invoice->payment_method, 'Credit') === 0
+                    || $invoice->payment_status === 'credit_pending_approval';
+
+                return [
+                    'invoice' => $invoice,
+                    'date' => $invoice->purchaserCart?->business_date,
+                    'purchaser' => $invoice->purchaserCart?->user,
+                    'supplier' => $invoice->supplier,
+                    'paid_amount' => $isCreditPending ? 0.0 : $paidAmount,
+                    'pending_amount' => $isCreditPending ? $pendingAmount : 0.0,
+                    'kind' => $isCreditPending ? 'Credit Pending' : 'Company Online Paid',
+                    'method' => $invoice->payment_method ?: 'Online',
+                    'status' => str((string) ($invoice->payment_status ?: 'pending'))->replace('_', ' ')->title()->toString(),
+                ];
+            });
+
+        $companyOnlinePaid = round((float) $companyBillTransactions->sum('paid_amount'), 2);
+        $companyCreditPending = round((float) $companyBillTransactions->sum('pending_amount'), 2);
+        $companyBillsByPurchaser = $companyBillTransactions->groupBy(fn (array $row): int => (int) ($row['purchaser']?->id ?? 0));
+
         $procurementQuery = ProcurementExpense::query()
             ->with(['purchaser:id,name,email,public_uuid', 'companyAccountingEntry:id,journal_entry_id,reference,business_date,amount,status', 'companyAccountingEntry.journalEntry:id,reference'])
             ->whereBetween('expense_date', [$fromDate->toDateString(), $toDate->toDateString()])
@@ -1558,30 +1616,48 @@ class AdminAccountingController extends Controller
 
         $summaryRows = $purchaserOptions
             ->when($selectedPurchaserId, fn (Collection $users) => $users->where('id', $selectedPurchaserId))
-            ->map(function (User $purchaser) use ($cashByPurchaser, $procurementByPurchaser): array {
+            ->map(function (User $purchaser) use ($cashByPurchaser, $procurementByPurchaser, $companyBillsByPurchaser): array {
                 $cash = $cashByPurchaser->get($purchaser->id);
                 $procurement = $procurementByPurchaser->get($purchaser->id);
+                $companyBills = $companyBillsByPurchaser->get($purchaser->id, collect());
                 $cashIn = round((float) ($cash?->cash_in ?? 0), 2);
                 $cashOut = round((float) ($cash?->cash_out ?? 0), 2);
                 $procurementTotal = round((float) ($procurement?->procurement_total ?? 0), 2);
+                $companyOnlineTotal = round((float) $companyBills->sum('paid_amount'), 2);
+                $creditPendingTotal = round((float) $companyBills->sum('pending_amount'), 2);
                 $lastDates = collect([$cash?->last_cash_date, $procurement?->last_procurement_date])->filter();
+                $lastCompanyDate = $companyBills
+                    ->pluck('date')
+                    ->filter()
+                    ->map(fn (Carbon $date): string => $date->toDateString())
+                    ->max();
+
+                if ($lastCompanyDate) {
+                    $lastDates->push($lastCompanyDate);
+                }
 
                 return [
                     'purchaser' => $purchaser,
                     'cash_in' => $cashIn,
                     'cash_out' => $cashOut,
+                    'company_online' => $companyOnlineTotal,
+                    'credit_pending' => $creditPendingTotal,
                     'procurement' => $procurementTotal,
+                    'company_out' => round($cashOut + $companyOnlineTotal + $procurementTotal, 2),
                     'balance' => round($cashIn - $cashOut, 2),
                     'last_activity' => $lastDates->isNotEmpty() ? Carbon::parse((string) $lastDates->max()) : null,
                 ];
             })
-            ->filter(fn (array $row): bool => $row['cash_in'] > 0 || $row['cash_out'] > 0 || $row['procurement'] > 0)
+            ->filter(fn (array $row): bool => $row['cash_in'] > 0 || $row['cash_out'] > 0 || $row['company_online'] > 0 || $row['credit_pending'] > 0 || $row['procurement'] > 0)
             ->sortByDesc(fn (array $row): string => $row['last_activity']?->toDateString() ?? '')
             ->values();
 
         $reportTotals = [
             'cash_in' => $cashTotals['in'],
             'cash_out' => $cashTotals['out'],
+            'company_online_out' => $companyOnlinePaid,
+            'credit_pending' => $companyCreditPending,
+            'company_total_out' => round($cashTotals['out'] + $companyOnlinePaid + $procurementTotals['amount'], 2),
             'procurement' => $procurementTotals['amount'],
             'balance' => $cashTotals['balance'],
         ];
@@ -1603,6 +1679,7 @@ class AdminAccountingController extends Controller
             'reportFilters',
             'reportTotals',
             'cashTransactions',
+            'companyBillTransactions',
             'procurementTransactions',
             'procurementTotals',
             'categoryTotals',
