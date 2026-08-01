@@ -64,7 +64,7 @@
 
             <div class="mt-3 overflow-x-auto rounded-xl border border-slate-200 sm:rounded-[1.5rem]">
                 <table class="min-w-full text-left text-xs sm:text-sm">
-                    <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                    <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
                         <tr>
                             <th class="px-4 py-3">Date</th>
                             <th class="px-4 py-3">Transaction</th>
@@ -121,7 +121,7 @@
             <section class="rounded-[1.25rem] border border-slate-200 bg-white p-3 shadow-sm sm:rounded-[2rem] sm:p-4">
                 <div class="overflow-x-auto rounded-xl border border-slate-200 sm:rounded-[1.5rem]">
                     <table class="min-w-full text-left text-xs sm:text-sm">
-                        <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                        <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
                             <tr>
                                 <th class="px-4 py-3">Invoice</th>
                                 <th class="px-4 py-3">Date</th>

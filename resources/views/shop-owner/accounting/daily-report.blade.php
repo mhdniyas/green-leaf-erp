@@ -17,7 +17,7 @@
 
 @section('content')
     <div class="space-y-6">
-        <section class="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+        <section class="rounded-[1.25rem] border border-slate-200 bg-white p-3 shadow-sm sm:rounded-[2rem] sm:p-4">
             <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div>
                     <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Daily Balance</p>
@@ -43,9 +43,9 @@
                 </div>
             </div>
 
-            <div class="mt-5 overflow-x-auto rounded-[1.5rem] border border-slate-200">
-                <table class="min-w-full text-left text-sm">
-                    <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+            <div class="mt-3 overflow-x-auto rounded-xl border border-slate-200 sm:mt-5 sm:rounded-[1.5rem]">
+                <table class="min-w-full text-left text-xs sm:text-sm">
+                    <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
                         <tr>
                             <th class="px-4 py-3">Date</th>
                             <th class="px-4 py-3 text-right">Opening Balance</th>

@@ -269,7 +269,7 @@
 
                 <div class="mt-5 overflow-x-auto rounded-[1.25rem] border border-slate-200">
                     <table class="min-w-full text-left text-sm">
-                        <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                        <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
                             <tr>
                                 <th class="px-4 py-3">Date</th>
                                 <th class="px-4 py-3">Category</th>
@@ -320,7 +320,7 @@
 
                 <div class="mt-5 overflow-x-auto rounded-[1.25rem] border border-slate-200">
                     <table class="min-w-full text-left text-sm">
-                        <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                        <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
                             <tr>
                                 <th class="px-4 py-3">Date</th>
                                 <th class="px-4 py-3">Category</th>
@@ -395,7 +395,7 @@
             @endif
 
             @if ($tab === 'cashbook')
-            <section class="-mx-4 overflow-hidden border-y border-emerald-200 bg-[#dcffd6] p-3 text-slate-950 shadow-none sm:mx-0 sm:rounded-[1.6rem] sm:border sm:p-5 sm:shadow-sm">
+            <section class="-mx-4 overflow-hidden border-y border-slate-200 bg-white p-3 text-slate-950 shadow-none sm:mx-0 sm:rounded-2xl sm:border sm:p-5 sm:shadow-sm">
                 <div class="font-mono">
                     <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                         <div>
@@ -405,7 +405,7 @@
                         <p class="text-sm font-bold text-slate-700">{{ $selectedDate->format('d/m/Y') }}</p>
                     </div>
 
-                    <div class="my-4 border-t border-dashed border-emerald-900/50"></div>
+                    <div class="my-4 border-t border-dashed border-slate-400"></div>
 
                     <div class="space-y-2 text-sm sm:text-base">
                         <div class="grid grid-cols-[1fr_auto] items-center gap-3">
@@ -442,7 +442,7 @@
                         </div>
                     </div>
 
-                    <div class="my-4 border-t border-dashed border-emerald-900/50"></div>
+                    <div class="my-4 border-t border-dashed border-slate-400"></div>
 
                     <div class="space-y-2 text-sm sm:text-base">
                         <div class="grid grid-cols-[1fr_auto] items-center gap-3">
@@ -453,14 +453,14 @@
                             <p class="font-bold">Closing</p>
                             <p data-cashbook-closing-display class="font-black tabular-nums {{ $calculatedClosingTone === 'rose' ? 'text-rose-900' : 'text-emerald-900' }}">Rs. {{ number_format($calculatedClosing, 2) }}</p>
                         </div>
-                        <div class="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-emerald-900/20 bg-white/40 px-3 py-2">
+                        <div class="grid grid-cols-[1fr_auto] items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                             <p class="font-black">Balance</p>
                             <p data-cashbook-net-sale-display class="font-black tabular-nums {{ (float) $receiptSummary['daily_net_sale'] < 0 ? 'text-rose-900' : 'text-emerald-900' }}">Rs. {{ number_format((float) $receiptSummary['daily_net_sale'], 2) }}</p>
                         </div>
                     </div>
 
                     @if ($receiptSummary['owner_funded'] > 0)
-                        <div class="mt-4 rounded-xl border border-rose-300 bg-white/50 px-3 py-2 text-sm font-black text-rose-900">
+                        <div class="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-black text-rose-900">
                             Owner funded Rs. {{ number_format($receiptSummary['owner_funded'], 2) }}
                         </div>
                     @endif
@@ -577,7 +577,7 @@
 
                             <div class="hidden overflow-x-auto rounded-[1.5rem] border border-slate-200 md:block">
                                 <table class="min-w-[58rem] text-left">
-                                    <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                                    <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
                                         <tr>
                                             <th class="px-4 py-3">Date</th>
                                             <th class="px-4 py-3">Status</th>
@@ -825,7 +825,7 @@
 
                             <div class="overflow-x-auto rounded-[1.5rem] border border-slate-200">
                                 <table class="min-w-full text-left text-sm">
-                                    <thead class="bg-slate-950 text-[10px] font-black uppercase tracking-[0.16em] text-slate-200">
+                                    <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
                                         <tr>
                                             <th class="px-4 py-3">Type</th>
                                             <th class="px-4 py-3">Category</th>
