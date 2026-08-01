@@ -113,7 +113,7 @@
                 <a href="{{ route('shop-owner.accounting.index', ['tab' => 'bills', 'date' => today()->toDateString()]) }}" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-800 shadow-sm">Today</a>
             </form>
 
-            <section class="-mx-4 overflow-hidden border-y border-emerald-200 bg-[#dcffd6] p-3 text-slate-950 shadow-none sm:mx-0 sm:rounded-[1.6rem] sm:border sm:p-5 sm:shadow-sm">
+            <section class="-mx-4 overflow-hidden border-y border-slate-200 bg-white p-3 text-slate-950 shadow-none sm:mx-0 sm:rounded-[1.6rem] sm:border sm:p-5 sm:shadow-sm">
                 <div class="font-mono">
                     <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                         <div>
@@ -123,16 +123,16 @@
                         <p class="text-sm font-bold text-slate-700">{{ $selectedBillInvoices->count() }} bill{{ $selectedBillInvoices->count() === 1 ? '' : 's' }}</p>
                     </div>
 
-                    <div class="my-4 border-t border-dashed border-emerald-900/50"></div>
+                    <div class="my-4 border-t border-dashed border-slate-300"></div>
 
                     @if ($dailyBillLines->isEmpty())
-                        <div class="rounded-xl border border-emerald-300 bg-white/50 p-4 text-center">
+                        <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
                             <p class="text-sm font-black text-slate-800">No delivery bill for this date.</p>
                         </div>
                     @else
-                        <div class="hidden overflow-hidden rounded-xl border border-emerald-900/20 bg-white/30 sm:block">
+                        <div class="hidden overflow-hidden rounded-xl border border-slate-200 bg-slate-50 sm:block">
                             <table class="min-w-full text-left text-sm">
-                                <thead class="border-b border-emerald-900/20 text-[11px] font-black uppercase tracking-[0.16em] text-slate-700">
+                                <thead class="border-b border-slate-200 text-[11px] font-black uppercase tracking-[0.16em] text-slate-700">
                                     <tr>
                                         <th class="px-3 py-3">Item</th>
                                         <th class="px-3 py-3 text-right">Qty</th>
@@ -140,7 +140,7 @@
                                         <th class="px-3 py-3 text-right">Total</th>
                                     </tr>
                                 </thead>
-                                <tbody class="divide-y divide-emerald-900/10">
+                                <tbody class="divide-y divide-slate-200">
                                     @foreach ($dailyBillLines as $line)
                                         <tr>
                                             <td class="px-3 py-3 font-bold">
@@ -158,7 +158,7 @@
 
                         <div class="space-y-3 sm:hidden">
                             @foreach ($dailyBillLines as $line)
-                                <div class="rounded-xl border border-emerald-900/20 bg-white/30 p-3">
+                                <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
                                     <div class="flex items-start justify-between gap-3">
                                         <div>
                                             <p class="text-sm font-black">{{ $line['product_name'] }}</p>
@@ -172,7 +172,7 @@
                         </div>
                     @endif
 
-                    <div class="my-4 border-t border-dashed border-emerald-900/50"></div>
+                    <div class="my-4 border-t border-dashed border-slate-300"></div>
 
                     <div class="space-y-2 text-sm sm:text-base">
                         <div class="grid grid-cols-[1fr_auto] items-center gap-3">
@@ -194,7 +194,7 @@
                     </div>
                 </div>
 
-                <div class="mt-4 rounded-xl border border-emerald-300 bg-white/50 p-3">
+                <div class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
                     @if ($shop->isOwnedAccountingEnabled())
                         <p class="text-sm font-black text-slate-900">Approved bills are posted as client-shop debit for this bill date.</p>
                         <p class="mt-1 text-sm font-semibold text-slate-700">Green Leaf invoice payment is handled from Finance > Payments. Bills do not create duplicate manual expenses.</p>
@@ -482,46 +482,46 @@
                     'recheck' => 'Recheck Required',
                 ];
             @endphp
-            <section id="shop-owner-ledger-status-tabs" class="rounded-[2rem] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
-                <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                    <div class="flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1">
+            <section id="shop-owner-ledger-status-tabs" class="rounded-[1.25rem] border border-slate-200 bg-white p-2 shadow-sm sm:rounded-[2rem] sm:p-4">
+                <div class="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+                    <div class="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 sm:flex sm:flex-wrap sm:rounded-2xl">
                     @foreach ($ledgerStatusTabs as $statusKey => $statusLabel)
-                        <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'ledger_status' => $statusKey, 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date'), 'ledger_source' => $ledgerSourceFilter === 'greenleaf_direct' ? 'greenleaf_direct' : null])) }}" data-ledger-status-trigger="{{ $statusKey }}" aria-selected="{{ $ledgerStatusTab === $statusKey ? 'true' : 'false' }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerStatusTab === $statusKey ? 'bg-slate-950 text-white' : 'text-slate-700 hover:bg-white' }}">
+                        <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'ledger_status' => $statusKey, 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date'), 'ledger_source' => $ledgerSourceFilter === 'greenleaf_direct' ? 'greenleaf_direct' : null])) }}" data-ledger-status-trigger="{{ $statusKey }}" aria-selected="{{ $ledgerStatusTab === $statusKey ? 'true' : 'false' }}" class="inline-flex h-8 items-center justify-center rounded-lg px-2 text-[11px] font-black transition sm:h-10 sm:rounded-xl sm:px-4 sm:text-sm {{ $ledgerStatusTab === $statusKey ? 'bg-slate-950 text-white' : 'text-slate-700 hover:bg-white' }}">
                             {{ $statusLabel }}
                         </a>
                     @endforeach
                     </div>
 
-                    <div class="flex flex-wrap items-center gap-2">
-                        <div class="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
-                            <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'ledger_status' => $ledgerStatusTab, 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date')])) }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerSourceFilter === 'all' ? 'bg-slate-950 text-white' : 'text-slate-700 hover:bg-white' }}">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div class="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1 sm:rounded-2xl">
+                            <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'ledger_status' => $ledgerStatusTab, 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date')])) }}" class="inline-flex h-8 items-center rounded-lg px-3 text-xs font-black transition sm:h-10 sm:rounded-xl sm:px-4 sm:text-sm {{ $ledgerSourceFilter === 'all' ? 'bg-slate-950 text-white' : 'text-slate-700 hover:bg-white' }}">
                                 All
                             </a>
-                            <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'ledger_status' => $ledgerStatusTab, 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date'), 'ledger_source' => 'greenleaf_direct'])) }}" class="inline-flex h-10 items-center rounded-xl px-4 text-sm font-black transition {{ $ledgerSourceFilter === 'greenleaf_direct' ? 'bg-cyan-600 text-white' : 'text-cyan-700 hover:bg-white' }}">
+                            <a href="{{ route('shop-owner.accounting.index', array_filter(['tab' => 'cashbook', 'ledger_status' => $ledgerStatusTab, 'date' => $selectedDate->format('Y-m-d'), 'start_date' => request('start_date'), 'end_date' => request('end_date'), 'ledger_source' => 'greenleaf_direct'])) }}" class="inline-flex h-8 items-center rounded-lg px-3 text-xs font-black transition sm:h-10 sm:rounded-xl sm:px-4 sm:text-sm {{ $ledgerSourceFilter === 'greenleaf_direct' ? 'bg-cyan-600 text-white' : 'text-cyan-700 hover:bg-white' }}">
                                 GreenLeaf Direct
                             </a>
                         </div>
-                        <a href="{{ route('shop-owner.accounting.history', ['tab' => 'cashbook']) }}" class="text-sm font-black text-emerald-700">Open full history</a>
+                        <a href="{{ route('shop-owner.accounting.history', ['tab' => 'cashbook']) }}" class="text-xs font-black text-emerald-700 sm:text-sm">Open full history</a>
                     </div>
                 </div>
 
-                <form method="GET" action="{{ route('shop-owner.accounting.index') }}" class="mt-4 grid gap-2 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-2 sm:grid-cols-4">
+                <form method="GET" action="{{ route('shop-owner.accounting.index') }}" class="mt-2 grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 sm:mt-4 sm:grid-cols-4 sm:rounded-[1.5rem]">
                     <input type="hidden" name="tab" value="cashbook">
                     <input type="hidden" name="date" value="{{ $selectedDate->format('Y-m-d') }}">
                     <input type="hidden" name="ledger_status" value="{{ $ledgerStatusTab }}">
                     @if ($ledgerSourceFilter === 'greenleaf_direct')
                         <input type="hidden" name="ledger_source" value="greenleaf_direct">
                     @endif
-                    <label class="rounded-2xl bg-white px-4 py-2 text-slate-900 shadow-sm">
-                        <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">From</span>
-                        <input type="date" name="start_date" value="{{ request('start_date') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
+                    <label class="rounded-xl bg-white px-3 py-2 text-slate-900 shadow-sm sm:rounded-2xl sm:px-4">
+                        <span class="block text-[9px] font-black uppercase tracking-[0.14em] text-slate-400 sm:text-[10px] sm:tracking-[0.18em]">From</span>
+                        <input type="date" name="start_date" value="{{ request('start_date') }}" class="mt-0.5 w-full border-0 bg-transparent p-0 text-xs font-black focus:outline-none focus:ring-0 sm:mt-1 sm:text-sm">
                     </label>
-                    <label class="rounded-2xl bg-white px-4 py-2 text-slate-900 shadow-sm">
-                        <span class="block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">To</span>
-                        <input type="date" name="end_date" value="{{ request('end_date') }}" class="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black focus:outline-none focus:ring-0">
+                    <label class="rounded-xl bg-white px-3 py-2 text-slate-900 shadow-sm sm:rounded-2xl sm:px-4">
+                        <span class="block text-[9px] font-black uppercase tracking-[0.14em] text-slate-400 sm:text-[10px] sm:tracking-[0.18em]">To</span>
+                        <input type="date" name="end_date" value="{{ request('end_date') }}" class="mt-0.5 w-full border-0 bg-transparent p-0 text-xs font-black focus:outline-none focus:ring-0 sm:mt-1 sm:text-sm">
                     </label>
-                    <button type="submit" class="inline-flex h-14 items-center justify-center rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800">Filter Table</button>
-                    <a href="{{ route('shop-owner.accounting.index', ['tab' => 'cashbook', 'ledger_status' => $ledgerStatusTab, 'date' => $selectedDate->format('Y-m-d')]) }}" class="inline-flex h-14 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-800 transition hover:bg-slate-50">Clear</a>
+                    <button type="submit" class="inline-flex h-10 items-center justify-center rounded-xl bg-slate-950 px-3 text-xs font-black text-white transition hover:bg-slate-800 sm:h-14 sm:rounded-2xl sm:px-4 sm:text-sm">Filter</button>
+                    <a href="{{ route('shop-owner.accounting.index', ['tab' => 'cashbook', 'ledger_status' => $ledgerStatusTab, 'date' => $selectedDate->format('Y-m-d')]) }}" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-800 transition hover:bg-slate-50 sm:h-14 sm:rounded-2xl sm:px-4 sm:text-sm">Clear</a>
                 </form>
 
                 <div class="mt-4">
