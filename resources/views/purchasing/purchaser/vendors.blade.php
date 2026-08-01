@@ -500,6 +500,7 @@
         <input type="hidden" id="cart-share-supplier-id" name="supplier_id" value="">
         <input type="hidden" id="cart-share-mode" name="share_mode" value="saved">
         <input type="hidden" id="cart-share-mobile-hidden" name="vendor_mobile_number" value="">
+        <input type="hidden" id="cart-share-format" name="share_format" value="total">
         <input type="hidden" id="cart-share-show-price" name="show_price" value="0">
         <input type="hidden" id="cart-share-discount-hidden" name="discount_amount" value="0">
     </form>
@@ -612,6 +613,19 @@
                     <button type="button" role="switch" aria-checked="false" id="toggle-show-price" class="relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent bg-slate-200 transition-colors duration-200 ease-in-out focus:outline-none" onclick="togglePriceCheckbox()">
                         <span aria-hidden="true" id="toggle-switch-handle" class="pointer-events-none inline-block h-4 w-4 translate-x-0 transform rounded-full bg-white shadow-sm transition duration-200 ease-in-out"></span>
                     </button>
+                </div>
+
+                <div class="rounded-xl border border-slate-100 bg-slate-50/50 p-2">
+                    <p class="px-1 text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Message Text</p>
+                    <div class="mt-2 grid grid-cols-2 gap-2">
+                        <button type="button" id="cart-share-format-total" onclick="setCartShareFormat('total')" class="flex h-9 items-center justify-center rounded-xl bg-slate-950 px-3 text-xs font-black text-white">
+                            Total
+                        </button>
+                        <button type="button" id="cart-share-format-selection" onclick="setCartShareFormat('selection')" class="flex h-9 items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 text-xs font-black text-emerald-700 hover:bg-emerald-50">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M11.998 2.166C6.525 2.166 2.09 6.6 2.09 12.073c0 1.742.455 3.378 1.25 4.793L2 22l5.292-1.387c1.36.74 2.912 1.162 4.566 1.162 5.472 0 9.908-4.433 9.908-9.905 0-5.474-4.436-9.704-9.768-9.704z"/></svg>
+                            Selection
+                        </button>
+                    </div>
                 </div>
 
                 <div id="cart-share-discount-wrap" class="rounded-xl border border-slate-200 bg-slate-50 p-3">
@@ -777,6 +791,27 @@
             setPriceToggle(document.getElementById('cart-share-show-price').value !== '1');
         }
 
+        function setCartShareFormat(format) {
+            const selected = format === 'selection' ? 'selection' : 'total';
+            const input = document.getElementById('cart-share-format');
+            const totalButton = document.getElementById('cart-share-format-total');
+            const selectionButton = document.getElementById('cart-share-format-selection');
+
+            input.value = selected;
+            totalButton.classList.toggle('bg-slate-950', selected === 'total');
+            totalButton.classList.toggle('text-white', selected === 'total');
+            totalButton.classList.toggle('border', selected !== 'total');
+            totalButton.classList.toggle('border-slate-200', selected !== 'total');
+            totalButton.classList.toggle('bg-white', selected !== 'total');
+            totalButton.classList.toggle('text-slate-700', selected !== 'total');
+            selectionButton.classList.toggle('bg-emerald-600', selected === 'selection');
+            selectionButton.classList.toggle('text-white', selected === 'selection');
+            selectionButton.classList.toggle('border-emerald-600', selected === 'selection');
+            selectionButton.classList.toggle('bg-white', selected !== 'selection');
+            selectionButton.classList.toggle('text-emerald-700', selected !== 'selection');
+            selectionButton.classList.toggle('border-emerald-200', selected !== 'selection');
+        }
+
         function updateCartShareDiscount() {
             const discountValue = Math.max(0, Number(document.getElementById('cart-share-discount-input').value || 0));
             const netTotal = Math.max(0, cartShareState.totalAmount - discountValue);
@@ -807,6 +842,7 @@
             document.getElementById('cart-share-modal').classList.remove('hidden');
             document.getElementById('cart-share-modal').classList.add('flex');
             setPriceToggle(false);
+            setCartShareFormat('total');
             updateCartShareDiscount();
         }
 

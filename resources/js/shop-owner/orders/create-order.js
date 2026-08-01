@@ -99,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ?.querySelector(`[data-inline-measure][data-line-key="${unitInput.getAttribute('data-line-key')}"]`);
 
     const syncUnitConversionInfo = (input) => {
-        const row = input.closest('[data-extra-measure-line]') ?? input.closest('[data-product-card]');
+        const row = input.closest('[data-product-card]');
         const lineKey = String(input.getAttribute('data-line-key') ?? input.getAttribute('data-product-id'));
         const product = productForInput(input);
         const unitInput = unitInputsByLineKey.get(lineKey);
@@ -231,9 +231,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         input.value = quantity > 0 ? quantity.toFixed(2) : '';
-        if (quantity > 0) {
-            input.closest('[data-extra-measure-line]')?.classList.remove('hidden');
-        }
         if (unit) {
             setProductUnit(lineKey, unit, { persist: false });
         }
@@ -418,61 +415,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     layoutButtons.forEach((button) => {
         button.addEventListener('click', () => setShopOrderLayout(button.getAttribute('data-layout') ?? 'compact'));
-    });
-
-    document.querySelectorAll('[data-add-measure-line]').forEach((button) => {
-        button.addEventListener('click', () => {
-            const row = button.closest('[data-product-card]');
-            const nextLine = row?.querySelector('[data-extra-measure-line].hidden');
-
-            if (!nextLine) {
-                return;
-            }
-
-            const usedMeasures = new Set(
-                Array.from(row.querySelectorAll('[data-inline-measure]'))
-                    .filter((input) => !input.closest('[data-extra-measure-line]')?.classList.contains('hidden'))
-                    .map((input) => input.value || input.closest('[data-inline-unit-picker]')?.querySelector('[data-inline-unit]')?.value)
-                    .filter(Boolean)
-            );
-            const picker = nextLine.querySelector('[data-inline-unit-picker]');
-            const fallbackOption = picker?.querySelector('[data-unit-picker-option]');
-            const unusedOption = Array.from(picker?.querySelectorAll('[data-unit-picker-option]') ?? [])
-                .find((option) => !usedMeasures.has(option.getAttribute('data-unit-value')));
-            const selectedOption = unusedOption ?? fallbackOption;
-            const lineKey = picker?.getAttribute('data-line-key');
-            const selectedMeasure = selectedOption?.getAttribute('data-unit-value');
-
-            nextLine.classList.remove('hidden');
-            if (lineKey && selectedMeasure) {
-                setProductUnit(lineKey, selectedMeasure, { persist: false });
-            }
-            const input = nextLine.querySelector('[data-inline-qty]');
-            if (input) {
-                input.focus();
-                input.select();
-                updateRowState(input);
-            }
-
-            button.classList.toggle('hidden', !row.querySelector('[data-extra-measure-line].hidden'));
-        });
-    });
-
-    document.querySelectorAll('[data-remove-measure-line]').forEach((button) => {
-        button.addEventListener('click', () => {
-            const line = button.closest('[data-extra-measure-line]');
-            const input = line?.querySelector('[data-inline-qty]');
-
-            if (input) {
-                input.value = '';
-                updateRowState(input);
-            }
-
-            line?.classList.add('hidden');
-            line?.closest('[data-product-card]')?.querySelector('[data-add-measure-line]')?.classList.remove('hidden');
-            syncDraftBar();
-            saveDraft();
-        });
     });
 
     quantityInputs.forEach((input) => {

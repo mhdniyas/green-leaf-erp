@@ -160,20 +160,20 @@
                     'border-slate-200 bg-white' => (float) $productData['current_qty'] <= 0,
                 ])
             >
-                <div class="shop-order-row-grid relative grid grid-cols-[2rem_minmax(0,1fr)_4.25rem_minmax(4.5rem,5.5rem)] items-center gap-1.5 pr-7">
+                <div class="shop-order-row-grid grid grid-cols-[2rem_minmax(0,1fr)_3.45rem_3.75rem] items-center gap-1 sm:grid-cols-[2rem_minmax(0,1fr)_4rem_4.5rem] sm:gap-1.5">
                     <div class="shop-order-row-code flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[11px] font-black text-slate-600">
                         {{ $productData['sku'] }}
                     </div>
                     <div class="shop-order-row-title min-w-0">
-                        <h4 class="truncate text-[13px] font-black leading-4 text-slate-950">{{ $productData['name'] }}</h4>
-                        <p class="truncate text-[11px] font-semibold leading-3 text-slate-500">{{ $productData['category'] }}</p>
+                        <h4 class="shop-order-row-name text-[12px] font-black leading-3.5 text-slate-950 sm:text-[13px] sm:leading-4" title="{{ $productData['name'] }}">{{ $productData['name'] }}</h4>
+                        <p class="truncate text-[10px] font-semibold leading-3 text-slate-500/85 sm:text-[11px]">{{ $productData['category'] }}</p>
                     </div>
                     @if(count($productData['order_units']) > 1)
                         <div class="shop-order-row-unit relative" data-inline-unit-picker data-product-id="{{ $productData['id'] }}" data-line-key="{{ $productData['line_key'] }}">
                             <input type="hidden" name="item_units[{{ $productData['line_key'] }}]" value="{{ $productData['current_unit'] }}" data-inline-unit data-product-id="{{ $productData['id'] }}" data-line-key="{{ $productData['line_key'] }}">
                             <input type="hidden" name="item_measures[{{ $productData['line_key'] }}]" value="{{ $productData['current_measure_uuid'] }}" data-inline-measure data-product-id="{{ $productData['id'] }}" data-line-key="{{ $productData['line_key'] }}">
-                            <button type="button" data-unit-picker-trigger class="flex h-8 w-full items-center justify-between gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[10px] font-black uppercase text-slate-800 shadow-sm transition hover:border-emerald-300 hover:bg-white focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" aria-haspopup="listbox" aria-expanded="false" aria-label="Unit for {{ $productData['name'] }}">
-                                <span data-unit-picker-label>{{ $productData['current_unit_label'] }}</span>
+                            <button type="button" data-unit-picker-trigger class="flex h-8 w-full items-center justify-center gap-0.5 rounded-lg border border-slate-200 bg-slate-50 px-1 text-[9px] font-black uppercase text-slate-800 shadow-sm transition hover:border-emerald-300 hover:bg-white focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:justify-between sm:gap-1 sm:px-2 sm:text-[10px]" aria-haspopup="listbox" aria-expanded="false" aria-label="Unit for {{ $productData['name'] }}">
+                                <span data-unit-picker-label class="truncate">{{ $productData['current_unit_label'] }}</span>
                                 <svg class="h-3 w-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
                                 </svg>
@@ -193,7 +193,7 @@
                             </div>
                         </div>
                     @else
-                        <div class="shop-order-row-unit flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-1.5 text-[10px] font-black uppercase text-slate-800">
+                        <div class="shop-order-row-unit flex h-8 items-center justify-center truncate rounded-lg border border-slate-200 bg-slate-50 px-1 text-[9px] font-black uppercase text-slate-800 sm:px-1.5 sm:text-[10px]">
                             {{ $productData['current_unit_label'] }}
                         </div>
                         <input type="hidden" name="item_units[{{ $productData['line_key'] }}]" value="{{ $productData['current_unit'] }}" data-inline-unit data-product-id="{{ $productData['id'] }}" data-line-key="{{ $productData['line_key'] }}">
@@ -212,70 +212,14 @@
                         data-inline-qty
                         data-product-id="{{ $productData['id'] }}"
                         data-line-key="{{ $productData['line_key'] }}"
-                        class="shop-order-row-qty h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-right text-sm font-black text-slate-950 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        class="shop-order-row-qty h-8 w-full rounded-lg border border-slate-200 bg-white px-1.5 text-right text-sm font-black text-slate-950 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:px-2"
                         placeholder="0"
                         aria-label="Quantity for {{ $productData['name'] }}"
                     >
-                    <button type="button" data-add-measure-line class="shop-order-row-action absolute right-0 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border border-slate-200 bg-white text-xs font-black text-slate-500 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700" aria-label="Add another unit for {{ $productData['name'] }}">
-                        +
-                    </button>
                 </div>
 
                 <span data-row-selection-label class="{{ (float) $productData['current_qty'] > 0 ? '' : 'hidden' }} sr-only">Selected for cart</span>
                 <p data-unit-conversion-info class="mt-2 hidden rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-[11px] font-black uppercase tracking-[0.08em] text-emerald-700"></p>
-                @if(count($productData['order_units']) > 1)
-                    <div data-extra-measure-lines class="mt-1.5 grid gap-1.5">
-                        @foreach($productData['order_units'] as $extraUnit)
-                            <div data-extra-measure-line class="hidden grid grid-cols-[2rem_minmax(0,1fr)_4.25rem_minmax(4.5rem,5.5rem)_2rem] items-center gap-1.5">
-                                <div></div>
-                                <div></div>
-                                <div class="relative" data-inline-unit-picker data-product-id="{{ $productData['id'] }}" data-line-key="{{ $productData['sku'] }}|extra-{{ $loop->index }}">
-                                    <input type="hidden" name="item_units[{{ $productData['sku'] }}|extra-{{ $loop->index }}]" value="{{ $extraUnit['unit'] }}" data-inline-unit data-product-id="{{ $productData['id'] }}" data-line-key="{{ $productData['sku'] }}|extra-{{ $loop->index }}">
-                                    <input type="hidden" name="item_measures[{{ $productData['sku'] }}|extra-{{ $loop->index }}]" value="{{ $extraUnit['public_uuid'] }}" data-inline-measure data-product-id="{{ $productData['id'] }}" data-line-key="{{ $productData['sku'] }}|extra-{{ $loop->index }}">
-                                    <button type="button" data-unit-picker-trigger class="flex h-8 w-full items-center justify-between gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[10px] font-black uppercase text-slate-800 shadow-sm transition hover:border-emerald-300 hover:bg-white focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" aria-haspopup="listbox" aria-expanded="false" aria-label="Extra unit for {{ $productData['name'] }}">
-                                        <span data-unit-picker-label>{{ $extraUnit['label'] }}</span>
-                                        <svg class="h-3 w-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
-                                        </svg>
-                                    </button>
-                                    <div data-unit-picker-menu class="absolute left-0 top-[calc(100%+0.25rem)] z-50 hidden min-w-28 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl shadow-slate-900/15" role="listbox">
-                                        @foreach($productData['order_units'] as $unit)
-                                            @php($measureValue = $unit['public_uuid'] ?: $unit['unit'])
-                                            <button type="button" data-unit-picker-option data-unit-value="{{ $measureValue }}" data-unit-name="{{ $unit['unit'] }}" data-unit-label="{{ $unit['label'] }}" @class([
-                                                'flex h-8 w-full items-center gap-1.5 rounded-lg px-2 text-left text-[10px] font-black uppercase transition',
-                                                'bg-emerald-600 text-white' => $measureValue === ($extraUnit['public_uuid'] ?: $extraUnit['unit']),
-                                                'text-slate-700 hover:bg-slate-100' => $measureValue !== ($extraUnit['public_uuid'] ?: $extraUnit['unit']),
-                                            ]) role="option" aria-selected="{{ $measureValue === ($extraUnit['public_uuid'] ?: $extraUnit['unit']) ? 'true' : 'false' }}">
-                                                <span data-unit-picker-check class="{{ $measureValue === ($extraUnit['public_uuid'] ?: $extraUnit['unit']) ? '' : 'invisible' }}">✓</span>
-                                                <span>{{ $unit['label'] }}</span>
-                                            </button>
-                                        @endforeach
-                                    </div>
-                                </div>
-                                <input
-                                    type="number"
-                                    inputmode="decimal"
-                                    step="0.01"
-                                    min="0"
-                                    name="items[{{ $productData['sku'] }}|extra-{{ $loop->index }}]"
-                                    value=""
-                                    data-order-qty
-                                    data-master-qty
-                                    data-inline-qty
-                                    data-product-id="{{ $productData['id'] }}"
-                                    data-line-key="{{ $productData['sku'] }}|extra-{{ $loop->index }}"
-                                    class="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-right text-sm font-black text-slate-950 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                                    placeholder="0"
-                                    aria-label="Extra quantity for {{ $productData['name'] }}"
-                                >
-                                <button type="button" data-remove-measure-line class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-sm font-black text-slate-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600" aria-label="Remove extra unit for {{ $productData['name'] }}">
-                                    x
-                                </button>
-                                <p data-unit-conversion-info class="col-start-3 col-span-2 hidden rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-[11px] font-black uppercase tracking-[0.08em] text-emerald-700"></p>
-                            </div>
-                        @endforeach
-                    </div>
-                @endif
                 <p data-row-error class="mt-2 hidden text-[11px] font-bold text-rose-700"></p>
             </article>
         @endforeach
@@ -297,14 +241,21 @@
     </div>
 
     <style>
+        .shop-order-row-name {
+            display: -webkit-box;
+            overflow: hidden;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+            line-clamp: 2;
+        }
+
         #shop-owner-order-form.shop-order-layout-two-row [data-product-card] {
             padding: 0.65rem;
         }
 
         #shop-owner-order-form.shop-order-layout-two-row .shop-order-row-grid {
-            grid-template-columns: 4.25rem minmax(0, 1fr) 1.75rem;
+            grid-template-columns: 4.25rem minmax(0, 1fr);
             gap: 0.5rem;
-            padding-right: 0;
         }
 
         #shop-owner-order-form.shop-order-layout-two-row .shop-order-row-unit {
@@ -316,17 +267,9 @@
             grid-column: 2 / -1;
         }
 
-        #shop-owner-order-form.shop-order-layout-two-row .shop-order-row-action {
-            position: static;
-            grid-column: 3 / 4;
-            grid-row: 1;
-            transform: none;
-            justify-self: end;
-        }
-
         @media (min-width: 640px) {
             #shop-owner-order-form.shop-order-layout-two-row .shop-order-row-grid {
-                grid-template-columns: 2.25rem minmax(0, 1fr) 5rem 6rem 2rem;
+                grid-template-columns: 2.25rem minmax(0, 1fr) 4rem 4.5rem;
             }
 
             #shop-owner-order-form.shop-order-layout-two-row .shop-order-row-unit {
@@ -337,9 +280,6 @@
                 grid-column: 4 / 5;
             }
 
-            #shop-owner-order-form.shop-order-layout-two-row .shop-order-row-action {
-                grid-column: 5 / 6;
-            }
         }
     </style>
 

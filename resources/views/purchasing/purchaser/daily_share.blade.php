@@ -133,23 +133,24 @@
 
                     {{-- ===== SINGLE PRODUCT MODE ===== --}}
                     <div data-share-section="product" class="{{ $shareMode !== 'product' ? 'hidden' : '' }} px-4 py-4">
-                        <div class="relative" data-single-product-picker>
+                        <div data-single-product-picker>
                             <input type="hidden" name="product_id" value="{{ $selectedProductId }}" id="share-product-id">
                             <button type="button" data-single-product-trigger
-                                class="flex min-h-12 w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-left transition hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30">
-                                <span class="min-w-0" data-single-product-label>
+                                class="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-left transition hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30">
+                                <span class="min-w-0 flex-1" data-single-product-label>
                                     @php $selectedSingleProduct = collect($availableProducts)->firstWhere('product_id', $selectedProductId); @endphp
                                     @if ($selectedSingleProduct)
-                                        <span class="block truncate text-sm font-black text-slate-900">{{ $selectedSingleProduct['product_name'] }}</span>
-                                        <span class="block text-[10px] font-bold uppercase text-slate-400">{{ $selectedSingleProduct['category_name'] ?: 'No Tag' }}</span>
+                                        <span class="block truncate text-sm font-black text-slate-900" data-single-selected-name>{{ $selectedSingleProduct['product_name'] }}</span>
+                                        <span class="block truncate text-[10px] font-bold uppercase text-slate-400" data-single-selected-category>{{ $selectedSingleProduct['category_name'] ?: 'No Tag' }}</span>
                                     @else
-                                        <span class="block text-sm font-black text-slate-400">Select one product…</span>
+                                        <span class="block truncate text-sm font-black text-slate-400" data-single-selected-name>Select one product...</span>
+                                        <span class="block hidden truncate text-[10px] font-bold uppercase text-slate-400" data-single-selected-category></span>
                                     @endif
                                 </span>
                                 <svg class="h-4 w-4 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
                             </button>
 
-                            <div data-single-product-panel class="absolute left-0 right-0 z-30 mt-1 hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                            <div data-single-product-panel class="mt-2 hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
                                 <div class="border-b border-slate-100 p-2">
                                     <input type="search" data-single-product-search placeholder="Search product..."
                                         class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none">
@@ -344,7 +345,8 @@
         // ── Single product picker ──────────────────────────────────────
         const singleInput  = document.getElementById('share-product-id');
         const singlePanel  = document.querySelector('[data-single-product-panel]');
-        const singleLabel  = document.querySelector('[data-single-product-label]');
+        const singleName   = document.querySelector('[data-single-selected-name]');
+        const singleCategory = document.querySelector('[data-single-selected-category]');
         const singleSearch = document.querySelector('[data-single-product-search]');
 
         document.querySelector('[data-single-product-trigger]')?.addEventListener('click', () => {
@@ -362,10 +364,15 @@
         document.querySelectorAll('[data-single-product-option]').forEach(opt => {
             opt.addEventListener('click', () => {
                 if (singleInput) singleInput.value = opt.dataset.value ?? '0';
-                if (singleLabel) singleLabel.innerHTML = `
-                    <span class="block truncate text-sm font-black text-slate-900">${opt.dataset.productName}</span>
-                    <span class="block text-[10px] font-bold uppercase text-slate-400">${opt.dataset.categoryName}</span>
-                `;
+                if (singleName) {
+                    singleName.textContent = opt.dataset.productName ?? '';
+                    singleName.classList.remove('text-slate-400');
+                    singleName.classList.add('text-slate-900');
+                }
+                if (singleCategory) {
+                    singleCategory.textContent = opt.dataset.categoryName ?? '';
+                    singleCategory.classList.remove('hidden');
+                }
                 document.querySelectorAll('[data-single-product-option]').forEach(o => {
                     o.classList.toggle('bg-emerald-50', o === opt);
                     o.classList.toggle('text-emerald-700', o === opt);

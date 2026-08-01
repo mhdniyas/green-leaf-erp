@@ -1541,6 +1541,7 @@ class PurchaserDashboardController extends Controller
             'payment_terms' => ['nullable', 'string', 'max:100'],
             'preferred_payment_method' => ['nullable', 'string', 'max:100'],
             'share_mode' => ['nullable', 'string', 'in:saved,custom,any'],
+            'share_format' => ['nullable', 'string', 'in:total,selection'],
             'show_price' => ['nullable', 'boolean'],
             'discount_amount' => ['nullable', 'numeric', 'min:0'],
         ]);
@@ -1573,7 +1574,12 @@ class PurchaserDashboardController extends Controller
 
         $discountAmount = round((float) $request->input('discount_amount', 0), 2);
         $showPrice = $request->boolean('show_price', false) || $discountAmount > 0;
-        $message = $this->buildCartShareText($cart->fresh(['items.product', 'supplier']), $showPrice, $discountAmount);
+        $message = $this->buildCartShareText(
+            $cart->fresh(['items.product', 'supplier']),
+            $showPrice,
+            $discountAmount,
+            $request->string('share_format')->toString() === 'selection' ? 'selection' : 'total',
+        );
 
         $shareMode = $request->string('share_mode')->toString() ?: 'saved';
         $customMobile = $request->input('vendor_mobile_number');
@@ -3340,7 +3346,7 @@ class PurchaserDashboardController extends Controller
         return trim(implode("\n", $lines));
     }
 
-    private function buildCartShareText(PurchaserCart $cart, bool $includePrice, float $discountAmount = 0): string
+    private function buildCartShareText(PurchaserCart $cart, bool $includePrice, float $discountAmount = 0, string $shareFormat = 'total'): string
     {
         $nameWidth = 14;
         $qtyWidth = 4;
@@ -3356,6 +3362,10 @@ class PurchaserDashboardController extends Controller
 
         $subTotal = 0.0;
         $formattedRows = [];
+        $dailySummaryByProduct = $includePrice || $shareFormat !== 'selection'
+            ? collect()
+            : $this->buildDailySummary($cart->business_date->copy()->startOfDay(), [])
+                ->keyBy(fn (array $summary): int => (int) $summary['product_id']);
 
         foreach ($cart->items as $item) {
             if ($includePrice) {
@@ -3383,7 +3393,11 @@ class PurchaserDashboardController extends Controller
 
             foreach ($this->wrapShareProductName((string) $item->product->name, $nameWidth) as $index => $wrappedLine) {
                 if ($index === 0) {
-                    $lines[] = str_pad($wrappedLine, $nameWidth).' '.$this->formatShareQuantity((float) $item->quantity, $item->product->unit);
+                    $quantityText = $shareFormat === 'selection'
+                        ? $this->formatCartShareQuantityBreakdown($item, $dailySummaryByProduct)
+                        : $this->formatShareQuantity((float) $item->quantity, $item->product->unit);
+
+                    $lines[] = str_pad($wrappedLine, $nameWidth).' '.$quantityText;
 
                     continue;
                 }
@@ -3414,6 +3428,25 @@ class PurchaserDashboardController extends Controller
         $lines[] = 'Please pack and confirm.';
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * @param  Collection<int, array<string, mixed>>  $dailySummaryByProduct
+     */
+    private function formatCartShareQuantityBreakdown(PurchaserCartItem $item, Collection $dailySummaryByProduct): string
+    {
+        $dailySummary = $dailySummaryByProduct->get((int) $item->product_id);
+        $quantityBuckets = is_array($dailySummary) ? ($dailySummary['quantity_buckets'] ?? []) : [];
+
+        if (! empty($quantityBuckets)) {
+            $bucketBreakdown = collect($quantityBuckets)
+                ->map(fn (array $bucket): string => $bucket['formatted'].' x '.$bucket['count'])
+                ->implode(', ');
+
+            return $bucketBreakdown.' = '.$this->formatShareQuantity((float) $item->quantity, $item->product->unit);
+        }
+
+        return $this->formatShareQuantity((float) $item->quantity, $item->product->unit);
     }
 
     /**
