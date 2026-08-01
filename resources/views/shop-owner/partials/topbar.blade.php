@@ -7,7 +7,7 @@
 
 <header class="fixed top-4 inset-x-4 z-30 mx-auto max-w-md bg-white/95 backdrop-blur-md shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-slate-100 rounded-[1.5rem] px-4 py-2.5 flex items-center justify-between lg:sticky lg:top-0 lg:left-0 lg:right-0 lg:inset-x-0 lg:max-w-none lg:mx-0 lg:rounded-none lg:border-0 lg:border-b lg:border-slate-200 lg:bg-white/95 lg:backdrop-blur lg:shadow-none lg:px-8 lg:py-4">
     <div class="flex items-center justify-between w-full gap-3">
-        <div class="flex min-w-0 items-center gap-3">
+        <div class="flex min-w-0 items-center gap-2.5 sm:gap-3">
             <button
                 type="button"
                 id="shop-owner-mobile-sidebar-open"
@@ -19,9 +19,11 @@
                 </svg>
             </button>
 
+            <img src="{{ asset('images/greenleaf-logo.png') }}" alt="Green Leaf" class="h-9 w-9 shrink-0 rounded-xl border border-slate-100 bg-white object-contain p-1 shadow-sm sm:h-10 sm:w-10">
+
             <div class="min-w-0">
-                <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Green Leaf Traders</p>
-                <p class="mt-0.5 text-xs sm:text-sm font-bold text-slate-800 truncate max-w-[150px] sm:max-w-none" title="{{ $activeShop?->name ?? 'Shop Owner' }}">
+                <p class="truncate text-[9px] font-black uppercase tracking-[0.14em] text-slate-400 sm:text-[10px] sm:tracking-[0.18em]">Green Leaf</p>
+                <p class="mt-0.5 max-w-[120px] truncate text-xs font-bold text-slate-800 sm:max-w-none sm:text-sm" title="{{ $activeShop?->name ?? 'Shop Owner' }}">
                     {{ $activeShop?->name ?? 'Shop Owner' }}
                 </p>
             </div>
@@ -55,7 +57,7 @@
                 </form>
             @endif
 
-            <div class="text-right">
+            <div class="hidden text-right sm:block">
                 <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Business Date</p>
                 <p class="mt-0.5 text-xs sm:text-sm font-bold text-slate-800">
                     {{ now()->format('d F Y') }}
