@@ -95,7 +95,9 @@
                         <div class="space-y-3">
                             <div class="flex flex-col gap-3 pl-1 sm:flex-row sm:items-center sm:justify-between">
                                 <h3 class="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Pending Vendor Sheets</h3>
-                                @php($bulkReceiveCount = min($pendingGrns->count(), 5))
+                                @php
+                                    $bulkReceiveCount = min($pendingGrns->count(), 5);
+                                @endphp
                                 <form action="{{ route('warehouse.receiver.process-receive-grns.all') }}" method="POST" class="warehouse-confirm-form w-full sm:w-auto"
                                       data-confirm-title="Receive next vendor sheet batch"
                                       data-confirm-message="Receive the next {{ $bulkReceiveCount }} pending vendor sheet(s) for {{ $date }} using current received quantities and default warehouses?"
