@@ -219,7 +219,15 @@
                                         @endif
                                     @endif
                                     <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-semibold text-slate-500">
-                                        <span>Approved: <span class="font-black text-slate-700">{{ number_format($approved, 2) }} {{ $group['unit'] }}</span></span>
+                                        <span>Ordered: <span class="font-black text-slate-700">{{ number_format($approved, 2) }} {{ $group['unit'] }}</span></span>
+                                        @if($loaded > 0)
+                                            <span>Loaded: <span class="font-black text-emerald-700">{{ number_format($loaded, 2) }} {{ $group['unit'] }}</span></span>
+                                        @endif
+                                        @if($loaded > $approved)
+                                            <span class="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800 border border-amber-200">
+                                                Excess: <span class="font-black">{{ number_format($loaded - $approved, 2) }} {{ $group['unit'] }}</span>
+                                            </span>
+                                        @endif
                                         <span class="inline-flex items-center gap-1 rounded-lg bg-sky-50 px-2 py-0.5 text-[11px] font-bold text-sky-800 border border-sky-200">
                                             Info Stock: <span class="font-black">{{ number_format($available, 2) }} {{ $group['unit'] }}</span>
                                         </span>
@@ -254,7 +262,6 @@
                                        name="items[{{ $group['product_id'] }}]"
                                        value="{{ number_format($loaded, 2, '.', '') }}"
                                        min="0"
-                                       max="{{ $maxLoadable }}"
                                        step="0.01"
                                        inputmode="decimal"
                                        data-approved="{{ $approved }}"
@@ -689,9 +696,8 @@
             const input = document.getElementById('qty-' + productId);
             if (!input) return;
             const step = 0.5;
-            const approved = parseFloat(input.dataset.approved);
             let current = parseFloat(input.value) || 0;
-            current = Math.max(0, Math.min(approved, current + direction * step));
+            current = Math.max(0, current + direction * step);
             input.value = current.toFixed(2);
             input.dispatchEvent(new Event('change'));
         }
@@ -775,12 +781,6 @@
                     const entered = parseFloat(input.value) || 0;
                     const productName = input.dataset.product;
                     const productId = input.id.replace('qty-', '');
-
-                    if (entered > approved) {
-                        input.value = approved.toFixed(2);
-                        alert('Loaded quantity cannot exceed approved quantity (' + approved.toFixed(2) + ') for ' + productName + '.');
-                    }
-
                     const normalizedEntered = parseFloat(input.value) || 0;
                     updateFullButtonState(productId, normalizedEntered, approved);
                     updateSaveQtyButtonState(productId, normalizedEntered, approved);

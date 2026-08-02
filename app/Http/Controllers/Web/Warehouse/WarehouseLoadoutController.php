@@ -13,6 +13,7 @@ use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Services\Inventory\StockLedgerService;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -38,7 +39,7 @@ class WarehouseLoadoutController extends Controller
         ]);
 
         $search = trim((string) ($validated['search'] ?? ''));
-        $selectedDate = $validated['date'] ?? null;
+        $selectedDate = $validated['date'] ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
         $selectedShopId = isset($validated['shop_id']) ? (int) $validated['shop_id'] : null;
         $selectedSource = (string) ($validated['source'] ?? 'all');
         $selectedCategoryId = isset($validated['category_id']) ? (int) $validated['category_id'] : null;
@@ -219,14 +220,7 @@ class WarehouseLoadoutController extends Controller
                     $totalApproved = (float) $rows->sum('approved_qty');
                     $firstRow = $rows->first();
 
-                    // Validation: cannot load more than approved
-                    if ($submittedQty > $totalApproved + 0.001) {
-                        $validationErrors["items.{$productId}"] = [
-                            'Loaded quantity cannot be greater than approved quantity.',
-                        ];
-
-                        continue;
-                    }
+                    // Allow loading any quantity (updates inventory stock accordingly)
 
                     // Calculate difference-based deduction
                     $oldLoadedQty = (float) $rows->where('sorting_status', 'loaded')->sum('loaded_qty');
@@ -286,16 +280,21 @@ class WarehouseLoadoutController extends Controller
                     // Delete all existing rows for this product — we will recreate cleanly
                     $shopOrder->items()->where('product_id', $productId)->delete();
 
-                    // Create loaded row
+                    $excessQty = max(0.0, round($submittedQty - $totalApproved, 3));
+                    $excessValue = round($excessQty * (float) ($firstRow->locked_selling_price ?? 0.0), 2);
+
+                    // Create loaded row while preserving original approved quantity
                     if ($submittedQty > 0) {
                         $anyItemLoaded = true;
 
                         ShopOrderItem::create(array_merge($priceData, [
                             'shop_order_id' => $shopOrder->id,
                             'product_id' => $productId,
-                            'requested_qty' => $submittedQty,
-                            'approved_qty' => $submittedQty,
+                            'requested_qty' => $firstRow->requested_qty ?? $totalApproved,
+                            'approved_qty' => $totalApproved,
                             'loaded_qty' => $submittedQty,
+                            'excess_qty' => $excessQty,
+                            'excess_value' => $excessValue,
                             'sorting_status' => 'loaded',
                             'is_sorted' => true,
                             'sorted_at' => now(),
@@ -303,7 +302,7 @@ class WarehouseLoadoutController extends Controller
                         ]));
                     }
 
-                    // Create balance row for remaining quantity
+                    // Create balance row ONLY for unfulfilled remaining quantity when submittedQty < totalApproved
                     $remaining = round($totalApproved - $submittedQty, 3);
                     if ($remaining > 0.001) {
                         ShopOrderItem::create(array_merge($priceData, [
@@ -312,6 +311,8 @@ class WarehouseLoadoutController extends Controller
                             'requested_qty' => $remaining,
                             'approved_qty' => $remaining,
                             'loaded_qty' => null,
+                            'excess_qty' => 0.0,
+                            'excess_value' => 0.0,
                             'sorting_status' => 'allocated',
                             'is_sorted' => false,
                             'sorted_at' => null,

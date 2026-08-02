@@ -113,15 +113,15 @@ class ShopInvoiceService
                     $priceUnit = $dailyPrice['price_unit'];
                     $product = $firstOrderItem->product;
                     $approvedQty = (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) $item->approved_qty);
-                    $deliveredQty = $invoiceItem->exists
+                    $deliveredQty = $invoiceItem->exists && (float) $invoiceItem->delivered_qty > 0
                         ? (float) $invoiceItem->delivered_qty
-                        : (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) ($item->delivered_qty ?? 0));
-                    $shortageQty = $invoiceItem->exists
+                        : (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) ($item->delivered_qty ?? $item->loaded_qty ?? $item->approved_qty ?? 0));
+                    $shortageQty = $invoiceItem->exists && (float) $invoiceItem->shortage_qty > 0
                         ? (float) $invoiceItem->shortage_qty
                         : (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) ($item->shortage_qty ?? 0));
-                    $excessQty = $invoiceItem->exists
+                    $excessQty = $invoiceItem->exists && (float) $invoiceItem->excess_qty > 0
                         ? (float) $invoiceItem->excess_qty
-                        : (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) ($item->excess_qty ?? 0));
+                        : (float) $orderItems->sum(fn (ShopOrderItem $item): float => max(0.0, (float) ($item->excess_qty ?? 0) > 0 ? (float) $item->excess_qty : (float) ($deliveredQty - $approvedQty)));
                     $priceQuantity = $this->priceQuantityFor($product, $approvedQty, $priceUnit);
                     $deliveredPriceQuantity = $this->priceQuantityFor($product, $deliveredQty, $priceUnit);
                     $shortagePriceQuantity = $this->priceQuantityFor($product, $shortageQty, $priceUnit);
