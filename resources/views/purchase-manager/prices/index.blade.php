@@ -253,7 +253,15 @@
                                         default => 'Changed',
                                     };
                                 @endphp
-                                <tr class="price-row" data-search-text="{{ strtolower(($product?->sku ?? '') . ' ' . ($product?->name ?? '') . ' ' . ($product?->category?->name ?? '')) }}">
+                                <tr class="price-row"
+                                    data-search-text="{{ strtolower(($product?->sku ?? '') . ' ' . ($product?->name ?? '') . ' ' . ($product?->category?->name ?? '')) }}"
+                                    data-name="{{ $product?->name }}"
+                                    data-sku="{{ $product?->sku }}"
+                                    data-unit="{{ $unitLabel }}"
+                                    data-price="{{ number_format((float) $approval->purchase_price, 2) }}"
+                                    data-price-a="{{ number_format((float) $approval->price_a, 2) }}"
+                                    data-price-b="{{ number_format((float) $approval->price_b, 2) }}"
+                                    data-price-c="{{ number_format((float) $approval->price_c, 2) }}">
                                     <td class="px-5 py-4">
                                         <div class="flex items-start gap-3">
                                             <span class="mt-0.5 inline-flex min-w-12 justify-center rounded-xl border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-black text-slate-700">
@@ -509,23 +517,27 @@
                 });
 
                 function shareOnWhatsApp() {
-                    let dateStr = "{{ \Illuminate\Support\Carbon::parse($purchaseDate)->format('d M Y') }}";
-                    let text = "*GL FRESH - DAILY PRICES (" + dateStr + ")*\n";
-                    text += "-----------------------------------------\n\n";
+                    const rows = Array.from(document.querySelectorAll('.price-row')).filter(r => r.style.display !== 'none' && r.offsetParent !== null);
+                    if (rows.length === 0) {
+                        alert('No products available to share.');
+                        return;
+                    }
 
-                    @foreach ($allApprovals as $approval)
-                        @php
-                            $pName = addslashes($approval->product?->name ?? 'Unknown');
-                            $pSku = addslashes($approval->product?->sku ?? '');
-                            $uLabel = strtolower((string) ($approval->product?->unit ?? '')) === 'piece' ? 'PCE' : strtoupper($approval->product?->unit ?? 'KG');
-                            $cost = number_format((float) $approval->purchase_price, 2);
-                            $pA = number_format((float) $approval->price_a, 2);
-                            $pB = number_format((float) $approval->price_b, 2);
-                            $pC = number_format((float) $approval->price_c, 2);
-                        @endphp
-                        text += "*{{ $pSku ? $pSku . ' - ' : '' }}{{ $pName }}*\n";
-                        text += "Today Price: ₹{{ $cost }}/{{ $uLabel }} | A: ₹{{ $pA }} | B: ₹{{ $pB }} | C: ₹{{ $pC }}\n\n";
-                    @endforeach
+                    let dateStr = "{{ \Illuminate\Support\Carbon::parse($purchaseDate)->format('d M Y') }}";
+                    let text = "*GL FRESH PRICES (" + dateStr + ")*\n";
+                    text += "-------------------------\n\n";
+
+                    rows.forEach((row, idx) => {
+                        let name = row.getAttribute('data-name') || '';
+                        let unit = row.getAttribute('data-unit') || '';
+                        let price = row.getAttribute('data-price') || '0.00';
+                        let priceA = row.getAttribute('data-price-a') || '0.00';
+                        let priceB = row.getAttribute('data-price-b') || '0.00';
+                        let priceC = row.getAttribute('data-price-c') || '0.00';
+
+                        text += (idx + 1) + ". *" + name + "* (" + unit + ")\n";
+                        text += "   Cost: ₹" + price + " | A: ₹" + priceA + " | B: ₹" + priceB + " | C: ₹" + priceC + "\n\n";
+                    });
 
                     let url = "https://api.whatsapp.com/send?text=" + encodeURIComponent(text);
                     window.open(url, '_blank');
