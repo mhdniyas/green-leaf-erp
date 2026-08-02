@@ -27,9 +27,9 @@ class UpdateDailySellingPricesRequest extends FormRequest
             'confirm_publish' => ['accepted'],
             'prices' => ['required', 'array', 'min:1'],
             'prices.*' => ['array'],
-            'prices.*.price_a' => ['required', 'numeric', 'min:0.01'],
-            'prices.*.price_b' => ['required', 'numeric', 'min:0.01'],
-            'prices.*.price_c' => ['required', 'numeric', 'min:0.01'],
+            'prices.*.price_a' => ['required', 'numeric', 'min:0'],
+            'prices.*.price_b' => ['required', 'numeric', 'min:0'],
+            'prices.*.price_c' => ['required', 'numeric', 'min:0'],
             'prices.*.price_unit' => ['required', 'string', 'max:20'],
         ];
     }

@@ -316,7 +316,7 @@
                                             <span class="text-xs font-black text-slate-700">Loaded {{ $requestedUnitName }}:</span>
                                             <div class="flex items-center gap-1">
                                                 <button type="button" onclick="stepUnitQty({{ $group['product_id'] }}, -1)" class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 cursor-pointer border-none font-bold text-sm">-</button>
-                                                <input type="number" id="unit-qty-{{ $group['product_id'] }}" name="item_unit_qtys[{{ $group['product_id'] }}]" value="{{ number_format($loadedUnitQty, 2, '.', '') }}" min="0" step="1" class="h-8 w-16 rounded-lg border border-slate-200 bg-white text-center text-xs font-black text-slate-900 focus:outline-none" {{ $isItemNotAvailable ? 'readonly' : '' }}>
+                                                <input type="number" id="unit-qty-{{ $group['product_id'] }}" name="item_unit_qtys[{{ $group['product_id'] }}]" value="{{ number_format($loadedUnitQty, 2, '.', '') }}" min="0" step="any" inputmode="decimal" class="h-8 w-16 rounded-lg border border-slate-200 bg-white text-center text-xs font-black text-slate-900 focus:outline-none" {{ $isItemNotAvailable ? 'readonly' : '' }}>
                                                 <button type="button" onclick="stepUnitQty({{ $group['product_id'] }}, 1)" class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 cursor-pointer border-none font-bold text-sm">+</button>
                                             </div>
                                         </div>
