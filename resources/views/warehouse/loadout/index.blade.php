@@ -169,9 +169,8 @@
                                 default => 'bg-cyan-100 text-cyan-700',
                             };
                             $buttonLabel = match (true) {
-                                $shopOrder->delivery_status === 'in_transit' => 'Update',
-                                in_array($shopOrder->delivery_status, ['delivered', 'pending_approval', 'partially_delivered', 'delivery_issue'], true) => 'View',
-                                default => 'Open',
+                                $shopOrder->delivery_status === 'delivered' => 'View',
+                                default => 'Edit Loadout',
                             };
                             $progressColor = match (true) {
                                 $shopOrder->delivery_status === 'pending_approval' => 'bg-amber-500',

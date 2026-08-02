@@ -152,7 +152,7 @@ class WarehouseLoadoutController extends Controller
             ->sortByDesc('is_fully_loaded')
             ->values();
 
-        $canEdit = in_array($shopOrder->delivery_status, ['pending_delivery', 'ready_for_dispatch']);
+        $canEdit = $shopOrder->delivery_status !== 'delivered';
         $anyLoaded = $shopOrder->items->where('sorting_status', 'loaded')->count() > 0;
         $hasRemainingBalance = $productGroups->contains(fn (array $group): bool => (float) $group['total_balance'] > 0.001);
         $canMoveToDelivery = $shopOrder->delivery_status === 'ready_for_dispatch' && $anyLoaded && ! $hasRemainingBalance;
