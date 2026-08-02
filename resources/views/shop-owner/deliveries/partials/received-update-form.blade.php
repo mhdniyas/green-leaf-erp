@@ -63,10 +63,9 @@
                         <tr>
                             <th class="w-5 py-0.5 pr-0.5 sm:w-7 sm:py-1 sm:pr-1">SN</th>
                             <th class="py-0.5 pr-1 sm:py-1 sm:pr-2">Item</th>
-                            <th class="w-10 py-0.5 pr-0.5 text-right sm:w-12 sm:py-1 sm:pr-1">Qty</th>
-                            <th class="w-12 py-0.5 pr-0.5 text-right sm:w-16 sm:py-1 sm:pr-1">Rate</th>
-                            <th class="w-14 py-0.5 pr-0.5 text-right sm:w-20 sm:py-1 sm:pr-1">Amt</th>
-                            <th class="w-16 py-0.5 text-right sm:w-20 sm:py-1">Received</th>
+                            <th class="w-14 py-0.5 pr-0.5 text-right sm:w-16 sm:py-1 sm:pr-1">Qty</th>
+                            <th class="w-14 py-0.5 pr-0.5 text-right sm:w-16 sm:py-1 sm:pr-1">Rate</th>
+                            <th class="w-16 py-0.5 text-right sm:w-20 sm:py-1">Amt</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -77,19 +76,7 @@
                                 $approvedQty = (float) ($item->loaded_qty ?? $item->approved_qty ?? $invoiceItem?->approved_qty ?? 0);
                                 $unitRate = (float) ($invoiceItem?->unit_price ?? $priceRow['unit_price'] ?? 0);
                                 $lineTotal = round($approvedQty * $unitRate, 2);
-                                $receivedQty = $isPendingApproval
-                                    ? (float) ($item->shop_reported_received_qty ?? 0)
-                                    : (float) ($item->delivered_qty ?? $approvedQty);
                                 $isItemVerified = $item->shop_verified_at !== null;
-                                $itemShortQty = (float) ($item->shop_reported_missing_qty ?? 0);
-                                $itemExcessQty = (float) ($item->shop_reported_excess_qty ?? 0);
-                                $statusLabel = match (true) {
-                                    ! $deliveryEligibility['allowed'] => $priceRow['status_label'] ?? ($invoiceItem ? 'Pending' : 'Not Updated'),
-                                    $isItemVerified && $itemExcessQty > 0 => 'Excess Submitted',
-                                    $isItemVerified && $itemShortQty > 0 => 'Short Submitted',
-                                    $isItemVerified => 'Submitted',
-                                    default => 'Pending',
-                                };
                             @endphp
                             <tr
                                 class="shop-item-row align-top"
@@ -99,47 +86,19 @@
                                 data-unit="{{ $item->unit }}"
                                 data-verified="{{ $isItemVerified ? 'true' : 'false' }}"
                             >
-                                <td class="py-1 pr-0.5 font-bold sm:py-2 sm:pr-1">{{ $loop->iteration }}</td>
-                                <td class="py-1 pr-1 sm:py-2 sm:pr-2">
+                                <td class="py-1.5 pr-0.5 font-bold sm:py-2.5 sm:pr-1">{{ $loop->iteration }}</td>
+                                <td class="py-1.5 pr-1 sm:py-2.5 sm:pr-2">
                                     <p class="font-black leading-tight text-slate-950">{{ $item->product->name }}</p>
                                     <p class="mt-0.5 text-[8px] font-semibold leading-tight text-slate-500 sm:text-[10px]">{{ $item->product->sku }} · {{ $item->requestedMeasureBreakdownLabel() }}</p>
-                                    <p class="shop-difference-value mt-0.5 text-[8px] font-black uppercase tracking-[0.06em] text-slate-500 sm:text-[10px] sm:tracking-[0.08em]"></p>
-                                    <p class="shop-item-status mt-0.5 text-[8px] font-black uppercase tracking-[0.06em] sm:text-[10px] sm:tracking-[0.08em] {{ $isItemVerified ? 'text-emerald-700' : 'text-slate-400' }}">{{ $statusLabel }}</p>
                                     <p class="shop-item-error mt-1 hidden rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700"></p>
                                 </td>
-                                <td class="py-1 pr-0.5 text-right font-bold sm:py-2 sm:pr-1">{{ number_format($approvedQty, 2) }}</td>
-                                <td class="py-1 pr-0.5 text-right font-bold sm:py-2 sm:pr-1">Rs. {{ number_format($unitRate, 2) }}</td>
-                                <td class="py-1 pr-0.5 text-right font-black text-slate-950 sm:py-2 sm:pr-1">Rs. {{ number_format($lineTotal, 2) }}</td>
-                                <td class="py-1 text-right sm:py-2">
-                                    <input
-                                        type="hidden"
-                                        name="delivered_qty[{{ $item->id }}]"
-                                        value="{{ number_format($receivedQty, 2, '.', '') }}"
-                                        class="shop-delivered-qty-input"
-                                    >
-                                    <div class="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 shadow-inner">
-                                        <button
-                                            type="button"
-                                            class="toggle-ok-btn rounded-md px-2.5 py-1 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border-none {{ $receivedQty > 0 || ! $isItemVerified ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900' }}"
-                                            data-target-qty="{{ number_format($approvedQty, 2, '.', '') }}"
-                                            @disabled(! $isEditable || $isItemVerified)
-                                        >
-                                            OK
-                                        </button>
-                                        <button
-                                            type="button"
-                                            class="toggle-not-ok-btn rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border-none {{ $receivedQty <= 0 && $isItemVerified ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900' }}"
-                                            data-target-qty="0.00"
-                                            @disabled(! $isEditable || $isItemVerified)
-                                        >
-                                            NOT OK
-                                        </button>
-                                    </div>
-                                </td>
+                                <td class="py-1.5 pr-0.5 text-right font-bold text-slate-900 sm:py-2.5 sm:pr-1">{{ number_format($approvedQty, 2) }} {{ $item->unit }}</td>
+                                <td class="py-1.5 pr-0.5 text-right font-bold text-slate-700 sm:py-2.5 sm:pr-1">Rs. {{ number_format($unitRate, 2) }}</td>
+                                <td class="py-1.5 text-right font-black text-slate-950 sm:py-2">Rs. {{ number_format($lineTotal, 2) }}</td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="6" class="py-4 text-center text-xs font-bold text-slate-500">No delivered products to verify.</td>
+                                <td colspan="5" class="py-4 text-center text-xs font-bold text-slate-500">No delivered products to verify.</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -177,7 +136,7 @@
         </div>
 
         <div class="border-t border-slate-100 bg-slate-50 px-2.5 py-2.5 sm:px-6 sm:py-4">
-            <div id="shop-delivery-progress-panel" class="rounded-xl {{ $isEditable ? 'bg-slate-950 text-white' : 'border border-amber-200 bg-amber-50 text-amber-950' }} p-2.5 sm:rounded-[1.5rem] sm:p-4">
+            <div id="shop-delivery-progress-panel" class="rounded-xl {{ $isEditable ? 'bg-slate-950 text-white' : 'border border-amber-200 bg-amber-50 text-amber-950' }} p-2.5 sm:rounded-[1.5rem] sm:p-4 space-y-3">
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                     <div>
                         <p id="shop-delivery-progress-title" class="text-[8px] font-black uppercase tracking-[0.1em] sm:text-[10px] sm:tracking-[0.16em] {{ $isEditable ? 'text-slate-400' : 'text-amber-700' }}">{{ $bottomTitle }}</p>
@@ -187,6 +146,21 @@
                         Submit Delivery Verification
                     </button>
                 </div>
+
+                @if($isEditable)
+                    <div class="border-t border-slate-800 pt-2.5">
+                        <label for="shop-delivery-note" class="block text-[9px] font-black uppercase tracking-wider text-slate-400 sm:text-[10px]">
+                            Delivery Note / Remarks (Optional)
+                        </label>
+                        <input
+                            type="text"
+                            id="shop-delivery-note"
+                            name="delivery_note"
+                            placeholder="Add optional comments or remarks for admin review..."
+                            class="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-semibold text-white placeholder-slate-500 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                        >
+                    </div>
+                @endif
             </div>
         </div>
     </div>
@@ -202,110 +176,76 @@
         const progressCount = document.getElementById('shop-delivery-progress-count');
         const submitAllButton = document.getElementById('shop-delivery-submit-all');
 
-        function normalizeValue(input) {
-            let val = parseFloat(input.value);
-
-            if (Number.isNaN(val) || val < 0) {
-                val = 0;
-            }
-
-            return val;
-        }
-
-        function updateRow(row) {
-            const approvedQty = parseFloat(row.dataset.approvedQty) || 0;
-            const unit = row.dataset.unit || '';
-            const input = row.querySelector('.shop-delivered-qty-input');
-            const differenceLabel = row.querySelector('.shop-difference-value');
-            const receivedQty = normalizeValue(input);
-            const shortage = Math.max(0, approvedQty - receivedQty);
-            const excess = Math.max(0, receivedQty - approvedQty);
-
-            differenceLabel.textContent = shortage > 0.001
-                ? `Review with Zero (Short ${shortage.toFixed(2)} ${unit})`.trim()
-                : (excess > 0.001 ? `Excess ${excess.toFixed(2)} ${unit}`.trim() : `OK (Full Qty)` );
-            differenceLabel.classList.toggle('text-rose-700', shortage > 0.001);
-            differenceLabel.classList.toggle('text-cyan-700', excess > 0.001);
-            differenceLabel.classList.toggle('text-emerald-700', shortage <= 0.001 && excess <= 0.001);
-        }
-
         function setRowError(row, message) {
             const error = row.querySelector('.shop-item-error');
-            error.textContent = message || '';
-            error.classList.toggle('hidden', !message);
-        }
-
-        function setSubmittedState(row, result) {
-            const input = row.querySelector('.shop-delivered-qty-input');
-            const status = row.querySelector('.shop-item-status');
-            const okBtn = row.querySelector('.toggle-ok-btn');
-            const notOkBtn = row.querySelector('.toggle-not-ok-btn');
-
-            input.value = result.item.received_qty;
-            if (okBtn) okBtn.disabled = true;
-            if (notOkBtn) notOkBtn.disabled = true;
-            row.dataset.verified = 'true';
-
-            if (status) {
-                status.textContent = result.item.status_label;
-                status.classList.remove('text-slate-400', 'text-emerald-700', 'text-amber-700', 'text-cyan-700');
-                status.classList.add(result.item.status === 'short' ? 'text-amber-700' : (result.item.status === 'excess' ? 'text-cyan-700' : 'text-emerald-700'));
-            }
-
-            setRowError(row, null);
-            updateRow(row);
-        }
-
-        function lockAllRows() {
-            rows.forEach((row) => {
-                const okBtn = row.querySelector('.toggle-ok-btn');
-                const notOkBtn = row.querySelector('.toggle-not-ok-btn');
-                if (okBtn) okBtn.disabled = true;
-                if (notOkBtn) notOkBtn.disabled = true;
-            });
-
-            if (submitAllButton) {
-                submitAllButton.disabled = true;
+            if (error) {
+                error.textContent = message || '';
+                error.classList.toggle('hidden', !message);
             }
         }
 
-        rows.forEach((row) => {
-            const input = row.querySelector('.shop-delivered-qty-input');
-            const okBtn = row.querySelector('.toggle-ok-btn');
-            const notOkBtn = row.querySelector('.toggle-not-ok-btn');
+        submitAllButton?.addEventListener('click', async function () {
+            if (submitAllButton.disabled || !csrfToken) {
+                return;
+            }
 
-            function applyToggle(isOk) {
-                if (isOk) {
-                    input.value = okBtn ? okBtn.dataset.targetQty : row.dataset.approvedQty;
-                    if (okBtn) {
-                        okBtn.className = "toggle-ok-btn rounded-md px-2.5 py-1 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border-none bg-emerald-600 text-white shadow-sm";
+            const pendingRows = Array.from(rows).filter((row) => row.dataset.verified !== 'true');
+            if (pendingRows.length === 0) {
+                return;
+            }
+
+            const deliveryNote = document.getElementById('shop-delivery-note')?.value || '';
+
+            submitAllButton.disabled = true;
+            submitAllButton.textContent = 'Submitting...';
+
+            for (const row of pendingRows) {
+                const approvedQty = row.dataset.approvedQty || '0.00';
+                setRowError(row, null);
+
+                try {
+                    const response = await fetch(row.dataset.verifyUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': csrfToken,
+                        },
+                        body: JSON.stringify({
+                            received_qty: approvedQty,
+                            note: deliveryNote,
+                        }),
+                    });
+                    const result = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(result.message || 'Unable to submit this product.');
                     }
-                    if (notOkBtn) {
-                        notOkBtn.className = "toggle-not-ok-btn rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border-none text-slate-600 hover:text-slate-900";
+
+                    row.dataset.verified = 'true';
+                    if (progressCount) progressCount.textContent = result.progress.label;
+                    if (progressTitle) progressTitle.textContent = result.order_status_label;
+                    if (progressMessage) progressMessage.textContent = result.message;
+
+                    if (result.order_submitted) {
+                        if (progressTitle) progressTitle.textContent = wrapper.dataset.completeTitle || result.order_status_label;
+                        if (progressMessage) progressMessage.textContent = wrapper.dataset.completeMessage || result.message;
+                        submitAllButton.textContent = 'Submitted';
+                        return;
                     }
-                } else {
-                    input.value = "0.00";
-                    if (okBtn) {
-                        okBtn.className = "toggle-ok-btn rounded-md px-2.5 py-1 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border-none text-slate-600 hover:text-slate-900";
-                    }
-                    if (notOkBtn) {
-                        notOkBtn.className = "toggle-not-ok-btn rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border-none bg-rose-600 text-white shadow-sm";
-                    }
+                } catch (error) {
+                    setRowError(row, error.message || 'Unable to submit this product.');
+                    submitAllButton.disabled = false;
+                    submitAllButton.textContent = 'Submit Delivery Verification';
+                    return;
                 }
-                updateRow(row);
             }
 
-            if (okBtn && notOkBtn) {
-                okBtn.addEventListener('click', function () {
-                    if (!okBtn.disabled) applyToggle(true);
-                });
-                notOkBtn.addEventListener('click', function () {
-                    if (!notOkBtn.disabled) applyToggle(false);
-                });
-            }
-
-            updateRow(row);
+            submitAllButton.disabled = false;
+            submitAllButton.textContent = 'Submit Delivery Verification';
         });
+    });
+</script>
 
         submitAllButton?.addEventListener('click', async function () {
             if (submitAllButton.disabled || !csrfToken) {
