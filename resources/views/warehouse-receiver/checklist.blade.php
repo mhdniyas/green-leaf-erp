@@ -93,7 +93,22 @@
                     {{-- Pending GRNs / Vendor Sheets --}}
                     @if(!$pendingGrns->isEmpty())
                         <div class="space-y-3">
-                            <h3 class="text-xs font-black uppercase tracking-[0.14em] text-slate-500 pl-1">Pending Vendor Sheets</h3>
+                            <div class="flex flex-col gap-3 pl-1 sm:flex-row sm:items-center sm:justify-between">
+                                <h3 class="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Pending Vendor Sheets</h3>
+                                <form action="{{ route('warehouse.receiver.process-receive-grns.all') }}" method="POST" class="warehouse-confirm-form w-full sm:w-auto"
+                                      data-confirm-title="Receive all vendor sheets"
+                                      data-confirm-message="Receive all {{ $pendingGrns->count() }} pending vendor sheet(s) for {{ $date }} using current received quantities and default warehouses?"
+                                      data-confirm-button="Receive all">
+                                    @csrf
+                                    <input type="hidden" name="date" value="{{ $date }}">
+                                    <button type="submit" class="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white shadow-sm transition-colors hover:bg-emerald-700 sm:w-auto">
+                                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                        </svg>
+                                        Receive All {{ $pendingGrns->count() }}
+                                    </button>
+                                </form>
+                            </div>
                             <div class="grid gap-3 sm:grid-cols-2">
                                 @foreach($pendingGrns as $grn)
                                     <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex items-center justify-between gap-3 transition hover:border-slate-300">

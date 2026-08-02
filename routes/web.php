@@ -331,6 +331,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/checklist', [WarehouseReceiverController::class, 'index'])->name('checklist');
         Route::post('/confirm/{batch}', [WarehouseReceiverController::class, 'confirm'])->name('confirm');
         Route::post('/confirm-all', [WarehouseReceiverController::class, 'confirmAll'])->name('confirm-all');
+        Route::post('/receive-grns/all', [WarehouseReceiverController::class, 'processReceiveAllGrns'])->name('process-receive-grns.all');
         Route::get('/receive-grn/{grn}', [WarehouseReceiverController::class, 'receiveGrnForm'])->name('receive-grn');
         Route::post('/receive-grn/{grn}', [WarehouseReceiverController::class, 'processReceiveGrn'])->name('process-receive-grn');
         Route::post('/direct-purchase/{order}/receive', [WarehouseReceiverController::class, 'receiveDirectPurchase'])->name('direct-purchase.receive');

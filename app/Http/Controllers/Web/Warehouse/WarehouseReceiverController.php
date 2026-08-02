@@ -448,76 +448,77 @@ class WarehouseReceiverController extends Controller
 
         $userId = (int) $request->user()->id;
 
-        DB::transaction(function () use ($grn, $validated, $userId): void {
-            // 1. Update GRN items
-            foreach ($validated['items'] as $itemId => $itemData) {
-                $item = $grn->items()->findOrFail((int) $itemId);
-                $originalPurchasedQty = (float) ($item->purchaseOrderItem?->quantity ?? $item->received_qty);
-
-                $receivedQty = (float) $itemData['received_qty'];
-                $variance = $receivedQty - (float) ($item->purchaseOrderItem?->quantity ?? 0.0);
-
-                $item->update([
-                    'received_qty' => $receivedQty,
-                    'variance' => $variance,
-                    'purchased_qty' => $originalPurchasedQty,
-                    'discrepancy_type' => $itemData['discrepancy_type'],
-                    'discrepancy_note' => $itemData['discrepancy_note'],
-                ]);
-            }
-
-            // 2. Approve GRN and generate stock batches
-            $approveAction = app(ApproveGoodsReceiptAction::class);
-            $grn = $approveAction->execute($grn, $userId);
-
-            // Find batches created for this GRN and update them to confirmed/received
-            $batches = StockBatch::where('goods_received_id', $grn->id)->get();
-            foreach ($batches as $batch) {
-                $grnItem = $grn->items->where('product_id', $batch->product_id)->first();
-                $discrepancyType = $grnItem?->discrepancy_type ?? 'none';
-                $discrepancyNote = $grnItem?->discrepancy_note;
-
-                $itemWarehouseId = (int) ($validated['items'][$grnItem->id]['warehouse_id'] ?? $validated['warehouse_id']);
-
-                $batch->update([
-                    'warehouse_id' => $itemWarehouseId,
-                    'warehouse_receive_pending' => false,
-                    'warehouse_confirmed_at' => now(),
-                    'warehouse_confirmed_by' => $userId,
-                ]);
-
-                activity()
-                    ->performedOn($batch)
-                    ->causedBy($userId)
-                    ->log('stock_batch.warehouse_confirmed');
-
-                // If discrepancy is wastage, record a WastageEntry
-                if ($discrepancyType === 'wastage') {
-                    $purchasedQty = $grnItem?->purchased_qty ?? 0.0;
-                    $receivedQty = $grnItem?->received_qty ?? 0.0;
-                    $diff = $purchasedQty - $receivedQty;
-
-                    if ($diff > 0.0) {
-                        $wastageService = app(WastageService::class);
-                        $wastageService->record(new WastageEntryData(
-                            productId: $batch->product_id,
-                            batchId: $batch->id,
-                            grade: 'U',
-                            quantity: $diff,
-                            costPerKg: (float) $batch->cost_per_kg,
-                            reason: WastageReason::TransitDamage,
-                            wastageDate: now()->toDateString(),
-                            notes: 'Receiving discrepancy wastage: '.($discrepancyNote ?? 'Vendor goods discrepancy'),
-                        ), $userId);
-                    }
-                }
-            }
-            $this->updatePurchaserCartReceiptStatus($grn);
-        });
+        $this->receiveGrnIntoWarehouse($grn, $validated['items'], (int) $validated['warehouse_id'], $userId);
 
         return redirect()
             ->route('warehouse.receiver.checklist', ['date' => $grn->received_at->format('Y-m-d')])
             ->with('success', 'Vendor sheet received and stock moved to inventory.');
+    }
+
+    /**
+     * Receive every pending vendor sheet for the selected date using current GRN quantities.
+     */
+    public function processReceiveAllGrns(Request $request): RedirectResponse
+    {
+        $this->authorizeReceiverAccess($request);
+
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+        ]);
+
+        $date = Carbon::parse($validated['date'])->toDateString();
+        $userId = (int) $request->user()->id;
+        $fallbackWarehouseId = Warehouse::active()->orderBy('id')->value('id');
+
+        if (! $fallbackWarehouseId) {
+            return redirect()->back()->withErrors(['No active warehouse is available for receiving vendor sheets.']);
+        }
+
+        $pendingGrns = GoodsReceived::query()
+            ->where('status', 'pending_approval')
+            ->whereDate('received_at', $date)
+            ->with(['items.product', 'items.purchaseOrderItem'])
+            ->orderBy('created_at')
+            ->get();
+
+        if ($pendingGrns->isEmpty()) {
+            return redirect()->back()->withErrors(['No pending vendor sheets to receive for this date.']);
+        }
+
+        $zeroPricedItems = [];
+        $receivePayloads = [];
+
+        foreach ($pendingGrns as $pendingGrn) {
+            $items = $this->defaultReceiveItemsForGrn($pendingGrn, (int) $fallbackWarehouseId);
+            $zeroPriced = $this->zeroPricedReceivedItems($pendingGrn, $items);
+
+            if ($zeroPriced !== []) {
+                $zeroPricedItems[] = "{$pendingGrn->grn_number}: ".implode(', ', $zeroPriced);
+            }
+
+            $receivePayloads[(int) $pendingGrn->id] = $items;
+        }
+
+        if ($zeroPricedItems !== []) {
+            return redirect()
+                ->back()
+                ->with('warning', 'Price is zero on: '.implode('; ', $zeroPricedItems).'. Update purchaser bill prices before receiving all vendor sheets.');
+        }
+
+        DB::transaction(function () use ($pendingGrns, $receivePayloads, $fallbackWarehouseId, $userId): void {
+            foreach ($pendingGrns as $pendingGrn) {
+                $this->receiveGrnIntoWarehouse(
+                    $pendingGrn,
+                    $receivePayloads[(int) $pendingGrn->id],
+                    (int) $fallbackWarehouseId,
+                    $userId
+                );
+            }
+        });
+
+        return redirect()
+            ->route('warehouse.receiver.checklist', ['date' => $date])
+            ->with('success', "All {$pendingGrns->count()} vendor sheet(s) received and moved to inventory.");
     }
 
     /**
@@ -943,6 +944,97 @@ class WarehouseReceiverController extends Controller
             ->map(fn ($item): string => $item->product?->name ?? "Item #{$item->id}")
             ->values()
             ->all();
+    }
+
+    /**
+     * @return array<int, array{warehouse_id:int, received_qty:float, discrepancy_type:string, discrepancy_note:null}>
+     */
+    private function defaultReceiveItemsForGrn(GoodsReceived $grn, int $fallbackWarehouseId): array
+    {
+        $grn->loadMissing(['items.product']);
+
+        return $grn->items
+            ->mapWithKeys(function ($item) use ($fallbackWarehouseId): array {
+                return [
+                    $item->id => [
+                        'warehouse_id' => (int) ($item->product?->default_warehouse_id ?: $fallbackWarehouseId),
+                        'received_qty' => (float) $item->received_qty,
+                        'discrepancy_type' => 'none',
+                        'discrepancy_note' => null,
+                    ],
+                ];
+            })
+            ->all();
+    }
+
+    /**
+     * @param  array<int|string, array{warehouse_id?:mixed, received_qty:mixed, discrepancy_type?:string, discrepancy_note?:string|null}>  $items
+     */
+    private function receiveGrnIntoWarehouse(GoodsReceived $grn, array $items, int $fallbackWarehouseId, int $userId): void
+    {
+        DB::transaction(function () use ($grn, $items, $fallbackWarehouseId, $userId): void {
+            $grn->loadMissing(['items.purchaseOrderItem', 'items.product']);
+
+            foreach ($items as $itemId => $itemData) {
+                $item = $grn->items->firstWhere('id', (int) $itemId) ?? $grn->items()->findOrFail((int) $itemId);
+                $originalPurchasedQty = (float) ($item->purchaseOrderItem?->quantity ?? $item->received_qty);
+                $receivedQty = (float) $itemData['received_qty'];
+                $variance = $receivedQty - (float) ($item->purchaseOrderItem?->quantity ?? 0.0);
+
+                $item->update([
+                    'received_qty' => $receivedQty,
+                    'variance' => $variance,
+                    'purchased_qty' => $originalPurchasedQty,
+                    'discrepancy_type' => $itemData['discrepancy_type'] ?? 'none',
+                    'discrepancy_note' => $itemData['discrepancy_note'] ?? null,
+                ]);
+            }
+
+            $approvedGrn = app(ApproveGoodsReceiptAction::class)->execute($grn, $userId);
+            $approvedGrn->loadMissing('items');
+
+            StockBatch::where('goods_received_id', $approvedGrn->id)
+                ->get()
+                ->each(function (StockBatch $batch) use ($approvedGrn, $items, $fallbackWarehouseId, $userId): void {
+                    $grnItem = $approvedGrn->items->firstWhere('product_id', $batch->product_id);
+                    $discrepancyType = $grnItem?->discrepancy_type ?? 'none';
+                    $discrepancyNote = $grnItem?->discrepancy_note;
+                    $itemWarehouseId = (int) ($items[$grnItem?->id]['warehouse_id'] ?? $fallbackWarehouseId);
+
+                    $batch->update([
+                        'warehouse_id' => $itemWarehouseId,
+                        'warehouse_receive_pending' => false,
+                        'warehouse_confirmed_at' => now(),
+                        'warehouse_confirmed_by' => $userId,
+                    ]);
+
+                    activity()
+                        ->performedOn($batch)
+                        ->causedBy($userId)
+                        ->log('stock_batch.warehouse_confirmed');
+
+                    if ($discrepancyType === 'wastage') {
+                        $purchasedQty = $grnItem?->purchased_qty ?? 0.0;
+                        $receivedQty = $grnItem?->received_qty ?? 0.0;
+                        $diff = $purchasedQty - $receivedQty;
+
+                        if ($diff > 0.0) {
+                            app(WastageService::class)->record(new WastageEntryData(
+                                productId: $batch->product_id,
+                                batchId: $batch->id,
+                                grade: 'U',
+                                quantity: $diff,
+                                costPerKg: (float) $batch->cost_per_kg,
+                                reason: WastageReason::TransitDamage,
+                                wastageDate: now()->toDateString(),
+                                notes: 'Receiving discrepancy wastage: '.($discrepancyNote ?? 'Vendor goods discrepancy'),
+                            ), $userId);
+                        }
+                    }
+                });
+
+            $this->updatePurchaserCartReceiptStatus($approvedGrn);
+        });
     }
 
     private function updatePurchaserCartReceiptStatus(GoodsReceived $grn): void
