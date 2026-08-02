@@ -433,21 +433,14 @@ DATA;
 
             $legacySkuSuffix = str_pad($data['sku'], 3, '0', STR_PAD_LEFT);
 
-            $product = Product::query()
-                ->where('sku', $data['sku'])
-                ->orWhere('sku', 'like', '%-'.$legacySkuSuffix)
+            $product = Product::withTrashed()
+                ->where(function ($query) use ($data, $legacySkuSuffix) {
+                    $query->where('sku', $data['sku'])
+                        ->orWhere('sku', 'like', '%-'.$legacySkuSuffix);
+                })
                 ->first();
 
-            if ($product) {
-                $product->update([
-                    'category_id' => $category->id,
-                    'name' => $data['name'],
-                    'sku' => $data['sku'],
-                    'unit' => $data['unit'],
-                    'base_price' => $this->resolveBasePrice($data['sku'], $data['unit']),
-                    'is_active' => true,
-                ]);
-            } else {
+            if (! $product) {
                 $product = Product::query()->create([
                     'category_id' => $category->id,
                     'name' => $data['name'],
@@ -456,15 +449,32 @@ DATA;
                     'base_price' => $this->resolveBasePrice($data['sku'], $data['unit']),
                     'is_active' => true,
                 ]);
+
+                $this->syncUnits($product, $data['units']);
+            } else {
+                if ($product->trashed()) {
+                    $product->restore();
+                }
+
+                // Do not overwrite admin-edited values.
+                // Only populate genuinely missing fields.
+                $product->fill([
+                    'category_id' => $product->category_id ?: $category->id,
+                    'name' => $product->name ?: $data['name'],
+                    'unit' => $product->unit ?: $data['unit'],
+                    'base_price' => $product->base_price ?? $this->resolveBasePrice(
+                        $data['sku'],
+                        $data['unit']
+                    ),
+                ])->save();
+
+                if (! $product->orderUnits()->exists()) {
+                    $this->syncUnits($product, $data['units']);
+                }
             }
 
-            $this->syncUnits($product, $data['units']);
             $seededProductIds[] = $product->id;
         }
-
-        Product::query()
-            ->whereNotIn('id', $seededProductIds)
-            ->update(['is_active' => false]);
 
         $this->command?->info('✅ '.count($seededProductIds).' products seeded successfully.');
     }

@@ -20,9 +20,9 @@ class ProductService
         private readonly ProductRepository $repository,
     ) {}
 
-    public function paginate(int $perPage = 15, ?int $categoryId = null, ?string $search = null, ?string $status = null): LengthAwarePaginator
+    public function paginate(int $perPage = 15, ?int $categoryId = null, ?string $search = null, ?string $status = null, ?string $unit = null): LengthAwarePaginator
     {
-        return $this->repository->paginateFiltered($perPage, $categoryId, $search, $status);
+        return $this->repository->paginateFiltered($perPage, $categoryId, $search, $status, $unit);
     }
 
     public function allActive(): Collection

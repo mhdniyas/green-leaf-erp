@@ -34,11 +34,28 @@ $unitRows = old('units', $existingUnitRows);
 
 <x-layouts.inventory title="{{ isset($product) ? 'Edit Product' : 'Add Product' }}">
 
+    <x-slot:actions>
+        <a href="{{ route('inventory.products.index') }}"
+           class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50">
+            ← Back to Products
+        </a>
+        <a href="{{ route('inventory.products.index') }}"
+           class="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 shadow-sm transition-colors hover:bg-emerald-100">
+            Manage All Products
+        </a>
+        @if(auth()->user()?->hasRole('admin'))
+            <a href="{{ route('inventory.products.trash') }}"
+               class="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 shadow-sm transition-colors hover:bg-red-100">
+                Deleted Products ({{ $deletedCount ?? 0 }})
+            </a>
+        @endif
+    </x-slot:actions>
+
     <div class="max-w-5xl">
         <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
             <div class="px-6 py-5 border-b border-gray-100">
                 <h2 class="text-sm font-semibold text-gray-900">{{ isset($product) ? 'Edit Product' : 'New Product' }}</h2>
-                <p class="text-xs text-gray-500 mt-0.5">{{ isset($product) ? 'Update product details.' : 'Add a new vegetable to the product catalog.' }}</p>
+                <p class="text-xs text-gray-500 mt-0.5">{{ isset($product) ? 'Update product details.' : 'Add a new product. Existing seeded products can be edited from Manage All Products.' }}</p>
             </div>
 
             <form

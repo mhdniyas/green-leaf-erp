@@ -35,11 +35,13 @@ class ProductController extends Controller
         $status = in_array($request->string('status')->toString(), ['active', 'inactive'], true)
             ? $request->string('status')->toString()
             : null;
+        $unit = $request->string('unit')->toString() ?: null;
         $products = $this->service->paginate(
             perPage: 20,
             categoryId: $request->integer('category_id') ?: null,
             search: $request->string('search')->toString() ?: null,
             status: $status,
+            unit: $unit,
         );
 
         $categories = $this->categories->findAllActive();
@@ -51,15 +53,95 @@ class ProductController extends Controller
                 ->get(['id', 'name', 'email']);
         }
 
-        return view('inventory.products.index', compact('products', 'categories', 'warehouseReceivers'));
+        $deletedCount = $request->user()?->hasRole('admin')
+            ? Product::onlyTrashed()->count()
+            : 0;
+
+        return view('inventory.products.index', compact('products', 'categories', 'warehouseReceivers', 'deletedCount'));
     }
 
-    public function create(): View
+    public function trash(Request $request): View
+    {
+        abort_unless($request->user()?->hasRole('admin'), 403);
+
+        $products = Product::onlyTrashed()
+            ->with(['category', 'orderUnits'])
+            ->when($request->filled('search'), function ($query) use ($request) {
+                $search = $request->string('search')->toString();
+
+                $query->where(function ($query) use ($search) {
+                    $query->where('name', 'like', "%{$search}%")
+                        ->orWhere('sku', 'like', "%{$search}%");
+                });
+            })
+            ->ordered()
+            ->paginate(20)
+            ->withQueryString();
+
+        return view('inventory.products.trash', compact('products'));
+    }
+
+    public function restore(Request $request, string $product): RedirectResponse
+    {
+        abort_unless($request->user()?->hasRole('admin'), 403);
+
+        $deletedProduct = Product::onlyTrashed()
+            ->where('public_uuid', $product)
+            ->orWhere('sku', $product)
+            ->firstOrFail();
+
+        $deletedProduct->restore();
+        $deletedProduct->update(['is_active' => true]);
+
+        activity()
+            ->causedBy($request->user())
+            ->performedOn($deletedProduct)
+            ->log('Product restored');
+
+        return redirect()
+            ->route('inventory.products.trash')
+            ->with('success', "{$deletedProduct->name} restored successfully.");
+    }
+
+    public function forceDelete(Request $request, string $product): RedirectResponse
+    {
+        abort_unless($request->user()?->hasRole('admin'), 403);
+
+        $deletedProduct = Product::onlyTrashed()
+            ->where('public_uuid', $product)
+            ->orWhere('sku', $product)
+            ->firstOrFail();
+
+        $hasHistory =
+            $deletedProduct->stockBatches()->exists()
+            || $deletedProduct->stockMovements()->exists()
+            || $deletedProduct->dailyPrices()->exists()
+            || $deletedProduct->wastageEntries()->exists();
+
+        if ($hasHistory) {
+            return back()->with(
+                'error',
+                'This product has transaction history and cannot be permanently deleted.'
+            );
+        }
+
+        $deletedProduct->orderUnits()->delete();
+        $deletedProduct->forceDelete();
+
+        return redirect()
+            ->route('inventory.products.trash')
+            ->with('success', 'Product permanently deleted.');
+    }
+
+    public function create(Request $request): View
     {
         $categories = $this->categories->findAllActive();
         $warehouses = Warehouse::active()->orderBy('name')->get();
+        $deletedCount = $request->user()?->hasRole('admin')
+            ? Product::onlyTrashed()->count()
+            : 0;
 
-        return view('inventory.products.create', compact('categories', 'warehouses'));
+        return view('inventory.products.create', compact('categories', 'warehouses', 'deletedCount'));
     }
 
     public function bulkMeasures(Request $request): View

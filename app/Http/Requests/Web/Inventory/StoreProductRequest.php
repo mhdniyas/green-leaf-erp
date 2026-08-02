@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Web\Inventory;
 
+use App\Models\Product;
 use App\Models\ProductUnit;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -20,7 +21,7 @@ class StoreProductRequest extends FormRequest
             'category_id' => ['required', 'integer', 'exists:categories,id'],
             'default_warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
             'name' => ['required', 'string', 'min:2', 'max:255'],
-            'sku' => ['required', 'string', 'max:100', 'unique:products,sku', 'regex:/^[A-Za-z0-9\-_]+$/'],
+            'sku' => ['required', 'string', 'max:100', 'regex:/^[A-Za-z0-9\-_]+$/'],
             'unit' => ['required', 'string', 'in:'.implode(',', ProductUnit::AVAILABLE_UNITS)],
             'units' => ['nullable', 'array'],
             'units.*.unit' => ['required_with:units', 'string', 'in:'.implode(',', ProductUnit::AVAILABLE_UNITS)],
@@ -38,8 +39,27 @@ class StoreProductRequest extends FormRequest
     public function withValidator($validator): void
     {
         $validator->after(function ($validator): void {
+            $this->validateSku($validator);
             $this->validateUnitRows($validator);
         });
+    }
+
+    private function validateSku($validator): void
+    {
+        $sku = $this->string('sku')->toString();
+        if (! filled($sku)) {
+            return;
+        }
+
+        if (Product::onlyTrashed()->where('sku', $sku)->exists()) {
+            $validator->errors()->add('sku', 'This SKU belongs to a deleted product. Restore the deleted product instead.');
+
+            return;
+        }
+
+        if (Product::where('sku', $sku)->exists()) {
+            $validator->errors()->add('sku', 'The sku has already been taken.');
+        }
     }
 
     private function validateUnitRows($validator): void
