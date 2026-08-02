@@ -205,6 +205,11 @@
                                     <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider {{ $statusColor }}">
                                         {{ $statusLabel }}
                                     </span>
+                                    @if ($shopOrder->order_source === 'admin_direct_purchase')
+                                        <span class="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-purple-700">
+                                            Direct Purchase
+                                        </span>
+                                    @endif
                                     <a href="{{ route('warehouse.loadout.show', $shopOrder) }}"
                                        class="inline-flex h-8 items-center justify-center rounded-xl {{ $shopOrder->delivery_status === 'in_transit' ? 'bg-slate-800 hover:bg-slate-900' : (in_array($shopOrder->delivery_status, ['delivered', 'pending_approval', 'partially_delivered', 'delivery_issue'], true) ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-indigo-600 hover:bg-indigo-700') }} px-3 text-[11px] font-black text-white transition-colors text-decoration-none">
                                         {{ $buttonLabel }}

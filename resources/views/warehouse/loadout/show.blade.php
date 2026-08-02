@@ -218,10 +218,10 @@
                                             </p>
                                         @endif
                                     @endif
-                                    <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] font-semibold text-slate-500">
+                                    <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-semibold text-slate-500">
                                         <span>Approved: <span class="font-black text-slate-700">{{ number_format($approved, 2) }} {{ $group['unit'] }}</span></span>
-                                        <span class="{{ $stockShort ? 'text-rose-600 font-black' : '' }}">
-                                            Available: <span class="font-black">{{ number_format($available, 2) }} {{ $group['unit'] }}</span>
+                                        <span class="inline-flex items-center gap-1 rounded-lg bg-sky-50 px-2 py-0.5 text-[11px] font-bold text-sky-800 border border-sky-200">
+                                            Info Stock: <span class="font-black">{{ number_format($available, 2) }} {{ $group['unit'] }}</span>
                                         </span>
                                     </div>
                                     @if($balance > 0.001 && ! $isFullyLoaded)

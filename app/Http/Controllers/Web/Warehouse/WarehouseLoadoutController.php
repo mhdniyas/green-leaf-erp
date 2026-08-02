@@ -57,6 +57,7 @@ class WarehouseLoadoutController extends Controller
             ->whereHas('items')
             ->when($selectedDate, fn ($query) => $query->whereDate('business_date', $selectedDate))
             ->when($selectedShopId, fn ($query) => $query->where('shop_id', $selectedShopId))
+            ->when($selectedSource === 'all', fn ($query) => $query->where('order_source', '!=', 'admin_direct_purchase'))
             ->when($selectedSource === 'shop', fn ($query) => $query->where('order_source', 'shop_owner'))
             ->when($selectedSource === 'direct', fn ($query) => $query->where('order_source', 'admin_direct_purchase'))
             ->when($selectedCategoryId, function ($query) use ($selectedCategoryId): void {
