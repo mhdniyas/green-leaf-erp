@@ -131,6 +131,8 @@
                 @php
                     $isLoaded = $item->sorting_status === 'loaded';
                     $approvedQty = (float) ($item->approved_qty > 0 ? $item->approved_qty : $item->requested_qty);
+                    $availableQty = max(0.0, (float) ($item->inventory_stock ?? 0.0));
+                    $maxLoadableQty = min($approvedQty, $availableQty);
                 @endphp
                 <div class="relative overflow-hidden rounded-2xl border bg-white p-4 shadow-sm transition hover:border-slate-300 flex flex-col gap-3 {{ $isLoaded ? 'border-emerald-200 bg-emerald-50/10' : 'border-slate-200' }}" data-item-id="{{ $item->id }}">
                     <div class="flex items-center justify-between gap-3 min-w-0">
@@ -171,8 +173,8 @@
                                 </button>
                                 <form action="{{ route('warehouse.receiver.loadout.item', $item) }}" method="POST" class="inline">
                                     @csrf
-                                    <input type="hidden" name="loaded_qty" value="{{ $approvedQty }}">
-                                    <button type="submit" class="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500 hover:bg-emerald-600 text-white border-none shadow-sm cursor-pointer transition-colors active:scale-95">
+                                    <input type="hidden" name="loaded_qty" value="{{ number_format($maxLoadableQty, 2, '.', '') }}">
+                                    <button type="submit" @disabled($maxLoadableQty <= 0.001) class="flex h-9 w-9 items-center justify-center rounded-full {{ $maxLoadableQty > 0.001 ? 'bg-emerald-500 hover:bg-emerald-600 cursor-pointer active:scale-95' : 'bg-slate-300 cursor-not-allowed' }} text-white border-none shadow-sm transition-colors">
                                         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                                         </svg>
@@ -195,8 +197,10 @@
                                     <input type="number" 
                                            step="0.01" 
                                            name="loaded_qty" 
-                                           value="{{ $approvedQty }}" 
+                                           value="{{ number_format($maxLoadableQty, 2, '.', '') }}"
                                            data-approved="{{ $approvedQty }}"
+                                           data-max-loadable="{{ $maxLoadableQty }}"
+                                           max="{{ $maxLoadableQty }}"
                                            class="loaded-qty-input w-full rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"
                                            required>
                                 </div>
@@ -348,10 +352,16 @@
             qtyInputs.forEach(input => {
                 input.addEventListener('input', () => {
                     const approved = parseFloat(input.dataset.approved);
-                    const loaded = parseFloat(input.value) || 0;
+                    const maxLoadable = parseFloat(input.dataset.maxLoadable || input.dataset.approved);
+                    let loaded = parseFloat(input.value) || 0;
                     const container = input.closest('[data-item-id]');
                     const panel = container.querySelector('.loadout-discrepancy-panel');
                     const select = container.querySelector('.loadout-discrepancy-type');
+
+                    if (loaded > maxLoadable) {
+                        loaded = maxLoadable;
+                        input.value = maxLoadable.toFixed(2);
+                    }
 
                     if (loaded < approved) {
                         panel.classList.remove('hidden');

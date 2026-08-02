@@ -130,8 +130,9 @@ class WarehouseLoadoutController extends Controller
                 $totalLoaded = (float) $items->where('sorting_status', 'loaded')->sum('loaded_qty');
                 $totalBalance = max(0.0, round($totalApproved - $totalLoaded, 3));
 
-                // Available = running ledger balance + what has already been loaded for this order
-                $available = max(0.0, $this->stockLedgerService->availableStockForProduct($productId) + $totalLoaded);
+                // Loadout must use sorted inventory only. Add this order's existing loaded
+                // quantity back so operators can reduce/re-save an already loaded row.
+                $available = max(0.0, $this->stockLedgerService->availableSortedStockForProduct($productId) + $totalLoaded);
 
                 return [
                     'product_id' => $productId,
@@ -232,8 +233,8 @@ class WarehouseLoadoutController extends Controller
                     $diff = $submittedQty - $oldLoadedQty;
 
                     if ($diff > 0.001) {
-                        // Check available stock using running ledger balance
-                        $availableStock = $this->stockLedgerService->availableStockForProduct($productId);
+                        // Check sorted inventory only; unsorted pending batches are not loadout-ready.
+                        $availableStock = $this->stockLedgerService->availableSortedStockForProduct($productId);
                         if ($diff > $availableStock + 0.001) {
                             $validationErrors["items.{$productId}"] = [
                                 "Loaded quantity increase (+{$diff} kg) cannot be greater than available stock ({$availableStock} kg).",

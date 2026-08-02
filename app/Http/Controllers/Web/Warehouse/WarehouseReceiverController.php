@@ -630,7 +630,7 @@ class WarehouseReceiverController extends Controller
         $order->load(['shop', 'items.product']);
 
         foreach ($order->items as $item) {
-            $item->inventory_stock = $this->stockLedgerService->availableStockForProduct($item->product_id) + (float) $item->loaded_qty;
+            $item->inventory_stock = $this->stockLedgerService->availableSortedStockForProduct($item->product_id) + (float) $item->loaded_qty;
         }
 
         return view('warehouse-receiver.loadout_details', compact('order'));
@@ -662,7 +662,7 @@ class WarehouseReceiverController extends Controller
             return redirect()->back()->withErrors(['Loaded quantity cannot exceed approved quantity.']);
         }
 
-        $availableStock = $this->stockLedgerService->availableStockForProduct($item->product_id);
+        $availableStock = $this->stockLedgerService->availableSortedStockForProduct($item->product_id);
         if ($loadedQty > $availableStock + 0.001) {
             return redirect()->back()->withErrors(['Loaded quantity cannot exceed available stock.']);
         }
@@ -718,7 +718,7 @@ class WarehouseReceiverController extends Controller
 
                 foreach ($pendingItems as $item) {
                     $approvedQty = $item->approved_qty > 0 ? (float) $item->approved_qty : (float) $item->requested_qty;
-                    $availableStock = $this->stockLedgerService->availableStockForProduct($item->product_id);
+                    $availableStock = $this->stockLedgerService->availableSortedStockForProduct($item->product_id);
 
                     // Skip if skip_unavailable is checked and available stock is less than approved quantity
                     if ($skipUnavailable && $availableStock < $approvedQty) {

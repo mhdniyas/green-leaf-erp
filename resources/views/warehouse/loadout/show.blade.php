@@ -195,6 +195,7 @@
                             $loaded = $group['total_loaded'];
                             $balance = $group['total_balance'];
                             $available = $group['available_stock'];
+                            $maxLoadable = min($approved, $available);
                             $stockShort = $available < $approved;
                         @endphp
 
@@ -253,11 +254,12 @@
                                        name="items[{{ $group['product_id'] }}]"
                                        value="{{ number_format($loaded, 2, '.', '') }}"
                                        min="0"
-                                       max="{{ $approved }}"
+                                       max="{{ $maxLoadable }}"
                                        step="0.01"
                                        inputmode="decimal"
                                        data-approved="{{ $approved }}"
                                        data-available="{{ $available }}"
+                                       data-max-loadable="{{ $maxLoadable }}"
                                        data-product="{{ $group['product']->name }}"
                                        data-unit="{{ $group['unit'] }}"
                                        class="qty-input flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-center text-sm font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400"
@@ -574,9 +576,10 @@
             }
 
             const approved = parseFloat(input.dataset.approved) || 0;
+            const maxLoadable = parseFloat(input.dataset.maxLoadable) || approved;
             const entered = parseFloat(input.value) || 0;
 
-            if (approved > 0 && entered >= approved - 0.001) {
+            if (maxLoadable > 0 && entered >= maxLoadable - 0.001) {
                 submitSpecificQty(productId);
                 return;
             }
@@ -617,20 +620,21 @@
             const input = document.getElementById('qty-' + productId);
             if (input) {
                 const approved = formatLoadoutQty(input.dataset.approved);
+                const maxLoadable = formatLoadoutQty(input.dataset.maxLoadable || input.dataset.approved);
                 const previous = formatLoadoutQty(input.value);
                 const productName = input.dataset.product;
                 const unit = input.dataset.unit;
 
-                input.value = approved;
+                input.value = maxLoadable;
                 input.dispatchEvent(new Event('change'));
                 pulseInput(input);
-                setRowStatus(productId, approved === previous ? 'Already at full quantity' : 'Full quantity applied');
-                showLoadoutFeedback(productName + ' set to ' + approved + ' ' + unit + '.', 'success');
+                setRowStatus(productId, maxLoadable === previous ? 'Already at max available quantity' : 'Available quantity applied');
+                showLoadoutFeedback(productName + ' set to ' + maxLoadable + ' ' + unit + '.', 'success');
                 window.showAppAlert({
                     title: productName,
-                    message: approved === previous
-                        ? productName + ' is already at the full approved quantity of ' + approved + ' ' + unit + '.'
-                        : 'Set ' + productName + ' to the full approved quantity of ' + approved + ' ' + unit + '.',
+                    message: maxLoadable === previous
+                        ? productName + ' is already at the max available quantity of ' + maxLoadable + ' ' + unit + '.'
+                        : 'Set ' + productName + ' to the max available quantity of ' + maxLoadable + ' ' + unit + '.',
                     tone: 'success',
                     confirmLabel: 'Continue',
                 });
@@ -643,19 +647,19 @@
             const alreadyFullItems = [];
 
             document.querySelectorAll('.qty-input').forEach(function (input) {
-                const approved = formatLoadoutQty(input.dataset.approved);
+                const maxLoadable = formatLoadoutQty(input.dataset.maxLoadable || input.dataset.approved);
                 const current = formatLoadoutQty(input.value);
                 const productName = input.dataset.product;
                 const unit = input.dataset.unit;
 
-                input.value = approved;
+                input.value = maxLoadable;
                 input.dispatchEvent(new Event('change'));
                 pulseInput(input);
 
-                if (current === approved) {
-                    alreadyFullItems.push(productName + ' (' + approved + ' ' + unit + ')');
+                if (current === maxLoadable) {
+                    alreadyFullItems.push(productName + ' (' + maxLoadable + ' ' + unit + ')');
                 } else {
-                    changedItems.push(productName + ' (' + approved + ' ' + unit + ')');
+                    changedItems.push(productName + ' (' + maxLoadable + ' ' + unit + ')');
                 }
             });
 
@@ -687,9 +691,9 @@
             const input = document.getElementById('qty-' + productId);
             if (!input) return;
             const step = 0.5;
-            const approved = parseFloat(input.dataset.approved);
+            const maxLoadable = parseFloat(input.dataset.maxLoadable || input.dataset.approved);
             let current = parseFloat(input.value) || 0;
-            current = Math.max(0, Math.min(approved, current + direction * step));
+            current = Math.max(0, Math.min(maxLoadable, current + direction * step));
             input.value = current.toFixed(2);
             input.dispatchEvent(new Event('change'));
         }
@@ -738,9 +742,10 @@
 
             document.querySelectorAll('.qty-input').forEach(function (input) {
                 const approved = parseFloat(input.dataset.approved);
+                const maxLoadable = parseFloat(input.dataset.maxLoadable || input.dataset.approved);
                 const entered = parseFloat(input.value) || 0;
                 const productId = input.id.replace('qty-', '');
-                updateFullButtonState(productId, entered, approved);
+                updateFullButtonState(productId, entered, maxLoadable);
                 updateSaveQtyButtonState(productId, entered, approved);
             });
 
@@ -769,29 +774,29 @@
             document.querySelectorAll('.qty-input').forEach(function (input) {
                 input.addEventListener('change', function () {
                     const approved = parseFloat(input.dataset.approved);
-                    const available = parseFloat(input.dataset.available);
+                    const maxLoadable = parseFloat(input.dataset.maxLoadable || input.dataset.approved);
                     const entered = parseFloat(input.value) || 0;
                     const productName = input.dataset.product;
                     const productId = input.id.replace('qty-', '');
 
-                    if (entered > approved) {
-                        input.value = approved.toFixed(2);
-                        alert('Loaded quantity cannot exceed approved qty (' + approved + ') for ' + productName + '.');
+                    if (entered > maxLoadable) {
+                        input.value = maxLoadable.toFixed(2);
+                        alert('Loaded quantity cannot exceed available loadout stock (' + maxLoadable.toFixed(2) + ') for ' + productName + '.');
                     }
 
                     const normalizedEntered = parseFloat(input.value) || 0;
-                    updateFullButtonState(productId, normalizedEntered, approved);
+                    updateFullButtonState(productId, normalizedEntered, maxLoadable);
                     updateSaveQtyButtonState(productId, normalizedEntered, approved);
 
-                    if (normalizedEntered > available) {
+                    if (normalizedEntered > maxLoadable) {
                         input.style.borderColor = '#f43f5e';
-                        input.title = 'Warning: exceeds available stock (' + available + ')';
-                        setRowStatus(productId, 'Above available stock');
+                        input.title = 'Warning: exceeds available loadout stock (' + maxLoadable.toFixed(2) + ')';
+                        setRowStatus(productId, 'Above available loadout stock');
                     } else {
                         input.style.borderColor = '';
                         input.title = '';
-                        if (normalizedEntered >= approved - 0.001 && approved > 0) {
-                            setRowStatus(productId, 'Ready at full quantity');
+                        if (normalizedEntered >= maxLoadable - 0.001 && maxLoadable > 0) {
+                            setRowStatus(productId, maxLoadable >= approved - 0.001 ? 'Ready at full quantity' : 'Ready at available quantity');
                         } else if (normalizedEntered > 0) {
                             setRowStatus(productId, 'Custom quantity set');
                         } else {
