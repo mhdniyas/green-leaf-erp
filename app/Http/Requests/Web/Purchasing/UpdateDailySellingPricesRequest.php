@@ -22,6 +22,7 @@ class UpdateDailySellingPricesRequest extends FormRequest
             'date' => ['required', 'date'],
             'search' => ['nullable', 'string', 'max:255'],
             'movement' => ['nullable', 'in:changed,up,down,all'],
+            'sort' => ['nullable', 'in:code,name,status,movement'],
             'reason' => ['nullable', 'string', 'max:1000'],
             'prices' => ['required', 'array', 'min:1'],
             'prices.*' => ['array'],

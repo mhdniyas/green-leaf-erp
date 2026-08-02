@@ -14,10 +14,16 @@
             'down' => 'Down',
             'all' => 'All',
         ];
+        $sortOptions = [
+            'code' => 'Code',
+            'name' => 'Name',
+            'status' => 'Status',
+            'movement' => 'Movement',
+        ];
     @endphp
     <div class="space-y-6">
         <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <form method="GET" action="{{ route('purchasing.prices.index') }}" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_220px_320px_auto_auto] xl:items-end">
+            <form method="GET" action="{{ route('purchasing.prices.index') }}" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_190px_170px_320px_auto_auto] xl:items-end">
                 <div>
                     <label for="search" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Product Search</label>
                     <input
@@ -38,6 +44,18 @@
                         value="{{ $purchaseDate }}"
                         class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-cyan-700 focus:border-cyan-500 focus:outline-none"
                     >
+                </div>
+                <div>
+                    <label for="sort" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Sort By</label>
+                    <select
+                        id="sort"
+                        name="sort"
+                        class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900 focus:border-cyan-500 focus:outline-none"
+                    >
+                        @foreach ($sortOptions as $value => $label)
+                            <option value="{{ $value }}" @selected($sort === $value)>{{ $label }}</option>
+                        @endforeach
+                    </select>
                 </div>
                 <div>
                     <label class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Price Movement</label>
@@ -68,6 +86,28 @@
                 Purchase date {{ \Illuminate\Support\Carbon::parse($purchaseDate)->format('d M Y') }} publishes selling proposals for
                 {{ \Illuminate\Support\Carbon::parse($targetBusinessDate)->format('d M Y') }}.
             </p>
+            <form method="POST" action="{{ route('purchasing.prices.products.store') }}" class="mt-4 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                @csrf
+                <input type="hidden" name="date" value="{{ $purchaseDate }}">
+                <input type="hidden" name="search" value="{{ $search }}">
+                <input type="hidden" name="movement" value="{{ $movement }}">
+                <input type="hidden" name="sort" value="{{ $sort }}">
+                <div>
+                    <label for="product_id" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Add Inventory Product</label>
+                    <select id="product_id" name="product_id" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900 focus:border-cyan-500 focus:outline-none">
+                        <option value="">Select product</option>
+                        @foreach ($inventoryProducts as $inventoryProduct)
+                            @php($inventoryUnit = strtolower((string) $inventoryProduct->unit) === 'piece' ? 'PCE' : strtoupper((string) $inventoryProduct->unit))
+                            <option value="{{ $inventoryProduct->id }}">
+                                {{ $inventoryProduct->sku ?: 'NA' }} - {{ $inventoryProduct->name }} ({{ $inventoryUnit }})
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+                <button type="submit" class="inline-flex min-h-12 items-center justify-center rounded-2xl bg-cyan-600 px-5 py-3 text-sm font-black text-white hover:bg-cyan-500">
+                    Add Product
+                </button>
+            </form>
         </section>
 
         @if (session('success'))
@@ -112,6 +152,7 @@
             @csrf
             <input type="hidden" name="search" value="{{ $search }}">
             <input type="hidden" name="movement" value="{{ $movement }}">
+            <input type="hidden" name="sort" value="{{ $sort }}">
             <input type="hidden" name="date" value="{{ $purchaseDate }}">
 
             <div class="border-b border-slate-200 px-5 py-5">
@@ -130,7 +171,7 @@
             @if ($allApprovals->isEmpty())
                 <div class="px-5 py-12 text-center">
                     <p class="text-base font-black text-slate-900">No products found.</p>
-                    <p class="mt-2 text-sm text-slate-500">Active products appear here so prices can be updated even when there is no purchaser activity for the selected date.</p>
+                    <p class="mt-2 text-sm text-slate-500">Inventory products appear here so prices can be updated even when there is no purchaser activity for the selected date.</p>
                 </div>
             @else
                 <div class="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
@@ -269,6 +310,7 @@
                     <input type="hidden" name="date" value="{{ $purchaseDate }}">
                     <input type="hidden" name="search" value="{{ $search }}">
                     <input type="hidden" name="movement" value="{{ $movement }}">
+                    <input type="hidden" name="sort" value="{{ $sort }}">
 
                     <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">Automatic Approval</p>
                     <h4 class="mt-1 text-sm font-black text-emerald-950">Same purchase price</h4>

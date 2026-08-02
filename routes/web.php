@@ -176,6 +176,7 @@ Route::middleware('auth')->group(function () {
         Route::post('suppliers/{supplier}/credit-approve', [SupplierController::class, 'approveCreditApproval'])->name('suppliers.credit-approve');
         Route::get('prices', [DailyPriceBoardController::class, 'index'])->name('prices.index');
         Route::post('prices', [DailyPriceBoardController::class, 'update'])->name('prices.update');
+        Route::post('prices/products', [DailyPriceBoardController::class, 'storeProduct'])->name('prices.products.store');
         Route::post('prices/settings', [DailyPriceBoardController::class, 'updateSettings'])->name('prices.settings.update');
         Route::post('price-groups/assign-shops', [ShopPriceGroupController::class, 'assignShops'])->name('price-groups.assign-shops');
         Route::resource('price-groups', ShopPriceGroupController::class)->only(['index', 'store', 'update', 'destroy']);

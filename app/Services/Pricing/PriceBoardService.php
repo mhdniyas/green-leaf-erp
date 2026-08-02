@@ -391,7 +391,6 @@ class PriceBoardService
 
         if ($includeAllProducts) {
             Product::query()
-                ->active()
                 ->ordered()
                 ->get(['id', 'base_price'])
                 ->each(function (Product $product) use (&$products): void {
@@ -485,6 +484,48 @@ class PriceBoardService
 
                 $this->appendMovementMetadata($approval);
             });
+    }
+
+    public function ensureProductApprovalForPurchaseDate(Product $product, string $purchaseDate): DailyPriceApproval
+    {
+        $priceGroups = $this->ensureDefaultPriceGroups()->whereIn('name', ['A', 'B', 'C'])->values();
+        $businessDate = Carbon::parse($purchaseDate)->toDateString();
+        $previousApproval = DailyPriceApproval::query()
+            ->where('product_id', $product->id)
+            ->whereDate('business_date', '<', $businessDate)
+            ->where('status', 'approved')
+            ->whereNotNull('approved_at')
+            ->orderByDesc('business_date')
+            ->first();
+
+        $purchasePrice = round((float) ($previousApproval?->purchase_price ?? $product->base_price), 4);
+        $marginA = (float) ($priceGroups->firstWhere('name', 'A')?->default_margin_percent ?? 10);
+        $marginB = (float) ($priceGroups->firstWhere('name', 'B')?->default_margin_percent ?? 12);
+        $marginC = (float) ($priceGroups->firstWhere('name', 'C')?->default_margin_percent ?? 15);
+
+        $approval = DailyPriceApproval::query()
+            ->where('product_id', $product->id)
+            ->whereDate('business_date', $businessDate)
+            ->first() ?? new DailyPriceApproval([
+                'product_id' => $product->id,
+                'business_date' => $businessDate,
+            ]);
+
+        if (! $approval->exists || ! $this->hasValidApprovedSellingPrices($approval)) {
+            $approval->fill([
+                'purchase_price' => $purchasePrice,
+                'price_a' => (float) $approval->price_a > 0 ? $approval->price_a : round($purchasePrice * (1 + $marginA / 100), 2),
+                'price_b' => (float) $approval->price_b > 0 ? $approval->price_b : round($purchasePrice * (1 + $marginB / 100), 2),
+                'price_c' => (float) $approval->price_c > 0 ? $approval->price_c : round($purchasePrice * (1 + $marginC / 100), 2),
+                'status' => $approval->exists ? $approval->status : 'pending',
+            ]);
+            $approval->save();
+        }
+
+        $approval->setAttribute('purchased_today', false);
+        $approval->setAttribute('purchase_quantity', 0.0);
+
+        return $this->appendMovementMetadata($approval);
     }
 
     public function appendMovementMetadata(DailyPriceApproval $approval): DailyPriceApproval

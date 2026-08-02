@@ -26,6 +26,8 @@ class DailyPriceBoardController extends Controller
 {
     private const MOVEMENT_FILTERS = ['changed', 'up', 'down', 'all'];
 
+    private const SORT_OPTIONS = ['code', 'name', 'status', 'movement'];
+
     public function __construct(
         private readonly PriceBoardService $priceBoardService,
         private readonly PurchaserBusinessDayService $businessDayService,
@@ -41,6 +43,7 @@ class DailyPriceBoardController extends Controller
         $targetBusinessDate = Carbon::parse($purchaseDate)->toDateString();
         $search = trim((string) $request->input('search', ''));
         $movement = $this->normalizeMovementFilter($request->input('movement'));
+        $sort = $this->normalizeSortOption($request->input('sort'));
 
         $approvals = $this->priceBoardService
             ->ensurePendingApprovalsForPurchaseDate($purchaseDate, includeAllProducts: true)
@@ -74,7 +77,7 @@ class DailyPriceBoardController extends Controller
                     default => true,
                 };
             })
-            ->sortBy(fn (DailyPriceApproval $approval): string => ($approval->product?->sku_sort_value ?? '1').'-'.strtolower((string) $approval->product?->name))
+            ->sortBy(fn (DailyPriceApproval $approval): string => $this->sortValueForApproval($approval, $sort))
             ->values();
 
         $pendingApprovals = $matchingApprovals
@@ -90,9 +93,14 @@ class DailyPriceBoardController extends Controller
             'approvedApprovals' => $approvedApprovals,
             'search' => $search,
             'movement' => $movement,
+            'sort' => $sort,
             'autoApproveSamePurchasePrice' => $this->priceBoardService->autoApproveSamePurchasePrice(),
             'purchaseDate' => $purchaseDate,
             'targetBusinessDate' => $targetBusinessDate,
+            'inventoryProducts' => Product::query()
+                ->with('category')
+                ->ordered()
+                ->get(['id', 'category_id', 'name', 'sku', 'unit', 'base_price']),
         ]);
     }
 
@@ -161,6 +169,7 @@ class DailyPriceBoardController extends Controller
         $redirectParams = [
             'search' => $request->validated('search'),
             'date' => $validated['date'],
+            'sort' => $request->validated('sort'),
         ];
 
         if ($request->filled('movement')) {
@@ -184,6 +193,7 @@ class DailyPriceBoardController extends Controller
             'date' => ['nullable', 'date'],
             'search' => ['nullable', 'string', 'max:255'],
             'movement' => ['nullable', 'in:changed,up,down,all'],
+            'sort' => ['nullable', 'in:code,name,status,movement'],
         ]);
 
         $enabled = (bool) ($validated['auto_approve_same_purchase_price'] ?? false);
@@ -195,11 +205,37 @@ class DailyPriceBoardController extends Controller
                 'date' => $validated['date'] ?? null,
                 'search' => $validated['search'] ?? null,
                 'movement' => $validated['movement'] ?? 'all',
+                'sort' => $validated['sort'] ?? 'code',
                 'settings' => 1,
             ])
             ->with('success', $enabled
                 ? 'Same-price products will be approved automatically.'
                 : 'Same-price products will wait for admin approval.');
+    }
+
+    public function storeProduct(Request $request): RedirectResponse
+    {
+        $this->authorizeBoardAccess();
+
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+            'product_id' => ['required', 'integer', 'exists:products,id'],
+            'search' => ['nullable', 'string', 'max:255'],
+            'movement' => ['nullable', 'in:changed,up,down,all'],
+            'sort' => ['nullable', 'in:code,name,status,movement'],
+        ]);
+
+        $product = Product::query()->findOrFail((int) $validated['product_id']);
+        $this->priceBoardService->ensureProductApprovalForPurchaseDate($product, (string) $validated['date']);
+
+        return redirect()
+            ->route('purchasing.prices.index', [
+                'date' => $validated['date'],
+                'search' => $validated['search'] ?? null,
+                'movement' => $validated['movement'] ?? 'all',
+                'sort' => $validated['sort'] ?? 'code',
+            ])
+            ->with('success', "{$product->name} added to daily price board.");
     }
 
     private function authorizeBoardAccess(): void
@@ -212,6 +248,25 @@ class DailyPriceBoardController extends Controller
         $movement = (string) ($movement ?: 'all');
 
         return in_array($movement, self::MOVEMENT_FILTERS, true) ? $movement : 'all';
+    }
+
+    private function normalizeSortOption(mixed $sort): string
+    {
+        $sort = (string) ($sort ?: 'code');
+
+        return in_array($sort, self::SORT_OPTIONS, true) ? $sort : 'code';
+    }
+
+    private function sortValueForApproval(DailyPriceApproval $approval, string $sort): string
+    {
+        $product = $approval->product;
+
+        return match ($sort) {
+            'name' => strtolower((string) $product?->name).'-'.($product?->sku_sort_value ?? '1'),
+            'status' => $approval->status.'-'.($product?->sku_sort_value ?? '1'),
+            'movement' => $approval->movement_status.'-'.($product?->sku_sort_value ?? '1'),
+            default => ($product?->sku_sort_value ?? '1').'-'.strtolower((string) $product?->name),
+        };
     }
 
     /**
