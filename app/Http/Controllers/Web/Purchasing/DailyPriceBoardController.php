@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Web\Purchasing;
 use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\UpdateDailySellingPricesRequest;
+use App\Models\Category;
 use App\Models\DailyPriceApproval;
 use App\Models\DailyProductPrice;
 use App\Models\DailyProductPriceRevision;
@@ -44,6 +45,7 @@ class DailyPriceBoardController extends Controller
         $purchaseDate = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
         $targetBusinessDate = Carbon::parse($purchaseDate)->toDateString();
         $search = trim((string) $request->input('search', ''));
+        $categoryId = $request->filled('category_id') ? (int) $request->input('category_id') : null;
         $movement = $this->normalizeMovementFilter($request->input('movement'));
         $sort = $this->normalizeSortOption($request->input('sort'));
 
@@ -52,6 +54,18 @@ class DailyPriceBoardController extends Controller
             ->values();
 
         $matchingApprovals = $approvals
+            ->filter(function (DailyPriceApproval $approval): bool {
+                $product = $approval->product;
+
+                return $product && (bool) $product->is_active;
+            })
+            ->filter(function (DailyPriceApproval $approval) use ($categoryId): bool {
+                if (! $categoryId) {
+                    return true;
+                }
+
+                return (int) $approval->product?->category_id === $categoryId;
+            })
             ->filter(function (DailyPriceApproval $approval) use ($search): bool {
                 if ($search === '') {
                     return true;
@@ -94,12 +108,15 @@ class DailyPriceBoardController extends Controller
             'pendingApprovals' => $pendingApprovals,
             'approvedApprovals' => $approvedApprovals,
             'search' => $search,
+            'categoryId' => $categoryId,
+            'categories' => Category::query()->orderBy('name')->get(['id', 'name']),
             'movement' => $movement,
             'sort' => $sort,
             'autoApproveSamePurchasePrice' => $this->priceBoardService->autoApproveSamePurchasePrice(),
             'purchaseDate' => $purchaseDate,
             'targetBusinessDate' => $targetBusinessDate,
             'inventoryProducts' => Product::query()
+                ->active()
                 ->with('category')
                 ->ordered()
                 ->get(['id', 'category_id', 'name', 'sku', 'unit', 'base_price']),

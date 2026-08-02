@@ -393,6 +393,7 @@ class PriceBoardService
 
         if ($includeAllProducts) {
             Product::query()
+                ->active()
                 ->ordered()
                 ->get(['id', 'base_price', 'unit'])
                 ->each(function (Product $product) use (&$products): void {
