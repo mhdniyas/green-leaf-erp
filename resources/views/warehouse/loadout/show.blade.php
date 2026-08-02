@@ -325,7 +325,7 @@
                                         <div class="flex items-center justify-between gap-2 rounded-xl bg-white border border-slate-200 p-2">
                                             <span class="text-xs font-black text-slate-700">Actual Weight:</span>
                                             <div class="flex items-center gap-1.5 flex-1 max-w-[170px]">
-                                                <input type="number" id="qty-{{ $group['product_id'] }}" name="items[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="0.01" inputmode="decimal" class="qty-input h-9 w-full rounded-lg border border-slate-200 px-2 text-center text-sm font-black focus:outline-none focus:ring-2 focus:ring-indigo-400 {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}" {{ $isItemNotAvailable ? 'readonly' : '' }} required>
+                                                <input type="number" id="qty-{{ $group['product_id'] }}" name="items[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" class="qty-input h-9 w-full rounded-lg border border-slate-200 px-2 text-center text-sm font-black focus:outline-none focus:ring-2 focus:ring-indigo-400 {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}" {{ $isItemNotAvailable ? 'readonly' : '' }} required>
                                                 <span class="text-xs font-black text-slate-600">KG</span>
                                             </div>
                                         </div>
@@ -341,7 +341,7 @@
 
                                         <div class="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
                                             <span class="text-xs font-black text-slate-500">Actual KG:</span>
-                                            <input type="number" id="qty-{{ $group['product_id'] }}" name="items[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="0.01" inputmode="decimal" class="qty-input flex-1 border-none text-center text-sm font-black focus:outline-none {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}" {{ $isItemNotAvailable ? 'readonly' : '' }} required>
+                                            <input type="number" id="qty-{{ $group['product_id'] }}" name="items[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" class="qty-input flex-1 border-none text-center text-sm font-black focus:outline-none {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}" {{ $isItemNotAvailable ? 'readonly' : '' }} required>
                                             <span class="text-xs font-black text-slate-600">KG</span>
                                         </div>
 
