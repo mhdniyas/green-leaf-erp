@@ -9,9 +9,16 @@
     $priceRowsByProductId = collect($deliveryPriceReadiness['published'] ?? [])
         ->merge($deliveryPriceReadiness['unpublished'] ?? [])
         ->keyBy('product_id');
-    $availableItems = $sortedItems->filter(fn ($item) => $item->sorting_status === 'loaded' || (float) ($item->loaded_qty ?? 0) > 0);
+    $availableItems = $sortedItems
+        ->filter(fn ($item) => $item->sorting_status !== 'not_available')
+        ->groupBy('product_id')
+        ->map(function ($group) {
+            $loadedRow = $group->first(fn ($i) => $i->sorting_status === 'loaded' || (float) ($i->loaded_qty ?? 0) > 0);
+            return $loadedRow ?: $group->first();
+        })
+        ->values();
     $notAvailableItems = $sortedItems->filter(fn ($item) => $item->sorting_status === 'not_available');
-    $verifiableItems = $availableItems->filter(fn ($item) => (float) ($item->approved_qty ?? 0) > 0);
+    $verifiableItems = $availableItems;
     $verifiedCount = $verifiableItems->whereNotNull('shop_verified_at')->count();
     $totalVerifiableCount = $verifiableItems->count();
 
