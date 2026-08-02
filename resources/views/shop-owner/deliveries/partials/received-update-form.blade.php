@@ -94,9 +94,21 @@
                                 $unitLabel = $hasSec
                                     ? strtoupper($item->requested_unit_label ?: $item->requested_unit)
                                     : strtoupper($item->unit);
-                                $approvedQty = $hasSec
-                                    ? (float) ($item->loaded_order_unit_qty ?? $item->requested_unit_quantity ?? 0)
-                                    : (float) ($item->loaded_qty ?? $item->approved_qty ?? $invoiceItem?->approved_qty ?? 0);
+
+                                $loadedUnitQty = (float) ($item->loaded_order_unit_qty ?? $item->requested_unit_quantity ?? 0);
+                                $loadedKgQty = (float) ($item->loaded_qty ?? 0);
+                                $isBilledInKg = $hasSec && $loadedKgQty > 0 && abs($loadedKgQty - $loadedUnitQty) > 0.001;
+
+                                if ($isBilledInKg) {
+                                    $approvedQty = $loadedKgQty;
+                                    $displayUnitLabel = 'KG';
+                                    $refSubtitle = "Loaded: {$loadedUnitQty} {$unitLabel}";
+                                } else {
+                                    $approvedQty = $hasSec ? $loadedUnitQty : ($item->loaded_qty ?? $item->approved_qty ?? $invoiceItem?->approved_qty ?? 0);
+                                    $displayUnitLabel = $unitLabel;
+                                    $refSubtitle = null;
+                                }
+
                                 $unitRate = (float) ($invoiceItem?->unit_price ?? $priceRow['unit_price'] ?? 0);
                                 $lineTotal = round($approvedQty * $unitRate, 2);
                                 $isItemVerified = $item->shop_verified_at !== null;
@@ -106,7 +118,7 @@
                                 data-item-id="{{ $item->id }}"
                                 data-verify-url="{{ route('shop-owner.deliveries.items.verify', [$order->order_number, $item]) }}"
                                 data-approved-qty="{{ $approvedQty }}"
-                                data-unit="{{ $unitLabel }}"
+                                data-unit="{{ $displayUnitLabel }}"
                                 data-verified="{{ $isItemVerified ? 'true' : 'false' }}"
                             >
                                 <td class="py-1.5 pr-0.5 font-bold sm:py-2.5 sm:pr-1">{{ $loop->iteration }}</td>
@@ -118,9 +130,9 @@
                                     <p class="shop-item-error mt-1 hidden rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700"></p>
                                 </td>
                                 <td class="py-1.5 pr-0.5 text-right font-bold text-slate-900 sm:py-2.5 sm:pr-1">
-                                    {{ number_format($approvedQty, 2) }} {{ $unitLabel }}
-                                    @if($hasSec && (float)$item->loaded_qty > 0)
-                                        <span class="block text-[8px] font-semibold text-slate-500">({{ number_format((float)$item->loaded_qty, 2) }} KG)</span>
+                                    {{ number_format($approvedQty, 2) }} {{ $displayUnitLabel }}
+                                    @if($refSubtitle)
+                                        <span class="block text-[8px] font-semibold text-slate-500">{{ $refSubtitle }}</span>
                                     @endif
                                 </td>
                                 <td class="py-1.5 pr-0.5 text-right font-bold text-slate-700 sm:py-2.5 sm:pr-1">Rs. {{ number_format($unitRate, 2) }}</td>

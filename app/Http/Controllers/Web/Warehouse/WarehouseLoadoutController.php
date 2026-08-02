@@ -183,21 +183,25 @@ class WarehouseLoadoutController extends Controller
      * Updates loaded_qty per product, handles partial splits.
      * Editable while pending_delivery or ready_for_dispatch.
      */
-    public function save(Request $request, ShopOrder $shopOrder): RedirectResponse
+    public function save(Request $request, ShopOrder $shopOrder): RedirectResponse|JsonResponse
     {
         $this->authorizeAccess($request);
 
         if (! in_array($shopOrder->delivery_status, ['pending_delivery', 'ready_for_dispatch'])) {
-            return redirect()->back()->withErrors([
-                $shopOrder->delivery_status === 'in_transit'
-                    ? 'This order is already out for delivery.'
-                    : 'This order is already delivered.',
-            ]);
+            $msg = $shopOrder->delivery_status === 'in_transit'
+                ? 'This order is already out for delivery.'
+                : 'This order is already delivered.';
+            if ($request->wantsJson()) {
+                return response()->json(['success' => false, 'message' => $msg], 422);
+            }
+            return redirect()->back()->withErrors([$msg]);
         }
 
         $request->validate([
-            'items' => ['required', 'array'],
-            'items.*' => ['required', 'numeric', 'min:0'],
+            'items' => ['nullable', 'array'],
+            'items.*' => ['nullable', 'numeric', 'min:0'],
+            'item_unit_qtys' => ['nullable', 'array'],
+            'item_unit_qtys.*' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         $userId = (int) $request->user()->id;
@@ -208,11 +212,23 @@ class WarehouseLoadoutController extends Controller
                 ShopOrder::lockForUpdate()->find($shopOrder->id);
 
                 $anyItemLoaded = false;
-                $validationErrors = [];
+                $itemsInput = $request->input('items', []);
+                $unitQtysInput = $request->input('item_unit_qtys', []);
 
-                foreach ($request->input('items', []) as $productId => $submittedQty) {
-                    $productId = (int) $productId;
-                    $submittedQty = max(0.0, (float) $submittedQty);
+                $productIds = collect(array_keys($itemsInput))
+                    ->merge(array_keys($unitQtysInput))
+                    ->map(fn ($id) => (int) $id)
+                    ->unique()
+                    ->values();
+
+                foreach ($productIds as $productId) {
+                    $actualWeight = isset($itemsInput[$productId]) && $itemsInput[$productId] !== ''
+                        ? max(0.0, (float) $itemsInput[$productId])
+                        : 0.0;
+
+                    $submittedUnitQty = isset($unitQtysInput[$productId]) && $unitQtysInput[$productId] !== ''
+                        ? max(0.0, (float) $unitQtysInput[$productId])
+                        : null;
 
                     // Lock rows for this product in this order
                     $rows = $shopOrder->items()
@@ -227,14 +243,22 @@ class WarehouseLoadoutController extends Controller
                     $totalApproved = (float) $rows->sum('approved_qty');
                     $firstRow = $rows->first();
 
-                    // Allow loading any quantity (updates inventory stock accordingly)
+                    // Billing Quantity Rule
+                    if ($submittedUnitQty !== null && $submittedUnitQty > 0) {
+                        if ($actualWeight > 0.0001) {
+                            $submittedQty = $actualWeight;
+                        } else {
+                            $submittedQty = $submittedUnitQty;
+                        }
+                    } else {
+                        $submittedQty = $actualWeight > 0 ? $actualWeight : (float) ($itemsInput[$productId] ?? 0);
+                    }
 
                     // Calculate difference-based deduction
                     $oldLoadedQty = (float) $rows->where('sorting_status', 'loaded')->sum('loaded_qty');
                     $diff = $submittedQty - $oldLoadedQty;
 
                     if ($diff > 0.001) {
-                        // Consume stock immediately (allows negative inventory when stock is insufficient)
                         $this->stockLedgerService->consumeStockForProductAllowingNegative(
                             $productId,
                             $diff,
@@ -243,7 +267,6 @@ class WarehouseLoadoutController extends Controller
                             "Loadout dispatch to delivery — Order: {$shopOrder->order_number}"
                         );
                     } elseif ($diff < -0.001) {
-                        // Return/reverse stock back to ledger
                         $lastOut = StockMovement::where('product_id', $productId)
                             ->where('type', StockMovementType::Out)
                             ->where('notes', 'like', "%Order: {$shopOrder->order_number}%")
@@ -272,7 +295,6 @@ class WarehouseLoadoutController extends Controller
                         }
                     }
 
-                    // Preserve price locks and measure unit attributes from existing rows
                     $priceData = [
                         'locked_price_group_id' => $firstRow->locked_price_group_id,
                         'locked_selling_price' => $firstRow->locked_selling_price,
@@ -289,7 +311,6 @@ class WarehouseLoadoutController extends Controller
                         'fulfillment_type' => $firstRow->fulfillment_type,
                     ];
 
-                    // Delete all existing rows for this product — we will recreate cleanly
                     $shopOrder->items()->where('product_id', $productId)->delete();
 
                     $isNotAvailable = ($request->input("item_status.{$productId}") === 'not_available');
@@ -316,11 +337,6 @@ class WarehouseLoadoutController extends Controller
                         $excessQty = max(0.0, round($submittedQty - $totalApproved, 3));
                         $excessValue = round($excessQty * (float) ($firstRow->locked_selling_price ?? 0.0), 2);
 
-                        $submittedUnitQty = $request->has("item_unit_qtys.{$productId}") && $request->input("item_unit_qtys.{$productId}") !== null
-                            ? (float) $request->input("item_unit_qtys.{$productId}")
-                            : ($firstRow->requested_unit_quantity ?? null);
-
-                        // Create loaded row while preserving original approved quantity & measure units
                         if ($submittedQty > 0) {
                             $anyItemLoaded = true;
 
@@ -330,7 +346,7 @@ class WarehouseLoadoutController extends Controller
                                 'requested_qty' => $firstRow->requested_qty ?? $totalApproved,
                                 'approved_qty' => $totalApproved,
                                 'loaded_qty' => $submittedQty,
-                                'loaded_order_unit_qty' => $submittedUnitQty,
+                                'loaded_order_unit_qty' => $submittedUnitQty ?? ($firstRow->requested_unit_quantity ?? 1.0),
                                 'excess_qty' => $excessQty,
                                 'excess_value' => $excessValue,
                                 'sorting_status' => 'loaded',
@@ -340,7 +356,6 @@ class WarehouseLoadoutController extends Controller
                             ]));
                         }
 
-                        // Create balance row ONLY for unfulfilled remaining quantity when submittedQty < totalApproved
                         $remaining = round($totalApproved - $submittedQty, 3);
                         if ($remaining > 0.001) {
                             ShopOrderItem::create(array_merge($priceData, [
@@ -360,11 +375,6 @@ class WarehouseLoadoutController extends Controller
                     }
                 }
 
-                if (! empty($validationErrors)) {
-                    throw ValidationException::withMessages($validationErrors);
-                }
-
-                // Update order delivery_status
                 $newStatus = $anyItemLoaded ? 'ready_for_dispatch' : 'pending_delivery';
                 $shopOrder->update(['delivery_status' => $newStatus]);
             });
