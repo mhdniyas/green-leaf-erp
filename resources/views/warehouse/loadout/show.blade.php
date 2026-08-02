@@ -882,6 +882,78 @@
             productStatus?.addEventListener('change', filterLoadoutProducts);
             filterLoadoutProducts();
 
+            // AJAX submit for loadout form without page reload
+            const loadoutForm = document.getElementById('loadout-form');
+            if (loadoutForm) {
+                loadoutForm.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    
+                    const submitter = e.submitter;
+                    const feedbackEl = document.getElementById('loadout-action-feedback');
+                    
+                    let originalText = '';
+                    if (submitter) {
+                        originalText = submitter.innerHTML;
+                        submitter.disabled = true;
+                        submitter.innerHTML = 'Saving...';
+                    }
+                    
+                    if (feedbackEl) {
+                        feedbackEl.classList.remove('hidden', 'border-rose-200', 'bg-rose-50', 'text-rose-800', 'border-emerald-200', 'bg-emerald-50', 'text-emerald-800');
+                        feedbackEl.classList.add('border-cyan-200', 'bg-cyan-50', 'text-cyan-800');
+                        feedbackEl.textContent = 'Saving loadout quantities & updating stock...';
+                    }
+
+                    try {
+                        const formData = new FormData(loadoutForm);
+                        const response = await fetch(loadoutForm.action, {
+                            method: 'POST',
+                            headers: {
+                                'Accept': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                            },
+                            body: formData,
+                        });
+
+                        if (response.ok || response.status === 200) {
+                            if (feedbackEl) {
+                                feedbackEl.classList.remove('border-cyan-200', 'bg-cyan-50', 'text-cyan-800');
+                                feedbackEl.classList.add('border-emerald-200', 'bg-emerald-50', 'text-emerald-800');
+                                feedbackEl.textContent = 'Loadout saved & stock updated successfully! ✓';
+                                setTimeout(() => { feedbackEl.classList.add('hidden'); }, 3500);
+                            }
+                            
+                            if (submitter) {
+                                submitter.disabled = false;
+                                submitter.innerHTML = 'Saved ✓';
+                                setTimeout(() => { submitter.innerHTML = originalText; }, 2000);
+                            }
+                        } else {
+                            const data = await response.json().catch(() => ({}));
+                            if (feedbackEl) {
+                                feedbackEl.classList.remove('border-cyan-200', 'bg-cyan-50', 'text-cyan-800');
+                                feedbackEl.classList.add('border-rose-200', 'bg-rose-50', 'text-rose-800');
+                                feedbackEl.textContent = data.message || 'Error saving loadout. Please check inputs.';
+                            }
+                            if (submitter) {
+                                submitter.disabled = false;
+                                submitter.innerHTML = originalText;
+                            }
+                        }
+                    } catch (err) {
+                        if (feedbackEl) {
+                            feedbackEl.classList.remove('border-cyan-200', 'bg-cyan-50', 'text-cyan-800');
+                            feedbackEl.classList.add('border-rose-200', 'bg-rose-50', 'text-rose-800');
+                            feedbackEl.textContent = 'Network error while saving loadout.';
+                        }
+                        if (submitter) {
+                            submitter.disabled = false;
+                            submitter.innerHTML = originalText;
+                        }
+                    }
+                });
+            }
+
             document.querySelectorAll('.qty-input').forEach(function (input) {
                 const approved = parseFloat(input.dataset.approved);
                 const entered = parseFloat(input.value) || 0;

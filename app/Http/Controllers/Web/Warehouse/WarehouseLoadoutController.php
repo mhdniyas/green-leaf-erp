@@ -369,7 +369,21 @@ class WarehouseLoadoutController extends Controller
                 $shopOrder->update(['delivery_status' => $newStatus]);
             });
         } catch (ValidationException $e) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation error',
+                    'errors' => $e->errors(),
+                ], 422);
+            }
             return redirect()->back()->withErrors($e->errors())->withInput();
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Loadout saved and inventory updated successfully.',
+            ]);
         }
 
         return redirect()
