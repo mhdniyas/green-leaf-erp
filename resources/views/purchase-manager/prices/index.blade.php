@@ -97,7 +97,9 @@
                     <select id="product_id" name="product_id" class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900 focus:border-cyan-500 focus:outline-none">
                         <option value="">Select product</option>
                         @foreach ($inventoryProducts as $inventoryProduct)
-                            @php($inventoryUnit = strtolower((string) $inventoryProduct->unit) === 'piece' ? 'PCE' : strtoupper((string) $inventoryProduct->unit))
+                            @php
+                                $inventoryUnit = strtolower((string) $inventoryProduct->unit) === 'piece' ? 'PCE' : strtoupper((string) $inventoryProduct->unit);
+                            @endphp
                             <option value="{{ $inventoryProduct->id }}">
                                 {{ $inventoryProduct->sku ?: 'NA' }} - {{ $inventoryProduct->name }} ({{ $inventoryUnit }})
                             </option>
