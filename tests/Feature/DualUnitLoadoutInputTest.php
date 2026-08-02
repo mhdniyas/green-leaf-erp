@@ -376,6 +376,58 @@ class DualUnitLoadoutInputTest extends TestCase
         $this->assertEquals(10.0, (float) StockMovement::where('product_id', $product->id)->where('type', StockMovementType::Out)->sum('quantity'));
     }
 
+    public function test_full_loadout_recovers_from_corrupted_split_remainder_quantity(): void
+    {
+        [$user, $order, $product] = $this->createBasicLoadoutOrder(5.0);
+
+        $item = ShopOrderItem::where('shop_order_id', $order->id)
+            ->where('product_id', $product->id)
+            ->firstOrFail();
+
+        $item->update([
+            'requested_qty' => 8388611.0,
+            'approved_qty' => 3.0,
+            'loaded_qty' => 3.0,
+            'actual_weight' => 3.0,
+            'requested_unit' => 'kg',
+            'requested_unit_quantity' => 5.0,
+            'requested_unit_conversion_to_base' => 1.0,
+            'sorting_status' => 'loaded',
+            'is_sorted' => true,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'product_grade' => 'A',
+            'requested_qty' => 8388608.0,
+            'approved_qty' => 8388608.0,
+            'unit' => 'KG',
+            'requested_unit' => 'kg',
+            'requested_unit_quantity' => 5.0,
+            'requested_unit_conversion_to_base' => 1.0,
+            'locked_selling_price' => 20.00,
+            'line_total' => 100.00,
+            'fulfillment_type' => 'warehouse',
+            'sorting_status' => 'allocated',
+        ]);
+
+        $this->actingAs($user)->post(route('warehouse.loadout.save', $order), [
+            'items' => [
+                $product->id => '5.00',
+            ],
+        ])->assertRedirect(route('warehouse.loadout.show', $order));
+
+        $items = ShopOrderItem::where('shop_order_id', $order->id)
+            ->where('product_id', $product->id)
+            ->get();
+
+        $this->assertCount(1, $items);
+        $this->assertEquals('loaded', $items->first()->sorting_status);
+        $this->assertEquals(5.0, (float) $items->first()->approved_qty);
+        $this->assertEquals(5.0, (float) $items->first()->loaded_qty);
+    }
+
     public function test_clear_all_loadout_restores_pending_quantity(): void
     {
         [$user, $order, $product] = $this->createBasicLoadoutOrder(10.0);
@@ -523,6 +575,50 @@ class DualUnitLoadoutInputTest extends TestCase
             ->assertJson(['message' => 'This product was not fulfilled in loadout.']);
     }
 
+    public function test_invoice_sync_ignores_unfulfilled_allocated_remainder_rows(): void
+    {
+        [$user, $order, $product] = $this->createBasicLoadoutOrder(5.0);
+
+        $item = ShopOrderItem::where('shop_order_id', $order->id)
+            ->where('product_id', $product->id)
+            ->firstOrFail();
+        $item->update([
+            'requested_qty' => 8388611.0,
+            'approved_qty' => 3.0,
+            'loaded_qty' => 3.0,
+            'actual_weight' => 3.0,
+            'requested_unit' => 'kg',
+            'requested_unit_quantity' => 5.0,
+            'requested_unit_conversion_to_base' => 1.0,
+            'locked_selling_price' => 20.00,
+            'sorting_status' => 'loaded',
+            'is_sorted' => true,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'product_grade' => 'A',
+            'requested_qty' => 8388608.0,
+            'approved_qty' => 8388608.0,
+            'unit' => 'KG',
+            'requested_unit' => 'kg',
+            'requested_unit_quantity' => 5.0,
+            'requested_unit_conversion_to_base' => 1.0,
+            'locked_selling_price' => 20.00,
+            'line_total' => 100.00,
+            'fulfillment_type' => 'warehouse',
+            'sorting_status' => 'allocated',
+        ]);
+
+        $invoice = app(ShopInvoiceService::class)->synchronizeOrderInvoice($order->fresh(['items.product', 'shop']), $user->id);
+        $invoiceItem = $invoice->items()->where('product_id', $product->id)->firstOrFail();
+
+        $this->assertEquals(3.0, (float) $invoiceItem->approved_qty);
+        $this->assertEquals(3.0, (float) $invoiceItem->delivered_qty);
+        $this->assertEquals(60.0, (float) $invoice->final_total);
+    }
+
     private function createBasicLoadoutOrder(float $approvedQty): array
     {
         $this->seed(\Database\Seeders\RolePermissionSeeder::class);
@@ -565,6 +661,20 @@ class DualUnitLoadoutInputTest extends TestCase
         ]);
 
         $priceGroup = \App\Models\ShopPriceGroup::create(['name' => 'A', 'code' => 'A', 'is_active' => true]);
+        \App\Models\DailyPriceApproval::create([
+            'product_id' => $product->id,
+            'price_group_id' => $priceGroup->id,
+            'business_date' => now()->toDateString(),
+            'price_date' => now()->toDateString(),
+            'purchase_price' => 15.0,
+            'price_unit' => 'kg',
+            'price_a' => 20.0,
+            'price_b' => 22.0,
+            'price_c' => 24.0,
+            'status' => 'approved',
+            'approved_by' => $user->id,
+            'approved_at' => now(),
+        ]);
         $shop = Shop::create([
             'name' => 'Green Leaf Fresh Shop',
             'code' => 'SH-01',

@@ -373,17 +373,17 @@ class WarehouseLoadoutController extends Controller
                         }
                     }
 
-                    $priceData = [
+                    $unitSellingPrice = (float) ($firstRow->locked_selling_price ?? 0.0);
+
+                    $basePriceData = [
                         'locked_price_group_id' => $firstRow->locked_price_group_id,
                         'locked_selling_price' => $firstRow->locked_selling_price,
                         'locked_price_source' => $firstRow->locked_price_source,
-                        'line_total' => $firstRow->line_total,
                         'unit_cost' => $firstRow->unit_cost,
                         'unit' => $firstRow->unit,
                         'requested_product_unit_id' => $firstRow->requested_product_unit_id,
                         'requested_unit' => $firstRow->requested_unit,
                         'requested_unit_label' => $firstRow->requested_unit_label,
-                        'requested_unit_quantity' => $firstRow->requested_unit_quantity,
                         'requested_unit_conversion_to_base' => $firstRow->requested_unit_conversion_to_base,
                         'product_grade' => $firstRow->product_grade ?? 'A',
                         'fulfillment_type' => $firstRow->fulfillment_type,
@@ -395,13 +395,19 @@ class WarehouseLoadoutController extends Controller
                     $discrepancyNote = $request->input("item_notes.{$productId}") ?? null;
 
                     if ($isNotAvailable) {
-                        ShopOrderItem::create(array_merge($priceData, [
+                        $rowReqUnitQty = $hasRequestedUnit && $conversionToBase > 0
+                            ? round($totalApproved / $conversionToBase, 2)
+                            : $totalApproved;
+
+                        ShopOrderItem::create(array_merge($basePriceData, [
                             'shop_order_id' => $shopOrder->id,
                             'product_id' => $productId,
-                            'requested_qty' => $firstRow->requested_qty ?? $totalApproved,
+                            'requested_qty' => $totalApproved,
                             'approved_qty' => $totalApproved,
                             'loaded_qty' => 0.0,
                             'loaded_order_unit_qty' => $hasRequestedUnit ? 0.0 : null,
+                            'requested_unit_quantity' => $rowReqUnitQty,
+                            'line_total' => round($totalApproved * $unitSellingPrice, 2),
                             'actual_weight' => null,
                             'delivered_qty' => 0.0,
                             'excess_qty' => 0.0,
@@ -415,20 +421,26 @@ class WarehouseLoadoutController extends Controller
                         ]));
                     } else {
                         $excessQty = max(0.0, round($submittedQty - $totalApproved, 3));
-                        $excessValue = round($excessQty * (float) ($firstRow->locked_selling_price ?? 0.0), 2);
+                        $excessValue = round($excessQty * $unitSellingPrice, 2);
 
                         $remaining = round($totalApproved - $submittedQty, 3);
 
                         if ($submittedQty > 0) {
                             $anyItemLoaded = true;
+                            $loadedQtyToRecord = $remaining > 0.001 ? min($submittedQty, $totalApproved) : $totalApproved;
+                            $loadedReqUnitQty = $hasRequestedUnit && $conversionToBase > 0
+                                ? round($loadedQtyToRecord / $conversionToBase, 2)
+                                : $loadedQtyToRecord;
 
-                            ShopOrderItem::create(array_merge($priceData, [
+                            ShopOrderItem::create(array_merge($basePriceData, [
                                 'shop_order_id' => $shopOrder->id,
                                 'product_id' => $productId,
-                                'requested_qty' => $firstRow->requested_qty ?? $totalApproved,
-                                'approved_qty' => $remaining > 0.001 ? min($submittedQty, $totalApproved) : $totalApproved,
+                                'requested_qty' => $loadedQtyToRecord,
+                                'approved_qty' => $loadedQtyToRecord,
                                 'loaded_qty' => $submittedQty,
-                                'loaded_order_unit_qty' => $hasRequestedUnit ? ($loadedOrderUnitQty ?? 0.0) : null,
+                                'loaded_order_unit_qty' => $hasRequestedUnit ? ($loadedOrderUnitQty ?? round($submittedQty / $conversionToBase, 2)) : null,
+                                'requested_unit_quantity' => $loadedReqUnitQty,
+                                'line_total' => round($loadedQtyToRecord * $unitSellingPrice, 2),
                                 'actual_weight' => $actualWeight > 0.0001 ? $actualWeight : null,
                                 'excess_qty' => $excessQty,
                                 'excess_value' => $excessValue,
@@ -440,13 +452,19 @@ class WarehouseLoadoutController extends Controller
                         }
 
                         if ($remaining > 0.001) {
-                            ShopOrderItem::create(array_merge($priceData, [
+                            $remainderReqUnitQty = $hasRequestedUnit && $conversionToBase > 0
+                                ? round($remaining / $conversionToBase, 2)
+                                : $remaining;
+
+                            ShopOrderItem::create(array_merge($basePriceData, [
                                 'shop_order_id' => $shopOrder->id,
                                 'product_id' => $productId,
                                 'requested_qty' => $remaining,
                                 'approved_qty' => $remaining,
                                 'loaded_qty' => null,
                                 'loaded_order_unit_qty' => null,
+                                'requested_unit_quantity' => $remainderReqUnitQty,
+                                'line_total' => round($remaining * $unitSellingPrice, 2),
                                 'actual_weight' => null,
                                 'excess_qty' => 0.0,
                                 'excess_value' => 0.0,
@@ -476,13 +494,13 @@ class WarehouseLoadoutController extends Controller
         if ($request->wantsJson()) {
             return response()->json([
                 'success' => true,
-                'message' => 'Loadout saved and inventory updated successfully.',
+                'message' => 'Loadout saved successfully.',
             ]);
         }
 
         return redirect()
             ->route('warehouse.loadout.show', $shopOrder)
-            ->with('success', 'Loadout saved and inventory updated successfully.');
+            ->with('success', 'Loadout saved successfully.');
     }
 
     public function moveToDelivery(ShopOrder $shopOrder, Request $request): RedirectResponse
@@ -602,6 +620,12 @@ class WarehouseLoadoutController extends Controller
      */
     private function loadoutApprovedQuantity(Collection $items): float
     {
+        $originalApproved = $this->originalRequestedQuantity($items);
+
+        if ($originalApproved > 0.001) {
+            return $originalApproved;
+        }
+
         $loadedRows = $items->where('sorting_status', 'loaded');
         $openApproved = (float) $items
             ->reject(fn (ShopOrderItem $item): bool => $item->sorting_status === 'loaded')
@@ -615,5 +639,23 @@ class WarehouseLoadoutController extends Controller
         }
 
         return round((float) $items->sum('approved_qty'), 3);
+    }
+
+    private function originalRequestedQuantity(Collection $items): float
+    {
+        /** @var ShopOrderItem|null $source */
+        $source = $items->first(function (ShopOrderItem $item): bool {
+            return (float) ($item->requested_unit_quantity ?? 0) > 0
+                && (float) ($item->requested_unit_conversion_to_base ?? 0) > 0;
+        });
+
+        if (! $source) {
+            return 0.0;
+        }
+
+        return round(
+            (float) $source->requested_unit_quantity * (float) $source->requested_unit_conversion_to_base,
+            3
+        );
     }
 }

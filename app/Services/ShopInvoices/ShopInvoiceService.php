@@ -95,7 +95,7 @@ class ShopInvoiceService
             $activeProductIds = [];
 
             $order->items
-                ->filter(fn (ShopOrderItem $orderItem): bool => (float) ($orderItem->approved_qty ?? 0) > 0)
+                ->filter(fn (ShopOrderItem $orderItem): bool => $this->shouldIncludeOrderItemInInvoice($orderItem))
                 ->groupBy('product_id')
                 ->each(function (Collection $orderItems, int|string $productId) use ($order, $invoice, $existingItems, &$activeProductIds): void {
                     /** @var ShopOrderItem $firstOrderItem */
@@ -190,7 +190,7 @@ class ShopInvoiceService
             $invoiceItems = $invoice->items()->get()->keyBy('product_id');
 
             $order->items
-                ->filter(fn (ShopOrderItem $orderItem): bool => (float) ($orderItem->approved_qty ?? 0) > 0)
+                ->filter(fn (ShopOrderItem $orderItem): bool => $this->shouldIncludeOrderItemInInvoice($orderItem))
                 ->groupBy('product_id')
                 ->each(function (Collection $orderItems, int|string $productId) use ($invoiceItems, $deliveredQtys, &$hasDiscrepancy): void {
                     /** @var ShopOrderItem $firstOrderItem */
@@ -1188,6 +1188,19 @@ class ShopInvoiceService
             ->unique()
             ->values()
             ->all();
+    }
+
+    private function shouldIncludeOrderItemInInvoice(ShopOrderItem $orderItem): bool
+    {
+        if ((float) ($orderItem->approved_qty ?? 0) <= 0) {
+            return false;
+        }
+
+        if ($orderItem->sorting_status === 'not_available' || $orderItem->loadout_discrepancy_type === 'not_available') {
+            return true;
+        }
+
+        return $orderItem->sorting_status === 'loaded' && (float) ($orderItem->loaded_qty ?? 0) > 0;
     }
 
     private function syncOwnedShopBalanceForInvoice(ShopInvoice $invoice, int $userId): void

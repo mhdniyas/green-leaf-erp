@@ -22,20 +22,17 @@
     $verifiedCount = $verifiableItems->whereNotNull('shop_verified_at')->count();
     $totalVerifiableCount = $verifiableItems->count();
 
-    $computedInvoiceTotal = (float) ($invoice?->final_total ?? 0);
-    if ($computedInvoiceTotal <= 0) {
-        $computedInvoiceTotal = $fulfilledItems->sum(function($item) use ($invoiceItemsByProductId, $priceRowsByProductId) {
-            $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
-            $priceRow = $priceRowsByProductId->get($item->product_id);
-            $hasSec = $item->requested_unit_quantity && strtolower($item->requested_unit ?? '') !== 'kg';
-            $isActualWeightBilling = (float) ($item->actual_weight ?? 0) > 0.0001;
-            $qtyVal = $hasSec && ! $isActualWeightBilling
-                ? (float) ($item->loaded_order_unit_qty ?? $item->requested_unit_quantity ?? 0)
-                : (float) ($item->actual_weight ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
-            $unitRate = (float) ($invoiceItem?->unit_price ?? $priceRow['unit_price'] ?? 0);
-            return round($qtyVal * $unitRate, 2);
-        });
-    }
+    $computedInvoiceTotal = $fulfilledItems->sum(function($item) use ($invoiceItemsByProductId, $priceRowsByProductId) {
+        $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
+        $priceRow = $priceRowsByProductId->get($item->product_id);
+        $hasSec = $item->requested_unit_quantity && strtolower($item->requested_unit ?? '') !== 'kg';
+        $isActualWeightBilling = (float) ($item->actual_weight ?? 0) > 0.0001;
+        $qtyVal = $hasSec && ! $isActualWeightBilling
+            ? (float) ($item->loaded_order_unit_qty ?? $item->requested_unit_quantity ?? 0)
+            : (float) ($item->actual_weight ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
+        $unitRate = (float) ($invoiceItem?->unit_price ?? $priceRow['unit_price'] ?? 0);
+        return round($qtyVal * $unitRate, 2);
+    });
 
     $bottomTitle = match (true) {
         $isPendingApproval => 'Submitted For Admin Review',
