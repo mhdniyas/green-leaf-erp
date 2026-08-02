@@ -146,10 +146,14 @@ class DailyPriceBoardController extends Controller
                         return;
                     }
 
-                    $priceA = round((float) $row['price_a'], 2);
-                    $priceB = round((float) $row['price_b'], 2);
-                    $priceC = round((float) $row['price_c'], 2);
-                    $priceUnit = $this->validatedPriceUnitFor($approval, $row['price_unit'] ?? null);
+                    $priceA = round((float) ($row['price_a'] ?? 0), 2);
+                    $priceB = isset($row['price_b']) && $row['price_b'] !== '' && $row['price_b'] !== null
+                        ? round((float) $row['price_b'], 2)
+                        : $priceA;
+                    $priceC = isset($row['price_c']) && $row['price_c'] !== '' && $row['price_c'] !== null
+                        ? round((float) $row['price_c'], 2)
+                        : $priceA;
+                    $priceUnit = $this->validatedPriceUnitFor($approval, $row['price_unit'] ?? $approval->price_unit);
 
                     $approval->update([
                         'price_unit' => $priceUnit,

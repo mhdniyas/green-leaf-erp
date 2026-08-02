@@ -215,7 +215,7 @@
             <input type="hidden" name="movement" value="{{ $movement }}">
             <input type="hidden" name="sort" value="{{ $sort }}">
             <input type="hidden" name="date" value="{{ $purchaseDate }}">
-            <input id="confirm_publish" type="hidden" name="confirm_publish" value="{{ old('confirm_publish') === '1' ? '1' : '0' }}">
+            <input id="confirm_publish" type="hidden" name="confirm_publish" value="1">
 
             <div class="border-b border-slate-200 px-5 py-5">
                 <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-end">
@@ -381,44 +381,10 @@
                     </table>
                 </div>
 
-                <div id="price-board-review-section" class="{{ old('confirm_publish') === '1' ? '' : 'hidden' }} border-t border-slate-200 bg-cyan-50 px-5 py-5">
-                    <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-                        <div>
-                            <p class="text-[11px] font-black uppercase tracking-[0.16em] text-cyan-700">Final Review</p>
-                            <h3 class="mt-1 text-base font-black text-slate-950">{{ $isAdminViewer ? 'Confirm Daily Price Publish' : 'Confirm Price Proposal Submit' }}</h3>
-                            <p class="mt-1 text-sm font-semibold text-slate-600">
-                                {{ $isAdminViewer ? 'These prices and units will become the approved daily prices and existing shop invoices for this date will be repriced.' : 'These prices and units will be sent to admin approval. They will affect invoices only after admin publish.' }}
-                            </p>
-                            <label class="mt-4 flex cursor-pointer items-start gap-3 rounded-2xl border border-cyan-200 bg-white px-4 py-3">
-                                <input
-                                    id="price-board-confirm-checkbox"
-                                    type="checkbox"
-                                    value="1"
-                                    @checked(old('confirm_publish') === '1')
-                                    class="mt-1 rounded border-cyan-300 text-cyan-600 focus:ring-cyan-500"
-                                    onchange="togglePriceBoardFinalSubmit()"
-                                >
-                                <span>
-                                    <span class="block text-sm font-black text-slate-950">I checked product, unit, and category prices.</span>
-                                    <span class="mt-1 block text-xs font-semibold leading-5 text-slate-500">{{ $isAdminViewer ? 'After this confirmation, Save And Publish will update live invoices.' : 'After this confirmation, Save And Send To Admin will submit the proposal.' }}</span>
-                                </span>
-                            </label>
-                        </div>
-                        <button
-                            id="price-board-final-submit"
-                            type="submit"
-                            disabled
-                            class="inline-flex min-h-12 items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-                        >
-                            {{ $isAdminViewer ? 'Save And Publish' : 'Save And Send To Admin' }}
-                        </button>
-                    </div>
-                </div>
-
-                <div class="flex flex-col gap-3 border-t border-slate-200 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
-                    <p class="text-sm font-semibold text-slate-500">{{ $isAdminViewer ? 'Saving any row publishes live prices immediately and reprices shop-owner finance invoices.' : 'Saving any row submits the proposal back to admin approval. Admin publish updates live prices and shop-owner finance invoices.' }}</p>
-                    <button type="button" onclick="openPriceBoardReviewSection()" class="inline-flex items-center justify-center rounded-2xl bg-cyan-600 px-5 py-3 text-sm font-black text-white hover:bg-cyan-500">
-                        Review Before {{ $isAdminViewer ? 'Publish' : 'Submit' }}
+                <div class="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+                    <p class="text-sm font-semibold text-slate-600">{{ $isAdminViewer ? 'Saving updates daily prices and shop invoices directly.' : 'Saving updates price proposals for admin review.' }}</p>
+                    <button type="submit" class="inline-flex min-h-12 items-center justify-center rounded-2xl bg-cyan-600 px-6 py-3 text-sm font-black text-white hover:bg-cyan-500 shadow-md transition-all border-none cursor-pointer">
+                        {{ $isAdminViewer ? 'Save And Publish Prices' : 'Save And Send To Admin' }}
                     </button>
                 </div>
             @endif
@@ -517,18 +483,24 @@
                         openPriceBoardSettingsModal();
                     }
 
-                    togglePriceBoardFinalSubmit();
-
-                    const priceBoardForm = document.getElementById('confirm_publish')?.closest('form');
-                    if (priceBoardForm) {
-                        priceBoardForm.addEventListener('submit', (event) => {
-                            const confirmInput = document.getElementById('confirm_publish');
-                            if (! confirmInput || confirmInput.value !== '1') {
-                                event.preventDefault();
-                                openPriceBoardReviewSection();
+                    // Auto-copy Price A to Price B and Price C if unedited
+                    document.querySelectorAll('input[name*="[price_a]"]').forEach(inputA => {
+                        inputA.addEventListener('input', function() {
+                            const row = this.closest('tr');
+                            if (!row) return;
+                            const inputB = row.querySelector('input[name*="[price_b]"]');
+                            const inputC = row.querySelector('input[name*="[price_c]"]');
+                            const val = this.value;
+                            if (inputB && (!inputB.value || inputB.value === '0.00' || inputB.dataset.autoCopied === 'true')) {
+                                inputB.value = val;
+                                inputB.dataset.autoCopied = 'true';
+                            }
+                            if (inputC && (!inputC.value || inputC.value === '0.00' || inputC.dataset.autoCopied === 'true')) {
+                                inputC.value = val;
+                                inputC.dataset.autoCopied = 'true';
                             }
                         });
-                    }
+                    });
 
                     const searchInput = document.getElementById('search');
                     if (searchInput) {

@@ -24,13 +24,13 @@ class UpdateDailySellingPricesRequest extends FormRequest
             'movement' => ['nullable', 'in:changed,up,down,all'],
             'sort' => ['nullable', 'in:code,name,status,movement'],
             'reason' => ['nullable', 'string', 'max:1000'],
-            'confirm_publish' => ['accepted'],
+            'confirm_publish' => ['nullable'],
             'prices' => ['required', 'array', 'min:1'],
             'prices.*' => ['array'],
-            'prices.*.price_a' => ['required', 'numeric', 'min:0'],
-            'prices.*.price_b' => ['required', 'numeric', 'min:0'],
-            'prices.*.price_c' => ['required', 'numeric', 'min:0'],
-            'prices.*.price_unit' => ['required', 'string', 'max:20'],
+            'prices.*.price_a' => ['nullable', 'numeric', 'min:0'],
+            'prices.*.price_b' => ['nullable', 'numeric', 'min:0'],
+            'prices.*.price_c' => ['nullable', 'numeric', 'min:0'],
+            'prices.*.price_unit' => ['nullable', 'string', 'max:20'],
         ];
     }
 }
