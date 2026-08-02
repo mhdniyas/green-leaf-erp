@@ -9,8 +9,8 @@
     $priceRowsByProductId = collect($deliveryPriceReadiness['published'] ?? [])
         ->merge($deliveryPriceReadiness['unpublished'] ?? [])
         ->keyBy('product_id');
-    $availableItems = $sortedItems->filter(fn ($item) => $item->sorting_status !== 'not_available' && (float) ($item->loaded_qty ?? $item->approved_qty ?? 0) > 0);
-    $notAvailableItems = $sortedItems->filter(fn ($item) => $item->sorting_status === 'not_available' || ((float) ($item->loaded_qty ?? 0) == 0 && $item->sorting_status === 'not_available'));
+    $availableItems = $sortedItems->filter(fn ($item) => $item->sorting_status === 'loaded' || (float) ($item->loaded_qty ?? 0) > 0);
+    $notAvailableItems = $sortedItems->filter(fn ($item) => $item->sorting_status === 'not_available');
     $verifiableItems = $availableItems->filter(fn ($item) => (float) ($item->approved_qty ?? 0) > 0);
     $verifiedCount = $verifiableItems->whereNotNull('shop_verified_at')->count();
     $totalVerifiableCount = $verifiableItems->count();
@@ -20,9 +20,12 @@
         $computedInvoiceTotal = $availableItems->sum(function($item) use ($invoiceItemsByProductId, $priceRowsByProductId) {
             $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
             $priceRow = $priceRowsByProductId->get($item->product_id);
-            $approvedQty = (float) ($item->loaded_qty ?? $item->approved_qty ?? 0);
+            $hasSec = $item->requested_unit_quantity && strtolower($item->requested_unit ?? '') !== 'kg';
+            $qtyVal = $hasSec
+                ? (float) ($item->loaded_order_unit_qty ?? $item->requested_unit_quantity ?? 0)
+                : (float) ($item->loaded_qty ?? $item->approved_qty ?? 0);
             $unitRate = (float) ($invoiceItem?->unit_price ?? $priceRow['unit_price'] ?? 0);
-            return round($approvedQty * $unitRate, 2);
+            return round($qtyVal * $unitRate, 2);
         });
     }
 
@@ -80,7 +83,13 @@
                             @php
                                 $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
                                 $priceRow = $priceRowsByProductId->get($item->product_id);
-                                $approvedQty = (float) ($item->loaded_qty ?? $item->approved_qty ?? $invoiceItem?->approved_qty ?? 0);
+                                $hasSec = $item->requested_unit_quantity && strtolower($item->requested_unit ?? '') !== 'kg';
+                                $unitLabel = $hasSec
+                                    ? strtoupper($item->requested_unit_label ?: $item->requested_unit)
+                                    : strtoupper($item->unit);
+                                $approvedQty = $hasSec
+                                    ? (float) ($item->loaded_order_unit_qty ?? $item->requested_unit_quantity ?? 0)
+                                    : (float) ($item->loaded_qty ?? $item->approved_qty ?? $invoiceItem?->approved_qty ?? 0);
                                 $unitRate = (float) ($invoiceItem?->unit_price ?? $priceRow['unit_price'] ?? 0);
                                 $lineTotal = round($approvedQty * $unitRate, 2);
                                 $isItemVerified = $item->shop_verified_at !== null;
@@ -90,7 +99,7 @@
                                 data-item-id="{{ $item->id }}"
                                 data-verify-url="{{ route('shop-owner.deliveries.items.verify', [$order->order_number, $item]) }}"
                                 data-approved-qty="{{ $approvedQty }}"
-                                data-unit="{{ $item->unit }}"
+                                data-unit="{{ $unitLabel }}"
                                 data-verified="{{ $isItemVerified ? 'true' : 'false' }}"
                             >
                                 <td class="py-1.5 pr-0.5 font-bold sm:py-2.5 sm:pr-1">{{ $loop->iteration }}</td>
@@ -101,7 +110,12 @@
                                     </p>
                                     <p class="shop-item-error mt-1 hidden rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700"></p>
                                 </td>
-                                <td class="py-1.5 pr-0.5 text-right font-bold text-slate-900 sm:py-2.5 sm:pr-1">{{ number_format($approvedQty, 2) }} {{ $item->unit }}</td>
+                                <td class="py-1.5 pr-0.5 text-right font-bold text-slate-900 sm:py-2.5 sm:pr-1">
+                                    {{ number_format($approvedQty, 2) }} {{ $unitLabel }}
+                                    @if($hasSec && (float)$item->loaded_qty > 0)
+                                        <span class="block text-[8px] font-semibold text-slate-500">({{ number_format((float)$item->loaded_qty, 2) }} KG)</span>
+                                    @endif
+                                </td>
                                 <td class="py-1.5 pr-0.5 text-right font-bold text-slate-700 sm:py-2.5 sm:pr-1">Rs. {{ number_format($unitRate, 2) }}</td>
                                 <td class="py-1.5 text-right font-black text-slate-950 sm:py-2">Rs. {{ number_format($lineTotal, 2) }}</td>
                             </tr>
@@ -114,20 +128,6 @@
                 </table>
             </div>
 
-            @if ($notAvailableItems->isNotEmpty())
-                <div class="my-2.5 flex flex-wrap items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50/50 px-2.5 py-2 text-[9px] font-bold text-slate-700 sm:text-[10px]">
-                    <span class="inline-flex items-center gap-1 font-black text-rose-700 uppercase tracking-wider shrink-0">
-                        <svg class="h-3 w-3 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008v.008H12v-.008ZM10.34 4.94 2.94 17.76A1.5 1.5 0 0 0 4.24 20h15.52a1.5 1.5 0 0 0 1.3-2.24L13.66 4.94a1.5 1.5 0 0 0-2.6 0Z" />
-                        </svg>
-                        Out of Stock (Rs. 0.00 Billed):
-                    </span>
-                    <span class="text-slate-800">
-                        {{ $notAvailableItems->map(fn($i) => $i->product->name . ' (' . number_format((float)($i->loaded_qty ?? $i->approved_qty ?? 0), 2) . ' ' . $i->unit . ')')->join(', ') }}
-                    </span>
-                </div>
-            @endif
-
             <div class="ml-auto w-full max-w-full border-b border-dashed border-slate-400 py-2 text-[10px] font-bold text-slate-800 sm:max-w-[20rem] sm:py-3 sm:text-[11px]">
                 <div class="flex items-center justify-between font-black text-slate-950 text-xs sm:text-sm">
                     <span>Invoice Total</span>
@@ -136,17 +136,17 @@
             </div>
         </div>
 
-        <div class="border-t border-slate-100 bg-slate-50 px-2.5 py-2.5 sm:px-6 sm:py-4">
-            <div id="shop-delivery-progress-panel" class="rounded-xl bg-slate-950 text-white p-3 sm:rounded-[1.5rem] sm:p-5 space-y-3 shadow-lg">
+        <div class="border-t border-slate-200/80 bg-slate-50/50 px-2.5 py-2.5 sm:px-6 sm:py-4">
+            <div id="shop-delivery-progress-panel" class="rounded-xl border border-slate-200 bg-white p-3.5 sm:rounded-[1.5rem] sm:p-5 space-y-3.5 shadow-sm">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                        <p id="shop-delivery-progress-title" class="text-[9px] font-black uppercase tracking-[0.14em] text-emerald-400 sm:text-[11px]">{{ $bottomTitle }}</p>
-                        <p id="shop-delivery-progress-message" class="mt-0.5 text-xs font-semibold leading-5 text-slate-300 sm:text-sm">{{ $bottomMessage }}</p>
+                        <p id="shop-delivery-progress-title" class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500 sm:text-[11px]">{{ $bottomTitle }}</p>
+                        <p id="shop-delivery-progress-message" class="mt-0.5 text-xs font-semibold leading-5 text-slate-700 sm:text-sm">{{ $bottomMessage }}</p>
                     </div>
                     <button
                         type="button"
                         id="shop-delivery-submit-all"
-                        class="shrink-0 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-3 text-xs font-black uppercase tracking-[0.12em] transition-all shadow-md active:scale-95 cursor-pointer border-none disabled:cursor-not-allowed disabled:opacity-60"
+                        class="shrink-0 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-3 text-xs font-black uppercase tracking-[0.12em] transition-all shadow-md active:scale-95 cursor-pointer border-none disabled:cursor-not-allowed disabled:opacity-60"
                         @disabled(! $isEditable || $verifiedCount === $totalVerifiableCount)
                     >
                         Submit Delivery Verification
@@ -154,8 +154,8 @@
                 </div>
 
                 @if($isEditable)
-                    <div class="border-t border-slate-800 pt-3">
-                        <label for="shop-delivery-note" class="block text-[9px] font-black uppercase tracking-wider text-slate-400 sm:text-[10px]">
+                    <div class="border-t border-slate-100 pt-3">
+                        <label for="shop-delivery-note" class="block text-[9px] font-black uppercase tracking-wider text-slate-500 sm:text-[10px]">
                             Delivery Note / Remarks (Optional)
                         </label>
                         <input
@@ -163,7 +163,7 @@
                             id="shop-delivery-note"
                             name="delivery_note"
                             placeholder="Enter any optional delivery remarks..."
-                            class="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-semibold text-white placeholder-slate-500 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                            class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-semibold text-slate-950 placeholder-slate-400 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all shadow-inner"
                         >
                     </div>
                 @endif
