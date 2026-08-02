@@ -39,6 +39,15 @@
         ];
     }
 
+    if ($currentUser?->hasRole('admin') || $currentUser?->can('inventory.product.edit')) {
+        $sidebarItems[] = [
+            'label' => 'Quantity Corrections',
+            'href' => route('inventory.quantity-corrections.index', ['date' => $navDate]),
+            'active' => request()->routeIs('inventory.quantity-corrections.*'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.83-5.83M11.42 15.17l2.496-3.03c.317-.384.74-.664 1.208-.802l2.677-.792a.656.656 0 0 0 .426-.826l-1.393-4.18a.656.656 0 0 0-.825-.426l-2.678.793c-.468.138-.891.418-1.208.802l-3.03 2.496m2.627 5.967-5.967-2.627m0 0L3 21l3.75-3.75" /></svg>',
+        ];
+    }
+
     if ($currentUser?->can('inventory.sorting.view')) {
         $sidebarItems[] = [
             'label' => 'Batches',

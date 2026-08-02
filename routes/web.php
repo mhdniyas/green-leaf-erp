@@ -26,6 +26,7 @@ use App\Http\Controllers\Web\Inventory\DailyInventoryCloseController;
 use App\Http\Controllers\Web\Inventory\DeliveryDashboardController;
 use App\Http\Controllers\Web\Inventory\FulfillmentReportController;
 use App\Http\Controllers\Web\Inventory\ProductController;
+use App\Http\Controllers\Web\Inventory\ShopOrderQuantityCorrectionController;
 use App\Http\Controllers\Web\Inventory\StockController;
 use App\Http\Controllers\Web\Inventory\WarehouseSortingController;
 use App\Http\Controllers\Web\Inventory\WastageController;
@@ -140,6 +141,13 @@ Route::middleware('auth')->group(function () {
         Route::get('stock', [StockController::class, 'index'])->name('stock.index');
         Route::get('daily-close', [DailyInventoryCloseController::class, 'index'])->name('daily-close.index');
         Route::post('daily-close', [DailyInventoryCloseController::class, 'store'])->name('daily-close.store');
+
+        // Quantity Corrections (Admin Fix)
+        Route::get('quantity-corrections', [ShopOrderQuantityCorrectionController::class, 'index'])->name('quantity-corrections.index');
+        Route::patch('quantity-corrections/{item}', [ShopOrderQuantityCorrectionController::class, 'update'])->name('quantity-corrections.update');
+        Route::post('quantity-corrections/{item}/recalculate', [ShopOrderQuantityCorrectionController::class, 'recalculate'])->name('quantity-corrections.recalculate');
+        Route::post('quantity-corrections/{item}/copy-loaded', [ShopOrderQuantityCorrectionController::class, 'copyLoaded'])->name('quantity-corrections.copy-loaded');
+        Route::delete('quantity-corrections/{item}/soft-delete', [ShopOrderQuantityCorrectionController::class, 'softDeleteDuplicate'])->name('quantity-corrections.soft-delete');
 
         // Batches + Sorting
         Route::get('batches', [BatchController::class, 'index'])->name('batches.index');
