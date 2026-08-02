@@ -157,7 +157,7 @@ class WarehouseLoadoutController extends Controller
         $hasRemainingBalance = $productGroups->contains(fn (array $group): bool => (float) $group['total_balance'] > 0.001);
         $canMoveToDelivery = $shopOrder->delivery_status === 'ready_for_dispatch' && $anyLoaded && ! $hasRemainingBalance;
         $canMoveToPartialDelivery = $shopOrder->delivery_status === 'ready_for_dispatch' && $anyLoaded && $hasRemainingBalance;
-        $canMoveToLoadout = $shopOrder->delivery_status === 'in_transit';
+        $canMoveToLoadout = $shopOrder->delivery_status !== 'delivered' && $shopOrder->delivery_status !== 'pending_delivery';
 
         return view('warehouse.loadout.show', compact(
             'shopOrder',
@@ -379,25 +379,21 @@ class WarehouseLoadoutController extends Controller
     {
         $this->authorizeAccess($request);
 
-        if ($shopOrder->delivery_status !== 'in_transit') {
-            if ($shopOrder->delivery_status === 'delivered') {
-                return redirect()->back()->withErrors(['Delivered orders cannot be moved back to loadout.']);
-            }
-
-            return redirect()->back()->withErrors(['Only out-for-delivery orders can be moved back to loadout.']);
+        if ($shopOrder->delivery_status === 'delivered') {
+            return redirect()->back()->withErrors(['Delivered orders cannot be edited. Delivery has already been verified and locked.']);
         }
 
         DB::transaction(function () use ($shopOrder) {
             $shopOrder->update([
                 'delivery_status' => 'ready_for_dispatch',
                 'is_allocation_completed' => false,
-                'delivery_notes' => 'Moved back to loadout for quantity update.',
+                'delivery_notes' => 'Re-opened for loadout quantity correction.',
             ]);
         });
 
         return redirect()
             ->route('warehouse.loadout.show', $shopOrder)
-            ->with('success', 'Order moved back to loadout for update.');
+            ->with('success', 'Order moved back to loadout. You can now edit loadout quantities and save updates.');
     }
 
     private function moveOrderToDelivery(ShopOrder $shopOrder, Request $request, bool $partialDelivery): RedirectResponse
