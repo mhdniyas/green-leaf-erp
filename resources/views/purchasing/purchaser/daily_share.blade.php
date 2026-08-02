@@ -34,7 +34,8 @@
                         {{-- Pill Tabs --}}
                         <div class="flex items-center gap-1 rounded-xl bg-slate-100 p-1" id="daily-share-mode-group">
                             @foreach ([
-                                'all'     => 'All Products',
+                                'changed' => 'Changed',
+                                'any'     => 'Any',
                                 'tag'     => 'By Category',
                                 'product' => 'Single Item',
                             ] as $modeValue => $modeLabel)
@@ -55,10 +56,17 @@
                             class="h-9 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
                     </div>
 
-                    {{-- ===== ALL MODE ===== --}}
-                    <div data-share-section="all" class="{{ $shareMode !== 'all' ? 'hidden' : '' }} px-4 py-4">
+                    {{-- ===== ANY MODE ===== --}}
+                    <div data-share-section="any" class="{{ $shareMode !== 'any' ? 'hidden' : '' }} px-4 py-4">
                         <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
-                            All {{ $availableProducts->count() }} products will be included in the share.
+                            Any product from today demand can be shared. {{ $availableProducts->count() }} products will be included.
+                        </div>
+                    </div>
+
+                    {{-- ===== CHANGED MODE ===== --}}
+                    <div data-share-section="changed" class="{{ $shareMode !== 'changed' ? 'hidden' : '' }} px-4 py-4">
+                        <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                            Only products still pending after cart quantities will be included.
                         </div>
                     </div>
 
@@ -182,7 +190,7 @@
                         <button type="submit" class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-950 px-5 text-xs font-black text-white hover:bg-slate-800 transition-colors">
                             Apply Filter
                         </button>
-                        <a href="{{ route('purchaser.daily.share', ['date' => $date, 'share_mode' => 'all']) }}"
+                        <a href="{{ route('purchaser.daily.share', ['date' => $date, 'share_mode' => 'changed']) }}"
                             class="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 px-4 text-xs font-black text-slate-700 hover:bg-slate-50 transition-colors">
                             Reset
                         </a>
@@ -258,7 +266,7 @@
         const sections   = Array.from(document.querySelectorAll('[data-share-section]'));
 
         const updateModeUI = () => {
-            const selected = modeInputs.find(i => i.checked)?.value ?? 'all';
+            const selected = modeInputs.find(i => i.checked)?.value ?? 'changed';
             modeCards.forEach(card => {
                 const span = card.querySelector('span');
                 const isActive = card.dataset.shareModeCard === selected;

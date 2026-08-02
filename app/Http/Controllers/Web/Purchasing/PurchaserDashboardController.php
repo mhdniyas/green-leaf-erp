@@ -3312,7 +3312,9 @@ class PurchaserDashboardController extends Controller
 
     private function resolveDailyShareMode(string $shareMode): string
     {
-        return in_array($shareMode, ['all', 'tag', 'product'], true) ? $shareMode : 'all';
+        $shareMode = $shareMode === 'all' ? 'any' : $shareMode;
+
+        return in_array($shareMode, ['changed', 'any', 'tag', 'product'], true) ? $shareMode : 'changed';
     }
 
     /**
@@ -3344,6 +3346,10 @@ class PurchaserDashboardController extends Controller
         int $selectedProductId,
     ): Collection {
         return match ($shareMode) {
+            'changed' => $dailySummary
+                ->filter(fn (array $summary): bool => ((float) $summary['remaining_qty'] - (float) $summary['draft_qty']) > 0)
+                ->values(),
+            'any' => $dailySummary->values(),
             'tag' => $dailySummary
                 ->filter(function (array $summary) use ($selectedProductIds, $selectedTags): bool {
                     // If specific products are checked, use those
@@ -3362,7 +3368,9 @@ class PurchaserDashboardController extends Controller
             'product' => $dailySummary
                 ->filter(fn (array $summary): bool => (int) $summary['product_id'] === $selectedProductId)
                 ->values(),
-            default => $dailySummary->values(),
+            default => $dailySummary
+                ->filter(fn (array $summary): bool => ((float) $summary['remaining_qty'] - (float) $summary['draft_qty']) > 0)
+                ->values(),
         };
     }
 
