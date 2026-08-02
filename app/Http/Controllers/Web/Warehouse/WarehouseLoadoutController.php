@@ -156,7 +156,7 @@ class WarehouseLoadoutController extends Controller
                     'items' => $items,
                 ];
             })
-            ->sortByDesc('is_fully_loaded')
+            ->sortBy(fn (array $group) => \App\Models\Product::sortableSku((string) ($group['product']?->sku ?? '')))
             ->values();
 
         $canEdit = $shopOrder->delivery_status !== 'delivered';
