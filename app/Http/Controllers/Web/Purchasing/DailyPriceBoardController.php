@@ -239,11 +239,13 @@ class DailyPriceBoardController extends Controller
             foreach ($approvals as $approval) {
                 $purchasePrice = (float) $approval->purchase_price;
 
-                $approval->update([
-                    'price_a' => round($purchasePrice * (1 + $marginA / 100), 2),
-                    'price_b' => round($purchasePrice * (1 + $marginB / 100), 2),
-                    'price_c' => round($purchasePrice * (1 + $marginC / 100), 2),
-                ]);
+                DailyPriceApproval::query()
+                    ->where('id', $approval->id)
+                    ->update([
+                        'price_a' => round($purchasePrice * (1 + $marginA / 100), 2),
+                        'price_b' => round($purchasePrice * (1 + $marginB / 100), 2),
+                        'price_c' => round($purchasePrice * (1 + $marginC / 100), 2),
+                    ]);
 
                 $recalculatedCount++;
             }
