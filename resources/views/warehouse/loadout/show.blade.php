@@ -313,11 +313,11 @@
 
                             {{-- Action Buttons Row --}}
                             <div class="mt-3 flex items-center justify-end gap-2 border-t border-slate-100 pt-2.5">
-                                <button type="button" id="not-avail-btn-{{ $group['product_id'] }}" onclick="toggleNotAvailable({{ $group['product_id'] }})" class="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none">
+                                <button type="button" id="not-avail-btn-{{ $group['product_id'] }}" onclick="toggleNotAvailable({{ $group['product_id'] }})" class="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-black uppercase tracking-wider text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none">
                                     {{ $isItemNotAvailable ? 'Re-enable Item' : 'Not Available' }}
                                 </button>
-                                <button type="button" id="save-qty-btn-{{ $group['product_id'] }}" onclick="submitSpecificQty({{ $group['product_id'] }})" class="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-indigo-700 transition-colors hover:bg-indigo-100 cursor-pointer border-none">
-                                    Save
+                                <button type="submit" form="loadout-form" class="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black uppercase tracking-wider text-white shadow-sm transition-all hover:bg-emerald-700 active:scale-[0.98] cursor-pointer border-none">
+                                    SAVE
                                 </button>
                             </div>
                         </div>
