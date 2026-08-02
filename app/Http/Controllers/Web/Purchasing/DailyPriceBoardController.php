@@ -209,6 +209,75 @@ class DailyPriceBoardController extends Controller
             ->with('warning', $isAdmin ? $this->invoiceSkipWarning($generationSummary ?? [], $repriceSummary ?? []) : null);
     }
 
+    public function saveRow(DailyPriceApproval $approval, Request $request): mixed
+    {
+        $this->authorizeBoardAccess();
+
+        $validated = $request->validate([
+            'price_a' => ['nullable', 'numeric', 'min:0'],
+            'price_b' => ['nullable', 'numeric', 'min:0'],
+            'price_c' => ['nullable', 'numeric', 'min:0'],
+            'price_unit' => ['nullable', 'string', 'max:20'],
+            'date' => ['nullable', 'date'],
+        ]);
+
+        $user = $request->user();
+        $isAdmin = (bool) $user?->hasRole('admin');
+        $userId = (int) $user->id;
+
+        DB::transaction(function () use ($approval, $validated, $isAdmin, $userId): void {
+            $groupA = ShopPriceGroup::query()->where('name', 'A')->first();
+            $groupB = ShopPriceGroup::query()->where('name', 'B')->first();
+            $groupC = ShopPriceGroup::query()->where('name', 'C')->first();
+
+            $priceA = round((float) ($validated['price_a'] ?? 0), 2);
+            $priceB = isset($validated['price_b']) && $validated['price_b'] !== '' && $validated['price_b'] !== null
+                ? round((float) $validated['price_b'], 2)
+                : $priceA;
+            $priceC = isset($validated['price_c']) && $validated['price_c'] !== '' && $validated['price_c'] !== null
+                ? round((float) $validated['price_c'], 2)
+                : $priceA;
+            $priceUnit = $this->validatedPriceUnitFor($approval, $validated['price_unit'] ?? $approval->price_unit);
+
+            $approval->update([
+                'price_unit' => $priceUnit,
+                'price_a' => $priceA,
+                'price_b' => $priceB,
+                'price_c' => $priceC,
+                'status' => $isAdmin ? 'approved' : 'pending',
+                'approved_by' => $isAdmin ? $userId : null,
+                'approved_at' => $isAdmin ? now() : null,
+            ]);
+
+            if ($isAdmin && $approval->product) {
+                $this->updateActivePricesForGroup($approval->product, $groupA, $priceA, $userId);
+                $this->updateActivePricesForGroup($approval->product, $groupB, $priceB, $userId);
+                $this->updateActivePricesForGroup($approval->product, $groupC, $priceC, $userId);
+                $this->vendorPriceService->syncPrice($approval->product->id, (float) $approval->purchase_price);
+            }
+        });
+
+        if ($isAdmin) {
+            $targetBusinessDate = Carbon::parse($validated['date'] ?? $approval->purchase_date)->toDateString();
+            $this->shopInvoiceService->generateForBusinessDate($targetBusinessDate, $userId);
+            $this->shopInvoiceService->repriceAllForBusinessDate(
+                $targetBusinessDate,
+                $userId,
+                "Admin saved row price for {$approval->product?->name}.",
+            );
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "{$approval->product?->name} price saved & published.",
+                'approval' => $approval->fresh(),
+            ]);
+        }
+
+        return redirect()->back()->with('success', "{$approval->product?->name} price saved.");
+    }
+
     public function updateSettings(Request $request): RedirectResponse
     {
         $this->authorizeBoardAccess();

@@ -249,6 +249,7 @@
                                 <th class="px-5 py-4 text-right">B Price</th>
                                 <th class="px-5 py-4 text-right">C Price</th>
                                 <th class="px-5 py-4">Admin Check</th>
+                                <th class="px-5 py-4 text-center">Action</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 text-sm">
@@ -375,6 +376,16 @@
                                             Waiting for admin approval
                                         @endif
                                     </td>
+                                    <td class="px-5 py-4 text-center">
+                                        <button
+                                            type="button"
+                                            onclick="saveSinglePriceRow({{ $approval->id }})"
+                                            id="row-save-btn-{{ $approval->id }}"
+                                            class="inline-flex items-center justify-center rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 text-xs font-black uppercase tracking-wider transition-all border-none cursor-pointer shadow-sm active:scale-95"
+                                        >
+                                            Save
+                                        </button>
+                                    </td>
                                 </tr>
                             @endforeach
                         </tbody>
@@ -463,18 +474,62 @@
                     togglePriceBoardFinalSubmit();
                 }
 
-                function togglePriceBoardFinalSubmit() {
-                    const confirmCheckbox = document.getElementById('price-board-confirm-checkbox');
-                    const confirmInput = document.getElementById('confirm_publish');
-                    const submitButton = document.getElementById('price-board-final-submit');
-                    const confirmed = Boolean(confirmCheckbox && confirmCheckbox.checked);
+                async function saveSinglePriceRow(approvalId) {
+                    const btn = document.getElementById('row-save-btn-' + approvalId);
+                    const row = btn?.closest('tr');
+                    if (!btn || !row) return;
 
-                    if (confirmInput) {
-                        confirmInput.value = confirmed ? '1' : '0';
-                    }
+                    const priceA = row.querySelector('input[name*="[price_a]"]')?.value || '0';
+                    const priceB = row.querySelector('input[name*="[price_b]"]')?.value || priceA;
+                    const priceC = row.querySelector('input[name*="[price_c]"]')?.value || priceA;
+                    const priceUnit = row.querySelector('select[name*="[price_unit]"]')?.value || '';
+                    const csrfToken = document.querySelector('input[name="_token"]')?.value || '';
+                    const purchaseDate = "{{ $purchaseDate }}";
 
-                    if (submitButton) {
-                        submitButton.disabled = ! confirmed;
+                    const originalText = btn.textContent;
+                    btn.disabled = true;
+                    btn.textContent = 'Saving...';
+                    btn.className = 'inline-flex items-center justify-center rounded-xl bg-slate-400 text-white px-3.5 py-2 text-xs font-black uppercase tracking-wider opacity-70 border-none cursor-not-allowed';
+
+                    try {
+                        const response = await fetch("{{ url('purchasing/prices') }}/" + approvalId + "/save-row", {
+                            method: 'POST',
+                            headers: {
+                                'Accept': 'application/json',
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': csrfToken,
+                            },
+                            body: JSON.stringify({
+                                price_a: priceA,
+                                price_b: priceB,
+                                price_c: priceC,
+                                price_unit: priceUnit,
+                                date: purchaseDate,
+                            }),
+                        });
+
+                        const data = await response.json();
+                        if (data.success) {
+                            btn.textContent = 'Saved ✓';
+                            btn.className = 'inline-flex items-center justify-center rounded-xl bg-emerald-600 text-white px-3.5 py-2 text-xs font-black uppercase tracking-wider border-none shadow-md';
+                            row.classList.add('bg-emerald-50/40');
+                            setTimeout(() => {
+                                btn.disabled = false;
+                                btn.textContent = 'Save';
+                                btn.className = 'inline-flex items-center justify-center rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 text-xs font-black uppercase tracking-wider transition-all border-none cursor-pointer shadow-sm active:scale-95';
+                                row.classList.remove('bg-emerald-50/40');
+                            }, 2000);
+                        } else {
+                            alert(data.message || 'Failed to save price row.');
+                            btn.disabled = false;
+                            btn.textContent = originalText;
+                            btn.className = 'inline-flex items-center justify-center rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 text-xs font-black uppercase tracking-wider transition-all border-none cursor-pointer shadow-sm active:scale-95';
+                        }
+                    } catch (err) {
+                        alert('Network error while saving price row.');
+                        btn.disabled = false;
+                        btn.textContent = originalText;
+                        btn.className = 'inline-flex items-center justify-center rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 text-xs font-black uppercase tracking-wider transition-all border-none cursor-pointer shadow-sm active:scale-95';
                     }
                 }
 
