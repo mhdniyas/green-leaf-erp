@@ -156,6 +156,7 @@
             <input type="hidden" name="movement" value="{{ $movement }}">
             <input type="hidden" name="sort" value="{{ $sort }}">
             <input type="hidden" name="date" value="{{ $purchaseDate }}">
+            <input id="confirm_publish" type="hidden" name="confirm_publish" value="{{ old('confirm_publish') === '1' ? '1' : '0' }}">
 
             <div class="border-b border-slate-200 px-5 py-5">
                 <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-end">
@@ -177,16 +178,17 @@
                 </div>
             @else
                 <div class="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
-                    <table class="min-w-[980px] text-left">
+                    <table class="min-w-[1120px] text-left">
                         <thead class="border-b border-slate-200 bg-slate-50 text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">
                             <tr>
                                 <th class="px-5 py-4">Product</th>
                                 <th class="px-5 py-4 text-center">Status</th>
                                 <th class="px-5 py-4 text-center">Movement</th>
                                 <th class="px-5 py-4 text-right">Avg Purchase</th>
-                                <th class="px-5 py-4 text-right">Category A</th>
-                                <th class="px-5 py-4 text-right">Category B</th>
-                                <th class="px-5 py-4 text-right">Category C</th>
+                                <th class="px-5 py-4">Price Unit</th>
+                                <th class="px-5 py-4 text-right">A Price</th>
+                                <th class="px-5 py-4 text-right">B Price</th>
+                                <th class="px-5 py-4 text-right">C Price</th>
                                 <th class="px-5 py-4">Admin Check</th>
                             </tr>
                         </thead>
@@ -202,6 +204,13 @@
                                         default => 'border-cyan-200 bg-cyan-50 text-cyan-700',
                                     };
                                     $unitLabel = strtolower((string) ($product?->unit ?? '')) === 'piece' ? 'PCE' : strtoupper($product?->unit ?? 'NA');
+                                    $priceUnit = \App\Models\ProductUnit::normalizeUnit((string) ($approval->price_unit ?: $product?->unit));
+                                    $priceUnitOptions = collect([(string) ($product?->unit ?? '')])
+                                        ->merge($product?->orderUnits?->pluck('unit') ?? collect())
+                                        ->map(fn ($unit): string => \App\Models\ProductUnit::normalizeUnit((string) $unit))
+                                        ->filter()
+                                        ->unique()
+                                        ->values();
                                     $movementLabel = match ($approval->movement_status) {
                                         'same' => 'Same',
                                         'up' => '+ INR '.number_format(abs((float) $approval->purchase_price - (float) $approval->comparison_purchase_price), 2),
@@ -234,9 +243,25 @@
                                     </td>
                                     <td class="px-5 py-4 text-right font-black text-slate-950">
                                         INR {{ number_format((float) $approval->purchase_price, 2) }}
+                                        <p class="mt-1 text-[10px] font-semibold text-slate-400">Purchase basis {{ $unitLabel }}</p>
                                         @if (! (bool) $approval->getAttribute('purchased_today'))
                                             <p class="mt-1 text-[10px] font-semibold text-amber-600">No purchase today</p>
                                         @endif
+                                    </td>
+                                    <td class="px-5 py-4">
+                                        <select
+                                            name="prices[{{ $approval->id }}][price_unit]"
+                                            class="block w-28 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm font-black text-slate-950 focus:border-cyan-500 focus:outline-none"
+                                        >
+                                            @foreach ($priceUnitOptions as $unitOption)
+                                                @php
+                                                    $unitOptionLabel = $unitOption === 'piece' ? 'PCE' : strtoupper(str_replace('_', ' ', $unitOption));
+                                                @endphp
+                                                <option value="{{ $unitOption }}" @selected(old("prices.{$approval->id}.price_unit", $priceUnit) === $unitOption)>
+                                                    {{ $unitOptionLabel }}
+                                                </option>
+                                            @endforeach
+                                        </select>
                                     </td>
                                     <td class="px-5 py-4">
                                         <input
@@ -247,6 +272,7 @@
                                             value="{{ old("prices.{$approval->id}.price_a", number_format((float) $approval->price_a, 2, '.', '')) }}"
                                             class="ml-auto block w-28 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-right text-sm font-black text-slate-950 focus:border-cyan-500 focus:outline-none"
                                         >
+                                        <p class="mt-1 text-right text-[10px] font-semibold text-slate-400">/{{ $priceUnit === 'piece' ? 'PCE' : strtoupper(str_replace('_', ' ', $priceUnit)) }}</p>
                                     </td>
                                     <td class="px-5 py-4">
                                         <input
@@ -257,6 +283,7 @@
                                             value="{{ old("prices.{$approval->id}.price_b", number_format((float) $approval->price_b, 2, '.', '')) }}"
                                             class="ml-auto block w-28 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-right text-sm font-black text-slate-950 focus:border-cyan-500 focus:outline-none"
                                         >
+                                        <p class="mt-1 text-right text-[10px] font-semibold text-slate-400">/{{ $priceUnit === 'piece' ? 'PCE' : strtoupper(str_replace('_', ' ', $priceUnit)) }}</p>
                                     </td>
                                     <td class="px-5 py-4">
                                         <input
@@ -267,6 +294,7 @@
                                             value="{{ old("prices.{$approval->id}.price_c", number_format((float) $approval->price_c, 2, '.', '')) }}"
                                             class="ml-auto block w-28 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-right text-sm font-black text-slate-950 focus:border-cyan-500 focus:outline-none"
                                         >
+                                        <p class="mt-1 text-right text-[10px] font-semibold text-slate-400">/{{ $priceUnit === 'piece' ? 'PCE' : strtoupper(str_replace('_', ' ', $priceUnit)) }}</p>
                                     </td>
                                     <td class="px-5 py-4 text-xs font-semibold text-slate-500">
                                         @if ($approval->approved_at)
@@ -283,10 +311,44 @@
                     </table>
                 </div>
 
+                <div id="price-board-review-section" class="{{ old('confirm_publish') === '1' ? '' : 'hidden' }} border-t border-slate-200 bg-cyan-50 px-5 py-5">
+                    <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                        <div>
+                            <p class="text-[11px] font-black uppercase tracking-[0.16em] text-cyan-700">Final Review</p>
+                            <h3 class="mt-1 text-base font-black text-slate-950">{{ $isAdminViewer ? 'Confirm Daily Price Publish' : 'Confirm Price Proposal Submit' }}</h3>
+                            <p class="mt-1 text-sm font-semibold text-slate-600">
+                                {{ $isAdminViewer ? 'These prices and units will become the approved daily prices and existing shop invoices for this date will be repriced.' : 'These prices and units will be sent to admin approval. They will affect invoices only after admin publish.' }}
+                            </p>
+                            <label class="mt-4 flex cursor-pointer items-start gap-3 rounded-2xl border border-cyan-200 bg-white px-4 py-3">
+                                <input
+                                    id="price-board-confirm-checkbox"
+                                    type="checkbox"
+                                    value="1"
+                                    @checked(old('confirm_publish') === '1')
+                                    class="mt-1 rounded border-cyan-300 text-cyan-600 focus:ring-cyan-500"
+                                    onchange="togglePriceBoardFinalSubmit()"
+                                >
+                                <span>
+                                    <span class="block text-sm font-black text-slate-950">I checked product, unit, and category prices.</span>
+                                    <span class="mt-1 block text-xs font-semibold leading-5 text-slate-500">{{ $isAdminViewer ? 'After this confirmation, Save And Publish will update live invoices.' : 'After this confirmation, Save And Send To Admin will submit the proposal.' }}</span>
+                                </span>
+                            </label>
+                        </div>
+                        <button
+                            id="price-board-final-submit"
+                            type="submit"
+                            disabled
+                            class="inline-flex min-h-12 items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                        >
+                            {{ $isAdminViewer ? 'Save And Publish' : 'Save And Send To Admin' }}
+                        </button>
+                    </div>
+                </div>
+
                 <div class="flex flex-col gap-3 border-t border-slate-200 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
                     <p class="text-sm font-semibold text-slate-500">{{ $isAdminViewer ? 'Saving any row publishes live prices immediately and reprices shop-owner finance invoices.' : 'Saving any row submits the proposal back to admin approval. Admin publish updates live prices and shop-owner finance invoices.' }}</p>
-                    <button type="submit" class="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-black text-white">
-                        {{ $isAdminViewer ? 'Save And Publish' : 'Save And Send To Admin' }}
+                    <button type="button" onclick="openPriceBoardReviewSection()" class="inline-flex items-center justify-center rounded-2xl bg-cyan-600 px-5 py-3 text-sm font-black text-white hover:bg-cyan-500">
+                        Review Before {{ $isAdminViewer ? 'Publish' : 'Submit' }}
                     </button>
                 </div>
             @endif
@@ -355,9 +417,47 @@
                     }
                 }
 
+                function openPriceBoardReviewSection() {
+                    const reviewSection = document.getElementById('price-board-review-section');
+                    if (reviewSection) {
+                        reviewSection.classList.remove('hidden');
+                        reviewSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+
+                    togglePriceBoardFinalSubmit();
+                }
+
+                function togglePriceBoardFinalSubmit() {
+                    const confirmCheckbox = document.getElementById('price-board-confirm-checkbox');
+                    const confirmInput = document.getElementById('confirm_publish');
+                    const submitButton = document.getElementById('price-board-final-submit');
+                    const confirmed = Boolean(confirmCheckbox && confirmCheckbox.checked);
+
+                    if (confirmInput) {
+                        confirmInput.value = confirmed ? '1' : '0';
+                    }
+
+                    if (submitButton) {
+                        submitButton.disabled = ! confirmed;
+                    }
+                }
+
                 document.addEventListener('DOMContentLoaded', () => {
                     if (@json(request()->boolean('settings'))) {
                         openPriceBoardSettingsModal();
+                    }
+
+                    togglePriceBoardFinalSubmit();
+
+                    const priceBoardForm = document.getElementById('confirm_publish')?.closest('form');
+                    if (priceBoardForm) {
+                        priceBoardForm.addEventListener('submit', (event) => {
+                            const confirmInput = document.getElementById('confirm_publish');
+                            if (! confirmInput || confirmInput.value !== '1') {
+                                event.preventDefault();
+                                openPriceBoardReviewSection();
+                            }
+                        });
                     }
                 });
             </script>

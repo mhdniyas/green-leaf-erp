@@ -6,6 +6,7 @@ namespace App\Services\Pricing;
 
 use App\Models\DailyPriceApproval;
 use App\Models\Product;
+use App\Models\ProductUnit;
 use App\Models\Shop;
 use App\Models\ShopPriceGroup;
 use Carbon\CarbonInterface;
@@ -14,7 +15,7 @@ use Illuminate\Validation\ValidationException;
 class ApprovedDailyPriceResolver
 {
     /**
-     * @return array{approval: DailyPriceApproval, group: ShopPriceGroup, price: float, price_column: string, category_code: string}
+     * @return array{approval: DailyPriceApproval, group: ShopPriceGroup, price: float, price_unit: string, price_column: string, category_code: string}
      */
     public function resolve(Product $product, Shop $shop, CarbonInterface|string $businessDate): array
     {
@@ -57,6 +58,7 @@ class ApprovedDailyPriceResolver
             'approval' => $approval,
             'group' => $group,
             'price' => $price,
+            'price_unit' => ProductUnit::normalizeUnit((string) ($approval->price_unit ?: $product->unit ?: 'kg')),
             'price_column' => $priceColumn,
             'category_code' => strtoupper((string) $group->name),
         ];

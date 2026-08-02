@@ -20,6 +20,7 @@ class DailyPriceApproval extends Model
         'product_id',
         'business_date',
         'purchase_price',
+        'price_unit',
         'price_a',
         'price_b',
         'price_c',

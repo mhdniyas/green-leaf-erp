@@ -22,7 +22,13 @@ class CategoryController extends Controller
 
     public function index(Request $request): View
     {
-        abort_unless($request->user()?->can('inventory.category.view'), 403);
+        abort_unless(
+            $request->user()?->can('inventory.category.view') ||
+            $request->user()?->can('inventory.product.view') ||
+            $request->user()?->hasRole('purchaser') ||
+            $request->user()?->hasRole('admin'),
+            403
+        );
 
         $status = in_array($request->string('status')->toString(), ['active', 'inactive'], true)
             ? $request->string('status')->toString()
@@ -35,6 +41,55 @@ class CategoryController extends Controller
         );
 
         return view('inventory.categories.index', compact('categories'));
+    }
+
+    public function exportPdf(Request $request): View
+    {
+        abort_unless(
+            $request->user()?->can('inventory.category.view') ||
+            $request->user()?->can('inventory.product.view') ||
+            $request->user()?->hasRole('purchaser') ||
+            $request->user()?->hasRole('admin'),
+            403
+        );
+
+        $rawCategoryIds = $request->input('category_ids');
+        $categoryIds = [];
+
+        if (is_array($rawCategoryIds)) {
+            $categoryIds = array_map('intval', array_filter($rawCategoryIds));
+        } elseif (is_string($rawCategoryIds) && trim($rawCategoryIds) !== '') {
+            $categoryIds = array_map('intval', array_filter(explode(',', $rawCategoryIds)));
+        }
+
+        $search = $request->string('search')->toString() ?: null;
+        $status = in_array($request->string('status')->toString(), ['active', 'inactive'], true)
+            ? $request->string('status')->toString()
+            : null;
+
+        $query = Category::query();
+
+        if (!empty($categoryIds)) {
+            $query->whereIn('id', $categoryIds);
+        } else {
+            if ($search) {
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                        ->orWhere('description', 'like', "%{$search}%");
+                });
+            }
+            if ($status) {
+                $query->where('is_active', $status === 'active');
+            }
+        }
+
+        $categories = $query->with(['products' => function ($q) {
+            $q->orderBy('name');
+        }])->orderBy('name')->get();
+
+        $totalProducts = $categories->sum(fn ($c) => $c->products->count());
+
+        return view('inventory.categories.pdf', compact('categories', 'totalProducts'));
     }
 
     public function create(Request $request): View

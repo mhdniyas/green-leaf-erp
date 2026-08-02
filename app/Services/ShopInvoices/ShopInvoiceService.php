@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\ShopInvoices;
 
+use App\Models\Product;
+use App\Models\ProductUnit;
 use App\Models\Shop;
 use App\Models\ShopCredit;
 use App\Models\ShopInvoice;
@@ -106,7 +108,10 @@ class ShopInvoiceService
                         'product_id' => (int) $productId,
                     ]);
 
-                    $unitPrice = $this->unitPriceForOrderItem($order, $firstOrderItem);
+                    $dailyPrice = $this->dailyPriceForOrderItem($order, $firstOrderItem);
+                    $unitPrice = $dailyPrice['price'];
+                    $priceUnit = $dailyPrice['price_unit'];
+                    $product = $firstOrderItem->product;
                     $approvedQty = (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) $item->approved_qty);
                     $deliveredQty = $invoiceItem->exists
                         ? (float) $invoiceItem->delivered_qty
@@ -117,18 +122,27 @@ class ShopInvoiceService
                     $excessQty = $invoiceItem->exists
                         ? (float) $invoiceItem->excess_qty
                         : (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) ($item->excess_qty ?? 0));
-                    $lineSubtotal = round($approvedQty * $unitPrice, 2);
-                    $shortageAmount = round($shortageQty * $unitPrice, 2);
-                    $excessAmount = round($excessQty * $unitPrice, 2);
+                    $priceQuantity = $this->priceQuantityFor($product, $approvedQty, $priceUnit);
+                    $deliveredPriceQuantity = $this->priceQuantityFor($product, $deliveredQty, $priceUnit);
+                    $shortagePriceQuantity = $this->priceQuantityFor($product, $shortageQty, $priceUnit);
+                    $excessPriceQuantity = $this->priceQuantityFor($product, $excessQty, $priceUnit);
+                    $lineSubtotal = round($priceQuantity * $unitPrice, 2);
+                    $shortageAmount = round($shortagePriceQuantity * $unitPrice, 2);
+                    $excessAmount = round($excessPriceQuantity * $unitPrice, 2);
 
                     $invoiceItem->fill([
                         'shop_order_item_id' => $firstOrderItem->id,
                         'product_name' => $firstOrderItem->product?->name ?? 'Unknown Product',
                         'unit' => $firstOrderItem->unit,
+                        'price_unit' => $priceUnit,
                         'approved_qty' => $approvedQty,
+                        'price_quantity' => $priceQuantity,
                         'delivered_qty' => $deliveredQty,
+                        'delivered_price_quantity' => $deliveredPriceQuantity,
                         'shortage_qty' => $shortageQty,
+                        'shortage_price_quantity' => $shortagePriceQuantity,
                         'excess_qty' => $excessQty,
+                        'excess_price_quantity' => $excessPriceQuantity,
                         'unit_price' => $unitPrice,
                         'line_subtotal' => $lineSubtotal,
                         'shortage_amount' => $shortageAmount,
@@ -183,13 +197,21 @@ class ShopInvoiceService
                         return;
                     }
 
-                    $shortageAmount = round($shortageQty * (float) $invoiceItem->unit_price, 2);
-                    $excessAmount = round($excessQty * (float) $invoiceItem->unit_price, 2);
+                    $product = $firstOrderItem->product;
+                    $priceUnit = (string) ($invoiceItem->price_unit ?: $product?->unit ?: $invoiceItem->unit);
+                    $deliveredPriceQuantity = $this->priceQuantityFor($product, $deliveredQty, $priceUnit);
+                    $shortagePriceQuantity = $this->priceQuantityFor($product, $shortageQty, $priceUnit);
+                    $excessPriceQuantity = $this->priceQuantityFor($product, $excessQty, $priceUnit);
+                    $shortageAmount = round($shortagePriceQuantity * (float) $invoiceItem->unit_price, 2);
+                    $excessAmount = round($excessPriceQuantity * (float) $invoiceItem->unit_price, 2);
 
                     $invoiceItem->update([
                         'delivered_qty' => $deliveredQty,
+                        'delivered_price_quantity' => $deliveredPriceQuantity,
                         'shortage_qty' => $shortageQty,
+                        'shortage_price_quantity' => $shortagePriceQuantity,
                         'excess_qty' => $excessQty,
+                        'excess_price_quantity' => $excessPriceQuantity,
                         'shortage_amount' => $shortageAmount,
                         'excess_amount' => $excessAmount,
                         'final_line_total' => round((float) $invoiceItem->line_subtotal - $shortageAmount + $excessAmount, 2),
@@ -200,8 +222,8 @@ class ShopInvoiceService
                         $itemDeliveredQty = (float) ($deliveredQtys[$orderItem->id] ?? 0);
                         $itemShortageQty = max(0.00, $itemApprovedQty - $itemDeliveredQty);
                         $itemExcessQty = max(0.00, $itemDeliveredQty - $itemApprovedQty);
-                        $itemShortageAmount = round($itemShortageQty * (float) $invoiceItem->unit_price, 2);
-                        $itemExcessAmount = round($itemExcessQty * (float) $invoiceItem->unit_price, 2);
+                        $itemShortageAmount = round($this->priceQuantityFor($orderItem->product, $itemShortageQty, $priceUnit) * (float) $invoiceItem->unit_price, 2);
+                        $itemExcessAmount = round($this->priceQuantityFor($orderItem->product, $itemExcessQty, $priceUnit) * (float) $invoiceItem->unit_price, 2);
 
                         $orderItem->update([
                             'delivered_qty' => $itemDeliveredQty,
@@ -751,11 +773,21 @@ class ShopInvoiceService
 
                 $price = $this->approvedDailyPriceResolver->resolve($product, $invoice->shop, $invoice->business_date);
                 $unitPrice = round((float) $price['price'], 2);
-                $lineSubtotal = round((float) $invoiceItem->approved_qty * $unitPrice, 2);
-                $shortageAmount = round((float) $invoiceItem->shortage_qty * $unitPrice, 2);
-                $excessAmount = round((float) $invoiceItem->excess_qty * $unitPrice, 2);
+                $priceUnit = (string) $price['price_unit'];
+                $priceQuantity = $this->priceQuantityFor($product, (float) $invoiceItem->approved_qty, $priceUnit);
+                $deliveredPriceQuantity = $this->priceQuantityFor($product, (float) $invoiceItem->delivered_qty, $priceUnit);
+                $shortagePriceQuantity = $this->priceQuantityFor($product, (float) $invoiceItem->shortage_qty, $priceUnit);
+                $excessPriceQuantity = $this->priceQuantityFor($product, (float) $invoiceItem->excess_qty, $priceUnit);
+                $lineSubtotal = round($priceQuantity * $unitPrice, 2);
+                $shortageAmount = round($shortagePriceQuantity * $unitPrice, 2);
+                $excessAmount = round($excessPriceQuantity * $unitPrice, 2);
 
                 $invoiceItem->update([
+                    'price_unit' => $priceUnit,
+                    'price_quantity' => $priceQuantity,
+                    'delivered_price_quantity' => $deliveredPriceQuantity,
+                    'shortage_price_quantity' => $shortagePriceQuantity,
+                    'excess_price_quantity' => $excessPriceQuantity,
                     'unit_price' => $unitPrice,
                     'line_subtotal' => $lineSubtotal,
                     'shortage_amount' => $shortageAmount,
@@ -1011,7 +1043,10 @@ class ShopInvoiceService
         return $invoiceNumber;
     }
 
-    private function unitPriceForOrderItem(ShopOrder $order, ShopOrderItem $orderItem): float
+    /**
+     * @return array{price: float, price_unit: string}
+     */
+    private function dailyPriceForOrderItem(ShopOrder $order, ShopOrderItem $orderItem): array
     {
         /** @var Product|null $product */
         $product = $orderItem->product;
@@ -1030,7 +1065,39 @@ class ShopInvoiceService
 
         $price = $this->approvedDailyPriceResolver->resolve($product, $order->shop, $order->business_date);
 
-        return round((float) $price['price'], 2);
+        return [
+            'price' => round((float) $price['price'], 2),
+            'price_unit' => (string) $price['price_unit'],
+        ];
+    }
+
+    private function priceQuantityFor(?Product $product, float $baseQuantity, string $priceUnit): float
+    {
+        if (! $product) {
+            throw ValidationException::withMessages([
+                'prices' => 'Invoice calculation failed because an invoice item is not linked to a valid product.',
+            ]);
+        }
+
+        $normalizedPriceUnit = ProductUnit::normalizeUnit($priceUnit ?: $product->unit);
+        $normalizedBaseUnit = ProductUnit::normalizeUnit((string) $product->unit);
+
+        if ($normalizedPriceUnit === $normalizedBaseUnit) {
+            return round($baseQuantity, 4);
+        }
+
+        $product->loadMissing('orderUnits');
+        $conversionToBase = $product->orderUnits
+            ->first(fn (ProductUnit $unit): bool => ProductUnit::normalizeUnit($unit->unit) === $normalizedPriceUnit)
+            ?->conversion_to_base;
+
+        if ($conversionToBase === null || (float) $conversionToBase <= 0) {
+            throw ValidationException::withMessages([
+                'prices' => "{$product->name} cannot be invoiced in {$priceUnit}. Add a valid conversion in inventory units.",
+            ]);
+        }
+
+        return round($baseQuantity / (float) $conversionToBase, 4);
     }
 
     /**

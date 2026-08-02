@@ -340,6 +340,7 @@ class PriceBoardService
             ],
             [
                 'purchase_price' => $gradeACost,
+                'price_unit' => $product->unit ?: 'kg',
                 'price_a' => round($gradeACost * (1 + $marginA / 100), 2),
                 'price_b' => round($gradeACost * (1 + $marginB / 100), 2),
                 'price_c' => round($gradeACost * (1 + $marginC / 100), 2),
@@ -379,6 +380,7 @@ class PriceBoardService
                     $products[$productId] = [
                         'product_id' => $productId,
                         'base_price' => (float) $product->base_price,
+                        'unit' => (string) $product->unit,
                         'total_qty' => 0.0,
                         'weighted_sum' => 0.0,
                     ];
@@ -392,7 +394,7 @@ class PriceBoardService
         if ($includeAllProducts) {
             Product::query()
                 ->ordered()
-                ->get(['id', 'base_price'])
+                ->get(['id', 'base_price', 'unit'])
                 ->each(function (Product $product) use (&$products): void {
                     $productId = (int) $product->id;
 
@@ -403,6 +405,7 @@ class PriceBoardService
                     $products[$productId] = [
                         'product_id' => $productId,
                         'base_price' => (float) $product->base_price,
+                        'unit' => (string) $product->unit,
                         'total_qty' => 0.0,
                         'weighted_sum' => 0.0,
                     ];
@@ -461,6 +464,7 @@ class PriceBoardService
 
             $approval->fill([
                 'purchase_price' => $purchasePrice,
+                'price_unit' => $approval->price_unit ?: (string) ($previousApproval?->price_unit ?: ($product['unit'] ?? 'kg')),
                 'price_a' => $samePriceAutoApproved && $previousApproval ? $previousApproval->price_a : ((float) $approval->price_a > 0 ? $approval->price_a : round($purchasePrice * (1 + $marginA / 100), 2)),
                 'price_b' => $samePriceAutoApproved && $previousApproval ? $previousApproval->price_b : ((float) $approval->price_b > 0 ? $approval->price_b : round($purchasePrice * (1 + $marginB / 100), 2)),
                 'price_c' => $samePriceAutoApproved && $previousApproval ? $previousApproval->price_c : ((float) $approval->price_c > 0 ? $approval->price_c : round($purchasePrice * (1 + $marginC / 100), 2)),
@@ -472,7 +476,7 @@ class PriceBoardService
         }
 
         return DailyPriceApproval::query()
-            ->with('product')
+            ->with('product.orderUnits')
             ->whereDate('business_date', $businessDate)
             ->whereIn('product_id', array_map('intval', array_keys($products)))
             ->get()
@@ -514,6 +518,7 @@ class PriceBoardService
         if (! $approval->exists || ! $this->hasValidApprovedSellingPrices($approval)) {
             $approval->fill([
                 'purchase_price' => $purchasePrice,
+                'price_unit' => $approval->price_unit ?: (string) ($previousApproval?->price_unit ?: $product->unit ?: 'kg'),
                 'price_a' => (float) $approval->price_a > 0 ? $approval->price_a : round($purchasePrice * (1 + $marginA / 100), 2),
                 'price_b' => (float) $approval->price_b > 0 ? $approval->price_b : round($purchasePrice * (1 + $marginB / 100), 2),
                 'price_c' => (float) $approval->price_c > 0 ? $approval->price_c : round($purchasePrice * (1 + $marginC / 100), 2),

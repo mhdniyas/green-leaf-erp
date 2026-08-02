@@ -11,6 +11,7 @@ use App\Models\DailyPriceApproval;
 use App\Models\DailyProductPrice;
 use App\Models\DailyProductPriceRevision;
 use App\Models\Product;
+use App\Models\ProductUnit;
 use App\Models\ShopPriceGroup;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
@@ -20,6 +21,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class DailyPriceBoardController extends Controller
@@ -118,7 +120,7 @@ class DailyPriceBoardController extends Controller
 
             DailyPriceApproval::query()
                 ->whereIn('id', array_map('intval', array_keys($validated['prices'])))
-                ->with('product')
+                ->with('product.orderUnits')
                 ->get()
                 ->each(function (DailyPriceApproval $approval) use ($validated, $isAdmin, $userId, $groupA, $groupB, $groupC): void {
                     $row = $validated['prices'][(string) $approval->id] ?? $validated['prices'][$approval->id] ?? null;
@@ -130,8 +132,10 @@ class DailyPriceBoardController extends Controller
                     $priceA = round((float) $row['price_a'], 2);
                     $priceB = round((float) $row['price_b'], 2);
                     $priceC = round((float) $row['price_c'], 2);
+                    $priceUnit = $this->validatedPriceUnitFor($approval, $row['price_unit'] ?? null);
 
                     $approval->update([
+                        'price_unit' => $priceUnit,
                         'price_a' => $priceA,
                         'price_b' => $priceB,
                         'price_c' => $priceC,
@@ -267,6 +271,33 @@ class DailyPriceBoardController extends Controller
             'movement' => $approval->movement_status.'-'.($product?->sku_sort_value ?? '1'),
             default => ($product?->sku_sort_value ?? '1').'-'.strtolower((string) $product?->name),
         };
+    }
+
+    private function validatedPriceUnitFor(DailyPriceApproval $approval, mixed $submittedUnit): string
+    {
+        $product = $approval->product;
+
+        if (! $product) {
+            throw ValidationException::withMessages([
+                'prices' => 'Price unit cannot be saved because the product is missing.',
+            ]);
+        }
+
+        $normalizedSubmittedUnit = ProductUnit::normalizeUnit((string) $submittedUnit);
+        $availableUnits = collect([(string) $product->unit])
+            ->merge($product->orderUnits->pluck('unit'))
+            ->map(fn ($unit): string => ProductUnit::normalizeUnit((string) $unit))
+            ->filter()
+            ->unique()
+            ->values();
+
+        if (! $availableUnits->contains($normalizedSubmittedUnit)) {
+            throw ValidationException::withMessages([
+                'prices' => "{$product->name} cannot be priced in {$submittedUnit}. Add that unit in inventory first.",
+            ]);
+        }
+
+        return $normalizedSubmittedUnit;
     }
 
     /**

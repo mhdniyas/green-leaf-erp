@@ -12,6 +12,29 @@
         $isDeliveryReviewPending = $invoice->delivery_status === 'awaiting_review' || $invoice->order?->delivery_status === 'pending_approval';
         $grossPayableAmount = round(max(0, (float) $invoice->subtotal - (float) $invoice->shortage_total + (float) $invoice->excess_total), 2);
         $maxDiscountAmount = round(max(0, $grossPayableAmount - (float) $invoice->paid_amount), 2);
+        $formatUnit = fn (?string $unit): string => \App\Models\ProductUnit::normalizeUnit($unit) === 'piece'
+            ? 'PCE'
+            : strtoupper(str_replace('_', ' ', \App\Models\ProductUnit::normalizeUnit($unit)));
+        $priceQuantityFor = function ($item, float $baseQuantity): float {
+            $product = $item->product;
+            $priceUnit = \App\Models\ProductUnit::normalizeUnit((string) ($item->price_unit ?: $item->unit));
+
+            if (! $product) {
+                return $baseQuantity;
+            }
+
+            $baseUnit = \App\Models\ProductUnit::normalizeUnit((string) $product->unit);
+
+            if ($priceUnit === $baseUnit) {
+                return round($baseQuantity, 4);
+            }
+
+            $conversionToBase = $product->conversionToBaseForUnit($priceUnit);
+
+            return $conversionToBase && (float) $conversionToBase > 0
+                ? round($baseQuantity / (float) $conversionToBase, 4)
+                : round($baseQuantity, 4);
+        };
     @endphp
     <div class="space-y-6">
         <section class="rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -122,8 +145,8 @@
                                     $reportedShortageQty = (float) ($item->orderItem?->shop_reported_missing_qty ?? $item->shortage_qty);
                                     $reportedExcessQty = (float) ($item->orderItem?->shop_reported_excess_qty ?? $item->excess_qty);
                                     $approvedDeliveredQty = old("approved_delivered_qty.{$item->shop_order_item_id}", number_format($reportedDeliveredQty, 2, '.', ''));
-                                    $reportedShortageAmount = round($reportedShortageQty * (float) $item->unit_price, 2);
-                                    $reportedExcessAmount = round($reportedExcessQty * (float) $item->unit_price, 2);
+                                    $reportedShortageAmount = round($priceQuantityFor($item, $reportedShortageQty) * (float) $item->unit_price, 2);
+                                    $reportedExcessAmount = round($priceQuantityFor($item, $reportedExcessQty) * (float) $item->unit_price, 2);
                                     $billImpact = round($reportedExcessAmount - $reportedShortageAmount, 2);
                                     $defaultInventoryAction = $reportedExcessQty > 0
                                         ? 'deduct_extra'
@@ -134,6 +157,9 @@
                                     <td class="px-4 py-2.5">
                                         <p class="whitespace-nowrap font-black text-slate-950">{{ $item->product_name }}</p>
                                         <p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">{{ strtoupper($item->unit) }}</p>
+                                        @if ($formatUnit($item->price_unit ?: $item->unit) !== $formatUnit($item->unit))
+                                            <p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-cyan-600">Bill {{ $formatUnit($item->price_unit) }}</p>
+                                        @endif
                                         @if ($item->orderItem?->notes)
                                             <p class="mt-1 max-w-[14rem] truncate text-xs text-slate-500">Existing: {{ $item->orderItem->notes }}</p>
                                         @endif
@@ -306,6 +332,7 @@
                         <tr>
                             <th class="px-5 py-4">Product</th>
                             <th class="px-5 py-4 text-right">Approved</th>
+                            <th class="px-5 py-4 text-right">Bill Qty</th>
                             <th class="px-5 py-4 text-right">Delivered</th>
                             <th class="px-5 py-4 text-right">Unit Price</th>
                             <th class="px-5 py-4 text-right">Shortage</th>
@@ -316,10 +343,14 @@
                     <tbody class="divide-y divide-slate-100">
                         @foreach ($invoice->items as $item)
                             <tr>
-                                <td class="px-5 py-4 font-semibold text-slate-950">{{ $item->product_name }}</td>
-                                <td class="px-5 py-4 text-right text-slate-700">{{ number_format((float) $item->approved_qty, 2) }}</td>
-                                <td class="px-5 py-4 text-right text-slate-700">{{ number_format((float) $item->delivered_qty, 2) }}</td>
-                                <td class="px-5 py-4 text-right text-slate-900">Rs. {{ number_format((float) $item->unit_price, 2) }}</td>
+                                <td class="px-5 py-4">
+                                    <p class="font-semibold text-slate-950">{{ $item->product_name }}</p>
+                                    <p class="mt-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Order {{ $formatUnit($item->unit) }}</p>
+                                </td>
+                                <td class="px-5 py-4 text-right text-slate-700">{{ number_format((float) $item->approved_qty, 2) }} {{ $formatUnit($item->unit) }}</td>
+                                <td class="px-5 py-4 text-right font-black text-slate-900">{{ number_format((float) ($item->price_quantity ?: $item->approved_qty), 4) }} {{ $formatUnit($item->price_unit ?: $item->unit) }}</td>
+                                <td class="px-5 py-4 text-right text-slate-700">{{ number_format((float) $item->delivered_qty, 2) }} {{ $formatUnit($item->unit) }}</td>
+                                <td class="px-5 py-4 text-right text-slate-900">Rs. {{ number_format((float) $item->unit_price, 2) }} / {{ $formatUnit($item->price_unit ?: $item->unit) }}</td>
                                 <td class="px-5 py-4 text-right text-amber-600">Rs. {{ number_format((float) $item->shortage_amount, 2) }}</td>
                                 <td class="px-5 py-4 text-right text-cyan-700">Rs. {{ number_format((float) $item->excess_amount, 2) }}</td>
                                 <td class="px-5 py-4 text-right font-black text-slate-950">Rs. {{ number_format((float) $item->final_line_total, 2) }}</td>
@@ -540,8 +571,10 @@
                             @foreach ($invoice->items as $item)
                                 <tr>
                                     <td class="px-4 py-4 font-semibold text-slate-900">{{ $item->product_name }}</td>
-                                    <td class="px-4 py-4 text-right text-slate-700">{{ number_format((float) $item->approved_qty, 2) }}</td>
-                                    <td class="px-4 py-4 text-right font-black text-slate-900">Rs. {{ number_format((float) $item->unit_price, 2) }}</td>
+                                    <td class="px-4 py-4 text-right text-slate-700">
+                                        {{ number_format((float) ($item->price_quantity ?: $item->approved_qty), 4) }} {{ $formatUnit($item->price_unit ?: $item->unit) }}
+                                    </td>
+                                    <td class="px-4 py-4 text-right font-black text-slate-900">Rs. {{ number_format((float) $item->unit_price, 2) }} / {{ $formatUnit($item->price_unit ?: $item->unit) }}</td>
                                     <td class="px-4 py-4 text-right font-black text-slate-900">Rs. {{ number_format((float) $item->line_subtotal, 2) }}</td>
                                     <td class="px-4 py-4 text-right font-black text-amber-700">Rs. {{ number_format((float) $item->shortage_amount, 2) }}</td>
                                     <td class="px-4 py-4 text-right font-black text-cyan-700">Rs. {{ number_format((float) $item->excess_amount, 2) }}</td>

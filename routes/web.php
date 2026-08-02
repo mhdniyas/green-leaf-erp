@@ -128,6 +128,7 @@ Route::middleware('auth')->group(function () {
         Route::post('products/measures/bulk/import-json', [ProductController::class, 'importBulkMeasures'])->name('products.measures.bulk.import-json');
         Route::patch('products/{product}/status', [ProductController::class, 'updateStatus'])->name('products.status.update');
         Route::resource('products', ProductController::class);
+        Route::get('categories/export/pdf', [CategoryController::class, 'exportPdf'])->name('categories.export-pdf');
         Route::get('categories/{category}/products', [CategoryController::class, 'products'])->name('categories.products');
         Route::post('categories/{category}/products', [CategoryController::class, 'updateProducts'])->name('categories.products.update');
         Route::resource('categories', CategoryController::class);

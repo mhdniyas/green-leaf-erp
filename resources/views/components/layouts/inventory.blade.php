@@ -21,7 +21,7 @@
         ];
     }
 
-    if ($currentUser?->can('inventory.category.view')) {
+    if ($currentUser?->can('inventory.category.view') || $currentUser?->can('inventory.product.view') || $currentUser?->hasRole('purchaser') || $currentUser?->hasRole('admin')) {
         $sidebarItems[] = [
             'label' => 'Categories',
             'href' => route('inventory.categories.index'),

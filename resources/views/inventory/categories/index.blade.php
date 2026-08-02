@@ -1,16 +1,27 @@
 <x-layouts.inventory title="Product Categories">
 
     <x-slot:actions>
-        @can('inventory.category.create')
-            <a href="{{ route('inventory.categories.create') }}"
-               id="add-category-btn"
-               class="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-700 transition-colors shadow-sm">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        <div class="flex items-center gap-2">
+            <button type="button"
+                    id="export-pdf-btn"
+                    class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-sm">
+                <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m11.32-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231a1.125 1.125 0 01-1.12-1.227L6.34 18m11.32 0H6.34m0 0h-2.18A1.75 1.75 0 012.41 16.25v-5.5a1.75 1.75 0 011.75-1.75h15.68a1.75 1.75 0 011.75 1.75v5.5a1.75 1.75 0 01-1.75 1.75h-2.18m-11.32 0H6.34" />
                 </svg>
-                Add Category
-            </a>
-        @endcan
+                Export PDF
+            </button>
+
+            @can('inventory.category.create')
+                <a href="{{ route('inventory.categories.create') }}"
+                   id="add-category-btn"
+                   class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors shadow-sm">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                    </svg>
+                    Add Category
+                </a>
+            @endcan
+        </div>
     </x-slot:actions>
 
     {{-- Filters --}}
@@ -20,10 +31,10 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
             </svg>
             <input id="search-input" type="text" name="search" value="{{ request('search') }}" placeholder="Search by name or description…"
-                   class="w-full border border-gray-200 rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500">
+                   class="w-full border border-gray-200 rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500">
         </div>
         <select id="status-filter" name="status"
-                class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
+                class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-white">
             <option value="">All Status</option>
             <option value="active" @selected(request('status') === 'active')>Active</option>
             <option value="inactive" @selected(request('status') === 'inactive')>Inactive</option>
@@ -33,6 +44,30 @@
             <a href="{{ route('inventory.categories.index') }}" class="text-sm text-gray-500 hover:text-gray-700 transition-colors">Clear</a>
         @endif
     </form>
+
+    {{-- Export PDF Form (hidden container for PDF submissions) --}}
+    <form id="pdf-export-form" method="GET" action="{{ route('inventory.categories.export-pdf') }}" target="_blank" class="hidden">
+        <input type="hidden" name="search" value="{{ request('search') }}">
+        <input type="hidden" name="status" value="{{ request('status') }}">
+        <div id="pdf-export-inputs"></div>
+    </form>
+
+    {{-- Selection Banner --}}
+    <div id="selection-bar" class="hidden mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-900 flex items-center justify-between shadow-sm">
+        <div class="flex items-center gap-2">
+            <span id="selected-count-badge" class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-600 text-white text-[11px]">0</span>
+            <span>category(ies) selected</span>
+        </div>
+        <div class="flex items-center gap-3">
+            <button type="button" id="bulk-export-pdf-btn" class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow hover:bg-emerald-700 transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m11.32-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231a1.125 1.125 0 01-1.12-1.227L6.34 18m11.32 0H6.34m0 0h-2.18A1.75 1.75 0 012.41 16.25v-5.5a1.75 1.75 0 011.75-1.75h15.68a1.75 1.75 0 011.75 1.75v5.5a1.75 1.75 0 01-1.75 1.75h-2.18m-11.32 0H6.34" />
+                </svg>
+                Export Selected PDF
+            </button>
+            <button type="button" id="clear-selection-btn" class="text-slate-500 hover:text-slate-700 underline">Clear selection</button>
+        </div>
+    </div>
 
     {{-- Table --}}
     <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -51,7 +86,7 @@
             <p class="text-sm font-medium text-gray-900">No categories found</p>
             <p class="text-xs text-gray-500 mt-1">Add your first category to get started.</p>
             @can('inventory.category.create')
-                <a href="{{ route('inventory.categories.create') }}" class="mt-4 inline-flex items-center gap-1.5 text-sm text-brand-600 font-medium hover:underline">
+                <a href="{{ route('inventory.categories.create') }}" class="mt-4 inline-flex items-center gap-1.5 text-sm text-emerald-600 font-medium hover:underline">
                     + Add Category
                 </a>
             @endcan
@@ -60,7 +95,10 @@
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
                 <thead>
-                    <tr class="border-b border-gray-100">
+                    <tr class="border-b border-gray-100 bg-slate-50/50">
+                        <th class="px-4 py-3 w-10 text-center">
+                            <input type="checkbox" id="select-all-checkbox" class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-4 w-4">
+                        </th>
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Category Name</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
@@ -71,6 +109,9 @@
                 <tbody class="divide-y divide-gray-50">
                     @foreach($categories as $category)
                     <tr class="hover:bg-gray-50/50 transition-colors">
+                        <td class="px-4 py-4 text-center">
+                            <input type="checkbox" name="category_ids[]" value="{{ $category->id }}" class="category-checkbox rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-4 w-4">
+                        </td>
                         <td class="px-6 py-4 font-semibold text-gray-900">
                             {{ $category->name }}
                         </td>
@@ -90,6 +131,14 @@
                         </td>
                         <td class="px-6 py-4 text-right">
                             <div class="flex items-center justify-end gap-2">
+                                <a href="{{ route('inventory.categories.export-pdf', ['category_ids' => [$category->id]]) }}"
+                                   target="_blank"
+                                   class="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                   title="Export Category PDF">
+                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m11.32-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231a1.125 1.125 0 01-1.12-1.227L6.34 18m11.32 0H6.34m0 0h-2.18A1.75 1.75 0 012.41 16.25v-5.5a1.75 1.75 0 011.75-1.75h15.68a1.75 1.75 0 011.75 1.75v5.5a1.75 1.75 0 01-1.75 1.75h-2.18m-11.32 0H6.34" />
+                                    </svg>
+                                </a>
                                 @can('inventory.category.update')
                                     <a href="{{ route('inventory.categories.products', $category) }}"
                                        class="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
@@ -99,7 +148,7 @@
                                         </svg>
                                     </a>
                                     <a href="{{ route('inventory.categories.edit', $category) }}"
-                                       class="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                                       class="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
                                        title="Edit">
                                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
@@ -134,5 +183,89 @@
         @endif
         @endif
     </div>
+
+    @push('scripts')
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const selectAllCheckbox = document.getElementById('select-all-checkbox');
+            const categoryCheckboxes = document.querySelectorAll('.category-checkbox');
+            const selectionBar = document.getElementById('selection-bar');
+            const selectedCountBadge = document.getElementById('selected-count-badge');
+            const exportPdfBtn = document.getElementById('export-pdf-btn');
+            const bulkExportPdfBtn = document.getElementById('bulk-export-pdf-btn');
+            const clearSelectionBtn = document.getElementById('clear-selection-btn');
+            const pdfExportForm = document.getElementById('pdf-export-form');
+            const pdfExportInputs = document.getElementById('pdf-export-inputs');
+
+            function getSelectedCategoryIds() {
+                return Array.from(categoryCheckboxes)
+                    .filter(cb => cb.checked)
+                    .map(cb => cb.value);
+            }
+
+            function updateSelectionUI() {
+                const selectedIds = getSelectedCategoryIds();
+                const count = selectedIds.length;
+
+                if (count > 0) {
+                    selectionBar.classList.remove('hidden');
+                    selectedCountBadge.textContent = count;
+                } else {
+                    selectionBar.classList.add('hidden');
+                }
+
+                if (selectAllCheckbox) {
+                    selectAllCheckbox.checked = categoryCheckboxes.length > 0 && count === categoryCheckboxes.length;
+                    selectAllCheckbox.indeterminate = count > 0 && count < categoryCheckboxes.length;
+                }
+            }
+
+            if (selectAllCheckbox) {
+                selectAllCheckbox.addEventListener('change', function () {
+                    categoryCheckboxes.forEach(cb => cb.checked = selectAllCheckbox.checked);
+                    updateSelectionUI();
+                });
+            }
+
+            categoryCheckboxes.forEach(cb => {
+                cb.addEventListener('change', updateSelectionUI);
+            });
+
+            if (clearSelectionBtn) {
+                clearSelectionBtn.addEventListener('click', function () {
+                    categoryCheckboxes.forEach(cb => cb.checked = false);
+                    if (selectAllCheckbox) {
+                        selectAllCheckbox.checked = false;
+                        selectAllCheckbox.indeterminate = false;
+                    }
+                    updateSelectionUI();
+                });
+            }
+
+            function triggerPdfExport() {
+                const selectedIds = getSelectedCategoryIds();
+                pdfExportInputs.innerHTML = '';
+
+                selectedIds.forEach(id => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = 'category_ids[]';
+                    input.value = id;
+                    pdfExportInputs.appendChild(input);
+                });
+
+                pdfExportForm.submit();
+            }
+
+            if (exportPdfBtn) {
+                exportPdfBtn.addEventListener('click', triggerPdfExport);
+            }
+
+            if (bulkExportPdfBtn) {
+                bulkExportPdfBtn.addEventListener('click', triggerPdfExport);
+            }
+        });
+    </script>
+    @endpush
 
 </x-layouts.inventory>

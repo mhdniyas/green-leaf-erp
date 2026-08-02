@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\ShopInvoices;
 
+use App\Models\ProductUnit;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoiceItem;
 use App\Services\Pricing\ApprovedDailyPriceResolver;
@@ -60,6 +61,20 @@ class ShopInvoiceIntegrityValidator
                     $invoicePrice,
                     $approvedPrice['category_code'],
                     $approvedPrice['price'],
+                ),
+            ]);
+        }
+
+        $invoicePriceUnit = ProductUnit::normalizeUnit((string) ($item->price_unit ?: $item->unit));
+        $approvedPriceUnit = ProductUnit::normalizeUnit((string) $approvedPrice['price_unit']);
+
+        if ($invoicePriceUnit !== $approvedPriceUnit) {
+            throw ValidationException::withMessages([
+                'invoice' => sprintf(
+                    'Invoice unit mismatch for %s. Invoice uses %s but approved daily price uses %s.',
+                    $item->product_name,
+                    strtoupper($invoicePriceUnit),
+                    strtoupper($approvedPriceUnit),
                 ),
             ]);
         }

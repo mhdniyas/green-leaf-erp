@@ -172,6 +172,7 @@ class RolePermissionSeeder extends Seeder
 
             'purchaser' => [
                 'inventory.product.view',
+                'inventory.category.view',
                 'purchasing.supplier.view',
                 'purchasing.order.view',
                 'purchasing.order.create',

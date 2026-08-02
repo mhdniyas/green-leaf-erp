@@ -293,10 +293,44 @@ Potato Local|kg|kg:KG:1:1:1:0;bag:BAG:50:0:1:1
 Baby Potato|bag|bag:BAG:1:1:1:0
 Banana Flower|piece|piece:PIECE:1:1:1:0
 Banana Stem|piece|piece:PIECE:1:1:1:0
-Cherry Tomato Box SP|box|box:BOX:1:1:1:0
-Cherry Tomato Box|box|box:BOX:1:1:1:0
-Mushroom|box|box:BOX:1:1:1:0
-Oyster Mushroom|box|box:BOX:1:1:1:0
+Raw Banana|piece|piece:PIECE:1:1:1:0
+Banana Leaf|piece|piece:PIECE:1:1:1:0
+Yam|piece|piece:PIECE:1:1:1:0
+Cauliflower|piece|piece:PIECE:1:1:1:0
+Disco Pumkin|piece|piece:PIECE:1:1:1:0
+Corriander|bunch|bunch:BUNCH:1:1:1:0
+Corriander Natti|bunch|bunch:BUNCH:1:1:1:0
+Curry Leaf|bunch|bunch:BUNCH:1:1:1:0
+Pudina / Mint Leaf|bunch|bunch:BUNCH:1:1:1:0
+Palak|bunch|bunch:BUNCH:1:1:1:0
+Green Cheera|bunch|bunch:BUNCH:1:1:1:0
+Red Cheera|bunch|bunch:BUNCH:1:1:1:0
+Methi / Menthaya|bunch|bunch:BUNCH:1:1:1:0
+Spring Onion|bunch|bunch:BUNCH:1:1:1:0
+Gongura|bunch|bunch:BUNCH:1:1:1:0
+Basella leaf / Basala|bunch|bunch:BUNCH:1:1:1:0
+Sabbakki / Dil Leaf|bunch|bunch:BUNCH:1:1:1:0
+Chakotha|bunch|bunch:BUNCH:1:1:1:0
+Mustard Leaf|bunch|bunch:BUNCH:1:1:1:0
+Drum Stick Leaf|bunch|bunch:BUNCH:1:1:1:0
+Arai Keerai|bunch|bunch:BUNCH:1:1:1:0
+Siru Keerai|bunch|bunch:BUNCH:1:1:1:0
+Radish Leaf|bunch|bunch:BUNCH:1:1:1:0
+Sweet Corn|piece|piece:PIECE:1:1:1:0
+Peeled Corn|piece|piece:PIECE:1:1:1:0
+Baby Corn|piece|piece:PIECE:1:1:1:0
+Cherry Tomato Box SP|piece|piece:PIECE:1:1:1:0
+Cherry Tomato Box|piece|piece:PIECE:1:1:1:0
+Mushroom|piece|piece:PIECE:1:1:1:0
+Oyster Mushroom|piece|piece:PIECE:1:1:1:0
+Sprouds Green Gram|box|box:BOX:1:1:1:0
+Sprouds chickpeas / chana|box|box:BOX:1:1:1:0
+Sprouds Horse Gram|box|box:BOX:1:1:1:0
+Sprouds Cowpea|box|box:BOX:1:1:1:0
+Banana yelakki Green|full_bunch|full_bunch:FULL BUNCH:1:1:1:0
+Banana Yelakki Color|full_bunch|full_bunch:FULL BUNCH:1:1:1:0
+Banana Nendran|full_bunch|full_bunch:FULL BUNCH:1:1:1:0
+Banana Nendran Color|full_bunch|full_bunch:FULL BUNCH:1:1:1:0
 Coconut|piece|piece:PCS:1:1:1:0
 Gala NZ|kg|kg:KG:1:1:0:0;box:BOX 18 KG:18:0:0:1
 Gala Apple|kg|kg:KG:1:1:1:0;box:BOX:18:0:1:1
@@ -578,8 +612,10 @@ DATA;
     {
         return match (true) {
             $sku === 4 => 'bag',
-            in_array($sku, [126, 128, 129, 191, 200, 201, 207, 210, 212, 222, 237, 243], true) => 'box',
-            in_array($sku, [48, 49, 170, 198, 200, 201, 210, 212, 218, 219, 220, 221, 222, 230, 243, 300, 301, 303, 304, 305, 306, 307, 308, 309, 310, 311], true) => 'piece',
+            in_array($sku, [147, 148, 149, 150, 188, 191, 237], true) => 'box',
+            in_array($sku, [48, 49, 50, 51, 55, 60, 82, 120, 121, 122, 125, 126, 128, 129, 170, 198, 200, 201, 210, 212, 218, 219, 220, 222, 230, 243, 300, 301, 303, 304, 308, 309, 310, 311], true) => 'piece',
+            in_array($sku, [101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118], true) => 'bunch',
+            in_array($sku, [162, 163, 164, 165], true) => 'full_bunch',
             in_array($sku, [302, 312], true) => 'roll',
             default => 'kg',
         };
@@ -588,14 +624,167 @@ DATA;
     private function resolveBasePrice(string $sku, string $unit): float
     {
         $skuOverrides = [
-            '1' => 36.00,
-            '2' => 38.00,
-            '5' => 34.00,
-            '7' => 42.00,
-            '126' => 220.00,
-            '187' => 185.00,
-            '221' => 65.00,
-            '302' => 48.00,
+            '1' => 22.00,
+            '2' => 20.00,
+            '3' => 35.00,
+            '4' => 35.00,
+            '5' => 25.00,
+            '6' => 30.00,
+            '7' => 35.00,
+            '8' => 80.00,
+            '9' => 90.00,
+            '10' => 220.00,
+            '11' => 290.00,
+            '12' => 105.00,
+            '13' => 100.00,
+            '14' => 70.00,
+            '15' => 65.00,
+            '16' => 110.00,
+            '17' => 65.00,
+            '18' => 70.00,
+            '19' => 80.00,
+            '20' => 80.00,
+            '21' => 150.00,
+            '22' => 70.00,
+            '23' => 70.00,
+            '24' => 85.00,
+            '25' => 80.00,
+            '26' => 129.00,
+            '27' => 80.00,
+            '28' => 85.00,
+            '29' => 60.00,
+            '30' => 90.00,
+            '31' => 60.00,
+            '32' => 90.00,
+            '33' => 60.00,
+            '34' => 100.00,
+            '35' => 60.00,
+            '36' => 40.00,
+            '37' => 45.00,
+            '38' => 130.00,
+            '39' => 50.00,
+            '40' => 70.00,
+            '41' => 85.00,
+            '42' => 60.00,
+            '43' => 60.00,
+            '44' => 60.00,
+            '45' => 40.00,
+            '46' => 80.00,
+            '47' => 70.00,
+            '48' => 25.00,
+            '49' => 10.00,
+            '50' => 10.00,
+            '51' => 6.00,
+            '52' => 25.00,
+            '53' => 43.00,
+            '54' => 55.00,
+            '55' => 40.00,
+            '56' => 90.00,
+            '57' => 85.00,
+            '58' => 60.00,
+            '59' => 100.00,
+            '60' => 43.00,
+            '61' => 30.00,
+            '62' => 50.00,
+            '63' => 110.00,
+            '64' => 120.00,
+            '65' => 80.00,
+            '66' => 0.00,
+            '67' => 200.00,
+            '68' => 80.00,
+            '69' => 170.00,
+            '70' => 0.00,
+            '71' => 46.00,
+            '72' => 80.00,
+            '73' => 65.00,
+            '74' => 40.00,
+            '75' => 210.00,
+            '76' => 100.00,
+            '77' => 85.00,
+            '78' => 70.00,
+            '79' => 40.00,
+            '80' => 175.00,
+            '81' => 90.00,
+            '82' => 45.00,
+            '83' => 26.00,
+            '84' => 26.00,
+            '85' => 29.00,
+            '86' => 170.00,
+            '87' => 100.00,
+            '88' => 170.00,
+            '89' => 130.00,
+            '90' => 320.00,
+            '91' => 165.00,
+            '92' => 20.00,
+            '93' => 200.00,
+            '94' => 0.00,
+            '95' => 0.00,
+            '96' => 110.00,
+            '97' => 130.00,
+            '101' => 13.00,
+            '102' => 25.00,
+            '103' => 50.00,
+            '104' => 13.00,
+            '105' => 13.00,
+            '106' => 13.00,
+            '107' => 19.00,
+            '108' => 15.00,
+            '109' => 18.00,
+            '110' => 19.00,
+            '111' => 19.00,
+            '112' => 15.00,
+            '113' => 15.00,
+            '114' => 19.00,
+            '116' => 13.00,
+            '117' => 13.00,
+            '120' => 22.00,
+            '121' => 23.00,
+            '122' => 28.00,
+            '123' => 53.00,
+            '124' => 15.00,
+            '125' => 65.00,
+            '126' => 35.00,
+            '127' => 190.00,
+            '128' => 47.00,
+            '129' => 60.00,
+            '130' => 120.00,
+            '131' => 120.00,
+            '132' => 140.00,
+            '133' => 120.00,
+            '134' => 120.00,
+            '135' => 160.00,
+            '136' => 160.00,
+            '137' => 120.00,
+            '138' => 120.00,
+            '139' => 150.00,
+            '140' => 150.00,
+            '141' => 160.00,
+            '142' => 140.00,
+            '143' => 160.00,
+            '144' => 140.00,
+            '145' => 160.00,
+            '146' => 25.00,
+            '147' => 25.00,
+            '148' => 25.00,
+            '149' => 25.00,
+            '150' => 25.00,
+            '151' => 88.00,
+            '152' => 88.00,
+            '153' => 140.00,
+            '154' => 90.00,
+            '155' => 120.00,
+            '156' => 110.00,
+            '161' => 0.00,
+            '162' => 92.00,
+            '163' => 92.00,
+            '164' => 74.00,
+            '165' => 74.00,
+            '166' => 37.00,
+            '167' => 77.00,
+            '168' => 0.00,
+            '169' => 0.00,
+            '170' => 38.00,
+            '181' => 0.00,
         ];
 
         if (array_key_exists($sku, $skuOverrides)) {
