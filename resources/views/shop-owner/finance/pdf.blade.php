@@ -93,40 +93,16 @@
             </div>
 
             @if ($notAvailableItems->isNotEmpty())
-                <div class="mt-6 overflow-hidden rounded-[1.5rem] border border-rose-200 bg-rose-50/40 p-4">
-                    <div class="mb-3 flex items-center justify-between">
-                        <h3 class="text-xs font-black uppercase tracking-[0.16em] text-rose-800 flex items-center gap-1.5">
-                            <svg class="h-4 w-4 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008v.008H12v-.008ZM10.34 4.94 2.94 17.76A1.5 1.5 0 0 0 4.24 20h15.52a1.5 1.5 0 0 0 1.3-2.24L13.66 4.94a1.5 1.5 0 0 0-2.6 0Z" />
-                            </svg>
-                            Not Available / Out of Stock Items (Info Only — Rs. 0.00 Billed)
-                        </h3>
-                        <span class="rounded-full bg-rose-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-rose-700">
-                            {{ $notAvailableItems->count() }} Item(s)
-                        </span>
-                    </div>
-                    <table class="min-w-full border-collapse text-left text-xs">
-                        <thead class="bg-rose-100/60 text-[10px] font-black uppercase tracking-[0.16em] text-rose-800">
-                            <tr>
-                                <th class="px-3 py-2">Product</th>
-                                <th class="px-3 py-2 text-right">Ordered Qty</th>
-                                <th class="px-3 py-2 text-right">Delivered Qty</th>
-                                <th class="px-3 py-2 text-right">Status</th>
-                                <th class="px-3 py-2 text-right">Billed Amount</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-rose-100/80 bg-white">
-                            @foreach ($notAvailableItems as $item)
-                                <tr>
-                                    <td class="px-3 py-2 font-bold text-slate-900">{{ $item->product_name }}</td>
-                                    <td class="px-3 py-2 text-right font-medium text-slate-600">{{ number_format((float) $item->approved_qty, 2) }} {{ $item->unit }}</td>
-                                    <td class="px-3 py-2 text-right font-bold text-rose-600">0.00 {{ $item->unit }}</td>
-                                    <td class="px-3 py-2 text-right font-black uppercase tracking-wider text-rose-700">Out of Stock</td>
-                                    <td class="px-3 py-2 text-right font-black text-slate-900">Rs. 0.00</td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
+                <div class="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-rose-200 bg-rose-50/60 px-4 py-3 text-xs text-rose-950">
+                    <span class="font-black uppercase tracking-wider text-rose-700 flex items-center gap-1.5 shrink-0">
+                        <svg class="h-4 w-4 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008v.008H12v-.008ZM10.34 4.94 2.94 17.76A1.5 1.5 0 0 0 4.24 20h15.52a1.5 1.5 0 0 0 1.3-2.24L13.66 4.94a1.5 1.5 0 0 0-2.6 0Z" />
+                        </svg>
+                        Out of Stock Items (Rs. 0.00 Billed):
+                    </span>
+                    <span class="font-medium text-slate-800">
+                        {{ $notAvailableItems->map(fn($i) => $i->product_name . ' (' . number_format((float) $i->approved_qty, 2) . ' ' . $i->unit . ')')->join(', ') }}
+                    </span>
                 </div>
             @endif
 

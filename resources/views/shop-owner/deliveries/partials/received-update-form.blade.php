@@ -135,31 +135,16 @@
             </div>
 
             @if ($notAvailableItems->isNotEmpty())
-                <div class="my-3 overflow-hidden rounded-xl border border-rose-200 bg-rose-50/50 p-2.5 sm:p-3">
-                    <div class="mb-2 flex items-center justify-between">
-                        <p class="text-[10px] font-black uppercase tracking-wider text-rose-800 sm:text-xs">
-                            Not Available / Out of Stock Items (Info Only — Rs. 0.00 Billed)
-                        </p>
-                        <span class="rounded-full bg-rose-100 px-2 py-0.5 text-[9px] font-black text-rose-700">
-                            {{ $notAvailableItems->count() }} item(s)
-                        </span>
-                    </div>
-                    <div class="space-y-1.5 text-[9px] sm:text-[11px]">
-                        @foreach ($notAvailableItems as $item)
-                            <div class="flex items-center justify-between border-b border-rose-100/80 pb-1 text-slate-800 last:border-none last:pb-0">
-                                <div>
-                                    <span class="font-black text-slate-900">{{ $item->product->name }}</span>
-                                    <span class="text-[8px] text-slate-500">({{ $item->product->sku }})</span>
-                                </div>
-                                <div class="text-right">
-                                    <span class="font-black uppercase tracking-wider text-rose-700">Out of Stock</span>
-                                    @if($item->loadout_discrepancy_note)
-                                        <span class="block text-[8px] italic text-slate-500">{{ $item->loadout_discrepancy_note }}</span>
-                                    @endif
-                                </div>
-                            </div>
-                        @endforeach
-                    </div>
+                <div class="my-2.5 flex flex-wrap items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50/50 px-2.5 py-2 text-[9px] font-bold text-slate-700 sm:text-[10px]">
+                    <span class="inline-flex items-center gap-1 font-black text-rose-700 uppercase tracking-wider shrink-0">
+                        <svg class="h-3 w-3 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008v.008H12v-.008ZM10.34 4.94 2.94 17.76A1.5 1.5 0 0 0 4.24 20h15.52a1.5 1.5 0 0 0 1.3-2.24L13.66 4.94a1.5 1.5 0 0 0-2.6 0Z" />
+                        </svg>
+                        Out of Stock (Rs. 0.00 Billed):
+                    </span>
+                    <span class="text-slate-800">
+                        {{ $notAvailableItems->map(fn($i) => $i->product->name . ' (' . number_format((float)($i->loaded_qty ?? $i->approved_qty ?? 0), 2) . ' ' . $i->unit . ')')->join(', ') }}
+                    </span>
                 </div>
             @endif
 
