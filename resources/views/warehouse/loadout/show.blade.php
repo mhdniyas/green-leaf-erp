@@ -87,6 +87,8 @@
                             Partial Delivery
                         </button>
                     </form>
+                @endif
+
                 @if($canMoveToLoadout)
                     <form action="{{ route('warehouse.loadout.move-to-loadout', $shopOrder) }}"
                           method="POST"
