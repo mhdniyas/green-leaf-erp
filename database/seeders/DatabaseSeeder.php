@@ -16,7 +16,6 @@ class DatabaseSeeder extends Seeder
             CompanyAccountingCategorySeeder::class,
             EmployeeCategorySeeder::class,
             CategorySeeder::class,
-            ProductSeeder::class,
             WarehouseSeeder::class,
             ClientSeeder::class,
             EssentialUserSeeder::class,

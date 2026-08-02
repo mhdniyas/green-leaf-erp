@@ -94,6 +94,9 @@
 
                                 $deliveredBaseQty = (float) ($item->actual_weight ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
                                 $unitRate = (float) ($invoiceItem?->unit_price ?? $priceRow['unit_price'] ?? 0);
+                                $priceUnit = (string) ($invoiceItem?->price_unit ?? $priceRow['price_unit'] ?? $item->unit ?? 'KG');
+                                $isPriceInSecondaryUnit = $hasSec && \App\Models\ProductUnit::normalizeUnit($priceUnit) !== \App\Models\ProductUnit::normalizeUnit((string) $item->unit);
+
                                 $lineTotal = (float) ($invoiceItem?->final_line_total ?? $invoiceItem?->line_subtotal ?? round($deliveredBaseQty * $unitRate, 2));
 
                                 $loadedUnitQty = (float) ($item->loaded_order_unit_qty ?? 0);
@@ -101,9 +104,15 @@
                                     $loadedUnitQty = round($deliveredBaseQty / (float)$item->requested_unit_conversion_to_base, 2);
                                 }
 
-                                $approvedQty = $deliveredBaseQty;
-                                $displayUnitLabel = strtoupper($item->unit ?? 'KG');
-                                $refSubtitle = $hasSec && $loadedUnitQty > 0 ? "Ordered: {$loadedUnitQty} {$secUnitLabel}" : null;
+                                if ($isPriceInSecondaryUnit && (float) ($item->requested_unit_conversion_to_base ?? 0) > 0) {
+                                    $approvedQty = round($deliveredBaseQty / (float) $item->requested_unit_conversion_to_base, 2);
+                                    $displayUnitLabel = $secUnitLabel;
+                                    $refSubtitle = "Base: {$deliveredBaseQty} KG";
+                                } else {
+                                    $approvedQty = $deliveredBaseQty;
+                                    $displayUnitLabel = strtoupper($item->unit ?? 'KG');
+                                    $refSubtitle = $hasSec && $loadedUnitQty > 0 ? "Ordered: {$loadedUnitQty} {$secUnitLabel}" : null;
+                                }
 
                                 $isItemVerified = $item->shop_verified_at !== null;
                             @endphp
