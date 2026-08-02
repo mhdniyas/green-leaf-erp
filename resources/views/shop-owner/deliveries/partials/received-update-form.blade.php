@@ -11,7 +11,9 @@
     $priceRowsByProductId = collect($deliveryPriceReadiness['published'] ?? [])
         ->merge($deliveryPriceReadiness['unpublished'] ?? [])
         ->keyBy('product_id');
-    $verifiableItems = $sortedItems->filter(fn ($item) => (float) ($item->approved_qty ?? 0) > 0);
+    $availableItems = $sortedItems->filter(fn ($item) => $item->sorting_status !== 'not_available' && (float) ($item->loaded_qty ?? $item->approved_qty ?? 0) > 0);
+    $notAvailableItems = $sortedItems->filter(fn ($item) => $item->sorting_status === 'not_available' || ((float) ($item->loaded_qty ?? 0) == 0 && $item->sorting_status === 'not_available'));
+    $verifiableItems = $availableItems->filter(fn ($item) => (float) ($item->approved_qty ?? 0) > 0);
     $verifiedCount = $verifiableItems->whereNotNull('shop_verified_at')->count();
     $totalVerifiableCount = $verifiableItems->count();
     $progressLabel = $totalVerifiableCount > 0
@@ -68,7 +70,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach ($sortedItems as $item)
+                        @forelse ($availableItems as $item)
                             @php
                                 $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
                                 $priceRow = $priceRowsByProductId->get($item->product_id);
@@ -123,10 +125,43 @@
                                     </div>
                                 </td>
                             </tr>
-                        @endforeach
+                        @empty
+                            <tr>
+                                <td colspan="6" class="py-4 text-center text-xs font-bold text-slate-500">No delivered products to verify.</td>
+                            </tr>
+                        @endforelse
                     </tbody>
                 </table>
             </div>
+
+            @if ($notAvailableItems->isNotEmpty())
+                <div class="my-3 overflow-hidden rounded-xl border border-rose-200 bg-rose-50/50 p-2.5 sm:p-3">
+                    <div class="mb-2 flex items-center justify-between">
+                        <p class="text-[10px] font-black uppercase tracking-wider text-rose-800 sm:text-xs">
+                            Not Available / Out of Stock Items (Info Only — Rs. 0.00 Billed)
+                        </p>
+                        <span class="rounded-full bg-rose-100 px-2 py-0.5 text-[9px] font-black text-rose-700">
+                            {{ $notAvailableItems->count() }} item(s)
+                        </span>
+                    </div>
+                    <div class="space-y-1.5 text-[9px] sm:text-[11px]">
+                        @foreach ($notAvailableItems as $item)
+                            <div class="flex items-center justify-between border-b border-rose-100/80 pb-1 text-slate-800 last:border-none last:pb-0">
+                                <div>
+                                    <span class="font-black text-slate-900">{{ $item->product->name }}</span>
+                                    <span class="text-[8px] text-slate-500">({{ $item->product->sku }})</span>
+                                </div>
+                                <div class="text-right">
+                                    <span class="font-black uppercase tracking-wider text-rose-700">Out of Stock</span>
+                                    @if($item->loadout_discrepancy_note)
+                                        <span class="block text-[8px] italic text-slate-500">{{ $item->loadout_discrepancy_note }}</span>
+                                    @endif
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
 
             <div class="ml-auto w-full max-w-full border-b border-dashed border-slate-400 py-2 text-[10px] font-bold text-slate-800 sm:max-w-[20rem] sm:py-3 sm:text-[11px]">
                 <div class="flex items-center justify-between">
