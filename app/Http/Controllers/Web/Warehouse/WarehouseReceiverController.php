@@ -31,6 +31,8 @@ use Illuminate\View\View;
 
 class WarehouseReceiverController extends Controller
 {
+    private const BULK_RECEIVE_GRN_LIMIT = 5;
+
     public function __construct(private readonly StockLedgerService $stockLedgerService) {}
 
     /**
@@ -456,7 +458,7 @@ class WarehouseReceiverController extends Controller
     }
 
     /**
-     * Receive every pending vendor sheet for the selected date using current GRN quantities.
+     * Receive the next pending vendor sheet batch for the selected date using current GRN quantities.
      */
     public function processReceiveAllGrns(Request $request): RedirectResponse
     {
@@ -479,6 +481,7 @@ class WarehouseReceiverController extends Controller
             ->whereDate('received_at', $date)
             ->with(['items.product', 'items.purchaseOrderItem'])
             ->orderBy('created_at')
+            ->limit(self::BULK_RECEIVE_GRN_LIMIT)
             ->get();
 
         if ($pendingGrns->isEmpty()) {
@@ -502,23 +505,26 @@ class WarehouseReceiverController extends Controller
         if ($zeroPricedItems !== []) {
             return redirect()
                 ->back()
-                ->with('warning', 'Price is zero on: '.implode('; ', $zeroPricedItems).'. Update purchaser bill prices before receiving all vendor sheets.');
+                ->with('warning', 'Price is zero on: '.implode('; ', $zeroPricedItems).'. Update purchaser bill prices before receiving this vendor sheet batch.');
         }
 
-        DB::transaction(function () use ($pendingGrns, $receivePayloads, $fallbackWarehouseId, $userId): void {
-            foreach ($pendingGrns as $pendingGrn) {
-                $this->receiveGrnIntoWarehouse(
-                    $pendingGrn,
-                    $receivePayloads[(int) $pendingGrn->id],
-                    (int) $fallbackWarehouseId,
-                    $userId
-                );
-            }
-        });
+        foreach ($pendingGrns as $pendingGrn) {
+            $this->receiveGrnIntoWarehouse(
+                $pendingGrn,
+                $receivePayloads[(int) $pendingGrn->id],
+                (int) $fallbackWarehouseId,
+                $userId
+            );
+        }
+
+        $remainingCount = GoodsReceived::query()
+            ->where('status', 'pending_approval')
+            ->whereDate('received_at', $date)
+            ->count();
 
         return redirect()
             ->route('warehouse.receiver.checklist', ['date' => $date])
-            ->with('success', "All {$pendingGrns->count()} vendor sheet(s) received and moved to inventory.");
+            ->with('success', "{$pendingGrns->count()} vendor sheet(s) received and moved to inventory. {$remainingCount} still pending.");
     }
 
     /**

@@ -95,17 +95,18 @@
                         <div class="space-y-3">
                             <div class="flex flex-col gap-3 pl-1 sm:flex-row sm:items-center sm:justify-between">
                                 <h3 class="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Pending Vendor Sheets</h3>
+                                @php($bulkReceiveCount = min($pendingGrns->count(), 5))
                                 <form action="{{ route('warehouse.receiver.process-receive-grns.all') }}" method="POST" class="warehouse-confirm-form w-full sm:w-auto"
-                                      data-confirm-title="Receive all vendor sheets"
-                                      data-confirm-message="Receive all {{ $pendingGrns->count() }} pending vendor sheet(s) for {{ $date }} using current received quantities and default warehouses?"
-                                      data-confirm-button="Receive all">
+                                      data-confirm-title="Receive next vendor sheet batch"
+                                      data-confirm-message="Receive the next {{ $bulkReceiveCount }} pending vendor sheet(s) for {{ $date }} using current received quantities and default warehouses?"
+                                      data-confirm-button="Receive next batch">
                                     @csrf
                                     <input type="hidden" name="date" value="{{ $date }}">
                                     <button type="submit" class="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white shadow-sm transition-colors hover:bg-emerald-700 sm:w-auto">
                                         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                                         </svg>
-                                        Receive All {{ $pendingGrns->count() }}
+                                        Receive Next {{ $bulkReceiveCount }}
                                     </button>
                                 </form>
                             </div>

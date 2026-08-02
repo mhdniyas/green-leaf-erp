@@ -477,6 +477,7 @@ class JournalService
             $unitPrice = $item->purchaseOrderItem ? (float) $item->purchaseOrderItem->unit_price : 0.00;
             $materialCost += (float) $item->received_qty * $unitPrice;
         }
+        $materialCost = round($materialCost, 2);
 
         $lines = [
             ['account_id' => $inventoryAccountId, 'type' => 'debit', 'amount' => $materialCost],
