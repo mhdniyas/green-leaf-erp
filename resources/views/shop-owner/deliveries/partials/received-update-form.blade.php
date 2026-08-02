@@ -22,17 +22,16 @@
     $verifiedCount = $verifiableItems->whereNotNull('shop_verified_at')->count();
     $totalVerifiableCount = $verifiableItems->count();
 
-    $computedInvoiceTotal = $fulfilledItems->sum(function($item) use ($invoiceItemsByProductId, $priceRowsByProductId) {
-        $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
-        $priceRow = $priceRowsByProductId->get($item->product_id);
-        $hasSec = $item->requested_unit_quantity && strtolower($item->requested_unit ?? '') !== 'kg';
-        $isActualWeightBilling = (float) ($item->actual_weight ?? 0) > 0.0001;
-        $qtyVal = $hasSec && ! $isActualWeightBilling
-            ? (float) ($item->loaded_order_unit_qty ?? $item->requested_unit_quantity ?? 0)
-            : (float) ($item->actual_weight ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
-        $unitRate = (float) ($invoiceItem?->unit_price ?? $priceRow['unit_price'] ?? 0);
-        return round($qtyVal * $unitRate, 2);
-    });
+    $computedInvoiceTotal = (float) ($invoice?->final_total ?? 0);
+    if ($computedInvoiceTotal <= 0) {
+        $computedInvoiceTotal = $fulfilledItems->sum(function($item) use ($invoiceItemsByProductId, $priceRowsByProductId) {
+            $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
+            $priceRow = $priceRowsByProductId->get($item->product_id);
+            $deliveredBaseQty = (float) ($item->actual_weight ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
+            $unitRate = (float) ($invoiceItem?->unit_price ?? $priceRow['unit_price'] ?? 0);
+            return round($deliveredBaseQty * $unitRate, 2);
+        });
+    }
 
     $bottomTitle = match (true) {
         $isPendingApproval => 'Submitted For Admin Review',
@@ -89,26 +88,23 @@
                                 $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
                                 $priceRow = $priceRowsByProductId->get($item->product_id);
                                 $hasSec = $item->requested_unit_quantity && strtolower($item->requested_unit ?? '') !== 'kg';
-                                $unitLabel = $hasSec
+                                $secUnitLabel = $hasSec
                                     ? strtoupper($item->requested_unit_label ?: $item->requested_unit)
                                     : strtoupper($item->unit);
 
-                                $loadedUnitQty = (float) ($item->loaded_order_unit_qty ?? $item->requested_unit_quantity ?? 0);
-                                $loadedKgQty = (float) ($item->actual_weight ?? $item->loaded_qty ?? 0);
-                                $isBilledInKg = $hasSec && (float) ($item->actual_weight ?? 0) > 0.0001;
+                                $deliveredBaseQty = (float) ($item->actual_weight ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
+                                $unitRate = (float) ($invoiceItem?->unit_price ?? $priceRow['unit_price'] ?? 0);
+                                $lineTotal = (float) ($invoiceItem?->final_line_total ?? $invoiceItem?->line_subtotal ?? round($deliveredBaseQty * $unitRate, 2));
 
-                                if ($isBilledInKg) {
-                                    $approvedQty = $loadedKgQty;
-                                    $displayUnitLabel = 'KG';
-                                    $refSubtitle = "Loaded: {$loadedUnitQty} {$unitLabel}";
-                                } else {
-                                    $approvedQty = $hasSec ? $loadedUnitQty : ($item->loaded_qty ?? $item->approved_qty ?? $invoiceItem?->approved_qty ?? 0);
-                                    $displayUnitLabel = $unitLabel;
-                                    $refSubtitle = null;
+                                $loadedUnitQty = (float) ($item->loaded_order_unit_qty ?? 0);
+                                if ($loadedUnitQty <= 0 && $hasSec && (float)($item->requested_unit_conversion_to_base ?? 0) > 0) {
+                                    $loadedUnitQty = round($deliveredBaseQty / (float)$item->requested_unit_conversion_to_base, 2);
                                 }
 
-                                $unitRate = (float) ($invoiceItem?->unit_price ?? $priceRow['unit_price'] ?? 0);
-                                $lineTotal = round($approvedQty * $unitRate, 2);
+                                $approvedQty = $deliveredBaseQty;
+                                $displayUnitLabel = strtoupper($item->unit ?? 'KG');
+                                $refSubtitle = $hasSec && $loadedUnitQty > 0 ? "Ordered: {$loadedUnitQty} {$secUnitLabel}" : null;
+
                                 $isItemVerified = $item->shop_verified_at !== null;
                             @endphp
                             <tr

@@ -1411,13 +1411,14 @@ class ShopOwnerController extends Controller
 
     private function ensureDeliveryInvoiceExists(ShopOrder $order, int $userId): void
     {
-        if ($order->invoice || $order->delivery_status !== 'in_transit' || ! $order->is_allocation_completed) {
+        if (! $order->is_allocation_completed && ! in_array($order->delivery_status, ['in_transit', 'ready_for_dispatch', 'delivered'], true)) {
             return;
         }
 
         try {
             $this->shopInvoiceService->synchronizeOrderInvoice($order, $userId);
             $order->unsetRelation('invoice');
+            $order->load(['invoice.items.product', 'invoice.paymentRequests']);
         } catch (ValidationException) {
             return;
         }
