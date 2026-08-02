@@ -217,6 +217,48 @@ class DailyPriceBoardController extends Controller
                 : 'Same-price products will wait for admin approval.');
     }
 
+    public function recalculatePrices(Request $request): RedirectResponse
+    {
+        $this->authorizeBoardAccess();
+
+        $purchaseDate = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
+        $search = $request->input('search');
+        $movement = $request->input('movement', 'all');
+        $sort = $request->input('sort', 'code');
+
+        $priceGroups = $this->priceBoardService->ensureDefaultPriceGroups()->whereIn('name', ['A', 'B', 'C'])->keyBy('name');
+        $marginA = (float) ($priceGroups->get('A')?->default_margin_percent ?? 10);
+        $marginB = (float) ($priceGroups->get('B')?->default_margin_percent ?? 12);
+        $marginC = (float) ($priceGroups->get('C')?->default_margin_percent ?? 15);
+
+        $approvals = $this->priceBoardService->ensurePendingApprovalsForPurchaseDate($purchaseDate, includeAllProducts: true);
+
+        $recalculatedCount = 0;
+
+        DB::transaction(function () use ($approvals, $marginA, $marginB, $marginC, &$recalculatedCount): void {
+            foreach ($approvals as $approval) {
+                $purchasePrice = (float) $approval->purchase_price;
+
+                $approval->update([
+                    'price_a' => round($purchasePrice * (1 + $marginA / 100), 2),
+                    'price_b' => round($purchasePrice * (1 + $marginB / 100), 2),
+                    'price_c' => round($purchasePrice * (1 + $marginC / 100), 2),
+                ]);
+
+                $recalculatedCount++;
+            }
+        });
+
+        return redirect()
+            ->route('purchasing.prices.index', array_filter([
+                'date' => $purchaseDate,
+                'search' => $search,
+                'movement' => $movement,
+                'sort' => $sort,
+            ]))
+            ->with('success', "Refreshed prices for {$recalculatedCount} product(s) using current Price Group margin rules (Group A: {$marginA}%, Group B: {$marginB}%, Group C: {$marginC}%).");
+    }
+
     public function storeProduct(Request $request): RedirectResponse
     {
         $this->authorizeBoardAccess();

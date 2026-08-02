@@ -179,6 +179,7 @@ Route::middleware('auth')->group(function () {
         Route::post('prices', [DailyPriceBoardController::class, 'update'])->name('prices.update');
         Route::post('prices/products', [DailyPriceBoardController::class, 'storeProduct'])->name('prices.products.store');
         Route::post('prices/settings', [DailyPriceBoardController::class, 'updateSettings'])->name('prices.settings.update');
+        Route::post('prices/refresh', [DailyPriceBoardController::class, 'recalculatePrices'])->name('prices.refresh');
         Route::post('price-groups/assign-shops', [ShopPriceGroupController::class, 'assignShops'])->name('price-groups.assign-shops');
         Route::resource('price-groups', ShopPriceGroupController::class)->only(['index', 'store', 'update', 'destroy']);
         Route::get('shop-invoices', [ShopInvoiceController::class, 'index'])->name('shop-invoices.index');

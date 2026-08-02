@@ -72,15 +72,30 @@
                         @endforeach
                     </div>
                 </div>
-                <button type="submit" name="movement" value="{{ $movement }}" class="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-black text-white">
-                    Search
-                </button>
-                <button type="button" onclick="openPriceBoardSettingsModal()" class="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700">
-                    Settings
-                    @if ($autoApproveSamePurchasePrice)
-                        <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-700">Auto</span>
-                    @endif
-                </button>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button type="submit" name="movement" value="{{ $movement }}" class="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-black text-white hover:bg-slate-800">
+                        Search
+                    </button>
+                    <button type="button" onclick="openPriceBoardSettingsModal()" class="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50">
+                        Settings
+                        @if ($autoApproveSamePurchasePrice)
+                            <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-700">Auto</span>
+                        @endif
+                    </button>
+                    <button type="submit" form="refresh-prices-form" class="inline-flex items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-5 py-3 text-sm font-black text-white hover:bg-indigo-500 shadow-sm transition-all border-none cursor-pointer">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                        </svg>
+                        Refresh Prices
+                    </button>
+                </div>
+            </form>
+            <form id="refresh-prices-form" method="POST" action="{{ route('purchasing.prices.refresh') }}" class="hidden">
+                @csrf
+                <input type="hidden" name="date" value="{{ $purchaseDate }}">
+                <input type="hidden" name="search" value="{{ $search }}">
+                <input type="hidden" name="movement" value="{{ $movement }}">
+                <input type="hidden" name="sort" value="{{ $sort }}">
             </form>
             <p class="mt-3 text-sm text-slate-500">
                 Purchase date {{ \Illuminate\Support\Carbon::parse($purchaseDate)->format('d M Y') }} publishes selling proposals for
