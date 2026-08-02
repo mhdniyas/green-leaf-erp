@@ -9,8 +9,8 @@
     $priceRowsByProductId = collect($deliveryPriceReadiness['published'] ?? [])
         ->merge($deliveryPriceReadiness['unpublished'] ?? [])
         ->keyBy('product_id');
-    $availableItems = $sortedItems
-        ->filter(fn ($item) => $item->sorting_status !== 'not_available')
+    $fulfilledItems = $sortedItems
+        ->filter(fn ($item) => $item->sorting_status === 'loaded' && (float) ($item->loaded_qty ?? 0) > 0)
         ->groupBy('product_id')
         ->map(function ($group) {
             $loadedRow = $group->first(fn ($i) => $i->sorting_status === 'loaded' || (float) ($i->loaded_qty ?? 0) > 0);
@@ -18,13 +18,13 @@
         })
         ->values();
     $notAvailableItems = $sortedItems->filter(fn ($item) => $item->sorting_status === 'not_available');
-    $verifiableItems = $availableItems;
+    $verifiableItems = $fulfilledItems;
     $verifiedCount = $verifiableItems->whereNotNull('shop_verified_at')->count();
     $totalVerifiableCount = $verifiableItems->count();
 
     $computedInvoiceTotal = (float) ($invoice?->final_total ?? 0);
     if ($computedInvoiceTotal <= 0) {
-        $computedInvoiceTotal = $availableItems->sum(function($item) use ($invoiceItemsByProductId, $priceRowsByProductId) {
+        $computedInvoiceTotal = $fulfilledItems->sum(function($item) use ($invoiceItemsByProductId, $priceRowsByProductId) {
             $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
             $priceRow = $priceRowsByProductId->get($item->product_id);
             $hasSec = $item->requested_unit_quantity && strtolower($item->requested_unit ?? '') !== 'kg';
@@ -87,7 +87,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @forelse ($availableItems as $item)
+                        @forelse ($fulfilledItems as $item)
                             @php
                                 $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
                                 $priceRow = $priceRowsByProductId->get($item->product_id);

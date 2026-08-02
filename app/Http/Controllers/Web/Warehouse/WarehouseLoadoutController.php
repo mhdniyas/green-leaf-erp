@@ -4,26 +4,33 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Warehouse;
 
+use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Models\Product;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Services\Inventory\StockLedgerService;
+use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class WarehouseLoadoutController extends Controller
 {
-    public function __construct(private readonly StockLedgerService $stockLedgerService) {}
+    public function __construct(
+        private readonly StockLedgerService $stockLedgerService,
+        private readonly PriceBoardService $priceBoardService,
+    ) {}
 
     /**
      * Loadout list — show pending_delivery and ready_for_dispatch orders.
@@ -129,7 +136,7 @@ class WarehouseLoadoutController extends Controller
             ->groupBy('product_id')
             ->map(function ($items) {
                 $productId = $items->first()->product_id;
-                $totalApproved = (float) $items->sum('approved_qty');
+                $totalApproved = $this->loadoutApprovedQuantity($items);
                 $totalLoaded = (float) $items->where('sorting_status', 'loaded')->sum('loaded_qty');
                 $totalBalance = max(0.0, round($totalApproved - $totalLoaded, 3));
                 $available = round($this->stockLedgerService->availableSortedStockForProduct($productId) + $totalLoaded, 3);
@@ -177,6 +184,76 @@ class WarehouseLoadoutController extends Controller
             'hasRemainingBalance',
             'canMoveToLoadout',
         ));
+    }
+
+    public function createAddon(ShopOrder $shopOrder, Request $request): View
+    {
+        $this->authorizeAccess($request);
+        $this->ensureLoadoutEditable($shopOrder);
+
+        $shopOrder->load(['shop', 'items.product']);
+
+        $existingProductIds = $shopOrder->items->pluck('product_id')->filter()->map(fn ($id) => (int) $id)->all();
+        $productsByCategory = Category::query()
+            ->where('is_active', true)
+            ->with(['products' => function ($query) use ($existingProductIds): void {
+                $query
+                    ->where('is_active', true)
+                    ->whereNotIn('id', $existingProductIds)
+                    ->ordered();
+            }])
+            ->orderBy('name')
+            ->get()
+            ->filter(fn (Category $category): bool => $category->products->isNotEmpty())
+            ->values();
+
+        return view('warehouse.loadout.addon', compact('shopOrder', 'productsByCategory'));
+    }
+
+    public function storeAddon(ShopOrder $shopOrder, Request $request): RedirectResponse
+    {
+        $this->authorizeAccess($request);
+        $this->ensureLoadoutEditable($shopOrder);
+
+        $validated = $request->validate([
+            'product_id' => ['required', 'integer', 'exists:products,id'],
+            'quantity' => ['required', 'numeric', 'min:0.01'],
+        ]);
+
+        $product = Product::query()
+            ->active()
+            ->findOrFail((int) $validated['product_id']);
+        $quantity = round((float) $validated['quantity'], 3);
+
+        if ($shopOrder->items()->where('product_id', $product->id)->exists()) {
+            return redirect()
+                ->route('warehouse.loadout.show', $shopOrder)
+                ->withErrors(["{$product->name} is already in this loadout order. Edit the existing line instead."]);
+        }
+
+        $shopOrder->loadMissing('shop');
+        $price = $this->priceBoardService->sellingPriceFor($product, $shopOrder->shop, ProductGrade::GradeA);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $shopOrder->id,
+            'product_id' => $product->id,
+            'product_grade' => ProductGrade::GradeA->value,
+            'requested_qty' => $quantity,
+            'approved_qty' => $quantity,
+            'unit' => $product->unit ?: 'KG',
+            'locked_price_group_id' => $price['group']->id,
+            'locked_selling_price' => $price['price'],
+            'locked_price_source' => $price['source'],
+            'line_total' => round($quantity * (float) $price['price'], 2),
+            'notes' => 'Addon item added from warehouse loadout.',
+            'fulfillment_type' => 'warehouse',
+            'sorting_status' => 'allocated',
+            'is_sorted' => false,
+        ]);
+
+        return redirect()
+            ->route('warehouse.loadout.show', $shopOrder)
+            ->with('success', "{$product->name} added to the purchaser order. You can now load it normally.");
     }
 
     /**
@@ -241,7 +318,7 @@ class WarehouseLoadoutController extends Controller
                         continue;
                     }
 
-                    $totalApproved = (float) $rows->sum('approved_qty');
+                    $totalApproved = $this->loadoutApprovedQuantity($rows);
                     $firstRow = $rows->first();
 
                     $requestedUnitQty = (float) ($firstRow->requested_unit_quantity ?? 0.0);
@@ -340,6 +417,8 @@ class WarehouseLoadoutController extends Controller
                         $excessQty = max(0.0, round($submittedQty - $totalApproved, 3));
                         $excessValue = round($excessQty * (float) ($firstRow->locked_selling_price ?? 0.0), 2);
 
+                        $remaining = round($totalApproved - $submittedQty, 3);
+
                         if ($submittedQty > 0) {
                             $anyItemLoaded = true;
 
@@ -347,7 +426,7 @@ class WarehouseLoadoutController extends Controller
                                 'shop_order_id' => $shopOrder->id,
                                 'product_id' => $productId,
                                 'requested_qty' => $firstRow->requested_qty ?? $totalApproved,
-                                'approved_qty' => $totalApproved,
+                                'approved_qty' => $remaining > 0.001 ? min($submittedQty, $totalApproved) : $totalApproved,
                                 'loaded_qty' => $submittedQty,
                                 'loaded_order_unit_qty' => $hasRequestedUnit ? ($loadedOrderUnitQty ?? 0.0) : null,
                                 'actual_weight' => $actualWeight > 0.0001 ? $actualWeight : null,
@@ -360,7 +439,6 @@ class WarehouseLoadoutController extends Controller
                             ]));
                         }
 
-                        $remaining = round($totalApproved - $submittedQty, 3);
                         if ($remaining > 0.001) {
                             ShopOrderItem::create(array_merge($priceData, [
                                 'shop_order_id' => $shopOrder->id,
@@ -509,5 +587,33 @@ class WarehouseLoadoutController extends Controller
         ) {
             abort(403, 'Unauthorized access.');
         }
+    }
+
+    private function ensureLoadoutEditable(ShopOrder $shopOrder): void
+    {
+        if (! in_array($shopOrder->delivery_status, ['pending_delivery', 'ready_for_dispatch'], true)) {
+            abort(403, 'This loadout order cannot be edited.');
+        }
+    }
+
+    /**
+     * Return the original approved target for a product even after loadout has
+     * split it into loaded and remaining rows.
+     */
+    private function loadoutApprovedQuantity(Collection $items): float
+    {
+        $loadedRows = $items->where('sorting_status', 'loaded');
+        $openApproved = (float) $items
+            ->reject(fn (ShopOrderItem $item): bool => $item->sorting_status === 'loaded')
+            ->sum('approved_qty');
+
+        if ($loadedRows->isNotEmpty() && $openApproved > 0.001) {
+            $loadedApproved = (float) $loadedRows->sum('approved_qty');
+            $loadedQty = (float) $loadedRows->sum('loaded_qty');
+
+            return round(max($loadedApproved, $loadedQty + $openApproved), 3);
+        }
+
+        return round((float) $items->sum('approved_qty'), 3);
     }
 }

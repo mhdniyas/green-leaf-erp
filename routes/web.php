@@ -358,6 +358,8 @@ Route::middleware('auth')->group(function () {
     // ── Warehouse Loadout (PRD v2) ─────────────────────────────────────────
     Route::prefix('warehouse/loadout')->name('warehouse.loadout.')->middleware('can:warehouse.receive.view')->group(function () {
         Route::get('/', [WarehouseLoadoutController::class, 'index'])->name('index');
+        Route::get('/{shopOrder}/addon', [WarehouseLoadoutController::class, 'createAddon'])->name('addon.create');
+        Route::post('/{shopOrder}/addon', [WarehouseLoadoutController::class, 'storeAddon'])->name('addon.store');
         Route::get('/{shopOrder}', [WarehouseLoadoutController::class, 'show'])->name('show');
         Route::post('/{shopOrder}/save', [WarehouseLoadoutController::class, 'save'])->name('save');
         Route::post('/{shopOrder}/move-to-delivery', [WarehouseLoadoutController::class, 'moveToDelivery'])->name('move-to-delivery');

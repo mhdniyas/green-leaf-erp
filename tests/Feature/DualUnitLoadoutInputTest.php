@@ -348,4 +348,254 @@ class DualUnitLoadoutInputTest extends TestCase
         $this->assertEquals(20.0, (float) $actualWeightInvoiceItem->unit_price);
         $this->assertEquals(100.0, (float) $actualWeightInvoiceItem->final_line_total);
     }
+
+    public function test_full_loadout_after_partial_uses_original_shop_order_quantity(): void
+    {
+        [$user, $order, $product] = $this->createBasicLoadoutOrder(10.0);
+
+        $this->actingAs($user)->post(route('warehouse.loadout.save', $order), [
+            'items' => [
+                $product->id => '4.00',
+            ],
+        ])->assertRedirect(route('warehouse.loadout.show', $order));
+
+        $this->assertEquals(2, ShopOrderItem::where('shop_order_id', $order->id)->where('product_id', $product->id)->count());
+
+        $this->actingAs($user)->post(route('warehouse.loadout.save', $order), [
+            'items' => [
+                $product->id => '10.00',
+            ],
+        ])->assertRedirect(route('warehouse.loadout.show', $order));
+
+        $items = ShopOrderItem::where('shop_order_id', $order->id)->where('product_id', $product->id)->get();
+
+        $this->assertCount(1, $items);
+        $this->assertEquals('loaded', $items->first()->sorting_status);
+        $this->assertEquals(10.0, (float) $items->first()->approved_qty);
+        $this->assertEquals(10.0, (float) $items->first()->loaded_qty);
+        $this->assertEquals(10.0, (float) StockMovement::where('product_id', $product->id)->where('type', StockMovementType::Out)->sum('quantity'));
+    }
+
+    public function test_clear_all_loadout_restores_pending_quantity(): void
+    {
+        [$user, $order, $product] = $this->createBasicLoadoutOrder(10.0);
+
+        $this->actingAs($user)->post(route('warehouse.loadout.save', $order), [
+            'items' => [
+                $product->id => '10.00',
+            ],
+        ])->assertRedirect(route('warehouse.loadout.show', $order));
+
+        $this->actingAs($user)->post(route('warehouse.loadout.save', $order), [
+            'items' => [
+                $product->id => '0.00',
+            ],
+        ])->assertRedirect(route('warehouse.loadout.show', $order));
+
+        $item = ShopOrderItem::where('shop_order_id', $order->id)->where('product_id', $product->id)->firstOrFail();
+
+        $this->assertEquals('allocated', $item->sorting_status);
+        $this->assertEquals(10.0, (float) $item->approved_qty);
+        $this->assertNull($item->loaded_qty);
+        $this->assertEquals('pending_delivery', $order->fresh()->delivery_status);
+        $this->assertEquals(10.0, (float) StockMovement::where('product_id', $product->id)->where('type', StockMovementType::SaleReversal)->sum('quantity'));
+    }
+
+    public function test_loadout_addon_adds_product_to_shop_order_for_normal_loadout(): void
+    {
+        [$user, $order] = $this->createBasicLoadoutOrder(10.0);
+
+        $category = Category::firstOrFail();
+        $addonProduct = Product::create([
+            'name' => 'Addon Cucumber',
+            'sku' => 'CUC-ADD',
+            'category_id' => $category->id,
+            'unit' => 'KG',
+            'base_price' => 12.00,
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('warehouse.loadout.addon.create', $order))
+            ->assertOk()
+            ->assertSee('Addon Cucumber');
+
+        $this->actingAs($user)
+            ->post(route('warehouse.loadout.addon.store', $order), [
+                'product_id' => $addonProduct->id,
+                'quantity' => '3.50',
+            ])
+            ->assertRedirect(route('warehouse.loadout.show', $order));
+
+        $this->assertDatabaseHas('shop_order_items', [
+            'shop_order_id' => $order->id,
+            'product_id' => $addonProduct->id,
+            'requested_qty' => '3.50',
+            'approved_qty' => '3.50',
+            'sorting_status' => 'allocated',
+            'fulfillment_type' => 'warehouse',
+        ]);
+    }
+
+    public function test_delivery_verification_only_shows_fulfilled_loadout_items(): void
+    {
+        [$admin, $order, $loadedProduct] = $this->createBasicLoadoutOrder(10.0);
+
+        $shopUser = User::factory()->create(['shop_id' => $order->shop_id]);
+        $shopUser->syncRoles(['shop']);
+
+        $loadedItem = ShopOrderItem::where('shop_order_id', $order->id)
+            ->where('product_id', $loadedProduct->id)
+            ->firstOrFail();
+        $loadedItem->update([
+            'loaded_qty' => 10.0,
+            'sorting_status' => 'loaded',
+            'is_sorted' => true,
+            'sorted_at' => now(),
+            'sorted_by' => $admin->id,
+        ]);
+
+        $pendingProduct = Product::create([
+            'name' => 'Pending Addon Product',
+            'sku' => 'PEND-ADD',
+            'category_id' => $loadedProduct->category_id,
+            'unit' => 'KG',
+            'is_active' => true,
+        ]);
+        $pendingItem = ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $pendingProduct->id,
+            'product_grade' => 'A',
+            'requested_qty' => 3.0,
+            'approved_qty' => 3.0,
+            'unit' => 'KG',
+            'locked_selling_price' => 20.00,
+            'line_total' => 60.00,
+            'fulfillment_type' => 'warehouse',
+            'sorting_status' => 'allocated',
+        ]);
+
+        $order->update([
+            'delivery_status' => 'in_transit',
+            'delivery_review_status' => 'not_started',
+            'is_allocation_completed' => true,
+        ]);
+
+        $invoice = ShopInvoice::create([
+            'shop_id' => $order->shop_id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'INV-DELIVERY-ONLY',
+            'business_date' => $order->business_date->toDateString(),
+            'status' => 'generated',
+            'delivery_status' => 'pending',
+            'payment_status' => 'unpaid',
+            'subtotal' => 200.00,
+            'final_total' => 200.00,
+            'generated_by' => $admin->id,
+        ]);
+        ShopInvoiceItem::create([
+            'shop_invoice_id' => $invoice->id,
+            'shop_order_item_id' => $loadedItem->id,
+            'product_id' => $loadedProduct->id,
+            'product_name' => $loadedProduct->name,
+            'unit' => 'KG',
+            'price_unit' => 'kg',
+            'approved_qty' => 10.0,
+            'price_quantity' => 10.0,
+            'delivered_qty' => 10.0,
+            'delivered_price_quantity' => 10.0,
+            'unit_price' => 20.00,
+            'line_subtotal' => 200.00,
+            'final_line_total' => 200.00,
+        ]);
+
+        $this->actingAs($shopUser)
+            ->get(route('shop-owner.deliveries.show', $order->order_number))
+            ->assertOk()
+            ->assertSee($loadedProduct->name)
+            ->assertDontSee($pendingProduct->name);
+
+        $this->actingAs($shopUser)
+            ->postJson(route('shop-owner.deliveries.items.verify', [$order->order_number, $pendingItem]), [
+                'received_qty' => 3.0,
+            ])
+            ->assertStatus(422)
+            ->assertJson(['message' => 'This product was not fulfilled in loadout.']);
+    }
+
+    private function createBasicLoadoutOrder(float $approvedQty): array
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+        $user = User::factory()->create();
+        $user->syncRoles(['admin']);
+
+        $category = Category::create(['name' => 'Vegetables', 'is_active' => true]);
+        $product = Product::create([
+            'name' => 'Tomato',
+            'sku' => 'TOM-001',
+            'category_id' => $category->id,
+            'unit' => 'KG',
+            'is_active' => true,
+        ]);
+        $warehouse = Warehouse::create([
+            'name' => 'Main Warehouse',
+            'code' => 'WH-01',
+            'is_active' => true,
+        ]);
+        $batch = StockBatch::create([
+            'product_id' => $product->id,
+            'warehouse_id' => $warehouse->id,
+            'created_by' => $user->id,
+            'reference' => 'BATCH-TOM-001',
+            'received_at' => now(),
+            'total_kg' => 50.0,
+            'cost_per_kg' => 15.0,
+            'status' => BatchStatus::Sorted,
+        ]);
+        StockMovement::create([
+            'batch_id' => $batch->id,
+            'product_id' => $product->id,
+            'warehouse_id' => $warehouse->id,
+            'created_by' => $user->id,
+            'grade' => 'A',
+            'type' => StockMovementType::In,
+            'quantity' => 50.0,
+            'cost_per_unit' => 15.0,
+            'notes' => 'Initial Stock',
+        ]);
+
+        $priceGroup = \App\Models\ShopPriceGroup::create(['name' => 'A', 'code' => 'A', 'is_active' => true]);
+        $shop = Shop::create([
+            'name' => 'Green Leaf Fresh Shop',
+            'code' => 'SH-01',
+            'shop_price_group_id' => $priceGroup->id,
+            'is_active' => true,
+        ]);
+        $order = ShopOrder::create([
+            'order_number' => 'ORD-LOADOUT-ALG',
+            'shop_id' => $shop->id,
+            'order_date' => now(),
+            'business_date' => now()->toDateString(),
+            'delivery_date' => now(),
+            'state' => 'approved',
+            'status' => 'approved',
+            'delivery_status' => 'pending_delivery',
+            'created_by' => $user->id,
+        ]);
+
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $product->id,
+            'product_grade' => 'A',
+            'requested_qty' => $approvedQty,
+            'approved_qty' => $approvedQty,
+            'unit' => 'KG',
+            'locked_selling_price' => 20.00,
+            'line_total' => $approvedQty * 20.00,
+            'fulfillment_type' => 'warehouse',
+            'sorting_status' => 'allocated',
+        ]);
+
+        return [$user, $order, $product];
+    }
 }

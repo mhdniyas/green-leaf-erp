@@ -183,6 +183,13 @@
                 <div class="flex flex-wrap items-center justify-between gap-2 px-1">
                     <h2 class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Items Checklist</h2>
                     <div class="flex items-center gap-2">
+                        <a href="{{ route('warehouse.loadout.addon.create', $shopOrder) }}"
+                           class="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-indigo-700 shadow-sm transition-colors hover:bg-indigo-100 text-decoration-none">
+                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                            </svg>
+                            <span>Addon</span>
+                        </a>
                         <button type="button"
                                 id="toggle-all-cards-btn"
                                 onclick="toggleExpandAllCards()"
@@ -191,6 +198,14 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15L12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
                             </svg>
                             <span id="toggle-all-cards-text">Collapse All</span>
+                        </button>
+                        <button type="button"
+                                onclick="clearAllLoadout()"
+                                class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-sm transition-colors hover:bg-slate-50 cursor-pointer">
+                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                            </svg>
+                            <span>Clear All</span>
                         </button>
                         <button type="button"
                                 onclick="loadAllFull()"
@@ -318,7 +333,7 @@
                                             <span class="text-xs font-black text-slate-700">Loaded {{ $requestedUnitName }}:</span>
                                             <div class="flex items-center gap-1">
                                                 <button type="button" onclick="stepUnitQty({{ $group['product_id'] }}, -1)" class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 cursor-pointer border-none font-bold text-sm">-</button>
-                                                <input type="number" id="unit-qty-{{ $group['product_id'] }}" name="item_unit_qtys[{{ $group['product_id'] }}]" value="{{ number_format($loadedUnitQty, 2, '.', '') }}" min="0" step="any" inputmode="decimal" class="h-8 w-16 rounded-lg border border-slate-200 bg-white text-center text-xs font-black text-slate-900 focus:outline-none" {{ $isItemNotAvailable ? 'readonly' : '' }}>
+                                                <input type="number" id="unit-qty-{{ $group['product_id'] }}" name="item_unit_qtys[{{ $group['product_id'] }}]" value="{{ number_format($loadedUnitQty, 2, '.', '') }}" min="0" step="any" inputmode="decimal" data-approved-unit="{{ number_format($orderedUnitQty, 2, '.', '') }}" class="h-8 w-16 rounded-lg border border-slate-200 bg-white text-center text-xs font-black text-slate-900 focus:outline-none" {{ $isItemNotAvailable ? 'readonly' : '' }}>
                                                 <button type="button" onclick="stepUnitQty({{ $group['product_id'] }}, 1)" class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 cursor-pointer border-none font-bold text-sm">+</button>
                                             </div>
                                         </div>
@@ -327,7 +342,7 @@
                                         <div class="flex items-center justify-between gap-2 rounded-xl bg-white border border-slate-200 p-2">
                                             <span class="text-xs font-black text-slate-700">Actual Weight:</span>
                                             <div class="flex items-center gap-1.5 flex-1 max-w-[170px]">
-                                                <input type="number" id="qty-{{ $group['product_id'] }}" name="items[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" class="qty-input h-9 w-full rounded-lg border border-slate-200 px-2 text-center text-sm font-black focus:outline-none focus:ring-2 focus:ring-indigo-400 {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}" {{ $isItemNotAvailable ? 'readonly' : '' }} required>
+                                                <input type="number" id="qty-{{ $group['product_id'] }}" name="items[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" data-approved="{{ number_format($approved, 2, '.', '') }}" data-available="{{ number_format($available, 2, '.', '') }}" data-product="{{ $group['product']->name }}" data-unit="{{ strtoupper($group['unit']) }}" class="qty-input h-9 w-full rounded-lg border border-slate-200 px-2 text-center text-sm font-black focus:outline-none focus:ring-2 focus:ring-indigo-400 {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}" {{ $isItemNotAvailable ? 'readonly' : '' }} required>
                                                 <span class="text-xs font-black text-slate-600">KG</span>
                                             </div>
                                         </div>
@@ -343,7 +358,7 @@
 
                                         <div class="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
                                             <span class="text-xs font-black text-slate-500">Actual KG:</span>
-                                            <input type="number" id="qty-{{ $group['product_id'] }}" name="items[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" class="qty-input flex-1 border-none text-center text-sm font-black focus:outline-none {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}" {{ $isItemNotAvailable ? 'readonly' : '' }} required>
+                                            <input type="number" id="qty-{{ $group['product_id'] }}" name="items[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" data-approved="{{ number_format($approved, 2, '.', '') }}" data-available="{{ number_format($available, 2, '.', '') }}" data-product="{{ $group['product']->name }}" data-unit="{{ strtoupper($group['unit']) }}" class="qty-input flex-1 border-none text-center text-sm font-black focus:outline-none {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}" {{ $isItemNotAvailable ? 'readonly' : '' }} required>
                                             <span class="text-xs font-black text-slate-600">KG</span>
                                         </div>
 
@@ -671,6 +686,37 @@
             }, 1000);
         }
 
+        function markProductAvailable(productId) {
+            const input = document.getElementById('qty-' + productId);
+            const unitInput = document.getElementById('unit-qty-' + productId);
+            const statusField = document.getElementById('status-field-' + productId);
+            const noteField = document.getElementById('note-field-' + productId);
+            const btn = document.getElementById('not-avail-btn-' + productId);
+
+            if (statusField) {
+                statusField.value = 'loaded';
+            }
+
+            if (noteField) {
+                noteField.value = '';
+            }
+
+            [input, unitInput].forEach(function (field) {
+                if (!field) {
+                    return;
+                }
+
+                field.readOnly = false;
+                field.classList.remove('bg-rose-50', 'text-rose-600', 'line-through');
+                field.classList.add('bg-white', 'text-slate-900');
+            });
+
+            if (btn) {
+                btn.textContent = 'Not Available';
+                btn.className = 'rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-black uppercase tracking-wider text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none';
+            }
+        }
+
         function updateFullButtonState(productId, entered, approved) {
             const fullButton = document.getElementById('full-btn-' + productId);
             if (!fullButton) {
@@ -737,14 +783,23 @@
         function setFull(productId) {
             const input = document.getElementById('qty-' + productId);
             if (input) {
+                markProductAvailable(productId);
                 const approved = formatLoadoutQty(input.dataset.approved);
                 const previous = formatLoadoutQty(input.value);
                 const productName = input.dataset.product;
                 const unit = input.dataset.unit;
+                const unitInput = document.getElementById('unit-qty-' + productId);
 
                 input.value = approved;
                 input.dispatchEvent(new Event('change'));
                 pulseInput(input);
+
+                if (unitInput) {
+                    unitInput.value = formatLoadoutQty(unitInput.dataset.approvedUnit);
+                    unitInput.dispatchEvent(new Event('change'));
+                    pulseInput(unitInput);
+                }
+
                 setRowStatus(productId, approved === previous ? 'Already at full quantity' : 'Full quantity applied');
                 showLoadoutFeedback(productName + ' set to ' + approved + ' ' + unit + '.', 'success');
                 window.showAppAlert({
@@ -760,41 +815,93 @@
 
         // Load all products at full approved qty
         function loadAllFull() {
-            const changedItems = [];
-            const alreadyFullItems = [];
+            let changedCount = 0;
+            let alreadyFullCount = 0;
 
             document.querySelectorAll('.qty-input').forEach(function (input) {
+                const productId = input.id.replace('qty-', '');
+                markProductAvailable(productId);
+
                 const approved = formatLoadoutQty(input.dataset.approved);
                 const current = formatLoadoutQty(input.value);
-                const productName = input.dataset.product;
-                const unit = input.dataset.unit;
+                const unitInput = document.getElementById('unit-qty-' + productId);
 
                 input.value = approved;
                 input.dispatchEvent(new Event('change'));
                 pulseInput(input);
 
+                if (unitInput) {
+                    unitInput.value = formatLoadoutQty(unitInput.dataset.approvedUnit);
+                    unitInput.dispatchEvent(new Event('change'));
+                    pulseInput(unitInput);
+                }
+
                 if (current === approved) {
-                    alreadyFullItems.push(productName + ' (' + approved + ' ' + unit + ')');
+                    alreadyFullCount++;
                 } else {
-                    changedItems.push(productName + ' (' + approved + ' ' + unit + ')');
+                    changedCount++;
                 }
             });
 
-            const changedSummary = changedItems.length > 0
-                ? 'Set to full qty: ' + changedItems.join(', ') + '.'
-                : 'All items were already at full approved quantity.';
-            const alreadyFullSummary = alreadyFullItems.length > 0 && changedItems.length > 0
-                ? ' Already full: ' + alreadyFullItems.join(', ') + '.'
+            const changedSummary = changedCount > 0
+                ? 'Full approved quantities applied for ' + changedCount + ' product(s).'
+                : 'All products are already at full approved quantity.';
+            const alreadyFullSummary = alreadyFullCount > 0 && changedCount > 0
+                ? ' ' + alreadyFullCount + ' product(s) were already full.'
                 : '';
 
-            showLoadoutFeedback(changedSummary + alreadyFullSummary, changedItems.length > 0 ? 'success' : 'info');
+            showLoadoutFeedback(changedSummary + alreadyFullSummary, changedCount > 0 ? 'success' : 'info');
 
             window.showAppConfirm({
-                title: changedItems.length > 0 ? 'Full quantities applied' : 'All quantities already full',
-                message: changedSummary + alreadyFullSummary + ' Submit these quantities now?',
-                confirmLabel: changedItems.length > 0 ? 'Save Loadout' : 'Submit Anyway',
+                title: 'Load all products',
+                message: 'Load every product in this shop order as per the purchaser-approved quantities and save it now?',
+                confirmLabel: 'Confirm Load All',
                 cancelLabel: 'Keep Editing',
-                tone: changedItems.length > 0 ? 'success' : 'info',
+                tone: 'success',
+                onConfirm: function () {
+                    if (loadoutForm) {
+                        loadoutForm.submit();
+                    }
+                },
+            });
+        }
+
+        function clearAllLoadout() {
+            let changedCount = 0;
+
+            document.querySelectorAll('.qty-input').forEach(function (input) {
+                const productId = input.id.replace('qty-', '');
+                const current = formatLoadoutQty(input.value);
+                const unitInput = document.getElementById('unit-qty-' + productId);
+
+                markProductAvailable(productId);
+                input.value = '0.00';
+                input.dispatchEvent(new Event('change'));
+                pulseInput(input);
+
+                if (unitInput) {
+                    unitInput.value = '0.00';
+                    unitInput.dispatchEvent(new Event('change'));
+                    pulseInput(unitInput);
+                }
+
+                if (current !== '0.00') {
+                    changedCount++;
+                }
+            });
+
+            const changedSummary = changedCount > 0
+                ? 'Cleared loadout quantities for ' + changedCount + ' product(s).'
+                : 'All loadout quantities are already clear.';
+
+            showLoadoutFeedback(changedSummary, changedCount > 0 ? 'warning' : 'info');
+
+            window.showAppConfirm({
+                title: 'Clear all quantities',
+                message: 'Clear every loaded quantity in this shop order and save it now?',
+                confirmLabel: 'Confirm Clear All',
+                cancelLabel: 'Keep Editing',
+                tone: 'danger',
                 onConfirm: function () {
                     if (loadoutForm) {
                         loadoutForm.submit();

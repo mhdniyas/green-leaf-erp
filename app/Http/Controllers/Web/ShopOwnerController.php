@@ -218,6 +218,12 @@ class ShopOwnerController extends Controller
 
         abort_unless((int) $item->shop_order_id === (int) $order->id, 404);
 
+        if ($item->sorting_status !== 'loaded' || (float) ($item->loaded_qty ?? 0) <= 0) {
+            return response()->json([
+                'message' => 'This product was not fulfilled in loadout.',
+            ], 422);
+        }
+
         $eligibility = $this->deliveryVerificationEligibility->forOrder($order);
         if (! $eligibility['allowed']) {
             return response()->json([
@@ -273,7 +279,8 @@ class ShopOwnerController extends Controller
             ]);
 
             $items = $lockedOrder->items()
-                ->where('approved_qty', '>', 0)
+                ->where('sorting_status', 'loaded')
+                ->where('loaded_qty', '>', 0)
                 ->get();
             $verifiedCount = $items->whereNotNull('shop_verified_at')->count();
             $totalCount = $items->count();
