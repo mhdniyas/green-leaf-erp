@@ -113,12 +113,22 @@ class ShopInvoiceService
                     $priceUnit = $dailyPrice['price_unit'];
                     $product = $firstOrderItem->product;
                     $approvedQty = (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) $item->approved_qty);
-                    $deliveredQty = $invoiceItem->exists && (float) $invoiceItem->delivered_qty > 0
+                    $deliveredQty = $invoiceItem->exists && $invoiceItem->delivered_qty !== null
                         ? (float) $invoiceItem->delivered_qty
-                        : (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) ($item->delivered_qty ?? $item->loaded_qty ?? $item->approved_qty ?? 0));
-                    $shortageQty = $invoiceItem->exists && (float) $invoiceItem->shortage_qty > 0
+                        : (float) $orderItems->sum(function (ShopOrderItem $item): float {
+                            if ($item->sorting_status === 'not_available' || $item->loadout_discrepancy_type === 'not_available') {
+                                return 0.0;
+                            }
+                            return (float) ($item->delivered_qty ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
+                        });
+                    $shortageQty = $invoiceItem->exists && $invoiceItem->shortage_qty !== null
                         ? (float) $invoiceItem->shortage_qty
-                        : (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) ($item->shortage_qty ?? 0));
+                        : (float) $orderItems->sum(function (ShopOrderItem $item) use ($deliveredQty): float {
+                            if ($item->sorting_status === 'not_available' || $item->loadout_discrepancy_type === 'not_available') {
+                                return (float) $item->approved_qty;
+                            }
+                            return (float) ($item->shortage_qty ?? max(0.0, (float) $item->approved_qty - $deliveredQty));
+                        });
                     $excessQty = $invoiceItem->exists && (float) $invoiceItem->excess_qty > 0
                         ? (float) $invoiceItem->excess_qty
                         : (float) $orderItems->sum(fn (ShopOrderItem $item): float => max(0.0, (float) ($item->excess_qty ?? 0) > 0 ? (float) $item->excess_qty : (float) ($deliveredQty - $approvedQty)));

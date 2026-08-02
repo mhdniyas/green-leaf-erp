@@ -208,38 +208,45 @@
                             <div class="flex items-start justify-between gap-3">
                                 <div class="flex-1 min-w-0">
                                     <h3 class="truncate text-sm font-black text-slate-900">{{ $group['product']->name }}</h3>
-                                    @if (! empty($group['items']))
-                                        @php
-                                            $loadoutMeasures = collect($group['items'])->map(fn ($item) => $item->requestedMeasureBreakdownLabel())->filter()->unique();
-                                        @endphp
-                                        @if ($loadoutMeasures->isNotEmpty())
-                                            <p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-emerald-700">
-                                                {{ $loadoutMeasures->implode(' · ') }}
-                                            </p>
-                                        @endif
-                                    @endif
+                                    @php
+                                        $firstItem = $group['items'][0] ?? null;
+                                        $hasSecondaryUnit = $firstItem && $firstItem->requested_unit_quantity && $firstItem->requested_unit_conversion_to_base;
+                                        $orderedUnitLabel = $hasSecondaryUnit ? number_format((float) $firstItem->requested_unit_quantity, 2, '.', '').' '.strtoupper($firstItem->requested_unit_label ?: $firstItem->requested_unit) : number_format($approved, 2).' '.strtoupper($group['unit']);
+                                        $isItemNotAvailable = $firstItem && ($firstItem->sorting_status === 'not_available' || $firstItem->loadout_discrepancy_type === 'not_available');
+                                    @endphp
+
                                     <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-semibold text-slate-500">
-                                        <span>Ordered: <span class="font-black text-slate-700">{{ number_format($approved, 2) }} {{ $group['unit'] }}</span></span>
+                                        <span>Ordered: <span class="font-black text-slate-900">{{ $orderedUnitLabel }}</span></span>
+                                        @if($hasSecondaryUnit)
+                                            <span>Est.: <span class="font-bold text-slate-600">{{ number_format($approved, 2) }} {{ strtoupper($group['unit']) }}</span></span>
+                                        @endif
                                         @if($loaded > 0)
-                                            <span>Loaded: <span class="font-black text-emerald-700">{{ number_format($loaded, 2) }} {{ $group['unit'] }}</span></span>
+                                            <span>Actual Loaded: <span class="font-black text-emerald-700">{{ number_format($loaded, 2) }} {{ strtoupper($group['unit']) }}</span></span>
                                         @endif
                                         @if($loaded > $approved)
                                             <span class="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800 border border-amber-200">
-                                                Excess: <span class="font-black">{{ number_format($loaded - $approved, 2) }} {{ $group['unit'] }}</span>
+                                                Excess: <span class="font-black">{{ number_format($loaded - $approved, 2) }} {{ strtoupper($group['unit']) }}</span>
+                                            </span>
+                                        @endif
+                                        @if($isItemNotAvailable)
+                                            <span class="inline-flex items-center gap-1 rounded-lg bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-700 border border-rose-200">
+                                                Not Available ✕
                                             </span>
                                         @endif
                                         <span class="inline-flex items-center gap-1 rounded-lg bg-sky-50 px-2 py-0.5 text-[11px] font-bold text-sky-800 border border-sky-200">
-                                            Info Stock: <span class="font-black">{{ number_format($available, 2) }} {{ $group['unit'] }}</span>
+                                            Info Stock: <span class="font-black">{{ number_format($available, 2) }} {{ strtoupper($group['unit']) }}</span>
                                         </span>
                                     </div>
-                                    @if($balance > 0.001 && ! $isFullyLoaded)
+                                    @if($balance > 0.001 && ! $isFullyLoaded && ! $isItemNotAvailable)
                                         <p class="mt-0.5 text-[10px] font-bold text-amber-600">
                                             Balance: {{ number_format($balance, 2) }} {{ $group['unit'] }} remaining
                                         </p>
                                     @endif
                                 </div>
 
-                                @if($isFullyLoaded)
+                                @if($isItemNotAvailable)
+                                    <span class="mt-1 shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-rose-700">Not Available ✕</span>
+                                @elseif($isFullyLoaded)
                                     <span class="mt-1 shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-700">Loaded ✓</span>
                                 @elseif($isPartial)
                                     <span class="mt-1 shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-700">Partial</span>
@@ -248,6 +255,9 @@
 
                             {{-- Qty input row --}}
                             <div class="mt-3 flex items-center gap-2">
+                                <input type="hidden" id="status-field-{{ $group['product_id'] }}" name="item_status[{{ $group['product_id'] }}]" value="{{ $isItemNotAvailable ? 'not_available' : 'loaded' }}">
+                                <input type="hidden" id="note-field-{{ $group['product_id'] }}" name="item_notes[{{ $group['product_id'] }}]" value="{{ $firstItem->loadout_discrepancy_note ?? '' }}">
+
                                 {{-- Stepper minus --}}
                                 <button type="button"
                                         onclick="stepQty({{ $group['product_id'] }}, -1)"
@@ -269,7 +279,8 @@
                                        data-max-loadable="{{ $maxLoadable }}"
                                        data-product="{{ $group['product']->name }}"
                                        data-unit="{{ $group['unit'] }}"
-                                       class="qty-input flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-center text-sm font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400"
+                                       class="qty-input flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-center text-sm font-black focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}"
+                                       {{ $isItemNotAvailable ? 'readonly' : '' }}
                                        required>
 
                                 {{-- Stepper plus --}}
@@ -287,6 +298,14 @@
                                         onclick="handleFullAction({{ $group['product_id'] }})"
                                         class="shrink-0 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-[10px] font-black uppercase tracking-wider text-indigo-600 hover:bg-indigo-100 cursor-pointer transition-colors border-none">
                                     {{ $loaded >= ($approved - 0.001) && $approved > 0 ? 'Save' : 'Full' }}
+                                </button>
+
+                                {{-- Not Available Button --}}
+                                <button type="button"
+                                        id="not-avail-btn-{{ $group['product_id'] }}"
+                                        onclick="toggleNotAvailable({{ $group['product_id'] }})"
+                                        class="shrink-0 rounded-xl border px-2.5 py-2 text-[10px] font-black uppercase tracking-wider cursor-pointer transition-colors border-none {{ $isItemNotAvailable ? 'bg-rose-600 text-white' : 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100' }}">
+                                    {{ $isItemNotAvailable ? 'Unavailable ✕' : 'Not Available' }}
                                 </button>
                             </div>
                             <div class="mt-2 flex items-center gap-2">
@@ -699,6 +718,34 @@
             let current = parseFloat(input.value) || 0;
             current = Math.max(0, current + direction * step);
             input.value = current.toFixed(2);
+            input.dispatchEvent(new Event('change'));
+        }
+
+        // Toggle Not Available / Out of Stock status for a product
+        function toggleNotAvailable(productId) {
+            const input = document.getElementById('qty-' + productId);
+            const statusField = document.getElementById('status-field-' + productId);
+            const noteField = document.getElementById('note-field-' + productId);
+            const btn = document.getElementById('not-avail-btn-' + productId);
+            if (!input || !statusField || !btn) return;
+
+            if (statusField.value === 'not_available') {
+                statusField.value = 'loaded';
+                input.readOnly = false;
+                input.classList.remove('bg-rose-50', 'text-rose-600', 'line-through');
+                btn.textContent = 'Not Available';
+                btn.className = 'shrink-0 rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-2 text-[10px] font-black uppercase tracking-wider text-rose-600 hover:bg-rose-100 cursor-pointer transition-colors border-none';
+            } else {
+                const note = prompt('Reason for marking Not Available / Out of Stock:');
+                if (note === null) return;
+                statusField.value = 'not_available';
+                noteField.value = note || 'Marked as Not Available';
+                input.value = '0.00';
+                input.readOnly = true;
+                input.classList.add('bg-rose-50', 'text-rose-600', 'line-through');
+                btn.textContent = 'Unavailable ✕';
+                btn.className = 'shrink-0 rounded-xl border bg-rose-600 px-2.5 py-2 text-[10px] font-black uppercase tracking-wider text-white cursor-pointer transition-colors border-none';
+            }
             input.dispatchEvent(new Event('change'));
         }
 

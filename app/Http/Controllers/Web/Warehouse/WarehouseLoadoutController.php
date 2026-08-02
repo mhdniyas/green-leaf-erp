@@ -265,7 +265,7 @@ class WarehouseLoadoutController extends Controller
                         }
                     }
 
-                    // Preserve price locks from existing rows
+                    // Preserve price locks and measure unit attributes from existing rows
                     $priceData = [
                         'locked_price_group_id' => $firstRow->locked_price_group_id,
                         'locked_selling_price' => $firstRow->locked_selling_price,
@@ -273,6 +273,11 @@ class WarehouseLoadoutController extends Controller
                         'line_total' => $firstRow->line_total,
                         'unit_cost' => $firstRow->unit_cost,
                         'unit' => $firstRow->unit,
+                        'requested_product_unit_id' => $firstRow->requested_product_unit_id,
+                        'requested_unit' => $firstRow->requested_unit,
+                        'requested_unit_label' => $firstRow->requested_unit_label,
+                        'requested_unit_quantity' => $firstRow->requested_unit_quantity,
+                        'requested_unit_conversion_to_base' => $firstRow->requested_unit_conversion_to_base,
                         'product_grade' => $firstRow->product_grade ?? 'A',
                         'fulfillment_type' => $firstRow->fulfillment_type,
                     ];
@@ -280,44 +285,66 @@ class WarehouseLoadoutController extends Controller
                     // Delete all existing rows for this product — we will recreate cleanly
                     $shopOrder->items()->where('product_id', $productId)->delete();
 
-                    $excessQty = max(0.0, round($submittedQty - $totalApproved, 3));
-                    $excessValue = round($excessQty * (float) ($firstRow->locked_selling_price ?? 0.0), 2);
+                    $isNotAvailable = ($request->input("item_status.{$productId}") === 'not_available');
+                    $discrepancyNote = $request->input("item_notes.{$productId}") ?? null;
 
-                    // Create loaded row while preserving original approved quantity
-                    if ($submittedQty > 0) {
-                        $anyItemLoaded = true;
-
+                    if ($isNotAvailable) {
                         ShopOrderItem::create(array_merge($priceData, [
                             'shop_order_id' => $shopOrder->id,
                             'product_id' => $productId,
                             'requested_qty' => $firstRow->requested_qty ?? $totalApproved,
                             'approved_qty' => $totalApproved,
-                            'loaded_qty' => $submittedQty,
-                            'excess_qty' => $excessQty,
-                            'excess_value' => $excessValue,
-                            'sorting_status' => 'loaded',
+                            'loaded_qty' => 0.0,
+                            'delivered_qty' => 0.0,
+                            'excess_qty' => 0.0,
+                            'excess_value' => 0.0,
+                            'loadout_discrepancy_type' => 'not_available',
+                            'loadout_discrepancy_note' => $discrepancyNote ?: 'Marked as Not Available by warehouse',
+                            'sorting_status' => 'not_available',
                             'is_sorted' => true,
                             'sorted_at' => now(),
                             'sorted_by' => $userId,
                         ]));
-                    }
+                    } else {
+                        $excessQty = max(0.0, round($submittedQty - $totalApproved, 3));
+                        $excessValue = round($excessQty * (float) ($firstRow->locked_selling_price ?? 0.0), 2);
 
-                    // Create balance row ONLY for unfulfilled remaining quantity when submittedQty < totalApproved
-                    $remaining = round($totalApproved - $submittedQty, 3);
-                    if ($remaining > 0.001) {
-                        ShopOrderItem::create(array_merge($priceData, [
-                            'shop_order_id' => $shopOrder->id,
-                            'product_id' => $productId,
-                            'requested_qty' => $remaining,
-                            'approved_qty' => $remaining,
-                            'loaded_qty' => null,
-                            'excess_qty' => 0.0,
-                            'excess_value' => 0.0,
-                            'sorting_status' => 'allocated',
-                            'is_sorted' => false,
-                            'sorted_at' => null,
-                            'sorted_by' => null,
-                        ]));
+                        // Create loaded row while preserving original approved quantity & measure units
+                        if ($submittedQty > 0) {
+                            $anyItemLoaded = true;
+
+                            ShopOrderItem::create(array_merge($priceData, [
+                                'shop_order_id' => $shopOrder->id,
+                                'product_id' => $productId,
+                                'requested_qty' => $firstRow->requested_qty ?? $totalApproved,
+                                'approved_qty' => $totalApproved,
+                                'loaded_qty' => $submittedQty,
+                                'excess_qty' => $excessQty,
+                                'excess_value' => $excessValue,
+                                'sorting_status' => 'loaded',
+                                'is_sorted' => true,
+                                'sorted_at' => now(),
+                                'sorted_by' => $userId,
+                            ]));
+                        }
+
+                        // Create balance row ONLY for unfulfilled remaining quantity when submittedQty < totalApproved
+                        $remaining = round($totalApproved - $submittedQty, 3);
+                        if ($remaining > 0.001) {
+                            ShopOrderItem::create(array_merge($priceData, [
+                                'shop_order_id' => $shopOrder->id,
+                                'product_id' => $productId,
+                                'requested_qty' => $remaining,
+                                'approved_qty' => $remaining,
+                                'loaded_qty' => null,
+                                'excess_qty' => 0.0,
+                                'excess_value' => 0.0,
+                                'sorting_status' => 'allocated',
+                                'is_sorted' => false,
+                                'sorted_at' => null,
+                                'sorted_by' => null,
+                            ]));
+                        }
                     }
                 }
 
