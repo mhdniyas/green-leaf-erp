@@ -573,13 +573,14 @@ class PurchaserDashboardController extends Controller
 
         $relatedBatchState = $this->relatedBatchStateForCarts($allCarts);
 
-        $todayTotalPurchase = (float) $todayCarts->sum(function (PurchaserCart $cart) use ($relatedBatchState) {
+        $todayTotalPurchase = (float) $todayCarts->sum(function (PurchaserCart $cart) {
             if ($cart->status === 'draft') {
                 return (float) $cart->items->sum('line_total') - (float) $cart->discount_amount;
             }
             if ($cart->purchaseInvoice) {
                 return max(0.0, (float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount);
             }
+
             return max(0.0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount);
         });
 
@@ -587,8 +588,9 @@ class PurchaserDashboardController extends Controller
             if ($cart->purchaseInvoice) {
                 return (float) $cart->purchaseInvoice->paid_amount;
             }
-            return strcasecmp((string) $cart->payment_method, 'Cash') === 0 
-                ? max(0.0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount) 
+
+            return strcasecmp((string) $cart->payment_method, 'Cash') === 0
+                ? max(0.0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount)
                 : 0.0;
         });
 
@@ -616,6 +618,7 @@ class PurchaserDashboardController extends Controller
             if ($cart->purchaseInvoice) {
                 return max(0.0, (float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount);
             }
+
             return max(0.0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount);
         });
 
@@ -623,8 +626,9 @@ class PurchaserDashboardController extends Controller
             if ($cart->purchaseInvoice) {
                 return (float) $cart->purchaseInvoice->paid_amount;
             }
-            return strcasecmp((string) $cart->payment_method, 'Cash') === 0 
-                ? max(0.0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount) 
+
+            return strcasecmp((string) $cart->payment_method, 'Cash') === 0
+                ? max(0.0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount)
                 : 0.0;
         });
 
@@ -2252,10 +2256,16 @@ class PurchaserDashboardController extends Controller
 
     private function redirectAfterMutation(string $returnTo, Carbon $date, PurchaserCart $cart, string $message): RedirectResponse
     {
+        $vendorRouteParameters = array_filter([
+            'date' => $date->format('Y-m-d'),
+            'tab' => request()->input('tab'),
+            'focus_cart' => request()->input('focus_cart'),
+        ]);
+
         return match ($returnTo) {
             'bill' => redirect()->route('purchaser.bill', ['cart' => $cart, 'date' => $date->format('Y-m-d')])->with('success', $message),
-            'cart' => redirect()->route('purchaser.vendors', ['date' => $date->format('Y-m-d')])->with('success', $message),
-            'vendors' => redirect()->route('purchaser.vendors', ['date' => $date->format('Y-m-d')])->with('success', $message),
+            'cart' => redirect()->route('purchaser.vendors', $vendorRouteParameters)->with('success', $message),
+            'vendors' => redirect()->route('purchaser.vendors', $vendorRouteParameters)->with('success', $message),
             default => redirect()->route('purchaser.daily', array_filter([
                 'date' => $date->format('Y-m-d'),
                 'chip' => request()->input('chip'),
@@ -2934,13 +2944,15 @@ class PurchaserDashboardController extends Controller
         if ($selectedTab === 'credit') {
             $creditInvoices = $relevantInvoices->filter(function (PurchaseInvoice $invoice): bool {
                 $method = $invoice->payment_method ?: $invoice->purchaserCart?->payment_method;
+
                 return (strcasecmp((string) $method, 'Credit') === 0 || $invoice->payment_status === 'credit_pending_approval')
                     && $this->invoiceRemainingBalance($invoice) > 0;
             });
 
             $creditCarts = $supplier->purchaserCarts->filter(function (PurchaserCart $cart): bool {
                 $method = $cart->purchaseInvoice?->payment_method ?: $cart->payment_method;
-                return strcasecmp((string) $method, 'Credit') === 0 
+
+                return strcasecmp((string) $method, 'Credit') === 0
                     && ($cart->purchaseInvoice === null || $this->invoiceRemainingBalance($cart->purchaseInvoice) > 0);
             });
 
@@ -3342,6 +3354,7 @@ class PurchaserDashboardController extends Controller
                     if (! empty($selectedTags)) {
                         return in_array((string) $summary['category_name'], $selectedTags, true);
                     }
+
                     // Nothing selected: show all
                     return true;
                 })

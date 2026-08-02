@@ -65,7 +65,7 @@
                             <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">{{ $cart->cart_number }}</p>
                             <div class="mt-1 flex items-center gap-2">
                                 <h3 class="truncate text-sm font-black text-slate-950">{{ $cart->supplier?->name ?: 'Supplier not selected' }}</h3>
-                                <button type="button" onclick="openChangeVendorModal(@js($cart->cart_number))" class="text-slate-400 transition hover:text-slate-600" title="Assign Supplier">
+                                <button type="button" onclick="openChangeVendorModal(@js($cart->cart_number), 'draft', {{ $cart->id }})" class="text-slate-400 transition hover:text-slate-600" title="Assign Supplier">
                                     <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                     </svg>
@@ -93,7 +93,7 @@
                                     </button>
                                 </form>
                             @endif
-                            <button type="button" onclick="openCreateVendorModal(@js($cart->cart_number))" class="rounded-full border border-teal-100 bg-teal-50 px-3 py-1 text-[10px] font-black text-teal-700">
+                            <button type="button" onclick="openCreateVendorModal(@js($cart->cart_number), 'draft', {{ $cart->id }})" class="rounded-full border border-teal-100 bg-teal-50 px-3 py-1 text-[10px] font-black text-teal-700">
                                 + New Supplier
                             </button>
                         </div>
@@ -190,14 +190,26 @@
                     <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
                         <div class="min-w-0">
                             <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">{{ $cart->cart_number }}</p>
-                            <h3 class="mt-1 truncate text-sm font-black text-slate-950">{{ $cart->supplier?->name ?: 'Supplier pending' }}</h3>
+                            <div class="mt-1 flex items-center gap-2">
+                                <h3 class="truncate text-sm font-black text-slate-950">{{ $cart->supplier?->name ?: 'Supplier pending' }}</h3>
+                                <button type="button" onclick="openChangeVendorModal(@js($cart->cart_number), 'pending', {{ $cart->id }})" class="text-slate-400 transition hover:text-slate-600" title="Change Supplier">
+                                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                    </svg>
+                                </button>
+                            </div>
                             <p class="mt-1 text-xs font-semibold text-slate-600">
                                 Bill {{ $cart->bill_number ?: 'Pending' }} • {{ $warehouseConfirmed ? 'Warehouse confirmed' : 'Waiting for warehouse receipt' }}
                             </p>
                         </div>
-                        <span class="rounded-full {{ $warehouseConfirmed ? 'bg-amber-100 text-amber-700' : 'bg-cyan-100 text-cyan-700' }} px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em]">
-                            {{ $warehouseConfirmed ? 'Payment Pending' : 'Processing' }}
-                        </span>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button type="button" onclick="openCreateVendorModal(@js($cart->cart_number), 'pending', {{ $cart->id }})" class="rounded-full border border-teal-100 bg-teal-50 px-3 py-1 text-[10px] font-black text-teal-700">
+                                + New Supplier
+                            </button>
+                            <span class="rounded-full {{ $warehouseConfirmed ? 'bg-amber-100 text-amber-700' : 'bg-cyan-100 text-cyan-700' }} px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em]">
+                                {{ $warehouseConfirmed ? 'Payment Pending' : 'Processing' }}
+                            </span>
+                        </div>
                     </div>
 
                     <details class="mt-3 rounded-2xl border border-slate-100 bg-slate-50 p-2">
@@ -491,6 +503,8 @@
         @csrf
         @method('PATCH')
         <input type="hidden" name="return_to" value="vendors">
+        <input type="hidden" id="change-vendor-tab" name="tab" value="">
+        <input type="hidden" id="change-vendor-focus-cart" name="focus_cart" value="">
         <input type="hidden" id="change-vendor-supplier-id" name="supplier_id" value="">
     </form>
 
@@ -559,6 +573,8 @@
                 @csrf
                 @method('PATCH')
                 <input type="hidden" name="return_to" value="vendors">
+                <input type="hidden" id="create-vendor-tab" name="tab" value="">
+                <input type="hidden" id="create-vendor-focus-cart" name="focus_cart" value="">
                 <input type="hidden" name="supplier_id" value="">
                 <div>
                     <label class="mb-1 block text-[9px] font-black uppercase tracking-wider text-slate-500">Supplier Name <span class="text-rose-500">*</span></label>
@@ -716,9 +732,11 @@
 
         let currentCartNumber = null;
 
-        function openChangeVendorModal(cartNumber) {
+        function openChangeVendorModal(cartNumber, tab = 'draft', cartId = '') {
             currentCartNumber = cartNumber;
             document.getElementById('change-vendor-form').action = `/purchaser/carts/${cartNumber}/supplier`;
+            document.getElementById('change-vendor-tab').value = tab;
+            document.getElementById('change-vendor-focus-cart').value = cartId;
             document.getElementById('change-vendor-modal').classList.remove('hidden');
             document.getElementById('change-vendor-modal').classList.add('flex');
             const searchInput = document.getElementById('vendor-search-input');
@@ -745,9 +763,11 @@
             document.getElementById('change-vendor-form').submit();
         }
 
-        function openCreateVendorModal(cartNumber) {
+        function openCreateVendorModal(cartNumber, tab = 'draft', cartId = '') {
             currentCartNumber = cartNumber;
             document.getElementById('create-vendor-form').action = `/purchaser/carts/${cartNumber}/supplier`;
+            document.getElementById('create-vendor-tab').value = tab;
+            document.getElementById('create-vendor-focus-cart').value = cartId;
             document.getElementById('create-vendor-modal').classList.remove('hidden');
             document.getElementById('create-vendor-modal').classList.add('flex');
         }
