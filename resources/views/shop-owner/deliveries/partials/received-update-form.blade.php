@@ -111,17 +111,29 @@
                                 <td class="py-1 pr-0.5 text-right font-bold sm:py-2 sm:pr-1">Rs. {{ number_format($unitRate, 2) }}</td>
                                 <td class="py-1 pr-0.5 text-right font-black text-slate-950 sm:py-2 sm:pr-1">Rs. {{ number_format($lineTotal, 2) }}</td>
                                 <td class="py-1 text-right sm:py-2">
-                                    <div class="flex items-center justify-end rounded border border-slate-200 bg-slate-50 px-0.5 sm:rounded-md sm:px-1">
-                                        <input
-                                            type="number"
-                                            step="0.01"
-                                            min="0"
-                                            name="delivered_qty[{{ $item->id }}]"
-                                            value="{{ number_format($receivedQty, 2, '.', '') }}"
+                                    <input
+                                        type="hidden"
+                                        name="delivered_qty[{{ $item->id }}]"
+                                        value="{{ number_format($receivedQty, 2, '.', '') }}"
+                                        class="shop-delivered-qty-input"
+                                    >
+                                    <div class="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 shadow-inner">
+                                        <button
+                                            type="button"
+                                            class="toggle-ok-btn rounded-md px-2.5 py-1 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border-none {{ $receivedQty > 0 || ! $isItemVerified ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900' }}"
+                                            data-target-qty="{{ number_format($approvedQty, 2, '.', '') }}"
                                             @disabled(! $isEditable || $isItemVerified)
-                                            class="shop-delivered-qty-input h-6 w-10 border-0 bg-transparent px-0 text-right text-[10px] font-black tabular-nums text-slate-950 outline-none focus:ring-0 disabled:text-slate-500 sm:h-7 sm:w-12 sm:text-[11px]"
                                         >
-                                        <span class="ml-0.5 text-[7px] font-black uppercase text-slate-400 sm:text-[9px]">{{ $item->unit }}</span>
+                                            OK
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="toggle-not-ok-btn rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border-none {{ $receivedQty <= 0 && $isItemVerified ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900' }}"
+                                            data-target-qty="0.00"
+                                            @disabled(! $isEditable || $isItemVerified)
+                                        >
+                                            NOT OK
+                                        </button>
                                     </div>
                                 </td>
                             </tr>
@@ -210,9 +222,9 @@
             const excess = Math.max(0, receivedQty - approvedQty);
 
             differenceLabel.textContent = shortage > 0.001
-                ? `Short ${shortage.toFixed(2)} ${unit}`.trim()
-                : (excess > 0.001 ? `Excess ${excess.toFixed(2)} ${unit}`.trim() : `Matched`);
-            differenceLabel.classList.toggle('text-amber-700', shortage > 0.001);
+                ? `Review with Zero (Short ${shortage.toFixed(2)} ${unit})`.trim()
+                : (excess > 0.001 ? `Excess ${excess.toFixed(2)} ${unit}`.trim() : `OK (Full Qty)` );
+            differenceLabel.classList.toggle('text-rose-700', shortage > 0.001);
             differenceLabel.classList.toggle('text-cyan-700', excess > 0.001);
             differenceLabel.classList.toggle('text-emerald-700', shortage <= 0.001 && excess <= 0.001);
         }
@@ -226,9 +238,12 @@
         function setSubmittedState(row, result) {
             const input = row.querySelector('.shop-delivered-qty-input');
             const status = row.querySelector('.shop-item-status');
+            const okBtn = row.querySelector('.toggle-ok-btn');
+            const notOkBtn = row.querySelector('.toggle-not-ok-btn');
 
             input.value = result.item.received_qty;
-            input.disabled = true;
+            if (okBtn) okBtn.disabled = true;
+            if (notOkBtn) notOkBtn.disabled = true;
             row.dataset.verified = 'true';
 
             if (status) {
@@ -243,7 +258,10 @@
 
         function lockAllRows() {
             rows.forEach((row) => {
-                row.querySelector('.shop-delivered-qty-input').disabled = true;
+                const okBtn = row.querySelector('.toggle-ok-btn');
+                const notOkBtn = row.querySelector('.toggle-not-ok-btn');
+                if (okBtn) okBtn.disabled = true;
+                if (notOkBtn) notOkBtn.disabled = true;
             });
 
             if (submitAllButton) {
@@ -253,15 +271,38 @@
 
         rows.forEach((row) => {
             const input = row.querySelector('.shop-delivered-qty-input');
+            const okBtn = row.querySelector('.toggle-ok-btn');
+            const notOkBtn = row.querySelector('.toggle-not-ok-btn');
 
-            input.addEventListener('input', function () {
+            function applyToggle(isOk) {
+                if (isOk) {
+                    input.value = okBtn ? okBtn.dataset.targetQty : row.dataset.approvedQty;
+                    if (okBtn) {
+                        okBtn.className = "toggle-ok-btn rounded-md px-2.5 py-1 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border-none bg-emerald-600 text-white shadow-sm";
+                    }
+                    if (notOkBtn) {
+                        notOkBtn.className = "toggle-not-ok-btn rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border-none text-slate-600 hover:text-slate-900";
+                    }
+                } else {
+                    input.value = "0.00";
+                    if (okBtn) {
+                        okBtn.className = "toggle-ok-btn rounded-md px-2.5 py-1 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border-none text-slate-600 hover:text-slate-900";
+                    }
+                    if (notOkBtn) {
+                        notOkBtn.className = "toggle-not-ok-btn rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border-none bg-rose-600 text-white shadow-sm";
+                    }
+                }
                 updateRow(row);
-            });
+            }
 
-            input.addEventListener('change', function () {
-                this.value = normalizeValue(this).toFixed(2);
-                updateRow(row);
-            });
+            if (okBtn && notOkBtn) {
+                okBtn.addEventListener('click', function () {
+                    if (!okBtn.disabled) applyToggle(true);
+                });
+                notOkBtn.addEventListener('click', function () {
+                    if (!notOkBtn.disabled) applyToggle(false);
+                });
+            }
 
             updateRow(row);
         });
