@@ -131,17 +131,24 @@ class WarehouseLoadoutController extends Controller
                 $totalApproved = (float) $items->sum('approved_qty');
                 $totalLoaded = (float) $items->where('sorting_status', 'loaded')->sum('loaded_qty');
                 $totalBalance = max(0.0, round($totalApproved - $totalLoaded, 3));
-
-                // Loadout stock calculation: allow exact stock balance (including negative)
                 $available = round($this->stockLedgerService->availableSortedStockForProduct($productId) + $totalLoaded, 3);
+
+                $firstItem = $items->first();
+                $loadedItem = $items->firstWhere('sorting_status', 'loaded');
+                $hasSecondaryUnit = ! empty($firstItem->requested_unit) && strtolower($firstItem->requested_unit) !== 'kg';
 
                 return [
                     'product_id' => $productId,
-                    'product' => $items->first()->product,
-                    'unit' => $items->first()->unit,
-                    'product_grade' => $items->first()->product_grade ?? 'A',
+                    'product' => $firstItem->product,
+                    'unit' => $firstItem->unit ?? 'KG',
+                    'product_grade' => $firstItem->product_grade ?? 'A',
                     'total_approved' => $totalApproved,
                     'total_loaded' => $totalLoaded,
+                    'loaded_order_unit_qty' => (float) ($loadedItem->loaded_order_unit_qty ?? $firstItem->requested_unit_quantity ?? 1.0),
+                    'has_secondary_unit' => $hasSecondaryUnit,
+                    'requested_unit_quantity' => (float) ($firstItem->requested_unit_quantity ?? 1.0),
+                    'requested_unit_label' => $firstItem->requested_unit_label ?? strtoupper($firstItem->requested_unit ?? ''),
+                    'requested_unit_conversion_to_base' => (float) ($firstItem->requested_unit_conversion_to_base ?? 1.0),
                     'total_balance' => $totalBalance,
                     'available_stock' => $available,
                     'is_fully_loaded' => $totalLoaded > 0.0 && $totalBalance <= 0.001,
@@ -309,6 +316,10 @@ class WarehouseLoadoutController extends Controller
                         $excessQty = max(0.0, round($submittedQty - $totalApproved, 3));
                         $excessValue = round($excessQty * (float) ($firstRow->locked_selling_price ?? 0.0), 2);
 
+                        $submittedUnitQty = $request->has("item_unit_qtys.{$productId}") && $request->input("item_unit_qtys.{$productId}") !== null
+                            ? (float) $request->input("item_unit_qtys.{$productId}")
+                            : ($firstRow->requested_unit_quantity ?? null);
+
                         // Create loaded row while preserving original approved quantity & measure units
                         if ($submittedQty > 0) {
                             $anyItemLoaded = true;
@@ -319,6 +330,7 @@ class WarehouseLoadoutController extends Controller
                                 'requested_qty' => $firstRow->requested_qty ?? $totalApproved,
                                 'approved_qty' => $totalApproved,
                                 'loaded_qty' => $submittedQty,
+                                'loaded_order_unit_qty' => $submittedUnitQty,
                                 'excess_qty' => $excessQty,
                                 'excess_value' => $excessValue,
                                 'sorting_status' => 'loaded',
