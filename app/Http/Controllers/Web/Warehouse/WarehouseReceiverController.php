@@ -662,17 +662,12 @@ class WarehouseReceiverController extends Controller
             return redirect()->back()->withErrors(['Loaded quantity cannot exceed approved quantity.']);
         }
 
-        $availableStock = $this->stockLedgerService->availableSortedStockForProduct($item->product_id);
-        if ($loadedQty > $availableStock + 0.001) {
-            return redirect()->back()->withErrors(['Loaded quantity cannot exceed available stock.']);
-        }
-
         try {
             DB::transaction(function () use ($item, $loadedQty, $request) {
                 $userId = $request->user()->id;
 
                 if ($loadedQty > 0) {
-                    $this->stockLedgerService->consumeSortedStockForProduct(
+                    $this->stockLedgerService->consumeStockForProductAllowingNegative(
                         $item->product_id,
                         $loadedQty,
                         $userId,
@@ -727,7 +722,7 @@ class WarehouseReceiverController extends Controller
                         continue;
                     }
 
-                    $qtyToLoad = min($approvedQty, max(0.0, $availableStock));
+                    $qtyToLoad = $approvedQty;
 
                     if ($qtyToLoad <= 0.0) {
                         $skippedNames[] = $item->product->name;
@@ -735,8 +730,8 @@ class WarehouseReceiverController extends Controller
                         continue;
                     }
 
-                    // Deduct stock immediately
-                    $this->stockLedgerService->consumeSortedStockForProduct(
+                    // Deduct stock immediately (allows negative stock)
+                    $this->stockLedgerService->consumeStockForProductAllowingNegative(
                         $item->product_id,
                         $qtyToLoad,
                         $userId,

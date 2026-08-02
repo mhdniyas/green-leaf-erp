@@ -131,8 +131,8 @@
                 @php
                     $isLoaded = $item->sorting_status === 'loaded';
                     $approvedQty = (float) ($item->approved_qty > 0 ? $item->approved_qty : $item->requested_qty);
-                    $availableQty = max(0.0, (float) ($item->inventory_stock ?? 0.0));
-                    $maxLoadableQty = min($approvedQty, $availableQty);
+                    $availableQty = (float) ($item->inventory_stock ?? 0.0);
+                    $maxLoadableQty = $approvedQty;
                 @endphp
                 <div class="relative overflow-hidden rounded-2xl border bg-white p-4 shadow-sm transition hover:border-slate-300 flex flex-col gap-3 {{ $isLoaded ? 'border-emerald-200 bg-emerald-50/10' : 'border-slate-200' }}" data-item-id="{{ $item->id }}">
                     <div class="flex items-center justify-between gap-3 min-w-0">
@@ -146,8 +146,8 @@
                                 <h4 class="truncate text-sm font-black text-slate-900">{{ $item->product->name }}</h4>
                                 <p class="text-[11px] font-bold text-slate-500 mt-0.5">
                                     Load: <span class="text-indigo-600 font-black">{{ number_format($approvedQty, 2) }}</span> / 
-                                    <span class="{{ ($item->inventory_stock ?? 0.0) < $approvedQty ? 'text-rose-600 font-black' : 'text-slate-700 font-extrabold' }}">
-                                        {{ number_format($item->inventory_stock ?? 0.0, 2) }}
+                                    <span class="{{ ($item->inventory_stock ?? 0.0) < $approvedQty ? 'text-amber-600 font-black' : 'text-slate-700 font-extrabold' }}">
+                                        Avail: {{ number_format($item->inventory_stock ?? 0.0, 2) }}
                                     </span> {{ $item->unit }}
                                 </p>
 
@@ -173,8 +173,8 @@
                                 </button>
                                 <form action="{{ route('warehouse.receiver.loadout.item', $item) }}" method="POST" class="inline">
                                     @csrf
-                                    <input type="hidden" name="loaded_qty" value="{{ number_format($maxLoadableQty, 2, '.', '') }}">
-                                    <button type="submit" @disabled($maxLoadableQty <= 0.001) class="flex h-9 w-9 items-center justify-center rounded-full {{ $maxLoadableQty > 0.001 ? 'bg-emerald-500 hover:bg-emerald-600 cursor-pointer active:scale-95' : 'bg-slate-300 cursor-not-allowed' }} text-white border-none shadow-sm transition-colors">
+                                    <input type="hidden" name="loaded_qty" value="{{ number_format($approvedQty, 2, '.', '') }}">
+                                    <button type="submit" class="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500 hover:bg-emerald-600 cursor-pointer active:scale-95 text-white border-none shadow-sm transition-colors">
                                         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                                         </svg>
