@@ -75,7 +75,12 @@
                     <tbody class="divide-y divide-slate-100 bg-white">
                         @forelse ($billedItems as $item)
                             <tr>
-                                <td class="px-4 py-3 font-bold text-slate-950">{{ $item->product_name }}</td>
+                                <td class="px-4 py-3 font-bold text-slate-950">
+                                    @if($item->product?->sku)
+                                        <span class="text-xs font-semibold text-slate-500 mr-1">[{{ $item->product->sku }}]</span>
+                                    @endif
+                                    {{ $item->product_name }}
+                                </td>
                                 <td class="px-4 py-3 text-right text-slate-700">{{ number_format((float) $item->approved_qty, 2) }} {{ $item->unit }}</td>
                                 <td class="px-4 py-3 text-right text-slate-700">{{ number_format((float) $item->delivered_qty, 2) }} {{ $item->unit }}</td>
                                 <td class="px-4 py-3 text-right font-semibold text-slate-900">Rs. {{ number_format((float) $item->unit_price, 2) }}</td>

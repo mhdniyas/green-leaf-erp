@@ -190,7 +190,7 @@
                             <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15L12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
                             </svg>
-                            <span id="toggle-all-cards-text">Expand All</span>
+                            <span id="toggle-all-cards-text">Collapse All</span>
                         </button>
                         <button type="button"
                                 onclick="loadAllFull()"
@@ -243,7 +243,10 @@
                                     onclick="toggleProductCard({{ $group['product_id'] }})"
                                     class="flex w-full items-start justify-between gap-3 p-4 text-left border-none bg-transparent cursor-pointer hover:bg-slate-50/60 transition-colors">
                                 <div class="flex-1 min-w-0">
-                                    <h3 class="truncate text-base font-black text-slate-900">{{ $group['product']->name }}</h3>
+                                    <h3 class="truncate text-base font-black text-slate-900">
+                                        <span class="inline-block rounded-lg bg-slate-100 px-1.5 py-0.5 text-xs font-black text-slate-700 mr-1.5">#{{ $group['product']->sku ?: $group['product_id'] }}</span>
+                                        {{ $group['product']->name }}
+                                    </h3>
 
                                     <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-semibold text-slate-500">
                                         <span>Ordered: <span class="font-black text-slate-900">{{ $orderedUnitLabel }}</span></span>
@@ -274,7 +277,7 @@
                                     @else
                                         <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-600">Pending</span>
                                     @endif
-                                    <svg id="arrow-{{ $group['product_id'] }}" class="h-4 w-4 text-slate-400 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                    <svg id="arrow-{{ $group['product_id'] }}" class="h-4 w-4 text-slate-400 transition-transform duration-200 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                                     </svg>
                                 </div>
@@ -284,8 +287,8 @@
                             <input type="hidden" id="status-field-{{ $group['product_id'] }}" name="item_status[{{ $group['product_id'] }}]" value="{{ $isItemNotAvailable ? 'not_available' : 'loaded' }}">
                             <input type="hidden" id="note-field-{{ $group['product_id'] }}" name="item_notes[{{ $group['product_id'] }}]" value="{{ $firstItem->loadout_discrepancy_note ?? '' }}">
 
-                            {{-- Collapsible Body (DEFAULT HIDDEN / COLLAPSED) --}}
-                            <div id="card-body-{{ $group['product_id'] }}" class="product-card-body hidden border-t border-slate-100 p-4 pt-3 bg-slate-50/40">
+                            {{-- Collapsible Body (EXPANDED BY DEFAULT) --}}
+                            <div id="card-body-{{ $group['product_id'] }}" class="product-card-body border-t border-slate-100 p-4 pt-3 bg-slate-50/40">
                                 @if($hasSecondaryUnit)
                                     {{-- Dual Inputs for Secondary Unit Products (e.g. FULL BUNCH) --}}
                                     <div class="grid gap-2 sm:grid-cols-2">

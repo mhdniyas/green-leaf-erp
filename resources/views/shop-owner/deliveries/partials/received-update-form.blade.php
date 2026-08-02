@@ -88,8 +88,11 @@
                             >
                                 <td class="py-1.5 pr-0.5 font-bold sm:py-2.5 sm:pr-1">{{ $loop->iteration }}</td>
                                 <td class="py-1.5 pr-1 sm:py-2.5 sm:pr-2">
-                                    <p class="font-black leading-tight text-slate-950">{{ $item->product->name }}</p>
-                                    <p class="mt-0.5 text-[8px] font-semibold leading-tight text-slate-500 sm:text-[10px]">{{ $item->product->sku }} · {{ $item->requestedMeasureBreakdownLabel() }}</p>
+                                    <p class="font-black leading-tight text-slate-950">
+                                        <span class="inline-block rounded bg-slate-100 px-1 py-0.5 text-[9px] font-black text-slate-700 mr-1">#{{ $item->product->sku ?: $item->product_id }}</span>
+                                        {{ $item->product->name }}
+                                    </p>
+                                    <p class="mt-0.5 text-[8px] font-semibold leading-tight text-slate-500 sm:text-[10px]">{{ $item->requestedMeasureBreakdownLabel() }}</p>
                                     <p class="shop-item-error mt-1 hidden rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700"></p>
                                 </td>
                                 <td class="py-1.5 pr-0.5 text-right font-bold text-slate-900 sm:py-2.5 sm:pr-1">{{ number_format($approvedQty, 2) }} {{ $item->unit }}</td>
