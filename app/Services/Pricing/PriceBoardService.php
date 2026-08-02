@@ -351,7 +351,7 @@ class PriceBoardService
     /**
      * @return Collection<int, DailyPriceApproval>
      */
-    public function ensurePendingApprovalsForPurchaseDate(string $purchaseDate): Collection
+    public function ensurePendingApprovalsForPurchaseDate(string $purchaseDate, bool $includeAllProducts = false): Collection
     {
         $priceGroups = $this->ensureDefaultPriceGroups()->whereIn('name', ['A', 'B', 'C'])->values();
 
@@ -389,6 +389,27 @@ class PriceBoardService
             }
         }
 
+        if ($includeAllProducts) {
+            Product::query()
+                ->active()
+                ->ordered()
+                ->get(['id', 'base_price'])
+                ->each(function (Product $product) use (&$products): void {
+                    $productId = (int) $product->id;
+
+                    if (isset($products[$productId])) {
+                        return;
+                    }
+
+                    $products[$productId] = [
+                        'product_id' => $productId,
+                        'base_price' => (float) $product->base_price,
+                        'total_qty' => 0.0,
+                        'weighted_sum' => 0.0,
+                    ];
+                });
+        }
+
         if ($products === []) {
             return collect();
         }
@@ -408,10 +429,10 @@ class PriceBoardService
             ->keyBy('product_id');
 
         foreach ($products as $product) {
+            $previousApproval = $previousApprovals->get((int) $product['product_id']);
             $purchasePrice = $product['total_qty'] > 0
                 ? round($product['weighted_sum'] / $product['total_qty'], 4)
-                : 0.0;
-            $previousApproval = $previousApprovals->get((int) $product['product_id']);
+                : round((float) ($previousApproval?->purchase_price ?? $product['base_price']), 4);
             $comparisonPurchasePrice = $previousApproval
                 ? (float) $previousApproval->purchase_price
                 : ((float) $product['base_price'] > 0 ? (float) $product['base_price'] : null);
@@ -437,7 +458,7 @@ class PriceBoardService
                 ]);
             }
 
-            $samePriceAutoApproved = $movementStatus === 'same' && $autoApproveSamePurchasePrice;
+            $samePriceAutoApproved = $movementStatus === 'same' && $autoApproveSamePurchasePrice && $previousApproval;
 
             $approval->fill([
                 'purchase_price' => $purchasePrice,
@@ -455,9 +476,15 @@ class PriceBoardService
             ->with('product')
             ->whereDate('business_date', $businessDate)
             ->whereIn('product_id', array_map('intval', array_keys($products)))
-            ->orderBy('product_id')
             ->get()
-            ->each(fn (DailyPriceApproval $approval) => $this->appendMovementMetadata($approval));
+            ->each(function (DailyPriceApproval $approval) use ($products): void {
+                $product = $products[(int) $approval->product_id] ?? null;
+
+                $approval->setAttribute('purchased_today', (float) ($product['total_qty'] ?? 0) > 0);
+                $approval->setAttribute('purchase_quantity', (float) ($product['total_qty'] ?? 0));
+
+                $this->appendMovementMetadata($approval);
+            });
     }
 
     public function appendMovementMetadata(DailyPriceApproval $approval): DailyPriceApproval

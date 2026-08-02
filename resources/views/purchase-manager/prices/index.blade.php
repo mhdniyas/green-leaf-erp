@@ -94,7 +94,7 @@
             <article class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Pending Admin Approval</p>
                 <p class="mt-3 text-3xl font-black text-slate-950">{{ $pendingApprovals->count() }}</p>
-                <p class="mt-2 text-sm text-slate-500">Rows waiting for admin publish.</p>
+                <p class="mt-2 text-sm text-slate-500">Rows waiting for admin publish, including products not purchased today.</p>
             </article>
             <article class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Already Approved</p>
@@ -129,8 +129,8 @@
             </div>
             @if ($allApprovals->isEmpty())
                 <div class="px-5 py-12 text-center">
-                    <p class="text-base font-black text-slate-900">No purchased products found.</p>
-                    <p class="mt-2 text-sm text-slate-500">Once products are purchased for the selected date, proposals will appear here automatically.</p>
+                    <p class="text-base font-black text-slate-900">No products found.</p>
+                    <p class="mt-2 text-sm text-slate-500">Active products appear here so prices can be updated even when there is no purchaser activity for the selected date.</p>
                 </div>
             @else
                 <div class="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
@@ -158,6 +158,7 @@
                                         'down' => 'border-rose-200 bg-rose-50 text-rose-700',
                                         default => 'border-cyan-200 bg-cyan-50 text-cyan-700',
                                     };
+                                    $unitLabel = strtolower((string) ($product?->unit ?? '')) === 'piece' ? 'PCE' : strtoupper($product?->unit ?? 'NA');
                                     $movementLabel = match ($approval->movement_status) {
                                         'same' => 'Same',
                                         'up' => '+ INR '.number_format(abs((float) $approval->purchase_price - (float) $approval->comparison_purchase_price), 2),
@@ -167,8 +168,15 @@
                                 @endphp
                                 <tr>
                                     <td class="px-5 py-4">
-                                        <p class="font-bold text-slate-950">{{ $product?->name ?? 'Unknown Product' }}</p>
-                                        <p class="mt-1 text-xs font-semibold text-slate-400">{{ $product?->sku }} · {{ strtoupper($product?->unit ?? 'NA') }}</p>
+                                        <div class="flex items-start gap-3">
+                                            <span class="mt-0.5 inline-flex min-w-12 justify-center rounded-xl border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-black text-slate-700">
+                                                {{ $product?->sku ?: 'NA' }}
+                                            </span>
+                                            <div class="min-w-0">
+                                                <p class="font-bold text-slate-950">{{ $product?->name ?? 'Unknown Product' }}</p>
+                                                <p class="mt-1 text-xs font-semibold text-slate-400">{{ $unitLabel }}</p>
+                                            </div>
+                                        </div>
                                     </td>
                                     <td class="px-5 py-4 text-center">
                                         <x-purchase-manager.components.status-badge :label="str($approval->status)->replace('_', ' ')->title()" :tone="$tone" />
@@ -183,6 +191,9 @@
                                     </td>
                                     <td class="px-5 py-4 text-right font-black text-slate-950">
                                         INR {{ number_format((float) $approval->purchase_price, 2) }}
+                                        @if (! (bool) $approval->getAttribute('purchased_today'))
+                                            <p class="mt-1 text-[10px] font-semibold text-amber-600">No purchase today</p>
+                                        @endif
                                     </td>
                                     <td class="px-5 py-4">
                                         <input

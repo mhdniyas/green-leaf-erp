@@ -43,7 +43,7 @@ class DailyPriceBoardController extends Controller
         $movement = $this->normalizeMovementFilter($request->input('movement'));
 
         $approvals = $this->priceBoardService
-            ->ensurePendingApprovalsForPurchaseDate($purchaseDate)
+            ->ensurePendingApprovalsForPurchaseDate($purchaseDate, includeAllProducts: true)
             ->values();
 
         $matchingApprovals = $approvals
@@ -74,10 +74,7 @@ class DailyPriceBoardController extends Controller
                     default => true,
                 };
             })
-            ->sortBy([
-                ['status', 'asc'],
-                ['product.name', 'asc'],
-            ])
+            ->sortBy(fn (DailyPriceApproval $approval): string => ($approval->product?->sku_sort_value ?? '1').'-'.strtolower((string) $approval->product?->name))
             ->values();
 
         $pendingApprovals = $matchingApprovals
@@ -197,7 +194,7 @@ class DailyPriceBoardController extends Controller
             ->route('purchasing.prices.index', [
                 'date' => $validated['date'] ?? null,
                 'search' => $validated['search'] ?? null,
-                'movement' => $validated['movement'] ?? 'changed',
+                'movement' => $validated['movement'] ?? 'all',
                 'settings' => 1,
             ])
             ->with('success', $enabled
@@ -212,9 +209,9 @@ class DailyPriceBoardController extends Controller
 
     private function normalizeMovementFilter(mixed $movement): string
     {
-        $movement = (string) ($movement ?: 'changed');
+        $movement = (string) ($movement ?: 'all');
 
-        return in_array($movement, self::MOVEMENT_FILTERS, true) ? $movement : 'changed';
+        return in_array($movement, self::MOVEMENT_FILTERS, true) ? $movement : 'all';
     }
 
     /**
