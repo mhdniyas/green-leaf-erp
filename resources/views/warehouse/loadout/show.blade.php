@@ -801,6 +801,17 @@
             });
         }
 
+        // Increment/decrement a secondary unit (BOX/CRATE/BAG) qty input by 1
+        function stepUnitQty(productId, direction) {
+            const input = document.getElementById('unit-qty-' + productId);
+            if (!input) return;
+            const step = 1;
+            let current = parseFloat(input.value) || 0;
+            current = Math.max(0, current + direction * step);
+            input.value = current.toFixed(2);
+            input.dispatchEvent(new Event('change'));
+        }
+
         // Increment/decrement a qty input by step (in 0.5 units)
         function stepQty(productId, direction) {
             const input = document.getElementById('qty-' + productId);
