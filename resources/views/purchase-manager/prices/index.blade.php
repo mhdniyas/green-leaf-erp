@@ -333,8 +333,9 @@
                                     <td class="px-5 py-4">
                                         <input
                                             type="number"
-                                            step="0.01"
-                                            min="0.01"
+                                            step="any"
+                                            min="0"
+                                            inputmode="decimal"
                                             name="prices[{{ $approval->id }}][price_a]"
                                             value="{{ old("prices.{$approval->id}.price_a", number_format((float) $approval->price_a, 2, '.', '')) }}"
                                             class="ml-auto block w-28 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-right text-sm font-black text-slate-950 focus:border-cyan-500 focus:outline-none"
@@ -344,8 +345,9 @@
                                     <td class="px-5 py-4">
                                         <input
                                             type="number"
-                                            step="0.01"
-                                            min="0.01"
+                                            step="any"
+                                            min="0"
+                                            inputmode="decimal"
                                             name="prices[{{ $approval->id }}][price_b]"
                                             value="{{ old("prices.{$approval->id}.price_b", number_format((float) $approval->price_b, 2, '.', '')) }}"
                                             class="ml-auto block w-28 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-right text-sm font-black text-slate-950 focus:border-cyan-500 focus:outline-none"
@@ -355,8 +357,9 @@
                                     <td class="px-5 py-4">
                                         <input
                                             type="number"
-                                            step="0.01"
-                                            min="0.01"
+                                            step="any"
+                                            min="0"
+                                            inputmode="decimal"
                                             name="prices[{{ $approval->id }}][price_c]"
                                             value="{{ old("prices.{$approval->id}.price_c", number_format((float) $approval->price_c, 2, '.', '')) }}"
                                             class="ml-auto block w-28 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-right text-sm font-black text-slate-950 focus:border-cyan-500 focus:outline-none"
