@@ -238,6 +238,8 @@
                             $loadoutCategoryName = $group['product']->category?->name ?? 'Other';
                             $approved = $group['total_approved'];
                             $loaded = $group['total_loaded'];
+                            $loadedItem = $group['items']->firstWhere('sorting_status', 'loaded');
+                            $loadedActualWeight = (float) ($loadedItem?->actual_weight ?? 0);
                             $balance = $group['total_balance'];
                             $available = $group['available_stock'];
                             $firstItem = $group['items'][0] ?? null;
@@ -273,7 +275,7 @@
                                             <span>Est.: <span class="font-bold text-slate-600">{{ number_format($approved, 2) }} {{ strtoupper($group['unit']) }}</span></span>
                                         @endif
                                         @if($loaded > 0)
-                                            <span>Loaded: <span class="font-black text-emerald-700">{{ $hasSecondaryUnit ? number_format($loadedUnitQty, 2, '.', '').' '.$requestedUnitName.' ('.number_format($loaded, 2).' '.strtoupper($group['unit']).')' : number_format($loaded, 2).' '.strtoupper($group['unit']) }}</span></span>
+                                            <span>Loaded: <span class="font-black text-emerald-700">{{ $hasSecondaryUnit ? number_format($loadedUnitQty, 2, '.', '').' '.$requestedUnitName.($loadedActualWeight > 0 ? ' ('.number_format($loadedActualWeight, 2).' '.strtoupper($group['unit']).')' : '') : number_format($loaded, 2).' '.strtoupper($group['unit']) }}</span></span>
                                         @endif
                                         @if($loaded > $approved)
                                             <span class="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800 border border-amber-200">

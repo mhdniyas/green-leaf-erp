@@ -28,9 +28,10 @@
             $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
             $priceRow = $priceRowsByProductId->get($item->product_id);
             $hasSec = $item->requested_unit_quantity && strtolower($item->requested_unit ?? '') !== 'kg';
-            $qtyVal = $hasSec
+            $isActualWeightBilling = (float) ($item->actual_weight ?? 0) > 0.0001;
+            $qtyVal = $hasSec && ! $isActualWeightBilling
                 ? (float) ($item->loaded_order_unit_qty ?? $item->requested_unit_quantity ?? 0)
-                : (float) ($item->loaded_qty ?? $item->approved_qty ?? 0);
+                : (float) ($item->actual_weight ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
             $unitRate = (float) ($invoiceItem?->unit_price ?? $priceRow['unit_price'] ?? 0);
             return round($qtyVal * $unitRate, 2);
         });
@@ -96,8 +97,8 @@
                                     : strtoupper($item->unit);
 
                                 $loadedUnitQty = (float) ($item->loaded_order_unit_qty ?? $item->requested_unit_quantity ?? 0);
-                                $loadedKgQty = (float) ($item->loaded_qty ?? 0);
-                                $isBilledInKg = $hasSec && $loadedKgQty > 0 && abs($loadedKgQty - $loadedUnitQty) > 0.001;
+                                $loadedKgQty = (float) ($item->actual_weight ?? $item->loaded_qty ?? 0);
+                                $isBilledInKg = $hasSec && (float) ($item->actual_weight ?? 0) > 0.0001;
 
                                 if ($isBilledInKg) {
                                     $approvedQty = $loadedKgQty;

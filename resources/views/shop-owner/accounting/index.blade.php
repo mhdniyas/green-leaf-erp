@@ -76,8 +76,8 @@
                     ->flatMap(fn (\App\Models\ShopInvoice $invoice) => $invoice->items->map(fn ($item) => [
                         'invoice_number' => $invoice->invoice_number,
                         'product_name' => $item->product_name ?: ($item->product?->name ?? 'Unknown Product'),
-                        'unit' => $item->unit,
-                        'approved_qty' => (float) $item->approved_qty,
+                        'unit' => $item->price_unit ?: $item->unit,
+                        'approved_qty' => (float) ($item->price_quantity ?: $item->approved_qty),
                         'unit_price' => (float) $item->unit_price,
                         'line_total' => (float) $item->final_line_total,
                     ]))

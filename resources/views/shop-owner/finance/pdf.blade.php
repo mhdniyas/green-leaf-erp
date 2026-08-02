@@ -64,7 +64,7 @@
                     <thead class="bg-slate-50 text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
                         <tr>
                             <th class="px-4 py-3">Product</th>
-                            <th class="px-4 py-3 text-right">Approved</th>
+                            <th class="px-4 py-3 text-right">Bill Qty</th>
                             <th class="px-4 py-3 text-right">Delivered</th>
                             <th class="px-4 py-3 text-right">Unit Price</th>
                             <th class="px-4 py-3 text-right">Shortage</th>
@@ -81,9 +81,9 @@
                                     @endif
                                     {{ $item->product_name }}
                                 </td>
-                                <td class="px-4 py-3 text-right text-slate-700">{{ number_format((float) $item->approved_qty, 2) }} {{ $item->unit }}</td>
+                                <td class="px-4 py-3 text-right text-slate-700">{{ number_format((float) ($item->price_quantity ?: $item->approved_qty), 4) }} {{ strtoupper($item->price_unit ?: $item->unit) }}</td>
                                 <td class="px-4 py-3 text-right text-slate-700">{{ number_format((float) $item->delivered_qty, 2) }} {{ $item->unit }}</td>
-                                <td class="px-4 py-3 text-right font-semibold text-slate-900">Rs. {{ number_format((float) $item->unit_price, 2) }}</td>
+                                <td class="px-4 py-3 text-right font-semibold text-slate-900">Rs. {{ number_format((float) $item->unit_price, 2) }} / {{ strtoupper($item->price_unit ?: $item->unit) }}</td>
                                 <td class="px-4 py-3 text-right font-semibold text-amber-600">Rs. {{ number_format((float) $item->shortage_amount, 2) }}</td>
                                 <td class="px-4 py-3 text-right font-semibold text-cyan-700">Rs. {{ number_format((float) $item->excess_amount, 2) }}</td>
                                 <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $item->final_line_total, 2) }}</td>

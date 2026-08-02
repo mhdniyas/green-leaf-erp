@@ -109,8 +109,9 @@ class ShopInvoiceService
                     ]);
 
                     $dailyPrice = $this->dailyPriceForOrderItem($order, $firstOrderItem);
-                    $unitPrice = $dailyPrice['price'];
-                    $priceUnit = $dailyPrice['price_unit'];
+                    $billingPrice = $this->billingPriceForOrderItems($orderItems, $dailyPrice);
+                    $unitPrice = $billingPrice['price'];
+                    $priceUnit = $billingPrice['price_unit'];
                     $product = $firstOrderItem->product;
                     $approvedQty = (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) $item->approved_qty);
                     $deliveredQty = $invoiceItem->exists && $invoiceItem->delivered_qty !== null
@@ -1108,6 +1109,30 @@ class ShopInvoiceService
         }
 
         return round($baseQuantity / (float) $conversionToBase, 4);
+    }
+
+    /**
+     * @param  Collection<int, ShopOrderItem>  $orderItems
+     * @param  array{price: float, price_unit: string}  $dailyPrice
+     * @return array{price: float, price_unit: string}
+     */
+    private function billingPriceForOrderItems(Collection $orderItems, array $dailyPrice): array
+    {
+        /** @var ShopOrderItem $firstOrderItem */
+        $firstOrderItem = $orderItems->first();
+        $product = $firstOrderItem->product;
+        $actualWeight = (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) ($item->actual_weight ?? 0));
+        $requestedUnit = ProductUnit::normalizeUnit((string) ($firstOrderItem->requested_unit ?: $product?->unit ?: 'kg'));
+        $baseUnit = ProductUnit::normalizeUnit((string) ($product?->unit ?: $firstOrderItem->unit ?: 'kg'));
+        $billingUnit = $actualWeight > 0.0001 ? $baseUnit : $requestedUnit;
+        $dailyPriceUnit = ProductUnit::normalizeUnit((string) $dailyPrice['price_unit']);
+
+        return [
+            'price' => $billingUnit === $dailyPriceUnit
+                ? round((float) $dailyPrice['price'], 2)
+                : round((float) ($firstOrderItem->locked_selling_price ?? $dailyPrice['price']), 2),
+            'price_unit' => $billingUnit,
+        ];
     }
 
     /**

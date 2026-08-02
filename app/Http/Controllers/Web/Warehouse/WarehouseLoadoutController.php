@@ -14,6 +14,7 @@ use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -243,16 +244,16 @@ class WarehouseLoadoutController extends Controller
                     $totalApproved = (float) $rows->sum('approved_qty');
                     $firstRow = $rows->first();
 
-                    // Billing Quantity Rule
-                    if ($submittedUnitQty !== null && $submittedUnitQty > 0) {
-                        if ($actualWeight > 0.0001) {
-                            $submittedQty = $actualWeight;
-                        } else {
-                            $submittedQty = $submittedUnitQty;
-                        }
-                    } else {
-                        $submittedQty = $actualWeight > 0 ? $actualWeight : (float) ($itemsInput[$productId] ?? 0);
-                    }
+                    $requestedUnitQty = (float) ($firstRow->requested_unit_quantity ?? 0.0);
+                    $conversionToBase = (float) ($firstRow->requested_unit_conversion_to_base ?? 1.0);
+                    $hasRequestedUnit = filled($firstRow->requested_unit)
+                        && strtolower((string) $firstRow->requested_unit) !== 'kg';
+                    $loadedOrderUnitQty = $submittedUnitQty ?? ($hasRequestedUnit ? $requestedUnitQty : null);
+                    $submittedQty = $actualWeight > 0.0001
+                        ? $actualWeight
+                        : ($hasRequestedUnit
+                            ? round(max(0.0, (float) $loadedOrderUnitQty) * max(0.0, $conversionToBase), 3)
+                            : max(0.0, (float) ($itemsInput[$productId] ?? 0)));
 
                     // Calculate difference-based deduction
                     $oldLoadedQty = (float) $rows->where('sorting_status', 'loaded')->sum('loaded_qty');
@@ -323,6 +324,8 @@ class WarehouseLoadoutController extends Controller
                             'requested_qty' => $firstRow->requested_qty ?? $totalApproved,
                             'approved_qty' => $totalApproved,
                             'loaded_qty' => 0.0,
+                            'loaded_order_unit_qty' => $hasRequestedUnit ? 0.0 : null,
+                            'actual_weight' => null,
                             'delivered_qty' => 0.0,
                             'excess_qty' => 0.0,
                             'excess_value' => 0.0,
@@ -346,7 +349,8 @@ class WarehouseLoadoutController extends Controller
                                 'requested_qty' => $firstRow->requested_qty ?? $totalApproved,
                                 'approved_qty' => $totalApproved,
                                 'loaded_qty' => $submittedQty,
-                                'loaded_order_unit_qty' => $submittedUnitQty ?? ($firstRow->requested_unit_quantity ?? 1.0),
+                                'loaded_order_unit_qty' => $hasRequestedUnit ? ($loadedOrderUnitQty ?? 0.0) : null,
+                                'actual_weight' => $actualWeight > 0.0001 ? $actualWeight : null,
                                 'excess_qty' => $excessQty,
                                 'excess_value' => $excessValue,
                                 'sorting_status' => 'loaded',
@@ -364,6 +368,8 @@ class WarehouseLoadoutController extends Controller
                                 'requested_qty' => $remaining,
                                 'approved_qty' => $remaining,
                                 'loaded_qty' => null,
+                                'loaded_order_unit_qty' => null,
+                                'actual_weight' => null,
                                 'excess_qty' => 0.0,
                                 'excess_value' => 0.0,
                                 'sorting_status' => 'allocated',
