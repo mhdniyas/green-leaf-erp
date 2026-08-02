@@ -1,8 +1,6 @@
 @php
     $isPendingApproval = $order->delivery_status === 'pending_approval';
-    $deliveryEligibility = $deliveryEligibility ?? ['allowed' => true, 'message' => null];
-    $deliveryPriceReadiness = $deliveryPriceReadiness ?? ['published' => [], 'unpublished' => []];
-    $isEditable = $order->is_allocation_completed && ! $order->is_delivered && ! $isPendingApproval && $deliveryEligibility['allowed'];
+    $isEditable = $order->is_allocation_completed && ! $order->is_delivered && ! $isPendingApproval;
     $sortedItems = $order->items->sortBy(
         fn ($item) => \App\Models\Product::sortableSku((string) ($item->product?->sku ?? ''))
     );
@@ -16,18 +14,27 @@
     $verifiableItems = $availableItems->filter(fn ($item) => (float) ($item->approved_qty ?? 0) > 0);
     $verifiedCount = $verifiableItems->whereNotNull('shop_verified_at')->count();
     $totalVerifiableCount = $verifiableItems->count();
-    $progressLabel = $totalVerifiableCount > 0
-        ? "{$verifiedCount} / {$totalVerifiableCount} products submitted"
-        : 'No products to verify';
+
+    $computedInvoiceTotal = (float) ($invoice?->final_total ?? 0);
+    if ($computedInvoiceTotal <= 0) {
+        $computedInvoiceTotal = $availableItems->sum(function($item) use ($invoiceItemsByProductId, $priceRowsByProductId) {
+            $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
+            $priceRow = $priceRowsByProductId->get($item->product_id);
+            $approvedQty = (float) ($item->loaded_qty ?? $item->approved_qty ?? 0);
+            $unitRate = (float) ($invoiceItem?->unit_price ?? $priceRow['unit_price'] ?? 0);
+            return round($approvedQty * $unitRate, 2);
+        });
+    }
+
     $bottomTitle = match (true) {
         $isPendingApproval => 'Submitted For Admin Review',
-        ! $deliveryEligibility['allowed'] => 'Delivery Pending',
-        default => 'Confirm Delivery',
+        $order->is_delivered => 'Delivery Completed',
+        default => 'Confirm Delivery Verification',
     };
     $bottomMessage = match (true) {
-        $isPendingApproval => 'Your received quantities are submitted. Admin recheck is required before final invoice totals are confirmed.',
-        ! $deliveryEligibility['allowed'] => $deliveryEligibility['message'],
-        default => 'Check received quantities against the invoice, then submit delivery verification once.',
+        $isPendingApproval => 'Your delivery verification is submitted. Admin review is pending.',
+        $order->is_delivered => 'This delivery has been verified and confirmed.',
+        default => 'Confirm received quantities and add any optional notes, then submit.',
     };
 @endphp
 
@@ -53,7 +60,7 @@
                 </div>
                 <div class="text-right">
                     <p>Invoice Total</p>
-                    <p class="mt-0.5 text-xs font-black text-slate-950 sm:mt-1 sm:text-sm">Rs. {{ number_format((float) ($invoice?->final_total ?? 0), 2) }}</p>
+                    <p class="mt-0.5 text-xs font-black text-slate-950 sm:mt-1 sm:text-sm">Rs. {{ number_format($computedInvoiceTotal, 2) }}</p>
                 </div>
             </div>
 
@@ -63,7 +70,7 @@
                         <tr>
                             <th class="w-5 py-0.5 pr-0.5 sm:w-7 sm:py-1 sm:pr-1">SN</th>
                             <th class="py-0.5 pr-1 sm:py-1 sm:pr-2">Item</th>
-                            <th class="w-14 py-0.5 pr-0.5 text-right sm:w-16 sm:py-1 sm:pr-1">Qty</th>
+                            <th class="w-14 py-0.5 pr-0.5 text-right sm:w-16 sm:py-1 sm:pr-1">Delivered</th>
                             <th class="w-14 py-0.5 pr-0.5 text-right sm:w-16 sm:py-1 sm:pr-1">Rate</th>
                             <th class="w-16 py-0.5 text-right sm:w-20 sm:py-1">Amt</th>
                         </tr>
@@ -92,7 +99,6 @@
                                         <span class="inline-block rounded bg-slate-100 px-1 py-0.5 text-[9px] font-black text-slate-700 mr-1">#{{ $item->product->sku ?: $item->product_id }}</span>
                                         {{ $item->product->name }}
                                     </p>
-                                    <p class="mt-0.5 text-[8px] font-semibold leading-tight text-slate-500 sm:text-[10px]">{{ $item->requestedMeasureBreakdownLabel() }}</p>
                                     <p class="shop-item-error mt-1 hidden rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700"></p>
                                 </td>
                                 <td class="py-1.5 pr-0.5 text-right font-bold text-slate-900 sm:py-2.5 sm:pr-1">{{ number_format($approvedQty, 2) }} {{ $item->unit }}</td>
@@ -123,35 +129,32 @@
             @endif
 
             <div class="ml-auto w-full max-w-full border-b border-dashed border-slate-400 py-2 text-[10px] font-bold text-slate-800 sm:max-w-[20rem] sm:py-3 sm:text-[11px]">
-                <div class="flex items-center justify-between">
+                <div class="flex items-center justify-between font-black text-slate-950 text-xs sm:text-sm">
                     <span>Invoice Total</span>
-                    <span>Rs. {{ number_format((float) ($invoice?->final_total ?? 0), 2) }}</span>
-                </div>
-                <div class="mt-1 flex items-center justify-between sm:mt-1.5">
-                    <span>Verification</span>
-                    <span id="shop-delivery-progress-count">{{ $progressLabel }}</span>
+                    <span>Rs. {{ number_format($computedInvoiceTotal, 2) }}</span>
                 </div>
             </div>
-
-            <footer class="pt-2 text-center sm:pt-3">
-                <p class="text-[10px] font-black text-slate-800 sm:text-xs">Please confirm delivered quantity</p>
-            </footer>
         </div>
 
         <div class="border-t border-slate-100 bg-slate-50 px-2.5 py-2.5 sm:px-6 sm:py-4">
-            <div id="shop-delivery-progress-panel" class="rounded-xl {{ $isEditable ? 'bg-slate-950 text-white' : 'border border-amber-200 bg-amber-50 text-amber-950' }} p-2.5 sm:rounded-[1.5rem] sm:p-4 space-y-3">
-                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <div id="shop-delivery-progress-panel" class="rounded-xl bg-slate-950 text-white p-3 sm:rounded-[1.5rem] sm:p-5 space-y-3 shadow-lg">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                        <p id="shop-delivery-progress-title" class="text-[8px] font-black uppercase tracking-[0.1em] sm:text-[10px] sm:tracking-[0.16em] {{ $isEditable ? 'text-slate-400' : 'text-amber-700' }}">{{ $bottomTitle }}</p>
-                        <p id="shop-delivery-progress-message" class="mt-0.5 text-xs font-semibold leading-5 sm:mt-1 sm:text-sm sm:leading-6 {{ $isEditable ? 'text-slate-200' : 'text-amber-900' }}">{{ $bottomMessage }}</p>
+                        <p id="shop-delivery-progress-title" class="text-[9px] font-black uppercase tracking-[0.14em] text-emerald-400 sm:text-[11px]">{{ $bottomTitle }}</p>
+                        <p id="shop-delivery-progress-message" class="mt-0.5 text-xs font-semibold leading-5 text-slate-300 sm:text-sm">{{ $bottomMessage }}</p>
                     </div>
-                    <button type="button" id="shop-delivery-submit-all" class="shrink-0 rounded-xl {{ $isEditable ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400' : 'bg-white text-amber-800' }} px-3 py-2 text-[10px] font-black uppercase tracking-[0.1em] transition disabled:cursor-not-allowed disabled:opacity-60 sm:rounded-2xl sm:px-4 sm:py-3 sm:text-xs sm:tracking-[0.14em]" @disabled(! $isEditable || $verifiedCount === $totalVerifiableCount)>
+                    <button
+                        type="button"
+                        id="shop-delivery-submit-all"
+                        class="shrink-0 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-3 text-xs font-black uppercase tracking-[0.12em] transition-all shadow-md active:scale-95 cursor-pointer border-none disabled:cursor-not-allowed disabled:opacity-60"
+                        @disabled(! $isEditable || $verifiedCount === $totalVerifiableCount)
+                    >
                         Submit Delivery Verification
                     </button>
                 </div>
 
                 @if($isEditable)
-                    <div class="border-t border-slate-800 pt-2.5">
+                    <div class="border-t border-slate-800 pt-3">
                         <label for="shop-delivery-note" class="block text-[9px] font-black uppercase tracking-wider text-slate-400 sm:text-[10px]">
                             Delivery Note / Remarks (Optional)
                         </label>
@@ -159,7 +162,7 @@
                             type="text"
                             id="shop-delivery-note"
                             name="delivery_note"
-                            placeholder="Add optional comments or remarks for admin review..."
+                            placeholder="Enter any optional delivery remarks..."
                             class="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-semibold text-white placeholder-slate-500 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                         >
                     </div>
