@@ -27,6 +27,8 @@ class DailyPriceApproval extends Model
         'status',
         'approved_by',
         'approved_at',
+        'locked_at',
+        'locked_by',
     ];
 
     protected $casts = [
@@ -36,6 +38,7 @@ class DailyPriceApproval extends Model
         'price_b' => 'decimal:2',
         'price_c' => 'decimal:2',
         'approved_at' => 'datetime',
+        'locked_at' => 'datetime',
     ];
 
     public function product(): BelongsTo
@@ -46,5 +49,15 @@ class DailyPriceApproval extends Model
     public function approvedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function lockedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'locked_by');
+    }
+
+    public function isLocked(): bool
+    {
+        return $this->locked_at !== null;
     }
 }

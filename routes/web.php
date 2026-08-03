@@ -190,6 +190,7 @@ Route::middleware('auth')->group(function () {
         Route::get('prices', [DailyPriceBoardController::class, 'index'])->name('prices.index');
         Route::get('prices/matrix', [DailyPriceMatrixController::class, 'index'])->name('prices.matrix.index');
         Route::post('prices/matrix/cell', [DailyPriceMatrixController::class, 'updateCell'])->name('prices.matrix.cell.update');
+        Route::post('prices/matrix/copy-previous', [DailyPriceMatrixController::class, 'copyFromPreviousDay'])->name('prices.matrix.copy-previous');
         Route::post('prices/matrix', [DailyPriceMatrixController::class, 'updateMatrix'])->name('prices.matrix.update');
         Route::post('prices', [DailyPriceBoardController::class, 'update'])->name('prices.update');
         Route::post('prices/{approval}/save-row', [DailyPriceBoardController::class, 'saveRow'])->name('prices.save-row');

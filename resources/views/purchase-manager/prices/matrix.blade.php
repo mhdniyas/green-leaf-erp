@@ -182,6 +182,9 @@
                         <tr class="border-b border-slate-200 bg-slate-100 text-slate-700 font-bold uppercase tracking-wider text-[11px]">
                             <th scope="col" class="sticky left-0 z-20 bg-slate-100 px-3 py-3 text-center border-r border-slate-200 w-14">SL NO</th>
                             <th scope="col" class="sticky left-14 z-20 bg-slate-100 px-4 py-3 border-r border-slate-200 min-w-[180px]">Item</th>
+                            <th scope="col" class="px-2 py-3 text-center border-r border-slate-200 min-w-[100px] bg-amber-100 text-amber-900">
+                                Prev Day<br>{{ \Illuminate\Support\Carbon::parse($previousDate)->format('d-M') }}
+                            </th>
                             @foreach ($matrixDates as $dateStr => $dateInfo)
                                 <th scope="col" class="px-2 py-3 text-center border-r border-slate-200 min-w-[100px] {{ $dateInfo['is_selected'] ? 'bg-cyan-100 text-cyan-900 font-black' : '' }}">
                                     {{ $dateInfo['label'] }}
@@ -201,6 +204,23 @@
                                         <span class="block text-[10px] font-semibold text-slate-400">{{ $prod['sku'] }} ({{ strtoupper($prod['unit'] ?: 'KG') }})</span>
                                     @endif
                                 </td>
+                                <td class="p-1 border-r border-slate-200 text-center bg-amber-50/40">
+                                    @php
+                                        $prevDayPrice = match($matrixCategory) {
+                                            'a' => $prod['previous_day']['price_a'] ?? null,
+                                            'b' => $prod['previous_day']['price_b'] ?? null,
+                                            'c' => $prod['previous_day']['price_c'] ?? null,
+                                            default => null,
+                                        };
+                                    @endphp
+                                    <div class="flex items-center justify-center gap-1">
+                                        @if ($prevDayPrice !== null)
+                                            <span class="text-xs font-bold text-amber-800">{{ number_format($prevDayPrice, 2) }}</span>
+                                        @else
+                                            <span class="text-[10px] text-slate-400">—</span>
+                                        @endif
+                                    </div>
+                                </td>
                                 @foreach ($matrixDates as $dateStr => $dateInfo)
                                     @php
                                         $cellData = $prod['prices'][$dateStr] ?? null;
@@ -212,38 +232,66 @@
                                         $hasChangedA = $cellData['changed_a'] ?? false;
                                         $hasChangedB = $cellData['changed_b'] ?? false;
                                         $hasChangedC = $cellData['changed_c'] ?? false;
+                                        
+                                        $isLocked = $cellData['is_locked'] ?? false;
                                     @endphp
                                     <td class="p-1 border-r border-slate-200 text-center {{ $dateInfo['is_selected'] ? 'bg-cyan-50/40' : '' }}">
                                         <div class="matrix-cell-container space-y-1">
-                                            <div class="flex items-center gap-1">
-                                                <input
-                                                    type="number"
-                                                    step="0.01"
-                                                    min="0"
-                                                    name="matrix_prices[{{ $prod['product_id'] }}][{{ $dateStr }}]"
-                                                    data-product-id="{{ $prod['product_id'] }}"
-                                                    data-date="{{ $dateStr }}"
-                                                    data-price-a="{{ $priceValA !== null ? number_format($priceValA, 2, '.', '') : '' }}"
-                                                    data-price-b="{{ $priceValB !== null ? number_format($priceValB, 2, '.', '') : '' }}"
-                                                    data-price-c="{{ $priceValC !== null ? number_format($priceValC, 2, '.', '') : '' }}"
-                                                    data-changed-a="{{ $hasChangedA ? '1' : '0' }}"
-                                                    data-changed-b="{{ $hasChangedB ? '1' : '0' }}"
-                                                    data-changed-c="{{ $hasChangedC ? '1' : '0' }}"
-                                                    value="{{ $matrixCategory === 'a' ? ($priceValA !== null ? number_format($priceValA, 2, '.', '') : '') : ($matrixCategory === 'b' ? ($priceValB !== null ? number_format($priceValB, 2, '.', '') : '') : ($priceValC !== null ? number_format($priceValC, 2, '.', '') : '')) }}"
-                                                    onkeydown="if(event.key==='Enter'){ event.preventDefault(); saveMatrixCell(this.nextElementSibling); }"
-                                                    class="matrix-cell-input flex-1 rounded-lg border border-slate-200 bg-white py-1 px-1.5 text-center font-extrabold text-xs focus:border-cyan-500 focus:outline-none transition {{ ($matrixCategory === 'a' && $hasChangedA) || ($matrixCategory === 'b' && $hasChangedB) || ($matrixCategory === 'c' && $hasChangedC) ? 'text-red-600 font-black' : 'text-slate-900' }}"
-                                                >
-                                                <button
-                                                    type="button"
-                                                    title="Save cell price"
-                                                    onclick="saveMatrixCell(this)"
-                                                    class="matrix-cell-save-btn flex-shrink-0 inline-flex items-center justify-center rounded-lg bg-slate-900 text-white p-1 text-[10px] font-black hover:bg-cyan-600 transition"
-                                                >
-                                                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                                                    </svg>
-                                                </button>
-                                            </div>
+                                            @if ($isLocked)
+                                                <div class="flex items-center justify-center gap-1 p-1">
+                                                    <div class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 border border-red-200">
+                                                        <svg class="w-3 h-3 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                                                            <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
+                                                        </svg>
+                                                        <span class="text-xs font-black text-red-900">
+                                                            {{ $matrixCategory === 'a' ? ($priceValA !== null ? number_format($priceValA, 2) : '—') : ($matrixCategory === 'b' ? ($priceValB !== null ? number_format($priceValB, 2) : '—') : ($priceValC !== null ? number_format($priceValC, 2) : '—')) }}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            @else
+                                                <div class="flex items-center gap-1">
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        min="0"
+                                                        name="matrix_prices[{{ $prod['product_id'] }}][{{ $dateStr }}]"
+                                                        data-product-id="{{ $prod['product_id'] }}"
+                                                        data-date="{{ $dateStr }}"
+                                                        data-price-a="{{ $priceValA !== null ? number_format($priceValA, 2, '.', '') : '' }}"
+                                                        data-price-b="{{ $priceValB !== null ? number_format($priceValB, 2, '.', '') : '' }}"
+                                                        data-price-c="{{ $priceValC !== null ? number_format($priceValC, 2, '.', '') : '' }}"
+                                                        data-changed-a="{{ $hasChangedA ? '1' : '0' }}"
+                                                        data-changed-b="{{ $hasChangedB ? '1' : '0' }}"
+                                                        data-changed-c="{{ $hasChangedC ? '1' : '0' }}"
+                                                        value="{{ $matrixCategory === 'a' ? ($priceValA !== null ? number_format($priceValA, 2, '.', '') : '') : ($matrixCategory === 'b' ? ($priceValB !== null ? number_format($priceValB, 2, '.', '') : '') : ($priceValC !== null ? number_format($priceValC, 2, '.', '') : '')) }}"
+                                                        onkeydown="if(event.key==='Enter'){ event.preventDefault(); saveMatrixCell(this.nextElementSibling); }"
+                                                        class="matrix-cell-input flex-1 rounded-lg border border-slate-200 bg-white py-1 px-1.5 text-center font-extrabold text-xs focus:border-cyan-500 focus:outline-none transition {{ ($matrixCategory === 'a' && $hasChangedA) || ($matrixCategory === 'b' && $hasChangedB) || ($matrixCategory === 'c' && $hasChangedC) ? 'text-red-600 font-black' : 'text-slate-900' }}"
+                                                    >
+                                                    <button
+                                                        type="button"
+                                                        title="Save cell price"
+                                                        onclick="saveMatrixCell(this)"
+                                                        class="matrix-cell-save-btn flex-shrink-0 inline-flex items-center justify-center rounded-lg bg-slate-900 text-white p-1 text-[10px] font-black hover:bg-cyan-600 transition"
+                                                    >
+                                                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                                <div class="flex items-center justify-center gap-1">
+                                                    <button
+                                                        type="button"
+                                                        title="Copy from previous day"
+                                                        onclick="copyFromPreviousDay(this)"
+                                                        class="copy-prev-day-btn inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-amber-100 text-amber-700 text-[9px] font-bold hover:bg-amber-200 transition"
+                                                    >
+                                                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                                                        </svg>
+                                                        <span>Copy</span>
+                                                    </button>
+                                                </div>
+                                            @endif
                                             <div class="flex items-center justify-center gap-1">
                                                 <span class="text-[9px] font-bold text-slate-500">Unit:</span>
                                                 <input
@@ -278,7 +326,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="{{ count($matrixDates) + 2 }}" class="p-8 text-center text-slate-400 font-bold">
+                                <td colspan="{{ count($matrixDates) + 3 }}" class="p-8 text-center text-slate-400 font-bold">
                                     No products found matching search or category filters.
                                 </td>
                             </tr>
@@ -448,6 +496,70 @@
                     
                     selector.style.display = 'none';
                     selector.classList.add('hidden');
+                }
+
+                async function copyFromPreviousDay(btn) {
+                    const container = btn.closest('.matrix-cell-container');
+                    if (!container) return;
+                    const input = container.querySelector('.matrix-cell-input');
+                    if (!input) return;
+
+                    const productId = input.dataset.productId;
+                    const dateStr = input.dataset.date;
+                    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                                      document.querySelector('input[name="_token"]')?.value || '';
+
+                    btn.disabled = true;
+                    btn.className = 'copy-prev-day-btn inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-amber-500 text-white text-[9px] font-bold opacity-80';
+
+                    try {
+                        const response = await fetch("{{ route('purchasing.prices.matrix.copy-previous') }}", {
+                            method: 'POST',
+                            headers: {
+                                'Accept': 'application/json',
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': csrfToken,
+                            },
+                            body: JSON.stringify({
+                                product_id: productId,
+                                date: dateStr,
+                                price_category: currentMatrixCategory,
+                            }),
+                        });
+
+                        const data = await response.json();
+                        if (data.success) {
+                            input.dataset.priceA = data.price_a !== null ? Number(data.price_a).toFixed(2) : '';
+                            input.dataset.priceB = data.price_b !== null ? Number(data.price_b).toFixed(2) : '';
+                            input.dataset.priceC = data.price_c !== null ? Number(data.price_c).toFixed(2) : '';
+
+                            // Update the input value based on current category
+                            if (currentMatrixCategory === 'a') {
+                                input.value = data.price_a !== null ? Number(data.price_a).toFixed(2) : '';
+                            } else if (currentMatrixCategory === 'b') {
+                                input.value = data.price_b !== null ? Number(data.price_b).toFixed(2) : '';
+                            } else {
+                                input.value = data.price_c !== null ? Number(data.price_c).toFixed(2) : '';
+                            }
+
+                            btn.className = 'copy-prev-day-btn inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[9px] font-bold shadow-md';
+                            input.classList.add('bg-emerald-50', 'border-emerald-300');
+
+                            setTimeout(() => {
+                                btn.disabled = false;
+                                btn.className = 'copy-prev-day-btn inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-amber-100 text-amber-700 text-[9px] font-bold hover:bg-amber-200 transition';
+                                input.classList.remove('bg-emerald-50', 'border-emerald-300');
+                            }, 1200);
+                        } else {
+                            alert(data.message || 'Error copying price from previous day.');
+                            btn.disabled = false;
+                            btn.className = 'copy-prev-day-btn inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-rose-600 text-white text-[9px] font-bold';
+                        }
+                    } catch (err) {
+                        alert('Network error copying price.');
+                        btn.disabled = false;
+                        btn.className = 'copy-prev-day-btn inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-amber-100 text-amber-700 text-[9px] font-bold hover:bg-amber-200 transition';
+                    }
                 }
             </script>
         @endpush

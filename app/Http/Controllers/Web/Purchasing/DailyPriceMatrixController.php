@@ -112,6 +112,14 @@ class DailyPriceMatrixController extends Controller
         $matrixProducts = [];
         $slNo = 1;
 
+        // Get previous day's prices for comparison and copying
+        $previousDate = $weekStart->copy()->subDay()->toDateString();
+        $previousDayApprovals = DailyPriceApproval::query()
+            ->whereIn('product_id', $productIds)
+            ->where('business_date', $previousDate)
+            ->get()
+            ->keyBy('product_id');
+
         foreach ($products as $product) {
             $pId = (int) $product->id;
             $productMonthApprovals = ($monthApprovals->get($pId) ?? collect())
@@ -153,8 +161,12 @@ class DailyPriceMatrixController extends Controller
                     'changed_b' => $changedB,
                     'changed_c' => $changedC,
                     'status' => $app?->status ?? 'none',
+                    'is_locked' => $app?->isLocked() ?? false,
                 ];
             }
+
+            /** @var DailyPriceApproval|null $prevDayApp */
+            $prevDayApp = $previousDayApprovals->get($pId);
 
             $matrixProducts[] = [
                 'sl_no' => $slNo++,
@@ -164,6 +176,13 @@ class DailyPriceMatrixController extends Controller
                 'unit' => $product->unit,
                 'base_price' => (float) $product->base_price,
                 'prices' => $dailyPrices,
+                'previous_day' => [
+                    'date' => $previousDate,
+                    'price_a' => $prevDayApp && $prevDayApp->price_a !== null ? (float) $prevDayApp->price_a : null,
+                    'price_b' => $prevDayApp && $prevDayApp->price_b !== null ? (float) $prevDayApp->price_b : null,
+                    'price_c' => $prevDayApp && $prevDayApp->price_c !== null ? (float) $prevDayApp->price_c : null,
+                    'unit' => $prevDayApp?->price_unit ?? $product->unit,
+                ],
             ];
         }
 
@@ -180,6 +199,7 @@ class DailyPriceMatrixController extends Controller
             'weekEndDate' => $weekEnd->toDateString(),
             'previousWeekStartDate' => $weekStart->copy()->subWeek()->toDateString(),
             'nextWeekStartDate' => $weekStart->copy()->addWeek()->toDateString(),
+            'previousDate' => $previousDate,
         ]);
     }
 
@@ -209,6 +229,17 @@ class DailyPriceMatrixController extends Controller
             ->where('product_id', $product->id)
             ->whereDate('business_date', $dateStr)
             ->first();
+
+        // Check if the price is already locked
+        if ($approval && $approval->isLocked()) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Price for {$product->name} on {$dateStr} is locked and cannot be modified.",
+                ], 422);
+            }
+            return redirect()->back()->with('warning', "Price for {$product->name} on {$dateStr} is locked and cannot be modified.");
+        }
 
         if (! $approval) {
             $approval = new DailyPriceApproval([
@@ -241,6 +272,9 @@ class DailyPriceMatrixController extends Controller
             $approval->status = 'approved';
             $approval->approved_by = $userId;
             $approval->approved_at = now();
+            // Auto-lock the price when approved by admin
+            $approval->locked_at = now();
+            $approval->locked_by = $userId;
         } else {
             $approval->status = 'pending';
         }
@@ -377,6 +411,11 @@ class DailyPriceMatrixController extends Controller
                             'business_date' => $businessDate,
                         ]);
 
+                    // Check if the price is already locked - if so, skip this update
+                    if ($approval->exists && $approval->isLocked()) {
+                        continue;
+                    }
+
                     // Determine price_unit: use submitted unit, or auto-detect from orders, or fall back to product unit
                     $submittedUnit = (string) ($rawMatrixPriceUnits->get((int) $productId)?->{$dateStr} ?? '');
                     $priceUnit = ! empty($submittedUnit)
@@ -413,6 +452,11 @@ class DailyPriceMatrixController extends Controller
                     $approval->status = $shouldPublish ? 'approved' : 'pending';
                     $approval->approved_by = $shouldPublish ? $userId : null;
                     $approval->approved_at = $shouldPublish ? now() : null;
+                    // Auto-lock when publishing
+                    if ($shouldPublish) {
+                        $approval->locked_at = now();
+                        $approval->locked_by = $userId;
+                    }
                     $approval->save();
 
                     $updatedCells++;
@@ -454,6 +498,133 @@ class DailyPriceMatrixController extends Controller
                 'matrix_category' => $matrixCategory,
             ])
             ->with('success', $message);
+    }
+
+    public function copyFromPreviousDay(Request $request): mixed
+    {
+        $this->authorizeBoardAccess();
+
+        $validated = $request->validate([
+            'product_id' => ['required', 'integer', 'exists:products,id'],
+            'date' => ['required', 'date'],
+            'price_category' => ['required', 'string', 'in:a,b,c,A,B,C'],
+        ]);
+
+        $user = $request->user();
+        $isAdmin = (bool) $user?->hasRole('admin');
+        $userId = (int) $user->id;
+
+        $product = Product::query()->findOrFail((int) $validated['product_id']);
+        $dateStr = Carbon::parse($validated['date'])->toDateString();
+        $cat = strtolower($validated['price_category']);
+
+        // Get the previous day's approval
+        $previousDate = Carbon::parse($dateStr)->subDay()->toDateString();
+        $previousApproval = DailyPriceApproval::query()
+            ->where('product_id', $product->id)
+            ->where('business_date', $previousDate)
+            ->first();
+
+        if (! $previousApproval) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "No price found for previous day ({$previousDate}).",
+                ], 404);
+            }
+            return redirect()->back()->with('warning', "No price found for previous day ({$previousDate}).");
+        }
+
+        // Get current approval or create new
+        $approval = DailyPriceApproval::query()
+            ->where('product_id', $product->id)
+            ->whereDate('business_date', $dateStr)
+            ->first();
+
+        // Check if the price is already locked
+        if ($approval && $approval->isLocked()) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Price for {$product->name} on {$dateStr} is locked and cannot be modified.",
+                ], 422);
+            }
+            return redirect()->back()->with('warning', "Price for {$product->name} on {$dateStr} is locked and cannot be modified.");
+        }
+
+        if (! $approval) {
+            $approval = new DailyPriceApproval([
+                'product_id' => $product->id,
+                'business_date' => $dateStr,
+                'purchase_price' => (float) $previousApproval->purchase_price,
+                'price_unit' => $previousApproval->price_unit,
+                'price_a' => (float) $previousApproval->price_a,
+                'price_b' => (float) $previousApproval->price_b,
+                'price_c' => (float) $previousApproval->price_c,
+                'status' => $isAdmin ? 'approved' : 'pending',
+            ]);
+        } else {
+            // Copy the price from previous day for the selected category
+            if ($cat === 'a') {
+                $approval->price_a = (float) $previousApproval->price_a;
+                if ($approval->price_b === null || (float) $approval->price_b <= 0) {
+                    $approval->price_b = (float) $previousApproval->price_a;
+                }
+                if ($approval->price_c === null || (float) $approval->price_c <= 0) {
+                    $approval->price_c = (float) $previousApproval->price_a;
+                }
+            } elseif ($cat === 'b') {
+                $approval->price_b = (float) $previousApproval->price_b;
+            } elseif ($cat === 'c') {
+                $approval->price_c = (float) $previousApproval->price_c;
+            }
+        }
+
+        if ($isAdmin) {
+            $approval->status = 'approved';
+            $approval->approved_by = $userId;
+            $approval->approved_at = now();
+            // Auto-lock the price when approved by admin
+            $approval->locked_at = now();
+            $approval->locked_by = $userId;
+        } else {
+            $approval->status = 'pending';
+        }
+
+        $approval->save();
+
+        if ($isAdmin) {
+            $groupA = ShopPriceGroup::query()->where('name', 'A')->first();
+            $groupB = ShopPriceGroup::query()->where('name', 'B')->first();
+            $groupC = ShopPriceGroup::query()->where('name', 'C')->first();
+
+            $this->updateActivePricesForGroup($product, $groupA, (float) $approval->price_a, $userId);
+            $this->updateActivePricesForGroup($product, $groupB, (float) $approval->price_b, $userId);
+            $this->updateActivePricesForGroup($product, $groupC, (float) $approval->price_c, $userId);
+            $this->vendorPriceService->syncPrice($product->id, (float) $approval->purchase_price);
+
+            $this->shopInvoiceService->generateForBusinessDate($dateStr, $userId);
+            $this->shopInvoiceService->repriceAllForBusinessDate(
+                $dateStr,
+                $userId,
+                "Admin copied price from previous day for {$product->name} on {$dateStr}."
+            );
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Copied price from previous day for {$product->name}.",
+                'product_id' => $product->id,
+                'date' => $dateStr,
+                'price_category' => $cat,
+                'price_a' => $approval->price_a,
+                'price_b' => $approval->price_b,
+                'price_c' => $approval->price_c,
+            ]);
+        }
+
+        return redirect()->back()->with('success', "Copied price from previous day for {$product->name}.");
     }
 
     private function authorizeBoardAccess(): void
