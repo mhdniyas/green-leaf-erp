@@ -108,8 +108,27 @@
             </div>
         @endif
 
+        @if (session('warning'))
+            <div class="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-bold text-amber-800">
+                {{ session('warning') }}
+            </div>
+        @endif
+
+        @if ($errors->any())
+            <div class="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-bold text-rose-800">
+                @foreach ($errors->all() as $error)
+                    <p>{{ $error }}</p>
+                @endforeach
+            </div>
+        @endif
+
         <!-- Dedicated Matrix Table Card -->
-        <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+        <form method="POST" action="{{ route('purchasing.prices.matrix.update') }}" class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+            @csrf
+            <input type="hidden" name="date" value="{{ $purchaseDate }}">
+            <input type="hidden" name="search" value="{{ $search }}">
+            <input type="hidden" name="category_id" value="{{ $categoryId }}">
+            <input type="hidden" name="matrix_category" id="update-matrix-category" value="{{ $matrixCategory }}">
             <div class="relative overflow-x-auto rounded-2xl border border-slate-200 bg-white">
                 <table class="w-full text-left text-xs border-collapse">
                     <thead>
@@ -152,6 +171,7 @@
                                                 type="number"
                                                 step="0.01"
                                                 min="0"
+                                                name="matrix_prices[{{ $prod['product_id'] }}][{{ $dateStr }}]"
                                                 data-product-id="{{ $prod['product_id'] }}"
                                                 data-date="{{ $dateStr }}"
                                                 data-price-a="{{ $priceValA !== null ? number_format($priceValA, 2, '.', '') : '' }}"
@@ -188,7 +208,34 @@
                     </tbody>
                 </table>
             </div>
-        </section>
+            <div class="rounded-2xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-sm font-semibold text-cyan-900">
+                @if ($isAdminViewer)
+                    Update Price saves matrix values, and <span class="font-black">Approve &amp; Publish</span> immediately publishes live prices and reprices shop invoices.
+                @else
+                    Update Price saves matrix values as proposal. Admin approval is required before prices are published.
+                @endif
+            </div>
+            <div class="flex flex-wrap items-center justify-end gap-3 border-t border-slate-100 pt-4">
+                <button
+                    type="submit"
+                    name="action"
+                    value="update"
+                    class="inline-flex min-h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
+                >
+                    Update Price
+                </button>
+                @if ($isAdminViewer)
+                    <button
+                        type="submit"
+                        name="action"
+                        value="approve_publish"
+                        class="inline-flex min-h-11 items-center justify-center rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white hover:bg-emerald-500"
+                    >
+                        Approve &amp; Publish
+                    </button>
+                @endif
+            </div>
+        </form>
     </div>
 
     @once
@@ -199,6 +246,10 @@
                 function switchMatrixCategory(cat) {
                     currentMatrixCategory = cat;
                     document.getElementById('filter-matrix-category').value = cat;
+                    const updateCategoryInput = document.getElementById('update-matrix-category');
+                    if (updateCategoryInput) {
+                        updateCategoryInput.value = cat;
+                    }
 
                     ['a', 'b', 'c'].forEach(c => {
                         const btn = document.getElementById('btn-matrix-cat-' + c);
