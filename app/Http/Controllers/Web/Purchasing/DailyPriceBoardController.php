@@ -395,10 +395,14 @@ class DailyPriceBoardController extends Controller
                     continue;
                 }
 
+                // Auto-detect primary ordered unit to match loadout unit
+                $orderedUnit = $this->detectPrimaryOrderedUnitForApproval($approval);
+                
                 $approval->update([
                     'status' => 'approved',
                     'approved_by' => $userId,
                     'approved_at' => now(),
+                    'price_unit' => $orderedUnit ?? $approval->price_unit,
                 ]);
 
                 $approvedRows++;
@@ -665,6 +669,23 @@ class DailyPriceBoardController extends Controller
                 ]);
             }
         }
+    }
+
+    /**
+     * Detect primary ordered unit for a DailyPriceApproval's product on its business date.
+     */
+    private function detectPrimaryOrderedUnitForApproval(DailyPriceApproval $approval): ?string
+    {
+        $units = \App\Models\ShopOrderItem::query()
+           ->where('product_id', $approval->product_id)
+           ->whereHas('order', fn ($q) => $q->where('business_date', $approval->business_date)->where('state', 'approved'))
+           ->pluck('requested_unit')
+           ->filter()
+           ->countBy()
+           ->sort()
+           ->keys();
+
+        return $units->first();
     }
 
         /**
