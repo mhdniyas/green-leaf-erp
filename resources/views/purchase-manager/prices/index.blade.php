@@ -9,6 +9,8 @@
         $isAdminViewer = auth()->user()?->hasRole('admin');
         $pendingApprovals = $pendingApprovals ?? collect();
         $approvedApprovals = $approvedApprovals ?? collect();
+        $orderPriceAlerts = $orderPriceAlerts ?? collect();
+        $fixableOrderPriceAlerts = $orderPriceAlerts->where('fixable', true);
         $allApprovals = $pendingApprovals->concat($approvedApprovals);
         $movementOptions = [
             'changed' => 'Changed',
@@ -196,9 +198,24 @@
             </div>
         @endif
 
-        @if (($orderPriceAlerts ?? collect())->isNotEmpty())
+        @if ($orderPriceAlerts->isNotEmpty())
             <section class="rounded-3xl border border-amber-300 bg-amber-50 px-5 py-4 shadow-sm">
-                <h3 class="text-sm font-black uppercase tracking-[0.14em] text-amber-900">Order price alerts</h3>
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <h3 class="text-sm font-black uppercase tracking-[0.14em] text-amber-900">Order price alerts</h3>
+                    @if ($isAdminViewer && $fixableOrderPriceAlerts->isNotEmpty())
+                        <form method="POST" action="{{ route('purchasing.prices.fix-zero-order-prices') }}">
+                            @csrf
+                            <input type="hidden" name="date" value="{{ $purchaseDate }}">
+                            <input type="hidden" name="search" value="{{ $search }}">
+                            <input type="hidden" name="category_id" value="{{ $categoryId }}">
+                            <input type="hidden" name="movement" value="{{ $movement }}">
+                            <input type="hidden" name="sort" value="{{ $sort }}">
+                            <button type="submit" class="inline-flex min-h-10 items-center justify-center rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-500">
+                                Fix Zero Prices to 999 ({{ $fixableOrderPriceAlerts->count() }})
+                            </button>
+                        </form>
+                    @endif
+                </div>
                 <p class="mt-1 text-sm font-semibold text-amber-800">
                     These products are in approved shop orders for {{ \Illuminate\Support\Carbon::parse($targetBusinessDate)->format('d M Y') }} and will block invoice sync until fixed.
                 </p>

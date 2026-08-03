@@ -193,6 +193,7 @@ Route::middleware('auth')->group(function () {
         Route::post('prices/matrix', [DailyPriceMatrixController::class, 'updateMatrix'])->name('prices.matrix.update');
         Route::post('prices', [DailyPriceBoardController::class, 'update'])->name('prices.update');
         Route::post('prices/{approval}/save-row', [DailyPriceBoardController::class, 'saveRow'])->name('prices.save-row');
+        Route::post('prices/fix-zero-order-prices', [DailyPriceBoardController::class, 'fixZeroOrderPrices'])->name('prices.fix-zero-order-prices');
         Route::post('prices/products', [DailyPriceBoardController::class, 'storeProduct'])->name('prices.products.store');
         Route::post('prices/settings', [DailyPriceBoardController::class, 'updateSettings'])->name('prices.settings.update');
         Route::post('prices/refresh', [DailyPriceBoardController::class, 'recalculatePrices'])->name('prices.refresh');

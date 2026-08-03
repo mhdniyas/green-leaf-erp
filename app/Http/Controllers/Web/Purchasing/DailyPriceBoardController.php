@@ -304,6 +304,66 @@ class DailyPriceBoardController extends Controller
         return redirect()->back()->with('success', "{$approval->product?->name} price saved.");
     }
 
+    public function fixZeroOrderPrices(Request $request): RedirectResponse
+    {
+        $this->authorizeBoardAccess();
+        abort_unless((bool) $request->user()?->hasRole('admin'), 403, 'Only admin can run zero-price fixes.');
+
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+            'search' => ['nullable', 'string', 'max:255'],
+            'category_id' => ['nullable', 'integer'],
+            'movement' => ['nullable', 'in:changed,up,down,all'],
+            'sort' => ['nullable', 'in:code,name,status,movement'],
+        ]);
+
+        $alerts = $this->orderPriceAlertsForBusinessDate(Carbon::parse($validated['date'])->toDateString());
+        $fixTargets = $alerts
+            ->filter(fn (array $alert): bool => (bool) ($alert['fixable'] ?? false))
+            ->groupBy('approval_id');
+
+        $updatedRows = 0;
+
+        DB::transaction(function () use ($fixTargets, &$updatedRows): void {
+            foreach ($fixTargets as $approvalId => $rows) {
+                /** @var DailyPriceApproval|null $approval */
+                $approval = DailyPriceApproval::query()->find((int) $approvalId);
+                if (! $approval) {
+                    continue;
+                }
+
+                foreach ($rows as $row) {
+                    $priceColumn = (string) ($row['price_column'] ?? '');
+                    if (! in_array($priceColumn, ['price_a', 'price_b', 'price_c'], true)) {
+                        continue;
+                    }
+
+                    if ((float) ($approval->{$priceColumn} ?? 0) <= 0) {
+                        $approval->{$priceColumn} = 999.00;
+                        $updatedRows++;
+                    }
+                }
+
+                $approval->save();
+            }
+        });
+
+        return redirect()
+            ->route('purchasing.prices.index', array_filter([
+                'date' => $validated['date'],
+                'search' => $validated['search'] ?? null,
+                'category_id' => $validated['category_id'] ?? null,
+                'movement' => $validated['movement'] ?? null,
+                'sort' => $validated['sort'] ?? null,
+            ]))
+            ->with(
+                $updatedRows > 0 ? 'success' : 'warning',
+                $updatedRows > 0
+                    ? "Updated {$updatedRows} zero order-linked daily price value(s) to 999.00."
+                    : 'No zero order-linked price rows needed fixing.'
+            );
+    }
+
     public function updateSettings(Request $request): RedirectResponse
     {
         $this->authorizeBoardAccess();
@@ -547,7 +607,10 @@ class DailyPriceBoardController extends Controller
          *   product_name: string,
          *   sku: string,
          *   price_group: string,
-         *   issue: string
+         *   issue: string,
+         *   approval_id: int|null,
+         *   price_column: string|null,
+         *   fixable: bool
          * }>
          */
         private function orderPriceAlertsForBusinessDate(string $businessDate): Collection
@@ -610,6 +673,11 @@ class DailyPriceBoardController extends Controller
                                 'sku' => (string) ($item->product?->sku ?? 'NA'),
                                 'price_group' => $groupName !== '' ? $groupName : '-',
                                 'issue' => $issue,
+                                'approval_id' => $approval?->id,
+                                'price_column' => $priceColumn,
+                                'fixable' => $issue === 'Approved price is zero/invalid'
+                                    && $approval !== null
+                                    && in_array((string) $priceColumn, ['price_a', 'price_b', 'price_c'], true),
                             ];
                         })
                         ->filter()
