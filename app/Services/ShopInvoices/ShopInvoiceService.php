@@ -1121,22 +1121,20 @@ class ShopInvoiceService
             return round($baseQuantity, 4);
         }
 
-        $conversionToBase = null;
+        // Live product_units is the source of truth so admin corrections apply
+        // retroactively to every order without needing manual data patches.
+        $product->loadMissing('orderUnits');
+        $conversionToBase = $product->orderUnits
+            ->first(fn (ProductUnit $unit): bool => ProductUnit::normalizeUnit($unit->unit) === $normalizedPriceUnit)
+            ?->conversion_to_base;
 
-        if ($orderItems instanceof Collection && $orderItems->isNotEmpty()) {
+        if (($conversionToBase === null || (float) $conversionToBase <= 0) && $orderItems instanceof Collection && $orderItems->isNotEmpty()) {
             $conversionToBase = $orderItems
                 ->first(function (ShopOrderItem $item) use ($normalizedPriceUnit): bool {
                     return ProductUnit::normalizeUnit((string) ($item->requested_unit ?: $item->unit)) === $normalizedPriceUnit
                         && (float) ($item->requested_unit_conversion_to_base ?? 0) > 0;
                 })
                 ?->requested_unit_conversion_to_base;
-        }
-
-        if ($conversionToBase === null || (float) $conversionToBase <= 0) {
-            $product->loadMissing('orderUnits');
-            $conversionToBase = $product->orderUnits
-                ->first(fn (ProductUnit $unit): bool => ProductUnit::normalizeUnit($unit->unit) === $normalizedPriceUnit)
-                ?->conversion_to_base;
         }
 
         if ($conversionToBase === null || (float) $conversionToBase <= 0) {

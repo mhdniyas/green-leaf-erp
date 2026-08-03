@@ -148,7 +148,8 @@ $unitRows = old('units', $existingUnitRows);
                     </div>
 
                     <div class="space-y-1.5">
-                        <label for="unit" class="block text-sm font-medium text-gray-700">Base Unit <span class="text-red-500">*</span></label>
+                        <label for="unit" class="block text-sm font-medium text-gray-700">Active Unit <span class="text-red-500">*</span></label>
+                        <p class="text-xs text-gray-400">The unit shop owners order and get invoiced in. Other units below stay saved for reference.</p>
                         <div class="relative" data-product-select data-select-target="unit">
                             <input id="unit" type="hidden" name="unit" value="{{ $baseUnit }}" data-product-select-input>
                             <button type="button" data-product-select-trigger class="flex w-full items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-left text-sm font-bold text-slate-900 transition hover:border-emerald-300 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 @error('unit') border-red-300 @enderror" aria-haspopup="listbox" aria-expanded="false">
@@ -178,7 +179,7 @@ $unitRows = old('units', $existingUnitRows);
                     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                             <h3 class="text-sm font-black text-slate-950">Units & Measures</h3>
-                            <p class="mt-1 text-xs font-semibold text-slate-500">Keep one base unit for stock and billing. Add box, piece, bag, or other order units with their base-unit conversion.</p>
+                            <p class="mt-1 text-xs font-semibold text-slate-500">Keep one active unit for ordering and billing. Add box, piece, bag, or other units with their conversion to the active unit — switching the active unit later keeps these conversions intact.</p>
                             <div class="mt-2 flex flex-wrap gap-2 text-[11px] font-black">
                                 <span class="rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-emerald-700">BOX needs KG conversion</span>
                                 <span class="rounded-lg border border-sky-100 bg-sky-50 px-2 py-1 text-sky-700">PIECE conversion optional</span>
