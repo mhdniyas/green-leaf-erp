@@ -64,6 +64,35 @@ class StockBatch extends Model
             ->dontLogEmptyChanges();
     }
 
+    // Helper Methods
+    // Following Golden Rule: Inventory → Base unit only (KG/PCS)
+
+    /**
+     * Get the total quantity in base units (KG).
+     * Inventory ALWAYS stored in base units only.
+     *
+     * @return float
+     */
+    public function getTotalQuantityInBaseUnit(): float
+    {
+        return (float) $this->total_kg;
+    }
+
+    /**
+     * Get the cost per base unit (KG).
+     *
+     * @return float
+     */
+    public function getCostPerBaseUnit(): float
+    {
+        return (float) $this->cost_per_kg;
+    }
+        return LogOptions::defaults()
+            ->logFillable()
+            ->logOnlyDirty()
+            ->dontLogEmptyChanges();
+    }
+
     // Relationships
     public function product(): BelongsTo
     {

@@ -205,4 +205,89 @@ class ShopOrderItem extends Model
 
         return "{$requested} = ".number_format($baseQty, 2, '.', '')." {$baseUnit}";
     }
+
+    /**
+     * Calculate requested quantity in the order unit (e.g., BUNCH, BOX).
+     * This is derived from base quantity ÷ conversion factor.
+     *
+     * @return float|null Returns null if no conversion is available
+     */
+    public function requestedQuantityInOrderUnit(): ?float
+    {
+        if ($this->requested_unit_conversion_to_base === null || (float) $this->requested_unit_conversion_to_base <= 0) {
+            return null;
+        }
+
+        return round((float) $this->requested_qty / (float) $this->requested_unit_conversion_to_base, 2);
+    }
+
+    /**
+     * Calculate approved quantity in the order unit (e.g., BUNCH, BOX).
+     * This is derived from base quantity ÷ conversion factor.
+     *
+     * @return float|null Returns null if no conversion is available
+     */
+    public function approvedQuantityInOrderUnit(): ?float
+    {
+        if ($this->requested_unit_conversion_to_base === null || (float) $this->requested_unit_conversion_to_base <= 0) {
+            return null;
+        }
+
+        return round((float) $this->approved_qty / (float) $this->requested_unit_conversion_to_base, 2);
+    }
+
+    /**
+     * Calculate loaded quantity in the order unit (e.g., BUNCH, BOX).
+     * Uses actual_weight if available, otherwise loaded_qty.
+     * This is derived from base quantity ÷ conversion factor.
+     *
+     * @return float|null Returns null if no conversion is available
+     */
+    public function loadedQuantityInOrderUnit(): ?float
+    {
+        $loadedBaseQty = $this->actual_weight ?? $this->loaded_qty;
+
+        if ($loadedBaseQty === null || $this->requested_unit_conversion_to_base === null || (float) $this->requested_unit_conversion_to_base <= 0) {
+            return null;
+        }
+
+        return round((float) $loadedBaseQty / (float) $this->requested_unit_conversion_to_base, 2);
+    }
+
+    /**
+     * Get the display label for the order unit.
+     * Prioritizes: product unit label → requested_unit_label → requested_unit → base unit.
+     *
+     * @return string
+     */
+    public function orderUnitLabel(): string
+    {
+        // First try to get from related ProductUnit
+        if ($this->relationLoaded('requestedProductUnit') && $this->requestedProductUnit) {
+            return $this->requestedProductUnit->label;
+        }
+
+        // Fallback to stored labels (for backwards compatibility)
+        if ($this->requested_unit_label) {
+            return $this->requested_unit_label;
+        }
+
+        if ($this->requested_unit) {
+            return strtoupper($this->requested_unit);
+        }
+
+        // Ultimate fallback to base unit
+        return strtoupper((string) $this->unit);
+    }
+
+    /**
+     * Get the effective base quantity that was delivered/loaded.
+     * Prioritizes: actual_weight → loaded_qty → delivered_qty → approved_qty.
+     *
+     * @return float
+     */
+    public function effectiveBaseQuantity(): float
+    {
+        return (float) ($this->actual_weight ?? $this->loaded_qty ?? $this->delivered_qty ?? $this->approved_qty ?? 0);
+    }
 }

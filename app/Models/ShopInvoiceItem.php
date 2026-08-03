@@ -67,4 +67,61 @@ class ShopInvoiceItem extends Model
     {
         return $this->belongsTo(Product::class);
     }
+
+    // Helper Methods
+    // Following Golden Rule: Invoice → Billing unit (independent of inventory)
+
+    /**
+     * Get the approved quantity in base units (KG).
+     * All internal quantities are in base units.
+     *
+     * @return float
+     */
+    public function getApprovedBaseQuantity(): float
+    {
+        return (float) $this->approved_qty;
+    }
+
+    /**
+     * Get the delivered quantity in base units (KG).
+     * All internal quantities are in base units.
+     *
+     * @return float
+     */
+    public function getDeliveredBaseQuantity(): float
+    {
+        return (float) $this->delivered_qty;
+    }
+
+    /**
+     * Get the quantity used for billing (converted to price_unit).
+     * This is independent of base units.
+     *
+     * @return float
+     */
+    public function getBillingQuantity(): float
+    {
+        return (float) $this->price_quantity;
+    }
+
+    /**
+     * Get the delivered billing quantity (converted to price_unit).
+     *
+     * @return float
+     */
+    public function getDeliveredBillingQuantity(): float
+    {
+        return (float) $this->delivered_price_quantity;
+    }
+
+    /**
+     * Get the unit used for billing.
+     * This can be different from the base unit or order unit.
+     *
+     * @return string
+     */
+    public function getBillingUnit(): string
+    {
+        return (string) ($this->price_unit ?: $this->unit);
+    }
 }

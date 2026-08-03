@@ -60,4 +60,28 @@ class GoodsReceivedItem extends Model
     {
         return $this->belongsTo(Product::class);
     }
+
+    // Helper Methods
+    // Following Golden Rule: GRN → Purchase unit + Actual base quantity
+
+    /**
+     * Get the effective base quantity (KG) that was actually received.
+     * Following Golden Rule: All base quantities in KG.
+     *
+     * @return float
+     */
+    public function effectiveReceivedWeight(): float
+    {
+        return (float) $this->received_qty;
+    }
+
+    /**
+     * Get the variance from the ordered quantity in base units (KG).
+     *
+     * @return float
+     */
+    public function getVarianceInBaseUnit(): float
+    {
+        return (float) $this->variance;
+    }
 }

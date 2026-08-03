@@ -59,7 +59,15 @@ class PurchaseOrderItem extends Model
         return $this->belongsTo(Product::class);
     }
 
-    // Computed
+    // Computed Attributes
+    // Following Golden Rule: PO → Purchase unit (BOX/BAG/KG)
+
+    /**
+     * Calculate the total subtotal for this purchase order item.
+     * Respects the price_basis (per_unit vs per_kg).
+     *
+     * @return float
+     */
     public function getSubtotalAttribute(): float
     {
         if ($this->price_basis === 'per_unit') {
@@ -69,11 +77,24 @@ class PurchaseOrderItem extends Model
         return $this->effective_weight * (float) $this->unit_price;
     }
 
+    /**
+     * Get the effective base quantity (KG) for this item.
+     * Uses actual_weight if available, otherwise uses quantity.
+     * Following Golden Rule: All base quantities in KG.
+     *
+     * @return float
+     */
     public function getEffectiveWeightAttribute(): float
     {
         return $this->actual_weight !== null ? (float) $this->actual_weight : (float) $this->quantity;
     }
 
+    /**
+     * Get the count of units for pricing purposes.
+     * Returns packet count for per_unit pricing, or KG for per_kg pricing.
+     *
+     * @return float
+     */
     public function getPricedUnitCountAttribute(): float
     {
         if ($this->purchase_unit === 'kg') {
@@ -83,6 +104,13 @@ class PurchaseOrderItem extends Model
         return (float) ($this->packet_qty ?? 0);
     }
 
+    /**
+     * Calculate the cost per KG based on the actual received quantity.
+     * Converts per-unit pricing to per-kg pricing.
+     *
+     * @param  float  $receivedQuantity  Base quantity in KG
+     * @return float Cost per KG
+     */
     public function costPerKgForReceivedQuantity(float $receivedQuantity): float
     {
         if ($receivedQuantity <= 0.0) {
