@@ -13,7 +13,7 @@ use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithTitle;
 
-class DailyPriceMatrixExport implements FromCollection, WithHeadings, WithMapping, WithTitle
+class DailyPriceMatrixExport implements FromCollection, WithHeadings, WithMapping
 {
     public function __construct(
         protected Collection $products,
@@ -90,10 +90,5 @@ class DailyPriceMatrixExport implements FromCollection, WithHeadings, WithMappin
         }
         
         return $mapped;
-    }
-
-    public function title(): string
-    {
-        return 'Price Matrix ' . strtoupper($this->matrixCategory);
     }
 }

@@ -811,56 +811,12 @@ class DailyPriceMatrixController extends Controller
 
         $products = $productQuery->get(['id', 'category_id', 'name', 'sku', 'unit', 'base_price']);
 
-        $filename = 'daily-prices-' . $weekStart->format('Y-m-d') . '-to-' . $weekEnd->format('Y-m-d') . '-category-' . strtoupper($matrixCategory) . '.csv';
+        $filename = 'daily-prices-' . $weekStart->format('Y-m-d') . '-to-' . $weekEnd->format('Y-m-d') . '-category-' . strtoupper($matrixCategory) . '.xlsx';
 
-        $headers = [
-            'Content-Type' => 'text/csv; charset=utf-8',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
-        ];
-
-        $callback = function () use ($products, $dates, $matrixCategory): void {
-            $handle = fopen('php://output', 'w');
-
-            // Header row
-            $headerRow = ['Product Name', 'Product Code', 'Unit'];
-            foreach ($dates as $dateStr) {
-                $headerRow[] = \Illuminate\Support\Carbon::parse($dateStr)->format('d-M-Y');
-            }
-            fputcsv($handle, $headerRow);
-
-            // Get approvals
-            $productIds = $products->pluck('id');
-            $approvals = \App\Models\DailyPriceApproval::query()
-                ->whereIn('product_id', $productIds)
-                ->whereIn('business_date', $dates)
-                ->get()
-                ->groupBy('product_id')
-                ->map(fn ($items) => $items->keyBy(fn ($app) => $app->business_date->toDateString()));
-
-            // Data rows
-            foreach ($products as $product) {
-                $productApprovals = $approvals->get($product->id) ?? collect();
-                $row = [
-                    $product->name,
-                    $product->sku ?: '',
-                    strtoupper($product->unit ?: 'KG'),
-                ];
-                foreach ($dates as $dateStr) {
-                    $approval = $productApprovals->get($dateStr);
-                    $price = match ($matrixCategory) {
-                        'a' => $approval?->price_a,
-                        'b' => $approval?->price_b,
-                        default => $approval?->price_c,
-                    };
-                    $row[] = $price !== null ? number_format((float) $price, 2, '.', '') : '';
-                }
-                fputcsv($handle, $row);
-            }
-
-            fclose($handle);
-        };
-
-        return response()->stream($callback, 200, $headers);
+        return \Maatwebsite\Excel\Facades\Excel::download(
+            new \App\Exports\DailyPriceMatrixExport($products, $dates, $matrixCategory),
+            $filename
+        );
     }
 
     private function authorizeBoardAccess(): void
