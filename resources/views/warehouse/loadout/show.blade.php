@@ -259,7 +259,7 @@
                             $available = $group['available_stock'];
                             $firstItem = $group['items'][0] ?? null;
                             $hasSecondaryUnit = $firstItem && $firstItem->requested_unit_quantity && strtolower($firstItem->requested_unit ?? '') !== 'kg';
-                            $requestedUnitName = $hasSecondaryUnit ? strtoupper($firstItem->requested_unit_label ?: $firstItem->requested_unit) : 'KG';
+                            $requestedUnitName = $hasSecondaryUnit ? strtoupper($firstItem->requested_unit_label ?: $firstItem->requested_unit) : strtoupper($group['unit']);
                             $orderedUnitQty = $hasSecondaryUnit ? (float) $firstItem->requested_unit_quantity : (float) $approved;
                             $loadedUnitQty = $group['loaded_order_unit_qty'] ?? $orderedUnitQty;
                             $orderedUnitLabel = $hasSecondaryUnit
@@ -343,7 +343,7 @@
                                             <span class="text-xs font-black text-slate-700">Actual Weight:</span>
                                             <div class="flex items-center gap-1.5 flex-1 max-w-[170px]">
                                                 <input type="number" id="qty-{{ $group['product_id'] }}" name="items[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" data-approved="{{ number_format($approved, 2, '.', '') }}" data-available="{{ number_format($available, 2, '.', '') }}" data-product="{{ $group['product']->name }}" data-unit="{{ strtoupper($group['unit']) }}" class="qty-input h-9 w-full rounded-lg border border-slate-200 px-2 text-center text-sm font-black focus:outline-none focus:ring-2 focus:ring-indigo-400 {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}" {{ $isItemNotAvailable ? 'readonly' : '' }} required>
-                                                <span class="text-xs font-black text-slate-600">KG</span>
+                                                <span class="text-xs font-black text-slate-600">{{ strtoupper($group['unit']) }}</span>
                                             </div>
                                         </div>
                                     </div>
@@ -357,9 +357,9 @@
                                         </button>
 
                                         <div class="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-                                            <span class="text-xs font-black text-slate-500">Actual KG:</span>
+                                            <span class="text-xs font-black text-slate-500">Actual {{ strtoupper($group['unit']) }}:</span>
                                             <input type="number" id="qty-{{ $group['product_id'] }}" name="items[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" data-approved="{{ number_format($approved, 2, '.', '') }}" data-available="{{ number_format($available, 2, '.', '') }}" data-product="{{ $group['product']->name }}" data-unit="{{ strtoupper($group['unit']) }}" class="qty-input flex-1 border-none text-center text-sm font-black focus:outline-none {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}" {{ $isItemNotAvailable ? 'readonly' : '' }} required>
-                                            <span class="text-xs font-black text-slate-600">KG</span>
+                                            <span class="text-xs font-black text-slate-600">{{ strtoupper($group['unit']) }}</span>
                                         </div>
 
                                         <button type="button" onclick="stepQty({{ $group['product_id'] }}, 1)" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 cursor-pointer transition-colors border-none">
