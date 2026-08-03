@@ -141,11 +141,7 @@ class DailyPriceBoardController extends Controller
             'autoApproveSamePurchasePrice' => $this->priceBoardService->autoApproveSamePurchasePrice(),
             'purchaseDate' => $purchaseDate,
             'targetBusinessDate' => $targetBusinessDate,
-            'inventoryProducts' => Product::query()
-                ->active()
-                ->with('category')
-                ->ordered()
-                ->get(['id', 'category_id', 'name', 'sku', 'unit', 'base_price']),
+            'inventoryProducts' => $approvals->map(fn ($a) => $a->product)->filter()->unique('id')->values(),
         ]);
     }
 
@@ -388,6 +384,23 @@ class DailyPriceBoardController extends Controller
         $userId = (int) $request->user()->id;
 
         DB::transaction(function () use ($approveTargets, $userId, &$approvedRows): void {
+            // Pre-load all ordered units in bulk for these approvals
+            $orderedUnitsMap = collect();
+            foreach ($approveTargets as $approvalId) {
+                $approval = DailyPriceApproval::query()->find((int) $approvalId);
+                if ($approval) {
+                    $units = \App\Models\ShopOrderItem::query()
+                        ->where('product_id', $approval->product_id)
+                        ->whereHas('order', fn ($q) => $q->where('business_date', $approval->business_date)->where('state', 'approved'))
+                        ->pluck('requested_unit')
+                        ->filter()
+                        ->countBy()
+                        ->sort()
+                        ->keys();
+                    $orderedUnitsMap->put((int) $approvalId, $units->first());
+                }
+            }
+
             foreach ($approveTargets as $approvalId) {
                 /** @var DailyPriceApproval|null $approval */
                 $approval = DailyPriceApproval::query()->find((int) $approvalId);
@@ -395,14 +408,13 @@ class DailyPriceBoardController extends Controller
                     continue;
                 }
 
-                // Auto-detect primary ordered unit to match loadout unit
-                $orderedUnit = $this->detectPrimaryOrderedUnitForApproval($approval);
+                $priceUnit = $orderedUnitsMap->get((int) $approvalId) ?? $approval->price_unit;
                 
                 $approval->update([
                     'status' => 'approved',
                     'approved_by' => $userId,
                     'approved_at' => now(),
-                    'price_unit' => $orderedUnit ?? $approval->price_unit,
+                    'price_unit' => $priceUnit,
                 ]);
 
                 $approvedRows++;
@@ -671,23 +683,6 @@ class DailyPriceBoardController extends Controller
         }
     }
 
-    /**
-     * Detect primary ordered unit for a DailyPriceApproval's product on its business date.
-     */
-    private function detectPrimaryOrderedUnitForApproval(DailyPriceApproval $approval): ?string
-    {
-        $units = \App\Models\ShopOrderItem::query()
-           ->where('product_id', $approval->product_id)
-           ->whereHas('order', fn ($q) => $q->where('business_date', $approval->business_date)->where('state', 'approved'))
-           ->pluck('requested_unit')
-           ->filter()
-           ->countBy()
-           ->sort()
-           ->keys();
-
-        return $units->first();
-    }
-
         /**
          * @return Collection<int, array{
          *   order_number: string,
@@ -727,56 +722,67 @@ class DailyPriceBoardController extends Controller
                 ->get()
                 ->keyBy('product_id');
 
-            return $orders
-                ->flatMap(function (ShopOrder $order) use ($approvalsByProduct): array {
-                    $groupName = strtoupper((string) ($order->shop?->priceGroup?->name ?? ''));
-                    $priceColumn = match ($groupName) {
-                        'A' => 'price_a',
-                        'B' => 'price_b',
-                        'C' => 'price_c',
-                        default => null,
-                    };
+        // Pre-load primary ordered units in bulk
+        $primaryOrderedUnits = \App\Models\ShopOrderItem::query()
+            ->whereIn('product_id', $productIds)
+            ->whereHas('order', fn ($q) => $q->where('business_date', $businessDate)->where('state', 'approved'))
+            ->select('product_id', 'requested_unit')
+            ->get()
+            ->groupBy('product_id')
+            ->map(function ($items) {
+                return $items->countBy('requested_unit')->sort()->keys()->first();
+            });
 
-                    return $order->items
-                        ->filter(fn ($item): bool => (float) ($item->approved_qty ?? 0) > 0)
-                        ->map(function ($item) use ($order, $groupName, $priceColumn, $approvalsByProduct): ?array {
-                            $approval = $approvalsByProduct->get((int) $item->product_id);
+        return $orders
+            ->flatMap(function (ShopOrder $order) use ($approvalsByProduct, $primaryOrderedUnits): array {
+                $groupName = strtoupper((string) ($order->shop?->priceGroup?->name ?? ''));
+                $priceColumn = match ($groupName) {
+                    'A' => 'price_a',
+                    'B' => 'price_b',
+                    'C' => 'price_c',
+                    default => null,
+                };
 
-                            if (! $approval) {
-                                $issue = 'Missing daily approval';
-                            } elseif ($approval->status !== 'approved' || $approval->approved_at === null) {
-                                $issue = 'Not approved by admin';
-                            } elseif ($priceColumn === null) {
-                                $issue = 'Shop price group mapping missing';
-                            } elseif ((float) ($approval->{$priceColumn} ?? 0) <= 0) {
-                                $issue = 'Approved price is zero/invalid';
-                            } else {
-                                return null;
-                            }
+                return $order->items
+                    ->filter(fn ($item): bool => (float) ($item->approved_qty ?? 0) > 0)
+                    ->map(function ($item) use ($order, $groupName, $priceColumn, $approvalsByProduct): ?array {
+                        $approval = $approvalsByProduct->get((int) $item->product_id);
 
-                            return [
-                                'order_number' => (string) $order->order_number,
-                                'shop_name' => (string) ($order->shop?->name ?? 'Unknown Shop'),
-                                'product_name' => (string) ($item->product?->name ?? 'Unknown Product'),
-                                'sku' => (string) ($item->product?->sku ?? 'NA'),
-                                'price_group' => $groupName !== '' ? $groupName : '-',
-                                'issue' => $issue,
-                                'approval_id' => $approval?->id,
-                                'price_column' => $priceColumn,
-                                'fixable' => $issue === 'Approved price is zero/invalid'
-                                    && $approval !== null
-                                    && in_array((string) $priceColumn, ['price_a', 'price_b', 'price_c'], true),
-                            ];
-                        })
-                        ->filter()
-                        ->values()
-                        ->all();
-                })
-                ->unique(fn (array $row): string => implode('|', [
-                    $row['order_number'],
-                    $row['product_name'],
-                    $row['issue'],
-                ]))
-                ->values();
+                        if (! $approval) {
+                            $issue = 'Missing daily approval';
+                        } elseif ($approval->status !== 'approved' || $approval->approved_at === null) {
+                            $issue = 'Not approved by admin';
+                        } elseif ($priceColumn === null) {
+                            $issue = 'Shop price group mapping missing';
+                        } elseif ((float) ($approval->{$priceColumn} ?? 0) <= 0) {
+                            $issue = 'Approved price is zero/invalid';
+                        } else {
+                            return null;
+                        }
+
+                        return [
+                            'order_number' => (string) $order->order_number,
+                            'shop_name' => (string) ($order->shop?->name ?? 'Unknown Shop'),
+                            'product_name' => (string) ($item->product?->name ?? 'Unknown Product'),
+                            'sku' => (string) ($item->product?->sku ?? 'NA'),
+                            'price_group' => $groupName !== '' ? $groupName : '-',
+                            'issue' => $issue,
+                            'approval_id' => $approval?->id,
+                            'price_column' => $priceColumn,
+                            'fixable' => $issue === 'Approved price is zero/invalid'
+                                && $approval !== null
+                                && in_array((string) $priceColumn, ['price_a', 'price_b', 'price_c'], true),
+                        ];
+                    })
+                    ->filter()
+                    ->values()
+                    ->all();
+            })
+            ->unique(fn (array $row): string => implode('|', [
+                $row['order_number'],
+                $row['product_name'],
+                $row['issue'],
+            ]))
+            ->values();
     }
 }
