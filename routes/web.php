@@ -193,6 +193,7 @@ Route::middleware('auth')->group(function () {
         Route::post('prices/matrix/copy-previous', [DailyPriceMatrixController::class, 'copyFromPreviousDay'])->name('prices.matrix.copy-previous');
         Route::post('prices/matrix/toggle-lock', [DailyPriceMatrixController::class, 'toggleLock'])->name('prices.matrix.toggle-lock');
         Route::post('prices/matrix/import-json', [DailyPriceMatrixController::class, 'importFromJson'])->name('prices.matrix.import-json');
+        Route::get('prices/matrix/export-csv', [DailyPriceMatrixController::class, 'exportCsv'])->name('prices.matrix.export-csv');
         Route::post('prices/matrix', [DailyPriceMatrixController::class, 'updateMatrix'])->name('prices.matrix.update');
         Route::post('prices', [DailyPriceBoardController::class, 'update'])->name('prices.update');
         Route::post('prices/{approval}/save-row', [DailyPriceBoardController::class, 'saveRow'])->name('prices.save-row');

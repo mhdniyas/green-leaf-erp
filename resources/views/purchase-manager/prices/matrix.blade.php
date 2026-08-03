@@ -120,6 +120,31 @@
             </form>
         </section>
 
+        <!-- Export CSV Section -->
+        <section class="rounded-3xl border border-green-200 bg-green-50 p-5 shadow-sm">
+            <div class="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                    <h3 class="text-sm font-black text-green-900 uppercase tracking-wider">Export Prices to CSV</h3>
+                    <p class="text-xs font-medium text-green-700 mt-1">Download current price matrix as CSV file for {{ strtoupper($matrixCategory) }} category</p>
+                </div>
+                <a
+                    href="{{ route('purchasing.prices.matrix.export-csv', [
+                        'date' => $targetBusinessDate,
+                        'search' => $search,
+                        'category_id' => $categoryId,
+                        'week_start' => $weekStartDate,
+                        'matrix_category' => $matrixCategory,
+                    ]) }}"
+                    class="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-green-600 px-5 py-3 text-sm font-black text-white hover:bg-green-500"
+                >
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Export CSV
+                </a>
+            </div>
+        </section>
+
         @if ($isAdminViewer)
             <!-- Admin Import Section -->
             <section class="rounded-3xl border border-indigo-200 bg-indigo-50 p-5 shadow-sm">

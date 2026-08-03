@@ -930,6 +930,85 @@ class DailyPriceMatrixController extends Controller
         return redirect()->back()->with('success', $message);
     }
 
+    public function exportCsv(Request $request)
+    {
+        $this->authorizeBoardAccess();
+
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+            'search' => ['nullable', 'string', 'max:255'],
+            'category_id' => ['nullable', 'integer'],
+            'week_start' => ['nullable', 'date'],
+            'matrix_category' => ['required', 'string', 'in:a,b,c,A,B,C'],
+        ]);
+
+        $selectedDate = Carbon::parse((string) $validated['date']);
+        $search = (string) ($validated['search'] ?? '');
+        $categoryId = (int) ($validated['category_id'] ?? 0) ?: null;
+        $matrixCategory = strtolower((string) $validated['matrix_category']);
+
+        $weekStart = $request->filled('week_start')
+            ? Carbon::parse((string) $request->input('week_start'))->startOfWeek(Carbon::MONDAY)
+            : $selectedDate->copy()->startOfWeek(Carbon::MONDAY);
+        $weekEnd = $weekStart->copy()->addDays(6);
+
+        // Build date array for the week
+        $dates = [];
+        $currentDate = $weekStart->copy();
+        while ($currentDate->lte($weekEnd)) {
+            $dates[] = $currentDate->toDateString();
+            $currentDate->addDay();
+        }
+
+        // Get products (same query as index method)
+        $user = $request->user();
+        $productQuery = Product::query()
+            ->active()
+            ->with('category')
+            ->ordered();
+
+        if ($user && ! $user->hasRole('admin')) {
+            $assignedCatIds = $user->assignedCategoryIds();
+            $purchasedProductIds = GoodsReceivedItem::query()
+                ->whereHas('goodsReceived', fn ($grnQuery) => $grnQuery->where('received_by', $user->id))
+                ->pluck('product_id')
+                ->filter()
+                ->unique()
+                ->toArray();
+
+            if (! empty($assignedCatIds) || ! empty($purchasedProductIds)) {
+                $productQuery->where(function ($q) use ($assignedCatIds, $purchasedProductIds): void {
+                    if (! empty($assignedCatIds)) {
+                        $q->whereIn('category_id', $assignedCatIds);
+                    }
+                    if (! empty($purchasedProductIds)) {
+                        $q->orWhereIn('id', $purchasedProductIds);
+                    }
+                });
+            }
+        }
+
+        if ($categoryId) {
+            $productQuery->where('category_id', $categoryId);
+        }
+
+        if ($search !== '') {
+            $productQuery->where(function ($q) use ($search): void {
+                $q->where('name', 'LIKE', "%{$search}%")
+                    ->orWhere('sku', 'LIKE', "%{$search}%");
+            });
+        }
+
+        $products = $productQuery->get(['id', 'category_id', 'name', 'sku', 'unit', 'base_price']);
+
+        $filename = 'daily-prices-' . $weekStart->format('Y-m-d') . '-to-' . $weekEnd->format('Y-m-d') . '-category-' . strtoupper($matrixCategory) . '.csv';
+
+        return \Maatwebsite\Excel\Facades\Excel::download(
+            new \App\Exports\DailyPriceMatrixExport($products, $dates, $matrixCategory),
+            $filename
+        );
+    }
+
     private function authorizeBoardAccess(): void
     {
         abort_unless(auth()->user()?->hasRole('purchase') || auth()->user()?->hasRole('admin'), 403);
