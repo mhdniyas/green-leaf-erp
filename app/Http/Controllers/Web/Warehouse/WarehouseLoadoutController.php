@@ -389,19 +389,19 @@ class WarehouseLoadoutController extends Controller
                         'fulfillment_type' => $firstRow->fulfillment_type,
                     ];
 
-                    $shopOrder->items()->where('product_id', $productId)->delete();
-
                     $isNotAvailable = ($request->input("item_status.{$productId}") === 'not_available');
                     $discrepancyNote = $request->input("item_notes.{$productId}") ?? null;
+
+                    // Build the target row shape first, then reuse/update existing rows in
+                    // place instead of soft-deleting and recreating them on every save.
+                    $targetRows = [];
 
                     if ($isNotAvailable) {
                         $rowReqUnitQty = $hasRequestedUnit && $conversionToBase > 0
                             ? round($totalApproved / $conversionToBase, 2)
                             : $totalApproved;
 
-                        ShopOrderItem::create(array_merge($basePriceData, [
-                            'shop_order_id' => $shopOrder->id,
-                            'product_id' => $productId,
+                        $targetRows[] = array_merge($basePriceData, [
                             'requested_qty' => $totalApproved,
                             'approved_qty' => $totalApproved,
                             'loaded_qty' => 0.0,
@@ -418,7 +418,7 @@ class WarehouseLoadoutController extends Controller
                             'is_sorted' => true,
                             'sorted_at' => now(),
                             'sorted_by' => $userId,
-                        ]));
+                        ]);
                     } else {
                         $excessQty = max(0.0, round($submittedQty - $totalApproved, 3));
                         $excessValue = round($excessQty * $unitSellingPrice, 2);
@@ -432,9 +432,7 @@ class WarehouseLoadoutController extends Controller
                                 ? round($loadedQtyToRecord / $conversionToBase, 2)
                                 : $loadedQtyToRecord;
 
-                            ShopOrderItem::create(array_merge($basePriceData, [
-                                'shop_order_id' => $shopOrder->id,
-                                'product_id' => $productId,
+                            $targetRows[] = array_merge($basePriceData, [
                                 'requested_qty' => $loadedQtyToRecord,
                                 'approved_qty' => $loadedQtyToRecord,
                                 'loaded_qty' => $submittedQty,
@@ -442,13 +440,16 @@ class WarehouseLoadoutController extends Controller
                                 'requested_unit_quantity' => $loadedReqUnitQty,
                                 'line_total' => round($loadedQtyToRecord * $unitSellingPrice, 2),
                                 'actual_weight' => $hasRequestedUnit ? null : ($actualWeight > 0.0001 ? $actualWeight : null),
+                                'delivered_qty' => null,
                                 'excess_qty' => $excessQty,
                                 'excess_value' => $excessValue,
+                                'loadout_discrepancy_type' => 'none',
+                                'loadout_discrepancy_note' => null,
                                 'sorting_status' => 'loaded',
                                 'is_sorted' => true,
                                 'sorted_at' => now(),
                                 'sorted_by' => $userId,
-                            ]));
+                            ]);
                         }
 
                         if ($remaining > 0.001) {
@@ -456,9 +457,7 @@ class WarehouseLoadoutController extends Controller
                                 ? round($remaining / $conversionToBase, 2)
                                 : $remaining;
 
-                            ShopOrderItem::create(array_merge($basePriceData, [
-                                'shop_order_id' => $shopOrder->id,
-                                'product_id' => $productId,
+                            $targetRows[] = array_merge($basePriceData, [
                                 'requested_qty' => $remaining,
                                 'approved_qty' => $remaining,
                                 'loaded_qty' => null,
@@ -466,15 +465,20 @@ class WarehouseLoadoutController extends Controller
                                 'requested_unit_quantity' => $remainderReqUnitQty,
                                 'line_total' => round($remaining * $unitSellingPrice, 2),
                                 'actual_weight' => null,
+                                'delivered_qty' => null,
                                 'excess_qty' => 0.0,
                                 'excess_value' => 0.0,
+                                'loadout_discrepancy_type' => 'none',
+                                'loadout_discrepancy_note' => null,
                                 'sorting_status' => 'allocated',
                                 'is_sorted' => false,
                                 'sorted_at' => null,
                                 'sorted_by' => null,
-                            ]));
+                            ]);
                         }
                     }
+
+                    $this->applyOrderItemRows($rows, $shopOrder->id, $productId, $targetRows);
                 }
 
                 $newStatus = $anyItemLoaded ? 'ready_for_dispatch' : 'pending_delivery';
@@ -612,6 +616,39 @@ class WarehouseLoadoutController extends Controller
         if (! in_array($shopOrder->delivery_status, ['pending_delivery', 'ready_for_dispatch'], true)) {
             abort(403, 'This loadout order cannot be edited.');
         }
+    }
+
+    /**
+     * Persist the target row shape for a product's loadout by updating existing
+     * shop_order_items rows in place (reusing their ids) instead of soft-deleting
+     * and recreating them on every save. Only creates/deletes rows when the
+     * number of rows actually needs to change (e.g. splitting into a remainder row).
+     *
+     * @param  Collection<int, ShopOrderItem>  $existingRows
+     * @param  array<int, array<string, mixed>>  $targetRows
+     */
+    private function applyOrderItemRows(Collection $existingRows, int $shopOrderId, int $productId, array $targetRows): void
+    {
+        $existingRows = $existingRows->values();
+
+        foreach ($targetRows as $index => $attributes) {
+            $attributes['shop_order_id'] = $shopOrderId;
+            $attributes['product_id'] = $productId;
+
+            /** @var ShopOrderItem|null $existing */
+            $existing = $existingRows->get($index);
+
+            if ($existing) {
+                $existing->update($attributes);
+
+                continue;
+            }
+
+            ShopOrderItem::create($attributes);
+        }
+
+        $existingRows->slice(count($targetRows))
+            ->each(fn (ShopOrderItem $row) => $row->delete());
     }
 
     /**
