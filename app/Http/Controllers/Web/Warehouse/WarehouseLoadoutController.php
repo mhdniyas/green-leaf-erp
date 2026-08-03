@@ -326,10 +326,10 @@ class WarehouseLoadoutController extends Controller
                     $hasRequestedUnit = filled($firstRow->requested_unit)
                         && strtolower((string) $firstRow->requested_unit) !== 'kg';
                     $loadedOrderUnitQty = $submittedUnitQty ?? ($hasRequestedUnit ? $requestedUnitQty : null);
-                    $submittedQty = $actualWeight > 0.0001
-                        ? $actualWeight
-                        : ($hasRequestedUnit
-                            ? round(max(0.0, (float) $loadedOrderUnitQty) * max(0.0, $conversionToBase), 3)
+                    $submittedQty = $hasRequestedUnit
+                        ? round(max(0.0, (float) $loadedOrderUnitQty) * max(0.0, $conversionToBase), 3)
+                        : ($actualWeight > 0.0001
+                            ? $actualWeight
                             : max(0.0, (float) ($itemsInput[$productId] ?? 0)));
 
                     // Calculate difference-based deduction
@@ -441,7 +441,7 @@ class WarehouseLoadoutController extends Controller
                                 'loaded_order_unit_qty' => $hasRequestedUnit ? ($loadedOrderUnitQty ?? round($submittedQty / $conversionToBase, 2)) : null,
                                 'requested_unit_quantity' => $loadedReqUnitQty,
                                 'line_total' => round($loadedQtyToRecord * $unitSellingPrice, 2),
-                                'actual_weight' => $actualWeight > 0.0001 ? $actualWeight : null,
+                                'actual_weight' => $hasRequestedUnit ? null : ($actualWeight > 0.0001 ? $actualWeight : null),
                                 'excess_qty' => $excessQty,
                                 'excess_value' => $excessValue,
                                 'sorting_status' => 'loaded',

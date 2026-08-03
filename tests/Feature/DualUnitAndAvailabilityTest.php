@@ -171,7 +171,7 @@ class DualUnitAndAvailabilityTest extends TestCase
         ]);
 
         // 2. Perform Loadout:
-        // Product 1 (Spinach): Actual Loaded 21.00 KG (exceeds est. 18 KG)
+        // Product 1 (Spinach): KG input is ignored because loadout unit quantity (10 bunch) is authoritative
         // Product 2 (Coriander): Marked as "Not Available" (Out of Stock)
         $this->actingAs($user)
             ->post(route('warehouse.loadout.save', $order), [
@@ -210,8 +210,8 @@ class DualUnitAndAvailabilityTest extends TestCase
         $this->assertEquals('bunch', $item1->requested_unit);
         $this->assertEquals(1.8000, (float) $item1->requested_unit_conversion_to_base);
         $this->assertEquals(18.0, (float) $item1->approved_qty); // Preserved estimated base qty
-        $this->assertEquals(21.0, (float) $item1->loaded_qty); // Actual loaded weight
-        $this->assertEquals(3.0, (float) $item1->excess_qty); // 21 - 18 = 3.0
+        $this->assertEquals(18.0, (float) $item1->loaded_qty); // Converted from 10 bunch * 1.8
+        $this->assertEquals(0.0, (float) $item1->excess_qty); // Matches approved quantity
 
         // Verify Item 2 (Not Available):
         $this->assertEquals(0.0, (float) $item2->loaded_qty);
@@ -224,9 +224,9 @@ class DualUnitAndAvailabilityTest extends TestCase
         $invItem1 = $invoiceFresh->items->where('product_id', $product1->id)->first();
         $invItem2 = $invoiceFresh->items->where('product_id', $product2->id)->first();
 
-        // Item 1 billed for 21.00 KG = 21 * 20 = 420.00
-        $this->assertEquals(21.0, (float) $invItem1->delivered_qty);
-        $this->assertEquals(420.0, (float) $invItem1->final_line_total);
+        // Item 1 billed for 18.00 KG = 18 * 20 = 360.00
+        $this->assertEquals(18.0, (float) $invItem1->delivered_qty);
+        $this->assertEquals(360.0, (float) $invItem1->final_line_total);
 
         // Item 2 not available -> delivered_qty = 0, total = 0
         $this->assertEquals(0.0, (float) ($invItem2?->delivered_qty ?? 0.0));

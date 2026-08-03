@@ -2469,11 +2469,7 @@ class RequisitionController extends Controller
             return;
         }
 
-        try {
-            $this->shopInvoiceService->synchronizeOrderInvoice($order, $userId);
-            $order->unsetRelation('invoice');
-        } catch (ValidationException) {
-            return;
-        }
+        $this->shopInvoiceService->synchronizeOrderInvoice($order, $userId);
+        $order->unsetRelation('invoice');
     }
 }

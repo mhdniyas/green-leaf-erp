@@ -177,7 +177,7 @@ class DualUnitLoadoutInputTest extends TestCase
         $this->assertEquals(250.00, (float) $invoice->final_total);
     }
 
-    public function test_piece_billing_uses_explicit_actual_weight_not_matching_quantities(): void
+    public function test_piece_billing_prefers_loadout_unit_quantity_when_present(): void
     {
         $this->seed(\Database\Seeders\RolePermissionSeeder::class);
         $user = User::factory()->create();
@@ -329,7 +329,7 @@ class DualUnitLoadoutInputTest extends TestCase
         $this->assertNull($emptyWeightItem->actual_weight);
         $this->assertEquals(5.0, (float) $emptyWeightItem->loaded_qty);
         $this->assertEquals(5.0, (float) $actualWeightItem->loaded_order_unit_qty);
-        $this->assertEquals(5.0, (float) $actualWeightItem->actual_weight);
+        $this->assertNull($actualWeightItem->actual_weight);
         $this->assertEquals(5.0, (float) $actualWeightItem->loaded_qty);
 
         $this->actingAs($user)->post(route('warehouse.loadout.move-to-delivery', $order))->assertRedirect();

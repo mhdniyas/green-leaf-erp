@@ -6,9 +6,6 @@
     );
     $invoice = $order->invoice;
     $invoiceItemsByProductId = $invoice?->items?->keyBy('product_id') ?? collect();
-    $priceRowsByProductId = collect($deliveryPriceReadiness['published'] ?? [])
-        ->merge($deliveryPriceReadiness['unpublished'] ?? [])
-        ->keyBy('product_id');
     $fulfilledItems = $sortedItems
         ->filter(fn ($item) => $item->sorting_status === 'loaded' && (float) ($item->loaded_qty ?? 0) > 0)
         ->groupBy('product_id')
@@ -24,13 +21,9 @@
 
     $computedInvoiceTotal = (float) ($invoice?->final_total ?? 0);
     if ($computedInvoiceTotal <= 0) {
-        $computedInvoiceTotal = $fulfilledItems->sum(function($item) use ($invoiceItemsByProductId, $priceRowsByProductId) {
-            $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
-            $priceRow = $priceRowsByProductId->get($item->product_id);
-            $deliveredBaseQty = (float) ($item->actual_weight ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
-            $unitRate = (float) ($invoiceItem?->unit_price ?? $priceRow['unit_price'] ?? 0);
-            return round($deliveredBaseQty * $unitRate, 2);
-        });
+        $computedInvoiceTotal = (float) $invoiceItemsByProductId->sum(
+            fn ($invoiceItem) => (float) ($invoiceItem->final_line_total ?? $invoiceItem->line_subtotal ?? 0)
+        );
     }
 
     $bottomTitle = match (true) {
@@ -86,18 +79,17 @@
                         @forelse ($fulfilledItems as $item)
                             @php
                                 $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
-                                $priceRow = $priceRowsByProductId->get($item->product_id);
                                 $hasSec = $item->requested_unit_quantity && strtolower($item->requested_unit ?? '') !== 'kg';
                                 $secUnitLabel = $hasSec
                                     ? strtoupper($item->requested_unit_label ?: $item->requested_unit)
                                     : strtoupper($item->unit);
 
-                                $deliveredBaseQty = (float) ($item->actual_weight ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
-                                $unitRate = (float) ($invoiceItem?->unit_price ?? $priceRow['unit_price'] ?? 0);
-                                $priceUnit = (string) ($invoiceItem?->price_unit ?? $priceRow['price_unit'] ?? $item->unit ?? 'KG');
+                                $deliveredBaseQty = (float) ($invoiceItem?->delivered_qty ?? $invoiceItem?->approved_qty ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
+                                $unitRate = $invoiceItem?->unit_price;
+                                $priceUnit = (string) ($invoiceItem?->price_unit ?? $invoiceItem?->unit ?? $item->unit ?? 'KG');
                                 $isPriceInSecondaryUnit = $hasSec && \App\Models\ProductUnit::normalizeUnit($priceUnit) !== \App\Models\ProductUnit::normalizeUnit((string) $item->unit);
 
-                                $lineTotal = (float) ($invoiceItem?->final_line_total ?? $invoiceItem?->line_subtotal ?? round($deliveredBaseQty * $unitRate, 2));
+                                $lineTotal = $invoiceItem?->final_line_total ?? $invoiceItem?->line_subtotal;
 
                                 $loadedUnitQty = (float) ($item->loaded_order_unit_qty ?? 0);
                                 if ($loadedUnitQty <= 0 && $hasSec && (float)($item->requested_unit_conversion_to_base ?? 0) > 0) {
@@ -138,8 +130,20 @@
                                         <span class="block text-[8px] font-semibold text-slate-500">{{ $refSubtitle }}</span>
                                     @endif
                                 </td>
-                                <td class="py-1.5 pr-0.5 text-right font-bold text-slate-700 sm:py-2.5 sm:pr-1">Rs. {{ number_format($unitRate, 2) }}</td>
-                                <td class="py-1.5 text-right font-black text-slate-950 sm:py-2">Rs. {{ number_format($lineTotal, 2) }}</td>
+                                <td class="py-1.5 pr-0.5 text-right font-bold text-slate-700 sm:py-2.5 sm:pr-1">
+                                    @if($unitRate !== null)
+                                        Rs. {{ number_format((float) $unitRate, 2) }}
+                                    @else
+                                        —
+                                    @endif
+                                </td>
+                                <td class="py-1.5 text-right font-black text-slate-950 sm:py-2">
+                                    @if($lineTotal !== null)
+                                        Rs. {{ number_format((float) $lineTotal, 2) }}
+                                    @else
+                                        —
+                                    @endif
+                                </td>
                             </tr>
                         @empty
                             <tr>

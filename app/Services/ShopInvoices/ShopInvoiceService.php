@@ -137,10 +137,10 @@ class ShopInvoiceService
                         $shortageQty = 0.0;
                     }
 
-                    $priceQuantity = $this->priceQuantityFor($product, $approvedQty, $priceUnit);
-                    $deliveredPriceQuantity = $this->priceQuantityFor($product, $deliveredQty, $priceUnit);
-                    $shortagePriceQuantity = $this->priceQuantityFor($product, $shortageQty, $priceUnit);
-                    $excessPriceQuantity = $this->priceQuantityFor($product, $excessQty, $priceUnit);
+                    $priceQuantity = $this->priceQuantityFor($product, $approvedQty, $priceUnit, $orderItems);
+                    $deliveredPriceQuantity = $this->priceQuantityFor($product, $deliveredQty, $priceUnit, $orderItems);
+                    $shortagePriceQuantity = $this->priceQuantityFor($product, $shortageQty, $priceUnit, $orderItems);
+                    $excessPriceQuantity = $this->priceQuantityFor($product, $excessQty, $priceUnit, $orderItems);
                     $lineSubtotal = round($priceQuantity * $unitPrice, 2);
                     $shortageAmount = round($shortagePriceQuantity * $unitPrice, 2);
                     $excessAmount = round($excessPriceQuantity * $unitPrice, 2);
@@ -214,9 +214,9 @@ class ShopInvoiceService
 
                     $product = $firstOrderItem->product;
                     $priceUnit = (string) ($invoiceItem->price_unit ?: $product?->unit ?: $invoiceItem->unit);
-                    $deliveredPriceQuantity = $this->priceQuantityFor($product, $deliveredQty, $priceUnit);
-                    $shortagePriceQuantity = $this->priceQuantityFor($product, $shortageQty, $priceUnit);
-                    $excessPriceQuantity = $this->priceQuantityFor($product, $excessQty, $priceUnit);
+                    $deliveredPriceQuantity = $this->priceQuantityFor($product, $deliveredQty, $priceUnit, $orderItems);
+                    $shortagePriceQuantity = $this->priceQuantityFor($product, $shortageQty, $priceUnit, $orderItems);
+                    $excessPriceQuantity = $this->priceQuantityFor($product, $excessQty, $priceUnit, $orderItems);
                     $shortageAmount = round($shortagePriceQuantity * (float) $invoiceItem->unit_price, 2);
                     $excessAmount = round($excessPriceQuantity * (float) $invoiceItem->unit_price, 2);
 
@@ -237,8 +237,9 @@ class ShopInvoiceService
                         $itemDeliveredQty = (float) ($deliveredQtys[$orderItem->id] ?? 0);
                         $itemShortageQty = max(0.00, $itemApprovedQty - $itemDeliveredQty);
                         $itemExcessQty = max(0.00, $itemDeliveredQty - $itemApprovedQty);
-                        $itemShortageAmount = round($this->priceQuantityFor($orderItem->product, $itemShortageQty, $priceUnit) * (float) $invoiceItem->unit_price, 2);
-                        $itemExcessAmount = round($this->priceQuantityFor($orderItem->product, $itemExcessQty, $priceUnit) * (float) $invoiceItem->unit_price, 2);
+                        $singleItemContext = collect([$orderItem]);
+                        $itemShortageAmount = round($this->priceQuantityFor($orderItem->product, $itemShortageQty, $priceUnit, $singleItemContext) * (float) $invoiceItem->unit_price, 2);
+                        $itemExcessAmount = round($this->priceQuantityFor($orderItem->product, $itemExcessQty, $priceUnit, $singleItemContext) * (float) $invoiceItem->unit_price, 2);
 
                         $orderItem->update([
                             'delivered_qty' => $itemDeliveredQty,
@@ -1100,7 +1101,10 @@ class ShopInvoiceService
         ];
     }
 
-    private function priceQuantityFor(?Product $product, float $baseQuantity, string $priceUnit): float
+    /**
+     * @param  Collection<int, ShopOrderItem>|null  $orderItems
+     */
+    private function priceQuantityFor(?Product $product, float $baseQuantity, string $priceUnit, ?Collection $orderItems = null): float
     {
         if (! $product) {
             throw ValidationException::withMessages([
@@ -1115,10 +1119,23 @@ class ShopInvoiceService
             return round($baseQuantity, 4);
         }
 
-        $product->loadMissing('orderUnits');
-        $conversionToBase = $product->orderUnits
-            ->first(fn (ProductUnit $unit): bool => ProductUnit::normalizeUnit($unit->unit) === $normalizedPriceUnit)
-            ?->conversion_to_base;
+        $conversionToBase = null;
+
+        if ($orderItems instanceof Collection && $orderItems->isNotEmpty()) {
+            $conversionToBase = $orderItems
+                ->first(function (ShopOrderItem $item) use ($normalizedPriceUnit): bool {
+                    return ProductUnit::normalizeUnit((string) ($item->requested_unit ?: $item->unit)) === $normalizedPriceUnit
+                        && (float) ($item->requested_unit_conversion_to_base ?? 0) > 0;
+                })
+                ?->requested_unit_conversion_to_base;
+        }
+
+        if ($conversionToBase === null || (float) $conversionToBase <= 0) {
+            $product->loadMissing('orderUnits');
+            $conversionToBase = $product->orderUnits
+                ->first(fn (ProductUnit $unit): bool => ProductUnit::normalizeUnit($unit->unit) === $normalizedPriceUnit)
+                ?->conversion_to_base;
+        }
 
         if ($conversionToBase === null || (float) $conversionToBase <= 0) {
             throw ValidationException::withMessages([
@@ -1136,20 +1153,9 @@ class ShopInvoiceService
      */
     private function billingPriceForOrderItems(Collection $orderItems, array $dailyPrice): array
     {
-        /** @var ShopOrderItem $firstOrderItem */
-        $firstOrderItem = $orderItems->first();
-        $product = $firstOrderItem->product;
-        $actualWeight = (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) ($item->actual_weight ?? 0));
-        $requestedUnit = ProductUnit::normalizeUnit((string) ($firstOrderItem->requested_unit ?: $product?->unit ?: 'kg'));
-        $baseUnit = ProductUnit::normalizeUnit((string) ($product?->unit ?: $firstOrderItem->unit ?: 'kg'));
-        $billingUnit = $actualWeight > 0.0001 ? $baseUnit : $requestedUnit;
-        $dailyPriceUnit = ProductUnit::normalizeUnit((string) $dailyPrice['price_unit']);
-
         return [
-            'price' => $billingUnit === $dailyPriceUnit
-                ? round((float) $dailyPrice['price'], 2)
-                : round((float) ($firstOrderItem->locked_selling_price ?? $dailyPrice['price']), 2),
-            'price_unit' => $billingUnit,
+            'price' => round((float) $dailyPrice['price'], 2),
+            'price_unit' => ProductUnit::normalizeUnit((string) $dailyPrice['price_unit']),
         ];
     }
 
