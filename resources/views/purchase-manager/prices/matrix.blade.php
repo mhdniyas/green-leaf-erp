@@ -123,7 +123,7 @@
         @endif
 
         <!-- Dedicated Matrix Table Card -->
-        <form method="POST" action="{{ route('purchasing.prices.matrix.update') }}" class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+        <form method="POST" action="{{ url('/purchasing/prices/matrix') }}" class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
             @csrf
             <input type="hidden" name="date" value="{{ $purchaseDate }}">
             <input type="hidden" name="search" value="{{ $search }}">
