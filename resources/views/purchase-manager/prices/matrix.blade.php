@@ -13,6 +13,7 @@
         <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
             <form method="GET" action="{{ route('purchasing.prices.matrix.index') }}" class="space-y-4">
                 <input type="hidden" name="matrix_category" id="filter-matrix-category" value="{{ $matrixCategory }}">
+                <input type="hidden" name="week_start" id="filter-week-start" value="{{ $weekStartDate }}">
                 <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 items-end">
                     <div>
                         <label for="search" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Product Search</label>
@@ -95,10 +96,27 @@
                             </button>
                         </div>
                     </div>
-                    <p class="text-xs font-medium text-slate-500">
-                        Displaying matrix for <span class="font-bold text-slate-900">{{ \Illuminate\Support\Carbon::parse($purchaseDate)->format('F Y') }}</span> ({{ count($matrixProducts) }} products). Numbers in red indicate price change.
-                    </p>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <a
+                            href="{{ route('purchasing.prices.matrix.index', ['date' => $purchaseDate, 'search' => $search, 'category_id' => $categoryId, 'matrix_category' => $matrixCategory, 'week_start' => $previousWeekStartDate]) }}"
+                            class="inline-flex min-h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+                        >
+                            Previous Week
+                        </a>
+                        <span class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">
+                            {{ \Illuminate\Support\Carbon::parse($weekStartDate)->format('d M') }} - {{ \Illuminate\Support\Carbon::parse($weekEndDate)->format('d M Y') }}
+                        </span>
+                        <a
+                            href="{{ route('purchasing.prices.matrix.index', ['date' => $purchaseDate, 'search' => $search, 'category_id' => $categoryId, 'matrix_category' => $matrixCategory, 'week_start' => $nextWeekStartDate]) }}"
+                            class="inline-flex min-h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+                        >
+                            Next Week
+                        </a>
+                    </div>
                 </div>
+                <p class="text-xs font-medium text-slate-500">
+                    Displaying matrix for selected week ({{ count($matrixProducts) }} products). Numbers in red indicate price change.
+                </p>
             </form>
         </section>
 
@@ -128,7 +146,36 @@
             <input type="hidden" name="date" value="{{ $purchaseDate }}">
             <input type="hidden" name="search" value="{{ $search }}">
             <input type="hidden" name="category_id" value="{{ $categoryId }}">
+            <input type="hidden" name="week_start" value="{{ $weekStartDate }}">
             <input type="hidden" name="matrix_category" id="update-matrix-category" value="{{ $matrixCategory }}">
+            <input type="hidden" name="action" id="matrix-form-action" value="update">
+            <div class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-100 bg-cyan-50 px-4 py-3">
+                <p class="text-sm font-semibold text-cyan-900">
+                    @if ($isAdminViewer)
+                        Update Price saves matrix values, and <span class="font-black">Approve &amp; Publish</span> immediately publishes live prices and reprices shop invoices.
+                    @else
+                        Update Price saves matrix values as proposal. Admin approval is required before prices are published.
+                    @endif
+                </p>
+                <div class="flex flex-wrap items-center gap-3">
+                    <button
+                        type="submit"
+                        onclick="document.getElementById('matrix-form-action').value='update'"
+                        class="inline-flex min-h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
+                    >
+                        Update Price
+                    </button>
+                    @if ($isAdminViewer)
+                        <button
+                            type="submit"
+                            onclick="document.getElementById('matrix-form-action').value='approve_publish'"
+                            class="inline-flex min-h-11 items-center justify-center rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white hover:bg-emerald-500"
+                        >
+                            Approve &amp; Publish
+                        </button>
+                    @endif
+                </div>
+            </div>
             <div class="relative overflow-x-auto rounded-2xl border border-slate-200 bg-white">
                 <table class="w-full text-left text-xs border-collapse">
                     <thead>
@@ -208,18 +255,10 @@
                     </tbody>
                 </table>
             </div>
-            <div class="rounded-2xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-sm font-semibold text-cyan-900">
-                @if ($isAdminViewer)
-                    Update Price saves matrix values, and <span class="font-black">Approve &amp; Publish</span> immediately publishes live prices and reprices shop invoices.
-                @else
-                    Update Price saves matrix values as proposal. Admin approval is required before prices are published.
-                @endif
-            </div>
             <div class="flex flex-wrap items-center justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                     type="submit"
-                    name="action"
-                    value="update"
+                    onclick="document.getElementById('matrix-form-action').value='update'"
                     class="inline-flex min-h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
                 >
                     Update Price
@@ -227,8 +266,7 @@
                 @if ($isAdminViewer)
                     <button
                         type="submit"
-                        name="action"
-                        value="approve_publish"
+                        onclick="document.getElementById('matrix-form-action').value='approve_publish'"
                         class="inline-flex min-h-11 items-center justify-center rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white hover:bg-emerald-500"
                     >
                         Approve &amp; Publish

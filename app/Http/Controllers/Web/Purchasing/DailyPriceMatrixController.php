@@ -36,6 +36,7 @@ class DailyPriceMatrixController extends Controller
 
         $purchaseDate = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
         $targetBusinessDate = Carbon::parse($purchaseDate)->toDateString();
+        $selectedDate = Carbon::parse($purchaseDate);
         $search = trim((string) $request->input('search', ''));
         $categoryId = $request->filled('category_id') ? (int) $request->input('category_id') : null;
 
@@ -44,13 +45,14 @@ class DailyPriceMatrixController extends Controller
             $matrixCategory = 'a';
         }
 
-        $carbonPurchaseDate = Carbon::parse($purchaseDate);
-        $startOfMonth = $carbonPurchaseDate->copy()->startOfMonth();
-        $endOfMonth = $carbonPurchaseDate->copy()->endOfMonth();
+        $weekStart = $request->filled('week_start')
+            ? Carbon::parse((string) $request->input('week_start'))->startOfWeek(Carbon::MONDAY)
+            : $selectedDate->copy()->startOfWeek(Carbon::MONDAY);
+        $weekEnd = $weekStart->copy()->endOfWeek(Carbon::MONDAY);
 
         $matrixDates = [];
-        $currentDate = $startOfMonth->copy();
-        while ($currentDate->lte($endOfMonth)) {
+        $currentDate = $weekStart->copy();
+        while ($currentDate->lte($weekEnd)) {
             $matrixDates[$currentDate->toDateString()] = [
                 'date_string' => $currentDate->toDateString(),
                 'label' => $currentDate->format('d-M'),
@@ -103,7 +105,7 @@ class DailyPriceMatrixController extends Controller
 
         $monthApprovals = DailyPriceApproval::query()
             ->whereIn('product_id', $productIds)
-            ->whereBetween('business_date', [$startOfMonth->toDateString(), $endOfMonth->toDateString()])
+            ->whereBetween('business_date', [$weekStart->toDateString(), $weekEnd->toDateString()])
             ->get()
             ->groupBy('product_id');
 
@@ -174,6 +176,10 @@ class DailyPriceMatrixController extends Controller
             'matrixDates' => $matrixDates,
             'matrixProducts' => $matrixProducts,
             'matrixCategory' => $matrixCategory,
+            'weekStartDate' => $weekStart->toDateString(),
+            'weekEndDate' => $weekEnd->toDateString(),
+            'previousWeekStartDate' => $weekStart->copy()->subWeek()->toDateString(),
+            'nextWeekStartDate' => $weekStart->copy()->addWeek()->toDateString(),
         ]);
     }
 
@@ -283,6 +289,7 @@ class DailyPriceMatrixController extends Controller
             'date' => ['required', 'date'],
             'search' => ['nullable', 'string', 'max:255'],
             'category_id' => ['nullable', 'integer'],
+            'week_start' => ['nullable', 'date'],
             'matrix_category' => ['required', 'string', 'in:a,b,c,A,B,C'],
             'action' => ['required', 'string', 'in:update,approve_publish'],
             'matrix_prices' => ['nullable', 'array'],
@@ -307,6 +314,7 @@ class DailyPriceMatrixController extends Controller
                     'date' => $validated['date'],
                     'search' => $validated['search'] ?? null,
                     'category_id' => $validated['category_id'] ?? null,
+                    'week_start' => $validated['week_start'] ?? null,
                     'matrix_category' => $matrixCategory,
                 ])
                 ->with('warning', 'No matrix prices were submitted.');
@@ -426,6 +434,7 @@ class DailyPriceMatrixController extends Controller
                 'date' => $validated['date'],
                 'search' => $validated['search'] ?? null,
                 'category_id' => $validated['category_id'] ?? null,
+                'week_start' => $validated['week_start'] ?? null,
                 'matrix_category' => $matrixCategory,
             ])
             ->with('success', $message);
