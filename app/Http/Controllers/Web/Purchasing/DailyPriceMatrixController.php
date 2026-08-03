@@ -774,7 +774,7 @@ class DailyPriceMatrixController extends Controller
         abort_unless(auth()->user()?->hasRole('admin'), 403, 'Only admins can import prices.');
 
         $validated = $request->validate([
-            'json_file' => ['required', 'string', 'max:255'],
+            'json_file' => ['required', 'file', 'mimes:json', 'max:10240'], // Max 10MB
             'unlock_locked' => ['nullable', 'boolean'],
         ]);
 
@@ -782,20 +782,20 @@ class DailyPriceMatrixController extends Controller
         $userId = (int) $user->id;
         $unlockLocked = (bool) ($validated['unlock_locked'] ?? false);
 
-        // Read JSON file from storage
-        $jsonFilePath = storage_path('app/price-imports/' . $validated['json_file']);
+        // Read uploaded JSON file
+        $uploadedFile = $request->file('json_file');
         
-        if (!file_exists($jsonFilePath)) {
+        if (!$uploadedFile || !$uploadedFile->isValid()) {
             if ($request->wantsJson()) {
                 return response()->json([
                     'success' => false,
-                    'message' => "JSON file not found: {$validated['json_file']}",
-                ], 404);
+                    'message' => 'Invalid file upload.',
+                ], 400);
             }
-            return redirect()->back()->with('error', "JSON file not found: {$validated['json_file']}");
+            return redirect()->back()->with('error', 'Invalid file upload.');
         }
 
-        $jsonContent = file_get_contents($jsonFilePath);
+        $jsonContent = file_get_contents($uploadedFile->getRealPath());
         $data = json_decode($jsonContent, true);
 
         if (!$data || !isset($data['prices'])) {

@@ -151,7 +151,7 @@
                 <div class="flex flex-wrap items-center justify-between gap-4">
                     <div>
                         <h3 class="text-sm font-black text-indigo-900 uppercase tracking-wider">Admin: Import Prices from JSON</h3>
-                        <p class="text-xs font-medium text-indigo-700 mt-1">Import bulk prices from pre-configured JSON files (storage/app/price-imports/)</p>
+                        <p class="text-xs font-medium text-indigo-700 mt-1">Upload a JSON file with bulk price data for multiple products and dates</p>
                     </div>
                     <button
                         type="button"
@@ -715,7 +715,7 @@
                 }
 
                 async function executeImport() {
-                    const jsonFile = document.getElementById('importJsonFile').value;
+                    const fileInput = document.getElementById('importJsonFile');
                     const unlockLocked = document.getElementById('unlockLocked').checked;
                     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
                                       document.querySelector('input[name="_token"]')?.value || '';
@@ -723,44 +723,52 @@
                     const btn = document.getElementById('executeImportBtn');
                     const statusDiv = document.getElementById('importStatus');
                     
+                    if (!fileInput.files || fileInput.files.length === 0) {
+                        statusDiv.classList.remove('hidden');
+                        statusDiv.textContent = 'Please select a JSON file to upload.';
+                        statusDiv.className = 'mt-3 p-3 rounded-xl bg-rose-100 text-rose-800 text-sm font-bold';
+                        return;
+                    }
+                    
                     btn.disabled = true;
                     btn.textContent = 'Importing...';
                     statusDiv.classList.remove('hidden');
                     statusDiv.textContent = 'Processing import...';
                     statusDiv.className = 'mt-3 p-3 rounded-xl bg-blue-100 text-blue-800 text-sm font-medium';
 
+                    const formData = new FormData();
+                    formData.append('json_file', fileInput.files[0]);
+                    formData.append('unlock_locked', unlockLocked ? '1' : '0');
+                    formData.append('_token', csrfToken);
+
                     try {
                         const response = await fetch("{{ route('purchasing.prices.matrix.import-json') }}", {
                             method: 'POST',
                             headers: {
                                 'Accept': 'application/json',
-                                'Content-Type': 'application/json',
                                 'X-CSRF-TOKEN': csrfToken,
                             },
-                            body: JSON.stringify({
-                                json_file: jsonFile,
-                                unlock_locked: unlockLocked,
-                            }),
+                            body: formData,
                         });
 
                         const data = await response.json();
                         
-                        if (data.succeclassList.remove('hidden');
+                        if (data.success) {
+                            statusDiv.classList.remove('hidden');
                             statusDiv.textContent = data.message;
                             statusDiv.className = 'mt-3 p-3 rounded-xl bg-emerald-100 text-emerald-800 text-sm font-bold';
                             setTimeout(() => {
                                 location.reload();
                             }, 2000);
                         } else {
-                            statusDiv.classList.remove('hidden');000);
-                        } else {
+                            statusDiv.classList.remove('hidden');
                             statusDiv.textContent = data.message || 'Import failed.';
                             statusDiv.className = 'mt-3 p-3 rounded-xl bg-rose-100 text-rose-800 text-sm font-bold';
                             btn.disabled = false;
                             btn.textContent = 'Execute Import';
-                        }classList.remove('hidden');
-                        statusDiv.
+                        }
                     } catch (err) {
+                        statusDiv.classList.remove('hidden');
                         statusDiv.textContent = 'Network error during import: ' + err.message;
                         statusDiv.className = 'mt-3 p-3 rounded-xl bg-rose-100 text-rose-800 text-sm font-bold';
                         btn.disabled = false;
@@ -801,17 +809,16 @@
                     <div class="space-y-3">
                         <div>
                             <label for="importJsonFile" class="block text-xs font-black uppercase tracking-wider text-slate-600 mb-2">
-                                JSON File Name
+                                Upload JSON File
                             </label>
                             <input 
-                                type="text" 
+                                type="file" 
                                 id="importJsonFile" 
-                                value="aug-2-3-2026.json"
-                                placeholder="aug-2-3-2026.json"
-                                class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-indigo-500 focus:outline-none"
+                                accept=".json,application/json"
+                                class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-indigo-500 focus:outline-none file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-bold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
                             />
                             <p class="mt-1.5 text-xs text-slate-500 font-medium">
-                                File must exist in: <code class="bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">storage/app/price-imports/</code>
+                                Upload a JSON file with price data (format: product_code, product_name, dates with prices)
                             </p>
                         </div>
 
