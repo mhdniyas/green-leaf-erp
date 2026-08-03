@@ -295,6 +295,9 @@ class DailyPriceMatrixController extends Controller
             'matrix_prices' => ['nullable', 'array'],
             'matrix_prices.*' => ['nullable', 'array'],
             'matrix_prices.*.*' => ['nullable', 'numeric', 'min:0'],
+            'matrix_price_units' => ['nullable', 'array'],
+            'matrix_price_units.*' => ['nullable', 'array'],
+            'matrix_price_units.*.*' => ['nullable', 'string', 'max:20'],
         ]);
 
         $user = $request->user();
@@ -307,6 +310,7 @@ class DailyPriceMatrixController extends Controller
         $userId = (int) $user->id;
         $matrixCategory = strtolower((string) $validated['matrix_category']);
         $rawMatrixPrices = collect((array) ($validated['matrix_prices'] ?? []));
+        $rawMatrixPriceUnits = collect((array) ($validated['matrix_price_units'] ?? []));
 
         if ($rawMatrixPrices->isEmpty()) {
             return redirect()
@@ -341,6 +345,7 @@ class DailyPriceMatrixController extends Controller
 
         DB::transaction(function () use (
             $rawMatrixPrices,
+            $rawMatrixPriceUnits,
             $products,
             $matrixCategory,
             $shouldPublish,
@@ -372,12 +377,23 @@ class DailyPriceMatrixController extends Controller
                             'business_date' => $businessDate,
                         ]);
 
+                    // Determine price_unit: use submitted unit, or auto-detect from orders, or fall back to product unit
+                    $submittedUnit = (string) ($rawMatrixPriceUnits->get((int) $productId)?->{$dateStr} ?? '');
+                    $priceUnit = ! empty($submittedUnit)
+                        ? $submittedUnit
+                        : ($this->detectPrimaryOrderedUnit((int) $product->id, $businessDate) ?? $product->unit ?: 'kg');
+
                     if (! $approval->exists) {
                         $approval->purchase_price = (float) $product->base_price;
-                        $approval->price_unit = $product->unit ?: 'kg';
+                        $approval->price_unit = $priceUnit;
                         $approval->price_a = (float) $product->base_price;
                         $approval->price_b = (float) $product->base_price;
                         $approval->price_c = (float) $product->base_price;
+                    } else {
+                        // Update price_unit on existing approval if submitted or auto-detected differs
+                        if (! empty($submittedUnit) || $this->detectPrimaryOrderedUnit((int) $product->id, $businessDate)) {
+                            $approval->price_unit = $priceUnit;
+                        }
                     }
 
                     if ($matrixCategory === 'a') {
@@ -443,6 +459,24 @@ class DailyPriceMatrixController extends Controller
     private function authorizeBoardAccess(): void
     {
         abort_unless(auth()->user()?->hasRole('purchase') || auth()->user()?->hasRole('admin'), 403);
+    }
+
+    /**
+     * Detect the primary (most common) requested unit for a product on a given business date.
+     * Returns the most frequent requested_unit from active shop orders.
+     */
+    private function detectPrimaryOrderedUnit(int $productId, string $businessDate): ?string
+    {
+        $units = \App\Models\ShopOrderItem::query()
+            ->where('product_id', $productId)
+            ->whereHas('order', fn ($q) => $q->where('business_date', $businessDate)->where('status', 'approved'))
+            ->pluck('requested_unit')
+            ->filter()
+            ->countBy()
+            ->sort()
+            ->keys();
+
+        return $units->first();
     }
 
     private function updateActivePricesForGroup(Product $product, ?ShopPriceGroup $group, float $priceGradeA, int $userId): void

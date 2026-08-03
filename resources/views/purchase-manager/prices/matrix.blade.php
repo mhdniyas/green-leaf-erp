@@ -207,40 +207,71 @@
                                         $priceValA = $cellData['price_a'] ?? null;
                                         $priceValB = $cellData['price_b'] ?? null;
                                         $priceValC = $cellData['price_c'] ?? null;
+                                        $cellUnit = strtoupper($cellData['unit'] ?? 'KG');
 
                                         $hasChangedA = $cellData['changed_a'] ?? false;
                                         $hasChangedB = $cellData['changed_b'] ?? false;
                                         $hasChangedC = $cellData['changed_c'] ?? false;
                                     @endphp
                                     <td class="p-1 border-r border-slate-200 text-center {{ $dateInfo['is_selected'] ? 'bg-cyan-50/40' : '' }}">
-                                        <div class="matrix-cell-container flex items-center gap-1">
-                                            <input
-                                                type="number"
-                                                step="0.01"
-                                                min="0"
-                                                name="matrix_prices[{{ $prod['product_id'] }}][{{ $dateStr }}]"
-                                                data-product-id="{{ $prod['product_id'] }}"
-                                                data-date="{{ $dateStr }}"
-                                                data-price-a="{{ $priceValA !== null ? number_format($priceValA, 2, '.', '') : '' }}"
-                                                data-price-b="{{ $priceValB !== null ? number_format($priceValB, 2, '.', '') : '' }}"
-                                                data-price-c="{{ $priceValC !== null ? number_format($priceValC, 2, '.', '') : '' }}"
-                                                data-changed-a="{{ $hasChangedA ? '1' : '0' }}"
-                                                data-changed-b="{{ $hasChangedB ? '1' : '0' }}"
-                                                data-changed-c="{{ $hasChangedC ? '1' : '0' }}"
-                                                value="{{ $matrixCategory === 'a' ? ($priceValA !== null ? number_format($priceValA, 2, '.', '') : '') : ($matrixCategory === 'b' ? ($priceValB !== null ? number_format($priceValB, 2, '.', '') : '') : ($priceValC !== null ? number_format($priceValC, 2, '.', '') : '')) }}"
-                                                onkeydown="if(event.key==='Enter'){ event.preventDefault(); saveMatrixCell(this.nextElementSibling); }"
-                                                class="matrix-cell-input w-full rounded-lg border border-slate-200 bg-white py-1 px-1.5 text-center font-extrabold text-xs focus:border-cyan-500 focus:outline-none transition {{ ($matrixCategory === 'a' && $hasChangedA) || ($matrixCategory === 'b' && $hasChangedB) || ($matrixCategory === 'c' && $hasChangedC) ? 'text-red-600 font-black' : 'text-slate-900' }}"
-                                            >
-                                            <button
-                                                type="button"
-                                                title="Save cell price"
-                                                onclick="saveMatrixCell(this)"
-                                                class="matrix-cell-save-btn flex-shrink-0 inline-flex items-center justify-center rounded-lg bg-slate-900 text-white p-1 text-[10px] font-black hover:bg-cyan-600 transition"
-                                            >
-                                                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                                                </svg>
-                                            </button>
+                                        <div class="matrix-cell-container space-y-1">
+                                            <div class="flex items-center gap-1">
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    name="matrix_prices[{{ $prod['product_id'] }}][{{ $dateStr }}]"
+                                                    data-product-id="{{ $prod['product_id'] }}"
+                                                    data-date="{{ $dateStr }}"
+                                                    data-price-a="{{ $priceValA !== null ? number_format($priceValA, 2, '.', '') : '' }}"
+                                                    data-price-b="{{ $priceValB !== null ? number_format($priceValB, 2, '.', '') : '' }}"
+                                                    data-price-c="{{ $priceValC !== null ? number_format($priceValC, 2, '.', '') : '' }}"
+                                                    data-changed-a="{{ $hasChangedA ? '1' : '0' }}"
+                                                    data-changed-b="{{ $hasChangedB ? '1' : '0' }}"
+                                                    data-changed-c="{{ $hasChangedC ? '1' : '0' }}"
+                                                    value="{{ $matrixCategory === 'a' ? ($priceValA !== null ? number_format($priceValA, 2, '.', '') : '') : ($matrixCategory === 'b' ? ($priceValB !== null ? number_format($priceValB, 2, '.', '') : '') : ($priceValC !== null ? number_format($priceValC, 2, '.', '') : '')) }}"
+                                                    onkeydown="if(event.key==='Enter'){ event.preventDefault(); saveMatrixCell(this.nextElementSibling); }"
+                                                    class="matrix-cell-input flex-1 rounded-lg border border-slate-200 bg-white py-1 px-1.5 text-center font-extrabold text-xs focus:border-cyan-500 focus:outline-none transition {{ ($matrixCategory === 'a' && $hasChangedA) || ($matrixCategory === 'b' && $hasChangedB) || ($matrixCategory === 'c' && $hasChangedC) ? 'text-red-600 font-black' : 'text-slate-900' }}"
+                                                >
+                                                <button
+                                                    type="button"
+                                                    title="Save cell price"
+                                                    onclick="saveMatrixCell(this)"
+                                                    class="matrix-cell-save-btn flex-shrink-0 inline-flex items-center justify-center rounded-lg bg-slate-900 text-white p-1 text-[10px] font-black hover:bg-cyan-600 transition"
+                                                >
+                                                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                            <div class="flex items-center justify-center gap-1">
+                                                <span class="text-[9px] font-bold text-slate-500">Unit:</span>
+                                                <input
+                                                    type="hidden"
+                                                    class="matrix-cell-unit"
+                                                    name="matrix_price_units[{{ $prod['product_id'] }}][{{ $dateStr }}]"
+                                                    value="{{ $cellUnit }}"
+                                                >
+                                                <button
+                                                    type="button"
+                                                    title="Click to change unit"
+                                                    onclick="toggleUnitSelector(this)"
+                                                    class="matrix-cell-unit-btn inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[9px] font-bold hover:bg-cyan-100 hover:text-cyan-700 transition"
+                                                >
+                                                    <span class="unit-display">{{ $cellUnit }}</span>
+                                                </button>
+                                                <div class="unit-selector hidden absolute z-50 bg-white border border-slate-200 rounded-lg shadow-lg p-2 mt-1 min-w-max" style="display: none;">
+                                                    @foreach(['KG', 'BOX', 'PIECE', 'BAG'] as $unit)
+                                                        <button
+                                                            type="button"
+                                                            onclick="selectUnit(this, '{{ $unit }}')"
+                                                                class="block w-full text-left px-3 py-2 text-[10px] font-semibold text-slate-600 hover:bg-cyan-100 rounded transition"
+                                                        >
+                                                            {{ $unit }}
+                                                        </button>
+                                                    @endforeach
+                                                </div>
+                                            </div>
                                         </div>
                                     </td>
                                 @endforeach
@@ -388,6 +419,35 @@
                         btn.disabled = false;
                         btn.className = 'matrix-cell-save-btn flex-shrink-0 inline-flex items-center justify-center rounded-lg bg-slate-900 text-white p-1 text-[10px] font-black';
                     }
+                }
+
+                function toggleUnitSelector(btn) {
+                    const selector = btn.nextElementSibling;
+                    if (!selector) return;
+                    
+                    const isHidden = selector.style.display === 'none' || selector.classList.contains('hidden');
+                    selector.style.display = isHidden ? 'block' : 'none';
+                    selector.classList.toggle('hidden', !isHidden);
+                }
+
+                function selectUnit(btn, unit) {
+                    const selector = btn.parentElement;
+                    const unitBtn = selector.previousElementSibling;
+                    const hiddenInput = unitBtn.previousElementSibling;
+                    
+                    if (hiddenInput && hiddenInput.classList.contains('matrix-cell-unit')) {
+                       hiddenInput.value = unit;
+                    }
+                    
+                    if (unitBtn) {
+                       const display = unitBtn.querySelector('.unit-display');
+                       if (display) {
+                           display.textContent = unit;
+                       }
+                    }
+                    
+                    selector.style.display = 'none';
+                    selector.classList.add('hidden');
                 }
             </script>
         @endpush
