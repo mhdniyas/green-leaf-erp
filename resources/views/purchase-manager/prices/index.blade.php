@@ -7,6 +7,8 @@
 @section('content')
     @php
         $isAdminViewer = auth()->user()?->hasRole('admin');
+        $pendingApprovals = $pendingApprovals ?? collect();
+        $approvedApprovals = $approvedApprovals ?? collect();
         $allApprovals = $pendingApprovals->concat($approvedApprovals);
         $movementOptions = [
             'changed' => 'Changed',
