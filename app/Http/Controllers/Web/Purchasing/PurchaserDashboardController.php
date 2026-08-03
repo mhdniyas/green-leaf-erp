@@ -484,7 +484,9 @@ class PurchaserDashboardController extends Controller
             'date' => $cart->business_date->format('Y-m-d'),
             'cart' => $cart,
             'suppliers' => $this->scopedSuppliersForUser($request->user()),
-            'subtotal' => (float) $cart->items->sum('line_total'),
+            'subtotal' => (float) $cart->items->sum(
+                fn ($item) => round((float) $item->quantity * (float) $item->unit_price, 2)
+            ),
             'companyDetails' => $this->companyDetailsForBill(),
             'vendorPriceHints' => $this->vendorPriceService->previousPricesForSupplier(
                 $cart->supplier_id,
@@ -1776,13 +1778,14 @@ class PurchaserDashboardController extends Controller
                 );
 
             $primaryDocuments = $regularDocuments ?? $addOnDocuments;
-            $invoiceAmount = max(0, round($subtotalAmount - $discountAmount, 2));
-            $paidAmount = min($invoiceAmount, round($paidAmountInput, 2));
+            $grossSubtotal = max(0, round($subtotalAmount, 2));
+            $netInvoiceAmount = max(0, round($subtotalAmount - $discountAmount, 2));
+            $paidAmount = min($netInvoiceAmount, round($paidAmountInput, 2));
             $isCreditPurchase = strcasecmp($paymentMethod, 'Credit') === 0;
             if ($isCreditPurchase) {
                 $paidAmount = 0.0;
             }
-            $paymentStatus = $this->resolvePaymentStatus($paymentMethod, $invoiceAmount, $paidAmount);
+            $paymentStatus = $this->resolvePaymentStatus($paymentMethod, $netInvoiceAmount, $paidAmount);
             $paymentPaidBy = $isCreditPurchase ? 'vendor_credit' : 'purchaser';
             $invoiceStatus = $paymentStatus === 'paid'
                 ? InvoiceStatus::Paid
@@ -1794,7 +1797,7 @@ class PurchaserDashboardController extends Controller
                 'purchaser_cart_id' => $cart->id,
                 'purchase_source' => $cart->purchase_source ?? 'shop_order',
                 'invoice_number' => $request->validated('bill_number') ?: 'PENDING-BILL-'.$cart->cart_number,
-                'amount' => $invoiceAmount,
+                'amount' => $grossSubtotal,
                 'discount_amount' => round($discountAmount, 2),
                 'status' => $invoiceStatus,
                 'payment_method' => $paymentMethod,

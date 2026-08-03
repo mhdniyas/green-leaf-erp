@@ -439,13 +439,21 @@
                 </div>
 
                 {{-- Modal Footer --}}
-                <div class="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-3">
-                    <button type="button" onclick="closePaymentModal()" class="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 text-xs font-black text-slate-700 hover:bg-slate-100">
-                        Cancel
+                <div class="flex items-center justify-between border-t border-slate-100 px-5 py-3">
+                    <button type="button" onclick="recalculatePMPaymentModal()" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-800 shadow-xs hover:bg-slate-50">
+                        <svg class="h-3.5 w-3.5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                        </svg>
+                        <span>Recheck & Recalculate</span>
                     </button>
-                    <button type="submit" class="inline-flex h-9 items-center justify-center rounded-xl bg-indigo-600 px-5 text-xs font-black text-white hover:bg-indigo-500">
-                        Save Payment
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button type="button" onclick="closePaymentModal()" class="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 text-xs font-black text-slate-700 hover:bg-slate-100">
+                            Cancel
+                        </button>
+                        <button type="submit" class="inline-flex h-9 items-center justify-center rounded-xl bg-indigo-600 px-5 text-xs font-black text-white hover:bg-indigo-500">
+                            Save Payment
+                        </button>
+                    </div>
                 </div>
             </form>
         </div>
@@ -528,5 +536,25 @@
             if (warning) warning.classList.toggle('hidden', balance >= paidAmount);
         });
     });
+
+    function recalculatePMPaymentModal() {
+        const discountInput = document.getElementById('pm-discount-amount');
+        const paidInput = document.getElementById('pm-paid-amount');
+        if (!discountInput || !paidInput) return;
+
+        const grossAmount = {{ (float) $invoice->amount }};
+        const discount = Math.max(0, parseFloat(discountInput.value || 0));
+        const netTotal = Math.max(0, grossAmount - discount);
+        const paid = Math.max(0, parseFloat(paidInput.value || 0));
+        const balance = Math.max(0, netTotal - paid);
+
+        const netDisplay = document.getElementById('pm-net-payable-display');
+        const balanceDisplay = document.getElementById('pm-balance-display');
+        if (netDisplay) netDisplay.textContent = '₹' + netTotal.toFixed(2);
+        if (balanceDisplay) balanceDisplay.textContent = '₹' + balance.toFixed(2);
+    }
+
+    document.getElementById('pm-discount-amount')?.addEventListener('input', recalculatePMPaymentModal);
+    document.getElementById('pm-paid-amount')?.addEventListener('input', recalculatePMPaymentModal);
     </script>
 @endsection
