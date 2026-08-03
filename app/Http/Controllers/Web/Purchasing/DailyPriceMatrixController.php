@@ -867,7 +867,7 @@ class DailyPriceMatrixController extends Controller
     {
         $units = \App\Models\ShopOrderItem::query()
             ->where('product_id', $productId)
-            ->whereHas('order', fn ($q) => $q->where('business_date', $businessDate)->where('status', 'approved'))
+            ->whereHas('order', fn ($q) => $q->where('business_date', $businessDate)->where('state', 'approved'))
             ->pluck('requested_unit')
             ->filter()
             ->countBy()
