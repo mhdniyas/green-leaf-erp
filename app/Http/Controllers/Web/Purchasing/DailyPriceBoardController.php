@@ -122,6 +122,9 @@ class DailyPriceBoardController extends Controller
         $pendingApprovals = $matchingApprovals
             ->where('status', 'pending')
             ->values();
+        $approvedApprovals = $matchingApprovals
+            ->where('status', 'approved')
+            ->values();
 
         return view('purchase-manager.prices.index', [
             'pendingApprovals' => $pendingApprovals,
