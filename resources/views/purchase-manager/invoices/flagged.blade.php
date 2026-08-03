@@ -52,6 +52,15 @@
                         </a>
                     </div>
                 </form>
+
+                @if (auth()->user()?->hasRole('admin') && $flaggedInvoices->isNotEmpty())
+                    <form action="{{ route('purchasing.invoices.fix-all-calculations') }}" method="POST" onsubmit="return confirm('This will recheck and fix ALL flagged bill calculations. Continue?')">
+                        @csrf
+                        <button type="submit" class="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-rose-700 px-5 text-xs font-black text-white hover:bg-rose-800 shadow-sm whitespace-nowrap">
+                            🔄 Recheck All Calculations & Update
+                        </button>
+                    </form>
+                @endif
             </div>
 
             {{-- Summary Cards --}}

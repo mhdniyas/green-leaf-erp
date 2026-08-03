@@ -238,38 +238,153 @@ class PurchaseInvoiceService
         return 'purchaser';
     }
 
-    public function fixCalculationError(PurchaseInvoice $invoice): PurchaseInvoice
+    /**
+     * Comprehensive 6-step fix for a bill with a calculation discrepancy.
+     *
+     * 1. Fix every cart item line_total = round(quantity × unit_price, 2)
+     * 2. Recalculate gross subtotal from items
+     * 3. Update invoice (amount = gross, validate discount/paid/status)
+     * 4. Sync purchaser cart (discount, paid, payment_status, payment_made_at)
+     * 5. Audit purchaser credit (update amount if purchaser-funded, delete if not)
+     * 6. Do NOT create new payment history or journal entries (avoids duplicates)
+     *    Log before/after audit trail via Spatie ActivityLog
+     *
+     * @return array{invoice: PurchaseInvoice, before: array, after: array}
+     */
+    public function fixCalculationError(PurchaseInvoice $invoice): array
     {
-        return DB::transaction(function () use ($invoice): PurchaseInvoice {
+        return DB::transaction(function () use ($invoice): array {
             $invoice->loadMissing(['supplier', 'purchaserCart.items', 'goodsReceived.items']);
-            $grossTotal = $invoice->itemsGrossTotal();
-            $discount = (float) $invoice->discount_amount;
-            $netAmount = max(0.0, round($grossTotal - $discount, 2));
-            $paidAmount = min($netAmount, (float) $invoice->paid_amount);
+
+            // ── Capture BEFORE state for audit trail ─────────────────────
+            $before = [
+                'gross' => round((float) $invoice->amount, 2),
+                'discount' => round((float) $invoice->discount_amount, 2),
+                'paid' => round((float) $invoice->paid_amount, 2),
+                'balance' => round(max(0, (float) $invoice->amount - (float) $invoice->discount_amount - (float) $invoice->paid_amount), 2),
+                'status' => (string) ($invoice->payment_status ?? 'unpaid'),
+            ];
+
+            $cart = $invoice->purchaserCart;
+
+            // ── Step 1: Fix every cart item line_total ────────────────────
+            if ($cart?->items?->isNotEmpty()) {
+                foreach ($cart->items as $item) {
+                    $lineTotal = round((float) $item->quantity * (float) $item->unit_price, 2);
+                    $item->update(['line_total' => $lineTotal]);
+                }
+            }
+
+            // ── Step 2: Recalculate gross subtotal from items ────────────
+            $grossSubtotal = $invoice->itemsGrossTotal();
+
+            // ── Step 3: Validate and update invoice ──────────────────────
+            $discount = round(min($grossSubtotal, max(0, (float) $invoice->discount_amount)), 2);
+            $netAmount = round(max(0, $grossSubtotal - $discount), 2);
+            $paidAmount = round(min($netAmount, max(0, (float) $invoice->paid_amount)), 2);
             $paymentStatus = $this->resolvePaymentStatus(
                 $invoice->payment_method ?: 'Cash',
                 $netAmount,
-                $paidAmount
+                $paidAmount,
             );
-            $status = $paymentStatus === 'paid' ? InvoiceStatus::Paid->value : InvoiceStatus::Pending->value;
+            $invoiceStatus = $paymentStatus === 'paid'
+                ? InvoiceStatus::Paid->value
+                : InvoiceStatus::Pending->value;
 
             $invoice->update([
-                'amount' => $grossTotal,
+                'amount' => $grossSubtotal,
                 'discount_amount' => $discount,
                 'paid_amount' => $paidAmount,
                 'payment_status' => $paymentStatus,
-                'status' => $status,
+                'status' => $invoiceStatus,
             ]);
 
-            if ($invoice->purchaserCart) {
-                $invoice->purchaserCart->update([
+            // ── Step 4: Sync purchaser cart ──────────────────────────────
+            if ($cart) {
+                $cart->update([
                     'discount_amount' => $discount,
                     'paid_amount' => $paidAmount,
                     'payment_status' => $paymentStatus,
+                    'payment_made_at' => $paymentStatus === 'paid'
+                        ? ($cart->payment_made_at ?: now())
+                        : null,
                 ]);
             }
 
-            return $invoice->fresh();
+            // ── Step 5: Audit purchaser credit ───────────────────────────
+            $creditQuery = PurchaserCredit::query()
+                ->where('purchase_invoice_id', $invoice->id)
+                ->where('type', 'out');
+
+            if ($invoice->payment_paid_by === 'purchaser') {
+                // Update the debit amount to match the corrected net total
+                $creditQuery->update(['amount' => $netAmount]);
+            } else {
+                // Not purchaser-funded — remove stale credit entry
+                $creditQuery->delete();
+            }
+
+            // ── Step 6: Audit trail (no new payments/journals) ───────────
+            $after = [
+                'gross' => $grossSubtotal,
+                'discount' => $discount,
+                'net' => $netAmount,
+                'paid' => $paidAmount,
+                'balance' => round(max(0, $netAmount - $paidAmount), 2),
+                'status' => $paymentStatus,
+            ];
+
+            activity()
+                ->performedOn($invoice)
+                ->withProperties([
+                    'action' => 'admin_fix_calculation',
+                    'before' => $before,
+                    'after' => $after,
+                    'fixed_by' => auth()->id(),
+                    'fixed_at' => now()->toIso8601String(),
+                ])
+                ->log('invoice.calculation_fixed');
+
+            return [
+                'invoice' => $invoice->fresh(),
+                'before' => $before,
+                'after' => $after,
+            ];
         });
+    }
+
+    /**
+     * Scan all purchase invoices for calculation errors and fix them in bulk.
+     *
+     * @return array{fixed_count: int, audit_log: list<array{invoice_id: int|string, before: array, after: array}>}
+     */
+    public function fixAllCalculationErrors(): array
+    {
+        $invoices = PurchaseInvoice::query()
+            ->with(['supplier', 'purchaserCart.items', 'goodsReceived.items'])
+            ->get();
+
+        $auditLog = [];
+        $fixedCount = 0;
+
+        foreach ($invoices as $invoice) {
+            if (! $invoice->hasCalculationError()) {
+                continue;
+            }
+
+            $result = $this->fixCalculationError($invoice);
+            $auditLog[] = [
+                'invoice_id' => $invoice->getKey(),
+                'invoice_number' => $invoice->invoice_number,
+                'before' => $result['before'],
+                'after' => $result['after'],
+            ];
+            $fixedCount++;
+        }
+
+        return [
+            'fixed_count' => $fixedCount,
+            'audit_log' => $auditLog,
+        ];
     }
 }

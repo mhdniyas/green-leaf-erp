@@ -589,7 +589,9 @@ class PurchaserDashboardController extends Controller
 
         $todayTotalCash = (float) $todayCarts->sum(function (PurchaserCart $cart) {
             if ($cart->purchaseInvoice) {
-                return (float) $cart->purchaseInvoice->paid_amount;
+                $net = max(0.0, (float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount);
+
+                return min($net, max(0.0, (float) $cart->purchaseInvoice->paid_amount));
             }
 
             return strcasecmp((string) $cart->payment_method, 'Cash') === 0
@@ -627,7 +629,9 @@ class PurchaserDashboardController extends Controller
 
         $monthTotalCash = (float) $monthCarts->sum(function (PurchaserCart $cart) {
             if ($cart->purchaseInvoice) {
-                return (float) $cart->purchaseInvoice->paid_amount;
+                $net = max(0.0, (float) $cart->purchaseInvoice->amount - (float) $cart->purchaseInvoice->discount_amount);
+
+                return min($net, max(0.0, (float) $cart->purchaseInvoice->paid_amount));
             }
 
             return strcasecmp((string) $cart->payment_method, 'Cash') === 0
@@ -1031,7 +1035,7 @@ class PurchaserDashboardController extends Controller
                     'date_label' => $cart->business_date->format('d M Y'),
                     'cart_number' => $cart->cart_number,
                     'invoice_number' => $invoice?->invoice_number,
-                    'amount' => (float) ($invoice?->amount ?? max(0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount)),
+                    'amount' => (float) ($invoice ? max(0, (float) $invoice->amount - (float) $invoice->discount_amount) : max(0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount)),
                     'updated_at' => $invoice?->updated_at ?? $cart->updated_at,
                     'updated_label' => ($invoice?->updated_at ?? $cart->updated_at)?->format('d M Y h:i A'),
                     'payment_status' => str($invoice?->payment_status ?: $cart->payment_status ?: 'unpaid')->replace('_', ' ')->title()->toString(),

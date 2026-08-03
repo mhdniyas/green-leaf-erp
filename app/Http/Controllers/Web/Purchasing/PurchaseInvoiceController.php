@@ -46,8 +46,10 @@ class PurchaseInvoiceController extends Controller
                 $latestInvoice = $vendorInvoices->sortByDesc('created_at')->first();
                 $vendor = $latestInvoice->supplier;
                 $totalAmount = round((float) $vendorInvoices->sum('amount'), 2);
+                $discountAmount = round((float) $vendorInvoices->sum('discount_amount'), 2);
+                $netAmount = round(max(0, $totalAmount - $discountAmount), 2);
                 $paidAmount = round((float) $vendorInvoices->sum('paid_amount'), 2);
-                $outstandingAmount = round(max(0, $totalAmount - $paidAmount), 2);
+                $outstandingAmount = round(max(0, $netAmount - $paidAmount), 2);
                 $creditInvoices = $vendorInvoices
                     ->filter(fn (PurchaseInvoice $invoice): bool => strcasecmp((string) $invoice->payment_method, 'Credit') === 0)
                     ->count();
@@ -67,12 +69,16 @@ class PurchaseInvoiceController extends Controller
             ->sortByDesc('outstanding_amount')
             ->values();
 
+        $summaryTotalAmount = round((float) $invoices->sum('amount'), 2);
+        $summaryTotalDiscount = round((float) $invoices->sum('discount_amount'), 2);
+        $summaryNetTotal = round(max(0, $summaryTotalAmount - $summaryTotalDiscount), 2);
+        $summaryPaidAmount = round((float) $invoices->sum('paid_amount'), 2);
         $summary = [
             'vendor_count' => $vendorSections->count(),
             'invoice_count' => $invoices->count(),
-            'total_amount' => round((float) $invoices->sum('amount'), 2),
-            'paid_amount' => round((float) $invoices->sum('paid_amount'), 2),
-            'outstanding_amount' => round(max(0, (float) $invoices->sum('amount') - (float) $invoices->sum('paid_amount')), 2),
+            'total_amount' => $summaryNetTotal,
+            'paid_amount' => $summaryPaidAmount,
+            'outstanding_amount' => round(max(0, $summaryNetTotal - $summaryPaidAmount), 2),
         ];
         $canManageSuppliers = $request->user()->hasRole('admin') || $request->user()->hasRole('purchase') || $request->user()->can('purchasing.supplier.update');
 
@@ -115,8 +121,10 @@ class PurchaseInvoiceController extends Controller
         $historySummaryInvoices = (clone $historyQuery)->get();
         $latestInvoice = $historySummaryInvoices->sortByDesc('created_at')->first();
         $totalAmount = round((float) $historySummaryInvoices->sum('amount'), 2);
+        $totalDiscount = round((float) $historySummaryInvoices->sum('discount_amount'), 2);
+        $netTotal = round(max(0, $totalAmount - $totalDiscount), 2);
         $paidAmount = round((float) $historySummaryInvoices->sum('paid_amount'), 2);
-        $outstandingAmount = round(max(0, $totalAmount - $paidAmount), 2);
+        $outstandingAmount = round(max(0, $netTotal - $paidAmount), 2);
 
         return view('purchase-manager.invoices.vendor-report', [
             'date' => $date->format('Y-m-d'),
@@ -124,7 +132,7 @@ class PurchaseInvoiceController extends Controller
             'historyInvoices' => $historyInvoices,
             'historySummary' => [
                 'invoice_count' => $historySummaryInvoices->count(),
-                'total_amount' => $totalAmount,
+                'total_amount' => $netTotal,
                 'paid_amount' => $paidAmount,
                 'outstanding_amount' => $outstandingAmount,
                 'credit_invoices' => $historySummaryInvoices->filter(fn (PurchaseInvoice $invoice): bool => strcasecmp((string) $invoice->payment_method, 'Credit') === 0)->count(),
@@ -300,9 +308,26 @@ class PurchaseInvoiceController extends Controller
     {
         abort_unless($request->user()?->hasRole('admin'), 403, 'Only admins can fix bill calculation discrepancies.');
 
-        $this->service->fixCalculationError($invoice);
+        $result = $this->service->fixCalculationError($invoice);
+        $after = $result['after'];
 
-        return redirect()->back()->with('success', 'Bill calculation error fixed and recalculated successfully.');
+        return redirect()->back()->with('success',
+            "Bill calculation fixed: Gross ₹" . number_format($after['gross'], 2)
+            . " → Net ₹" . number_format($after['net'], 2)
+            . " | Paid ₹" . number_format($after['paid'], 2)
+            . " | Balance ₹" . number_format($after['balance'], 2)
+        );
+    }
+
+    public function fixAllCalculations(Request $request): RedirectResponse
+    {
+        abort_unless($request->user()?->hasRole('admin'), 403, 'Only admins can run bulk calculation fixes.');
+
+        $result = $this->service->fixAllCalculationErrors();
+
+        return redirect()->back()->with('success',
+            "Bulk calculation audit complete: Recalculated and fixed {$result['fixed_count']} flagged bill(s). All purchaser reports updated."
+        );
     }
 
     public function changeSupplier(Request $request, PurchaseInvoice $invoice): RedirectResponse

@@ -92,7 +92,15 @@
                             These bills have a mismatch between items total and stored invoice amount. <strong>They can only be updated by an Admin.</strong>
                         </p>
                     </div>
-                </div>
+
+                    @if (auth()->user()?->hasRole('admin'))
+                        <form action="{{ route('purchasing.invoices.fix-all-calculations') }}" method="POST" onsubmit="return confirm('This will recheck and fix ALL flagged bill calculations. Continue?')">
+                            @csrf
+                            <button type="submit" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-rose-700 px-4 text-xs font-black text-white hover:bg-rose-800 shadow-sm whitespace-nowrap">
+                                🔄 Recheck All & Update
+                            </button>
+                        </form>
+                    @endif
 
                 <div class="mt-4 overflow-x-auto rounded-2xl border border-rose-200 bg-white shadow-xs">
                     <table class="w-full text-left text-xs font-semibold text-slate-800">
