@@ -174,7 +174,7 @@
             
             {{-- Hidden field to track all visible products for approve/publish --}}
             @foreach ($matrixProducts as $prod)
-                <input type="hidden" name="all_product_ids[]" value="{{ $prod['id'] }}">
+                <input type="hidden" name="all_product_ids[]" value="{{ $prod['product_id'] }}">
             @endforeach
             @foreach ($matrixDates as $dateStr => $dateInfo)
                 <input type="hidden" name="all_dates[]" value="{{ $dateStr }}">
