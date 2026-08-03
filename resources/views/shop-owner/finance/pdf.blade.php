@@ -34,7 +34,7 @@
             <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                 <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
                     <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Subtotal</p>
-                    <p class="mt-2 text-xl font-black text-slate-950">Rs. {{ number_format((float) $invoice->subtotal, 2) }}</p>
+                    <p class="mt-2 text-xl font-black text-slate-950">Rs. {{ number_format($recalculatedSubtotal, 2) }}</p>
                 </div>
                 <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
                     <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Shortage</p>
@@ -50,13 +50,20 @@
                 </div>
                 <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
                     <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Final Total</p>
-                    <p class="mt-2 text-xl font-black text-emerald-700">Rs. {{ number_format((float) $invoice->final_total, 2) }}</p>
+                    <p class="mt-2 text-xl font-black text-emerald-700">Rs. {{ number_format($recalculatedSubtotal - (float)$invoice->shortage_total + (float)$invoice->excess_total - (float)$invoice->discount_total, 2) }}</p>
                 </div>
             </div>
 
             @php
                 $billedItems = $invoice->items->filter(fn ($item) => (float) $item->delivered_qty > 0 || (float) $item->final_line_total > 0);
                 $notAvailableItems = $invoice->items->filter(fn ($item) => (float) $item->delivered_qty <= 0 && (float) $item->final_line_total <= 0);
+                
+                // Recalculate subtotal from delivered quantities (DB may have wrong values)
+                $recalculatedSubtotal = (float) $billedItems->sum(function ($item) {
+                    $qty = (float) ($item->delivered_price_quantity ?? $item->price_quantity ?? $item->delivered_qty ?? 0);
+                    $rate = (float) ($item->unit_price ?? 0);
+                    return $qty * $rate;
+                });
             @endphp
 
             <div class="mt-6 overflow-hidden rounded-[1.5rem] border border-slate-200">
@@ -74,6 +81,11 @@
                     </thead>
                     <tbody class="divide-y divide-slate-100 bg-white">
                         @forelse ($billedItems as $item)
+                            @php
+                                $qty = (float) ($item->delivered_price_quantity ?? $item->price_quantity ?? $item->delivered_qty ?? 0);
+                                $rate = (float) ($item->unit_price ?? 0);
+                                $calculatedLineTotal = $qty * $rate;
+                            @endphp
                             <tr>
                                 <td class="px-4 py-3 font-bold text-slate-950">
                                     @if($item->product?->sku)
@@ -86,7 +98,7 @@
                                 <td class="px-4 py-3 text-right font-semibold text-slate-900">Rs. {{ number_format((float) $item->unit_price, 2) }} / {{ strtoupper($item->price_unit ?: $item->product->unit) }}</td>
                                 <td class="px-4 py-3 text-right font-semibold text-amber-600">Rs. {{ number_format((float) $item->shortage_amount, 2) }}</td>
                                 <td class="px-4 py-3 text-right font-semibold text-cyan-700">Rs. {{ number_format((float) $item->excess_amount, 2) }}</td>
-                                <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $item->final_line_total, 2) }}</td>
+                                <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format($calculatedLineTotal, 2) }}</td>
                             </tr>
                         @empty
                             <tr>

@@ -36,6 +36,14 @@
                 );
                 $invoice = $order->invoice;
                 $invoiceItemsByProductId = $invoice?->items?->keyBy('product_id') ?? collect();
+                
+                // Recalculate totals from delivered quantities (DB may have wrong values)
+                $recalculatedSubtotal = (float) $invoiceItemsByProductId->sum(function ($invoiceItem) {
+                    $qty = (float) ($invoiceItem->delivered_price_quantity ?? $invoiceItem->price_quantity ?? $invoiceItem->delivered_qty ?? 0);
+                    $rate = (float) ($invoiceItem->unit_price ?? 0);
+                    return $qty * $rate;
+                });
+                
                 $fulfilledItems = $sortedItems
                     ->filter(fn ($item) => $item->sorting_status === 'loaded' && (float) ($item->loaded_qty ?? 0) > 0)
                     ->groupBy('product_id')
@@ -129,7 +137,7 @@
                 <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                     <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
                         <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Subtotal</p>
-                        <p class="mt-2 text-xl font-black text-slate-950">Rs. {{ number_format((float) $invoice->subtotal, 2) }}</p>
+                        <p class="mt-2 text-xl font-black text-slate-950">Rs. {{ number_format($recalculatedSubtotal, 2) }}</p>
                     </div>
                     <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
                         <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Shortage</p>
@@ -145,7 +153,7 @@
                     </div>
                     <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
                         <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Final Total</p>
-                        <p class="mt-2 text-xl font-black text-emerald-700">Rs. {{ number_format((float) $invoice->final_total, 2) }}</p>
+                        <p class="mt-2 text-xl font-black text-emerald-700">Rs. {{ number_format($recalculatedSubtotal - (float)$invoice->shortage_total + (float)$invoice->excess_total - (float)$invoice->discount_total, 2) }}</p>
                     </div>
                 </div>
             @endif

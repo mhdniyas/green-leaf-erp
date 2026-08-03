@@ -19,12 +19,12 @@
     $verifiedCount = $verifiableItems->whereNotNull('shop_verified_at')->count();
     $totalVerifiableCount = $verifiableItems->count();
 
-    $computedInvoiceTotal = (float) ($invoice?->final_total ?? 0);
-    if ($computedInvoiceTotal <= 0) {
-        $computedInvoiceTotal = (float) $invoiceItemsByProductId->sum(
-            fn ($invoiceItem) => (float) ($invoiceItem->final_line_total ?? $invoiceItem->line_subtotal ?? 0)
-        );
-    }
+    // Recalculate invoice total from delivered quantities (DB may have wrong values)
+    $computedInvoiceTotal = (float) $invoiceItemsByProductId->sum(function ($invoiceItem) {
+        $qty = (float) ($invoiceItem->delivered_price_quantity ?? $invoiceItem->price_quantity ?? $invoiceItem->delivered_qty ?? 0);
+        $rate = (float) ($invoiceItem->unit_price ?? 0);
+        return $qty * $rate;
+    });
 
     $bottomTitle = match (true) {
         $isPendingApproval => 'Submitted For Admin Review',
