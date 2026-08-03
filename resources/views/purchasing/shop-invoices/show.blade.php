@@ -173,7 +173,7 @@
                                             <p class="mt-0.5 text-[10px] font-semibold text-slate-600">
                                                 Ordered: <span class="font-black text-slate-900">{{ number_format((float) $item->orderItem->requested_unit_quantity, 2, '.', '') }} {{ strtoupper($item->orderItem->requested_unit_label ?: $item->orderItem->requested_unit) }}</span>
                                                 &middot; Loaded: <span class="font-black text-slate-900">{{ number_format((float) ($item->orderItem->loaded_order_unit_qty ?? $item->orderItem->requested_unit_quantity), 2, '.', '') }} {{ strtoupper($item->orderItem->requested_unit_label ?: $item->orderItem->requested_unit) }}</span>
-                                                &middot; Delivered: <span class="font-black text-emerald-700">{{ number_format((float) $item->delivered_qty, 2) }} KG</span>
+                                                &middot; Delivered: <span class="font-black text-emerald-700">{{ number_format((float) $item->delivered_qty, 2) }} {{ strtoupper($item->unit) }}</span>
                                             </p>
                                         @else
                                             <p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">{{ strtoupper($item->unit) }}</p>
