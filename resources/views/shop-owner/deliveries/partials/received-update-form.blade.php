@@ -82,12 +82,12 @@
                                 $hasSec = $item->requested_unit_quantity && strtolower($item->requested_unit ?? '') !== 'kg';
                                 $secUnitLabel = $hasSec
                                     ? strtoupper($item->requested_unit_label ?: $item->requested_unit)
-                                    : strtoupper($item->unit);
+                                    : strtoupper($item->product->unit);
 
                                 $deliveredBaseQty = (float) ($invoiceItem?->delivered_qty ?? $invoiceItem?->approved_qty ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
                                 $unitRate = $invoiceItem?->unit_price;
-                                $priceUnit = (string) ($invoiceItem?->price_unit ?? $invoiceItem?->unit ?? $item->unit ?? 'KG');
-                                $isPriceInSecondaryUnit = $hasSec && \App\Models\ProductUnit::normalizeUnit($priceUnit) !== \App\Models\ProductUnit::normalizeUnit((string) $item->unit);
+                                $priceUnit = (string) ($invoiceItem?->price_unit ?? $invoiceItem?->unit ?? $item->product->unit ?? 'KG');
+                                $isPriceInSecondaryUnit = $hasSec && \App\Models\ProductUnit::normalizeUnit($priceUnit) !== \App\Models\ProductUnit::normalizeUnit((string) $item->product->unit);
 
                                 $lineTotal = $invoiceItem?->final_line_total ?? $invoiceItem?->line_subtotal;
 
@@ -99,11 +99,9 @@
                                 if ($isPriceInSecondaryUnit && (float) ($item->requested_unit_conversion_to_base ?? 0) > 0) {
                                     $approvedQty = round($deliveredBaseQty / (float) $item->requested_unit_conversion_to_base, 2);
                                     $displayUnitLabel = $secUnitLabel;
-                                    $refSubtitle = "Base: {$deliveredBaseQty} KG";
                                 } else {
                                     $approvedQty = $deliveredBaseQty;
-                                    $displayUnitLabel = strtoupper($item->unit ?? 'KG');
-                                    $refSubtitle = $hasSec && $loadedUnitQty > 0 ? "Ordered: {$loadedUnitQty} {$secUnitLabel}" : null;
+                                    $displayUnitLabel = strtoupper($item->product->unit ?? 'KG');
                                 }
 
                                 $isItemVerified = $item->shop_verified_at !== null;
@@ -126,9 +124,6 @@
                                 </td>
                                 <td class="py-1.5 pr-0.5 text-right font-bold text-slate-900 sm:py-2.5 sm:pr-1">
                                     {{ number_format($approvedQty, 2) }} {{ $displayUnitLabel }}
-                                    @if($refSubtitle)
-                                        <span class="block text-[8px] font-semibold text-slate-500">{{ $refSubtitle }}</span>
-                                    @endif
                                 </td>
                                 <td class="py-1.5 pr-0.5 text-right font-bold text-slate-700 sm:py-2.5 sm:pr-1">
                                     @if($unitRate !== null)

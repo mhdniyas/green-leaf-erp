@@ -81,9 +81,9 @@
                                     @endif
                                     {{ $item->product_name }}
                                 </td>
-                                <td class="px-4 py-3 text-right text-slate-700">{{ number_format((float) ($item->price_quantity ?: $item->approved_qty), 4) }} {{ strtoupper($item->price_unit ?: $item->unit) }}</td>
-                                <td class="px-4 py-3 text-right text-slate-700">{{ number_format((float) $item->delivered_qty, 2) }} {{ $item->unit }}</td>
-                                <td class="px-4 py-3 text-right font-semibold text-slate-900">Rs. {{ number_format((float) $item->unit_price, 2) }} / {{ strtoupper($item->price_unit ?: $item->unit) }}</td>
+                                <td class="px-4 py-3 text-right text-slate-700">{{ number_format((float) ($item->price_quantity ?: $item->approved_qty), 4) }} {{ strtoupper($item->price_unit ?: $item->product->unit) }}</td>
+                                <td class="px-4 py-3 text-right text-slate-700">{{ number_format((float) $item->delivered_qty, 2) }} {{ strtoupper($item->product->unit) }}</td>
+                                <td class="px-4 py-3 text-right font-semibold text-slate-900">Rs. {{ number_format((float) $item->unit_price, 2) }} / {{ strtoupper($item->price_unit ?: $item->product->unit) }}</td>
                                 <td class="px-4 py-3 text-right font-semibold text-amber-600">Rs. {{ number_format((float) $item->shortage_amount, 2) }}</td>
                                 <td class="px-4 py-3 text-right font-semibold text-cyan-700">Rs. {{ number_format((float) $item->excess_amount, 2) }}</td>
                                 <td class="px-4 py-3 text-right font-black text-slate-950">Rs. {{ number_format((float) $item->final_line_total, 2) }}</td>
