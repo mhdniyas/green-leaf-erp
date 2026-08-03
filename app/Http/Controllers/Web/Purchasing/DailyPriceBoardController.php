@@ -14,6 +14,7 @@ use App\Models\DailyProductPriceRevision;
 use App\Models\GoodsReceivedItem;
 use App\Models\Product;
 use App\Models\ProductUnit;
+use App\Models\ShopOrder;
 use App\Models\ShopPriceGroup;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
@@ -22,6 +23,7 @@ use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -125,10 +127,12 @@ class DailyPriceBoardController extends Controller
         $approvedApprovals = $matchingApprovals
             ->where('status', 'approved')
             ->values();
+        $orderPriceAlerts = $this->orderPriceAlertsForBusinessDate($targetBusinessDate);
 
         return view('purchase-manager.prices.index', [
             'pendingApprovals' => $pendingApprovals,
             'approvedApprovals' => $approvedApprovals,
+            'orderPriceAlerts' => $orderPriceAlerts,
             'search' => $search,
             'categoryId' => $categoryId,
             'categories' => Category::query()->orderBy('name')->get(['id', 'name']),
@@ -534,5 +538,89 @@ class DailyPriceBoardController extends Controller
                 ]);
             }
         }
+    }
+
+        /**
+         * @return Collection<int, array{
+         *   order_number: string,
+         *   shop_name: string,
+         *   product_name: string,
+         *   sku: string,
+         *   price_group: string,
+         *   issue: string
+         * }>
+         */
+        private function orderPriceAlertsForBusinessDate(string $businessDate): Collection
+        {
+            $orders = ShopOrder::query()
+                ->with(['shop.priceGroup', 'items.product'])
+                ->whereDate('business_date', $businessDate)
+                ->where('state', 'approved')
+                ->where('order_source', '!=', 'admin_direct_purchase')
+                ->whereHas('items', fn ($query) => $query->where('approved_qty', '>', 0))
+                ->get();
+
+            if ($orders->isEmpty()) {
+                return collect();
+            }
+
+            $productIds = $orders
+                ->flatMap(fn (ShopOrder $order) => $order->items->pluck('product_id'))
+                ->filter()
+                ->unique()
+                ->values();
+
+            $approvalsByProduct = DailyPriceApproval::query()
+                ->whereDate('business_date', $businessDate)
+                ->whereIn('product_id', $productIds)
+                ->get()
+                ->keyBy('product_id');
+
+            return $orders
+                ->flatMap(function (ShopOrder $order) use ($approvalsByProduct): array {
+                    $groupName = strtoupper((string) ($order->shop?->priceGroup?->name ?? ''));
+                    $priceColumn = match ($groupName) {
+                        'A' => 'price_a',
+                        'B' => 'price_b',
+                        'C' => 'price_c',
+                        default => null,
+                    };
+
+                    return $order->items
+                        ->filter(fn ($item): bool => (float) ($item->approved_qty ?? 0) > 0)
+                        ->map(function ($item) use ($order, $groupName, $priceColumn, $approvalsByProduct): ?array {
+                            $approval = $approvalsByProduct->get((int) $item->product_id);
+
+                            if (! $approval) {
+                                $issue = 'Missing daily approval';
+                            } elseif ($approval->status !== 'approved' || $approval->approved_at === null) {
+                                $issue = 'Not approved by admin';
+                            } elseif ($priceColumn === null) {
+                                $issue = 'Shop price group mapping missing';
+                            } elseif ((float) ($approval->{$priceColumn} ?? 0) <= 0) {
+                                $issue = 'Approved price is zero/invalid';
+                            } else {
+                                return null;
+                            }
+
+                            return [
+                                'order_number' => (string) $order->order_number,
+                                'shop_name' => (string) ($order->shop?->name ?? 'Unknown Shop'),
+                                'product_name' => (string) ($item->product?->name ?? 'Unknown Product'),
+                                'sku' => (string) ($item->product?->sku ?? 'NA'),
+                                'price_group' => $groupName !== '' ? $groupName : '-',
+                                'issue' => $issue,
+                            ];
+                        })
+                        ->filter()
+                        ->values()
+                        ->all();
+                })
+                ->unique(fn (array $row): string => implode('|', [
+                    $row['order_number'],
+                    $row['product_name'],
+                    $row['issue'],
+                ]))
+                ->values();
     }
 }

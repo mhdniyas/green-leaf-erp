@@ -196,6 +196,39 @@
             </div>
         @endif
 
+        @if (($orderPriceAlerts ?? collect())->isNotEmpty())
+            <section class="rounded-3xl border border-amber-300 bg-amber-50 px-5 py-4 shadow-sm">
+                <h3 class="text-sm font-black uppercase tracking-[0.14em] text-amber-900">Order price alerts</h3>
+                <p class="mt-1 text-sm font-semibold text-amber-800">
+                    These products are in approved shop orders for {{ \Illuminate\Support\Carbon::parse($targetBusinessDate)->format('d M Y') }} and will block invoice sync until fixed.
+                </p>
+                <div class="mt-3 overflow-x-auto">
+                    <table class="min-w-full text-left text-xs">
+                        <thead class="text-[11px] font-black uppercase tracking-[0.14em] text-amber-900">
+                            <tr>
+                                <th class="pr-4 py-2">Order</th>
+                                <th class="pr-4 py-2">Shop</th>
+                                <th class="pr-4 py-2">Product</th>
+                                <th class="pr-4 py-2">Group</th>
+                                <th class="py-2">Issue</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-amber-200 text-amber-900">
+                            @foreach ($orderPriceAlerts as $alert)
+                                <tr>
+                                    <td class="pr-4 py-2 font-black">{{ $alert['order_number'] }}</td>
+                                    <td class="pr-4 py-2 font-semibold">{{ $alert['shop_name'] }}</td>
+                                    <td class="pr-4 py-2 font-semibold">{{ $alert['product_name'] }} <span class="text-amber-700">({{ $alert['sku'] }})</span></td>
+                                    <td class="pr-4 py-2 font-black">{{ $alert['price_group'] }}</td>
+                                    <td class="py-2 font-black">{{ $alert['issue'] }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        @endif
+
         <section class="grid gap-4 md:grid-cols-3">
             <article class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Pending Admin Approval</p>
