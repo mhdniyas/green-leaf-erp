@@ -48,7 +48,7 @@ class DailyPriceMatrixController extends Controller
         $weekStart = $request->filled('week_start')
             ? Carbon::parse((string) $request->input('week_start'))->startOfWeek(Carbon::MONDAY)
             : $selectedDate->copy()->startOfWeek(Carbon::MONDAY);
-        $weekEnd = $weekStart->copy()->endOfWeek(Carbon::MONDAY);
+        $weekEnd = $weekStart->copy()->addDays(6);
 
         $matrixDates = [];
         $currentDate = $weekStart->copy();
