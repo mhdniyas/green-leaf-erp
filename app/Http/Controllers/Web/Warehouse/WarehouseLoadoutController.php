@@ -148,7 +148,7 @@ class WarehouseLoadoutController extends Controller
                 return [
                     'product_id' => $productId,
                     'product' => $firstItem->product,
-                    'unit' => $firstItem->unit ?? 'KG',
+                    'unit' => $firstItem->product->unit ?? 'KG',
                     'product_grade' => $firstItem->product_grade ?? 'A',
                     'total_approved' => $totalApproved,
                     'total_loaded' => $totalLoaded,
