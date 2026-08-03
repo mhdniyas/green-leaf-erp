@@ -202,18 +202,38 @@
             <section class="rounded-3xl border border-amber-300 bg-amber-50 px-5 py-4 shadow-sm">
                 <div class="flex flex-wrap items-center justify-between gap-3">
                     <h3 class="text-sm font-black uppercase tracking-[0.14em] text-amber-900">Order price alerts</h3>
-                    @if ($isAdminViewer && $fixableOrderPriceAlerts->isNotEmpty())
-                        <form method="POST" action="{{ route('purchasing.prices.fix-zero-order-prices') }}">
-                            @csrf
-                            <input type="hidden" name="date" value="{{ $purchaseDate }}">
-                            <input type="hidden" name="search" value="{{ $search }}">
-                            <input type="hidden" name="category_id" value="{{ $categoryId }}">
-                            <input type="hidden" name="movement" value="{{ $movement }}">
-                            <input type="hidden" name="sort" value="{{ $sort }}">
-                            <button type="submit" class="inline-flex min-h-10 items-center justify-center rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-500">
-                                Fix Zero Prices to 999 ({{ $fixableOrderPriceAlerts->count() }})
-                            </button>
-                        </form>
+                    @if ($isAdminViewer)
+                        <div class="flex flex-wrap items-center gap-2">
+                            @php
+                                $pendingApprovalAlerts = $orderPriceAlerts->where('issue', 'Not approved by admin');
+                            @endphp
+                            @if ($pendingApprovalAlerts->isNotEmpty())
+                                <form method="POST" action="{{ route('purchasing.prices.approve-order-prices') }}" class="inline">
+                                    @csrf
+                                    <input type="hidden" name="date" value="{{ $purchaseDate }}">
+                                    <input type="hidden" name="search" value="{{ $search }}">
+                                    <input type="hidden" name="category_id" value="{{ $categoryId }}">
+                                    <input type="hidden" name="movement" value="{{ $movement }}">
+                                    <input type="hidden" name="sort" value="{{ $sort }}">
+                                    <button type="submit" class="inline-flex min-h-10 items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white hover:bg-emerald-500">
+                                        Approve Order Prices ({{ $pendingApprovalAlerts->count() }})
+                                    </button>
+                                </form>
+                            @endif
+                            @if ($fixableOrderPriceAlerts->isNotEmpty())
+                                <form method="POST" action="{{ route('purchasing.prices.fix-zero-order-prices') }}" class="inline">
+                                    @csrf
+                                    <input type="hidden" name="date" value="{{ $purchaseDate }}">
+                                    <input type="hidden" name="search" value="{{ $search }}">
+                                    <input type="hidden" name="category_id" value="{{ $categoryId }}">
+                                    <input type="hidden" name="movement" value="{{ $movement }}">
+                                    <input type="hidden" name="sort" value="{{ $sort }}">
+                                    <button type="submit" class="inline-flex min-h-10 items-center justify-center rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-500">
+                                        Fix Zero Prices to 999 ({{ $fixableOrderPriceAlerts->count() }})
+                                    </button>
+                                </form>
+                            @endif
+                        </div>
                     @endif
                 </div>
                 <p class="mt-1 text-sm font-semibold text-amber-800">

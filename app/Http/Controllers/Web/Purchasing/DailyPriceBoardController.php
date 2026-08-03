@@ -364,6 +364,73 @@ class DailyPriceBoardController extends Controller
             );
     }
 
+    public function approveOrderPrices(Request $request): RedirectResponse
+    {
+        $this->authorizeBoardAccess();
+        abort_unless((bool) $request->user()?->hasRole('admin'), 403, 'Only admin can approve order prices.');
+
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+            'search' => ['nullable', 'string', 'max:255'],
+            'category_id' => ['nullable', 'integer'],
+            'movement' => ['nullable', 'in:changed,up,down,all'],
+            'sort' => ['nullable', 'in:code,name,status,movement'],
+        ]);
+
+        $alerts = $this->orderPriceAlertsForBusinessDate(Carbon::parse($validated['date'])->toDateString());
+        $approveTargets = $alerts
+            ->filter(fn (array $alert): bool => ($alert['issue'] ?? '') === 'Not approved by admin')
+            ->pluck('approval_id')
+            ->filter()
+            ->unique();
+
+        $approvedRows = 0;
+        $userId = (int) $request->user()->id;
+
+        DB::transaction(function () use ($approveTargets, $userId, &$approvedRows): void {
+            foreach ($approveTargets as $approvalId) {
+                /** @var DailyPriceApproval|null $approval */
+                $approval = DailyPriceApproval::query()->find((int) $approvalId);
+                if (! $approval || $approval->status === 'approved') {
+                    continue;
+                }
+
+                $approval->update([
+                    'status' => 'approved',
+                    'approved_by' => $userId,
+                    'approved_at' => now(),
+                ]);
+
+                $approvedRows++;
+            }
+        });
+
+        if ($approvedRows > 0) {
+            $targetBusinessDate = Carbon::parse($validated['date'])->toDateString();
+            $this->shopInvoiceService->generateForBusinessDate($targetBusinessDate, $userId);
+            $this->shopInvoiceService->repriceAllForBusinessDate(
+                $targetBusinessDate,
+                $userId,
+                'Admin approved pending daily prices for order invoice generation.',
+            );
+        }
+
+        return redirect()
+            ->route('purchasing.prices.index', array_filter([
+                'date' => $validated['date'],
+                'search' => $validated['search'] ?? null,
+                'category_id' => $validated['category_id'] ?? null,
+                'movement' => $validated['movement'] ?? null,
+                'sort' => $validated['sort'] ?? null,
+            ]))
+            ->with(
+                $approvedRows > 0 ? 'success' : 'warning',
+                $approvedRows > 0
+                    ? "Approved {$approvedRows} pending order-linked daily price(s) and regenerated invoices."
+                    : 'No pending order-linked prices needed approval.'
+            );
+    }
+
     public function updateSettings(Request $request): RedirectResponse
     {
         $this->authorizeBoardAccess();
