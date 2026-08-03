@@ -62,24 +62,25 @@
                         @forelse ($fulfilledItems as $item)
                             @php
                                 $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
-                                $hasSec = $item->requested_unit_quantity && strtolower($item->requested_unit ?? '') !== 'kg';
-                                $secUnitLabel = $hasSec
-                                    ? strtoupper($item->requested_unit_label ?: $item->requested_unit)
-                                    : strtoupper($item->product->unit);
-
-                                $deliveredBaseQty = (float) ($invoiceItem?->delivered_qty ?? $invoiceItem?->approved_qty ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
-                                $unitRate = $invoiceItem?->unit_price;
-                                $priceUnit = (string) ($invoiceItem?->price_unit ?? $invoiceItem?->unit ?? $item->product->unit ?? 'KG');
-                                $isPriceInSecondaryUnit = $hasSec && \App\Models\ProductUnit::normalizeUnit($priceUnit) !== \App\Models\ProductUnit::normalizeUnit((string) $item->product->unit);
-
-                                $lineTotal = $invoiceItem?->final_line_total ?? $invoiceItem?->line_subtotal;
-
-                                if ($isPriceInSecondaryUnit && (float) ($item->requested_unit_conversion_to_base ?? 0) > 0) {
-                                    $approvedQty = round($deliveredBaseQty / (float) $item->requested_unit_conversion_to_base, 2);
-                                    $displayUnitLabel = $secUnitLabel;
+                                
+                                // Use invoice's pricing quantity and unit for display
+                                if ($invoiceItem) {
+                                    $approvedQty = (float) ($invoiceItem->delivered_price_quantity ?? $invoiceItem->price_quantity ?? $invoiceItem->delivered_qty ?? 0);
+                                    $displayUnitLabel = strtoupper($invoiceItem->price_unit ?: $item->product->unit);
+                                    $lineTotal = $invoiceItem->final_line_total ?? $invoiceItem->line_subtotal;
+                                    
+                                    // Calculate effective rate per displayed unit
+                                    if ($approvedQty > 0 && $lineTotal !== null) {
+                                        $unitRate = $lineTotal / $approvedQty;
+                                    } else {
+                                        $unitRate = $invoiceItem->unit_price;
+                                    }
                                 } else {
-                                    $approvedQty = $deliveredBaseQty;
+                                    // Fallback if no invoice item
+                                    $approvedQty = (float) ($item->loaded_qty ?? $item->approved_qty ?? 0);
                                     $displayUnitLabel = strtoupper($item->product->unit ?? 'KG');
+                                    $unitRate = null;
+                                    $lineTotal = null;
                                 }
                             @endphp
                             <tr>
