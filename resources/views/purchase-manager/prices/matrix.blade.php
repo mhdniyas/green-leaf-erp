@@ -120,6 +120,28 @@
             </form>
         </section>
 
+        @if ($isAdminViewer)
+            <!-- Admin Import Section -->
+            <section class="rounded-3xl border border-indigo-200 bg-indigo-50 p-5 shadow-sm">
+                <div class="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                        <h3 class="text-sm font-black text-indigo-900 uppercase tracking-wider">Admin: Import Prices from JSON</h3>
+                        <p class="text-xs font-medium text-indigo-700 mt-1">Import bulk prices from pre-configured JSON files (storage/app/price-imports/)</p>
+                    </div>
+                    <button
+                        type="button"
+                        onclick="showImportModal()"
+                        class="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-5 py-3 text-sm font-black text-white hover:bg-indigo-500"
+                    >
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
+                        Import from JSON
+                    </button>
+                </div>
+            </section>
+        @endif
+
         @if (session('success'))
             <div class="rounded-3xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-800">
                 {{ session('success') }}
@@ -633,7 +655,157 @@
                         btn.className = originalClass;
                     }
                 }
+
+                function showImportModal() {
+                    document.getElementById('importModal').classList.remove('hidden');
+                    document.body.style.overflow = 'hidden';
+                }
+
+                function hideImportModal() {
+                    document.getElementById('importModal').classList.add('hidden');
+                    document.body.style.overflow = '';
+                }
+
+                async function executeImport() {
+                    const jsonFile = document.getElementById('importJsonFile').value;
+                    const unlockLocked = document.getElementById('unlockLocked').checked;
+                    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                                      document.querySelector('input[name="_token"]')?.value || '';
+
+                    const btn = document.getElementById('executeImportBtn');
+                    const statusDiv = document.getElementById('importStatus');
+                    
+                    btn.disabled = true;
+                    btn.textContent = 'Importing...';
+                    statusDiv.textContent = 'Processing import...';
+                    statusDiv.className = 'mt-3 p-3 rounded-xl bg-blue-100 text-blue-800 text-sm font-medium';
+
+                    try {
+                        const response = await fetch("{{ route('purchasing.prices.matrix.import-json') }}", {
+                            method: 'POST',
+                            headers: {
+                                'Accept': 'application/json',
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': csrfToken,
+                            },
+                            body: JSON.stringify({
+                                json_file: jsonFile,
+                                unlock_locked: unlockLocked,
+                            }),
+                        });
+
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            statusDiv.textContent = data.message;
+                            statusDiv.className = 'mt-3 p-3 rounded-xl bg-emerald-100 text-emerald-800 text-sm font-bold';
+                            setTimeout(() => {
+                                location.reload();
+                            }, 2000);
+                        } else {
+                            statusDiv.textContent = data.message || 'Import failed.';
+                            statusDiv.className = 'mt-3 p-3 rounded-xl bg-rose-100 text-rose-800 text-sm font-bold';
+                            btn.disabled = false;
+                            btn.textContent = 'Execute Import';
+                        }
+                    } catch (err) {
+                        statusDiv.textContent = 'Network error during import: ' + err.message;
+                        statusDiv.className = 'mt-3 p-3 rounded-xl bg-rose-100 text-rose-800 text-sm font-bold';
+                        btn.disabled = false;
+                        btn.textContent = 'Execute Import';
+                    }
+                }
+
+                // Close modal on ESC key
+                document.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape') {
+                        hideImportModal();
+                    }
+                });
             </script>
         @endpush
     @endonce
+
+    <!-- Import Modal -->
+    <div id="importModal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+            <!-- Background overlay -->
+            <div class="fixed inset-0 bg-slate-900 bg-opacity-75 transition-opacity" onclick="hideImportModal()"></div>
+
+            <!-- Modal panel -->
+            <div class="inline-block align-bottom bg-white rounded-3xl px-6 pt-5 pb-6 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-lg font-black text-slate-900 uppercase tracking-wider" id="modal-title">
+                            Import Prices from JSON
+                        </h3>
+                        <button type="button" onclick="hideImportModal()" class="text-slate-400 hover:text-slate-600">
+                            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="space-y-3">
+                        <div>
+                            <label for="importJsonFile" class="block text-xs font-black uppercase tracking-wider text-slate-600 mb-2">
+                                JSON File Name
+                            </label>
+                            <input 
+                                type="text" 
+                                id="importJsonFile" 
+                                value="aug-2-3-2026.json"
+                                placeholder="aug-2-3-2026.json"
+                                class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-indigo-500 focus:outline-none"
+                            />
+                            <p class="mt-1.5 text-xs text-slate-500 font-medium">
+                                File must exist in: <code class="bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">storage/app/price-imports/</code>
+                            </p>
+                        </div>
+
+                        <div class="flex items-start gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
+                            <input 
+                                type="checkbox" 
+                                id="unlockLocked" 
+                                class="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                            />
+                            <label for="unlockLocked" class="text-xs font-semibold text-amber-900">
+                                <span class="font-black">Force unlock locked prices</span><br>
+                                <span class="text-amber-700 font-medium">If unchecked, locked prices will be skipped during import.</span>
+                            </label>
+                        </div>
+
+                        <div class="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                            <p class="text-xs font-semibold text-slate-700">
+                                <strong class="font-black text-slate-900">Safety:</strong> Import validates both product code (SKU) and name must match exactly.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div id="importStatus" class="hidden"></div>
+
+                    <div class="flex items-center gap-3 pt-2">
+                        <button
+                            type="button"
+                            id="executeImportBtn"
+                            onclick="executeImport()"
+                            class="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-5 py-3.5 text-sm font-black text-white hover:bg-indigo-500"
+                        >
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                            Execute Import
+                        </button>
+                        <button
+                            type="button"
+                            onclick="hideImportModal()"
+                            class="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 py-3.5 text-sm font-black text-slate-700 hover:bg-slate-50"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 @endsection

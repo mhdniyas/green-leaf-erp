@@ -690,6 +690,170 @@ class DailyPriceMatrixController extends Controller
         return redirect()->back()->with('success', $message);
     }
 
+    public function importFromJson(Request $request): mixed
+    {
+        $this->authorizeBoardAccess();
+        
+        // Only admins can import prices
+        abort_unless(auth()->user()?->hasRole('admin'), 403, 'Only admins can import prices.');
+
+        $validated = $request->validate([
+            'json_file' => ['required', 'string', 'max:255'],
+            'unlock_locked' => ['nullable', 'boolean'],
+        ]);
+
+        $user = $request->user();
+        $userId = (int) $user->id;
+        $unlockLocked = (bool) ($validated['unlock_locked'] ?? false);
+
+        // Read JSON file from storage
+        $jsonFilePath = storage_path('app/price-imports/' . $validated['json_file']);
+        
+        if (!file_exists($jsonFilePath)) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "JSON file not found: {$validated['json_file']}",
+                ], 404);
+            }
+            return redirect()->back()->with('error', "JSON file not found: {$validated['json_file']}");
+        }
+
+        $jsonContent = file_get_contents($jsonFilePath);
+        $data = json_decode($jsonContent, true);
+
+        if (!$data || !isset($data['prices'])) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid JSON format. Expected "prices" array.',
+                ], 400);
+            }
+            return redirect()->back()->with('error', 'Invalid JSON format.');
+        }
+
+        $updated = 0;
+        $skipped = 0;
+        $errors = [];
+        $unlocked = 0;
+
+        DB::transaction(function () use ($data, $userId, $unlockLocked, &$updated, &$skipped, &$errors, &$unlocked): void {
+            foreach ($data['prices'] as $priceData) {
+                $productCode = $priceData['product_code'] ?? null;
+                $productName = $priceData['product_name'] ?? null;
+                $dates = $priceData['dates'] ?? [];
+
+                if ((!$productCode && !$productName) || empty($dates)) {
+                    continue;
+                }
+
+                // Find product by BOTH code (SKU) AND name for safety
+                $query = Product::query();
+                
+                if ($productCode && $productName) {
+                    // Match both SKU and name - safest option
+                    $query->where('sku', $productCode)->where('name', $productName);
+                } elseif ($productCode) {
+                    // Match by SKU only
+                    $query->where('sku', $productCode);
+                } else {
+                    // Match by name only (least safe)
+                    $query->where('name', $productName);
+                }
+
+                $product = $query->first();
+
+                if (!$product) {
+                    $identifier = $productCode ? "Code: {$productCode}, Name: {$productName}" : "Name: {$productName}";
+                    $errors[] = "Product not found or mismatch: {$identifier}";
+                    continue;
+                }
+
+                // Double-check: if both provided, verify they match
+                if ($productCode && $productName) {
+                    if ($product->sku !== $productCode || $product->name !== $productName) {
+                        $errors[] = "Product mismatch: Expected SKU={$productCode} Name={$productName}, Found SKU={$product->sku} Name={$product->name}";
+                        continue;
+                    }
+                }
+
+                foreach ($dates as $dateStr => $price) {
+                    $businessDate = Carbon::parse($dateStr)->toDateString();
+
+                    // Find or create approval
+                    $approval = DailyPriceApproval::query()
+                        ->where('product_id', $product->id)
+                        ->whereDate('business_date', $businessDate)
+                        ->first();
+
+                    if (!$approval) {
+                        // Create new approval
+                        $approval = new DailyPriceApproval([
+                            'product_id' => $product->id,
+                            'business_date' => $businessDate,
+                            'price_a' => $price,
+                            'price_b' => $price,
+                            'price_c' => $price,
+                            'status' => 'approved',
+                            'approved_by' => $userId,
+                            'approved_at' => now(),
+                        ]);
+                        $approval->save();
+                        $updated++;
+                    } else {
+                        // Check if locked
+                        if ($approval->isLocked()) {
+                            if ($unlockLocked) {
+                                // Unlock it
+                                $approval->locked_at = null;
+                                $approval->locked_by = null;
+                                $unlocked++;
+                            } else {
+                                // Skip locked prices
+                                $skipped++;
+                                continue;
+                            }
+                        }
+
+                        // Update existing approval
+                        $approval->price_a = $price;
+                        $approval->price_b = $price;
+                        $approval->price_c = $price;
+                        $approval->status = 'approved';
+                        $approval->approved_by = $userId;
+                        $approval->approved_at = now();
+                        $approval->save();
+                        $updated++;
+                    }
+                }
+            }
+        });
+
+        $message = "Import completed: {$updated} prices updated";
+        if ($skipped > 0) {
+            $message .= ", {$skipped} locked prices skipped";
+        }
+        if ($unlocked > 0) {
+            $message .= ", {$unlocked} prices unlocked";
+        }
+        if (!empty($errors)) {
+            $message .= ". Errors: " . implode(', ', array_slice($errors, 0, 5));
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'updated' => $updated,
+                'skipped' => $skipped,
+                'unlocked' => $unlocked,
+                'errors' => $errors,
+            ]);
+        }
+
+        return redirect()->back()->with('success', $message);
+    }
+
     private function authorizeBoardAccess(): void
     {
         abort_unless(auth()->user()?->hasRole('purchase') || auth()->user()?->hasRole('admin'), 403);
