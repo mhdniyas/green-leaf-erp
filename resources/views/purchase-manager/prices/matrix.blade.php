@@ -657,13 +657,27 @@
                 }
 
                 function showImportModal() {
-                    document.getElementById('importModal').classList.remove('hidden');
+                    const modal = document.getElementById('importModal');
+                    if (!modal) {
+                        console.error('Import modal not found');
+                        alert('Import modal not found. Please refresh the page.');
+                        return;
+                    }
+                    modal.classList.remove('hidden');
                     document.body.style.overflow = 'hidden';
                 }
 
                 function hideImportModal() {
-                    document.getElementById('importModal').classList.add('hidden');
+                    const modal = document.getElementById('importModal');
+                    if (!modal) return;
+                    modal.classList.add('hidden');
                     document.body.style.overflow = '';
+                    // Reset status
+                    const statusDiv = document.getElementById('importStatus');
+                    if (statusDiv) {
+                        statusDiv.classList.add('hidden');
+                        statusDiv.textContent = '';
+                    }
                 }
 
                 async function executeImport() {
@@ -677,6 +691,7 @@
                     
                     btn.disabled = true;
                     btn.textContent = 'Importing...';
+                    statusDiv.classList.remove('hidden');
                     statusDiv.textContent = 'Processing import...';
                     statusDiv.className = 'mt-3 p-3 rounded-xl bg-blue-100 text-blue-800 text-sm font-medium';
 
@@ -696,18 +711,21 @@
 
                         const data = await response.json();
                         
-                        if (data.success) {
+                        if (data.succeclassList.remove('hidden');
                             statusDiv.textContent = data.message;
                             statusDiv.className = 'mt-3 p-3 rounded-xl bg-emerald-100 text-emerald-800 text-sm font-bold';
                             setTimeout(() => {
                                 location.reload();
                             }, 2000);
                         } else {
+                            statusDiv.classList.remove('hidden');000);
+                        } else {
                             statusDiv.textContent = data.message || 'Import failed.';
                             statusDiv.className = 'mt-3 p-3 rounded-xl bg-rose-100 text-rose-800 text-sm font-bold';
                             btn.disabled = false;
                             btn.textContent = 'Execute Import';
-                        }
+                        }classList.remove('hidden');
+                        statusDiv.
                     } catch (err) {
                         statusDiv.textContent = 'Network error during import: ' + err.message;
                         statusDiv.className = 'mt-3 p-3 rounded-xl bg-rose-100 text-rose-800 text-sm font-bold';
