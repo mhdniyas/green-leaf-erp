@@ -67,14 +67,9 @@
                                 if ($invoiceItem) {
                                     $approvedQty = (float) ($invoiceItem->delivered_price_quantity ?? $invoiceItem->price_quantity ?? $invoiceItem->delivered_qty ?? 0);
                                     $displayUnitLabel = strtoupper($invoiceItem->price_unit ?: $item->product->unit);
-                                    $lineTotal = $invoiceItem->final_line_total ?? $invoiceItem->line_subtotal;
-                                    
-                                    // Calculate effective rate per displayed unit
-                                    if ($approvedQty > 0 && $lineTotal !== null) {
-                                        $unitRate = $lineTotal / $approvedQty;
-                                    } else {
-                                        $unitRate = $invoiceItem->unit_price;
-                                    }
+                                    $unitRate = $invoiceItem->unit_price;
+                                    // Calculate line total (DB value may be wrong)
+                                    $lineTotal = $approvedQty * $unitRate;
                                 } else {
                                     // Fallback if no invoice item
                                     $approvedQty = (float) ($item->loaded_qty ?? $item->approved_qty ?? 0);

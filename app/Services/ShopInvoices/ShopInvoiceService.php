@@ -121,7 +121,8 @@ class ShopInvoiceService
                             if ($item->sorting_status === 'not_available' || $item->loadout_discrepancy_type === 'not_available') {
                                 return 0.0;
                             }
-                            return (float) ($item->delivered_qty ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
+                            // For products with actual_weight (e.g. FULL_BUNCH weighed at warehouse), use actual_weight
+                            return (float) ($item->actual_weight ?? $item->delivered_qty ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
                         });
                     $shortageQty = (float) $orderItems->sum(function (ShopOrderItem $item): float {
                         if ($item->sorting_status === 'not_available' || $item->loadout_discrepancy_type === 'not_available') {
