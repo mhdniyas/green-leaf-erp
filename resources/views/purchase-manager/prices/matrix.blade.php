@@ -171,6 +171,15 @@
             <input type="hidden" name="week_start" value="{{ $weekStartDate }}">
             <input type="hidden" name="matrix_category" id="update-matrix-category" value="{{ $matrixCategory }}">
             <input type="hidden" name="action" id="matrix-form-action" value="update">
+            
+            {{-- Hidden field to track all visible products for approve/publish --}}
+            @foreach ($matrixProducts as $prod)
+                <input type="hidden" name="all_product_ids[]" value="{{ $prod['id'] }}">
+            @endforeach
+            @foreach ($matrixDates as $dateStr => $dateInfo)
+                <input type="hidden" name="all_dates[]" value="{{ $dateStr }}">
+            @endforeach
+            
             <div class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-100 bg-cyan-50 px-4 py-3">
                 <p class="text-sm font-semibold text-cyan-900">
                     @if ($isAdminViewer)

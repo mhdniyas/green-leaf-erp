@@ -332,6 +332,10 @@ class DailyPriceMatrixController extends Controller
             'matrix_price_units' => ['nullable', 'array'],
             'matrix_price_units.*' => ['nullable', 'array'],
             'matrix_price_units.*.*' => ['nullable', 'string', 'max:20'],
+            'all_product_ids' => ['nullable', 'array'],
+            'all_product_ids.*' => ['nullable', 'integer'],
+            'all_dates' => ['nullable', 'array'],
+            'all_dates.*' => ['nullable', 'date'],
         ]);
 
         $user = $request->user();
@@ -345,8 +349,12 @@ class DailyPriceMatrixController extends Controller
         $matrixCategory = strtolower((string) $validated['matrix_category']);
         $rawMatrixPrices = collect((array) ($validated['matrix_prices'] ?? []));
         $rawMatrixPriceUnits = collect((array) ($validated['matrix_price_units'] ?? []));
+        
+        // For approve/publish, process ALL visible products, not just submitted ones
+        $allProductIds = collect((array) ($validated['all_product_ids'] ?? []))->filter()->unique();
+        $allDates = collect((array) ($validated['all_dates'] ?? []))->filter()->unique();
 
-        if ($rawMatrixPrices->isEmpty()) {
+        if ($rawMatrixPrices->isEmpty() && !$shouldPublish) {
             return redirect()
                 ->route('purchasing.prices.matrix.index', [
                     'date' => $validated['date'],
@@ -358,12 +366,15 @@ class DailyPriceMatrixController extends Controller
                 ->with('warning', 'No matrix prices were submitted.');
         }
 
-        $productIds = $rawMatrixPrices
-            ->keys()
-            ->map(static fn ($id): int => (int) $id)
-            ->filter(static fn (int $id): bool => $id > 0)
-            ->unique()
-            ->values();
+        // When publishing, use all visible products; otherwise use only submitted ones
+        $productIds = $shouldPublish && $allProductIds->isNotEmpty()
+            ? $allProductIds
+            : $rawMatrixPrices
+                ->keys()
+                ->map(static fn ($id): int => (int) $id)
+                ->filter(static fn (int $id): bool => $id > 0)
+                ->unique()
+                ->values();
 
         $products = Product::query()
             ->whereIn('id', $productIds)
@@ -387,10 +398,74 @@ class DailyPriceMatrixController extends Controller
             $groupA,
             $groupB,
             $groupC,
+            $allDates,
             &$publishedDates,
             &$updatedCells
         ): void {
-            foreach ($rawMatrixPrices as $productId => $datePrices) {
+            // When publishing, process ALL visible product-date combinations
+            if ($shouldPublish && $allDates->isNotEmpty()) {
+                foreach ($products as $product) {
+                    foreach ($allDates as $dateStr) {
+                        $businessDate = Carbon::parse((string) $dateStr)->toDateString();
+                        
+                        // Get existing approval or skip if none exists
+                        $approval = DailyPriceApproval::query()
+                            ->where('product_id', $product->id)
+                            ->where('business_date', $businessDate)
+                            ->first();
+                        
+                        // Skip if locked
+                        if ($approval && $approval->isLocked()) {
+                            continue;
+                        }
+                        
+                        // Skip if no approval exists (can't publish nothing)
+                        if (!$approval) {
+                            continue;
+                        }
+                        
+                        // Check if there's a new price submitted for this product-date
+                        $submittedPrice = $rawMatrixPrices->get((int) $product->id)?->{$dateStr} ?? null;
+                        
+                        if ($submittedPrice !== null && $submittedPrice !== '') {
+                            $newPrice = round((float) $submittedPrice, 2);
+                            
+                            if ($matrixCategory === 'a') {
+                                $approval->price_a = $newPrice;
+                                if ($approval->price_b === null || (float) $approval->price_b <= 0) {
+                                    $approval->price_b = $newPrice;
+                                }
+                                if ($approval->price_c === null || (float) $approval->price_c <= 0) {
+                                    $approval->price_c = $newPrice;
+                                }
+                            } elseif ($matrixCategory === 'b') {
+                                $approval->price_b = $newPrice;
+                            } else {
+                                $approval->price_c = $newPrice;
+                            }
+                        }
+                        
+                        // Approve and lock the existing approval
+                        $approval->status = 'approved';
+                        $approval->approved_by = $userId;
+                        $approval->approved_at = now();
+                        $approval->locked_at = now();
+                        $approval->locked_by = $userId;
+                        $approval->save();
+                        
+                        $updatedCells++;
+                        $publishedDates[$businessDate] = true;
+                        
+                        // Publish to active prices
+                        $this->updateActivePricesForGroup($product, $groupA, (float) $approval->price_a, $userId);
+                        $this->updateActivePricesForGroup($product, $groupB, (float) $approval->price_b, $userId);
+                        $this->updateActivePricesForGroup($product, $groupC, (float) $approval->price_c, $userId);
+                        $this->vendorPriceService->syncPrice($product->id, (float) $approval->purchase_price);
+                    }
+                }
+            } else {
+                // Regular update flow: only process submitted prices
+                foreach ($rawMatrixPrices as $productId => $datePrices) {
                 $product = $products->get((int) $productId);
 
                 if (! $product || ! is_array($datePrices)) {
@@ -472,6 +547,7 @@ class DailyPriceMatrixController extends Controller
                     $this->vendorPriceService->syncPrice($product->id, (float) $approval->purchase_price);
                 }
             }
+            } // End of else block for regular update flow
         });
 
         if ($shouldPublish) {
