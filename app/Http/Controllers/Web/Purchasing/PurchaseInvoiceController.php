@@ -76,6 +76,13 @@ class PurchaseInvoiceController extends Controller
         ];
         $canManageSuppliers = $request->user()->hasRole('admin') || $request->user()->hasRole('purchase') || $request->user()->can('purchasing.supplier.update');
 
+        $flaggedInvoices = PurchaseInvoice::query()
+            ->with(['supplier', 'purchaserCart.items', 'goodsReceived.items'])
+            ->whereDate('created_at', '>=', now()->subDays(60))
+            ->get()
+            ->filter(fn (PurchaseInvoice $invoice): bool => $invoice->hasCalculationError())
+            ->values();
+
         return view('purchase-manager.invoices.index', [
             'date' => $date->format('Y-m-d'),
             'invoices' => $invoices,
@@ -87,6 +94,7 @@ class PurchaseInvoiceController extends Controller
             'canManageSuppliers' => $canManageSuppliers,
             'canPayCompanyVendorCredit' => $request->user()->hasRole('admin'),
             'pendingVendorCreditRequests' => $this->pendingVendorCreditRequests(),
+            'flaggedInvoices' => $flaggedInvoices,
         ]);
     }
 

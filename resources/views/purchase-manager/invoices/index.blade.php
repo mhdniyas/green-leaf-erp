@@ -71,6 +71,89 @@
             </div>
         </section>
 
+        @if (isset($flaggedInvoices) && $flaggedInvoices->isNotEmpty())
+            <section class="purchase-manager-panel overflow-hidden border border-rose-300 bg-rose-50/40 p-5">
+                <div class="flex flex-wrap items-center justify-between gap-3 border-b border-rose-200/80 pb-4">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="flex h-7 w-7 items-center justify-center rounded-xl bg-rose-200 text-rose-800 font-bold text-xs">⚠️</span>
+                            <h2 class="text-base font-black uppercase tracking-wider text-rose-950">Calculation Error Flagged Bills</h2>
+                            <span class="rounded-full bg-rose-700 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">{{ $flaggedInvoices->count() }} Flagged</span>
+                        </div>
+                        <p class="mt-1 text-xs font-semibold text-rose-800">
+                            These bills have a mismatch between items total and stored invoice amount. <strong>They can only be updated by an Admin.</strong>
+                        </p>
+                    </div>
+                </div>
+
+                <div class="mt-4 overflow-x-auto rounded-2xl border border-rose-200 bg-white shadow-xs">
+                    <table class="w-full text-left text-xs font-semibold text-slate-800">
+                        <thead class="bg-rose-100/60 text-[10px] font-black uppercase tracking-wider text-rose-900 border-b border-rose-200">
+                            <tr>
+                                <th class="px-4 py-3">Bill Number / Date</th>
+                                <th class="px-4 py-3">Supplier</th>
+                                <th class="px-4 py-3">Gross Item Total</th>
+                                <th class="px-4 py-3">Stored Amount</th>
+                                <th class="px-4 py-3">Discount</th>
+                                <th class="px-4 py-3">Status</th>
+                                <th class="px-4 py-3 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-rose-100">
+                            @foreach ($flaggedInvoices as $flaggedInvoice)
+                                @php
+                                    $grossTotal = $flaggedInvoice->itemsGrossTotal();
+                                    $storedAmount = (float) $flaggedInvoice->amount;
+                                    $diff = $grossTotal - $storedAmount;
+                                @endphp
+                                <tr class="hover:bg-rose-50/50">
+                                    <td class="px-4 py-3 font-mono font-bold text-slate-950">
+                                        <a href="{{ route('purchasing.invoices.show', $flaggedInvoice) }}" class="text-indigo-600 hover:underline">
+                                            {{ $flaggedInvoice->invoice_number }}
+                                        </a>
+                                        <div class="text-[10px] font-semibold text-slate-500">{{ $flaggedInvoice->created_at?->format('d M Y, h:i A') }}</div>
+                                    </td>
+                                    <td class="px-4 py-3 font-bold text-slate-900">
+                                        {{ $flaggedInvoice->supplier?->name ?? 'Supplier pending' }}
+                                    </td>
+                                    <td class="px-4 py-3 font-bold text-emerald-700">
+                                        ₹{{ number_format($grossTotal, 2) }}
+                                    </td>
+                                    <td class="px-4 py-3 font-bold text-rose-700">
+                                        ₹{{ number_format($storedAmount, 2) }}
+                                        <span class="block text-[10px] font-semibold text-rose-500">(Diff: {{ $diff > 0 ? '+' : '' }}₹{{ number_format($diff, 2) }})</span>
+                                    </td>
+                                    <td class="px-4 py-3 font-semibold text-slate-700">
+                                        ₹{{ number_format((float) $flaggedInvoice->discount_amount, 2) }}
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <span class="inline-flex rounded-lg bg-rose-100 px-2 py-1 text-[10px] font-black uppercase text-rose-800 border border-rose-200">
+                                            🔒 Admin Only
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <div class="flex items-center justify-end gap-2">
+                                            <a href="{{ route('purchasing.invoices.show', $flaggedInvoice) }}" class="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-700 hover:bg-slate-100">
+                                                View
+                                            </a>
+                                            @if (auth()->user()?->hasRole('admin'))
+                                                <form action="{{ route('purchasing.invoices.fix-calculation', $flaggedInvoice) }}" method="POST">
+                                                    @csrf
+                                                    <button type="submit" class="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-rose-700 px-3 text-xs font-black text-white hover:bg-rose-800">
+                                                        <span>Fix & Recalculate</span>
+                                                    </button>
+                                                </form>
+                                            @endif
+                                        </div>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        @endif
+
         <section class="purchase-manager-panel overflow-hidden">
             @if ($activeTab === 'credit' && $canManageSuppliers)
                 <div class="border-b border-slate-100 bg-white px-5 py-4">
