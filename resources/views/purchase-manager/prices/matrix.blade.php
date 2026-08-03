@@ -236,7 +236,7 @@
                                         $isLocked = $cellData['is_locked'] ?? false;
                                     @endphp
                                     <td class="p-1 border-r border-slate-200 text-center {{ $dateInfo['is_selected'] ? 'bg-cyan-50/40' : '' }}">
-                                        <div class="matrix-cell-container space-y-1">
+                                        <div class="matrix-cell-container space-y-1" data-product-id="{{ $prod['product_id'] }}" data-date="{{ $dateStr }}" data-is-locked="{{ $isLocked ? '1' : '0' }}">
                                             @if ($isLocked)
                                                 <div class="flex items-center justify-center gap-1 p-1">
                                                     <div class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 border border-red-200">
@@ -248,6 +248,21 @@
                                                         </span>
                                                     </div>
                                                 </div>
+                                                @if ($isAdminViewer)
+                                                    <div class="flex items-center justify-center">
+                                                        <button
+                                                            type="button"
+                                                            title="Unlock price"
+                                                            onclick="toggleLockPrice(this)"
+                                                            class="lock-toggle-btn inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-red-100 text-red-700 text-[9px] font-bold hover:bg-red-200 transition"
+                                                        >
+                                                            <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                                                <path d="M10 2a5 5 0 00-5 5v2a2 2 0 00-2 2v5a2 2 0 002 2h10a2 2 0 002-2v-5a2 2 0 00-2-2H7V7a3 3 0 015.905-.75 1 1 0 001.937-.5A5.002 5.002 0 0010 2z" />
+                                                            </svg>
+                                                            <span>Unlock</span>
+                                                        </button>
+                                                    </div>
+                                                @endif
                                             @else
                                                 <div class="flex items-center gap-1">
                                                     <input
@@ -290,6 +305,19 @@
                                                         </svg>
                                                         <span>Copy</span>
                                                     </button>
+                                                    @if ($isAdminViewer)
+                                                        <button
+                                                            type="button"
+                                                            title="Lock price"
+                                                            onclick="toggleLockPrice(this)"
+                                                            class="lock-toggle-btn inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[9px] font-bold hover:bg-slate-200 transition"
+                                                        >
+                                                            <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                                                <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
+                                                            </svg>
+                                                            <span>Lock</span>
+                                                        </button>
+                                                    @endif
                                                 </div>
                                             @endif
                                             <div class="flex items-center justify-center gap-1">
@@ -559,6 +587,50 @@
                         alert('Network error copying price.');
                         btn.disabled = false;
                         btn.className = 'copy-prev-day-btn inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-amber-100 text-amber-700 text-[9px] font-bold hover:bg-amber-200 transition';
+                    }
+                }
+
+                async function toggleLockPrice(btn) {
+                    const container = btn.closest('.matrix-cell-container');
+                    if (!container) return;
+
+                    const productId = container.dataset.productId;
+                    const dateStr = container.dataset.date;
+                    const isLocked = container.dataset.isLocked === '1';
+                    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                                      document.querySelector('input[name="_token"]')?.value || '';
+
+                    btn.disabled = true;
+                    const originalClass = btn.className;
+                    btn.className = 'lock-toggle-btn inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-amber-500 text-white text-[9px] font-bold opacity-80';
+
+                    try {
+                        const response = await fetch("{{ route('purchasing.prices.matrix.toggle-lock') }}", {
+                            method: 'POST',
+                            headers: {
+                                'Accept': 'application/json',
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': csrfToken,
+                            },
+                            body: JSON.stringify({
+                                product_id: productId,
+                                date: dateStr,
+                            }),
+                        });
+
+                        const data = await response.json();
+                        if (data.success) {
+                            // Reload the page to reflect the lock state change
+                            location.reload();
+                        } else {
+                            alert(data.message || 'Error toggling lock status.');
+                            btn.disabled = false;
+                            btn.className = originalClass;
+                        }
+                    } catch (err) {
+                        alert('Network error toggling lock status.');
+                        btn.disabled = false;
+                        btn.className = originalClass;
                     }
                 }
             </script>

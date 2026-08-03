@@ -627,6 +627,69 @@ class DailyPriceMatrixController extends Controller
         return redirect()->back()->with('success', "Copied price from previous day for {$product->name}.");
     }
 
+    public function toggleLock(Request $request): mixed
+    {
+        $this->authorizeBoardAccess();
+        
+        // Only admins can lock/unlock prices
+        abort_unless(auth()->user()?->hasRole('admin'), 403, 'Only admins can lock/unlock prices.');
+
+        $validated = $request->validate([
+            'product_id' => ['required', 'integer', 'exists:products,id'],
+            'date' => ['required', 'date'],
+        ]);
+
+        $user = $request->user();
+        $userId = (int) $user->id;
+
+        $product = Product::query()->findOrFail((int) $validated['product_id']);
+        $dateStr = Carbon::parse($validated['date'])->toDateString();
+
+        $approval = DailyPriceApproval::query()
+            ->where('product_id', $product->id)
+            ->whereDate('business_date', $dateStr)
+            ->first();
+
+        if (! $approval) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "No price approval found for {$product->name} on {$dateStr}.",
+                ], 404);
+            }
+            return redirect()->back()->with('warning', "No price approval found for {$product->name} on {$dateStr}.");
+        }
+
+        // Toggle the lock status
+        if ($approval->isLocked()) {
+            // Unlock
+            $approval->locked_at = null;
+            $approval->locked_by = null;
+            $message = "Price unlocked for {$product->name} on {$dateStr}.";
+            $isLocked = false;
+        } else {
+            // Lock
+            $approval->locked_at = now();
+            $approval->locked_by = $userId;
+            $message = "Price locked for {$product->name} on {$dateStr}.";
+            $isLocked = true;
+        }
+
+        $approval->save();
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'product_id' => $product->id,
+                'date' => $dateStr,
+                'is_locked' => $isLocked,
+            ]);
+        }
+
+        return redirect()->back()->with('success', $message);
+    }
+
     private function authorizeBoardAccess(): void
     {
         abort_unless(auth()->user()?->hasRole('purchase') || auth()->user()?->hasRole('admin'), 403);
