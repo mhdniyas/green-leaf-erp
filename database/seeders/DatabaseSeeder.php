@@ -10,15 +10,6 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        $this->call([
-            RolePermissionSeeder::class,
-            ChartOfAccountsSeeder::class,
-            CompanyAccountingCategorySeeder::class,
-            EmployeeCategorySeeder::class,
-            CategorySeeder::class,
-            WarehouseSeeder::class,
-            ClientSeeder::class,
-            EssentialUserSeeder::class,
-        ]);
+        // Seeders backed up to database/seeders_backup
     }
 }

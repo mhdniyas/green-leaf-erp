@@ -11,6 +11,7 @@ use App\Models\Category;
 use App\Models\DailyPriceApproval;
 use App\Models\DailyProductPrice;
 use App\Models\DailyProductPriceRevision;
+use App\Models\GoodsReceivedItem;
 use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\ShopPriceGroup;
@@ -53,11 +54,33 @@ class DailyPriceBoardController extends Controller
             ->ensurePendingApprovalsForPurchaseDate($purchaseDate, includeAllProducts: true)
             ->values();
 
+        $user = $request->user();
+        $isNonAdminPurchaser = $user && ! $user->hasRole('admin');
+        $assignedCatIds = $isNonAdminPurchaser ? $user->assignedCategoryIds() : [];
+        $purchasedProductIds = $isNonAdminPurchaser
+            ? GoodsReceivedItem::query()
+                ->whereHas('goodsReceived', fn ($grnQuery) => $grnQuery->where('received_by', $user->id))
+                ->pluck('product_id')
+                ->filter()
+                ->unique()
+                ->toArray()
+            : [];
+
         $matchingApprovals = $approvals
             ->filter(function (DailyPriceApproval $approval): bool {
                 $product = $approval->product;
 
                 return $product && (bool) $product->is_active;
+            })
+            ->filter(function (DailyPriceApproval $approval) use ($isNonAdminPurchaser, $assignedCatIds, $purchasedProductIds): bool {
+                if (! $isNonAdminPurchaser || (empty($assignedCatIds) && empty($purchasedProductIds))) {
+                    return true;
+                }
+
+                $pId = (int) $approval->product_id;
+                $catId = (int) $approval->product?->category_id;
+
+                return in_array($catId, $assignedCatIds, true) || in_array($pId, $purchasedProductIds, true);
             })
             ->filter(function (DailyPriceApproval $approval) use ($categoryId): bool {
                 if (! $categoryId) {
@@ -98,10 +121,6 @@ class DailyPriceBoardController extends Controller
 
         $pendingApprovals = $matchingApprovals
             ->where('status', 'pending')
-            ->values();
-
-        $approvedApprovals = $matchingApprovals
-            ->where('status', 'approved')
             ->values();
 
         return view('purchase-manager.prices.index', [

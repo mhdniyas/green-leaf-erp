@@ -24,6 +24,7 @@ use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Models\Supplier;
+use App\Models\User;
 use App\Services\Finance\JournalService;
 use App\Services\Purchasing\PurchaseInvoiceService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
@@ -482,7 +483,7 @@ class PurchaserDashboardController extends Controller
         return view('purchasing.purchaser.bill', [
             'date' => $cart->business_date->format('Y-m-d'),
             'cart' => $cart,
-            'suppliers' => Supplier::query()->orderBy('name')->get(),
+            'suppliers' => $this->scopedSuppliersForUser($request->user()),
             'subtotal' => (float) $cart->items->sum('line_total'),
             'companyDetails' => $this->companyDetailsForBill(),
             'vendorPriceHints' => $this->vendorPriceService->previousPricesForSupplier(
@@ -717,7 +718,7 @@ class PurchaserDashboardController extends Controller
             ->ordered()
             ->get();
 
-        $suppliers = Supplier::query()->orderBy('name')->get();
+        $suppliers = $this->scopedSuppliersForUser($request->user());
 
         return view('purchasing.purchaser.vendors', [
             'date' => $date->format('Y-m-d'),
@@ -3703,5 +3704,25 @@ class PurchaserDashboardController extends Controller
         ) {
             abort(403, 'Unauthorized access.');
         }
+    }
+
+    private function scopedSuppliersForUser(?User $user): Collection
+    {
+        if (! $user) {
+            return Supplier::query()->orderBy('name')->get();
+        }
+
+        $query = Supplier::query()->orderBy('name');
+
+        if (! $user->hasRole('admin')) {
+            $userId = (int) $user->id;
+            $query->where(function ($q) use ($userId): void {
+                $q->whereHas('purchaserCarts', fn ($cartQuery) => $cartQuery->where('user_id', $userId))
+                    ->orWhereHas('purchaseInvoices', fn ($invoiceQuery) => $invoiceQuery
+                        ->whereHas('purchaserCart', fn ($cartQuery) => $cartQuery->where('user_id', $userId)));
+            });
+        }
+
+        return $query->get();
     }
 }

@@ -33,6 +33,7 @@ use App\Http\Controllers\Web\Inventory\WastageController;
 use App\Http\Controllers\Web\ProfileController;
 use App\Http\Controllers\Web\Purchasing\AdminShopOrderController;
 use App\Http\Controllers\Web\Purchasing\DailyPriceBoardController;
+use App\Http\Controllers\Web\Purchasing\DailyPriceMatrixController;
 use App\Http\Controllers\Web\Purchasing\GoodsReceivedController;
 use App\Http\Controllers\Web\Purchasing\OtherExpenseController;
 use App\Http\Controllers\Web\Purchasing\ProcurementExpenseController;
@@ -187,6 +188,8 @@ Route::middleware('auth')->group(function () {
         Route::post('suppliers/{supplier}/credit-request', [SupplierController::class, 'requestCreditApproval'])->name('suppliers.credit-request');
         Route::post('suppliers/{supplier}/credit-approve', [SupplierController::class, 'approveCreditApproval'])->name('suppliers.credit-approve');
         Route::get('prices', [DailyPriceBoardController::class, 'index'])->name('prices.index');
+        Route::get('prices/matrix', [DailyPriceMatrixController::class, 'index'])->name('prices.matrix.index');
+        Route::post('prices/matrix/cell', [DailyPriceMatrixController::class, 'updateCell'])->name('prices.matrix.cell.update');
         Route::post('prices', [DailyPriceBoardController::class, 'update'])->name('prices.update');
         Route::post('prices/{approval}/save-row', [DailyPriceBoardController::class, 'saveRow'])->name('prices.save-row');
         Route::post('prices/products', [DailyPriceBoardController::class, 'storeProduct'])->name('prices.products.store');
