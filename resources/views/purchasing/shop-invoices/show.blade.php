@@ -173,10 +173,10 @@
                                             <p class="mt-0.5 text-[10px] font-semibold text-slate-600">
                                                 Ordered: <span class="font-black text-slate-900">{{ number_format((float) $item->orderItem->requested_unit_quantity, 2, '.', '') }} {{ strtoupper($item->orderItem->requested_unit_label ?: $item->orderItem->requested_unit) }}</span>
                                                 &middot; Loaded: <span class="font-black text-slate-900">{{ number_format((float) ($item->orderItem->loaded_order_unit_qty ?? $item->orderItem->requested_unit_quantity), 2, '.', '') }} {{ strtoupper($item->orderItem->requested_unit_label ?: $item->orderItem->requested_unit) }}</span>
-                                                &middot; Delivered: <span class="font-black text-emerald-700">{{ number_format((float) $item->delivered_qty, 2) }} {{ strtoupper($item->unit) }}</span>
+                                                &middot; Delivered: <span class="font-black text-emerald-700">{{ number_format((float) $item->delivered_qty, 2) }} {{ strtoupper($item->product->unit) }}</span>
                                             </p>
                                         @else
-                                            <p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">{{ strtoupper($item->unit) }}</p>
+                                            <p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">{{ strtoupper($item->product->unit) }}</p>
                                         @endif
                                         @if ($formatUnit($item->price_unit ?: $item->unit) !== $formatUnit($item->unit))
                                             <p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-cyan-600">Bill {{ $formatUnit($item->price_unit) }}</p>
@@ -366,12 +366,12 @@
                             <tr>
                                 <td class="px-5 py-4">
                                     <p class="font-semibold text-slate-950">{{ $item->product_name }}</p>
-                                    <p class="mt-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Order {{ $formatUnit($item->unit) }}</p>
+                                    <p class="mt-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Order {{ $formatUnit($item->product->unit) }}</p>
                                 </td>
-                                <td class="px-5 py-4 text-right text-slate-700">{{ number_format((float) $item->approved_qty, 2) }} {{ $formatUnit($item->unit) }}</td>
-                                <td class="px-5 py-4 text-right font-black text-slate-900">{{ number_format((float) ($item->price_quantity ?: $item->approved_qty), 4) }} {{ $formatUnit($item->price_unit ?: $item->unit) }}</td>
-                                <td class="px-5 py-4 text-right text-slate-700">{{ number_format((float) $item->delivered_qty, 2) }} {{ $formatUnit($item->unit) }}</td>
-                                <td class="px-5 py-4 text-right text-slate-900">Rs. {{ number_format((float) $item->unit_price, 2) }} / {{ $formatUnit($item->price_unit ?: $item->unit) }}</td>
+                                <td class="px-5 py-4 text-right text-slate-700">{{ number_format((float) $item->approved_qty, 2) }} {{ $formatUnit($item->product->unit) }}</td>
+                                <td class="px-5 py-4 text-right font-black text-slate-900">{{ number_format((float) ($item->price_quantity ?: $item->approved_qty), 4) }} {{ $formatUnit($item->price_unit ?: $item->product->unit) }}</td>
+                                <td class="px-5 py-4 text-right text-slate-700">{{ number_format((float) $item->delivered_qty, 2) }} {{ $formatUnit($item->product->unit) }}</td>
+                                <td class="px-5 py-4 text-right text-slate-900">Rs. {{ number_format((float) $item->unit_price, 2) }} / {{ $formatUnit($item->price_unit ?: $item->product->unit) }}</td>
                                 <td class="px-5 py-4 text-right text-amber-600">Rs. {{ number_format((float) $item->shortage_amount, 2) }}</td>
                                 <td class="px-5 py-4 text-right text-cyan-700">Rs. {{ number_format((float) $item->excess_amount, 2) }}</td>
                                 <td class="px-5 py-4 text-right font-black text-slate-950">Rs. {{ number_format((float) $item->final_line_total, 2) }}</td>
