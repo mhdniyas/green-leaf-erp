@@ -1946,6 +1946,10 @@ class PurchaserDashboardController extends Controller
             ->with(['supplier', 'purchaserCart'])
             ->firstOrFail();
 
+        if ($invoice->hasCalculationError() && ! $request->user()?->hasRole('admin')) {
+            abort(403, 'This bill has a calculation discrepancy and can only be updated by an Admin.');
+        }
+
         $validated = $request->validate([
             'payment_method' => ['required', 'string', 'in:Cash,Online,GPay,Credit'],
             'payment_paid_by' => ['nullable', 'string', 'in:purchaser,company,vendor_credit'],

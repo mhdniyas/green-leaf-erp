@@ -70,11 +70,44 @@
                 <a href="{{ route($billPdfRouteName, $invoice) }}" target="_blank" class="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-3.5 text-xs font-black text-slate-700 hover:bg-slate-100">
                     Open Bill PDF
                 </a>
-                <button type="button" onclick='openShowPaymentModal(@json($paymentModalData), "{{ route($paymentUpdateRouteName, $invoice) }}")' class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-950 px-4 text-xs font-black text-white hover:bg-slate-800">
-                    Update Payment
-                </button>
+                @if (! $invoice->hasCalculationError() || auth()->user()?->hasRole('admin'))
+                    <button type="button" onclick='openShowPaymentModal(@json($paymentModalData), "{{ route($paymentUpdateRouteName, $invoice) }}")' class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-950 px-4 text-xs font-black text-white hover:bg-slate-800">
+                        Update Payment
+                    </button>
+                @else
+                    <button type="button" disabled class="inline-flex h-9 items-center justify-center rounded-xl border border-rose-200 bg-rose-100/60 px-4 text-xs font-black text-rose-700 cursor-not-allowed opacity-80" title="Bill calculation has errors. Only Admin can update.">
+                        🔒 Admin Only Update
+                    </button>
+                @endif
             </div>
         </div>
+
+        @if ($invoice->hasCalculationError())
+            <div class="rounded-2xl border border-rose-300 bg-rose-50/90 p-4.5 text-rose-950 shadow-xs print:hidden">
+                <div class="flex items-start gap-3">
+                    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-rose-200 text-[14px]">⚠️</span>
+                    <div class="flex-1">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <h3 class="text-xs font-black uppercase tracking-wider text-rose-900">Bill Calculation Error Detected</h3>
+                            <span class="rounded-lg bg-rose-200 px-2 py-0.5 text-[10px] font-black uppercase text-rose-800">Admin Restricted</span>
+                        </div>
+                        <p class="mt-1 text-xs font-semibold leading-relaxed text-rose-800">
+                            The gross item total (<strong>₹{{ number_format($invoice->itemsGrossTotal(), 2) }}</strong>) does not match the stored bill amount (<strong>₹{{ number_format((float) $invoice->amount, 2) }}</strong>).
+                            This bill has a calculation error and can <strong>only be updated by an Admin</strong>.
+                        </p>
+                        @if (auth()->user()?->hasRole('admin'))
+                            <form action="{{ route('purchasing.invoices.fix-calculation', $invoice) }}" method="POST" class="mt-3">
+                                @csrf
+                                <button type="submit" class="inline-flex h-8 items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 text-xs font-black text-white hover:bg-rose-800 shadow-xs transition-colors">
+                                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+                                    <span>Fix & Recalculate Bill (Admin)</span>
+                                </button>
+                            </form>
+                        @endif
+                    </div>
+                </div>
+            </div>
+        @endif
 
         <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
             <!-- Retail Bill Receipt Card -->
@@ -346,6 +379,15 @@
                         <span id="show-payment-balance" class="text-amber-700"></span>
                     </div>
                     <p id="show-payment-warning" class="mt-2 text-[10px] font-semibold text-amber-700"></p>
+
+                    <div class="mt-3 flex items-center justify-between border-t border-slate-200/60 pt-2">
+                        <button type="button" onclick="updateShowPaymentStatus()" class="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-[11px] font-black text-slate-800 shadow-xs hover:bg-slate-50">
+                            <svg class="h-3.5 w-3.5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                            </svg>
+                            <span>Recheck & Recalculate</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div>

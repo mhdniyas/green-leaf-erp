@@ -153,4 +153,31 @@ class PurchaseInvoice extends Model
     {
         return $this->belongsTo(User::class, 'purchaser_submitted_by');
     }
+
+    public function itemsGrossTotal(): float
+    {
+        if ($this->purchaserCart?->items?->isNotEmpty()) {
+            return round((float) $this->purchaserCart->items->sum(
+                fn ($item) => (float) $item->quantity * (float) $item->unit_price
+            ), 2);
+        }
+
+        if ($this->goodsReceived?->items?->isNotEmpty()) {
+            return round((float) $this->goodsReceived->items->sum(
+                fn ($item) => (float) $item->received_qty * (float) ($item->purchaseOrderItem?->unit_price ?? 0)
+            ), 2);
+        }
+
+        return (float) $this->amount;
+    }
+
+    public function hasCalculationError(): bool
+    {
+        $grossTotal = $this->itemsGrossTotal();
+        if ($grossTotal <= 0) {
+            return false;
+        }
+
+        return abs($grossTotal - (float) $this->amount) > 0.01;
+    }
 }

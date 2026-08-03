@@ -237,4 +237,39 @@ class PurchaseInvoiceService
 
         return 'purchaser';
     }
+
+    public function fixCalculationError(PurchaseInvoice $invoice): PurchaseInvoice
+    {
+        return DB::transaction(function () use ($invoice): PurchaseInvoice {
+            $invoice->loadMissing(['supplier', 'purchaserCart.items', 'goodsReceived.items']);
+            $grossTotal = $invoice->itemsGrossTotal();
+            $discount = (float) $invoice->discount_amount;
+            $netAmount = max(0.0, round($grossTotal - $discount, 2));
+            $paidAmount = min($netAmount, (float) $invoice->paid_amount);
+            $paymentStatus = $this->resolvePaymentStatus(
+                $invoice->payment_method ?: 'Cash',
+                $netAmount,
+                $paidAmount
+            );
+            $status = $paymentStatus === 'paid' ? InvoiceStatus::Paid->value : InvoiceStatus::Pending->value;
+
+            $invoice->update([
+                'amount' => $grossTotal,
+                'discount_amount' => $discount,
+                'paid_amount' => $paidAmount,
+                'payment_status' => $paymentStatus,
+                'status' => $status,
+            ]);
+
+            if ($invoice->purchaserCart) {
+                $invoice->purchaserCart->update([
+                    'discount_amount' => $discount,
+                    'paid_amount' => $paidAmount,
+                    'payment_status' => $paymentStatus,
+                ]);
+            }
+
+            return $invoice->fresh();
+        });
+    }
 }

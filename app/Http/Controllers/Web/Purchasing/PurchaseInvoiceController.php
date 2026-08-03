@@ -254,6 +254,10 @@ class PurchaseInvoiceController extends Controller
     {
         Gate::authorize('update', $invoice);
 
+        if ($invoice->hasCalculationError() && ! $request->user()?->hasRole('admin')) {
+            abort(403, 'This bill has a calculation discrepancy and can only be updated by an Admin.');
+        }
+
         $validated = $request->validate([
             'payment_method' => ['required', 'string', 'in:Cash,Online,GPay,Credit'],
             'payment_paid_by' => ['nullable', 'string', 'in:purchaser,company,vendor_credit'],
@@ -281,6 +285,15 @@ class PurchaseInvoiceController extends Controller
             : 'Payment completed successfully.';
 
         return redirect()->back()->with('success', $message);
+    }
+
+    public function fixCalculation(Request $request, PurchaseInvoice $invoice): RedirectResponse
+    {
+        abort_unless($request->user()?->hasRole('admin'), 403, 'Only admins can fix bill calculation discrepancies.');
+
+        $this->service->fixCalculationError($invoice);
+
+        return redirect()->back()->with('success', 'Bill calculation error fixed and recalculated successfully.');
     }
 
     private function resolveReportDate(Request $request): Carbon

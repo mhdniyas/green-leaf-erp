@@ -225,6 +225,7 @@ Route::middleware('auth')->group(function () {
         Route::get('invoices/{invoice}/pdf', [PurchaseInvoiceController::class, 'pdf'])->name('invoices.pdf');
         Route::post('invoices/{invoice}/status', [PurchaseInvoiceController::class, 'updateStatus'])->name('invoices.update-status');
         Route::patch('invoices/{invoice}/payment', [PurchaseInvoiceController::class, 'updatePayment'])->name('invoices.update-payment');
+        Route::post('invoices/{invoice}/fix-calculation', [PurchaseInvoiceController::class, 'fixCalculation'])->name('invoices.fix-calculation');
     });
 
     // ── Sales ──────────────────────────────────────────────────────────────

@@ -230,20 +230,55 @@
                 @endif
 
                 {{-- Actions Panel --}}
+                @if ($invoice->hasCalculationError())
+                    <div class="mb-4 rounded-2xl border border-rose-300 bg-rose-50/90 p-4 text-rose-950 shadow-xs">
+                        <div class="flex items-start gap-2.5">
+                            <span class="text-base">⚠️</span>
+                            <div class="flex-1">
+                                <h3 class="text-xs font-black uppercase tracking-wider text-rose-900">Calculation Error Flagged</h3>
+                                <p class="mt-1 text-[11px] font-semibold leading-relaxed text-rose-800">
+                                    Gross item total (<strong>₹{{ number_format($invoice->itemsGrossTotal(), 2) }}</strong>) does not match stored amount (<strong>₹{{ number_format((float) $invoice->amount, 2) }}</strong>).
+                                    Can <strong>only be updated by Admin</strong>.
+                                </p>
+                                @if (auth()->user()?->hasRole('admin'))
+                                    <form action="{{ route('purchasing.invoices.fix-calculation', $invoice) }}" method="POST" class="mt-2.5">
+                                        @csrf
+                                        <button type="submit" class="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl bg-rose-700 px-3 text-xs font-black text-white hover:bg-rose-800 shadow-xs transition-colors">
+                                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+                                            <span>Fix & Recalculate Bill (Admin)</span>
+                                        </button>
+                                    </form>
+                                @endif
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
                 <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
                     <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Payment Actions</p>
                     <div class="mt-3 flex flex-col gap-2">
 
                         {{-- Main Payment Update Button --}}
                         @can('update', $invoice)
-                            <button
-                                type="button"
-                                onclick="openPaymentModal()"
-                                class="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-xs font-black text-white hover:bg-indigo-500 transition-colors"
-                            >
-                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
-                                {{ $balanceAmount > 0 ? 'Record Payment (Rs. '.number_format($balanceAmount, 2).')' : 'Update Payment' }}
-                            </button>
+                            @if (! $invoice->hasCalculationError() || auth()->user()?->hasRole('admin'))
+                                <button
+                                    type="button"
+                                    onclick="openPaymentModal()"
+                                    class="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-xs font-black text-white hover:bg-indigo-500 transition-colors"
+                                >
+                                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
+                                    {{ $balanceAmount > 0 ? 'Record Payment (Rs. '.number_format($balanceAmount, 2).')' : 'Update Payment' }}
+                                </button>
+                            @else
+                                <button
+                                    type="button"
+                                    disabled
+                                    class="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-100/60 px-4 text-xs font-black text-rose-700 cursor-not-allowed opacity-80"
+                                    title="Calculation error flagged. Only Admin can update."
+                                >
+                                    🔒 Admin Only Update
+                                </button>
+                            @endif
 
                             {{-- Approve Invoice --}}
                             @if ($invoice->status->value === 'pending')
