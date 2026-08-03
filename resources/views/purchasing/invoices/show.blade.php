@@ -141,7 +141,25 @@
 
                 <!-- Vendor Block -->
                 <div class="border-b border-dashed border-slate-400 py-3 text-[11px] text-slate-700">
-                    <p class="font-black uppercase tracking-[0.12em] text-slate-500">VENDOR</p>
+                    <div class="flex items-center justify-between">
+                        <p class="font-black uppercase tracking-[0.12em] text-slate-500">VENDOR</p>
+                        @if (auth()->user()?->hasRole('admin') && isset($allSuppliers))
+                            <details class="group print:hidden">
+                                <summary class="cursor-pointer text-[10px] font-black uppercase text-indigo-600 hover:text-indigo-800">
+                                    ✏️ Change Vendor (Admin)
+                                </summary>
+                                <form action="{{ route('purchasing.invoices.change-supplier', $invoice) }}" method="POST" class="mt-2 flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 p-2">
+                                    @csrf
+                                    <select name="supplier_id" class="h-8 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-900 focus:outline-none">
+                                        @foreach ($allSuppliers as $sup)
+                                            <option value="{{ $sup->id }}" @selected($supplier?->id === $sup->id)>{{ $sup->name }}</option>
+                                        @endforeach
+                                    </select>
+                                    <button type="submit" class="h-8 shrink-0 rounded-lg bg-indigo-600 px-3 text-xs font-black text-white hover:bg-indigo-500">Save</button>
+                                </form>
+                            </details>
+                        @endif
+                    </div>
                     <p class="mt-1 text-base font-black text-slate-950">{{ $supplier?->name ?: 'Vendor Pending' }}</p>
                     <p class="mt-0.5 font-semibold text-slate-600">
                         {{ $supplier?->mobile_number ?: ($supplier?->contact ?: 'Contact pending') }}

@@ -347,6 +347,25 @@
                                 <p class="mt-1 text-xs font-semibold text-slate-700">{{ $invoice->payment_note }}</p>
                             </div>
                         @endif
+
+                        @if (auth()->user()?->hasRole('admin') && isset($allSuppliers))
+                            <div class="border-t border-slate-100 pt-2">
+                                <details class="group">
+                                    <summary class="cursor-pointer text-[11px] font-black uppercase tracking-wider text-indigo-600 hover:text-indigo-800">
+                                        ✏️ Change Vendor (Admin)
+                                    </summary>
+                                    <form action="{{ route('purchasing.invoices.change-supplier', $invoice) }}" method="POST" class="mt-2 flex flex-col gap-2 rounded-xl border border-indigo-200 bg-indigo-50/60 p-2.5">
+                                        @csrf
+                                        <select name="supplier_id" class="h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-900 focus:outline-none">
+                                            @foreach ($allSuppliers as $sup)
+                                                <option value="{{ $sup->id }}" @selected($supplier?->id === $sup->id)>{{ $sup->name }}</option>
+                                            @endforeach
+                                        </select>
+                                        <button type="submit" class="h-8 w-full rounded-lg bg-indigo-600 text-xs font-black text-white hover:bg-indigo-500">Update Vendor</button>
+                                    </form>
+                                </details>
+                            </div>
+                        @endif
                     </div>
                 </div>
             </aside>

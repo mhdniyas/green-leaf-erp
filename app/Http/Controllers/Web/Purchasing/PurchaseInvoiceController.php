@@ -204,8 +204,9 @@ class PurchaseInvoiceController extends Controller
         ]);
 
         $purchasers = $this->purchasersWithBalance();
+        $allSuppliers = Supplier::query()->orderBy('name')->get(['id', 'name']);
 
-        return view('purchase-manager.invoices.show', compact('invoice', 'purchasers'));
+        return view('purchase-manager.invoices.show', compact('invoice', 'purchasers', 'allSuppliers'));
     }
 
     /**
@@ -302,6 +303,81 @@ class PurchaseInvoiceController extends Controller
         $this->service->fixCalculationError($invoice);
 
         return redirect()->back()->with('success', 'Bill calculation error fixed and recalculated successfully.');
+    }
+
+    public function changeSupplier(Request $request, PurchaseInvoice $invoice): RedirectResponse
+    {
+        abort_unless($request->user()?->hasRole('admin'), 403, 'Only admins can change the bill supplier.');
+
+        $validated = $request->validate([
+            'supplier_id' => ['required', 'integer', 'exists:suppliers,id'],
+        ]);
+
+        $newSupplierId = (int) $validated['supplier_id'];
+
+        DB::transaction(function () use ($invoice, $newSupplierId): void {
+            $invoice->update(['supplier_id' => $newSupplierId]);
+
+            if ($invoice->purchaserCart) {
+                $invoice->purchaserCart->update(['supplier_id' => $newSupplierId]);
+            }
+
+            if ($invoice->goodsReceived) {
+                $invoice->goodsReceived->update(['supplier_id' => $newSupplierId]);
+            }
+        });
+
+        return redirect()->back()->with('success', 'Bill vendor updated successfully.');
+    }
+
+    public function flagged(Request $request): View
+    {
+        Gate::authorize('viewAny', PurchaseInvoice::class);
+
+        $purchaserId = $request->integer('purchaser_id');
+        $date = $request->string('date')->trim()->toString();
+        $search = trim($request->string('search')->toString());
+
+        $query = PurchaseInvoice::query()
+            ->with(['supplier', 'purchaserCart.items', 'purchaserCart.user', 'goodsReceived.items', 'purchaserSubmittedBy']);
+
+        if ($purchaserId > 0) {
+            $query->where(function ($q) use ($purchaserId): void {
+                $q->where('purchaser_submitted_by', $purchaserId)
+                    ->orWhereHas('purchaserCart', fn ($cq) => $cq->where('user_id', $purchaserId));
+            });
+        }
+
+        if ($date !== '') {
+            $query->whereDate('created_at', $date);
+        }
+
+        if ($search !== '') {
+            $query->where(function ($q) use ($search): void {
+                $q->where('invoice_number', 'like', "%{$search}%")
+                    ->orWhereHas('supplier', fn ($sq) => $sq->where('name', 'like', "%{$search}%"));
+            });
+        }
+
+        $allInvoices = $query->latest('created_at')->get();
+
+        $flaggedInvoices = $allInvoices
+            ->filter(fn (PurchaseInvoice $invoice): bool => $invoice->hasCalculationError())
+            ->values();
+
+        $purchasers = User::query()
+            ->whereHas('roles', fn ($rq) => $rq->where('name', 'purchase'))
+            ->orWhereIn('id', PurchaseInvoice::query()->whereNotNull('purchaser_submitted_by')->pluck('purchaser_submitted_by'))
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        return view('purchase-manager.invoices.flagged', [
+            'flaggedInvoices' => $flaggedInvoices,
+            'purchasers' => $purchasers,
+            'selectedPurchaser' => $purchaserId,
+            'selectedDate' => $date,
+            'search' => $search,
+        ]);
     }
 
     private function resolveReportDate(Request $request): Carbon

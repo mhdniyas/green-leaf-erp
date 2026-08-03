@@ -220,12 +220,14 @@ Route::middleware('auth')->group(function () {
         Route::post('grns/{grn}/recheck', [GoodsReceivedController::class, 'markForRecheck'])->name('grns.recheck');
 
         // Invoices
+        Route::get('invoices/flagged', [PurchaseInvoiceController::class, 'flagged'])->name('invoices.flagged');
         Route::resource('invoices', PurchaseInvoiceController::class)->only(['index', 'create', 'store', 'show']);
         Route::get('invoices/vendors/{supplier}', [PurchaseInvoiceController::class, 'vendorReport'])->name('invoices.vendor-report');
         Route::get('invoices/{invoice}/pdf', [PurchaseInvoiceController::class, 'pdf'])->name('invoices.pdf');
         Route::post('invoices/{invoice}/status', [PurchaseInvoiceController::class, 'updateStatus'])->name('invoices.update-status');
         Route::patch('invoices/{invoice}/payment', [PurchaseInvoiceController::class, 'updatePayment'])->name('invoices.update-payment');
         Route::post('invoices/{invoice}/fix-calculation', [PurchaseInvoiceController::class, 'fixCalculation'])->name('invoices.fix-calculation');
+        Route::post('invoices/{invoice}/supplier', [PurchaseInvoiceController::class, 'changeSupplier'])->name('invoices.change-supplier');
     });
 
     // ── Sales ──────────────────────────────────────────────────────────────

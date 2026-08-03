@@ -43,12 +43,20 @@
                 </form>
             </div>
 
-            <div class="mt-5 flex flex-wrap gap-2">
-                @foreach ($tabLinks as $tabKey => $tabLabel)
-                    <a href="{{ route('purchasing.invoices.index', ['tab' => $tabKey, 'date' => $date, 'search' => $search]) }}" class="inline-flex h-10 items-center rounded-2xl px-4 text-xs font-black uppercase tracking-[0.14em] {{ $activeTab === $tabKey ? 'bg-slate-950 text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50' }}">
-                        {{ $tabLabel }}
-                    </a>
-                @endforeach
+            <div class="mt-5 flex flex-wrap items-center justify-between gap-2">
+                <div class="flex flex-wrap gap-2">
+                    @foreach ($tabLinks as $tabKey => $tabLabel)
+                        <a href="{{ route('purchasing.invoices.index', ['tab' => $tabKey, 'date' => $date, 'search' => $search]) }}" class="inline-flex h-10 items-center rounded-2xl px-4 text-xs font-black uppercase tracking-[0.14em] {{ $activeTab === $tabKey ? 'bg-slate-950 text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50' }}">
+                            {{ $tabLabel }}
+                        </a>
+                    @endforeach
+                </div>
+                <a href="{{ route('purchasing.invoices.flagged') }}" class="inline-flex h-10 items-center gap-1.5 rounded-2xl border border-rose-200 bg-rose-50 px-4 text-xs font-black uppercase tracking-[0.14em] text-rose-800 hover:bg-rose-100 transition-colors">
+                    <span>⚠️ Flagged Bills Audit</span>
+                    @if (isset($flaggedInvoices) && $flaggedInvoices->isNotEmpty())
+                        <span class="rounded-full bg-rose-700 px-2 py-0.5 text-[10px] text-white font-bold">{{ $flaggedInvoices->count() }}</span>
+                    @endif
+                </a>
             </div>
 
             <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
