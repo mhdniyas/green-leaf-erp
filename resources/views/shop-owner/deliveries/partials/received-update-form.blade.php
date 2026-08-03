@@ -47,9 +47,16 @@
     >
         <div class="relative mx-auto max-w-[38rem] bg-white px-2 py-3 text-slate-950 sm:min-h-[36rem] sm:px-6 sm:py-7">
             <header class="border-b border-dashed border-slate-400 pb-2 text-center sm:pb-3">
-                <h3 class="text-base font-black uppercase tracking-wide text-slate-950 sm:text-xl">Delivery Verification</h3>
-                <p class="mt-1 text-sm font-black uppercase leading-tight text-slate-950 sm:mt-2 sm:text-base">{{ $order->shop?->name }}</p>
-                <p class="mt-0.5 text-[11px] font-semibold leading-tight text-slate-700">{{ $invoice?->invoice_number ?? $order->order_number }} · {{ $order->business_date?->format('d M Y') }}</p>
+                <div class="flex items-start justify-between gap-2">
+                    <div class="flex-1">
+                        <h3 class="text-base font-black uppercase tracking-wide text-slate-950 sm:text-xl">Delivery Verification</h3>
+                        <p class="mt-1 text-sm font-black uppercase leading-tight text-slate-950 sm:mt-2 sm:text-base">{{ $order->shop?->name }}</p>
+                        <p class="mt-0.5 text-[11px] font-semibold leading-tight text-slate-700">{{ $invoice?->invoice_number ?? $order->order_number }} · {{ $order->business_date?->format('d M Y') }}</p>
+                    </div>
+                    <a href="{{ route('shop-owner.deliveries.pdf', $order->order_number) }}" target="_blank" class="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.12em] text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700 sm:px-4 sm:py-2 sm:text-xs">
+                        Print / PDF
+                    </a>
+                </div>
             </header>
 
             <div class="grid grid-cols-2 gap-2 border-b border-dashed border-slate-400 py-2 text-[10px] font-bold leading-tight text-slate-800 sm:gap-3 sm:py-3 sm:text-[11px]">
@@ -79,29 +86,19 @@
                         @forelse ($fulfilledItems as $item)
                             @php
                                 $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
-                                $hasSec = $item->requested_unit_quantity && strtolower($item->requested_unit ?? '') !== 'kg';
-                                $secUnitLabel = $hasSec
-                                    ? strtoupper($item->requested_unit_label ?: $item->requested_unit)
-                                    : strtoupper($item->product->unit);
-
-                                $deliveredBaseQty = (float) ($invoiceItem?->delivered_qty ?? $invoiceItem?->approved_qty ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
-                                $unitRate = $invoiceItem?->unit_price;
-                                $priceUnit = (string) ($invoiceItem?->price_unit ?? $invoiceItem?->unit ?? $item->product->unit ?? 'KG');
-                                $isPriceInSecondaryUnit = $hasSec && \App\Models\ProductUnit::normalizeUnit($priceUnit) !== \App\Models\ProductUnit::normalizeUnit((string) $item->product->unit);
-
-                                $lineTotal = $invoiceItem?->final_line_total ?? $invoiceItem?->line_subtotal;
-
-                                $loadedUnitQty = (float) ($item->loaded_order_unit_qty ?? 0);
-                                if ($loadedUnitQty <= 0 && $hasSec && (float)($item->requested_unit_conversion_to_base ?? 0) > 0) {
-                                    $loadedUnitQty = round($deliveredBaseQty / (float)$item->requested_unit_conversion_to_base, 2);
-                                }
-
-                                if ($isPriceInSecondaryUnit && (float) ($item->requested_unit_conversion_to_base ?? 0) > 0) {
-                                    $approvedQty = round($deliveredBaseQty / (float) $item->requested_unit_conversion_to_base, 2);
-                                    $displayUnitLabel = $secUnitLabel;
+                                
+                                // Use invoice's pricing quantity and unit for display
+                                if ($invoiceItem) {
+                                    $approvedQty = (float) ($invoiceItem->delivered_price_quantity ?? $invoiceItem->price_quantity ?? $invoiceItem->delivered_qty ?? 0);
+                                    $displayUnitLabel = strtoupper($invoiceItem->price_unit ?: $item->product->unit);
+                                    $unitRate = $invoiceItem->unit_price;
+                                    $lineTotal = $invoiceItem->final_line_total ?? $invoiceItem->line_subtotal;
                                 } else {
-                                    $approvedQty = $deliveredBaseQty;
+                                    // Fallback if no invoice item
+                                    $approvedQty = (float) ($item->loaded_qty ?? $item->approved_qty ?? 0);
                                     $displayUnitLabel = strtoupper($item->product->unit ?? 'KG');
+                                    $unitRate = null;
+                                    $lineTotal = null;
                                 }
 
                                 $isItemVerified = $item->shop_verified_at !== null;

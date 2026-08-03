@@ -202,6 +202,24 @@ class ShopOwnerController extends Controller
         ]);
     }
 
+    public function deliveriesPdf(Request $request, string $orderNumber): View
+    {
+        $activeShop = $this->currentShop($request);
+
+        $order = ShopOrder::where('order_number', $orderNumber)
+            ->where('shop_id', $activeShop->id)
+            ->with([
+                'shop',
+                'items.product',
+                'invoice.items.product',
+            ])
+            ->firstOrFail();
+
+        return view('shop-owner.deliveries.pdf', [
+            'order' => $order,
+        ]);
+    }
+
     public function verifyDeliveryItem(Request $request, string $orderNumber, ShopOrderItem $item): JsonResponse
     {
         $activeShop = $this->currentShop($request);

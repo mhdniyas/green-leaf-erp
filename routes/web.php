@@ -95,6 +95,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/orders/{order_number}', [ShopOwnerController::class, 'ordersShow'])->name('orders.show');
         Route::get('/deliveries', [ShopOwnerController::class, 'deliveriesIndex'])->name('deliveries.index');
         Route::get('/deliveries/{order_number}', [ShopOwnerController::class, 'deliveriesShow'])->name('deliveries.show');
+        Route::get('/deliveries/{order_number}/pdf', [ShopOwnerController::class, 'deliveriesPdf'])->name('deliveries.pdf');
         Route::post('/deliveries/{order_number}/items/{item}/verify', [ShopOwnerController::class, 'verifyDeliveryItem'])->name('deliveries.items.verify');
         Route::get('/accounting', [ShopOwnerController::class, 'accountingIndex'])->name('accounting.index');
         Route::get('/accounting/cashbook/pdf', [ShopOwnerController::class, 'accountingCashbookPdf'])->name('accounting.cashbook.pdf');
