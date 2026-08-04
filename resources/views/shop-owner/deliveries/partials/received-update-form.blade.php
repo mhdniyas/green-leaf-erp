@@ -25,14 +25,18 @@
     $allItemsVerified = $totalVerifiableCount > 0 && $verifiedCount === $totalVerifiableCount;
     $canSubmitVerification = $isEditable && $totalVerifiableCount > 0 && ! $allItemsVerified;
 
-    // Recalculate invoice total from delivered quantities (DB may have wrong values)
+    // Keep a computed fallback, but prefer persisted invoice totals for UI parity
+    // with admin invoice screens.
     $computedInvoiceTotal = (float) $invoiceItemsByProductId->sum(function ($invoiceItem) {
         $qty = (float) ($invoiceItem->delivered_price_quantity ?? $invoiceItem->price_quantity ?? $invoiceItem->delivered_qty ?? 0);
         $rate = (float) ($invoiceItem->unit_price ?? 0);
         return $qty * $rate;
     });
+    $invoiceSubtotalDisplay = $invoice ? (float) $invoice->subtotal : $computedInvoiceTotal;
+    $invoiceShortageTotal = (float) ($invoice?->shortage_total ?? 0);
+    $invoiceExcessTotal = (float) ($invoice?->excess_total ?? 0);
     $invoiceDiscountTotal = (float) ($invoice?->discount_total ?? 0);
-    $invoiceNetTotal = max(0.0, $computedInvoiceTotal - $invoiceDiscountTotal);
+    $invoiceNetTotal = max(0.0, $invoiceSubtotalDisplay - $invoiceShortageTotal + $invoiceExcessTotal - $invoiceDiscountTotal);
 
     $bottomTitle = match (true) {
         $isPendingApproval => 'Submitted For Admin Review',
@@ -75,7 +79,7 @@
                 </div>
                 <div class="text-right">
                     <p>Invoice Total</p>
-                    <p class="mt-0.5 text-xs font-black text-slate-950 sm:mt-1 sm:text-sm">Rs. {{ number_format($computedInvoiceTotal, 2) }}</p>
+                    <p class="mt-0.5 text-xs font-black text-slate-950 sm:mt-1 sm:text-sm">Rs. {{ number_format($invoiceSubtotalDisplay, 2) }}</p>
                     @if ($invoiceDiscountTotal > 0)
                         <p class="mt-0.5 text-[10px] font-bold text-rose-700 sm:text-[11px]">Discount: -Rs. {{ number_format($invoiceDiscountTotal, 2) }}</p>
                         <p class="mt-0.5 text-[10px] font-black text-emerald-700 sm:text-[11px]">After Discount: Rs. {{ number_format($invoiceNetTotal, 2) }}</p>
@@ -104,8 +108,9 @@
                                     $approvedQty = (float) ($invoiceItem->delivered_price_quantity ?? $invoiceItem->price_quantity ?? $invoiceItem->delivered_qty ?? 0);
                                     $displayUnitLabel = strtoupper($invoiceItem->price_unit ?: $item->product->unit);
                                     $unitRate = $invoiceItem->unit_price;
-                                    // Calculate line total (DB value may be wrong)
-                                    $lineTotal = $approvedQty * $unitRate;
+                                    $lineTotal = $invoiceItem->line_subtotal !== null
+                                        ? (float) $invoiceItem->line_subtotal
+                                        : $approvedQty * $unitRate;
                                 } else {
                                     // Fallback if no invoice item
                                     $approvedQty = (float) ($item->loaded_qty ?? $item->approved_qty ?? 0);
@@ -162,7 +167,7 @@
             <div class="ml-auto w-full max-w-full border-b border-dashed border-slate-400 py-2 text-[10px] font-bold text-slate-800 sm:max-w-[20rem] sm:py-3 sm:text-[11px]">
                 <div class="flex items-center justify-between font-black text-slate-950 text-xs sm:text-sm">
                     <span>Invoice Total</span>
-                    <span>Rs. {{ number_format($computedInvoiceTotal, 2) }}</span>
+                    <span>Rs. {{ number_format($invoiceSubtotalDisplay, 2) }}</span>
                 </div>
                 @if ($invoiceDiscountTotal > 0)
                     <div class="mt-1 flex items-center justify-between text-[10px] font-bold text-rose-700 sm:text-[11px]">
