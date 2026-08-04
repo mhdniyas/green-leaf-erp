@@ -136,6 +136,7 @@ class DailyPriceMatrixController extends Controller
                 $priceA = $app && $app->price_a !== null ? (float) $app->price_a : null;
                 $priceB = $app && $app->price_b !== null ? (float) $app->price_b : null;
                 $priceC = $app && $app->price_c !== null ? (float) $app->price_c : null;
+                $purchasePrice = $app && $app->purchase_price !== null ? (float) $app->purchase_price : null;
 
                 $changedA = $priceA !== null && $prevPriceA !== null && abs($priceA - $prevPriceA) > 0.001;
                 $changedB = $priceB !== null && $prevPriceB !== null && abs($priceB - $prevPriceB) > 0.001;
@@ -156,6 +157,7 @@ class DailyPriceMatrixController extends Controller
                     'price_a' => $priceA,
                     'price_b' => $priceB,
                     'price_c' => $priceC,
+                    'purchase_price' => $purchasePrice,
                     'unit' => $app?->price_unit ?? $product->unit,
                     'changed_a' => $changedA,
                     'changed_b' => $changedB,
@@ -181,6 +183,7 @@ class DailyPriceMatrixController extends Controller
                     'price_a' => $prevDayApp && $prevDayApp->price_a !== null ? (float) $prevDayApp->price_a : null,
                     'price_b' => $prevDayApp && $prevDayApp->price_b !== null ? (float) $prevDayApp->price_b : null,
                     'price_c' => $prevDayApp && $prevDayApp->price_c !== null ? (float) $prevDayApp->price_c : null,
+                    'purchase_price' => $prevDayApp && $prevDayApp->purchase_price !== null ? (float) $prevDayApp->purchase_price : null,
                     'unit' => $prevDayApp?->price_unit ?? $product->unit,
                 ],
             ];
@@ -230,6 +233,8 @@ class DailyPriceMatrixController extends Controller
             ->whereDate('business_date', $dateStr)
             ->first();
 
+        $previousApproval = $this->previousApprovedApprovalFor($product->id, $dateStr);
+
         // Check if the price is already locked
         if ($approval && $approval->isLocked()) {
             if ($request->wantsJson()) {
@@ -245,11 +250,11 @@ class DailyPriceMatrixController extends Controller
             $approval = new DailyPriceApproval([
                 'product_id' => $product->id,
                 'business_date' => $dateStr,
-                'purchase_price' => (float) $product->base_price,
+                'purchase_price' => (float) ($previousApproval?->purchase_price ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price)),
                 'price_unit' => $product->unit ?: 'kg',
-                'price_a' => $newPrice ?? (float) $product->base_price,
-                'price_b' => $newPrice ?? (float) $product->base_price,
-                'price_c' => $newPrice ?? (float) $product->base_price,
+                'price_a' => $newPrice ?? (float) ($previousApproval?->price_a ?? $product->base_price),
+                'price_b' => $newPrice ?? (float) ($previousApproval?->price_b ?? $product->base_price),
+                'price_c' => $newPrice ?? (float) ($previousApproval?->price_c ?? $product->base_price),
                 'status' => $isAdmin ? 'approved' : 'pending',
             ]);
         }
@@ -257,10 +262,10 @@ class DailyPriceMatrixController extends Controller
         if ($cat === 'a') {
             $approval->price_a = $newPrice;
             if ($approval->price_b === null || (float) $approval->price_b <= 0) {
-                $approval->price_b = $newPrice;
+                $approval->price_b = (float) ($previousApproval?->price_b ?? $newPrice);
             }
             if ($approval->price_c === null || (float) $approval->price_c <= 0) {
-                $approval->price_c = $newPrice;
+                $approval->price_c = (float) ($previousApproval?->price_c ?? $newPrice);
             }
         } elseif ($cat === 'b') {
             $approval->price_b = $newPrice;
@@ -425,7 +430,7 @@ class DailyPriceMatrixController extends Controller
                         }
                         
                         // Check if there's a new price submitted for this product-date
-                        $submittedPrice = $rawMatrixPrices->get((int) $product->id)?->{$dateStr} ?? null;
+                        $submittedPrice = data_get($rawMatrixPrices->get((int) $product->id), $dateStr);
                         
                         if ($submittedPrice !== null && $submittedPrice !== '') {
                             $newPrice = round((float) $submittedPrice, 2);
@@ -479,6 +484,7 @@ class DailyPriceMatrixController extends Controller
 
                     $businessDate = Carbon::parse((string) $dateStr)->toDateString();
                     $newPrice = round((float) $priceValue, 2);
+                    $previousApproval = $this->previousApprovedApprovalFor((int) $product->id, $businessDate);
 
                     $approval = DailyPriceApproval::query()
                         ->firstOrNew([
@@ -492,17 +498,17 @@ class DailyPriceMatrixController extends Controller
                     }
 
                     // Determine price_unit: use submitted unit, or auto-detect from orders, or fall back to product unit
-                    $submittedUnit = (string) ($rawMatrixPriceUnits->get((int) $productId)?->{$dateStr} ?? '');
+                    $submittedUnit = (string) data_get($rawMatrixPriceUnits->get((int) $productId), $dateStr, '');
                     $priceUnit = ! empty($submittedUnit)
                         ? $submittedUnit
                         : ($this->detectPrimaryOrderedUnit((int) $product->id, $businessDate) ?? $product->unit ?: 'kg');
 
                     if (! $approval->exists) {
-                        $approval->purchase_price = (float) $product->base_price;
+                        $approval->purchase_price = (float) ($previousApproval?->purchase_price ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price));
                         $approval->price_unit = $priceUnit;
-                        $approval->price_a = (float) $product->base_price;
-                        $approval->price_b = (float) $product->base_price;
-                        $approval->price_c = (float) $product->base_price;
+                        $approval->price_a = (float) ($previousApproval?->price_a ?? $product->base_price);
+                        $approval->price_b = (float) ($previousApproval?->price_b ?? $product->base_price);
+                        $approval->price_c = (float) ($previousApproval?->price_c ?? $product->base_price);
                     } else {
                         // Update price_unit on existing approval if submitted or auto-detected differs
                         if (! empty($submittedUnit) || $this->detectPrimaryOrderedUnit((int) $product->id, $businessDate)) {
@@ -513,10 +519,10 @@ class DailyPriceMatrixController extends Controller
                     if ($matrixCategory === 'a') {
                         $approval->price_a = $newPrice;
                         if ($approval->price_b === null || (float) $approval->price_b <= 0) {
-                            $approval->price_b = $newPrice;
+                            $approval->price_b = (float) ($previousApproval?->price_b ?? $newPrice);
                         }
                         if ($approval->price_c === null || (float) $approval->price_c <= 0) {
-                            $approval->price_c = $newPrice;
+                            $approval->price_c = (float) ($previousApproval?->price_c ?? $newPrice);
                         }
                     } elseif ($matrixCategory === 'b') {
                         $approval->price_b = $newPrice;
@@ -822,6 +828,17 @@ class DailyPriceMatrixController extends Controller
     private function authorizeBoardAccess(): void
     {
         abort_unless(auth()->user()?->hasRole('purchase') || auth()->user()?->hasRole('admin'), 403);
+    }
+
+    private function previousApprovedApprovalFor(int $productId, string $businessDate): ?DailyPriceApproval
+    {
+        return DailyPriceApproval::query()
+            ->where('product_id', $productId)
+            ->whereDate('business_date', '<', Carbon::parse($businessDate)->toDateString())
+            ->where('status', 'approved')
+            ->whereNotNull('approved_at')
+            ->orderByDesc('business_date')
+            ->first();
     }
 
     /**

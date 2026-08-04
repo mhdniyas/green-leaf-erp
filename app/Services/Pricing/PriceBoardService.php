@@ -325,7 +325,7 @@ class PriceBoardService
         $gradeACost = (float) (ProductWholesalePrice::query()
             ->where('product_id', $product->id)
             ->where('grade', ProductGrade::GradeA->value)
-            ->value('wholesale_price') ?? $product->base_price);
+            ->value('wholesale_price') ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price));
 
         $marginA = (float) (ShopPriceGroup::where('name', 'A')->value('default_margin_percent') ?? 10);
         $marginB = (float) (ShopPriceGroup::where('name', 'B')->value('default_margin_percent') ?? 12);
@@ -435,10 +435,10 @@ class PriceBoardService
             $previousApproval = $previousApprovals->get((int) $product['product_id']);
             $purchasePrice = $product['total_qty'] > 0
                 ? round($product['weighted_sum'] / $product['total_qty'], 4)
-                : round((float) ($previousApproval?->purchase_price ?? $product['base_price']), 4);
+                : round((float) ($previousApproval?->purchase_price ?? ($product['base_price'] > 0 ? $product['base_price'] : $product['vendor_price'])), 4);
             $comparisonPurchasePrice = $previousApproval
                 ? (float) $previousApproval->purchase_price
-                : ((float) $product['base_price'] > 0 ? (float) $product['base_price'] : null);
+                : ((float) $product['vendor_price'] > 0 ? (float) $product['vendor_price'] : ((float) $product['base_price'] > 0 ? (float) $product['base_price'] : null));
             $movementStatus = $this->movementStatusForPurchasePrice($purchasePrice, $comparisonPurchasePrice);
 
             $approval = DailyPriceApproval::query()
@@ -503,7 +503,7 @@ class PriceBoardService
             ->orderByDesc('business_date')
             ->first();
 
-        $purchasePrice = round((float) ($previousApproval?->purchase_price ?? $product->base_price), 4);
+        $purchasePrice = round((float) ($previousApproval?->purchase_price ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price)), 4);
         $marginA = (float) ($priceGroups->firstWhere('name', 'A')?->default_margin_percent ?? 10);
         $marginB = (float) ($priceGroups->firstWhere('name', 'B')?->default_margin_percent ?? 12);
         $marginC = (float) ($priceGroups->firstWhere('name', 'C')?->default_margin_percent ?? 15);

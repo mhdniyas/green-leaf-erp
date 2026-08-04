@@ -4,41 +4,21 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Purchasing;
 
-use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Web\Purchasing\UpdateDailySellingPricesRequest;
 use App\Models\Category;
 use App\Models\DailyPriceApproval;
-use App\Models\DailyProductPrice;
-use App\Models\DailyProductPriceRevision;
 use App\Models\GoodsReceivedItem;
 use App\Models\Product;
-use App\Models\ProductUnit;
-use App\Models\ShopOrder;
-use App\Models\ShopPriceGroup;
-use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
-use App\Services\Purchasing\VendorPriceService;
-use App\Services\ShopInvoices\ShopInvoiceService;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class DailyPriceBoardController extends Controller
 {
-    private const MOVEMENT_FILTERS = ['changed', 'up', 'down', 'all'];
-
-    private const SORT_OPTIONS = ['code', 'name', 'status', 'movement'];
-
     public function __construct(
-        private readonly PriceBoardService $priceBoardService,
         private readonly PurchaserBusinessDayService $businessDayService,
-        private readonly VendorPriceService $vendorPriceService,
-        private readonly ShopInvoiceService $shopInvoiceService,
     ) {}
 
     public function index(Request $request): View
@@ -49,12 +29,7 @@ class DailyPriceBoardController extends Controller
         $targetBusinessDate = Carbon::parse($purchaseDate)->toDateString();
         $search = trim((string) $request->input('search', ''));
         $categoryId = $request->filled('category_id') ? (int) $request->input('category_id') : null;
-        $movement = $this->normalizeMovementFilter($request->input('movement'));
-        $sort = $this->normalizeSortOption($request->input('sort'));
-
-        $approvals = $this->priceBoardService
-            ->ensurePendingApprovalsForPurchaseDate($purchaseDate, includeAllProducts: true)
-            ->values();
+        $perPage = max(10, min(50, (int) $request->input('per_page', 20)));
 
         $user = $request->user();
         $isNonAdminPurchaser = $user && ! $user->hasRole('admin');
@@ -68,721 +43,108 @@ class DailyPriceBoardController extends Controller
                 ->toArray()
             : [];
 
-        $matchingApprovals = $approvals
-            ->filter(function (DailyPriceApproval $approval): bool {
-                $product = $approval->product;
+        $productQuery = Product::query()
+            ->active()
+            ->with('category')
+            ->ordered();
 
-                return $product && (bool) $product->is_active;
-            })
-            ->filter(function (DailyPriceApproval $approval) use ($isNonAdminPurchaser, $assignedCatIds, $purchasedProductIds): bool {
-                if (! $isNonAdminPurchaser || (empty($assignedCatIds) && empty($purchasedProductIds))) {
-                    return true;
+        if ($isNonAdminPurchaser && (! empty($assignedCatIds) || ! empty($purchasedProductIds))) {
+            $productQuery->where(function ($query) use ($assignedCatIds, $purchasedProductIds): void {
+                if (! empty($assignedCatIds)) {
+                    $query->whereIn('category_id', $assignedCatIds);
                 }
 
-                $pId = (int) $approval->product_id;
-                $catId = (int) $approval->product?->category_id;
-
-                return in_array($catId, $assignedCatIds, true) || in_array($pId, $purchasedProductIds, true);
-            })
-            ->filter(function (DailyPriceApproval $approval) use ($categoryId): bool {
-                if (! $categoryId) {
-                    return true;
+                if (! empty($purchasedProductIds)) {
+                    $query->orWhereIn('id', $purchasedProductIds);
                 }
+            });
+        }
 
-                return (int) $approval->product?->category_id === $categoryId;
-            })
-            ->filter(function (DailyPriceApproval $approval) use ($search): bool {
-                if ($search === '') {
-                    return true;
-                }
+        if ($categoryId) {
+            $productQuery->where('category_id', $categoryId);
+        }
 
-                $product = $approval->product;
-                if (! $product) {
-                    return false;
-                }
+        if ($search !== '') {
+            $productQuery->where(function ($query) use ($search): void {
+                $query->where('name', 'LIKE', "%{$search}%")
+                    ->orWhere('sku', 'LIKE', "%{$search}%");
+            });
+        }
 
-                $haystack = strtolower(implode(' ', array_filter([
-                    $product->name,
-                    $product->sku,
-                    $product->unit,
-                    $product->category?->name,
-                ])));
+        $products = $productQuery->paginate($perPage)->withQueryString();
+        $pageProductIds = $products->getCollection()->pluck('id')->map(fn ($id): int => (int) $id)->all();
 
-                return str_contains($haystack, strtolower($search));
-            })
-            ->filter(function (DailyPriceApproval $approval) use ($movement): bool {
-                return match ($movement) {
-                    'changed' => $approval->movement_status !== 'same',
-                    'up' => $approval->movement_status === 'up',
-                    'down' => $approval->movement_status === 'down',
-                    default => true,
-                };
-            })
-            ->sortBy(fn (DailyPriceApproval $approval): string => $this->sortValueForApproval($approval, $sort))
-            ->values();
+        $currentApprovals = DailyPriceApproval::query()
+            ->with('product.category')
+            ->whereDate('business_date', $targetBusinessDate)
+            ->whereIn('product_id', $pageProductIds)
+            ->get()
+            ->keyBy('product_id');
 
-        $pendingApprovals = $matchingApprovals
-            ->where('status', 'pending')
-            ->values();
-        $approvedApprovals = $matchingApprovals
+        $previousApprovals = DailyPriceApproval::query()
+            ->with('product.category')
+            ->whereDate('business_date', '<', $targetBusinessDate)
+            ->whereIn('product_id', $pageProductIds)
             ->where('status', 'approved')
-            ->values();
-        $orderPriceAlerts = $this->orderPriceAlertsForBusinessDate($targetBusinessDate);
+            ->orderByDesc('business_date')
+            ->get()
+            ->groupBy('product_id')
+            ->map(fn (Collection $rows): DailyPriceApproval => $rows->first());
+
+        $products->setCollection(
+            $products->getCollection()->map(function (Product $product) use ($currentApprovals, $previousApprovals): array {
+                $currentApproval = $currentApprovals->get($product->id);
+                $previousApproval = $previousApprovals->get($product->id);
+
+                $purchasePrice = (float) ($currentApproval?->purchase_price
+                    ?? $previousApproval?->purchase_price
+                    ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price));
+
+                $previousPurchasePrice = $previousApproval?->purchase_price !== null
+                    ? (float) $previousApproval->purchase_price
+                    : null;
+
+                $sellingPriceA = (float) ($currentApproval?->price_a ?? $previousApproval?->price_a ?? 0);
+                $sellingPriceB = (float) ($currentApproval?->price_b ?? $previousApproval?->price_b ?? 0);
+                $sellingPriceC = (float) ($currentApproval?->price_c ?? $previousApproval?->price_c ?? 0);
+
+                $diff = $previousPurchasePrice !== null ? round($purchasePrice - $previousPurchasePrice, 4) : null;
+
+                return [
+                    'product_id' => $product->id,
+                    'name' => $product->name,
+                    'sku' => $product->sku,
+                    'unit' => $product->unit ?: 'kg',
+                    'category_name' => $product->category?->name ?? 'Uncategorized',
+                    'purchase_price' => $purchasePrice,
+                    'previous_purchase_price' => $previousPurchasePrice,
+                    'purchase_diff' => $diff,
+                    'selling_price_a' => $sellingPriceA,
+                    'selling_price_b' => $sellingPriceB,
+                    'selling_price_c' => $sellingPriceC,
+                    'approval_status' => $currentApproval?->status ?? $previousApproval?->status ?? 'missing',
+                    'approved_at' => $currentApproval?->approved_at ?? $previousApproval?->approved_at,
+                    'price_unit' => $currentApproval?->price_unit ?? $previousApproval?->price_unit ?? $product->unit,
+                    'is_updated_today' => $currentApproval !== null,
+                    'source_label' => $currentApproval ? 'Today' : ($previousApproval ? 'Carried forward' : 'Vendor fallback'),
+                ];
+            })->values()
+        );
 
         return view('purchase-manager.prices.index', [
-            'pendingApprovals' => $pendingApprovals,
-            'approvedApprovals' => $approvedApprovals,
-            'orderPriceAlerts' => $orderPriceAlerts,
+            'products' => $products,
             'search' => $search,
             'categoryId' => $categoryId,
             'categories' => Category::query()->orderBy('name')->get(['id', 'name']),
-            'movement' => $movement,
-            'sort' => $sort,
-            'autoApproveSamePurchasePrice' => $this->priceBoardService->autoApproveSamePurchasePrice(),
             'purchaseDate' => $purchaseDate,
             'targetBusinessDate' => $targetBusinessDate,
-            'inventoryProducts' => $approvals->map(fn ($a) => $a->product)->filter()->unique('id')->values(),
+            'previousDate' => Carbon::parse($purchaseDate)->subDay()->toDateString(),
+            'perPage' => $perPage,
         ]);
-    }
-
-    public function update(UpdateDailySellingPricesRequest $request): RedirectResponse
-    {
-        $validated = $request->validated();
-        $user = $request->user();
-        $isAdmin = (bool) $user?->hasRole('admin');
-
-        DB::transaction(function () use ($validated, $isAdmin, $user): void {
-            $groupA = ShopPriceGroup::query()->where('name', 'A')->first();
-            $groupB = ShopPriceGroup::query()->where('name', 'B')->first();
-            $groupC = ShopPriceGroup::query()->where('name', 'C')->first();
-            $userId = (int) $user->id;
-
-            DailyPriceApproval::query()
-                ->whereIn('id', array_map('intval', array_keys($validated['prices'])))
-                ->with('product.orderUnits')
-                ->get()
-                ->each(function (DailyPriceApproval $approval) use ($validated, $isAdmin, $userId, $groupA, $groupB, $groupC): void {
-                    $row = $validated['prices'][(string) $approval->id] ?? $validated['prices'][$approval->id] ?? null;
-
-                    if (! is_array($row)) {
-                        return;
-                    }
-
-                    $priceA = round((float) ($row['price_a'] ?? 0), 2);
-                    $priceB = isset($row['price_b']) && $row['price_b'] !== '' && $row['price_b'] !== null
-                        ? round((float) $row['price_b'], 2)
-                        : $priceA;
-                    $priceC = isset($row['price_c']) && $row['price_c'] !== '' && $row['price_c'] !== null
-                        ? round((float) $row['price_c'], 2)
-                        : $priceA;
-                    $priceUnit = $this->validatedPriceUnitFor($approval, $row['price_unit'] ?? $approval->price_unit);
-
-                    $approval->update([
-                        'price_unit' => $priceUnit,
-                        'price_a' => $priceA,
-                        'price_b' => $priceB,
-                        'price_c' => $priceC,
-                        'status' => $isAdmin ? 'approved' : 'pending',
-                        'approved_by' => $isAdmin ? $userId : null,
-                        'approved_at' => $isAdmin ? now() : null,
-                    ]);
-
-                    if (! $isAdmin) {
-                        return;
-                    }
-
-                    $product = $approval->product;
-                    if (! $product) {
-                        return;
-                    }
-
-                    $this->updateActivePricesForGroup($product, $groupA, $priceA, $userId);
-                    $this->updateActivePricesForGroup($product, $groupB, $priceB, $userId);
-                    $this->updateActivePricesForGroup($product, $groupC, $priceC, $userId);
-                    $this->vendorPriceService->syncPrice($product->id, (float) $approval->purchase_price);
-                });
-        });
-
-        if ($isAdmin) {
-            $targetBusinessDate = Carbon::parse($validated['date'])->toDateString();
-            $generationSummary = $this->shopInvoiceService->generateForBusinessDate($targetBusinessDate, (int) $user->id);
-            $repriceSummary = $this->shopInvoiceService->repriceAllForBusinessDate(
-                $targetBusinessDate,
-                (int) $user->id,
-                'Admin saved and published daily prices from price proposal board.',
-            );
-        }
-
-        $redirectParams = [
-            'search' => $request->validated('search'),
-            'date' => $validated['date'],
-            'sort' => $request->validated('sort'),
-        ];
-
-        if ($request->filled('movement')) {
-            $redirectParams['movement'] = $request->validated('movement');
-        }
-
-        return redirect()
-            ->route('purchasing.prices.index', $redirectParams)
-            ->with('success', $isAdmin
-                ? 'Daily prices published immediately.'
-                : 'Price proposals updated and sent for admin approval.')
-            ->with('warning', $isAdmin ? $this->invoiceSkipWarning($generationSummary ?? [], $repriceSummary ?? []) : null);
-    }
-
-    public function saveRow(DailyPriceApproval $approval, Request $request): mixed
-    {
-        $this->authorizeBoardAccess();
-
-        $validated = $request->validate([
-            'price_a' => ['nullable', 'numeric', 'min:0'],
-            'price_b' => ['nullable', 'numeric', 'min:0'],
-            'price_c' => ['nullable', 'numeric', 'min:0'],
-            'price_unit' => ['nullable', 'string', 'max:20'],
-            'date' => ['nullable', 'date'],
-        ]);
-
-        $user = $request->user();
-        $isAdmin = (bool) $user?->hasRole('admin');
-        $userId = (int) $user->id;
-
-        DB::transaction(function () use ($approval, $validated, $isAdmin, $userId): void {
-            $groupA = ShopPriceGroup::query()->where('name', 'A')->first();
-            $groupB = ShopPriceGroup::query()->where('name', 'B')->first();
-            $groupC = ShopPriceGroup::query()->where('name', 'C')->first();
-
-            $priceA = round((float) ($validated['price_a'] ?? 0), 2);
-            $priceB = isset($validated['price_b']) && $validated['price_b'] !== '' && $validated['price_b'] !== null
-                ? round((float) $validated['price_b'], 2)
-                : $priceA;
-            $priceC = isset($validated['price_c']) && $validated['price_c'] !== '' && $validated['price_c'] !== null
-                ? round((float) $validated['price_c'], 2)
-                : $priceA;
-            $priceUnit = $this->validatedPriceUnitFor($approval, $validated['price_unit'] ?? $approval->price_unit);
-
-            $approval->update([
-                'price_unit' => $priceUnit,
-                'price_a' => $priceA,
-                'price_b' => $priceB,
-                'price_c' => $priceC,
-                'status' => $isAdmin ? 'approved' : 'pending',
-                'approved_by' => $isAdmin ? $userId : null,
-                'approved_at' => $isAdmin ? now() : null,
-            ]);
-
-            if ($isAdmin && $approval->product) {
-                $this->updateActivePricesForGroup($approval->product, $groupA, $priceA, $userId);
-                $this->updateActivePricesForGroup($approval->product, $groupB, $priceB, $userId);
-                $this->updateActivePricesForGroup($approval->product, $groupC, $priceC, $userId);
-                $this->vendorPriceService->syncPrice($approval->product->id, (float) $approval->purchase_price);
-            }
-        });
-
-        if ($isAdmin) {
-            $targetBusinessDate = Carbon::parse($validated['date'] ?? $approval->purchase_date)->toDateString();
-            $this->shopInvoiceService->generateForBusinessDate($targetBusinessDate, $userId);
-            $this->shopInvoiceService->repriceAllForBusinessDate(
-                $targetBusinessDate,
-                $userId,
-                "Admin saved row price for {$approval->product?->name}.",
-            );
-        }
-
-        if ($request->wantsJson()) {
-            return response()->json([
-                'success' => true,
-                'message' => "{$approval->product?->name} price saved & published.",
-                'approval' => $approval->fresh(),
-            ]);
-        }
-
-        return redirect()->back()->with('success', "{$approval->product?->name} price saved.");
-    }
-
-    public function fixZeroOrderPrices(Request $request): RedirectResponse
-    {
-        $this->authorizeBoardAccess();
-        abort_unless((bool) $request->user()?->hasRole('admin'), 403, 'Only admin can run zero-price fixes.');
-
-        $validated = $request->validate([
-            'date' => ['required', 'date'],
-            'search' => ['nullable', 'string', 'max:255'],
-            'category_id' => ['nullable', 'integer'],
-            'movement' => ['nullable', 'in:changed,up,down,all'],
-            'sort' => ['nullable', 'in:code,name,status,movement'],
-        ]);
-
-        $alerts = $this->orderPriceAlertsForBusinessDate(Carbon::parse($validated['date'])->toDateString());
-        $fixTargets = $alerts
-            ->filter(fn (array $alert): bool => (bool) ($alert['fixable'] ?? false))
-            ->groupBy('approval_id');
-
-        $updatedRows = 0;
-
-        DB::transaction(function () use ($fixTargets, &$updatedRows): void {
-            foreach ($fixTargets as $approvalId => $rows) {
-                /** @var DailyPriceApproval|null $approval */
-                $approval = DailyPriceApproval::query()->find((int) $approvalId);
-                if (! $approval) {
-                    continue;
-                }
-
-                foreach ($rows as $row) {
-                    $priceColumn = (string) ($row['price_column'] ?? '');
-                    if (! in_array($priceColumn, ['price_a', 'price_b', 'price_c'], true)) {
-                        continue;
-                    }
-
-                    if ((float) ($approval->{$priceColumn} ?? 0) <= 0) {
-                        $approval->{$priceColumn} = 999.00;
-                        $updatedRows++;
-                    }
-                }
-
-                $approval->save();
-            }
-        });
-
-        return redirect()
-            ->route('purchasing.prices.index', array_filter([
-                'date' => $validated['date'],
-                'search' => $validated['search'] ?? null,
-                'category_id' => $validated['category_id'] ?? null,
-                'movement' => $validated['movement'] ?? null,
-                'sort' => $validated['sort'] ?? null,
-            ]))
-            ->with(
-                $updatedRows > 0 ? 'success' : 'warning',
-                $updatedRows > 0
-                    ? "Updated {$updatedRows} zero order-linked daily price value(s) to 999.00."
-                    : 'No zero order-linked price rows needed fixing.'
-            );
-    }
-
-    public function approveOrderPrices(Request $request): RedirectResponse
-    {
-        $this->authorizeBoardAccess();
-        abort_unless((bool) $request->user()?->hasRole('admin'), 403, 'Only admin can approve order prices.');
-
-        $validated = $request->validate([
-            'date' => ['required', 'date'],
-            'search' => ['nullable', 'string', 'max:255'],
-            'category_id' => ['nullable', 'integer'],
-            'movement' => ['nullable', 'in:changed,up,down,all'],
-            'sort' => ['nullable', 'in:code,name,status,movement'],
-        ]);
-
-        $alerts = $this->orderPriceAlertsForBusinessDate(Carbon::parse($validated['date'])->toDateString());
-        $approveTargets = $alerts
-            ->filter(fn (array $alert): bool => ($alert['issue'] ?? '') === 'Not approved by admin')
-            ->pluck('approval_id')
-            ->filter()
-            ->unique();
-
-        $approvedRows = 0;
-        $userId = (int) $request->user()->id;
-
-        DB::transaction(function () use ($approveTargets, $userId, &$approvedRows): void {
-            // Pre-load all ordered units in bulk for these approvals
-            $orderedUnitsMap = collect();
-            foreach ($approveTargets as $approvalId) {
-                $approval = DailyPriceApproval::query()->find((int) $approvalId);
-                if ($approval) {
-                    $units = \App\Models\ShopOrderItem::query()
-                        ->where('product_id', $approval->product_id)
-                        ->whereHas('order', fn ($q) => $q->where('business_date', $approval->business_date)->where('state', 'approved'))
-                        ->pluck('requested_unit')
-                        ->filter()
-                        ->countBy()
-                        ->sort()
-                        ->keys();
-                    $orderedUnitsMap->put((int) $approvalId, $units->first());
-                }
-            }
-
-            foreach ($approveTargets as $approvalId) {
-                /** @var DailyPriceApproval|null $approval */
-                $approval = DailyPriceApproval::query()->find((int) $approvalId);
-                if (! $approval || $approval->status === 'approved') {
-                    continue;
-                }
-
-                $priceUnit = $orderedUnitsMap->get((int) $approvalId) ?? $approval->price_unit;
-                
-                $approval->update([
-                    'status' => 'approved',
-                    'approved_by' => $userId,
-                    'approved_at' => now(),
-                    'price_unit' => $priceUnit,
-                ]);
-
-                $approvedRows++;
-            }
-        });
-
-        if ($approvedRows > 0) {
-            $targetBusinessDate = Carbon::parse($validated['date'])->toDateString();
-            $this->shopInvoiceService->generateForBusinessDate($targetBusinessDate, $userId);
-            $this->shopInvoiceService->repriceAllForBusinessDate(
-                $targetBusinessDate,
-                $userId,
-                'Admin approved pending daily prices for order invoice generation.',
-            );
-        }
-
-        return redirect()
-            ->route('purchasing.prices.index', array_filter([
-                'date' => $validated['date'],
-                'search' => $validated['search'] ?? null,
-                'category_id' => $validated['category_id'] ?? null,
-                'movement' => $validated['movement'] ?? null,
-                'sort' => $validated['sort'] ?? null,
-            ]))
-            ->with(
-                $approvedRows > 0 ? 'success' : 'warning',
-                $approvedRows > 0
-                    ? "Approved {$approvedRows} pending order-linked daily price(s) and regenerated invoices."
-                    : 'No pending order-linked prices needed approval.'
-            );
-    }
-
-    public function updateSettings(Request $request): RedirectResponse
-    {
-        $this->authorizeBoardAccess();
-
-        $validated = $request->validate([
-            'auto_approve_same_purchase_price' => ['nullable', 'boolean'],
-            'date' => ['nullable', 'date'],
-            'search' => ['nullable', 'string', 'max:255'],
-            'movement' => ['nullable', 'in:changed,up,down,all'],
-            'sort' => ['nullable', 'in:code,name,status,movement'],
-        ]);
-
-        $enabled = (bool) ($validated['auto_approve_same_purchase_price'] ?? false);
-
-        $this->priceBoardService->updateAutoApproveSamePurchasePrice($enabled);
-
-        return redirect()
-            ->route('purchasing.prices.index', [
-                'date' => $validated['date'] ?? null,
-                'search' => $validated['search'] ?? null,
-                'movement' => $validated['movement'] ?? 'all',
-                'sort' => $validated['sort'] ?? 'code',
-                'settings' => 1,
-            ])
-            ->with('success', $enabled
-                ? 'Same-price products will be approved automatically.'
-                : 'Same-price products will wait for admin approval.');
-    }
-
-    public function recalculatePrices(Request $request): RedirectResponse
-    {
-        $this->authorizeBoardAccess();
-
-        $purchaseDate = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
-        $search = $request->input('search');
-        $movement = $request->input('movement', 'all');
-        $sort = $request->input('sort', 'code');
-
-        $priceGroups = $this->priceBoardService->ensureDefaultPriceGroups()->whereIn('name', ['A', 'B', 'C'])->keyBy('name');
-        $marginA = (float) ($priceGroups->get('A')?->default_margin_percent ?? 10);
-        $marginB = (float) ($priceGroups->get('B')?->default_margin_percent ?? 12);
-        $marginC = (float) ($priceGroups->get('C')?->default_margin_percent ?? 15);
-
-        $approvals = $this->priceBoardService->ensurePendingApprovalsForPurchaseDate($purchaseDate, includeAllProducts: true);
-
-        $recalculatedCount = 0;
-
-        DB::transaction(function () use ($approvals, $marginA, $marginB, $marginC, &$recalculatedCount): void {
-            foreach ($approvals as $approval) {
-                $purchasePrice = (float) $approval->purchase_price;
-
-                DailyPriceApproval::query()
-                    ->where('id', $approval->id)
-                    ->update([
-                        'price_a' => round($purchasePrice * (1 + $marginA / 100), 2),
-                        'price_b' => round($purchasePrice * (1 + $marginB / 100), 2),
-                        'price_c' => round($purchasePrice * (1 + $marginC / 100), 2),
-                    ]);
-
-                $recalculatedCount++;
-            }
-        });
-
-        return redirect()
-            ->route('purchasing.prices.index', array_filter([
-                'date' => $purchaseDate,
-                'search' => $search,
-                'movement' => $movement,
-                'sort' => $sort,
-            ]))
-            ->with('success', "Refreshed prices for {$recalculatedCount} product(s) using current Price Group margin rules (Group A: {$marginA}%, Group B: {$marginB}%, Group C: {$marginC}%).");
-    }
-
-    public function storeProduct(Request $request): RedirectResponse
-    {
-        $this->authorizeBoardAccess();
-
-        $validated = $request->validate([
-            'date' => ['required', 'date'],
-            'product_id' => ['required', 'integer', 'exists:products,id'],
-            'search' => ['nullable', 'string', 'max:255'],
-            'movement' => ['nullable', 'in:changed,up,down,all'],
-            'sort' => ['nullable', 'in:code,name,status,movement'],
-        ]);
-
-        $product = Product::query()->findOrFail((int) $validated['product_id']);
-        $this->priceBoardService->ensureProductApprovalForPurchaseDate($product, (string) $validated['date']);
-
-        return redirect()
-            ->route('purchasing.prices.index', [
-                'date' => $validated['date'],
-                'search' => $validated['search'] ?? null,
-                'movement' => $validated['movement'] ?? 'all',
-                'sort' => $validated['sort'] ?? 'code',
-            ])
-            ->with('success', "{$product->name} added to daily price board.");
     }
 
     private function authorizeBoardAccess(): void
     {
         abort_unless(auth()->user()?->hasRole('purchase') || auth()->user()?->hasRole('admin'), 403);
-    }
-
-    private function normalizeMovementFilter(mixed $movement): string
-    {
-        $movement = (string) ($movement ?: 'all');
-
-        return in_array($movement, self::MOVEMENT_FILTERS, true) ? $movement : 'all';
-    }
-
-    private function normalizeSortOption(mixed $sort): string
-    {
-        $sort = (string) ($sort ?: 'code');
-
-        return in_array($sort, self::SORT_OPTIONS, true) ? $sort : 'code';
-    }
-
-    private function sortValueForApproval(DailyPriceApproval $approval, string $sort): string
-    {
-        $product = $approval->product;
-
-        return match ($sort) {
-            'name' => strtolower((string) $product?->name).'-'.($product?->sku_sort_value ?? '1'),
-            'status' => $approval->status.'-'.($product?->sku_sort_value ?? '1'),
-            'movement' => $approval->movement_status.'-'.($product?->sku_sort_value ?? '1'),
-            default => ($product?->sku_sort_value ?? '1').'-'.strtolower((string) $product?->name),
-        };
-    }
-
-    private function validatedPriceUnitFor(DailyPriceApproval $approval, mixed $submittedUnit): string
-    {
-        $product = $approval->product;
-
-        if (! $product) {
-            throw ValidationException::withMessages([
-                'prices' => 'Price unit cannot be saved because the product is missing.',
-            ]);
-        }
-
-        $normalizedSubmittedUnit = ProductUnit::normalizeUnit((string) $submittedUnit);
-        $availableUnits = collect([(string) $product->unit])
-            ->merge($product->orderUnits->pluck('unit'))
-            ->map(fn ($unit): string => ProductUnit::normalizeUnit((string) $unit))
-            ->filter()
-            ->unique()
-            ->values();
-
-        if (! $availableUnits->contains($normalizedSubmittedUnit)) {
-            throw ValidationException::withMessages([
-                'prices' => "{$product->name} cannot be priced in {$submittedUnit}. Add that unit in inventory first.",
-            ]);
-        }
-
-        return $normalizedSubmittedUnit;
-    }
-
-    /**
-     * @param  array{skipped?: array<int, array{order_number: string|null, shop_name: string|null, products: array<int, string>}>}  $generationSummary
-     * @param  array{skipped?: array<int, array{order_number: string|null, shop_name: string|null, products: array<int, string>}>}  $repriceSummary
-     */
-    private function invoiceSkipWarning(array $generationSummary, array $repriceSummary): ?string
-    {
-        $skipped = collect($generationSummary['skipped'] ?? [])
-            ->merge($repriceSummary['skipped'] ?? [])
-            ->unique(fn (array $row): string => ($row['order_number'] ?? '').'|'.implode(',', $row['products']))
-            ->values();
-
-        if ($skipped->isEmpty()) {
-            return null;
-        }
-
-        $products = $skipped
-            ->flatMap(fn (array $row): array => $row['products'])
-            ->unique()
-            ->values()
-            ->implode(', ');
-
-        return sprintf(
-            'Prices saved. %d order(s) skipped because daily prices are missing for %s.',
-            $skipped->count(),
-            $products
-        );
-    }
-
-    private function updateActivePricesForGroup(Product $product, ?ShopPriceGroup $group, float $priceGradeA, int $userId): void
-    {
-        if (! $group) {
-            return;
-        }
-
-        $grades = [
-            ProductGrade::GradeA->value => 1.00,
-            ProductGrade::GradeB->value => 0.90,
-            ProductGrade::GradeC->value => 0.80,
-        ];
-
-        foreach ($grades as $gradeVal => $multiplier) {
-            $calculatedPrice = round($priceGradeA * $multiplier, 2);
-
-            $activePrice = DailyProductPrice::firstOrNew([
-                'product_id' => $product->id,
-                'shop_price_group_id' => $group->id,
-                'grade' => $gradeVal,
-            ]);
-
-            $oldPrice = $activePrice->exists ? (float) $activePrice->selling_price : null;
-
-            $activePrice->fill([
-                'selling_price' => $calculatedPrice,
-                'price_source' => 'manual',
-                'margin_percent' => null,
-                'manual_override' => true,
-                'override_reason' => 'Admin approved daily price approval',
-                'changed_by' => $userId,
-            ]);
-            $activePrice->save();
-
-            if ($oldPrice === null || abs($oldPrice - $calculatedPrice) > 0.0001) {
-                DailyProductPriceRevision::create([
-                    'daily_product_price_id' => $activePrice->id,
-                    'product_id' => $product->id,
-                    'shop_price_group_id' => $group->id,
-                    'grade' => $gradeVal,
-                    'old_price' => $oldPrice,
-                    'new_price' => $calculatedPrice,
-                    'old_margin_percent' => null,
-                    'new_margin_percent' => null,
-                    'change_type' => 'manual',
-                    'reason' => 'Admin approved proposed daily price',
-                    'changed_by' => $userId,
-                    'changed_at' => now(),
-                ]);
-            }
-        }
-    }
-
-        /**
-         * @return Collection<int, array{
-         *   order_number: string,
-         *   shop_name: string,
-         *   product_name: string,
-         *   sku: string,
-         *   price_group: string,
-         *   issue: string,
-         *   approval_id: int|null,
-         *   price_column: string|null,
-         *   fixable: bool
-         * }>
-         */
-        private function orderPriceAlertsForBusinessDate(string $businessDate): Collection
-        {
-            $orders = ShopOrder::query()
-                ->with(['shop.priceGroup', 'items.product'])
-                ->whereDate('business_date', $businessDate)
-                ->where('state', 'approved')
-                ->where('order_source', '!=', 'admin_direct_purchase')
-                ->whereHas('items', fn ($query) => $query->where('approved_qty', '>', 0))
-                ->get();
-
-            if ($orders->isEmpty()) {
-                return collect();
-            }
-
-            $productIds = $orders
-                ->flatMap(fn (ShopOrder $order) => $order->items->pluck('product_id'))
-                ->filter()
-                ->unique()
-                ->values();
-
-            $approvalsByProduct = DailyPriceApproval::query()
-                ->whereDate('business_date', $businessDate)
-                ->whereIn('product_id', $productIds)
-                ->get()
-                ->keyBy('product_id');
-
-        // Pre-load primary ordered units in bulk
-        $primaryOrderedUnits = \App\Models\ShopOrderItem::query()
-            ->whereIn('product_id', $productIds)
-            ->whereHas('order', fn ($q) => $q->where('business_date', $businessDate)->where('state', 'approved'))
-            ->select('product_id', 'requested_unit')
-            ->get()
-            ->groupBy('product_id')
-            ->map(function ($items) {
-                return $items->countBy('requested_unit')->sort()->keys()->first();
-            });
-
-        return $orders
-            ->flatMap(function (ShopOrder $order) use ($approvalsByProduct, $primaryOrderedUnits): array {
-                $groupName = strtoupper((string) ($order->shop?->priceGroup?->name ?? ''));
-                $priceColumn = match ($groupName) {
-                    'A' => 'price_a',
-                    'B' => 'price_b',
-                    'C' => 'price_c',
-                    default => null,
-                };
-
-                return $order->items
-                    ->filter(fn ($item): bool => (float) ($item->approved_qty ?? 0) > 0)
-                    ->map(function ($item) use ($order, $groupName, $priceColumn, $approvalsByProduct): ?array {
-                        $approval = $approvalsByProduct->get((int) $item->product_id);
-
-                        if (! $approval) {
-                            $issue = 'Missing daily approval';
-                        } elseif ($approval->status !== 'approved' || $approval->approved_at === null) {
-                            $issue = 'Not approved by admin';
-                        } elseif ($priceColumn === null) {
-                            $issue = 'Shop price group mapping missing';
-                        } elseif ((float) ($approval->{$priceColumn} ?? 0) <= 0) {
-                            $issue = 'Approved price is zero/invalid';
-                        } else {
-                            return null;
-                        }
-
-                        return [
-                            'order_number' => (string) $order->order_number,
-                            'shop_name' => (string) ($order->shop?->name ?? 'Unknown Shop'),
-                            'product_name' => (string) ($item->product?->name ?? 'Unknown Product'),
-                            'sku' => (string) ($item->product?->sku ?? 'NA'),
-                            'price_group' => $groupName !== '' ? $groupName : '-',
-                            'issue' => $issue,
-                            'approval_id' => $approval?->id,
-                            'price_column' => $priceColumn,
-                            'fixable' => $issue === 'Approved price is zero/invalid'
-                                && $approval !== null
-                                && in_array((string) $priceColumn, ['price_a', 'price_b', 'price_c'], true),
-                        ];
-                    })
-                    ->filter()
-                    ->values()
-                    ->all();
-            })
-            ->unique(fn (array $row): string => implode('|', [
-                $row['order_number'],
-                $row['product_name'],
-                $row['issue'],
-            ]))
-            ->values();
     }
 }

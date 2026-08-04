@@ -13,6 +13,7 @@ use App\Models\StockBatch;
 use App\Repositories\Inventory\StockBatchRepository;
 use App\Services\Finance\JournalService;
 use App\Services\Pricing\PriceBoardService;
+use App\Services\Purchasing\VendorPriceService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -22,6 +23,7 @@ class ApproveGoodsReceiptAction
         private readonly StockBatchRepository $stockBatchRepository,
         private readonly JournalService $journalService,
         private readonly PriceBoardService $priceBoardService,
+        private readonly VendorPriceService $vendorPriceService,
     ) {}
 
     /**
@@ -61,6 +63,10 @@ class ApproveGoodsReceiptAction
 
                 // Weighted average unit price across ALL approved GRN items for this product on this date
                 $costPerKg = $this->calculateWeightedAvgPrice($item->product_id, $date, $item);
+
+                    if ($costPerKg > 0) {
+                        $this->vendorPriceService->syncPrice($item->product_id, $costPerKg);
+                    }
 
                 // Create StockBatch in inventory — flagged as warehouse_receive_pending
                 $this->stockBatchRepository->create([

@@ -1,8 +1,8 @@
 @extends('purchase-manager.layouts.app')
 
-@section('title', 'Daily Price Matrix')
-@section('page_title', 'Daily Price Matrix Table')
-@section('page_description', 'Dedicated matrix view to manage and update daily product prices across dates. Search products, filter by category, and update prices inline.')
+@section('title', 'Selling Price Matrix')
+@section('page_title', 'Selling Price Matrix')
+@section('page_description', 'Dedicated selling-price editor with daily comparison against purchasing cost.')
 
 @section('content')
     @php
@@ -11,7 +11,7 @@
     <div class="space-y-6">
         <!-- Top Search and Filter Controls -->
         <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
-            <form method="GET" action="{{ route('purchasing.prices.matrix.index') }}" class="space-y-4">
+            <form method="GET" action="{{ route('purchasing.prices.matrix.index') }}" class="space-y-4" id="matrix-filter-form">
                 <input type="hidden" name="matrix_category" id="filter-matrix-category" value="{{ $matrixCategory }}">
                 <input type="hidden" name="week_start" id="filter-week-start" value="{{ $weekStartDate }}">
                 <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 items-end">
@@ -32,7 +32,7 @@
                         </div>
                     </div>
                     <div>
-                        <label for="category_id" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Category Filter</label>
+                        <label for="category_id" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Product Category</label>
                         <select
                             id="category_id"
                             name="category_id"
@@ -46,7 +46,7 @@
                         </select>
                     </div>
                     <div>
-                        <label for="date" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Month / Purchase Date</label>
+                        <label for="date" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Business Date</label>
                         <input
                             id="date"
                             type="date"
@@ -68,7 +68,7 @@
 
                 <div class="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-slate-100">
                     <div class="flex flex-wrap items-center gap-3">
-                        <span class="text-xs font-black uppercase tracking-wider text-slate-500">Price Category:</span>
+                        <span class="text-xs font-black uppercase tracking-wider text-slate-500">Selling Price Category:</span>
                         <div class="inline-flex rounded-2xl border border-slate-200 bg-slate-100 p-1">
                             <button
                                 type="button"
@@ -76,7 +76,7 @@
                                 id="btn-matrix-cat-a"
                                 class="rounded-xl px-4 py-2 text-xs font-black transition {{ $matrixCategory === 'a' ? 'bg-cyan-700 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900' }}"
                             >
-                                Category A (Default)
+                                Selling Price A (Default)
                             </button>
                             <button
                                 type="button"
@@ -84,7 +84,7 @@
                                 id="btn-matrix-cat-b"
                                 class="rounded-xl px-4 py-2 text-xs font-black transition {{ $matrixCategory === 'b' ? 'bg-cyan-700 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900' }}"
                             >
-                                Category B
+                                Selling Price B
                             </button>
                             <button
                                 type="button"
@@ -92,7 +92,7 @@
                                 id="btn-matrix-cat-c"
                                 class="rounded-xl px-4 py-2 text-xs font-black transition {{ $matrixCategory === 'c' ? 'bg-cyan-700 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900' }}"
                             >
-                                Category C
+                                Selling Price C
                             </button>
                         </div>
                     </div>
@@ -115,7 +115,7 @@
                     </div>
                 </div>
                 <p class="text-xs font-medium text-slate-500">
-                    Displaying matrix for selected week ({{ count($matrixProducts) }} products). Numbers in red indicate price change.
+                    Displaying matrix for selected week ({{ count($matrixProducts) }} products). Red values indicate changed selling prices.
                 </p>
             </form>
         </section>
@@ -188,7 +188,7 @@
         @endif
 
         <!-- Dedicated Matrix Table Card -->
-        <form method="POST" action="{{ url('/purchasing/prices/matrix') }}" class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+        <form method="POST" action="{{ url('/purchasing/prices/matrix') }}" class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4" id="matrix-edit-form">
             @csrf
             <input type="hidden" name="date" value="{{ $purchaseDate }}">
             <input type="hidden" name="search" value="{{ $search }}">
@@ -294,7 +294,7 @@
                                     <td class="p-1 border-r border-slate-200 text-center {{ $dateInfo['is_selected'] ? 'bg-cyan-50/40' : '' }}">
                                         <div class="matrix-cell-container space-y-1" data-product-id="{{ $prod['product_id'] }}" data-date="{{ $dateStr }}" data-is-locked="{{ $isLocked ? '1' : '0' }}">
                                             @if ($isLocked)
-                                                <div class="flex items-center justify-center gap-1 p-1">
+                                                <div class="flex flex-col items-center justify-center gap-1 p-1">
                                                     <div class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 border border-red-200">
                                                         <svg class="w-3 h-3 text-red-600" fill="currentColor" viewBox="0 0 20 20">
                                                             <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
@@ -303,6 +303,9 @@
                                                             {{ $matrixCategory === 'a' ? ($priceValA !== null ? number_format($priceValA, 2) : '—') : ($matrixCategory === 'b' ? ($priceValB !== null ? number_format($priceValB, 2) : '—') : ($priceValC !== null ? number_format($priceValC, 2) : '—')) }}
                                                         </span>
                                                     </div>
+                                                    @if (($cellData['purchase_price'] ?? null) !== null)
+                                                        <span class="text-[9px] font-semibold text-slate-500">Cost {{ number_format((float) $cellData['purchase_price'], 2) }}</span>
+                                                    @endif
                                                 </div>
                                             @else
                                                 <div class="flex items-center gap-1">
@@ -334,6 +337,9 @@
                                                         </svg>
                                                     </button>
                                                 </div>
+                                                @if (($cellData['purchase_price'] ?? null) !== null)
+                                                    <div class="text-[9px] font-semibold text-slate-500">Cost {{ number_format((float) $cellData['purchase_price'], 2) }}</div>
+                                                @endif
                                             @endif
                                             <div class="flex items-center justify-center gap-1">
                                                 <span class="text-[9px] font-bold text-slate-500">Unit:</span>
@@ -377,31 +383,22 @@
                     </tbody>
                 </table>
             </div>
-            <div class="flex flex-wrap items-center justify-end gap-3 border-t border-slate-100 pt-4">
-                <button
-                    type="submit"
-                    onclick="document.getElementById('matrix-form-action').value='update'"
-                    class="inline-flex min-h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
-                >
-                    Update Price
-                </button>
-                @if ($isAdminViewer)
-                    <button
-                        type="submit"
-                        onclick="document.getElementById('matrix-form-action').value='approve_publish'"
-                        class="inline-flex min-h-11 items-center justify-center rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white hover:bg-emerald-500"
-                    >
-                        Approve &amp; Publish
-                    </button>
-                @endif
-            </div>
         </form>
+    </div>
+
+    <div id="matrix-loading-overlay" class="fixed inset-0 z-[60] hidden items-center justify-center bg-slate-950/40 px-4">
+        <div class="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-2xl">
+            <div class="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-slate-200 border-t-cyan-600"></div>
+            <p class="mt-4 text-base font-black text-slate-950">Updating matrix prices</p>
+            <p class="mt-2 text-sm text-slate-600">Please wait while the selected selling prices are saved.</p>
+        </div>
     </div>
 
     @once
         @push('scripts')
             <script>
                 let currentMatrixCategory = "{{ $matrixCategory }}";
+                let matrixSaving = false;
 
                 function switchMatrixCategory(cat) {
                     currentMatrixCategory = cat;
@@ -468,6 +465,7 @@
                                       document.querySelector('input[name="_token"]')?.value || '';
 
                     btn.disabled = true;
+                    btn.innerHTML = '<svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M4 12a8 8 0 018-8" /></svg>';
                     btn.className = 'matrix-cell-save-btn flex-shrink-0 inline-flex items-center justify-center rounded-lg bg-amber-500 text-white p-1 text-[10px] font-black opacity-80';
 
                     try {
@@ -492,25 +490,52 @@
                             input.dataset.priceB = data.price_b !== null ? Number(data.price_b).toFixed(2) : '';
                             input.dataset.priceC = data.price_c !== null ? Number(data.price_c).toFixed(2) : '';
 
+                            btn.innerHTML = '<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>';
                             btn.className = 'matrix-cell-save-btn flex-shrink-0 inline-flex items-center justify-center rounded-lg bg-emerald-600 text-white p-1 text-[10px] font-black shadow-md';
                             input.classList.add('bg-emerald-50', 'border-emerald-300');
 
                             setTimeout(() => {
                                 btn.disabled = false;
+                                btn.innerHTML = '<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>';
                                 btn.className = 'matrix-cell-save-btn flex-shrink-0 inline-flex items-center justify-center rounded-lg bg-slate-900 text-white p-1 text-[10px] font-black hover:bg-cyan-600 transition';
                                 input.classList.remove('bg-emerald-50', 'border-emerald-300');
                             }, 1200);
                         } else {
                             alert(data.message || 'Error saving price.');
                             btn.disabled = false;
+                            btn.innerHTML = '<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>';
                             btn.className = 'matrix-cell-save-btn flex-shrink-0 inline-flex items-center justify-center rounded-lg bg-rose-600 text-white p-1 text-[10px] font-black';
                         }
                     } catch (err) {
                         alert('Network error saving price.');
                         btn.disabled = false;
+                        btn.innerHTML = '<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>';
                         btn.className = 'matrix-cell-save-btn flex-shrink-0 inline-flex items-center justify-center rounded-lg bg-slate-900 text-white p-1 text-[10px] font-black';
                     }
                 }
+
+                const matrixEditForm = document.getElementById('matrix-edit-form');
+                const matrixLoadingOverlay = document.getElementById('matrix-loading-overlay');
+                if (matrixEditForm && matrixLoadingOverlay) {
+                    matrixEditForm.addEventListener('submit', function() {
+                        if (matrixSaving) return;
+                        matrixSaving = true;
+                        matrixLoadingOverlay.classList.remove('hidden');
+                        matrixLoadingOverlay.classList.add('flex');
+
+                        matrixEditForm.querySelectorAll('button[type="submit"]').forEach(button => {
+                            const label = button.dataset.submitLabel || button.textContent.trim();
+                            button.disabled = true;
+                            button.textContent = label + '...';
+                            button.classList.add('opacity-70', 'cursor-not-allowed');
+                        });
+                    });
+                }
+
+                document.getElementById('matrix-filter-form')?.addEventListener('submit', function() {
+                    matrixLoadingOverlay?.classList.remove('hidden');
+                    matrixLoadingOverlay?.classList.add('flex');
+                });
 
                 function toggleUnitSelector(btn) {
                     const selector = btn.nextElementSibling;
