@@ -8,7 +8,7 @@
             'balance' => 'Balance',
         ];
         $currentUser = auth()->user();
-        $canBuyAsPurchaser = $currentUser?->hasRole('admin') && $currentUser->hasRole('purchaser');
+        $canLoginAsPurchaser = $currentUser?->hasRole('admin');
         $activeReportTab = $reportFilters['tab'] ?? 'cash';
         $reportQuery = [
             'from_date' => $reportFilters['from_date'] ?? now()->startOfMonth()->toDateString(),
@@ -131,8 +131,8 @@
                                 </th>
                             @endforeach
                             <th class="px-4 py-3 text-right">Add Credit</th>
-                            @if($canBuyAsPurchaser)
-                                <th class="px-4 py-3 text-right">Buy</th>
+                            @if($canLoginAsPurchaser)
+                                <th class="px-4 py-3 text-right">Login</th>
                             @endif
                             <th class="px-4 py-3 text-right">Ledger</th>
                         </tr>
@@ -144,7 +144,6 @@
                                 $totalIn = (float) $row['total_in'];
                                 $totalOut = (float) $row['total_out'];
                                 $balance = (float) $row['balance'];
-                                $canBuyThisPurchaser = $canBuyAsPurchaser && $purchaser->is($currentUser);
                             @endphp
                             <tr class="transition hover:bg-slate-50">
                                 <td class="px-4 py-4">
@@ -159,18 +158,14 @@
                                         Add Credit
                                     </a>
                                 </td>
-                                @if($canBuyAsPurchaser)
+                                @if($canLoginAsPurchaser)
                                     <td class="px-4 py-4 text-right">
-                                        @if($canBuyThisPurchaser)
-                                            <form method="POST" action="{{ route('admin.accounting.purchasers.buy', $purchaser->public_uuid) }}" class="inline-flex">
-                                                @csrf
-                                                <button type="submit" class="inline-flex h-9 items-center rounded-xl border border-blue-200 bg-blue-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-blue-700 transition hover:bg-blue-100">
-                                                    Buy
-                                                </button>
-                                            </form>
-                                        @else
-                                            <span class="text-xs font-bold text-slate-300">—</span>
-                                        @endif
+                                        <form method="POST" action="{{ route('admin.accounting.purchasers.login-as', $purchaser->public_uuid) }}" class="inline-flex">
+                                            @csrf
+                                            <button type="submit" class="inline-flex h-9 items-center rounded-xl border border-blue-200 bg-blue-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-blue-700 transition hover:bg-blue-100">
+                                                Login as Purchaser
+                                            </button>
+                                        </form>
                                     </td>
                                 @endif
                                 <td class="px-4 py-4 text-right">
@@ -181,7 +176,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="{{ $canBuyAsPurchaser ? 7 : 6 }}" class="px-4 py-12 text-center text-sm font-bold text-slate-500">
+                                <td colspan="{{ $canLoginAsPurchaser ? 7 : 6 }}" class="px-4 py-12 text-center text-sm font-bold text-slate-500">
                                     No users with the 'purchaser' role were found.
                                 </td>
                             </tr>
@@ -194,7 +189,7 @@
                             <td class="px-4 py-4 text-right text-slate-950">Rs. {{ number_format($totals['total_out'], 2) }}</td>
                             <td class="px-4 py-4 text-right text-slate-950">Rs. {{ number_format($totals['balance'], 2) }}</td>
                             <td class="px-4 py-4"></td>
-                            @if($canBuyAsPurchaser)
+                            @if($canLoginAsPurchaser)
                                 <td class="px-4 py-4"></td>
                             @endif
                             <td class="px-4 py-4"></td>

@@ -350,6 +350,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/purchaser/corrections', [PurchaserDashboardController::class, 'storeCorrectionRequest'])->name('purchaser.corrections.store');
     Route::post('/purchaser/corrections/{correctionRequest}/approve', [PurchaserDashboardController::class, 'approveCorrectionRequest'])->name('purchaser.corrections.approve');
     Route::post('/purchaser/corrections/{correctionRequest}/reject', [PurchaserDashboardController::class, 'rejectCorrectionRequest'])->name('purchaser.corrections.reject');
+    Route::post('/purchaser/exit-admin-view', [AdminAccountingController::class, 'stopPurchaserViewAsAdmin'])->name('purchaser.exit-admin-view');
 
     // ── Warehouse Receiver ─────────────────────────────────────────────────
     Route::prefix('warehouse-receiver')->name('warehouse.receiver.')->middleware('can:warehouse.receive.view')->group(function () {
@@ -475,6 +476,7 @@ Route::middleware('auth')->group(function () {
             Route::post('purchasers/direct-purchase', [RequisitionController::class, 'storeAdminDirectPurchase'])->name('purchasers.direct-purchase.store');
             Route::get('purchasers/{user:public_uuid}', [AdminAccountingController::class, 'purchaserShow'])->name('purchasers.show');
             Route::post('purchasers/{user:public_uuid}/credits', [AdminAccountingController::class, 'storePurchaserCredit'])->name('purchasers.credits.store');
+            Route::post('purchasers/{user:public_uuid}/login-as', [AdminAccountingController::class, 'loginAsPurchaser'])->name('purchasers.login-as');
             Route::post('purchasers/{user:public_uuid}/buy', [AdminAccountingController::class, 'buyAsPurchaser'])->name('purchasers.buy');
         });
         Route::post('users/{user}/approve', [UserController::class, 'approve'])->name('users.approve');

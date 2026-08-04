@@ -1800,6 +1800,41 @@ class AdminAccountingController extends Controller
             ->with('success', 'Green Leaf Direct Purchase window opened for '.$admin->name.'.');
     }
 
+    public function loginAsPurchaser(Request $request, User $user): RedirectResponse
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::PurchaserCashManage);
+        $admin = $request->user();
+
+        abort_unless($admin?->hasRole('admin'), 403);
+        abort_unless($user->hasRole('purchaser'), 404);
+
+        $request->session()->put('admin_impersonator_id', (int) $admin->id);
+        auth()->login($user);
+        $request->session()->regenerate();
+        $request->session()->put('admin_impersonator_id', (int) $admin->id);
+
+        return redirect()
+            ->route('purchaser.vendors', ['date' => today()->toDateString()])
+            ->with('success', 'Logged in as '.$user->name.' (purchaser view).');
+    }
+
+    public function stopPurchaserViewAsAdmin(Request $request): RedirectResponse
+    {
+        $adminId = (int) $request->session()->get('admin_impersonator_id', 0);
+        abort_unless($adminId > 0, 403);
+
+        $admin = User::query()->find($adminId);
+        abort_unless($admin && $admin->hasRole('admin'), 403);
+
+        auth()->login($admin);
+        $request->session()->regenerate();
+        $request->session()->forget('admin_impersonator_id');
+
+        return redirect()
+            ->route('admin.accounting.purchasers.index')
+            ->with('success', 'Returned to admin account.');
+    }
+
     private function ensureAccountingAccess(Request $request, string $permission): void
     {
         abort_unless(
