@@ -451,8 +451,11 @@ class WarehouseLoadoutController extends Controller
                     $hasRequestedUnit = filled($firstRow->requested_unit)
                         && strtolower((string) $firstRow->requested_unit) !== 'kg';
                     $loadedOrderUnitQty = $submittedUnitQty ?? ($hasRequestedUnit ? $requestedUnitQty : null);
+                    $convertedQty = round(max(0.0, (float) $loadedOrderUnitQty) * max(0.0, $conversionToBase), 3);
+                    // For dual-unit items, prefer explicitly entered actual kg if provided;
+                    // otherwise keep the legacy conversion path from order-unit count.
                     $submittedQty = $hasRequestedUnit
-                        ? round(max(0.0, (float) $loadedOrderUnitQty) * max(0.0, $conversionToBase), 3)
+                        ? ($actualWeight > 0.0001 ? $actualWeight : $convertedQty)
                         : ($actualWeight > 0.0001
                             ? $actualWeight
                             : max(0.0, (float) ($itemsInput[$productId] ?? 0)));
@@ -564,7 +567,7 @@ class WarehouseLoadoutController extends Controller
                                 'loaded_order_unit_qty' => $hasRequestedUnit ? ($loadedOrderUnitQty ?? round($submittedQty / $conversionToBase, 2)) : null,
                                 'requested_unit_quantity' => $loadedReqUnitQty,
                                 'line_total' => round($loadedQtyToRecord * $unitSellingPrice, 2),
-                                'actual_weight' => $hasRequestedUnit ? null : ($actualWeight > 0.0001 ? $actualWeight : null),
+                                'actual_weight' => $actualWeight > 0.0001 ? $actualWeight : null,
                                 'delivered_qty' => null,
                                 'excess_qty' => $excessQty,
                                 'excess_value' => $excessValue,
@@ -970,7 +973,7 @@ class WarehouseLoadoutController extends Controller
             'loaded_order_unit_qty' => $hasRequestedUnit && $conversionToBase > 0 ? round($totalLoaded / $conversionToBase, 2) : null,
             'requested_unit_quantity' => $loadedReqUnitQty,
             'line_total' => round($loadedQtyToRecord * $unitPrice, 2),
-            'actual_weight' => $hasRequestedUnit ? null : $totalLoaded,
+            'actual_weight' => $totalLoaded,
             'delivered_qty' => null,
             'excess_qty' => max(0.0, round($totalLoaded - $totalApproved, 3)),
             'excess_value' => round(max(0.0, $totalLoaded - $totalApproved) * $unitPrice, 2),
