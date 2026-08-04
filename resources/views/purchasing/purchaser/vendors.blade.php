@@ -213,14 +213,47 @@
                     </div>
 
                     <details class="mt-3 rounded-2xl border border-slate-100 bg-slate-50 p-2">
-                        <summary class="cursor-pointer px-2 py-1 text-[10px] font-black text-slate-700">View Cart Items</summary>
-                        <div class="mt-2 space-y-1 border-t border-slate-200/60 pt-2">
-                            @foreach ($cart->items as $item)
-                                <div class="flex items-center justify-between gap-2 px-2 py-1 text-[10px] font-bold text-slate-600">
-                                    <span class="truncate">{{ $item->product->name }}</span>
-                                    <span>{{ number_format((float) $item->quantity, 2) }} {{ $item->product->unit }} • ₹{{ number_format((float) $item->line_total, 2) }}</span>
+                        <summary class="cursor-pointer px-2 py-1 text-[10px] font-black text-slate-700">
+                            {{ $cart->purchaseInvoice ? 'Edit Qty / Price (Processed Bill)' : 'View Cart Items' }}
+                        </summary>
+                        <div class="mt-2 border-t border-slate-200/60 pt-2">
+                            @if ($cart->purchaseInvoice)
+                                <form action="{{ route('purchaser.carts.items.update-all', $cart) }}" method="POST" class="space-y-2">
+                                    @csrf
+                                    @method('PATCH')
+                                    @foreach ($cart->items as $item)
+                                        <div class="rounded-xl border border-slate-200 bg-white p-2">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <span class="truncate text-[10px] font-black text-slate-800">{{ $item->product->name }}</span>
+                                                <span class="text-[10px] font-black text-slate-900">₹<span id="processed-total-{{ $item->id }}">{{ number_format((float) $item->line_total, 2, '.', '') }}</span></span>
+                                            </div>
+                                            <div class="mt-2 grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="text-[9px] font-bold text-slate-500">Qty ({{ $item->product->unit }})</label>
+                                                    <input type="number" step="{{ $item->product->unit === 'kg' ? 'any' : '1' }}" min="{{ $item->product->unit === 'kg' ? '0.01' : '1' }}" name="items[{{ $item->id }}][quantity]" id="processed-qty-{{ $item->id }}" value="{{ number_format((float) $item->quantity, 2, '.', '') }}" oninput="updateProcessedItemTotal({{ $item->id }})" class="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-center text-[10px] font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
+                                                </div>
+                                                <div>
+                                                    <label class="text-[9px] font-bold text-slate-500">Price</label>
+                                                    <input type="number" step="0.01" min="0.01" name="items[{{ $item->id }}][unit_price]" id="processed-price-{{ $item->id }}" value="{{ number_format((float) $item->unit_price, 2, '.', '') }}" oninput="updateProcessedItemTotal({{ $item->id }})" class="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-center text-[10px] font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    @endforeach
+                                    <input type="hidden" name="action" value="processed_update">
+                                    <button type="submit" class="inline-flex h-8 items-center justify-center rounded-lg bg-teal-600 px-3 text-[10px] font-black text-white hover:bg-teal-500">
+                                        Update Qty, Price & Total
+                                    </button>
+                                </form>
+                            @else
+                                <div class="space-y-1">
+                                    @foreach ($cart->items as $item)
+                                        <div class="flex items-center justify-between gap-2 px-2 py-1 text-[10px] font-bold text-slate-600">
+                                            <span class="truncate">{{ $item->product->name }}</span>
+                                            <span>{{ number_format((float) $item->quantity, 2) }} {{ $item->product->unit }} • ₹{{ number_format((float) $item->line_total, 2) }}</span>
+                                        </div>
+                                    @endforeach
                                 </div>
-                            @endforeach
+                            @endif
                         </div>
                     </details>
 
@@ -364,14 +397,47 @@
                     </div>
 
                     <details class="mt-3 rounded-2xl border border-slate-100 bg-slate-50 p-2">
-                        <summary class="cursor-pointer px-2 py-1 text-[10px] font-black text-slate-700">View Cart Items</summary>
-                        <div class="mt-2 space-y-1 border-t border-slate-200/60 pt-2">
-                            @foreach ($cart->items as $item)
-                                <div class="flex items-center justify-between gap-2 px-2 py-1 text-[10px] font-bold text-slate-600">
-                                    <span class="truncate">{{ $item->product->name }}</span>
-                                    <span>{{ number_format((float) $item->quantity, 2) }} {{ $item->product->unit }} • ₹{{ number_format((float) $item->line_total, 2) }}</span>
+                        <summary class="cursor-pointer px-2 py-1 text-[10px] font-black text-slate-700">
+                            {{ $cart->purchaseInvoice ? 'Edit Qty / Price (Processed Bill)' : 'View Cart Items' }}
+                        </summary>
+                        <div class="mt-2 border-t border-slate-200/60 pt-2">
+                            @if ($cart->purchaseInvoice)
+                                <form action="{{ route('purchaser.carts.items.update-all', $cart) }}" method="POST" class="space-y-2">
+                                    @csrf
+                                    @method('PATCH')
+                                    @foreach ($cart->items as $item)
+                                        <div class="rounded-xl border border-slate-200 bg-white p-2">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <span class="truncate text-[10px] font-black text-slate-800">{{ $item->product->name }}</span>
+                                                <span class="text-[10px] font-black text-slate-900">₹<span id="processed-total-{{ $item->id }}">{{ number_format((float) $item->line_total, 2, '.', '') }}</span></span>
+                                            </div>
+                                            <div class="mt-2 grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="text-[9px] font-bold text-slate-500">Qty ({{ $item->product->unit }})</label>
+                                                    <input type="number" step="{{ $item->product->unit === 'kg' ? 'any' : '1' }}" min="{{ $item->product->unit === 'kg' ? '0.01' : '1' }}" name="items[{{ $item->id }}][quantity]" id="processed-qty-{{ $item->id }}" value="{{ number_format((float) $item->quantity, 2, '.', '') }}" oninput="updateProcessedItemTotal({{ $item->id }})" class="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-center text-[10px] font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
+                                                </div>
+                                                <div>
+                                                    <label class="text-[9px] font-bold text-slate-500">Price</label>
+                                                    <input type="number" step="0.01" min="0.01" name="items[{{ $item->id }}][unit_price]" id="processed-price-{{ $item->id }}" value="{{ number_format((float) $item->unit_price, 2, '.', '') }}" oninput="updateProcessedItemTotal({{ $item->id }})" class="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-center text-[10px] font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    @endforeach
+                                    <input type="hidden" name="action" value="processed_update">
+                                    <button type="submit" class="inline-flex h-8 items-center justify-center rounded-lg bg-teal-600 px-3 text-[10px] font-black text-white hover:bg-teal-500">
+                                        Update Qty, Price & Total
+                                    </button>
+                                </form>
+                            @else
+                                <div class="space-y-1">
+                                    @foreach ($cart->items as $item)
+                                        <div class="flex items-center justify-between gap-2 px-2 py-1 text-[10px] font-bold text-slate-600">
+                                            <span class="truncate">{{ $item->product->name }}</span>
+                                            <span>{{ number_format((float) $item->quantity, 2) }} {{ $item->product->unit }} • ₹{{ number_format((float) $item->line_total, 2) }}</span>
+                                        </div>
+                                    @endforeach
                                 </div>
-                            @endforeach
+                            @endif
                         </div>
                     </details>
 
@@ -712,6 +778,20 @@
             const quantityInput = document.getElementById(`quantity-${itemId}`);
             const priceInput = document.getElementById(`price-${itemId}`);
             const totalNode = document.getElementById(`total-${itemId}`);
+
+            if (! quantityInput || ! priceInput || ! totalNode) {
+                return;
+            }
+
+            const quantity = Number(quantityInput.value || 0);
+            const price = Number(priceInput.value || 0);
+            totalNode.textContent = (quantity * price).toFixed(2);
+        }
+
+        function updateProcessedItemTotal(itemId) {
+            const quantityInput = document.getElementById(`processed-qty-${itemId}`);
+            const priceInput = document.getElementById(`processed-price-${itemId}`);
+            const totalNode = document.getElementById(`processed-total-${itemId}`);
 
             if (! quantityInput || ! priceInput || ! totalNode) {
                 return;

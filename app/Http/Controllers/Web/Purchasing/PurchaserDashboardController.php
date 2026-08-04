@@ -1455,7 +1455,7 @@ class PurchaserDashboardController extends Controller
     {
         $this->ensurePurchaser($request);
 
-        $cart = $this->ownedCart($request, $cart, ['draft']);
+        $cart = $this->ownedCart($request, $cart, ['draft', 'submitted']);
 
         $validated = $request->validate([
             'items' => ['required', 'array', 'min:1'],
@@ -1484,11 +1484,17 @@ class PurchaserDashboardController extends Controller
                     'notes' => $itemInput['notes'] ?? null,
                 ]);
             }
+
+            if ($cart->status === 'submitted' && $cart->purchaseInvoice) {
+                app(PurchaseInvoiceService::class)->fixCalculationError($cart->purchaseInvoice);
+            }
         });
 
-        $message = 'Vendor cart updated successfully.';
+        $message = $cart->status === 'submitted'
+            ? 'Processed bill updated successfully. Qty, price, and total were recalculated.'
+            : 'Vendor cart updated successfully.';
 
-        if ($request->input('action') === 'process') {
+        if ($request->input('action') === 'process' && $cart->status === 'draft') {
             return redirect()
                 ->route('purchaser.bill', ['cart' => $cart, 'date' => $cart->business_date->format('Y-m-d')])
                 ->with('success', $message);
