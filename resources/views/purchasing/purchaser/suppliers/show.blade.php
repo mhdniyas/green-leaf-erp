@@ -102,17 +102,25 @@
                             ];
                         @endphp
                         <div class="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 hover:bg-slate-50/80">
-                            <div>
+                            <div class="flex-1">
                                 <p class="text-sm font-black text-slate-950">{{ $day['date_label'] }}</p>
                                 <p class="text-[11px] font-semibold text-slate-500">{{ $entry['cart_number'] }} · {{ $entry['item_count'] }} items</p>
                             </div>
-                            <button
-                                type="button"
-                                onclick='openVendorBillModal(@json($billModalPayload))'
-                                class="inline-flex h-8 items-center rounded-lg bg-teal-600 px-3 text-[11px] font-black text-white hover:bg-teal-500 shadow-2xs"
-                            >
-                                View Bill
-                            </button>
+                            <div class="flex items-center gap-2">
+                                @if ($entryPending > 0)
+                                    <div class="text-right">
+                                        <p class="text-[9px] font-bold uppercase tracking-wider text-slate-400">Pending</p>
+                                        <p class="text-xs font-black text-amber-700">₹{{ number_format($entryPending, 0) }}</p>
+                                    </div>
+                                @endif
+                                <button
+                                    type="button"
+                                    onclick='openVendorBillModal(@json($billModalPayload))'
+                                    class="inline-flex h-8 items-center rounded-lg bg-teal-600 px-3 text-[11px] font-black text-white hover:bg-teal-500 shadow-2xs"
+                                >
+                                    View Bill
+                                </button>
+                            </div>
                         </div>
                     @endforeach
                 @endforeach
@@ -139,14 +147,17 @@
                             ];
                         @endphp
                         <div class="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-2xs">
-                            <div>
+                            <div class="flex-1 min-w-0">
                                 <p class="text-sm font-black text-slate-950">{{ $day['date_label'] }}</p>
                                 <p class="text-[11px] font-semibold text-slate-500">{{ $entry['cart_number'] }} · {{ $entry['item_count'] }} items</p>
+                                @if ($mobileEntryPending > 0)
+                                    <p class="mt-1 text-xs font-black text-amber-700">Pending: ₹{{ number_format($mobileEntryPending, 0) }}</p>
+                                @endif
                             </div>
                             <button
                                 type="button"
                                 onclick='openVendorBillModal(@json($mobileBillModalPayload))'
-                                class="inline-flex h-8 items-center rounded-lg bg-teal-600 px-3 text-[11px] font-black text-white hover:bg-teal-500 shadow-2xs"
+                                class="inline-flex h-8 items-center rounded-lg bg-teal-600 px-3 text-[11px] font-black text-white hover:bg-teal-500 shadow-2xs shrink-0"
                             >
                                 View Bill
                             </button>

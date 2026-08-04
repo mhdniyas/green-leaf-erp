@@ -365,7 +365,13 @@
                                         </td>
                                         <!-- Vendor -->
                                         <td class="py-3 px-3 align-top">
-                                            <p class="font-bold text-slate-900">{{ $cart->supplier?->name ?: 'Vendor pending' }}</p>
+                                            @if ($cart->supplier_id)
+                                                <a href="{{ route('purchaser.suppliers.show', ['supplier' => $cart->supplier_id, 'date' => $date]) }}" class="font-bold text-teal-700 hover:text-teal-600 hover:underline">
+                                                    {{ $cart->supplier?->name ?: 'Vendor pending' }}
+                                                </a>
+                                            @else
+                                                <p class="font-bold text-slate-900">{{ $cart->supplier?->name ?: 'Vendor pending' }}</p>
+                                            @endif
                                             <p class="text-[10px] font-medium text-slate-500">{{ $cart->supplier?->mobile_number ?: 'Mobile pending' }}</p>
                                         </td>
                                         <!-- Amount -->
@@ -521,7 +527,13 @@
                                 <!-- Row 1: Vendor Name & Cart Ref (Left) | Badge (Right) -->
                                 <div class="flex items-start justify-between gap-2">
                                     <div class="min-w-0 flex items-center gap-1.5 truncate">
-                                        <h3 class="text-xs font-black text-slate-950 truncate">{{ $cart->supplier?->name ?: 'Vendor pending' }}</h3>
+                                        @if ($cart->supplier_id)
+                                            <a href="{{ route('purchaser.suppliers.show', ['supplier' => $cart->supplier_id, 'date' => $date]) }}" class="text-xs font-black text-teal-700 hover:text-teal-600 hover:underline truncate">
+                                                {{ $cart->supplier?->name ?: 'Vendor pending' }}
+                                            </a>
+                                        @else
+                                            <h3 class="text-xs font-black text-slate-950 truncate">{{ $cart->supplier?->name ?: 'Vendor pending' }}</h3>
+                                        @endif
                                         <span class="font-mono text-[10px] font-bold text-slate-500 shrink-0">{{ $cart->cart_number }}</span>
                                     </div>
                                     <span class="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider {{ $badge['tone'] }}">
