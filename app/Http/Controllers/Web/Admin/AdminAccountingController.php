@@ -39,6 +39,7 @@ use App\Services\Finance\CompanySummaryReportService;
 use App\Services\Finance\JournalService;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Finance\ShopLoanService;
+use App\Services\Admin\UserImpersonationService;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use App\Support\AccountingAccess;
 use Illuminate\Http\RedirectResponse;
@@ -62,6 +63,7 @@ class AdminAccountingController extends Controller
         private readonly JournalService $journalService,
         private readonly OwnedShopAccountingService $ownedShopAccountingService,
         private readonly ShopLoanService $shopLoanService,
+        private readonly UserImpersonationService $impersonation,
         private readonly ShopInvoiceService $shopInvoiceService,
     ) {}
 
@@ -1824,11 +1826,7 @@ class AdminAccountingController extends Controller
 
         abort_unless($admin?->hasRole('admin'), 403);
         abort_unless($user->hasRole('purchaser'), 404);
-
-        $request->session()->put('admin_impersonator_id', (int) $admin->id);
-        auth()->login($user);
-        $request->session()->regenerate();
-        $request->session()->put('admin_impersonator_id', (int) $admin->id);
+        $this->impersonation->start($request, $admin, $user);
 
         return redirect()
             ->route('purchaser.vendors', ['date' => today()->toDateString()])
@@ -1837,19 +1835,7 @@ class AdminAccountingController extends Controller
 
     public function stopPurchaserViewAsAdmin(Request $request): RedirectResponse
     {
-        $adminId = (int) $request->session()->get('admin_impersonator_id', 0);
-        abort_unless($adminId > 0, 403);
-
-        $admin = User::query()->find($adminId);
-        abort_unless($admin && $admin->hasRole('admin'), 403);
-
-        auth()->login($admin);
-        $request->session()->regenerate();
-        $request->session()->forget('admin_impersonator_id');
-
-        return redirect()
-            ->route('admin.accounting.purchasers.index')
-            ->with('success', 'Returned to admin account.');
+        return $this->impersonation->stop($request);
     }
 
     private function ensureAccountingAccess(Request $request, string $permission): void

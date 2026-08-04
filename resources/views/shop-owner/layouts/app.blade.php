@@ -29,6 +29,7 @@
             <main class="flex-1 px-4 pb-24 pt-24 sm:px-6 lg:px-8 lg:pb-8 lg:pt-6">
                 @include('shop-owner.partials.breadcrumbs')
                 @include('shop-owner.partials.flash-messages')
+                <x-impersonation-banner />
                 @include('shop-owner.partials.page-header')
 
                 @yield('content')

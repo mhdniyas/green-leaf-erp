@@ -13,6 +13,7 @@ use App\Http\Controllers\Web\Admin\EnquiryController;
 use App\Http\Controllers\Web\Admin\FinanceV2Controller;
 use App\Http\Controllers\Web\Admin\FinanceV2PaymentsController;
 use App\Http\Controllers\Web\Admin\StaffManagementController;
+use App\Http\Controllers\Web\Admin\UserAccessController;
 use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\Admin\WarehouseController;
 use App\Http\Controllers\Web\Auth\LoginController;
@@ -353,6 +354,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/purchaser/corrections/{correctionRequest}/approve', [PurchaserDashboardController::class, 'approveCorrectionRequest'])->name('purchaser.corrections.approve');
     Route::post('/purchaser/corrections/{correctionRequest}/reject', [PurchaserDashboardController::class, 'rejectCorrectionRequest'])->name('purchaser.corrections.reject');
     Route::post('/purchaser/exit-admin-view', [AdminAccountingController::class, 'stopPurchaserViewAsAdmin'])->name('purchaser.exit-admin-view');
+    Route::post('/admin/user-access/stop', [UserAccessController::class, 'stop'])->name('admin.user-access.stop');
 
     // ── Warehouse Receiver ─────────────────────────────────────────────────
     Route::prefix('warehouse-receiver')->name('warehouse.receiver.')->middleware('can:warehouse.receive.view')->group(function () {
@@ -482,6 +484,8 @@ Route::middleware('auth')->group(function () {
             Route::post('purchasers/{user:public_uuid}/buy', [AdminAccountingController::class, 'buyAsPurchaser'])->name('purchasers.buy');
         });
         Route::post('users/{user}/approve', [UserController::class, 'approve'])->name('users.approve');
+        Route::get('user-access', [UserAccessController::class, 'index'])->name('user-access.index');
+        Route::post('user-access/{user:public_uuid}', [UserAccessController::class, 'store'])->name('user-access.store');
         Route::resource('users', UserController::class)->middleware('can:admin.user.view');
         Route::resource('warehouses', WarehouseController::class)->middleware('can:inventory.stock.adjust');
         Route::middleware('can:hr.employee.view')->group(function () {

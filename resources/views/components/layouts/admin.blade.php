@@ -144,6 +144,14 @@
             'active' => request()->routeIs('admin.users.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0z"/></svg>',
         ];
+        if ($currentUser?->isMainAdmin()) {
+            $adminItems[] = [
+                'label' => 'User Access',
+                'href' => route('admin.user-access.index'),
+                'active' => request()->routeIs('admin.user-access.*'),
+                'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25A3.75 3.75 0 1 1 12 1.5a3.75 3.75 0 0 1 3.75 3.75Zm-9 13.5a5.25 5.25 0 0 1 10.5 0v.75H6.75v-.75Zm12.75-6.75H21m0 0h2.25M21 12V9.75M21 12v2.25" /></svg>',
+            ];
+        }
         $adminItems[] = [
             'label' => 'Warehouses',
             'href' => route('admin.warehouses.index'),
@@ -337,6 +345,8 @@
                     {{ $errors->first() }}
                 </div>
             @endif
+
+            <x-impersonation-banner />
 
             {{ $slot }}
         </main>

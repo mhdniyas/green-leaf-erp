@@ -33,4 +33,16 @@ class UserPolicy
         // A user cannot delete themselves
         return $user->can('admin.user.delete') && $user->id !== $model->id;
     }
+
+    public function viewUserAccess(User $user): bool
+    {
+        return $user->isMainAdmin();
+    }
+
+    public function impersonate(User $user, User $model): bool
+    {
+        return $user->isMainAdmin()
+            && ! $model->hasRole('admin')
+            && $model->hasApprovedRegistration();
+    }
 }

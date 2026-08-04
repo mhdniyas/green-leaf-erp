@@ -77,6 +77,15 @@ class User extends Authenticatable implements AuditableContract
         return $this->registration_status === 'approved';
     }
 
+    public function isMainAdmin(): bool
+    {
+        $mainAdminEmail = Str::lower((string) config('admin.user_access.main_admin_email'));
+
+        return $this->hasRole('admin')
+            && $mainAdminEmail !== ''
+            && Str::lower((string) $this->email) === $mainAdminEmail;
+    }
+
     public function purchaserCredits(): HasMany
     {
         return $this->hasMany(PurchaserCredit::class, 'purchaser_id');

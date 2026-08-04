@@ -31,6 +31,19 @@ class UserService
         return $this->repository->roleCounts();
     }
 
+    public function paginateForUserAccess(int $perPage = 20, ?string $search = null): LengthAwarePaginator
+    {
+        return $this->repository->paginateForUserAccess($perPage, $search);
+    }
+
+    /**
+     * @return array{eligible_total:int, approved_total:int}
+     */
+    public function userAccessSummary(?string $search = null): array
+    {
+        return $this->repository->userAccessSummary($search);
+    }
+
     public function create(UserData $data): User
     {
         return DB::transaction(function () use ($data) {

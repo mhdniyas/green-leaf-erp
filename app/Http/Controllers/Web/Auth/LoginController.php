@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Web\Auth;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Auth\LoginRequest;
 use App\Models\User;
+use App\Services\Admin\UserImpersonationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -14,6 +15,10 @@ use Illuminate\View\View;
 
 class LoginController extends Controller
 {
+    public function __construct(
+        private readonly UserImpersonationService $impersonation,
+    ) {}
+
     /**
      * Show the login form.
      */
@@ -71,6 +76,10 @@ class LoginController extends Controller
      */
     public function destroy(Request $request): RedirectResponse
     {
+        if ($this->impersonation->hasActiveSession($request)) {
+            return $this->impersonation->stop($request, 'Returned to admin account.');
+        }
+
         Auth::logout();
 
         $request->session()->invalidate();
@@ -96,4 +105,3 @@ class LoginController extends Controller
         $user->forceFill(['shop_id' => $shopId])->save();
     }
 }
-

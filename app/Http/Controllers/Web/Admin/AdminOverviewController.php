@@ -179,6 +179,10 @@ class AdminOverviewController extends Controller
             ['label' => 'Staff Management', 'href' => route('admin.staff.index')],
         ]);
 
+        if ($request->user()->isMainAdmin()) {
+            $quickLinks[] = ['label' => 'User Access', 'href' => route('admin.user-access.index')];
+        }
+
         if ($request->user()->can('accounting.ledger.view')) {
             $quickLinks[] = ['label' => 'Finance Overview', 'href' => route('finance.index')];
         }

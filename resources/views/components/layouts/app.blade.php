@@ -93,6 +93,13 @@
             'visible' => $currentUser->hasRole('admin') || $currentUser->can('admin.user.view'),
         ],
         [
+            'label' => 'Access',
+            'route' => 'admin.user-access.index',
+            'active' => request()->routeIs('admin.user-access.*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25A3.75 3.75 0 1 1 12 1.5a3.75 3.75 0 0 1 3.75 3.75Zm-9 13.5a5.25 5.25 0 0 1 10.5 0v.75H6.75v-.75Zm12.75-6.75H21m0 0h2.25M21 12V9.75M21 12v2.25" /></svg>',
+            'visible' => $currentUser->isMainAdmin(),
+        ],
+        [
             'label' => 'Progress',
             'route' => 'admin.daily-progress',
             'active' => request()->routeIs('admin.daily-progress'),
@@ -632,6 +639,11 @@
                             Users & Roles
                         </x-nav-item>
                         @endcan
+                        @if(auth()->user()->isMainAdmin())
+                        <x-nav-item href="{{ route('admin.user-access.index') }}" :active="request()->routeIs('admin.user-access.*')" :sub="true">
+                            User Access
+                        </x-nav-item>
+                        @endif
                         @can('admin.user.view')
                         <x-nav-item href="{{ route('admin.warehouses.index') }}" :active="request()->routeIs('admin.warehouses.*')" :sub="true">
                             Warehouses
@@ -784,17 +796,7 @@
         </div>
         @endif
 
-        @if (session()->has('admin_impersonator_id'))
-        <div class="mx-4 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900 sm:mx-6" role="status">
-            <p class="text-sm font-semibold">Admin view: logged in as {{ auth()->user()?->name }}.</p>
-            <form method="POST" action="{{ route('purchaser.exit-admin-view') }}">
-                @csrf
-                <button type="submit" class="inline-flex h-9 items-center rounded-xl border border-amber-300 bg-white px-3 text-xs font-black uppercase tracking-[0.14em] text-amber-800 transition hover:bg-amber-100">
-                    Back to Admin
-                </button>
-            </form>
-        </div>
-        @endif
+        <x-impersonation-banner />
 
         {{-- Page content --}}
         <main id="layout-page-main" class="w-full min-w-0 flex-1 px-3 {{ $showMobileBottomNav ? 'pb-40 lg:pb-6' : 'pb-16 lg:pb-6' }} {{ isset($actions) ? 'pt-28' : 'pt-20' }} sm:px-6 lg:p-6 lg:pt-6">

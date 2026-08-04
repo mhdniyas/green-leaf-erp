@@ -239,6 +239,7 @@
             @endif
 
             @include('purchase-manager.partials.breadcrumbs')
+            <x-impersonation-banner />
             @include('purchase-manager.partials.page-header')
 
             @yield('content')
