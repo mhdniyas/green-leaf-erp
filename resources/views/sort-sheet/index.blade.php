@@ -20,7 +20,7 @@
         $sortSheetShareUrl = $sortSheetShareUrl ?? null;
         $noOrders = session('noOrders', false) || (isset($noOrders) && $noOrders);
         $filters = $filters ?? [];
-        $currentDate = $filters['date'] ?? date('Y-m-d');
+        $currentDate = $filters['date'] ?? ($defaultDate ?? date('Y-m-d'));
         $currentShop = $filters['shopId'] ?? '';
         $currentCategoryIds = collect($filters['categoryIds'] ?? (isset($filters['categoryId']) && $filters['categoryId'] !== '' ? [$filters['categoryId']] : []))
             ->map(fn ($value) => (string) $value)

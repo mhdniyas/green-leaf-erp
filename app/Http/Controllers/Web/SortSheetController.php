@@ -30,8 +30,9 @@ class SortSheetController extends Controller
 
         [$shops, $categories, $priceGroups, $products, $warehouses] = $this->filterOptions($request);
         $surface = 'sort-sheet';
+        $defaultDate = app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
 
-        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'surface'));
+        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'surface', 'defaultDate'));
     }
 
     public function segregationIndex(Request $request): View
@@ -40,8 +41,9 @@ class SortSheetController extends Controller
 
         [$shops, $categories, $priceGroups, $products, $warehouses] = $this->filterOptions($request, orderedOnly: true);
         $surface = 'segregation';
+        $defaultDate = app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
 
-        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'surface'));
+        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'surface', 'defaultDate'));
     }
 
     /**
