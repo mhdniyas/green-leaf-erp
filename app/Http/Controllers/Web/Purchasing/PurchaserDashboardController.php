@@ -2093,36 +2093,44 @@ class PurchaserDashboardController extends Controller
 
         $userId = (int) $request->user()->id;
 
-        // Get all pending invoices for this supplier and purchaser (including credit bills)
-        $pendingInvoices = PurchaseInvoice::query()
-            ->whereHas('purchaserCart', function ($query) use ($userId): void {
-                $query->where('user_id', $userId);
-            })
+        // Get all carts for this supplier and purchaser
+        $carts = PurchaserCart::query()
+            ->where('user_id', $userId)
             ->where('supplier_id', $supplier->id)
-            ->whereIn('payment_status', ['unpaid', 'partial', 'credit_pending_approval'])
-            ->with(['purchaserCart'])
-            ->orderBy('created_at', 'asc')
+            ->with(['purchaseInvoice'])
+            ->orderBy('business_date', 'asc')
             ->get();
 
-        // Build pending bills collection
-        $pendingBills = $pendingInvoices
-            ->map(function (PurchaseInvoice $invoice): ?array {
-                $netAmount = max(0, (float) $invoice->amount - (float) $invoice->discount_amount);
-                $remaining = max(0, $netAmount - (float) $invoice->paid_amount);
+        // Build pending bills collection from both invoiced and non-invoiced carts
+        $pendingBills = $carts
+            ->map(function (PurchaserCart $cart): ?array {
+                $invoice = $cart->purchaseInvoice;
+                
+                if ($invoice) {
+                    // Cart has invoice - check if it has any remaining balance
+                    $netAmount = max(0, (float) $invoice->amount - (float) $invoice->discount_amount);
+                    $remaining = max(0, $netAmount - (float) $invoice->paid_amount);
 
-                if ($remaining <= 0) {
+                    // Skip fully paid invoices
+                    if ($invoice->payment_status === 'paid' || $remaining <= 0) {
+                        return null;
+                    }
+                    
+                    // Include any invoice with remaining balance (unpaid, partial, or credit)
+                    return [
+                        'id' => $invoice->id,
+                        'invoice_number' => $invoice->invoice_number ?: 'PENDING-' . $cart->cart_number,
+                        'cart_number' => $cart->cart_number,
+                        'date' => $cart->business_date->format('d M Y'),
+                        'amount' => round((float) $invoice->amount, 2),
+                        'paid' => round((float) $invoice->paid_amount, 2),
+                        'pending' => round($remaining, 2),
+                    ];
+                } else {
+                    // Cart without invoice - skip for bulk payment
+                    // They need to be submitted first to create an invoice
                     return null;
                 }
-
-                return [
-                    'id' => $invoice->id,
-                    'invoice_number' => $invoice->invoice_number ?: 'PENDING-' . $invoice->purchaserCart->cart_number,
-                    'cart_number' => $invoice->purchaserCart->cart_number,
-                    'date' => $invoice->purchaserCart->business_date->format('d M Y'),
-                    'amount' => round((float) $invoice->amount, 2),
-                    'paid' => round((float) $invoice->paid_amount, 2),
-                    'pending' => round($remaining, 2),
-                ];
             })
             ->filter()
             ->values();

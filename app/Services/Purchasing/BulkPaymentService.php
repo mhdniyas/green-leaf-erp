@@ -36,7 +36,7 @@ class BulkPaymentService
             $invoices = PurchaseInvoice::query()
                 ->whereIn('id', $billIds)
                 ->where('supplier_id', $supplier->id)
-                ->whereIn('payment_status', ['unpaid', 'partial', 'credit_pending_approval'])
+                ->where('payment_status', '!=', 'paid')
                 ->with(['supplier', 'purchaserCart'])
                 ->orderBy('created_at', 'asc') // FIFO: oldest first
                 ->get();
@@ -142,7 +142,7 @@ class BulkPaymentService
     {
         return PurchaseInvoice::query()
             ->where('supplier_id', $supplier->id)
-            ->whereIn('payment_status', ['unpaid', 'partial', 'credit_pending_approval'])
+            ->where('payment_status', '!=', 'paid')
             ->with(['supplier', 'purchaserCart'])
             ->orderBy('created_at', 'asc')
             ->get()
