@@ -1061,7 +1061,7 @@ class ShopInvoiceService
             in_array($invoice->delivery_status, ['awaiting_review', 'received_with_discrepancy'], true) => 'delivery_review',
             $paymentStatus === 'paid' => 'paid',
             in_array($invoice->delivery_status, ['received_full', 'approved_after_discrepancy'], true) => 'payment_pending',
-            default => $invoice->status ?: 'generated',
+            default => 'generated',
         };
 
         $invoice->update([

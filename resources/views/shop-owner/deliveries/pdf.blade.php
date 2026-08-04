@@ -3,170 +3,363 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ $order->order_number }} - Delivery</title>
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    <title>{{ $order->order_number }} - Delivery Note</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 12mm;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Arial, sans-serif;
+            color: #0f172a;
+            background: #f1f5f9;
+        }
+
+        .page {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 0 auto;
+            background: #ffffff;
+            padding: 12mm;
+        }
+
+        .screen-tools {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            margin: 12px auto;
+            width: 210mm;
+        }
+
+        .print-btn {
+            border: 0;
+            background: #0f172a;
+            color: #fff;
+            font-weight: 700;
+            border-radius: 8px;
+            padding: 10px 14px;
+            cursor: pointer;
+        }
+
+        .top-grid {
+            display: grid;
+            grid-template-columns: 1.1fr 1fr;
+            gap: 10mm;
+            border-bottom: 1px solid #dbe5ef;
+            padding-bottom: 7mm;
+        }
+
+        .title {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+        }
+
+        .label {
+            font-size: 11px;
+            letter-spacing: 1.2px;
+            text-transform: uppercase;
+            color: #475569;
+            font-weight: 700;
+        }
+
+        .meta {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        .meta td {
+            padding: 2.5px 0;
+            vertical-align: top;
+        }
+
+        .meta td:first-child {
+            color: #475569;
+            width: 120px;
+            font-weight: 600;
+        }
+
+        .section-title {
+            margin: 7mm 0 3mm;
+            font-size: 13px;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+            color: #334155;
+            font-weight: 800;
+        }
+
+        table.items {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        .items th,
+        .items td {
+            border: 1px solid #dbe5ef;
+            padding: 7px 8px;
+        }
+
+        .items th {
+            background: #f8fafc;
+            text-transform: uppercase;
+            letter-spacing: 0.7px;
+            font-size: 10.5px;
+            color: #334155;
+            text-align: left;
+        }
+
+        .text-right {
+            text-align: right;
+        }
+
+        .summary {
+            margin-top: 5mm;
+            margin-left: auto;
+            width: 78mm;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        .summary td {
+            border: 1px solid #dbe5ef;
+            padding: 7px 8px;
+        }
+
+        .summary tr:last-child td {
+            font-weight: 800;
+            font-size: 13px;
+            background: #f0fdf4;
+        }
+
+        .note-box {
+            margin-top: 5mm;
+            border: 1px solid #dbe5ef;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 12px;
+            color: #334155;
+        }
+
+        .footer-sign {
+            margin-top: 12mm;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12mm;
+        }
+
+        .sign-box {
+            border-top: 1px dashed #94a3b8;
+            padding-top: 5px;
+            font-size: 11px;
+            color: #475569;
+            text-align: center;
+        }
+
+        .out-stock {
+            margin-top: 5mm;
+            padding: 8px 10px;
+            border-radius: 8px;
+            border: 1px solid #fecaca;
+            background: #fff1f2;
+            color: #9f1239;
+            font-size: 12px;
+        }
+
+        @media print {
+            body {
+                background: #fff;
+            }
+
+            .screen-tools {
+                display: none;
+            }
+
+            .page {
+                width: auto;
+                min-height: 0;
+                margin: 0;
+                padding: 0;
+            }
+        }
+    </style>
 </head>
-<body class="bg-slate-100 text-slate-950">
-    <div class="mx-auto max-w-5xl p-4 sm:p-8">
-        <div class="mb-6 flex flex-wrap items-center justify-between gap-3 print:hidden">
-            <div>
-                <p class="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Delivery PDF View</p>
-                <h1 class="mt-1 text-2xl font-black text-slate-950">{{ $order->order_number }}</h1>
-            </div>
-            <button type="button" onclick="window.print()" class="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white">
-                Print / Save PDF
-            </button>
+<body>
+    <div class="screen-tools">
+        <div>
+            <div class="label">Delivery PDF</div>
+            <h1 class="title" style="font-size: 18px; margin-top: 2px;">{{ $order->order_number }}</h1>
         </div>
+        <button type="button" onclick="window.print()" class="print-btn">Print / Save PDF</button>
+    </div>
 
-        <section class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-            <div class="flex flex-col gap-4 border-b border-slate-100 pb-5 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                    <p class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Delivery Document</p>
-                    <h2 class="mt-1 text-2xl font-black text-slate-950">{{ $order->order_number }}</h2>
-                    <p class="mt-2 text-sm text-slate-600">{{ $order->shop?->name }} · {{ $order->business_date->format('d F Y') }}</p>
-                </div>
-                <div class="grid gap-2 text-right text-sm font-bold text-slate-700">
-                    <span>{{ str($order->delivery_status)->replace('_', ' ')->title() }}</span>
+    <div class="page">
+        <div class="top-grid">
+            <div>
+                <div class="label">Company</div>
+                <h2 class="title">{{ $companyDetails['name'] ?? 'Green Leaf' }}</h2>
+                @if (!empty($companyDetails['address']))
+                    <div style="margin-top: 6px; font-size: 12px; color: #334155;">{{ $companyDetails['address'] }}</div>
+                @endif
+                <div style="margin-top: 4px; font-size: 12px; color: #334155;">
+                    @if (!empty($companyDetails['phone']))
+                        <span>Phone: {{ $companyDetails['phone'] }}</span>
+                    @endif
+                    @if (!empty($companyDetails['phone']) && !empty($companyDetails['email']))
+                        <span> | </span>
+                    @endif
+                    @if (!empty($companyDetails['email']))
+                        <span>Email: {{ $companyDetails['email'] }}</span>
+                    @endif
                 </div>
             </div>
-
-            @php
-                $sortedItems = $order->items->sortBy(
-                    fn ($item) => \App\Models\Product::sortableSku((string) ($item->product?->sku ?? ''))
-                );
-                $invoice = $order->invoice;
-                $invoiceItemsByProductId = $invoice?->items?->keyBy('product_id') ?? collect();
-                
-                // Recalculate totals from delivered quantities (DB may have wrong values)
-                $recalculatedSubtotal = (float) $invoiceItemsByProductId->sum(function ($invoiceItem) {
-                    $qty = (float) ($invoiceItem->delivered_price_quantity ?? $invoiceItem->price_quantity ?? $invoiceItem->delivered_qty ?? 0);
-                    $rate = (float) ($invoiceItem->unit_price ?? 0);
-                    return $qty * $rate;
-                });
-                
-                $fulfilledItems = $sortedItems
-                    ->filter(fn ($item) => $item->sorting_status === 'loaded' && (float) ($item->loaded_qty ?? 0) > 0)
-                    ->groupBy('product_id')
-                    ->map(function ($group) {
-                        $loadedRow = $group->first(fn ($i) => $i->sorting_status === 'loaded' || (float) ($i->loaded_qty ?? 0) > 0);
-                        return $loadedRow ?: $group->first();
-                    })
-                    ->values();
-                $notAvailableItems = $sortedItems->filter(fn ($item) => $item->sorting_status === 'not_available');
-            @endphp
-
-            <div class="mt-6 overflow-hidden rounded-[1.5rem] border border-slate-200">
-                <table class="min-w-full border-collapse text-left text-sm">
-                    <thead class="bg-slate-50 text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
-                        <tr>
-                            <th class="px-4 py-3">#</th>
-                            <th class="px-4 py-3">Product</th>
-                            <th class="px-4 py-3 text-right">Delivered Qty</th>
-                            <th class="px-4 py-3 text-right">Unit Price</th>
-                            <th class="px-4 py-3 text-right">Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100 bg-white">
-                        @forelse ($fulfilledItems as $item)
-                            @php
-                                $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
-                                
-                                // Use invoice's pricing quantity and unit for display
-                                if ($invoiceItem) {
-                                    $approvedQty = (float) ($invoiceItem->delivered_price_quantity ?? $invoiceItem->price_quantity ?? $invoiceItem->delivered_qty ?? 0);
-                                    $displayUnitLabel = strtoupper($invoiceItem->price_unit ?: $item->product->unit);
-                                    $unitRate = $invoiceItem->unit_price;
-                                    // Calculate line total (DB value may be wrong)
-                                    $lineTotal = $approvedQty * $unitRate;
-                                } else {
-                                    // Fallback if no invoice item
-                                    $approvedQty = (float) ($item->loaded_qty ?? $item->approved_qty ?? 0);
-                                    $displayUnitLabel = strtoupper($item->product->unit ?? 'KG');
-                                    $unitRate = null;
-                                    $lineTotal = null;
-                                }
-                            @endphp
-                            <tr>
-                                <td class="px-4 py-3 font-bold text-slate-950">{{ $loop->iteration }}</td>
-                                <td class="px-4 py-3 font-bold text-slate-950">
-                                    @if($item->product?->sku)
-                                        <span class="text-xs font-semibold text-slate-500 mr-1">[{{ $item->product->sku }}]</span>
-                                    @endif
-                                    {{ $item->product->name }}
-                                </td>
-                                <td class="px-4 py-3 text-right text-slate-700">{{ number_format($approvedQty, 2) }} {{ $displayUnitLabel }}</td>
-                                <td class="px-4 py-3 text-right font-semibold text-slate-900">
-                                    @if($unitRate !== null)
-                                        Rs. {{ number_format((float) $unitRate, 2) }}
-                                    @else
-                                        —
-                                    @endif
-                                </td>
-                                <td class="px-4 py-3 text-right font-black text-slate-950">
-                                    @if($lineTotal !== null)
-                                        Rs. {{ number_format((float) $lineTotal, 2) }}
-                                    @else
-                                        —
-                                    @endif
-                                </td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="5" class="px-4 py-6 text-center text-xs font-bold text-slate-500">No items loaded for this delivery.</td>
-                            </tr>
-                        @endforelse
-                    </tbody>
+            <div>
+                <div class="label">Delivery Note</div>
+                <h2 class="title">{{ $order->order_number }}</h2>
+                <table class="meta" style="margin-top: 4mm;">
+                    <tr>
+                        <td>Shop Name</td>
+                        <td>{{ $order->shop?->name ?? 'N/A' }}</td>
+                    </tr>
+                    <tr>
+                        <td>Business Date</td>
+                        <td>{{ $order->business_date?->format('d M Y') }}</td>
+                    </tr>
+                    <tr>
+                        <td>Delivery Status</td>
+                        <td>{{ str((string) $order->delivery_status)->replace('_', ' ')->title() }}</td>
+                    </tr>
+                    <tr>
+                        <td>Generated At</td>
+                        <td>{{ now()->format('d M Y h:i A') }}</td>
+                    </tr>
                 </table>
             </div>
+        </div>
 
-            @if ($notAvailableItems->isNotEmpty())
-                <div class="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-rose-200 bg-rose-50/60 px-4 py-3 text-xs text-rose-950">
-                    <span class="font-black uppercase tracking-wider text-rose-700 flex items-center gap-1.5 shrink-0">
-                        <svg class="h-4 w-4 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008v.008H12v-.008ZM10.34 4.94 2.94 17.76A1.5 1.5 0 0 0 4.24 20h15.52a1.5 1.5 0 0 0 1.3-2.24L13.66 4.94a1.5 1.5 0 0 0-2.6 0Z" />
-                        </svg>
-                        Out of Stock Items:
-                    </span>
-                    <span class="font-medium text-slate-800">
-                        {{ $notAvailableItems->map(fn($i) => $i->product->name . ' (' . number_format((float) $i->approved_qty, 2) . ' ' . strtoupper($i->product->unit) . ')')->join(', ') }}
-                    </span>
-                </div>
-            @endif
+        @php
+            $sortedItems = $order->items->sortBy(
+                fn ($item) => \App\Models\Product::sortableSku((string) ($item->product?->sku ?? ''))
+            );
+            $invoice = $order->invoice;
+            $invoiceItemsByProductId = $invoice?->items?->keyBy('product_id') ?? collect();
 
-            @if ($invoice)
-                <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                    <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                        <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Subtotal</p>
-                        <p class="mt-2 text-xl font-black text-slate-950">Rs. {{ number_format($recalculatedSubtotal, 2) }}</p>
-                    </div>
-                    <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                        <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Shortage</p>
-                        <p class="mt-2 text-xl font-black text-amber-600">Rs. {{ number_format((float) $invoice->shortage_total, 2) }}</p>
-                    </div>
-                    <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                        <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Excess</p>
-                        <p class="mt-2 text-xl font-black text-cyan-700">Rs. {{ number_format((float) $invoice->excess_total, 2) }}</p>
-                    </div>
-                    <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                        <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Discount</p>
-                        <p class="mt-2 text-xl font-black text-indigo-700">Rs. {{ number_format((float) $invoice->discount_total, 2) }}</p>
-                    </div>
-                    <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                        <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Final Total</p>
-                        <p class="mt-2 text-xl font-black text-emerald-700">Rs. {{ number_format($recalculatedSubtotal - (float)$invoice->shortage_total + (float)$invoice->excess_total - (float)$invoice->discount_total, 2) }}</p>
-                    </div>
-                </div>
-            @endif
+            $recalculatedSubtotal = (float) $invoiceItemsByProductId->sum(function ($invoiceItem) {
+                $qty = (float) ($invoiceItem->delivered_price_quantity ?? $invoiceItem->price_quantity ?? $invoiceItem->delivered_qty ?? 0);
+                $rate = (float) ($invoiceItem->unit_price ?? 0);
+                return $qty * $rate;
+            });
 
-            @if ($invoice?->delivery_note)
-                <div class="mt-6">
-                    <div class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                        <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Delivery Note</p>
-                        <p class="mt-2 text-sm text-slate-700">{{ $invoice->delivery_note }}</p>
-                    </div>
-                </div>
-            @endif
-        </section>
+            $fulfilledItems = $sortedItems
+                ->filter(fn ($item) => $item->sorting_status === 'loaded' && (float) ($item->loaded_qty ?? 0) > 0)
+                ->groupBy('product_id')
+                ->map(function ($group) {
+                    $loadedRow = $group->first(fn ($i) => $i->sorting_status === 'loaded' || (float) ($i->loaded_qty ?? 0) > 0);
+                    return $loadedRow ?: $group->first();
+                })
+                ->values();
+            $notAvailableItems = $sortedItems->filter(fn ($item) => $item->sorting_status === 'not_available');
+        @endphp
+
+        <h3 class="section-title">Delivered Items</h3>
+        <table class="items">
+            <thead>
+                <tr>
+                    <th style="width: 40px;">#</th>
+                    <th>Item Details</th>
+                    <th class="text-right" style="width: 120px;">Delivered Qty</th>
+                    <th class="text-right" style="width: 110px;">Rate</th>
+                    <th class="text-right" style="width: 120px;">Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse ($fulfilledItems as $item)
+                    @php
+                        $invoiceItem = $invoiceItemsByProductId->get($item->product_id);
+                        if ($invoiceItem) {
+                            $approvedQty = (float) ($invoiceItem->delivered_price_quantity ?? $invoiceItem->price_quantity ?? $invoiceItem->delivered_qty ?? 0);
+                            $displayUnitLabel = strtoupper((string) ($invoiceItem->price_unit ?: $item->product?->unit ?: 'kg'));
+                            $unitRate = (float) ($invoiceItem->unit_price ?? 0);
+                            $lineTotal = $approvedQty * $unitRate;
+                        } else {
+                            $approvedQty = (float) ($item->loaded_qty ?? $item->approved_qty ?? 0);
+                            $displayUnitLabel = strtoupper((string) ($item->product?->unit ?: 'kg'));
+                            $unitRate = null;
+                            $lineTotal = null;
+                        }
+                    @endphp
+                    <tr>
+                        <td>{{ $loop->iteration }}</td>
+                        <td>
+                            @if($item->product?->sku)
+                                <span style="color:#64748b; font-weight:600;">[{{ $item->product->sku }}]</span>
+                            @endif
+                            <span style="font-weight:700;">{{ $item->product?->name ?? 'Unknown Item' }}</span>
+                        </td>
+                        <td class="text-right">{{ number_format($approvedQty, 2) }} {{ $displayUnitLabel }}</td>
+                        <td class="text-right">{{ $unitRate !== null ? 'Rs. '.number_format($unitRate, 2) : '-' }}</td>
+                        <td class="text-right" style="font-weight:700;">{{ $lineTotal !== null ? 'Rs. '.number_format($lineTotal, 2) : '-' }}</td>
+                    </tr>
+                @empty
+                    <tr>
+                        <td colspan="5" style="text-align:center; color:#64748b;">No loaded items available.</td>
+                    </tr>
+                @endforelse
+            </tbody>
+        </table>
+
+        @if ($notAvailableItems->isNotEmpty())
+            <div class="out-stock">
+                <strong>Out of Stock:</strong>
+                {{ $notAvailableItems->map(fn($i) => ($i->product?->name ?? 'Unknown'). ' (' . number_format((float) $i->approved_qty, 2) . ' ' . strtoupper((string) ($i->product?->unit ?: 'kg')) . ')')->join(', ') }}
+            </div>
+        @endif
+
+        @if ($invoice)
+            <table class="summary">
+                <tr>
+                    <td>Subtotal</td>
+                    <td class="text-right">Rs. {{ number_format($recalculatedSubtotal, 2) }}</td>
+                </tr>
+                <tr>
+                    <td>Shortage</td>
+                    <td class="text-right">Rs. {{ number_format((float) $invoice->shortage_total, 2) }}</td>
+                </tr>
+                <tr>
+                    <td>Excess</td>
+                    <td class="text-right">Rs. {{ number_format((float) $invoice->excess_total, 2) }}</td>
+                </tr>
+                <tr>
+                    <td>Discount</td>
+                    <td class="text-right">Rs. {{ number_format((float) $invoice->discount_total, 2) }}</td>
+                </tr>
+                <tr>
+                    <td>Final Total</td>
+                    <td class="text-right">Rs. {{ number_format($recalculatedSubtotal - (float) $invoice->shortage_total + (float) $invoice->excess_total - (float) $invoice->discount_total, 2) }}</td>
+                </tr>
+            </table>
+        @endif
+
+        @if (!empty($invoice?->delivery_note))
+            <div class="note-box">
+                <strong>Delivery Note:</strong>
+                <div style="margin-top: 4px;">{{ $invoice->delivery_note }}</div>
+            </div>
+        @endif
+
+        <div class="footer-sign">
+            <div class="sign-box">Prepared By</div>
+            <div class="sign-box">Received By (Shop)</div>
+        </div>
     </div>
 </body>
 </html>

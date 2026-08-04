@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\ShopOwner\StoreShopInvoicePaymentRequest;
 use App\Http\Requests\Web\ShopOwner\StoreShopOwnerAccountingEntryRequest;
 use App\Models\Category;
+use App\Models\BusinessSetting;
 use App\Models\Shop;
 use App\Models\ShopAccountingEntry;
 use App\Models\ShopAccountingEntryLine;
@@ -217,7 +218,34 @@ class ShopOwnerController extends Controller
 
         return view('shop-owner.deliveries.pdf', [
             'order' => $order,
+            'companyDetails' => $this->companyDetailsForPdf(),
         ]);
+    }
+
+    /**
+     * @return array{name: string, address: string|null, phone: string|null, email: string|null}
+     */
+    private function companyDetailsForPdf(): array
+    {
+        $settings = BusinessSetting::query()
+            ->whereIn('key', [
+                'company_name',
+                'company_address',
+                'company_phone',
+                'company_email',
+                'business_name',
+                'business_address',
+                'business_phone',
+                'business_email',
+            ])
+            ->pluck('value', 'key');
+
+        return [
+            'name' => $settings->get('company_name') ?: $settings->get('business_name') ?: 'Green Leaf',
+            'address' => $settings->get('company_address') ?: $settings->get('business_address'),
+            'phone' => $settings->get('company_phone') ?: $settings->get('business_phone'),
+            'email' => $settings->get('company_email') ?: $settings->get('business_email'),
+        ];
     }
 
     public function verifyDeliveryItem(Request $request, string $orderNumber, ShopOrderItem $item): JsonResponse
