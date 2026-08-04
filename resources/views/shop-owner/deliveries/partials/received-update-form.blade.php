@@ -31,6 +31,8 @@
         $rate = (float) ($invoiceItem->unit_price ?? 0);
         return $qty * $rate;
     });
+    $invoiceDiscountTotal = (float) ($invoice?->discount_total ?? 0);
+    $invoiceNetTotal = max(0.0, $computedInvoiceTotal - $invoiceDiscountTotal);
 
     $bottomTitle = match (true) {
         $isPendingApproval => 'Submitted For Admin Review',
@@ -74,6 +76,10 @@
                 <div class="text-right">
                     <p>Invoice Total</p>
                     <p class="mt-0.5 text-xs font-black text-slate-950 sm:mt-1 sm:text-sm">Rs. {{ number_format($computedInvoiceTotal, 2) }}</p>
+                    @if ($invoiceDiscountTotal > 0)
+                        <p class="mt-0.5 text-[10px] font-bold text-rose-700 sm:text-[11px]">Discount: -Rs. {{ number_format($invoiceDiscountTotal, 2) }}</p>
+                        <p class="mt-0.5 text-[10px] font-black text-emerald-700 sm:text-[11px]">After Discount: Rs. {{ number_format($invoiceNetTotal, 2) }}</p>
+                    @endif
                 </div>
             </div>
 
@@ -158,6 +164,16 @@
                     <span>Invoice Total</span>
                     <span>Rs. {{ number_format($computedInvoiceTotal, 2) }}</span>
                 </div>
+                @if ($invoiceDiscountTotal > 0)
+                    <div class="mt-1 flex items-center justify-between text-[10px] font-bold text-rose-700 sm:text-[11px]">
+                        <span>Discount</span>
+                        <span>- Rs. {{ number_format($invoiceDiscountTotal, 2) }}</span>
+                    </div>
+                    <div class="mt-0.5 flex items-center justify-between text-[11px] font-black text-emerald-700 sm:text-xs">
+                        <span>Net Total</span>
+                        <span>Rs. {{ number_format($invoiceNetTotal, 2) }}</span>
+                    </div>
+                @endif
             </div>
         </div>
 
