@@ -28,6 +28,10 @@ class ProcurementExpenseController extends Controller
         $this->ensurePurchaser($request);
 
         $date = Carbon::parse($request->input('date', $this->businessDayService->operationalDate()->toDateString()));
+        $view = $request->string('view')->toString();
+        if (! in_array($view, ['entries', 'datewise'], true)) {
+            $view = 'entries';
+        }
         $monthStart = $date->copy()->startOfMonth();
         $monthEnd = $date->copy()->endOfMonth();
         $editingExpense = $request->filled('edit')
@@ -46,12 +50,26 @@ class ProcurementExpenseController extends Controller
             ->filter(fn (ProcurementExpense $expense): bool => $expense->expense_date?->isSameDay($date) === true)
             ->values();
 
+        $dateWiseTotals = $expenses
+            ->groupBy(fn (ProcurementExpense $expense): string => (string) $expense->expense_date?->toDateString())
+            ->map(function ($rows, string $expenseDate): array {
+                return [
+                    'date' => $expenseDate,
+                    'count' => $rows->count(),
+                    'total' => round((float) $rows->sum('amount'), 2),
+                ];
+            })
+            ->sortByDesc('date')
+            ->values();
+
         return view('purchasing.purchaser.procurement_expenses', [
             'date' => $date,
             'previousDate' => $date->copy()->subDay()->toDateString(),
             'nextDate' => $date->copy()->addDay()->toDateString(),
+            'view' => $view,
             'categories' => ProcurementExpense::categories(),
             'expenses' => $expenses,
+            'dateWiseTotals' => $dateWiseTotals,
             'editingExpense' => $editingExpense,
             'selectedDateTotal' => round((float) $selectedDateExpenses->sum('amount'), 2),
             'monthlyTotal' => round((float) $expenses->sum('amount'), 2),

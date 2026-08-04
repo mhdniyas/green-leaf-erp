@@ -11,14 +11,15 @@
                         <p class="mt-1 hidden max-w-2xl text-sm font-semibold text-slate-200 sm:block">Daily procurement costs post to company expense automatically.</p>
                     </div>
                     <form method="GET" action="{{ route('purchaser.procurement-expenses.index') }}" class="flex shrink-0 items-center gap-1 rounded-xl bg-white/10 p-1">
-                        <a href="{{ route('purchaser.procurement-expenses.index', ['date' => $previousDate]) }}" class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-white hover:bg-white/15" title="Previous day" aria-label="Previous day">
+                        <input type="hidden" name="view" value="{{ $view }}">
+                        <a href="{{ route('purchaser.procurement-expenses.index', ['date' => $previousDate, 'view' => $view]) }}" class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-white hover:bg-white/15" title="Previous day" aria-label="Previous day">
                             <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
                         </a>
                         <label class="w-32 rounded-lg bg-white/10 px-2 py-1 sm:w-44">
                             <span class="block text-[8px] font-black uppercase tracking-[0.12em] text-teal-100">Date</span>
                             <input type="date" name="date" value="{{ $date->toDateString() }}" onchange="this.form.submit()" class="mt-0.5 w-full border-0 bg-transparent p-0 text-[11px] font-black text-white outline-none sm:text-sm">
                         </label>
-                        <a href="{{ route('purchaser.procurement-expenses.index', ['date' => $nextDate]) }}" class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-white hover:bg-white/15" title="Next day" aria-label="Next day">
+                        <a href="{{ route('purchaser.procurement-expenses.index', ['date' => $nextDate, 'view' => $view]) }}" class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-white hover:bg-white/15" title="Next day" aria-label="Next day">
                             <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
                         </a>
                     </form>
@@ -42,6 +43,15 @@
                 <p class="mt-1 truncate text-sm font-black text-emerald-950 sm:text-base">Auto</p>
                 <p class="mt-0.5 text-[9px] font-bold text-emerald-800">Daily entry</p>
             </article>
+        </section>
+
+        <section class="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+            <a href="{{ route('purchaser.procurement-expenses.index', ['date' => $date->toDateString(), 'view' => 'entries']) }}" class="rounded-lg px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] {{ $view === 'entries' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-800' }}">
+                Entries
+            </a>
+            <a href="{{ route('purchaser.procurement-expenses.index', ['date' => $date->toDateString(), 'view' => 'datewise']) }}" class="rounded-lg px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] {{ $view === 'datewise' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-600 hover:text-slate-800' }}">
+                Date-wise
+            </a>
         </section>
 
         <section class="grid gap-2 lg:grid-cols-[minmax(18rem,0.75fr)_minmax(0,1.25fr)] lg:gap-4">
@@ -121,8 +131,25 @@
                     </a>
                 </div>
 
-                <div class="divide-y divide-slate-100 lg:hidden">
-                    @forelse($expenses as $expense)
+                @if ($view === 'datewise')
+                    <div class="divide-y divide-slate-100">
+                        @forelse($dateWiseTotals as $row)
+                            <div class="px-3 py-2.5 lg:px-4">
+                                <div class="flex items-center justify-between gap-2">
+                                    <div>
+                                        <p class="text-xs font-black text-slate-950">{{ \Illuminate\Support\Carbon::parse($row['date'])->format('d M Y') }}</p>
+                                        <p class="mt-0.5 text-[10px] font-semibold text-slate-500">{{ $row['count'] }} {{ \Illuminate\Support\Str::plural('entry', (int) $row['count']) }}</p>
+                                    </div>
+                                    <p class="text-sm font-black text-teal-700">Rs. {{ number_format((float) $row['total'], 2) }}</p>
+                                </div>
+                            </div>
+                        @empty
+                            <div class="px-3 py-8 text-center text-xs font-bold text-slate-400">No date-wise totals for this month.</div>
+                        @endforelse
+                    </div>
+                @else
+                    <div class="divide-y divide-slate-100 lg:hidden">
+                        @forelse($expenses as $expense)
                         <div class="px-3 py-2">
                             <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                                 <div class="min-w-0">
@@ -153,13 +180,13 @@
                                 </div>
                             </div>
                         </div>
-                    @empty
-                        <div class="px-3 py-8 text-center text-xs font-bold text-slate-400">No procurement expenses for this month.</div>
-                    @endforelse
-                </div>
+                        @empty
+                            <div class="px-3 py-8 text-center text-xs font-bold text-slate-400">No procurement expenses for this month.</div>
+                        @endforelse
+                    </div>
 
-                <div class="hidden overflow-x-auto lg:block">
-                    <table class="min-w-full text-left text-sm">
+                    <div class="hidden overflow-x-auto lg:block">
+                        <table class="min-w-full text-left text-sm">
                         <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
                             <tr>
                                 <th class="px-4 py-3">Date</th>
@@ -205,7 +232,8 @@
                             @endforelse
                         </tbody>
                     </table>
-                </div>
+                    </div>
+                @endif
             </section>
         </section>
     </div>

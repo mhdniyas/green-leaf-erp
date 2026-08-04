@@ -39,9 +39,18 @@
                         @endif
                     </a>
                     <form action="{{ route('purchaser.history') }}" method="GET">
+                        <input type="hidden" name="include_expenses" value="{{ $includeExpenses ? '1' : '0' }}">
                         <input type="date" name="date" value="{{ $date }}" onchange="this.form.submit()" class="h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 focus:border-teal-500 focus:outline-none lg:rounded-2xl lg:px-4">
                     </form>
                 </div>
+            </div>
+            <div class="mt-3 inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+                <a href="{{ route('purchaser.history', ['date' => $date, 'include_expenses' => 0]) }}" class="rounded-lg px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] {{ $includeExpenses ? 'text-slate-600 hover:text-slate-800' : 'bg-white text-slate-900 shadow-sm' }}">
+                    Bills Only
+                </a>
+                <a href="{{ route('purchaser.history', ['date' => $date, 'include_expenses' => 1]) }}" class="rounded-lg px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] {{ $includeExpenses ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-600 hover:text-slate-800' }}">
+                    + Expenses
+                </a>
             </div>
         </section>
 
@@ -57,16 +66,16 @@
                 </div>
                 <div class="mt-2 grid grid-cols-3 gap-1.5 text-center">
                     <div class="rounded-lg bg-slate-900 px-1 py-1.5">
-                        <p class="text-[9px] font-black uppercase tracking-tight text-teal-400 truncate">Total Buy</p>
-                        <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-white truncate">₹{{ number_format($monthSummary['total_purchase'], 2) }}</p>
+                        <p class="text-[9px] font-black uppercase tracking-tight text-teal-400 truncate">{{ $includeExpenses ? 'Total Outflow' : 'Total Buy' }}</p>
+                        <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-white truncate">₹{{ number_format($includeExpenses ? $monthSummary['grand_total'] : $monthSummary['total_purchase'], 2) }}</p>
                     </div>
                     <div class="rounded-lg bg-slate-900 px-1 py-1.5">
                         <p class="text-[9px] font-black uppercase tracking-tight text-emerald-400 truncate">Cash Paid</p>
                         <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-emerald-300 truncate">₹{{ number_format($monthSummary['total_cash'], 2) }}</p>
                     </div>
                     <div class="rounded-lg bg-slate-900 px-1 py-1.5">
-                        <p class="text-[9px] font-black uppercase tracking-tight text-amber-400 truncate">Credit Due</p>
-                        <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-amber-300 truncate">₹{{ number_format($monthSummary['total_credit'], 2) }}</p>
+                        <p class="text-[9px] font-black uppercase tracking-tight text-amber-400 truncate">{{ $includeExpenses ? 'Expenses' : 'Credit Due' }}</p>
+                        <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-amber-300 truncate">₹{{ number_format($includeExpenses ? $monthSummary['expense_total'] : $monthSummary['total_credit'], 2) }}</p>
                     </div>
                 </div>
             </section>
@@ -83,16 +92,16 @@
             </div>
             <div class="mt-2 grid grid-cols-3 gap-1.5 text-center">
                 <div class="rounded-lg bg-white px-1 py-1.5 border border-slate-200/80 shadow-2xs">
-                    <p class="text-[9px] font-black uppercase tracking-tight text-slate-700 truncate">Daily Buy</p>
-                    <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-slate-950 truncate">₹{{ number_format($todaySummary['total_purchase'] ?? 0, 2) }}</p>
+                    <p class="text-[9px] font-black uppercase tracking-tight text-slate-700 truncate">{{ $includeExpenses ? 'Daily Outflow' : 'Daily Buy' }}</p>
+                    <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-slate-950 truncate">₹{{ number_format($includeExpenses ? ($todaySummary['grand_total'] ?? 0) : ($todaySummary['total_purchase'] ?? 0), 2) }}</p>
                 </div>
                 <div class="rounded-lg bg-white px-1 py-1.5 border border-slate-200/80 shadow-2xs">
                     <p class="text-[9px] font-black uppercase tracking-tight text-emerald-700 truncate">Cash Paid</p>
                     <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-emerald-800 truncate">₹{{ number_format($todaySummary['total_cash'] ?? 0, 2) }}</p>
                 </div>
                 <div class="rounded-lg bg-white px-1 py-1.5 border border-slate-200/80 shadow-2xs">
-                    <p class="text-[9px] font-black uppercase tracking-tight text-amber-700 truncate">Credit Due</p>
-                    <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-amber-800 truncate">₹{{ number_format($todaySummary['total_credit'] ?? 0, 2) }}</p>
+                    <p class="text-[9px] font-black uppercase tracking-tight text-amber-700 truncate">{{ $includeExpenses ? 'Expenses' : 'Credit Due' }}</p>
+                    <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-amber-800 truncate">₹{{ number_format($includeExpenses ? ($todaySummary['expense_total'] ?? 0) : ($todaySummary['total_credit'] ?? 0), 2) }}</p>
                 </div>
             </div>
         </section>

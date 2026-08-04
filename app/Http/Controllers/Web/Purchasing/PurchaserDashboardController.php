@@ -20,6 +20,7 @@ use App\Models\PurchaserCart;
 use App\Models\PurchaserCartItem;
 use App\Models\PurchaserCorrectionRequest;
 use App\Models\PurchaserCredit;
+use App\Models\ProcurementExpense;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
@@ -532,8 +533,11 @@ class PurchaserDashboardController extends Controller
             return $date;
         }
 
+        $userId = (int) $request->user()->id;
+        $includeExpenses = $request->boolean('include_expenses', false);
+
         $todayCarts = PurchaserCart::query()
-            ->where('user_id', $request->user()->id)
+            ->where('user_id', $userId)
             ->whereDate('business_date', $date)
             ->with([
                 'supplier',
@@ -546,7 +550,7 @@ class PurchaserDashboardController extends Controller
             ->get();
 
         $historyCarts = PurchaserCart::query()
-            ->where('user_id', $request->user()->id)
+            ->where('user_id', $userId)
             ->whereDate('business_date', '<', $date)
             ->with([
                 'supplier',
@@ -560,7 +564,7 @@ class PurchaserDashboardController extends Controller
             ->limit(100)
             ->get();
 
-        $overdueCarts = $this->overdueCartsForUser((int) $request->user()->id);
+        $overdueCarts = $this->overdueCartsForUser($userId);
 
         $historyCarts = $historyCarts
             ->merge($overdueCarts)
@@ -611,7 +615,7 @@ class PurchaserDashboardController extends Controller
         $monthEnd = $date->copy()->endOfMonth();
 
         $monthCarts = PurchaserCart::query()
-            ->where('user_id', $request->user()->id)
+            ->where('user_id', $userId)
             ->whereBetween('business_date', [$monthStart->format('Y-m-d'), $monthEnd->format('Y-m-d')])
             ->with(['items', 'purchaseInvoice'])
             ->get();
@@ -639,6 +643,21 @@ class PurchaserDashboardController extends Controller
                 : 0.0;
         });
 
+        $todayExpenseTotal = round((float) ProcurementExpense::query()
+            ->where('user_id', $userId)
+            ->whereDate('expense_date', $date->toDateString())
+            ->sum('amount'), 2);
+
+        $monthExpenseTotal = round((float) ProcurementExpense::query()
+            ->where('user_id', $userId)
+            ->whereBetween('expense_date', [$monthStart->toDateString(), $monthEnd->toDateString()])
+            ->sum('amount'), 2);
+
+        $todaySummary = array_merge($todaySummary, [
+            'expense_total' => $todayExpenseTotal,
+            'grand_total' => round($todayTotalPurchase + ($includeExpenses ? $todayExpenseTotal : 0.0), 2),
+        ]);
+
         $monthSummary = [
             'month_name' => $date->format('F Y'),
             'start_date_formatted' => $monthStart->format('d M Y'),
@@ -647,17 +666,20 @@ class PurchaserDashboardController extends Controller
             'total_purchase' => $monthTotalPurchase,
             'total_cash' => $monthTotalCash,
             'total_credit' => max(0.0, $monthTotalPurchase - $monthTotalCash),
+            'expense_total' => $monthExpenseTotal,
+            'grand_total' => round($monthTotalPurchase + ($includeExpenses ? $monthExpenseTotal : 0.0), 2),
         ];
 
         return view('purchasing.purchaser.history', [
             'date' => $date->format('Y-m-d'),
             'todaySummary' => $todaySummary,
             'monthSummary' => $monthSummary,
+            'includeExpenses' => $includeExpenses,
             'groupedCarts' => $groupedCarts,
             'statusBadges' => $this->statusBadgesForCarts($allCarts, $relatedBatchState),
             'relatedBatchState' => $relatedBatchState,
             'relatedReceiptNotes' => $this->relatedReceiptNotesForCarts($allCarts),
-            'deadlineAlert' => $this->buildDeadlineAlert((int) $request->user()->id, $date),
+            'deadlineAlert' => $this->buildDeadlineAlert($userId, $date),
         ]);
     }
 
