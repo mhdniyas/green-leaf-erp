@@ -1,6 +1,10 @@
 @php
+    $eligibility = is_array($deliveryEligibility ?? null)
+        ? $deliveryEligibility
+        : ['allowed' => true, 'message' => 'Delivery verification is available.'];
+    $eligibilityAllowed = (bool) ($eligibility['allowed'] ?? false);
     $isPendingApproval = $order->delivery_status === 'pending_approval';
-    $isEditable = $order->is_allocation_completed && ! $order->is_delivered && ! $isPendingApproval;
+    $isEditable = $eligibilityAllowed && $order->is_allocation_completed && ! $order->is_delivered && ! $isPendingApproval;
     $sortedItems = $order->items->sortBy(
         fn ($item) => \App\Models\Product::sortableSku((string) ($item->product?->sku ?? ''))
     );
@@ -18,6 +22,8 @@
     $verifiableItems = $fulfilledItems;
     $verifiedCount = $verifiableItems->whereNotNull('shop_verified_at')->count();
     $totalVerifiableCount = $verifiableItems->count();
+    $allItemsVerified = $totalVerifiableCount > 0 && $verifiedCount === $totalVerifiableCount;
+    $canSubmitVerification = $isEditable && $totalVerifiableCount > 0 && ! $allItemsVerified;
 
     // Recalculate invoice total from delivered quantities (DB may have wrong values)
     $computedInvoiceTotal = (float) $invoiceItemsByProductId->sum(function ($invoiceItem) {
@@ -166,11 +172,25 @@
                         type="button"
                         id="shop-delivery-submit-all"
                         class="shrink-0 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-3 text-xs font-black uppercase tracking-[0.12em] transition-all shadow-md active:scale-95 cursor-pointer border-none disabled:cursor-not-allowed disabled:opacity-60"
-                        @disabled(! $isEditable || $verifiedCount === $totalVerifiableCount)
+                        @disabled(! $canSubmitVerification)
                     >
                         Submit Delivery Verification
                     </button>
                 </div>
+
+                @if(! $canSubmitVerification)
+                    <p class="text-[11px] font-semibold text-amber-700">
+                        @if(! $eligibilityAllowed)
+                            {{ (string) ($eligibility['message'] ?? 'Delivery verification is currently unavailable.') }}
+                        @elseif($totalVerifiableCount === 0)
+                            No delivered items are available to submit.
+                        @elseif($allItemsVerified)
+                            All delivered items are already submitted for verification.
+                        @else
+                            Delivery verification is currently unavailable.
+                        @endif
+                    </p>
+                @endif
 
                 @if($isEditable)
                     <div class="border-t border-slate-100 pt-3">
