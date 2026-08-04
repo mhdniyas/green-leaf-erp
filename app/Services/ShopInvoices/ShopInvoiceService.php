@@ -101,72 +101,76 @@ class ShopInvoiceService
                     /** @var ShopOrderItem $firstOrderItem */
                     $firstOrderItem = $orderItems->first();
 
-                    $activeProductIds[] = (int) $productId;
-                    $invoiceItem = $existingItems->get($productId) ?? new ShopInvoiceItem([
-                        'shop_invoice_id' => $invoice->id,
-                        'shop_order_item_id' => $firstOrderItem->id,
-                        'product_id' => (int) $productId,
-                    ]);
+                    try {
+                        $invoiceItem = $existingItems->get($productId) ?? new ShopInvoiceItem([
+                            'shop_invoice_id' => $invoice->id,
+                            'shop_order_item_id' => $firstOrderItem->id,
+                            'product_id' => (int) $productId,
+                        ]);
 
-                    $dailyPrice = $this->dailyPriceForOrderItem($order, $firstOrderItem);
-                    $billingPrice = $this->billingPriceForOrderItems($orderItems, $dailyPrice);
-                    $unitPrice = $billingPrice['price'];
-                    $billableUnit = ProductUnit::normalizeUnit((string) ($firstOrderItem->requested_unit ?: $firstOrderItem->product->unit ?: 'kg'));
-                    $priceUnit = $billingPrice['price_unit'];
-                    $product = $firstOrderItem->product;
-                    $approvedQty = (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) $item->approved_qty);
-                    $deliveredQty = $invoiceItem->exists && $invoiceItem->delivered_qty !== null
-                        ? (float) $invoiceItem->delivered_qty
-                        : (float) $orderItems->sum(function (ShopOrderItem $item): float {
+                        $dailyPrice = $this->dailyPriceForOrderItem($order, $firstOrderItem);
+                        $billingPrice = $this->billingPriceForOrderItems($orderItems, $dailyPrice);
+                        $unitPrice = $billingPrice['price'];
+                        $billableUnit = ProductUnit::normalizeUnit((string) ($firstOrderItem->requested_unit ?: $firstOrderItem->product->unit ?: 'kg'));
+                        $priceUnit = $billingPrice['price_unit'];
+                        $product = $firstOrderItem->product;
+                        $approvedQty = (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) $item->approved_qty);
+                        $deliveredQty = $invoiceItem->exists && $invoiceItem->delivered_qty !== null
+                            ? (float) $invoiceItem->delivered_qty
+                            : (float) $orderItems->sum(function (ShopOrderItem $item): float {
+                                if ($item->sorting_status === 'not_available' || $item->loadout_discrepancy_type === 'not_available') {
+                                    return 0.0;
+                                }
+                                // For products with actual_weight (e.g. FULL_BUNCH weighed at warehouse), use actual_weight
+                                return (float) ($item->actual_weight ?? $item->delivered_qty ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
+                            });
+                        $shortageQty = (float) $orderItems->sum(function (ShopOrderItem $item): float {
                             if ($item->sorting_status === 'not_available' || $item->loadout_discrepancy_type === 'not_available') {
-                                return 0.0;
+                                return (float) $item->approved_qty;
                             }
-                            // For products with actual_weight (e.g. FULL_BUNCH weighed at warehouse), use actual_weight
-                            return (float) ($item->actual_weight ?? $item->delivered_qty ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
+                            return (float) ($item->shortage_qty ?? 0);
                         });
-                    $shortageQty = (float) $orderItems->sum(function (ShopOrderItem $item): float {
-                        if ($item->sorting_status === 'not_available' || $item->loadout_discrepancy_type === 'not_available') {
-                            return (float) $item->approved_qty;
+                        $excessQty = (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) ($item->excess_qty ?? 0));
+
+                        if ($deliveredQty <= $approvedQty) {
+                            $excessQty = 0.0;
                         }
-                        return (float) ($item->shortage_qty ?? 0);
-                    });
-                    $excessQty = (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) ($item->excess_qty ?? 0));
+                        if ($deliveredQty >= $approvedQty) {
+                            $shortageQty = 0.0;
+                        }
 
-                    if ($deliveredQty <= $approvedQty) {
-                        $excessQty = 0.0;
+                        $priceQuantity = $this->priceQuantityFor($product, $approvedQty, $billableUnit, $orderItems);
+                        $deliveredPriceQuantity = $this->priceQuantityFor($product, $deliveredQty, $billableUnit, $orderItems);
+                        $shortagePriceQuantity = $this->priceQuantityFor($product, $shortageQty, $billableUnit, $orderItems);
+                        $excessPriceQuantity = $this->priceQuantityFor($product, $excessQty, $billableUnit, $orderItems);
+                        $lineSubtotal = round($priceQuantity * $unitPrice, 2);
+                        $shortageAmount = round($shortagePriceQuantity * $unitPrice, 2);
+                        $excessAmount = round($excessPriceQuantity * $unitPrice, 2);
+
+                        $invoiceItem->fill([
+                            'shop_order_item_id' => $firstOrderItem->id,
+                            'product_name' => $firstOrderItem->product?->name ?? 'Unknown Product',
+                            'unit' => $firstOrderItem->unit,
+                            'price_unit' => $priceUnit,
+                            'approved_qty' => $approvedQty,
+                            'price_quantity' => $priceQuantity,
+                            'delivered_qty' => $deliveredQty,
+                            'delivered_price_quantity' => $deliveredPriceQuantity,
+                            'shortage_qty' => $shortageQty,
+                            'shortage_price_quantity' => $shortagePriceQuantity,
+                            'excess_qty' => $excessQty,
+                            'excess_price_quantity' => $excessPriceQuantity,
+                            'unit_price' => $unitPrice,
+                            'line_subtotal' => $lineSubtotal,
+                            'shortage_amount' => $shortageAmount,
+                            'excess_amount' => $excessAmount,
+                            'final_line_total' => round($lineSubtotal - $shortageAmount + $excessAmount, 2),
+                        ]);
+                        $invoiceItem->save();
+                        $activeProductIds[] = (int) $productId;
+                    } catch (ValidationException $exception) {
+                        report($exception);
                     }
-                    if ($deliveredQty >= $approvedQty) {
-                        $shortageQty = 0.0;
-                    }
-
-                    $priceQuantity = $this->priceQuantityFor($product, $approvedQty, $billableUnit, $orderItems);
-                    $deliveredPriceQuantity = $this->priceQuantityFor($product, $deliveredQty, $billableUnit, $orderItems);
-                    $shortagePriceQuantity = $this->priceQuantityFor($product, $shortageQty, $billableUnit, $orderItems);
-                    $excessPriceQuantity = $this->priceQuantityFor($product, $excessQty, $billableUnit, $orderItems);
-                    $lineSubtotal = round($priceQuantity * $unitPrice, 2);
-                    $shortageAmount = round($shortagePriceQuantity * $unitPrice, 2);
-                    $excessAmount = round($excessPriceQuantity * $unitPrice, 2);
-
-                    $invoiceItem->fill([
-                        'shop_order_item_id' => $firstOrderItem->id,
-                        'product_name' => $firstOrderItem->product?->name ?? 'Unknown Product',
-                        'unit' => $firstOrderItem->unit,
-                        'price_unit' => $priceUnit,
-                        'approved_qty' => $approvedQty,
-                        'price_quantity' => $priceQuantity,
-                        'delivered_qty' => $deliveredQty,
-                        'delivered_price_quantity' => $deliveredPriceQuantity,
-                        'shortage_qty' => $shortageQty,
-                        'shortage_price_quantity' => $shortagePriceQuantity,
-                        'excess_qty' => $excessQty,
-                        'excess_price_quantity' => $excessPriceQuantity,
-                        'unit_price' => $unitPrice,
-                        'line_subtotal' => $lineSubtotal,
-                        'shortage_amount' => $shortageAmount,
-                        'excess_amount' => $excessAmount,
-                        'final_line_total' => round($lineSubtotal - $shortageAmount + $excessAmount, 2),
-                    ]);
-                    $invoiceItem->save();
                 });
 
             $invoice->items()
