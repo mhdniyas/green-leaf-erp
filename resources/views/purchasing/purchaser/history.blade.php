@@ -74,8 +74,14 @@
                         <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-emerald-300 truncate">₹{{ number_format($monthSummary['total_cash'], 2) }}</p>
                     </div>
                     <div class="rounded-lg bg-slate-900 px-1 py-1.5">
-                        <p class="text-[9px] font-black uppercase tracking-tight text-amber-400 truncate">{{ $includeExpenses ? 'Expenses' : 'Credit Due' }}</p>
-                        <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-amber-300 truncate">₹{{ number_format($includeExpenses ? $monthSummary['expense_total'] : $monthSummary['total_credit'], 2) }}</p>
+                        @if($includeExpenses)
+                            <p class="text-[9px] font-black uppercase tracking-tight text-amber-400 truncate">Total</p>
+                            <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-amber-300 truncate">₹{{ number_format($monthSummary['total_cash'] + ($monthSummary['expense_total'] ?? 0), 2) }}</p>
+                            <p class="mt-1 text-[8px] font-semibold text-amber-200">incl. ₹{{ number_format($monthSummary['expense_total'] ?? 0, 2) }} expense</p>
+                        @else
+                            <p class="text-[9px] font-black uppercase tracking-tight text-amber-400 truncate">Credit Due</p>
+                            <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-amber-300 truncate">₹{{ number_format($monthSummary['total_credit'], 2) }}</p>
+                        @endif
                     </div>
                 </div>
             </section>
@@ -100,8 +106,14 @@
                     <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-emerald-800 truncate">₹{{ number_format($todaySummary['total_cash'] ?? 0, 2) }}</p>
                 </div>
                 <div class="rounded-lg bg-white px-1 py-1.5 border border-slate-200/80 shadow-2xs">
-                    <p class="text-[9px] font-black uppercase tracking-tight text-amber-700 truncate">{{ $includeExpenses ? 'Expenses' : 'Credit Due' }}</p>
-                    <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-amber-800 truncate">₹{{ number_format($includeExpenses ? ($todaySummary['expense_total'] ?? 0) : ($todaySummary['total_credit'] ?? 0), 2) }}</p>
+                    @if($includeExpenses)
+                        <p class="text-[9px] font-black uppercase tracking-tight text-amber-700 truncate">Total</p>
+                        <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-amber-800 truncate">₹{{ number_format(($todaySummary['total_cash'] ?? 0) + ($todaySummary['expense_total'] ?? 0), 2) }}</p>
+                        <p class="mt-1 text-[8px] font-semibold text-amber-600">incl. ₹{{ number_format($todaySummary['expense_total'] ?? 0, 2) }} expense</p>
+                    @else
+                        <p class="text-[9px] font-black uppercase tracking-tight text-amber-700 truncate">Credit Due</p>
+                        <p class="mt-0.5 font-mono text-xs sm:text-sm font-black text-amber-800 truncate">₹{{ number_format($todaySummary['total_credit'] ?? 0, 2) }}</p>
+                    @endif
                 </div>
             </div>
         </section>
