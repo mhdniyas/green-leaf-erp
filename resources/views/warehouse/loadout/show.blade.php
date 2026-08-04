@@ -40,6 +40,54 @@
             $remainingProductCount = collect($productGroups)->filter(fn (array $group): bool => (float) $group['total_balance'] > 0.001)->count();
         @endphp
 
+        @if($canEdit && $hasDuplicates)
+            <section class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 shadow-sm">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.14em] text-amber-700">Merge Required</p>
+                        <h2 class="mt-1 text-sm font-black text-amber-900">Duplicate product rows detected in this loadout.</h2>
+                        <p class="mt-1 text-xs font-semibold text-amber-800">Merge duplicates before moving to delivery so billing always stays one product per invoice line.</p>
+                    </div>
+                    <form action="{{ route('warehouse.loadout.merge-duplicates.all', $shopOrder) }}"
+                          method="POST"
+                          class="loadout-confirm-form"
+                          data-confirm-title="Merge all duplicates"
+                          data-confirm-message="Merge all duplicate product rows now? This only normalizes rows and does not change stock movements."
+                          data-confirm-button="Merge All">
+                        @csrf
+                        <button type="submit"
+                                class="inline-flex items-center justify-center rounded-xl bg-amber-600 px-4 py-2 text-[11px] font-black uppercase tracking-wider text-white hover:bg-amber-700 border-none cursor-pointer">
+                            Merge All Duplicates
+                        </button>
+                    </form>
+                </div>
+
+                <div class="mt-3 space-y-2">
+                    @foreach($mergeCandidates as $candidate)
+                        <div class="flex flex-col gap-2 rounded-xl border border-amber-200 bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div class="text-xs font-semibold text-slate-700">
+                                <span class="font-black text-slate-900">{{ $candidate['product_name'] }}</span>
+                                <span class="ml-1 text-[11px] text-amber-700">({{ $candidate['row_count'] }} rows)</span>
+                            </div>
+                            <form action="{{ route('warehouse.loadout.merge-duplicates', $shopOrder) }}"
+                                  method="POST"
+                                  class="loadout-confirm-form"
+                                  data-confirm-title="Merge duplicate rows"
+                                  data-confirm-message="Merge duplicate rows for {{ $candidate['product_name'] }}?"
+                                  data-confirm-button="Merge Product">
+                                @csrf
+                                <input type="hidden" name="product_id" value="{{ $candidate['product_id'] }}">
+                                <button type="submit"
+                                        class="inline-flex items-center justify-center rounded-lg border border-amber-300 bg-amber-100 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-amber-800 hover:bg-amber-200 border-none cursor-pointer">
+                                    Merge This Product
+                                </button>
+                            </form>
+                        </div>
+                    @endforeach
+                </div>
+            </section>
+        @endif
+
         @if($canEdit || $canMoveToDelivery || $canMoveToPartialDelivery)
             <div class="grid gap-2 {{ ($canMoveToDelivery || $canMoveToPartialDelivery) && $canEdit ? 'grid-cols-2' : 'grid-cols-1' }}">
                 @if($canEdit)
@@ -1039,11 +1087,16 @@
                             body: formData,
                         });
 
+                        const data = await response.json().catch(() => ({}));
+
                         if (response.ok || response.status === 200) {
                             if (feedbackEl) {
                                 feedbackEl.classList.remove('border-cyan-200', 'bg-cyan-50', 'text-cyan-800');
                                 feedbackEl.classList.add('border-emerald-200', 'bg-emerald-50', 'text-emerald-800');
-                                feedbackEl.textContent = 'Loadout saved & stock updated successfully! ✓';
+                                const duplicateCount = Number(data.duplicate_count || 0);
+                                feedbackEl.textContent = duplicateCount > 0
+                                    ? 'Loadout saved. Duplicate rows still exist for ' + duplicateCount + ' product(s). Merge them from the top warning panel.'
+                                    : 'Loadout saved & stock updated successfully! ✓';
                                 setTimeout(() => { feedbackEl.classList.add('hidden'); }, 3500);
                             }
                             
@@ -1053,7 +1106,6 @@
                                 setTimeout(() => { submitter.innerHTML = originalText; }, 2000);
                             }
                         } else {
-                            const data = await response.json().catch(() => ({}));
                             if (feedbackEl) {
                                 feedbackEl.classList.remove('border-cyan-200', 'bg-cyan-50', 'text-cyan-800');
                                 feedbackEl.classList.add('border-rose-200', 'bg-rose-50', 'text-rose-800');

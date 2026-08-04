@@ -17,6 +17,7 @@ use App\Models\StockMovement;
 use App\Services\Inventory\StockLedgerService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
+use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -24,12 +25,14 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Throwable;
 
 class WarehouseLoadoutController extends Controller
 {
     public function __construct(
         private readonly StockLedgerService $stockLedgerService,
         private readonly PriceBoardService $priceBoardService,
+        private readonly ShopInvoiceService $shopInvoiceService,
     ) {}
 
     /**
@@ -173,6 +176,8 @@ class WarehouseLoadoutController extends Controller
         $canMoveToDelivery = $shopOrder->delivery_status === 'ready_for_dispatch' && $anyLoaded && ! $hasRemainingBalance;
         $canMoveToPartialDelivery = $shopOrder->delivery_status === 'ready_for_dispatch' && $anyLoaded && $hasRemainingBalance;
         $canMoveToLoadout = $shopOrder->delivery_status !== 'delivered' && $shopOrder->delivery_status !== 'pending_delivery';
+        $mergeCandidates = $this->duplicateMergeCandidates($shopOrder->items);
+        $hasDuplicates = $mergeCandidates->isNotEmpty();
 
         return view('warehouse.loadout.show', compact(
             'shopOrder',
@@ -183,7 +188,127 @@ class WarehouseLoadoutController extends Controller
             'canMoveToPartialDelivery',
             'hasRemainingBalance',
             'canMoveToLoadout',
+            'mergeCandidates',
+            'hasDuplicates',
         ));
+    }
+
+    public function mergeDuplicates(ShopOrder $shopOrder, Request $request): RedirectResponse|JsonResponse
+    {
+        $this->authorizeAccess($request);
+        $this->ensureLoadoutEditable($shopOrder);
+
+        $validated = $request->validate([
+            'product_id' => ['required', 'integer', 'exists:products,id'],
+        ]);
+
+        $productId = (int) $validated['product_id'];
+        $userId = (int) $request->user()->id;
+
+        try {
+            DB::transaction(function () use ($shopOrder, $productId, $userId): void {
+                ShopOrder::lockForUpdate()->find($shopOrder->id);
+
+                $rows = $shopOrder->items()
+                    ->where('product_id', $productId)
+                    ->lockForUpdate()
+                    ->get();
+
+                if ($rows->isEmpty()) {
+                    throw ValidationException::withMessages([
+                        'product_id' => 'No rows found for selected product.',
+                    ]);
+                }
+
+                if ($this->isCanonicalProductRows($rows)) {
+                    return;
+                }
+
+                $targetRows = $this->canonicalRowsForProduct($rows, $userId);
+                $this->applyOrderItemRows($rows, $shopOrder->id, $productId, $targetRows);
+            });
+        } catch (ValidationException $exception) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $exception->getMessage() ?: 'Could not merge duplicate rows.',
+                    'errors' => $exception->errors(),
+                ], 422);
+            }
+
+            return redirect()->back()->withErrors($exception->errors());
+        } catch (Throwable $exception) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Could not merge duplicate rows right now.',
+                ], 500);
+            }
+
+            return redirect()->back()->withErrors(['Could not merge duplicate rows right now.']);
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Duplicate rows merged successfully.',
+            ]);
+        }
+
+        return redirect()->back()->with('success', 'Duplicate rows merged successfully.');
+    }
+
+    public function mergeAllDuplicates(ShopOrder $shopOrder, Request $request): RedirectResponse|JsonResponse
+    {
+        $this->authorizeAccess($request);
+        $this->ensureLoadoutEditable($shopOrder);
+
+        $userId = (int) $request->user()->id;
+        $merged = 0;
+
+        try {
+            DB::transaction(function () use ($shopOrder, $userId, &$merged): void {
+                ShopOrder::lockForUpdate()->find($shopOrder->id);
+
+                $rowsByProduct = $shopOrder->items()
+                    ->lockForUpdate()
+                    ->get()
+                    ->groupBy('product_id');
+
+                foreach ($rowsByProduct as $productId => $rows) {
+                    if (! $this->needsMerge($rows)) {
+                        continue;
+                    }
+
+                    $targetRows = $this->canonicalRowsForProduct($rows, $userId);
+                    $this->applyOrderItemRows($rows, $shopOrder->id, (int) $productId, $targetRows);
+                    $merged++;
+                }
+            });
+        } catch (Throwable $exception) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Could not merge duplicates right now.',
+                ], 500);
+            }
+
+            return redirect()->back()->withErrors(['Could not merge duplicates right now.']);
+        }
+
+        $message = $merged > 0
+            ? "Merged duplicate rows for {$merged} product(s)."
+            : 'No duplicate rows detected.';
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'merged' => $merged,
+            ]);
+        }
+
+        return redirect()->back()->with('success', $message);
     }
 
     public function createAddon(ShopOrder $shopOrder, Request $request): View
@@ -495,10 +620,14 @@ class WarehouseLoadoutController extends Controller
             return redirect()->back()->withErrors($e->errors())->withInput();
         }
 
+        $duplicateCount = $this->duplicateMergeCandidates($shopOrder->fresh('items')->items)->count();
+
         if ($request->wantsJson()) {
             return response()->json([
                 'success' => true,
                 'message' => 'Loadout saved successfully.',
+                'duplicate_count' => $duplicateCount,
+                'merge_needed' => $duplicateCount > 0,
             ]);
         }
 
@@ -542,6 +671,10 @@ class WarehouseLoadoutController extends Controller
     {
         $this->authorizeAccess($request);
 
+        if ($this->duplicateMergeCandidates($shopOrder->items)->isNotEmpty()) {
+            return redirect()->back()->withErrors(['Duplicate product rows found. Merge duplicates before moving to delivery.']);
+        }
+
         if ($shopOrder->delivery_status === 'in_transit') {
             return redirect()->back()->withErrors(['This order is already moved to delivery. Inventory was already updated.']);
         }
@@ -577,7 +710,7 @@ class WarehouseLoadoutController extends Controller
         }
 
         try {
-            DB::transaction(function () use ($shopOrder, $partialDelivery, $remainingItems) {
+            DB::transaction(function () use ($shopOrder, $partialDelivery, $remainingItems, $request) {
                 // Lock order
                 ShopOrder::lockForUpdate()->find($shopOrder->id);
 
@@ -588,8 +721,21 @@ class WarehouseLoadoutController extends Controller
                         ? 'Moved to delivery as a partial delivery with '.$remainingItems->count().' item(s) still pending loadout.'
                         : $shopOrder->delivery_notes,
                 ]);
+
+                $userId = (int) $request->user()->id;
+                $shopOrder->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
+                $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
+                $this->shopInvoiceService->repriceInvoice(
+                    $invoice,
+                    $userId,
+                    $partialDelivery
+                        ? "Invoice recalculated during partial delivery transition for order {$shopOrder->order_number}."
+                        : "Invoice recalculated during delivery transition for order {$shopOrder->order_number}."
+                );
             });
-        } catch (\RuntimeException $e) {
+        } catch (ValidationException $e) {
+            return redirect()->back()->withErrors([$e->getMessage() ?: 'Invoice recalculation failed. Delivery move was cancelled.']);
+        } catch (Throwable $e) {
             return redirect()->back()->withErrors([$e->getMessage()]);
         }
 
@@ -694,5 +840,173 @@ class WarehouseLoadoutController extends Controller
             (float) $source->requested_unit_quantity * (float) $source->requested_unit_conversion_to_base,
             3
         );
+    }
+
+    /**
+     * @param  Collection<int, ShopOrderItem>  $rows
+     * @return Collection<int, array{product_id:int,product_name:string,row_count:int,loaded_rows:int,allocated_rows:int,not_available_rows:int}>
+     */
+    private function duplicateMergeCandidates(Collection $rows): Collection
+    {
+        return $rows
+            ->groupBy('product_id')
+            ->filter(fn (Collection $productRows): bool => $this->needsMerge($productRows))
+            ->map(function (Collection $productRows, int|string $productId): array {
+                $first = $productRows->first();
+
+                return [
+                    'product_id' => (int) $productId,
+                    'product_name' => (string) ($first?->product?->name ?? 'Unknown Product'),
+                    'row_count' => $productRows->count(),
+                    'loaded_rows' => $productRows->where('sorting_status', 'loaded')->count(),
+                    'allocated_rows' => $productRows->where('sorting_status', 'allocated')->count(),
+                    'not_available_rows' => $productRows->where('sorting_status', 'not_available')->count(),
+                ];
+            })
+            ->values();
+    }
+
+    /**
+     * @param  Collection<int, ShopOrderItem>  $rows
+     */
+    private function needsMerge(Collection $rows): bool
+    {
+        if ($rows->count() <= 1) {
+            return false;
+        }
+
+        $loadedRows = $rows->where('sorting_status', 'loaded')->count();
+        $allocatedRows = $rows->where('sorting_status', 'allocated')->count();
+        $notAvailableRows = $rows->where('sorting_status', 'not_available')->count();
+
+        if ($notAvailableRows > 0) {
+            return $rows->count() > 1;
+        }
+
+        if ($rows->count() > 2) {
+            return true;
+        }
+
+        if ($loadedRows > 1 || $allocatedRows > 1) {
+            return true;
+        }
+
+        return ! ($rows->count() === 2 && $loadedRows === 1 && $allocatedRows === 1);
+    }
+
+    /**
+     * @param  Collection<int, ShopOrderItem>  $rows
+     */
+    private function isCanonicalProductRows(Collection $rows): bool
+    {
+        return ! $this->needsMerge($rows);
+    }
+
+    /**
+     * @param  Collection<int, ShopOrderItem>  $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function canonicalRowsForProduct(Collection $rows, int $userId): array
+    {
+        /** @var ShopOrderItem $first */
+        $first = $rows->first();
+        $totalApproved = $this->loadoutApprovedQuantity($rows);
+        $totalLoaded = round((float) $rows->where('sorting_status', 'loaded')->sum('loaded_qty'), 3);
+        $remaining = round(max(0.0, $totalApproved - min($totalLoaded, $totalApproved)), 3);
+        $hasRequestedUnit = filled($first->requested_unit) && strtolower((string) $first->requested_unit) !== 'kg';
+        $conversionToBase = (float) ($first->requested_unit_conversion_to_base ?? 1.0);
+        $unitPrice = (float) ($first->locked_selling_price ?? 0.0);
+        $allNotAvailable = $rows->every(fn (ShopOrderItem $item): bool => $item->sorting_status === 'not_available');
+
+        $basePriceData = [
+            'locked_price_group_id' => $first->locked_price_group_id,
+            'locked_selling_price' => $first->locked_selling_price,
+            'locked_price_source' => $first->locked_price_source,
+            'unit_cost' => $first->unit_cost,
+            'unit' => $first->unit,
+            'requested_product_unit_id' => $first->requested_product_unit_id,
+            'requested_unit' => $first->requested_unit,
+            'requested_unit_label' => $first->requested_unit_label,
+            'requested_unit_conversion_to_base' => $first->requested_unit_conversion_to_base,
+            'product_grade' => $first->product_grade ?? 'A',
+            'fulfillment_type' => $first->fulfillment_type,
+        ];
+
+        if ($allNotAvailable || $totalLoaded <= 0.001) {
+            $requestedUnitQty = $hasRequestedUnit && $conversionToBase > 0
+                ? round($totalApproved / $conversionToBase, 2)
+                : $totalApproved;
+
+            return [array_merge($basePriceData, [
+                'requested_qty' => $totalApproved,
+                'approved_qty' => $totalApproved,
+                'loaded_qty' => $allNotAvailable ? 0.0 : null,
+                'loaded_order_unit_qty' => $allNotAvailable && $hasRequestedUnit ? 0.0 : null,
+                'requested_unit_quantity' => $requestedUnitQty,
+                'line_total' => round($totalApproved * $unitPrice, 2),
+                'actual_weight' => null,
+                'delivered_qty' => null,
+                'excess_qty' => 0.0,
+                'excess_value' => 0.0,
+                'loadout_discrepancy_type' => $allNotAvailable ? 'not_available' : 'none',
+                'loadout_discrepancy_note' => $allNotAvailable ? ($first->loadout_discrepancy_note ?: 'Merged as not available') : null,
+                'sorting_status' => $allNotAvailable ? 'not_available' : 'allocated',
+                'is_sorted' => $allNotAvailable,
+                'sorted_at' => $allNotAvailable ? now() : null,
+                'sorted_by' => $allNotAvailable ? $userId : null,
+            ])];
+        }
+
+        $targetRows = [];
+        $loadedQtyToRecord = round(min($totalLoaded, $totalApproved), 3);
+        $loadedReqUnitQty = $hasRequestedUnit && $conversionToBase > 0
+            ? round($loadedQtyToRecord / $conversionToBase, 2)
+            : $loadedQtyToRecord;
+
+        $targetRows[] = array_merge($basePriceData, [
+            'requested_qty' => $loadedQtyToRecord,
+            'approved_qty' => $loadedQtyToRecord,
+            'loaded_qty' => $totalLoaded,
+            'loaded_order_unit_qty' => $hasRequestedUnit && $conversionToBase > 0 ? round($totalLoaded / $conversionToBase, 2) : null,
+            'requested_unit_quantity' => $loadedReqUnitQty,
+            'line_total' => round($loadedQtyToRecord * $unitPrice, 2),
+            'actual_weight' => $hasRequestedUnit ? null : $totalLoaded,
+            'delivered_qty' => null,
+            'excess_qty' => max(0.0, round($totalLoaded - $totalApproved, 3)),
+            'excess_value' => round(max(0.0, $totalLoaded - $totalApproved) * $unitPrice, 2),
+            'loadout_discrepancy_type' => 'none',
+            'loadout_discrepancy_note' => null,
+            'sorting_status' => 'loaded',
+            'is_sorted' => true,
+            'sorted_at' => now(),
+            'sorted_by' => $userId,
+        ]);
+
+        if ($remaining > 0.001) {
+            $remainderReqUnitQty = $hasRequestedUnit && $conversionToBase > 0
+                ? round($remaining / $conversionToBase, 2)
+                : $remaining;
+
+            $targetRows[] = array_merge($basePriceData, [
+                'requested_qty' => $remaining,
+                'approved_qty' => $remaining,
+                'loaded_qty' => null,
+                'loaded_order_unit_qty' => null,
+                'requested_unit_quantity' => $remainderReqUnitQty,
+                'line_total' => round($remaining * $unitPrice, 2),
+                'actual_weight' => null,
+                'delivered_qty' => null,
+                'excess_qty' => 0.0,
+                'excess_value' => 0.0,
+                'loadout_discrepancy_type' => 'none',
+                'loadout_discrepancy_note' => null,
+                'sorting_status' => 'allocated',
+                'is_sorted' => false,
+                'sorted_at' => null,
+                'sorted_by' => null,
+            ]);
+        }
+
+        return $targetRows;
     }
 }

@@ -91,6 +91,8 @@ class ShopInvoiceService
             ]);
             $invoice->save();
 
+            $this->normalizeDuplicateInvoiceItems($invoice);
+
             $existingItems = $invoice->items()->get()->keyBy('product_id');
             $activeProductIds = [];
 
@@ -1237,6 +1239,50 @@ class ShopInvoiceService
             ->unique()
             ->values()
             ->all();
+    }
+
+    private function normalizeDuplicateInvoiceItems(ShopInvoice $invoice): void
+    {
+        $invoice->loadMissing('items');
+
+        $invoice->items
+            ->groupBy('product_id')
+            ->filter(fn (Collection $rows): bool => $rows->count() > 1)
+            ->each(function (Collection $rows): void {
+                /** @var ShopInvoiceItem $primary */
+                $primary = $rows->sortBy('id')->first();
+                $secondaryRows = $rows->slice(1)->values();
+
+                $approvedQty = (float) $rows->sum(fn (ShopInvoiceItem $row): float => (float) $row->approved_qty);
+                $priceQuantity = (float) $rows->sum(fn (ShopInvoiceItem $row): float => (float) ($row->price_quantity ?? 0));
+                $deliveredQty = (float) $rows->sum(fn (ShopInvoiceItem $row): float => (float) $row->delivered_qty);
+                $deliveredPriceQuantity = (float) $rows->sum(fn (ShopInvoiceItem $row): float => (float) ($row->delivered_price_quantity ?? 0));
+                $shortageQty = (float) $rows->sum(fn (ShopInvoiceItem $row): float => (float) $row->shortage_qty);
+                $shortagePriceQuantity = (float) $rows->sum(fn (ShopInvoiceItem $row): float => (float) ($row->shortage_price_quantity ?? 0));
+                $excessQty = (float) $rows->sum(fn (ShopInvoiceItem $row): float => (float) ($row->excess_qty ?? 0));
+                $excessPriceQuantity = (float) $rows->sum(fn (ShopInvoiceItem $row): float => (float) ($row->excess_price_quantity ?? 0));
+                $lineSubtotal = (float) $rows->sum(fn (ShopInvoiceItem $row): float => (float) $row->line_subtotal);
+                $shortageAmount = (float) $rows->sum(fn (ShopInvoiceItem $row): float => (float) $row->shortage_amount);
+                $excessAmount = (float) $rows->sum(fn (ShopInvoiceItem $row): float => (float) ($row->excess_amount ?? 0));
+                $finalTotal = (float) $rows->sum(fn (ShopInvoiceItem $row): float => (float) $row->final_line_total);
+
+                $primary->update([
+                    'approved_qty' => round($approvedQty, 2),
+                    'price_quantity' => round($priceQuantity, 4),
+                    'delivered_qty' => round($deliveredQty, 2),
+                    'delivered_price_quantity' => round($deliveredPriceQuantity, 4),
+                    'shortage_qty' => round($shortageQty, 2),
+                    'shortage_price_quantity' => round($shortagePriceQuantity, 4),
+                    'excess_qty' => round($excessQty, 2),
+                    'excess_price_quantity' => round($excessPriceQuantity, 4),
+                    'line_subtotal' => round($lineSubtotal, 2),
+                    'shortage_amount' => round($shortageAmount, 2),
+                    'excess_amount' => round($excessAmount, 2),
+                    'final_line_total' => round($finalTotal, 2),
+                ]);
+
+                $secondaryRows->each(fn (ShopInvoiceItem $row) => $row->delete());
+            });
     }
 
     private function shouldIncludeOrderItemInInvoice(ShopOrderItem $orderItem): bool
