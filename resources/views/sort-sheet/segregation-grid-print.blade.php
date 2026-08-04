@@ -56,11 +56,12 @@
         }
         th {
             font-size: 9px;
-            font-weight: 500;
+            font-weight: 700;
             height: 30px;
         }
         td {
             font-size: 10px;
+            font-weight: 700;
         }
         .qty-row,
         .tag-row {
@@ -68,15 +69,15 @@
         }
         .sl-cell,
         .total-cell {
-            font-weight: 500;
+            font-weight: 700;
         }
         .item-cell {
-            font-weight: 500;
+            font-weight: 700;
             text-align: center;
         }
         .tag-cell {
             font-size: 10px;
-            font-weight: 400;
+            font-weight: 700;
         }
         @media print {
             @page { size: A4 landscape; margin: 8mm; }

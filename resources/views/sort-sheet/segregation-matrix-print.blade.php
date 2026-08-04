@@ -17,7 +17,7 @@
             background: #fff;
             color: #000;
             font-family: Arial, Helvetica, sans-serif;
-            font-size: 11px;
+            font-size: 17px;
             padding: 5px;
         }
         .no-print {
@@ -48,7 +48,7 @@
         .shop-title {
             align-items: flex-end;
             display: flex;
-            font-size: 14px;
+            font-size: 21px;
             font-weight: 900;
             justify-content: space-between;
             line-height: 1.1;
@@ -76,11 +76,11 @@
             word-break: break-word;
         }
         th {
-            font-size: 9px;
+            font-size: 14px;
             font-weight: 600;
         }
         td {
-            font-size: 10px;
+            font-size: 15px;
         }
         .code-cell {
             font-weight: 400;
@@ -90,7 +90,7 @@
             text-align: center;
         }
         .shop-head {
-            font-size: 9px;
+            font-size: 14px;
             font-weight: 700;
             line-height: 1.05;
         }
@@ -122,7 +122,7 @@
                 width: 100%;
             }
             .shop-title {
-                font-size: 14px;
+                font-size: 21px;
                 margin: 5px 0 6px;
             }
             th,
