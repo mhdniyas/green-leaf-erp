@@ -296,7 +296,7 @@ class ShopOwnerController extends Controller
                 ->findOrFail($order->id);
 
             if (
-                $lockedOrder->delivery_status !== 'in_transit'
+                ! in_array((string) $lockedOrder->delivery_status, ['in_transit', 'ready_for_dispatch'], true)
                 || ! in_array($lockedOrder->delivery_review_status, ['not_started', 'correction_requested'], true)
                 || ! $lockedOrder->invoice
             ) {

@@ -26,7 +26,7 @@ class DeliveryVerificationEligibility
             return $this->blocked('order_not_approved', 'This order has not been approved.');
         }
 
-        if ($order->delivery_status !== 'in_transit') {
+        if (! in_array((string) $order->delivery_status, ['in_transit', 'ready_for_dispatch'], true)) {
             return $this->blocked('not_out_for_delivery', 'This order is not out for delivery.');
         }
 
