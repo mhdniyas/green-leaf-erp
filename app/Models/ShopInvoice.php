@@ -89,10 +89,7 @@ class ShopInvoice extends Model
     public function isFinalLocked(): bool
     {
         return in_array($this->delivery_status, ['received_full', 'approved_after_discrepancy'], true)
-            || in_array($this->status, ['finalized', 'payment_pending', 'paid'], true)
-            || in_array($this->payment_status, ['partially_paid', 'paid'], true)
-            || $this->payment_approved_at !== null
-            || (float) $this->paid_amount > 0.0;
+            || in_array($this->status, ['finalized', 'payment_pending', 'paid'], true);
     }
 
     public function generatedBy(): BelongsTo
