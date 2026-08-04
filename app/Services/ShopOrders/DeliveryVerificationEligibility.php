@@ -30,7 +30,10 @@ class DeliveryVerificationEligibility
             return $this->blocked('not_out_for_delivery', 'This order is not out for delivery.');
         }
 
-        if (! $order->is_allocation_completed) {
+        $hasLoadedItems = $order->items
+            ->contains(fn ($item): bool => $item->sorting_status === 'loaded' && (float) ($item->loaded_qty ?? 0) > 0);
+
+        if (! $order->is_allocation_completed && ! $hasLoadedItems) {
             return $this->blocked('not_dispatched', 'This order has not been dispatched from the warehouse.');
         }
 

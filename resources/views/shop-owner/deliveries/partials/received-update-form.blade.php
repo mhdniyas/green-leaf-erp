@@ -4,7 +4,7 @@
         : ['allowed' => true, 'message' => 'Delivery verification is available.'];
     $eligibilityAllowed = (bool) ($eligibility['allowed'] ?? false);
     $isPendingApproval = $order->delivery_status === 'pending_approval';
-    $isEditable = $eligibilityAllowed && $order->is_allocation_completed && ! $order->is_delivered && ! $isPendingApproval;
+    $isEditable = $eligibilityAllowed && ! $order->is_delivered && ! $isPendingApproval;
     $sortedItems = $order->items->sortBy(
         fn ($item) => \App\Models\Product::sortableSku((string) ($item->product?->sku ?? ''))
     );
