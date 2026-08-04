@@ -117,22 +117,27 @@ class ShopInvoiceService
                         $priceUnit = $billingPrice['price_unit'];
                         $product = $firstOrderItem->product;
                         $approvedQty = (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) $item->approved_qty);
-                        $deliveredQty = $invoiceItem->exists && $invoiceItem->delivered_qty !== null
-                            ? (float) $invoiceItem->delivered_qty
-                            : (float) $orderItems->sum(function (ShopOrderItem $item): float {
-                                if ($item->sorting_status === 'not_available' || $item->loadout_discrepancy_type === 'not_available') {
-                                    return 0.0;
-                                }
-                                // For products with actual_weight (e.g. FULL_BUNCH weighed at warehouse), use actual_weight
-                                return (float) ($item->actual_weight ?? $item->delivered_qty ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
-                            });
-                        $shortageQty = (float) $orderItems->sum(function (ShopOrderItem $item): float {
+                        $computedDeliveredQty = (float) $orderItems->sum(function (ShopOrderItem $item): float {
                             if ($item->sorting_status === 'not_available' || $item->loadout_discrepancy_type === 'not_available') {
-                                return (float) $item->approved_qty;
+                                return 0.0;
                             }
-                            return (float) ($item->shortage_qty ?? 0);
+
+                            // For products with actual_weight (e.g. FULL_BUNCH weighed at warehouse), use actual_weight.
+                            return (float) ($item->actual_weight ?? $item->loaded_qty ?? $item->approved_qty ?? 0);
                         });
-                        $excessQty = (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) ($item->excess_qty ?? 0));
+
+                        $isInvoiceDeliveryFinalized = in_array((string) $invoice->delivery_status, [
+                            'received_full',
+                            'received_with_discrepancy',
+                            'approved_after_discrepancy',
+                        ], true);
+
+                        $deliveredQty = ($isInvoiceDeliveryFinalized && $invoiceItem->exists && $invoiceItem->delivered_qty !== null)
+                            ? (float) $invoiceItem->delivered_qty
+                            : $computedDeliveredQty;
+
+                        $shortageQty = max(0.0, round($approvedQty - $deliveredQty, 3));
+                        $excessQty = max(0.0, round($deliveredQty - $approvedQty, 3));
 
                         if ($deliveredQty <= $approvedQty) {
                             $excessQty = 0.0;
