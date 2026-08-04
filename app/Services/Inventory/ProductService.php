@@ -154,38 +154,69 @@ class ProductService
             ]];
         }
 
-        $existingUnits = $product->orderUnits()->get()->keyBy('id');
+        $existingUnits = $product->orderUnits()->get();
+        $existingById = $existingUnits->keyBy('id');
+        $existingByLabel = $existingUnits->keyBy(fn (ProductUnit $unit): string => mb_strtolower(trim((string) $unit->label)));
+
+        $plannedRows = [];
         $keptIds = [];
 
-        foreach ($units as $unit) {
-            $attributes = [
-                'unit' => $unit['unit'],
-                'label' => $unit['label'],
-                'conversion_to_base' => $unit['conversion_to_base'] ?? null,
-                'is_base' => $unit['is_base'],
-                'is_orderable' => $unit['is_orderable'],
-                'sort_order' => $unit['sort_order'],
-            ];
+        foreach ($units as $index => $unit) {
+            $normalizedLabel = mb_strtolower(trim((string) $unit['label']));
 
             $existing = filled($unit['id'] ?? null)
-                ? $existingUnits->get((int) $unit['id'])
-                : $product->orderUnits()
-                    ->whereRaw('LOWER(label) = ?', [mb_strtolower((string) $unit['label'])])
-                    ->first();
+                ? $existingById->get((int) $unit['id'])
+                : $existingByLabel->get($normalizedLabel);
+
+            $plannedRows[] = [
+                'existing' => $existing,
+                'attributes' => [
+                    'unit' => $unit['unit'],
+                    'label' => $unit['label'],
+                    'conversion_to_base' => $unit['conversion_to_base'] ?? null,
+                    'is_base' => $unit['is_base'],
+                    'is_orderable' => $unit['is_orderable'],
+                    'sort_order' => $unit['sort_order'] ?? $index,
+                ],
+            ];
 
             if ($existing) {
-                $existing->update($attributes);
-                $keptIds[] = $existing->id;
-
-                continue;
+                $keptIds[] = (int) $existing->id;
             }
-
-            $created = $product->orderUnits()->create($attributes);
-            $keptIds[] = $created->id;
         }
 
         if ($keptIds !== []) {
             $product->orderUnits()->whereNotIn('id', $keptIds)->delete();
+        } else {
+            $product->orderUnits()->delete();
+        }
+
+        $rowsToUpdate = collect($plannedRows)
+            ->filter(fn (array $row): bool => $row['existing'] instanceof ProductUnit)
+            ->values();
+
+        $rowsToCreate = collect($plannedRows)
+            ->filter(fn (array $row): bool => ! ($row['existing'] instanceof ProductUnit))
+            ->values();
+
+        // Avoid transient UNIQUE(product_id, label) collisions (including label swaps)
+        // by parking existing rows on temporary labels before assigning final labels.
+        foreach ($rowsToUpdate as $rowIndex => $row) {
+            /** @var ProductUnit $existing */
+            $existing = $row['existing'];
+            $existing->update([
+                'label' => '__tmp_'.$product->id.'_'.$existing->id.'_'.$rowIndex,
+            ]);
+        }
+
+        foreach ($rowsToUpdate as $row) {
+            /** @var ProductUnit $existing */
+            $existing = $row['existing'];
+            $existing->update($row['attributes']);
+        }
+
+        foreach ($rowsToCreate as $row) {
+            $product->orderUnits()->create($row['attributes']);
         }
     }
 
