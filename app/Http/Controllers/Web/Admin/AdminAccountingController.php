@@ -1745,15 +1745,32 @@ class AdminAccountingController extends Controller
         $this->ensureAccountingAccess($request, AccountingAccess::PurchaserCashManage);
         abort_unless($user->hasRole('purchaser'), 404);
 
-        $credits = PurchaserCredit::query()
+        $query = PurchaserCredit::query()
             ->where('purchaser_id', $user->id)
-            ->with(['purchaseInvoice', 'creator'])
+            ->with(['purchaseInvoice', 'creator']);
+
+        // Search by invoice number or description
+        if ($request->filled('search')) {
+            $search = $request->string('search')->trim();
+            $query->where(function ($q) use ($search) {
+                $q->where('description', 'like', "%{$search}%")
+                    ->orWhereHas('purchaseInvoice', function ($q) use ($search) {
+                        $q->where('invoice_number', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        $credits = $query
             ->orderByDesc('business_date')
             ->orderByDesc('id')
-            ->get();
+            ->paginate(15);
 
-        $totalIn = (float) $credits->where('type', 'in')->sum('amount');
-        $totalOut = (float) $credits->where('type', 'out')->sum('amount');
+        // Calculate totals from all credits (not just paginated)
+        $allCredits = PurchaserCredit::query()
+            ->where('purchaser_id', $user->id)
+            ->get();
+        $totalIn = (float) $allCredits->where('type', 'in')->sum('amount');
+        $totalOut = (float) $allCredits->where('type', 'out')->sum('amount');
         $balance = $totalIn - $totalOut;
 
         return view('admin.accounting.purchasers.show', compact('user', 'credits', 'totalIn', 'totalOut', 'balance'));
