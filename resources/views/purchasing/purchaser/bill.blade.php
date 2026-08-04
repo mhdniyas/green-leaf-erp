@@ -40,12 +40,13 @@
             </form>
         @endif
 
-        <form action="{{ route('purchaser.carts.submit') }}" method="POST" class="space-y-4">
+        <form id="bill-main-form" action="{{ route('purchaser.carts.submit') }}" method="POST" class="space-y-4">
             @csrf
             <input type="hidden" name="business_date" value="{{ $date }}">
             <input type="hidden" name="cart_id" value="{{ $cart->id }}">
             <input type="hidden" name="supplier_id" value="{{ $cart->supplier_id }}">
             <input type="hidden" name="return_to" value="vendors">
+            <input type="hidden" id="bill_number_hidden" name="bill_number" value="{{ $defaultBillNumber }}">
 
             <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <div class="relative mx-auto min-h-[46rem] max-w-[36rem] bg-white px-3 py-5 text-slate-950 sm:px-6 sm:py-7">
@@ -63,9 +64,9 @@
 
                     <div class="grid grid-cols-1 gap-3 border-b border-dashed border-slate-400 py-3 text-[11px] font-bold text-slate-800 sm:grid-cols-2">
                         <div class="min-w-0">
-                            <label for="bill_number" class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Bill No</label>
-                            <input id="bill_number" type="text" name="bill_number" value="{{ $defaultBillNumber }}" placeholder="Pending" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-black text-slate-950 focus:bg-white focus:outline-none">
-                            <p class="mt-1">Cart: {{ $cart->cart_number }}</p>
+                            <p class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Bill No</p>
+                            <p id="bill-number-display" class="mt-0.5 font-mono text-xs font-black text-slate-950">{{ $defaultBillNumber ?: 'Pending' }}</p>
+                            <p class="mt-1 text-[11px] font-semibold text-slate-600">Cart: {{ $cart->cart_number }}</p>
                         </div>
                         <div class="sm:text-right">
                             <p>Date: {{ $billDate->format('d M Y') }}</p>
@@ -118,45 +119,10 @@
                     </div>
 
                     <div class="ml-auto w-full max-w-full border-b border-dashed border-slate-400 py-3 text-[11px] font-bold text-slate-800 sm:max-w-[20rem]">
-                        <div class="flex items-center justify-between">
-                            <span>Subtotal</span>
-                            <span id="bill-subtotal" data-base-subtotal="{{ number_format($subtotal, 2, '.', '') }}">Rs. {{ number_format($subtotal, 2) }}</span>
+                        <div class="flex items-center justify-between font-black text-slate-950 text-sm">
+                            <span>Total Bill</span>
+                            <span id="bill-subtotal" data-base-subtotal="{{ number_format($subtotal, 2, '.', '') }}">₹{{ number_format($subtotal, 2) }}</span>
                         </div>
-                        <div class="mt-1.5 flex items-center justify-between gap-3">
-                            <label for="discount_amount">Discount</label>
-                            <input id="discount_amount" type="number" step="0.01" min="0" name="discount_amount" value="{{ (float) old('discount_amount', $cart->discount_amount) > 0 ? old('discount_amount', number_format((float) $cart->discount_amount, 2, '.', '')) : '' }}" placeholder="0.00" class="h-8 w-28 rounded-md border border-slate-200 bg-slate-50 px-2 text-right text-xs font-black text-slate-950 focus:bg-white focus:outline-none">
-                        </div>
-                        <div class="mt-1.5 flex items-center justify-between text-sm font-black text-slate-950">
-                            <span>TOTAL</span>
-                            <span id="bill-total">Rs. {{ number_format($payableTotal, 2) }}</span>
-                        </div>
-                        <div class="mt-1.5 flex items-center justify-between gap-3 text-[11px] text-emerald-700">
-                            <label for="paid_amount">Paid</label>
-                            <input id="paid_amount" type="number" step="0.01" min="0" name="paid_amount" value="{{ (float) old('paid_amount', $cart->paid_amount) > 0 ? old('paid_amount', number_format((float) $cart->paid_amount, 2, '.', '')) : '' }}" placeholder="0.00" class="h-8 w-28 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-right text-xs font-black text-emerald-800 focus:bg-white focus:outline-none">
-                        </div>
-                        <div class="mt-1.5 flex items-center justify-between text-[11px] text-amber-700">
-                            <span>Balance</span>
-                            <span id="bill-balance-preview">Rs. {{ number_format($balanceAmount, 2) }}</span>
-                        </div>
-                    </div>
-
-                    <div class="border-b border-dashed border-slate-400 py-3">
-                        <div>
-                            <p class="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">Payment Method</p>
-                            <div class="mt-1 grid grid-cols-2 gap-1.5">
-                                @foreach (['Cash' => 'Paid', 'GPay' => 'UPI', 'Online' => 'Transfer', 'Credit' => 'Later'] as $method => $caption)
-                                    <label class="flex min-h-11 cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 hover:bg-slate-100">
-                                        <input type="radio" name="payment_method" value="{{ $method }}" @checked(old('payment_method', $cart->payment_method ?: 'Cash') === $method) class="h-3.5 w-3.5 border-slate-300 text-teal-600 focus:ring-teal-500">
-                                        <span class="min-w-0">
-                                            <span class="block text-[10px] font-black leading-none text-slate-900">{{ $method }}</span>
-                                            <span class="mt-0.5 block truncate text-[8px] font-semibold leading-none text-slate-500">{{ $caption }}</span>
-                                        </span>
-                                    </label>
-                                @endforeach
-                            </div>
-                        </div>
-
-                        <p id="credit-payment-note" class="mt-2 hidden text-[10px] font-semibold text-amber-700">Supplier credit keeps paid amount at zero until purchaser or company settles it.</p>
                     </div>
 
                     <footer class="pt-3 text-center">
@@ -166,28 +132,93 @@
             </section>
 
             <section class="mx-auto w-full max-w-[36rem] rounded-2xl border border-slate-200 bg-white p-3 shadow-sm print:hidden">
-                <div class="grid gap-2 sm:grid-cols-2">
-                    <div>
-                        <label for="payment_note" class="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">Payment Note</label>
-                        <input id="payment_note" type="text" name="payment_note" value="{{ old('payment_note', $cart->payment_note) }}" class="mt-1 h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
-                    </div>
-                    <div>
-                        <label for="payment_details" class="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">Reference / Settlement Details</label>
-                        <input id="payment_details" type="text" name="payment_details" value="{{ old('payment_details', $cart->payment_details) }}" class="mt-1 h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
-                    </div>
-                    <div class="sm:col-span-2">
-                        <label for="notes" class="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">Notes</label>
-                        <textarea id="notes" name="notes" rows="2" class="mt-1 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">{{ old('notes', $cart->notes) }}</textarea>
-                    </div>
+                <div>
+                    <label for="notes" class="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">Notes</label>
+                    <input id="notes" type="text" name="notes" value="{{ old('notes', $cart->notes) }}" placeholder="Optional note..." class="mt-1 h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
                 </div>
             </section>
+
+            <input type="hidden" id="paid_amount" name="paid_amount" value="{{ old('paid_amount', $cart->paid_amount ?? 0) }}">
+            <input type="hidden" id="discount_amount" name="discount_amount" value="{{ old('discount_amount', $cart->discount_amount ?? 0) }}">
+            <input type="hidden" id="payment_method" name="payment_method" value="{{ old('payment_method', $cart->payment_method ?: 'Cash') }}">
 
             <div class="sticky bottom-20 z-20 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-lg backdrop-blur print:hidden sm:static sm:mx-auto sm:w-full sm:max-w-[36rem]">
                 <div class="flex items-center gap-2">
                     <a href="{{ route('purchaser.history', ['date' => $date]) }}" class="inline-flex h-11 w-24 items-center justify-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-700 hover:bg-slate-50">History</a>
-                    <button type="submit" class="inline-flex h-11 flex-1 items-center justify-center rounded-xl bg-teal-600 px-4 text-xs font-black text-white shadow-sm hover:bg-teal-500">
-                        Submit Purchase
+                    <button type="button" onclick="openBillPaymentModal()" class="inline-flex h-11 flex-1 items-center justify-center rounded-xl bg-teal-600 px-4 text-xs font-black text-white shadow-sm hover:bg-teal-500 active:scale-95 transition-all">
+                        Save Prices & Pay
                     </button>
+                </div>
+            </div>
+
+            <!-- Payment Update Modal for Bill Submission -->
+            <div id="payment-update-modal" class="fixed inset-0 z-[100] hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs overscroll-none touch-none" onclick="if (event.target === this) closePaymentModal()">
+                <div class="w-full max-w-xs rounded-2xl border border-slate-200 bg-white p-4 shadow-xl text-xs font-semibold text-slate-800 touch-pan-y">
+                    <!-- Header -->
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                        <div>
+                            <h3 class="text-sm font-black text-slate-950">Submit Payment</h3>
+                            <p class="text-[11px] font-semibold text-slate-500 truncate mt-0.5">{{ $cart->cart_number }} • {{ $supplier?->name ?: 'Vendor pending' }}</p>
+                        </div>
+                        <button type="button" onclick="closePaymentModal()" class="text-slate-400 hover:text-slate-600 font-bold text-sm">✕</button>
+                    </div>
+
+                    <div class="mt-3 space-y-3">
+                        <!-- Total Amount & Balance Card -->
+                        <div class="rounded-xl border border-slate-900 bg-slate-950 p-3 text-white shadow-xs space-y-1">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Bill</span>
+                                <span id="payment-modal-total" class="font-mono text-base font-black text-white">₹0.00</span>
+                            </div>
+                            <div class="flex items-center justify-between text-[11px] font-bold text-slate-300">
+                                <span>Remaining Balance</span>
+                                <span id="payment-modal-balance" class="font-mono font-black text-amber-400">₹0.00</span>
+                            </div>
+                        </div>
+
+                        <!-- Paid Amount Input -->
+                        <div>
+                            <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Paid Amount (₹)</label>
+                            <input id="additional_paid_amount" type="number" step="0.01" min="0" placeholder="Enter amount paid" class="mt-1 h-9 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 font-mono text-sm font-black text-slate-950 focus:bg-white focus:border-teal-600 focus:outline-none">
+                        </div>
+
+                        <!-- Auto Difference Action (Discount vs Balance) -->
+                        <div id="diff-action-container" class="hidden rounded-xl border border-slate-200 bg-slate-50 p-2.5 space-y-2">
+                            <div class="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                <span>Unpaid Difference</span>
+                                <span id="diff-amount-label" class="font-mono text-slate-900 font-bold">₹0.00</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-1.5">
+                                <button type="button" id="diff-btn-discount" onclick="setDiffMode('discount')" class="h-8 rounded-lg border text-[10px] font-black transition-all">
+                                    Discount
+                                </button>
+                                <button type="button" id="diff-btn-balance" onclick="setDiffMode('balance')" class="h-8 rounded-lg border text-[10px] font-black transition-all">
+                                    Balance
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Payment Method -->
+                        <div>
+                            <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Payment Method</label>
+                            <div class="mt-1 grid grid-cols-4 gap-1.5">
+                                <button type="button" onclick="selectPaymentMethod('Cash')" id="pm-btn-Cash" class="h-8 rounded-lg border border-teal-600 bg-teal-600 text-[11px] font-black text-white shadow-2xs transition-all">Cash</button>
+                                <button type="button" onclick="selectPaymentMethod('Online')" id="pm-btn-Online" class="h-8 rounded-lg border border-slate-200 bg-slate-50 text-[11px] font-black text-slate-700 hover:bg-slate-100 transition-all">Online</button>
+                                <button type="button" onclick="selectPaymentMethod('GPay')" id="pm-btn-GPay" class="h-8 rounded-lg border border-slate-200 bg-slate-50 text-[11px] font-black text-slate-700 hover:bg-slate-100 transition-all">GPay</button>
+                                <button type="button" onclick="selectPaymentMethod('Credit')" id="pm-btn-Credit" class="h-8 rounded-lg border border-slate-200 bg-slate-50 text-[11px] font-black text-slate-700 hover:bg-slate-100 transition-all">Credit</button>
+                            </div>
+                        </div>
+
+                        <!-- Bill Ref No -->
+                        <div>
+                            <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Bill Ref No (Optional)</label>
+                            <input id="modal_bill_number" type="text" placeholder="Enter bill ref no" class="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none" oninput="window.syncBillNumber(this.value)">
+                        </div>
+
+                        <button type="submit" class="h-10 w-full rounded-xl bg-teal-600 text-xs font-black text-white hover:bg-teal-500 active:scale-95 transition-all shadow-xs">
+                            Submit Payment
+                        </button>
+                    </div>
                 </div>
             </div>
         </form>
@@ -197,30 +228,14 @@
         (() => {
             const priceInputs = Array.from(document.querySelectorAll('.bill-price'));
             const subtotalNode = document.getElementById('bill-subtotal');
-            const totalNode = document.getElementById('bill-total');
-            const totalSideNode = document.getElementById('bill-total-side');
-            const discountNode = document.getElementById('discount_amount');
-            const discountPreviewNode = document.getElementById('bill-discount-preview');
-            const paidNode = document.getElementById('paid_amount');
-            const paidPreviewNode = document.getElementById('bill-paid-preview');
-            const balancePreviewNode = document.getElementById('bill-balance-preview');
-            const creditNoteNode = document.getElementById('credit-payment-note');
-            const statusRibbonNode = document.getElementById('bill-status-ribbon');
-            const billNumberNode = document.getElementById('bill_number');
-            const billNumberPreviewNode = document.getElementById('bill-number-preview');
-            const paymentMethodNodes = Array.from(document.querySelectorAll('input[name="payment_method"]'));
+            let currentSubtotal = 0;
+            let currentDiffMode = 'discount';
+            let userToggledDiffMode = false;
 
-            if (! priceInputs.length || ! subtotalNode || ! totalNode || ! discountNode) {
-                return;
-            }
+            const formatCurrency = (value) => `₹${Number(value).toFixed(2)}`;
 
-            const formatCurrency = (value) => `Rs. ${Number(value).toFixed(2)}`;
-
-            const selectedPaymentMethod = () => paymentMethodNodes.find((node) => node.checked)?.value ?? 'Cash';
-
-            const recalculate = () => {
+            const recalculateSubtotal = () => {
                 let subtotal = 0;
-
                 priceInputs.forEach((input) => {
                     const quantity = Number(input.dataset.quantity || 0);
                     const unitPrice = Number(input.value || 0);
@@ -233,62 +248,156 @@
                         lineTotalNode.textContent = formatCurrency(lineTotal);
                     }
                 });
+                currentSubtotal = subtotal;
+                if (subtotalNode) subtotalNode.textContent = formatCurrency(subtotal);
+            };
 
-                const discount = Math.max(0, Number(discountNode.value || 0));
-                const paid = Math.max(0, Number(paidNode?.value || 0));
-                const total = Math.max(0, subtotal - discount);
-                const balance = Math.max(0, total - paid);
-                const isCredit = selectedPaymentMethod() === 'Credit';
+            priceInputs.forEach((input) => input.addEventListener('input', recalculateSubtotal));
+            recalculateSubtotal();
 
-                subtotalNode.textContent = formatCurrency(subtotal);
-                totalNode.textContent = formatCurrency(total);
-                if (totalSideNode) {
-                    totalSideNode.textContent = formatCurrency(total);
+            window.lockBackgroundScroll = () => {
+                document.documentElement.classList.add('overflow-hidden', 'touch-none');
+                document.body.classList.add('overflow-hidden', 'touch-none');
+            };
+
+            window.unlockBackgroundScroll = () => {
+                document.documentElement.classList.remove('overflow-hidden', 'touch-none');
+                document.body.classList.remove('overflow-hidden', 'touch-none');
+            };
+
+            window.syncBillNumber = (val) => {
+                const hiddenInput = document.getElementById('bill_number_hidden');
+                const displayNode = document.getElementById('bill-number-display');
+                if (hiddenInput) hiddenInput.value = val;
+                if (displayNode) displayNode.textContent = val.trim() ? val.trim() : 'Pending';
+            };
+
+            window.setDiffMode = (mode) => {
+                userToggledDiffMode = true;
+                currentDiffMode = mode;
+                window.updatePaymentModalStatus();
+            };
+
+            window.selectPaymentMethod = (method) => {
+                const methods = ['Cash', 'Online', 'GPay', 'Credit'];
+                const input = document.getElementById('payment_method');
+                if (input) input.value = method;
+
+                methods.forEach(m => {
+                    const btn = document.getElementById(`pm-btn-${m}`);
+                    if (!btn) return;
+                    if (m === method) {
+                        btn.className = 'h-8 rounded-lg border border-teal-600 bg-teal-600 text-[11px] font-black text-white shadow-2xs transition-all';
+                    } else {
+                        btn.className = 'h-8 rounded-lg border border-slate-200 bg-slate-50 text-[11px] font-black text-slate-700 hover:bg-slate-100 transition-all';
+                    }
+                });
+
+                window.updatePaymentModalStatus();
+            };
+
+            window.openBillPaymentModal = () => {
+                recalculateSubtotal();
+                userToggledDiffMode = false;
+
+                const hiddenBillInput = document.getElementById('bill_number_hidden');
+                const modalBillInput = document.getElementById('modal_bill_number');
+                if (hiddenBillInput && modalBillInput) {
+                    modalBillInput.value = hiddenBillInput.value || '';
                 }
-                if (discountPreviewNode) {
-                    discountPreviewNode.textContent = formatCurrency(discount);
-                }
-                if (paidPreviewNode) {
-                    paidPreviewNode.textContent = formatCurrency(isCredit ? 0 : paid);
-                }
-                if (balancePreviewNode) {
-                    balancePreviewNode.textContent = formatCurrency(isCredit ? total : balance);
-                }
-                if (statusRibbonNode) {
-                    const isPaid = ! isCredit && balance <= 0;
-                    statusRibbonNode.textContent = isPaid ? 'Paid' : 'Unpaid';
-                    statusRibbonNode.classList.toggle('bg-emerald-600', isPaid);
-                    statusRibbonNode.classList.toggle('bg-amber-500', ! isPaid);
+
+                const totalNode = document.getElementById('payment-modal-total');
+                if (totalNode) totalNode.textContent = formatCurrency(currentSubtotal);
+
+                const addPaidInput = document.getElementById('additional_paid_amount');
+                if (addPaidInput) addPaidInput.value = '';
+
+                selectPaymentMethod('Cash');
+                window.updatePaymentModalStatus();
+
+                const modal = document.getElementById('payment-update-modal');
+                if (modal) {
+                    lockBackgroundScroll();
+                    modal.classList.remove('hidden');
+                    modal.classList.add('flex');
                 }
             };
 
-            priceInputs.forEach((input) => input.addEventListener('input', recalculate));
-            discountNode.addEventListener('input', recalculate);
-            paidNode?.addEventListener('input', recalculate);
-            billNumberNode?.addEventListener('input', () => {
-                if (billNumberPreviewNode) {
-                    billNumberPreviewNode.textContent = billNumberNode.value || 'Pending';
+            window.closePaymentModal = () => {
+                unlockBackgroundScroll();
+                const modal = document.getElementById('payment-update-modal');
+                if (modal) {
+                    modal.classList.add('hidden');
+                    modal.classList.remove('flex');
                 }
-            });
-            paymentMethodNodes.forEach((input) => {
-                input.addEventListener('change', () => {
-                    const isCredit = selectedPaymentMethod() === 'Credit';
+            };
 
-                    if (paidNode instanceof HTMLInputElement) {
-                        if (isCredit) {
-                            paidNode.value = '0.00';
-                        }
+            window.updatePaymentModalStatus = () => {
+                const addPaidInput = document.getElementById('additional_paid_amount');
+                const hiddenPaidInput = document.getElementById('paid_amount');
+                const discInput = document.getElementById('discount_amount');
+                const diffContainer = document.getElementById('diff-action-container');
+                const diffAmtNode = document.getElementById('diff-amount-label');
+                const btnDiscount = document.getElementById('diff-btn-discount');
+                const btnBalance = document.getElementById('diff-btn-balance');
 
-                        paidNode.readOnly = isCredit;
-                        paidNode.classList.toggle('bg-amber-50', isCredit);
+                const paidVal = Math.max(0, Number(addPaidInput?.value || 0));
+                if (hiddenPaidInput) hiddenPaidInput.value = paidVal;
+
+                const totalBill = currentSubtotal;
+                const rawDiff = Math.max(0, totalBill - paidVal);
+                const diffPercent = totalBill > 0 ? (rawDiff / totalBill) * 100 : 0;
+
+                if (rawDiff > 0.01 && paidVal > 0) {
+                    if (diffContainer) diffContainer.classList.remove('hidden');
+                    if (diffAmtNode) diffAmtNode.textContent = formatCurrency(rawDiff);
+
+                    if (btnDiscount) btnDiscount.textContent = `Discount (${formatCurrency(rawDiff)})`;
+                    if (btnBalance) btnBalance.textContent = `Balance (${formatCurrency(rawDiff)})`;
+
+                    if (!userToggledDiffMode) {
+                        currentDiffMode = diffPercent <= 5 ? 'discount' : 'balance';
                     }
 
-                    creditNoteNode?.classList.toggle('hidden', ! isCredit);
-                    recalculate();
-                });
-            });
-            paymentMethodNodes.find((node) => node.checked)?.dispatchEvent(new Event('change'));
-            recalculate();
+                    if (currentDiffMode === 'discount') {
+                        if (discInput) discInput.value = rawDiff.toFixed(2);
+                        if (btnDiscount) btnDiscount.className = 'h-8 rounded-lg border border-teal-600 bg-teal-600 text-[10px] font-black text-white shadow-2xs transition-all';
+                        if (btnBalance) btnBalance.className = 'h-8 rounded-lg border border-slate-200 bg-slate-50 text-[10px] font-black text-slate-700 hover:bg-slate-100 transition-all';
+                    } else {
+                        if (discInput) discInput.value = '0.00';
+                        if (btnBalance) btnBalance.className = 'h-8 rounded-lg border border-amber-600 bg-amber-600 text-[10px] font-black text-white shadow-2xs transition-all';
+                        if (btnDiscount) btnDiscount.className = 'h-8 rounded-lg border border-slate-200 bg-slate-50 text-[10px] font-black text-slate-700 hover:bg-slate-100 transition-all';
+                    }
+                } else {
+                    if (diffContainer) diffContainer.classList.add('hidden');
+                    if (discInput) discInput.value = '0.00';
+                }
+
+                const discountVal = Math.max(0, Number(discInput?.value || 0));
+                const netDue = Math.max(0, totalBill - discountVal);
+                const balance = Math.max(0, netDue - paidVal);
+
+                const balanceNode = document.getElementById('payment-modal-balance');
+                if (balanceNode) {
+                    balanceNode.textContent = formatCurrency(balance);
+                    balanceNode.className = balance > 0 ? 'font-mono font-black text-amber-400' : 'font-mono font-black text-emerald-400';
+                }
+            };
+
+            window.submitBillPaymentForm = () => {
+                const modalBillInput = document.getElementById('modal_bill_number');
+                const hiddenBillInput = document.getElementById('bill_number_hidden');
+                if (modalBillInput && hiddenBillInput) {
+                    hiddenBillInput.value = modalBillInput.value;
+                }
+
+                const form = document.getElementById('bill-main-form');
+                if (form) {
+                    form.submit();
+                }
+            };
+
+            document.getElementById('additional_paid_amount')?.addEventListener('input', window.updatePaymentModalStatus);
         })();
     </script>
 </x-layouts.app>

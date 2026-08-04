@@ -1,5 +1,33 @@
 <x-layouts.app title="Purchaser Report">
     @php
+        $allCartsList = $groupedCarts['today']->merge($groupedCarts['history'])->unique('id')->values();
+
+        $creditCarts = $allCartsList->filter(function ($cart) {
+            $cartAmount = $cart->purchaseInvoice 
+                ? ((float) $cart->purchaseInvoice->amount - (float) $cart->discount_amount) 
+                : ((float) $cart->items->sum('line_total') - (float) $cart->discount_amount);
+            $isPaid = ($cart->purchaseInvoice && $cart->purchaseInvoice->payment_status === 'paid') 
+                || $cart->payment_status === 'paid' 
+                || ($cart->purchaseInvoice && (float) $cart->purchaseInvoice->paid_amount >= $cartAmount);
+            if ($isPaid) return false;
+
+            $method = (string) ($cart->purchaseInvoice?->payment_method ?? $cart->payment_method);
+            return strcasecmp($method, 'Credit') === 0;
+        })->values();
+
+        $dueCarts = $allCartsList->filter(function ($cart) {
+            $cartAmount = $cart->purchaseInvoice 
+                ? ((float) $cart->purchaseInvoice->amount - (float) $cart->discount_amount) 
+                : ((float) $cart->items->sum('line_total') - (float) $cart->discount_amount);
+            $isPaid = ($cart->purchaseInvoice && $cart->purchaseInvoice->payment_status === 'paid') 
+                || $cart->payment_status === 'paid' 
+                || ($cart->purchaseInvoice && (float) $cart->purchaseInvoice->paid_amount >= $cartAmount);
+            if ($isPaid) return false;
+
+            $method = (string) ($cart->purchaseInvoice?->payment_method ?? $cart->payment_method);
+            return strcasecmp($method, 'Credit') !== 0;
+        })->values();
+
         $reportTabs = [
             'today' => [
                 'label' => 'Today',
@@ -7,6 +35,20 @@
                 'carts' => $groupedCarts['today'],
                 'description' => 'Purchases and active orders for the selected operational date.',
                 'empty' => 'No purchases for this date.',
+            ],
+            'credit' => [
+                'label' => 'Credit',
+                'tone' => 'bg-amber-100 text-amber-700',
+                'carts' => $creditCarts,
+                'description' => 'Pending bills with Credit payment method selected.',
+                'empty' => 'No pending credit bills found.',
+            ],
+            'due' => [
+                'label' => 'Due',
+                'tone' => 'bg-slate-100 text-slate-700',
+                'carts' => $dueCarts,
+                'description' => 'Unpaid and partially paid non-credit bills (To Be Paid).',
+                'empty' => 'No pending due bills found.',
             ],
             'history' => [
                 'label' => 'History',
@@ -16,6 +58,11 @@
                 'empty' => 'No historical purchases found.',
             ],
         ];
+
+        $defaultTab = request('tab', 'today');
+        if (!array_key_exists($defaultTab, $reportTabs)) {
+            $defaultTab = 'today';
+        }
     @endphp
 
     <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-3 lg:max-w-6xl lg:gap-4 lg:px-6 lg:py-4">
@@ -126,10 +173,10 @@
         <!-- Unified Tab Switcher, Vendor Search & Report Summary -->
         <section class="rounded-xl border border-slate-200 bg-white p-2.5 shadow-xs">
             <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                <!-- Left: Tab Switcher Buttons (Today / History) -->
-                <div class="inline-flex shrink-0 rounded-lg bg-slate-100 p-0.5 text-xs font-bold text-slate-700">
+                <!-- Left: Tab Switcher Buttons (Today / Credit / Due / History) -->
+                <div class="inline-flex shrink-0 rounded-lg bg-slate-100 p-0.5 text-xs font-bold text-slate-700 flex-wrap gap-0.5">
                     @foreach ($reportTabs as $tabKey => $tab)
-                        <button type="button" id="report-tab-btn-{{ $tabKey }}" onclick="switchReportTab('{{ $tabKey }}')" class="{{ $loop->first ? 'bg-white text-slate-950 shadow-2xs font-black' : 'text-slate-500 hover:text-slate-800' }} inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 transition-all">
+                        <button type="button" id="report-tab-btn-{{ $tabKey }}" onclick="switchReportTab('{{ $tabKey }}')" class="{{ $tabKey === $defaultTab ? 'bg-white text-slate-950 shadow-2xs font-black' : 'text-slate-500 hover:text-slate-800' }} inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 transition-all">
                             <span>{{ strtoupper($tab['label']) }}</span>
                             <span class="rounded-full bg-slate-200/80 px-1.5 py-0.2 text-[9px] font-black text-slate-700">{{ $tab['carts']->count() }}</span>
                         </button>
@@ -164,7 +211,7 @@
                                 return max(0.0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount);
                             });
                         @endphp
-                        <div id="tab-summary-total-{{ $tabKey }}" class="{{ $loop->first ? '' : 'hidden' }} text-right">
+                        <div id="tab-summary-total-{{ $tabKey }}" class="{{ $tabKey === $defaultTab ? '' : 'hidden' }} text-right">
                             <span class="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Total Amount</span>
                             <span class="font-mono font-black text-slate-950 text-xs sm:text-sm">₹{{ number_format($tabTotalAmount, 2) }}</span>
                         </div>
@@ -180,7 +227,7 @@
         </section>
 
         @foreach ($reportTabs as $tabKey => $tab)
-            <section id="report-section-{{ $tabKey }}" class="{{ $loop->first ? '' : 'hidden' }} space-y-3">
+            <section id="report-section-{{ $tabKey }}" class="{{ $tabKey === $defaultTab ? '' : 'hidden' }} space-y-3">
 
                 @if ($tab['carts']->isEmpty())
                     <div class="rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-sm font-bold text-slate-500 lg:rounded-[2rem] lg:px-4">
@@ -758,7 +805,7 @@
         }
 
         function switchReportTab(tab) {
-            const tabs = ['today', 'history'];
+            const tabs = ['today', 'credit', 'due', 'history'];
 
             tabs.forEach((tabKey) => {
                 const button = document.getElementById(`report-tab-btn-${tabKey}`);
@@ -779,6 +826,9 @@
                     if (totalSummary) totalSummary.classList.add('hidden');
                 }
             });
+
+            const tabFormInput = document.getElementById('payment-form-tab');
+            if (tabFormInput) tabFormInput.value = tab;
         }
 
         function filterVendorCards(query) {

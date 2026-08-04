@@ -27,6 +27,7 @@ use App\Models\StockBatch;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Services\Finance\JournalService;
+use App\Services\Purchasing\BulkPaymentService;
 use App\Services\Purchasing\PurchaseInvoiceService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\VendorPriceService;
@@ -1042,12 +1043,21 @@ class PurchaserDashboardController extends Controller
                 $itemCount = (int) $cart->items->count();
                 $totalQuantity = round((float) $cart->items->sum('quantity'), 2);
                 $itemSummary = $cart->items
-                    ->map(function ($item): string {
+                    ->map(function ($item): array {
                         $productName = $item->product?->name ?? 'Product';
-                        $quantity = $this->trimTrailingZeros((float) $item->quantity);
+                        $quantity = (float) $item->quantity;
                         $unit = $item->product?->unit ?? '';
+                        $price = (float) $item->unit_price;
+                        $lineTotal = (float) $item->line_total;
 
-                        return trim("{$productName} {$quantity} {$unit}");
+                        return [
+                            'name' => $productName,
+                            'quantity' => $this->trimTrailingZeros($quantity),
+                            'unit' => $unit,
+                            'price' => number_format($price, 2),
+                            'total' => number_format($lineTotal, 2),
+                            'display' => trim("{$productName} {$this->trimTrailingZeros($quantity)} {$unit}"),
+                        ];
                     })
                     ->values()
                     ->all();
@@ -1056,6 +1066,7 @@ class PurchaserDashboardController extends Controller
                     'date_key' => $cart->business_date->format('Y-m-d'),
                     'date_label' => $cart->business_date->format('d M Y'),
                     'cart_number' => $cart->cart_number,
+                    'invoice_id' => $invoice?->id,
                     'invoice_number' => $invoice?->invoice_number,
                     'amount' => (float) ($invoice ? max(0, (float) $invoice->amount - (float) $invoice->discount_amount) : max(0, (float) $cart->items->sum('line_total') - (float) $cart->discount_amount)),
                     'updated_at' => $invoice?->updated_at ?? $cart->updated_at,
@@ -2067,6 +2078,121 @@ class PurchaserDashboardController extends Controller
                 'date' => $updatedInvoice->purchaserCart?->business_date?->format('Y-m-d') ?? now()->format('Y-m-d'),
                 'tab' => $request->string('tab')->toString(),
             ]))
+            ->with('success', $message);
+    }
+
+    public function showBulkPayment(Request $request, Supplier $supplier): View|RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $date = $this->resolveBusinessDate($request);
+
+        if ($date instanceof RedirectResponse) {
+            return $date;
+        }
+
+        $userId = (int) $request->user()->id;
+
+        // Get all pending invoices for this supplier and purchaser
+        $pendingInvoices = PurchaseInvoice::query()
+            ->whereHas('purchaserCart', function ($query) use ($userId): void {
+                $query->where('user_id', $userId);
+            })
+            ->where('supplier_id', $supplier->id)
+            ->with(['purchaserCart'])
+            ->orderBy('created_at', 'asc')
+            ->get();
+
+        // Build pending bills collection
+        $pendingBills = $pendingInvoices
+            ->map(function (PurchaseInvoice $invoice): ?array {
+                $netAmount = max(0, (float) $invoice->amount - (float) $invoice->discount_amount);
+                $remaining = max(0, $netAmount - (float) $invoice->paid_amount);
+
+                if ($remaining <= 0) {
+                    return null;
+                }
+
+                return [
+                    'id' => $invoice->id,
+                    'invoice_number' => $invoice->invoice_number ?: 'PENDING-' . $invoice->purchaserCart->cart_number,
+                    'cart_number' => $invoice->purchaserCart->cart_number,
+                    'date' => $invoice->purchaserCart->business_date->format('d M Y'),
+                    'amount' => round((float) $invoice->amount, 2),
+                    'paid' => round((float) $invoice->paid_amount, 2),
+                    'pending' => round($remaining, 2),
+                ];
+            })
+            ->filter()
+            ->values();
+
+        return view('purchasing.purchaser.suppliers.bulk-payment', [
+            'date' => $date->format('Y-m-d'),
+            'supplier' => $supplier,
+            'pendingBills' => $pendingBills,
+        ]);
+    }
+
+    public function bulkPayment(Request $request, Supplier $supplier): RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $validated = $request->validate([
+            'bill_ids' => ['required', 'array', 'min:1'],
+            'bill_ids.*' => ['required', 'integer', 'exists:purchase_invoices,id'],
+            'amount_paid' => ['required', 'numeric', 'min:0'],
+            'payment_method' => ['required', 'string', 'in:Cash,Online,GPay,Credit'],
+            'payment_paid_by' => ['nullable', 'string', 'in:purchaser,company'],
+            'discount_allocations' => ['nullable', 'array'],
+            'discount_allocations.*' => ['nullable', 'numeric', 'min:0'],
+            'payment_note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        // Verify all bills belong to this supplier and to this purchaser
+        $billIds = $validated['bill_ids'];
+        $verifiedInvoices = PurchaseInvoice::query()
+            ->whereIn('id', $billIds)
+            ->where('supplier_id', $supplier->id)
+            ->whereHas('purchaserCart', function ($query) use ($request): void {
+                $query->where('user_id', $request->user()->id);
+            })
+            ->count();
+
+        if ($verifiedInvoices !== count($billIds)) {
+            return back()->withErrors([
+                'bill_ids' => 'Some bills do not belong to this supplier or you do not have access to them.',
+            ]);
+        }
+
+        $bulkPaymentService = app(BulkPaymentService::class);
+        $result = $bulkPaymentService->processBulkPayment($supplier, [
+            'bill_ids' => $billIds,
+            'amount_paid' => (float) $validated['amount_paid'],
+            'payment_method' => $validated['payment_method'],
+            'payment_paid_by' => $validated['payment_paid_by'] ?? 'purchaser',
+            'discount_allocations' => $validated['discount_allocations'] ?? [],
+            'payment_note' => $validated['payment_note'] ?? null,
+        ]);
+
+        if (! $result['success']) {
+            return back()->withErrors([
+                'payment' => $result['message'] ?? 'Unable to process bulk payment.',
+            ]);
+        }
+
+        $message = "Successfully paid ₹{$result['total_paid']} across {$result['processed']} bill(s).";
+        if ($result['total_discount'] > 0) {
+            $message .= " Total discount: ₹{$result['total_discount']}.";
+        }
+        if (($result['remaining_payment'] ?? 0) > 0) {
+            $message .= " Remaining unallocated: ₹{$result['remaining_payment']}.";
+        }
+
+        return redirect()
+            ->route('purchaser.suppliers.show', [
+                'supplier' => $supplier,
+                'date' => $request->string('date', now()->format('Y-m-d'))->toString(),
+            ])
             ->with('success', $message);
     }
 

@@ -3,281 +3,237 @@
         @include('purchasing.purchaser.partials.feedback')
         @include('purchasing.purchaser.partials.deadline_alert')
 
-        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:rounded-[2rem] lg:p-5">
-            <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div class="min-w-0">
-                    <p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Vendor Detail</p>
-                    <h1 class="mt-1 text-xl font-black text-slate-950">{{ $supplier->name }}</h1>
-                    <p class="mt-1 text-xs font-semibold text-slate-600">{{ $supplier->mobile_number ?: 'Mobile pending' }}{{ $supplier->location ? ' • '.$supplier->location : '' }}</p>
+        {{-- ═══════════════════════════════════════════════════════════
+             ROW 1 · Compact Page Header  (matches report/history style)
+        ════════════════════════════════════════════════════════════════ --}}
+        <section class="rounded-xl border border-slate-200 bg-white p-3 shadow-xs lg:rounded-2xl">
+            <div>
+                <div class="flex items-center gap-2">
+                    <span class="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500">Vendor Detail</span>
+                    <h1 class="text-base font-black text-slate-950">{{ $supplier->name }}</h1>
+                    <span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] {{ $supplier->credit_approved ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700' }}">
+                        {{ $supplier->credit_approved ? 'Credit Approved' : 'Cash Terms' }}
+                    </span>
                 </div>
-                <div class="flex flex-wrap gap-2">
-                    <a href="{{ route('purchaser.suppliers', ['date' => $date]) }}" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 px-4 text-xs font-black text-slate-700 hover:bg-slate-50">Back</a>
-                    <a href="{{ route('purchaser.finance', ['date' => $date]) }}" class="inline-flex h-10 items-center justify-center rounded-xl bg-slate-950 px-4 text-xs font-black text-white hover:bg-slate-800">Finance Desk</a>
-                </div>
+                <p class="mt-0.5 text-[11px] font-semibold text-slate-500">
+                    {{ $supplier->mobile_number ?: 'Mobile pending' }}{{ $supplier->location ? ' • ' . $supplier->location : '' }}{{ $supplier->credit_terms ? ' • ' . $supplier->credit_terms : '' }}
+                </p>
             </div>
+
+            <div class="mt-2.5 flex flex-wrap items-center gap-2">
+                <a href="{{ route('purchaser.suppliers', ['date' => $date]) }}" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-700 hover:bg-white shrink-0">
+                    ← Vendor Hub
+                </a>
+                <a href="{{ route('purchaser.history', ['date' => $date]) }}" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-700 hover:bg-white shrink-0">
+                    Purchase Report
+                </a>
+                <a href="{{ route('purchaser.finance', ['date' => $date]) }}" class="inline-flex h-8 items-center justify-center rounded-lg bg-slate-950 px-3 text-xs font-black text-white hover:bg-slate-800 shrink-0">
+                    Finance Desk
+                </a>
+
+                @php
+                    // Calculate pending bills for bulk payment
+                    $pendingBills = collect();
+                    $totalPendingAmount = 0.0;
+                    foreach ($vendorHistory ?? [] as $day) {
+                        foreach ($day['entries'] as $entry) {
+                            if (!empty($entry['invoice_id'])) {
+                                $entryPending = max(0.0, (float) $entry['amount'] - (float) $entry['paid_amount']);
+                                if ($entryPending > 0) {
+                                    $pendingBills->push([
+                                        'id' => $entry['invoice_id'],
+                                        'invoice_number' => $entry['invoice_number'] ?: 'PENDING-' . $entry['cart_number'],
+                                        'cart_number' => $entry['cart_number'],
+                                        'date' => $day['date_label'],
+                                        'amount' => (float) $entry['amount'],
+                                        'paid' => (float) $entry['paid_amount'],
+                                        'pending' => $entryPending,
+                                    ]);
+                                    $totalPendingAmount += $entryPending;
+                                }
+                            }
+                        }
+                    }
+                @endphp
+
+                @if ($pendingBills->isNotEmpty())
+                    <a
+                        href="{{ route('purchaser.suppliers.bulk-payment.show', ['supplier' => $supplier, 'date' => $date]) }}"
+                        class="inline-flex h-8 items-center gap-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-emerald-600 px-3 text-xs font-black text-white hover:from-teal-500 hover:to-emerald-500 shrink-0 ml-auto"
+                    >
+                        <svg class="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 12h.01"/><circle cx="12" cy="12" r="3"/></svg>
+                        Pay Bills
+                        <span class="rounded-full bg-white/20 px-1.5 py-0.5 text-[9px]">₹{{ number_format($totalPendingAmount, 0) }}</span>
+                    </a>
+                @endif
+            </div>
+
             @if (filled($supplier->bank_details))
-                <div class="mt-3 rounded-xl border border-teal-200 bg-teal-50/70 p-3">
+                <div class="mt-3 rounded-xl border border-teal-200 bg-teal-50/70 px-3 py-2.5">
                     <p class="text-[9px] font-black uppercase tracking-[0.14em] text-teal-800">Banking Details / Notes</p>
                     <p class="mt-1 whitespace-pre-line text-xs font-bold text-teal-950">{{ $supplier->bank_details }}</p>
                 </div>
             @endif
         </section>
 
-        @php
-            $summaryCards = collect([
-                [
-                    'label' => 'Credit',
-                    'value' => $supplier->credit_approved ? 'Approved' : 'Not approved',
-                    'tone' => $supplier->credit_approved ? 'text-emerald-700' : 'text-amber-700',
-                ],
-                [
-                    'label' => 'Open Issues',
-                    'value' => $pendingInvoices->count(),
-                    'tone' => 'text-slate-950',
-                ],
-                [
-                    'label' => 'Recent Purchases',
-                    'value' => $supplier->purchaserCarts->count(),
-                    'tone' => 'text-slate-950',
-                ],
-                [
-                    'label' => 'Credit Terms',
-                    'value' => $supplier->credit_terms ?: 'Cash',
-                    'tone' => 'text-slate-950',
-                ],
-                [
-                    'label' => 'History Total',
-                    'value' => '₹'.number_format((float) $historyTotals['total_amount'], 2),
-                    'tone' => 'text-slate-950',
-                ],
-                [
-                    'label' => 'Discount Total',
-                    'value' => '₹'.number_format((float) $historyTotals['discount_amount'], 2),
-                    'tone' => 'text-slate-950',
-                ],
-                [
-                    'label' => 'Paid Total',
-                    'value' => '₹'.number_format((float) $historyTotals['paid_amount'], 2),
-                    'tone' => 'text-emerald-700',
-                ],
-                [
-                    'label' => 'Pending Total',
-                    'value' => '₹'.number_format((float) $historyTotals['pending_amount'], 2),
-                    'tone' => 'text-amber-700',
-                ],
-                [
-                    'label' => 'Items Bought',
-                    'value' => $historyTotals['item_count'],
-                    'tone' => 'text-slate-950',
-                ],
-            ]);
-            $lastCardStretches = $summaryCards->count() % 3 === 1;
-        @endphp
-
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-            @foreach ($summaryCards as $card)
-                <div @class([
-                    'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm',
-                    'sm:col-span-3 xl:col-span-1' => $lastCardStretches && $loop->last,
-                ])>
-                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">{{ $card['label'] }}</p>
-                    <p class="mt-1 text-lg font-black {{ $card['tone'] }}">{{ $card['value'] }}</p>
-                </div>
-            @endforeach
-        </div>
-
-        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:rounded-[2rem] lg:p-5">
-            <div class="flex items-center justify-between gap-3">
-                <div>
-                    <h2 class="text-sm font-black text-slate-950">Vendor history</h2>
-                    <p class="mt-1 text-xs font-semibold text-slate-500">Grouped by business date so you can understand the vendor relationship after a few months. Open any date to review bills, items, receipt notes, and follow-up.</p>
-                </div>
-                <span class="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black text-slate-700">{{ $supplier->purchaserCarts->count() }}</span>
+        @if ($vendorHistory->isEmpty())
+            <div class="rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-sm font-bold text-slate-500 lg:rounded-[2rem]">
+                No vendor history found yet.
             </div>
-            <div class="mt-4 space-y-3 lg:hidden">
-                @forelse ($vendorHistory as $day)
-                    <details class="rounded-2xl border border-slate-200 bg-slate-50/70 p-3" @if($loop->first) open @endif>
-                        <summary class="cursor-pointer list-none">
-                            <div class="flex items-start justify-between gap-3">
-                                <div>
-                                    <h3 class="text-sm font-black text-slate-950">{{ $day['date_label'] }}</h3>
-                                    <p class="mt-1 text-[11px] font-semibold text-slate-500">{{ $day['record_count'] }} {{ \Illuminate\Support\Str::plural('bill', $day['record_count']) }} • {{ $day['item_count'] }} items</p>
-                                </div>
-                                <div class="text-right">
-                                    <p class="text-[11px] font-black text-slate-950">₹{{ number_format((float) $day['total_amount'], 2) }}</p>
-                                    <p class="mt-1 text-[10px] font-bold {{ $day['balance_amount'] > 0 ? 'text-amber-700' : 'text-emerald-700' }}">
-                                        {{ $day['balance_amount'] > 0 ? 'Pending' : 'Settled' }}
-                                    </p>
-                                </div>
+        @else
+            {{-- Desktop Table View --}}
+            <div class="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:block lg:rounded-[2rem]">
+                @foreach ($vendorHistory as $day)
+                    @foreach ($day['entries'] as $entry)
+                        @php
+                            $entryPending = max(0.0, (float) $entry['amount'] - (float) $entry['paid_amount']);
+                            $billModalPayload = [
+                                'supplierName'   => $supplier->name,
+                                'supplierMobile' => $supplier->mobile_number ?: '',
+                                'billRef'        => $entry['cart_number'],
+                                'invoiceNumber'  => $entry['invoice_number'] ?: ('PENDING-' . $entry['cart_number']),
+                                'date'           => $day['date_label'],
+                                'paymentStatus'  => $entry['payment_status'],
+                                'totalAmount'    => '₹' . number_format((float) $entry['amount'], 2),
+                                'cashAmount'     => '₹' . number_format((float) $entry['paid_amount'], 2),
+                                'creditAmount'   => '₹' . number_format($entryPending, 2),
+                                'grnNumber'      => $entry['receipt_notes'] ? 'See notes below' : 'Pending',
+                                'items'          => collect($entry['item_summary'])->values()->all(),
+                            ];
+                        @endphp
+                        <div class="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 hover:bg-slate-50/80">
+                            <div>
+                                <p class="text-sm font-black text-slate-950">{{ $day['date_label'] }}</p>
+                                <p class="text-[11px] font-semibold text-slate-500">{{ $entry['cart_number'] }} · {{ $entry['item_count'] }} items</p>
                             </div>
-                        </summary>
-
-                        <div class="mt-3 grid grid-cols-2 gap-2">
-                            <div class="rounded-xl bg-white px-3 py-2">
-                                <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Paid</p>
-                                <p class="mt-1 text-[11px] font-black text-emerald-700">₹{{ number_format((float) $day['paid_amount'], 2) }}</p>
-                            </div>
-                            <div class="rounded-xl bg-white px-3 py-2">
-                                <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Pending</p>
-                                <p class="mt-1 text-[11px] font-black text-amber-700">₹{{ number_format((float) $day['balance_amount'], 2) }}</p>
-                            </div>
+                            <button
+                                type="button"
+                                onclick='openVendorBillModal(@json($billModalPayload))'
+                                class="inline-flex h-8 items-center rounded-lg bg-teal-600 px-3 text-[11px] font-black text-white hover:bg-teal-500 shadow-2xs"
+                            >
+                                View Bill
+                            </button>
                         </div>
-
-                        <div class="mt-3 space-y-2">
-                            @foreach ($day['entries'] as $entry)
-                                <article class="rounded-2xl border {{ $entry['is_operationally_unresolved'] ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50' }} p-3">
-                                    <div class="flex items-start justify-between gap-3">
-                                        <div class="min-w-0">
-                                            <p class="truncate text-sm font-black text-slate-950">{{ $entry['invoice_number'] ?: 'Bill pending' }}</p>
-                                            <p class="mt-1 text-[11px] font-semibold text-slate-600">{{ $entry['cart_number'] }} • {{ $entry['status_label'] }} • {{ $entry['payment_status'] }}</p>
-                                            <p class="mt-1 text-[11px] font-semibold text-slate-500">{{ implode(' • ', $entry['item_summary']) }}</p>
-                                        </div>
-                                        <div class="text-right">
-                                            <p class="text-sm font-black text-slate-950">₹{{ number_format((float) $entry['amount'], 2) }}</p>
-                                            @if ($entry['is_payment_pending'] && $entry['payment_modal'] && $entry['payment_route'])
-                                                <button
-                                                    type="button"
-                                                    onclick='openVendorHistoryPaymentModal(@json($entry['payment_modal']), "{{ $entry['payment_route'] }}")'
-                                                    class="mt-2 inline-flex h-8 items-center rounded-lg bg-slate-950 px-3 text-[10px] font-black text-white hover:bg-slate-800"
-                                                >
-                                                    Update Payment
-                                                </button>
-                                            @endif
-                                        </div>
-                                    </div>
-                                </article>
-                            @endforeach
-                        </div>
-                    </details>
-                @empty
-                    <p class="rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm font-bold text-slate-500">No vendor history found yet.</p>
-                @endforelse
-
-                @if ($vendorHistory->isNotEmpty())
-                    <div class="rounded-2xl border border-slate-200 bg-white p-3">
-                        <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">History Total</p>
-                        <div class="mt-3 grid grid-cols-2 gap-2">
-                            <div class="rounded-xl bg-slate-50 px-3 py-2">
-                                <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Bills</p>
-                                <p class="mt-1 text-[11px] font-black text-slate-950">{{ $historyTotals['record_count'] }}</p>
-                            </div>
-                            <div class="rounded-xl bg-slate-50 px-3 py-2">
-                                <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Items</p>
-                                <p class="mt-1 text-[11px] font-black text-slate-950">{{ $historyTotals['item_count'] }}</p>
-                            </div>
-                            <div class="rounded-xl bg-slate-50 px-3 py-2">
-                                <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Total</p>
-                                <p class="mt-1 text-[11px] font-black text-slate-950">₹{{ number_format((float) $historyTotals['total_amount'], 2) }}</p>
-                            </div>
-                            <div class="rounded-xl bg-slate-50 px-3 py-2">
-                                <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Paid</p>
-                                <p class="mt-1 text-[11px] font-black text-emerald-700">₹{{ number_format((float) $historyTotals['paid_amount'], 2) }}</p>
-                            </div>
-                            <div class="rounded-xl bg-slate-50 px-3 py-2 sm:col-span-2">
-                                <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Pending</p>
-                                <p class="mt-1 text-[11px] font-black text-amber-700">₹{{ number_format((float) $historyTotals['pending_amount'], 2) }}</p>
-                            </div>
-                        </div>
-                    </div>
-                @endif
-            </div>
-
-            @if ($vendorHistory->isNotEmpty())
-                <div class="mt-4 hidden overflow-hidden rounded-2xl border border-slate-200 lg:block">
-                    <div class="grid grid-cols-[140px_120px_120px_120px_120px_120px] gap-0 bg-slate-950 px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-slate-300">
-                        <div>Date</div>
-                        <div>Bills</div>
-                        <div>Items</div>
-                        <div>Total</div>
-                        <div>Paid</div>
-                        <div>Pending</div>
-                    </div>
-                    @foreach ($vendorHistory as $day)
-                        <details class="border-t border-slate-200 bg-white" @if($loop->first) open @endif>
-                            <summary class="grid cursor-pointer list-none grid-cols-[140px_120px_120px_120px_120px_120px] items-center gap-0 px-4 py-3 text-sm">
-                                <div class="font-black text-slate-950">{{ $day['date_label'] }}</div>
-                                <div class="font-black text-slate-700">{{ $day['record_count'] }}</div>
-                                <div class="font-black text-slate-700">{{ $day['item_count'] }}</div>
-                                <div class="font-black text-slate-950">₹{{ number_format((float) $day['total_amount'], 2) }}</div>
-                                <div class="font-black text-emerald-700">₹{{ number_format((float) $day['paid_amount'], 2) }}</div>
-                                <div class="font-black {{ $day['balance_amount'] > 0 ? 'text-amber-700' : 'text-slate-950' }}">₹{{ number_format((float) $day['balance_amount'], 2) }}</div>
-                            </summary>
-
-                            <div class="border-t border-slate-100 bg-slate-50 px-4 py-4">
-                                <div class="mb-3 flex items-center justify-between gap-3">
-                                    <p class="text-xs font-semibold text-slate-500">Open this date to understand what was bought, what was paid, and what still needs follow-up.</p>
-                                    <span class="rounded-full bg-white px-3 py-1 text-[10px] font-black text-slate-700">{{ $day['completed_count'] }} completed • {{ $day['pending_count'] }} pending</span>
-                                </div>
-                                <div class="space-y-3">
-                                    @foreach ($day['entries'] as $entry)
-                                        <article class="rounded-2xl border {{ $entry['is_operationally_unresolved'] ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50' }} p-4">
-                                            <div class="grid grid-cols-[minmax(0,1.7fr)_140px_120px_120px] items-start gap-4">
-                                                <div class="min-w-0">
-                                                    <div class="flex flex-wrap items-center gap-2">
-                                                        <p class="truncate text-sm font-black text-slate-950">{{ $entry['invoice_number'] ?: 'Bill pending' }}</p>
-                                                        <span class="rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.14em] {{ $entry['status_tone'] }}">
-                                                            {{ $entry['status_label'] }}
-                                                        </span>
-                                                    </div>
-                                                    <p class="mt-1 text-[11px] font-semibold text-slate-600">{{ $entry['cart_number'] }} • {{ $entry['payment_status'] }} • {{ $entry['payment_method'] }}</p>
-                                                    <div class="mt-2 rounded-xl border border-white/70 bg-white/80 px-3 py-2">
-                                                        <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Items Bought</p>
-                                                        <p class="mt-1 text-[11px] font-semibold text-slate-700">{{ implode(' • ', $entry['item_summary']) }}</p>
-                                                    </div>
-                                                    @if (filled($entry['receipt_notes']))
-                                                        <div class="mt-2 rounded-xl border border-white/70 bg-white/80 px-3 py-2">
-                                                            <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Receipt Notes</p>
-                                                            <p class="mt-1 whitespace-pre-line text-[11px] font-semibold text-slate-700">{{ $entry['receipt_notes'] }}</p>
-                                                        </div>
-                                                    @endif
-                                                    @if (filled($entry['discrepancy_summary']))
-                                                        <div class="mt-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2">
-                                                            <p class="text-[9px] font-black uppercase tracking-[0.14em] text-blue-700">Delivery Discrepancy</p>
-                                                            <p class="mt-1 whitespace-pre-line text-[11px] font-semibold text-slate-700">{{ $entry['discrepancy_summary'] }}</p>
-                                                        </div>
-                                                    @endif
-                                                </div>
-                                                <div>
-                                                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Amount</p>
-                                                    <p class="mt-1 text-sm font-black text-slate-950">₹{{ number_format((float) $entry['amount'], 2) }}</p>
-                                                </div>
-                                                <div>
-                                                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Paid</p>
-                                                    <p class="mt-1 text-sm font-black text-emerald-700">₹{{ number_format((float) $entry['paid_amount'], 2) }}</p>
-                                                </div>
-                                                <div class="flex flex-col items-start">
-                                                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Pending</p>
-                                                    <p class="mt-1 text-sm font-black {{ $entry['balance_amount'] > 0 ? 'text-amber-700' : 'text-slate-950' }}">₹{{ number_format((float) $entry['balance_amount'], 2) }}</p>
-                                                    @if ($entry['is_payment_pending'] && $entry['payment_modal'] && $entry['payment_route'])
-                                                        <button
-                                                            type="button"
-                                                            onclick='openVendorHistoryPaymentModal(@json($entry['payment_modal']), "{{ $entry['payment_route'] }}")'
-                                                            class="mt-3 inline-flex h-8 items-center rounded-lg bg-slate-950 px-3 text-[10px] font-black text-white hover:bg-slate-800"
-                                                        >
-                                                            Update Payment
-                                                        </button>
-                                                    @endif
-                                                </div>
-                                            </div>
-                                        </article>
-                                    @endforeach
-                                </div>
-                            </div>
-                        </details>
                     @endforeach
-                    <div class="grid grid-cols-[140px_120px_120px_120px_120px_120px] items-center gap-0 border-t border-slate-200 bg-slate-100 px-4 py-3 text-sm">
-                        <div class="font-black text-slate-950">Total</div>
-                        <div class="font-black text-slate-700">{{ $historyTotals['record_count'] }}</div>
-                        <div class="font-black text-slate-700">{{ $historyTotals['item_count'] }}</div>
-                        <div class="font-black text-slate-950">₹{{ number_format((float) $historyTotals['total_amount'], 2) }}</div>
-                        <div class="font-black text-emerald-700">₹{{ number_format((float) $historyTotals['paid_amount'], 2) }}</div>
-                        <div class="font-black {{ $historyTotals['pending_amount'] > 0 ? 'text-amber-700' : 'text-slate-950' }}">₹{{ number_format((float) $historyTotals['pending_amount'], 2) }}</div>
-                    </div>
-                </div>
-            @endif
-        </section>
+                @endforeach
+            </div>
+
+            {{-- Mobile Compact Cards --}}
+            <div class="space-y-2 lg:hidden">
+                @foreach ($vendorHistory as $day)
+                    @foreach ($day['entries'] as $entry)
+                        @php
+                            $mobileEntryPending = max(0.0, (float) $entry['amount'] - (float) $entry['paid_amount']);
+                            $mobileBillModalPayload = [
+                                'supplierName'   => $supplier->name,
+                                'supplierMobile' => $supplier->mobile_number ?: '',
+                                'billRef'        => $entry['cart_number'],
+                                'invoiceNumber'  => $entry['invoice_number'] ?: ('PENDING-' . $entry['cart_number']),
+                                'date'           => $day['date_label'],
+                                'paymentStatus'  => $entry['payment_status'],
+                                'totalAmount'    => '₹' . number_format((float) $entry['amount'], 2),
+                                'cashAmount'     => '₹' . number_format((float) $entry['paid_amount'], 2),
+                                'creditAmount'   => '₹' . number_format($mobileEntryPending, 2),
+                                'grnNumber'      => $entry['receipt_notes'] ? 'See notes below' : 'Pending',
+                                'items'          => collect($entry['item_summary'])->values()->all(),
+                            ];
+                        @endphp
+                        <div class="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-2xs">
+                            <div>
+                                <p class="text-sm font-black text-slate-950">{{ $day['date_label'] }}</p>
+                                <p class="text-[11px] font-semibold text-slate-500">{{ $entry['cart_number'] }} · {{ $entry['item_count'] }} items</p>
+                            </div>
+                            <button
+                                type="button"
+                                onclick='openVendorBillModal(@json($mobileBillModalPayload))'
+                                class="inline-flex h-8 items-center rounded-lg bg-teal-600 px-3 text-[11px] font-black text-white hover:bg-teal-500 shadow-2xs"
+                            >
+                                View Bill
+                            </button>
+                        </div>
+                    @endforeach
+                @endforeach
+            </div>
+        @endif
     </div>
 
+    {{-- ═══════════════════════════════════════════════════════════
+         Bill Details Bottom Sheet Modal
+    ════════════════════════════════════════════════════════════════ --}}
+    <div id="vendor-bill-modal" class="fixed inset-0 z-[100] hidden flex-col justify-end bg-slate-900/60 backdrop-blur-xs overscroll-none touch-none transition-opacity duration-200" onclick="if (event.target === this) closeVendorBillModal()">
+        <div class="relative flex max-h-[85vh] w-full max-w-lg mx-auto flex-col rounded-t-3xl bg-white shadow-2xl transition-transform duration-300 touch-pan-y">
+            <!-- Sticky Header -->
+            <div class="sticky top-0 z-20 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3 rounded-t-3xl">
+                <h3 class="text-sm font-black text-slate-950">Bill Details</h3>
+                <button type="button" onclick="closeVendorBillModal()" class="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-xs font-bold">✕</button>
+            </div>
+            <!-- Scrollable Body -->
+            <div class="flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] p-4 space-y-3 text-xs font-semibold text-slate-700">
+                <!-- Vendor Info -->
+                <div class="border-b border-slate-100 pb-2">
+                    <h4 id="vb-supplier-name" class="text-sm font-black text-slate-950"></h4>
+                    <p id="vb-supplier-mobile" class="mt-0.5 text-[11px] text-slate-500 font-medium"></p>
+                </div>
+                <!-- Reference & Details Grid -->
+                <div class="grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-2.5 text-xs border border-slate-100">
+                    <div>
+                        <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Bill Ref</p>
+                        <p id="vb-bill-ref" class="font-mono font-bold text-slate-900 mt-0.5 text-[11px]"></p>
+                    </div>
+                    <div>
+                        <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Date</p>
+                        <p id="vb-date" class="font-bold text-slate-900 mt-0.5 text-[11px]"></p>
+                    </div>
+                    <div class="col-span-2">
+                        <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Invoice</p>
+                        <p id="vb-invoice" class="font-mono font-bold text-teal-700 mt-0.5 text-[11px] break-all"></p>
+                    </div>
+                    <div class="col-span-2">
+                        <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Payment Status</p>
+                        <p id="vb-payment-status" class="font-black text-amber-700 mt-0.5 text-[11px]"></p>
+                    </div>
+                </div>
+                <!-- Amount Summary -->
+                <div class="rounded-xl border border-slate-900 bg-slate-950 p-3 text-white shadow-xs">
+                    <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Amount Summary</p>
+                    <div class="mt-1.5 space-y-1 text-xs">
+                        <div class="flex justify-between font-black text-xs text-white">
+                            <span>Total</span>
+                            <span id="vb-total"></span>
+                        </div>
+                        <div id="vb-paid-row" class="flex justify-between text-emerald-400 font-bold text-[11px]">
+                            <span>Paid</span>
+                            <span id="vb-paid"></span>
+                        </div>
+                        <div id="vb-credit-row" class="flex justify-between text-amber-400 font-bold text-[11px]">
+                            <span>Pending</span>
+                            <span id="vb-credit"></span>
+                        </div>
+                    </div>
+                </div>
+                <!-- Items Section -->
+                <div>
+                    <div class="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                        <h4 class="font-black text-slate-950 text-xs">Items — <span id="vb-items-count">0</span></h4>
+                    </div>
+                    <div id="vb-items-list" class="mt-1 divide-y divide-slate-100 text-xs max-h-72 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] pr-1"></div>
+                </div>
+                <!-- GRN -->
+                <div class="border-t border-slate-200 pt-2">
+                    <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">GRN</p>
+                    <p id="vb-grn" class="font-mono font-bold text-slate-800 mt-0.5 text-[11px]"></p>
+                </div>
+            </div>
+            <!-- Sticky Footer -->
+            <div class="sticky bottom-0 z-20 border-t border-slate-100 bg-white p-3">
+                <button type="button" onclick="closeVendorBillModal()" class="w-full inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-xs font-black text-slate-700 hover:bg-slate-200">Close</button>
+            </div>
+        </div>
+    </div>
+
+    {{-- ═══════════════════════════════════════════════════════════
+         Payment Update Modal
+    ════════════════════════════════════════════════════════════════ --}}
     <div id="vendor-history-payment-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs" onclick="if (event.target === this) closeVendorHistoryPaymentModal()">
         <div class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
             <div class="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -342,13 +298,8 @@
                 </div>
 
                 <div>
-                    <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Payment Note</label>
+                    <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Notes</label>
                     <input id="vendor_history_payment_note" type="text" name="payment_note" class="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none">
-                </div>
-
-                <div>
-                    <label class="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">Payment Details</label>
-                    <textarea id="vendor_history_payment_details" name="payment_details" rows="3" class="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none"></textarea>
                 </div>
 
                 <button type="submit" class="h-10 w-full rounded-xl bg-teal-600 text-xs font-black text-white hover:bg-teal-500">Save Payment Update</button>
@@ -357,6 +308,79 @@
     </div>
 
     <script>
+        function lockVendorBillBackgroundScroll() {
+            document.documentElement.classList.add('overflow-hidden', 'touch-none');
+            document.body.classList.add('overflow-hidden', 'touch-none');
+        }
+
+        function unlockVendorBillBackgroundScroll() {
+            document.documentElement.classList.remove('overflow-hidden', 'touch-none');
+            document.body.classList.remove('overflow-hidden', 'touch-none');
+        }
+
+        // Bill Details Modal
+        function openVendorBillModal(data) {
+            document.getElementById('vb-supplier-name').textContent = data.supplierName;
+            document.getElementById('vb-supplier-mobile').textContent = data.supplierMobile || 'Mobile pending';
+            document.getElementById('vb-bill-ref').textContent = data.billRef;
+            document.getElementById('vb-date').textContent = data.date;
+            document.getElementById('vb-invoice').textContent = data.invoiceNumber;
+            document.getElementById('vb-payment-status').textContent = data.paymentStatus;
+            document.getElementById('vb-total').textContent = data.totalAmount;
+            document.getElementById('vb-paid').textContent = data.cashAmount;
+            document.getElementById('vb-credit').textContent = data.creditAmount;
+            document.getElementById('vb-grn').textContent = data.grnNumber;
+
+            const paidRow = document.getElementById('vb-paid-row');
+            const creditRow = document.getElementById('vb-credit-row');
+            const paidAmount = Number(String(data.cashAmount || '').replace(/[^0-9.-]/g, ''));
+            const creditAmount = Number(String(data.creditAmount || '').replace(/[^0-9.-]/g, ''));
+
+            if (paidRow) {
+                paidRow.classList.toggle('hidden', false);
+            }
+            if (creditRow) {
+                creditRow.classList.toggle('hidden', !(creditAmount > 0));
+            }
+
+            const countNode = document.getElementById('vb-items-count');
+            if (countNode) countNode.textContent = data.items.length;
+
+            const itemsList = document.getElementById('vb-items-list');
+            if (itemsList) {
+                if (data.items.length > 0) {
+                    itemsList.innerHTML = data.items.map(item => `
+                        <div class="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0 text-xs">
+                            <div class="min-w-0 pr-2">
+                                <p class="font-black text-slate-950 truncate">${item.name}</p>
+                                <p class="text-[10px] font-semibold text-slate-500">${item.quantity || '0'} ${item.unit || ''} × ₹${item.price || '0.00'}</p>
+                            </div>
+                            <span class="font-mono font-black text-slate-950 shrink-0">₹${item.total || '0.00'}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    itemsList.innerHTML = '<p class="py-1.5 text-slate-500 font-semibold italic text-xs">No items listed</p>';
+                }
+            }
+
+            const modal = document.getElementById('vendor-bill-modal');
+            if (modal) {
+                lockVendorBillBackgroundScroll();
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+            }
+        }
+
+        function closeVendorBillModal() {
+            const modal = document.getElementById('vendor-bill-modal');
+            if (modal) {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+                unlockVendorBillBackgroundScroll();
+            }
+        }
+
+        // Payment Modal
         let vendorHistoryPaymentAmount = 0;
         let vendorHistoryCreditApproved = false;
         let vendorHistoryCurrentPaidAmount = 0;
@@ -374,7 +398,6 @@
             document.getElementById('vendor-history-payment-current-paid').textContent = `₹${vendorHistoryCurrentPaidAmount.toFixed(2)}`;
             document.getElementById('vendor_history_additional_paid_amount').value = '';
             document.getElementById('vendor_history_payment_note').value = invoice.paymentNote || '';
-            document.getElementById('vendor_history_payment_details').value = invoice.paymentDetails || '';
 
             updateVendorHistoryPaymentStatus();
             document.getElementById('vendor-history-payment-modal').classList.remove('hidden');
@@ -416,5 +439,134 @@
         document.getElementById('vendor_history_discount_amount')?.addEventListener('input', updateVendorHistoryPaymentStatus);
         document.getElementById('vendor_history_payment_method')?.addEventListener('change', updateVendorHistoryPaymentStatus);
         document.getElementById('vendor_history_additional_paid_amount')?.addEventListener('input', updateVendorHistoryPaymentStatus);
+
+        // ═══════════════════════════════════════════════════════════
+        // Bulk Payment Modal Functions
+        // ═══════════════════════════════════════════════════════════
+        function openBulkPaymentModal() {
+            const modal = document.getElementById('bulk-payment-modal');
+            if (modal) {
+                lockVendorBillBackgroundScroll();
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                updateBulkPaymentSummary();
+            }
+        }
+
+        function closeBulkPaymentModal() {
+            const modal = document.getElementById('bulk-payment-modal');
+            if (modal) {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+                unlockVendorBillBackgroundScroll();
+                // Reset form
+                document.querySelectorAll('.bulk-bill-checkbox').forEach(cb => cb.checked = false);
+                document.querySelectorAll('.bulk-bill-discount').forEach(input => input.value = '');
+                document.getElementById('bulk-payment-amount').value = '';
+                updateBulkPaymentSummary();
+            }
+        }
+
+        function updateBulkPaymentSummary() {
+            const checkboxes = document.querySelectorAll('.bulk-bill-checkbox:checked');
+            const paymentAmount = Number(document.getElementById('bulk-payment-amount')?.value || 0);
+
+            let totalPending = 0;
+            let totalDiscount = 0;
+
+            checkboxes.forEach(checkbox => {
+                const billId = checkbox.value;
+                const pending = Number(checkbox.dataset.pending || 0);
+                const discountInput = document.querySelector(`.bulk-bill-discount[data-bill-id="${billId}"]`);
+                const discount = Number(discountInput?.value || 0);
+
+                totalPending += pending;
+                totalDiscount += discount;
+            });
+
+            const netPending = Math.max(0, totalPending - totalDiscount);
+            const remaining = Math.max(0, netPending - paymentAmount);
+
+            // Update summary
+            document.getElementById('bulk-summary-count').textContent = checkboxes.length;
+            document.getElementById('bulk-summary-pending').textContent = `₹${totalPending.toFixed(2)}`;
+            document.getElementById('bulk-summary-discount').textContent = `₹${totalDiscount.toFixed(2)}`;
+            document.getElementById('bulk-summary-paying').textContent = `₹${paymentAmount.toFixed(2)}`;
+            document.getElementById('bulk-summary-remaining').textContent = `₹${remaining.toFixed(2)}`;
+
+            // Update remaining color
+            const remainingEl = document.getElementById('bulk-summary-remaining');
+            if (remainingEl) {
+                remainingEl.className = remaining > 0 ? 'text-amber-700' : 'text-emerald-700';
+            }
+
+            // Update warning
+            const warningEl = document.getElementById('bulk-summary-warning');
+            if (warningEl) {
+                if (checkboxes.length === 0) {
+                    warningEl.textContent = 'Please select at least one bill to pay.';
+                } else if (paymentAmount === 0) {
+                    warningEl.textContent = 'Please enter the payment amount.';
+                } else if (remaining > 0) {
+                    warningEl.textContent = `Partial payment. ₹${remaining.toFixed(2)} will remain pending across selected bills.`;
+                } else if (paymentAmount > netPending) {
+                    warningEl.textContent = 'Payment amount exceeds total pending. Excess will be ignored.';
+                } else {
+                    warningEl.textContent = 'Full payment covers all selected bills.';
+                }
+            }
+        }
+
+        function submitBulkPayment() {
+            const checkboxes = document.querySelectorAll('.bulk-bill-checkbox:checked');
+            const paymentAmount = Number(document.getElementById('bulk-payment-amount')?.value || 0);
+
+            if (checkboxes.length === 0) {
+                alert('Please select at least one bill to pay.');
+                return;
+            }
+
+            if (paymentAmount <= 0) {
+                alert('Please enter a valid payment amount.');
+                return;
+            }
+
+            // Collect bill IDs and discounts
+            const form = document.getElementById('bulk-payment-form');
+            const billIds = [];
+            const discounts = {};
+
+            checkboxes.forEach(checkbox => {
+                const billId = checkbox.value;
+                billIds.push(billId);
+
+                const discountInput = document.querySelector(`.bulk-bill-discount[data-bill-id="${billId}"]`);
+                const discount = Number(discountInput?.value || 0);
+                if (discount > 0) {
+                    discounts[billId] = discount;
+                }
+            });
+
+            // Add hidden inputs for bill IDs
+            billIds.forEach(id => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'bill_ids[]';
+                input.value = id;
+                form.appendChild(input);
+            });
+
+            // Add hidden inputs for discount allocations
+            Object.entries(discounts).forEach(([billId, discount]) => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = `discount_allocations[${billId}]`;
+                input.value = discount;
+                form.appendChild(input);
+            });
+
+            // Submit form
+            form.submit();
+        }
     </script>
 </x-layouts.app>

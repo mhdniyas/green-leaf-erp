@@ -314,6 +314,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/vendors', [PurchaserDashboardController::class, 'vendors'])->name('purchaser.vendors');
     Route::get('/purchaser/suppliers', [PurchaserDashboardController::class, 'supplierHub'])->name('purchaser.suppliers');
     Route::get('/purchaser/suppliers/{supplier}', [PurchaserDashboardController::class, 'supplierShow'])->name('purchaser.suppliers.show');
+    Route::get('/purchaser/suppliers/{supplier}/bulk-payment', [PurchaserDashboardController::class, 'showBulkPayment'])->name('purchaser.suppliers.bulk-payment.show');
     Route::get('/purchaser/finance', [PurchaserDashboardController::class, 'finance'])->name('purchaser.finance');
     Route::get('/purchaser/cash', [PurchaserDashboardController::class, 'cash'])->name('purchaser.cash');
     Route::get('/purchaser/procurement-expenses', [ProcurementExpenseController::class, 'index'])->name('purchaser.procurement-expenses.index');
@@ -343,6 +344,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/invoices/{invoice}', [PurchaserDashboardController::class, 'invoiceShow'])->name('purchaser.invoices.show');
     Route::get('/purchaser/invoices/{invoice}/pdf', [PurchaserDashboardController::class, 'invoicePdf'])->name('purchaser.invoices.pdf');
     Route::patch('/purchaser/invoices/{invoice}/payment', [PurchaserDashboardController::class, 'updateInvoicePayment'])->name('purchaser.invoices.payment');
+    Route::post('/purchaser/suppliers/{supplier}/bulk-payment', [PurchaserDashboardController::class, 'bulkPayment'])->name('purchaser.suppliers.bulk-payment');
     Route::post('/purchaser/corrections', [PurchaserDashboardController::class, 'storeCorrectionRequest'])->name('purchaser.corrections.store');
     Route::post('/purchaser/corrections/{correctionRequest}/approve', [PurchaserDashboardController::class, 'approveCorrectionRequest'])->name('purchaser.corrections.approve');
     Route::post('/purchaser/corrections/{correctionRequest}/reject', [PurchaserDashboardController::class, 'rejectCorrectionRequest'])->name('purchaser.corrections.reject');
