@@ -58,7 +58,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 // Public website
-Route::view('/', 'welcome')->name('home');
+Route::get('/', function () {
+    return auth()->check() ? redirect()->route('dashboard') : view('welcome');
+})->name('home');
 Route::view('/products', 'products.index')->name('products.index');
 Route::post('/enquiries', [WebsiteEnquiryController::class, 'store'])->middleware('throttle:public-form')->name('website-enquiries.store');
 
