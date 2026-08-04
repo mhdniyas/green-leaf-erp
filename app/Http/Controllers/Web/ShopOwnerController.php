@@ -1433,7 +1433,14 @@ class ShopOwnerController extends Controller
             return;
         }
 
-        $this->shopInvoiceService->synchronizeOrderInvoice($order, $userId);
+        try {
+            $this->shopInvoiceService->synchronizeOrderInvoice($order, $userId);
+        } catch (ValidationException $exception) {
+            report($exception);
+
+            return;
+        }
+
         $order->unsetRelation('invoice');
         $order->load(['invoice.items.product', 'invoice.paymentRequests']);
     }

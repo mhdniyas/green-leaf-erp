@@ -884,8 +884,20 @@ class ShopInvoiceService
                     return;
                 }
 
-                $this->repriceInvoice($invoice, $userId, $reason);
-                $summary['repriced']++;
+                try {
+                    $this->repriceInvoice($invoice, $userId, $reason);
+                    $summary['repriced']++;
+                } catch (ValidationException $exception) {
+                    $message = $exception->validator?->errors()->first('prices')
+                        ?? $exception->getMessage()
+                        ?? 'Invoice repricing failed.';
+
+                    $summary['skipped'][] = [
+                        'order_number' => $invoice->order?->order_number,
+                        'shop_name' => $invoice->shop?->name,
+                        'products' => [$message],
+                    ];
+                }
             });
 
         return $summary;
