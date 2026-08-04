@@ -773,7 +773,7 @@ class ShopInvoiceService
 
     public function repriceInvoice(ShopInvoice $invoice, int $userId, ?string $reason = null): ShopInvoice
     {
-        $invoice->loadMissing(['shop.priceGroup', 'items.product', 'order']);
+        $invoice->loadMissing(['shop.priceGroup', 'items.product', 'order.items.product']);
 
         if ($invoice->isFinalLocked()) {
             throw ValidationException::withMessages([
@@ -782,6 +782,12 @@ class ShopInvoiceService
         }
 
         return DB::transaction(function () use ($invoice, $userId, $reason): ShopInvoice {
+            $orderItemsByProduct = $invoice->order
+                ? $invoice->order->items
+                    ->filter(fn (ShopOrderItem $item): bool => $this->shouldIncludeOrderItemInInvoice($item))
+                    ->groupBy('product_id')
+                : collect();
+
             foreach ($invoice->items as $invoiceItem) {
                 $product = $invoiceItem->product;
 
@@ -804,10 +810,12 @@ class ShopInvoiceService
                 $price = $this->approvedDailyPriceResolver->resolve($product, $invoice->shop, $invoice->business_date);
                 $unitPrice = round((float) $price['price'], 2);
                 $priceUnit = (string) $price['price_unit'];
-                $priceQuantity = $this->priceQuantityFor($product, $approvedQty, $priceUnit);
-                $deliveredPriceQuantity = $this->priceQuantityFor($product, $deliveredQty, $priceUnit);
-                $shortagePriceQuantity = $this->priceQuantityFor($product, $shortageQty, $priceUnit);
-                $excessPriceQuantity = $this->priceQuantityFor($product, $excessQty, $priceUnit);
+                $productOrderItems = $orderItemsByProduct->get((int) $product->id);
+                $orderItemContext = $productOrderItems instanceof Collection ? $productOrderItems : null;
+                $priceQuantity = $this->priceQuantityFor($product, $approvedQty, $priceUnit, $orderItemContext);
+                $deliveredPriceQuantity = $this->priceQuantityFor($product, $deliveredQty, $priceUnit, $orderItemContext);
+                $shortagePriceQuantity = $this->priceQuantityFor($product, $shortageQty, $priceUnit, $orderItemContext);
+                $excessPriceQuantity = $this->priceQuantityFor($product, $excessQty, $priceUnit, $orderItemContext);
                 $lineSubtotal = round($priceQuantity * $unitPrice, 2);
                 $shortageAmount = round($shortagePriceQuantity * $unitPrice, 2);
                 $excessAmount = round($excessPriceQuantity * $unitPrice, 2);
@@ -1130,8 +1138,9 @@ class ShopInvoiceService
 
         if (($conversionToBase === null || (float) $conversionToBase <= 0) && $orderItems instanceof Collection && $orderItems->isNotEmpty()) {
             $conversionToBase = $orderItems
-                ->first(function (ShopOrderItem $item) use ($normalizedPriceUnit): bool {
-                    return ProductUnit::normalizeUnit((string) ($item->requested_unit ?: $item->unit)) === $normalizedPriceUnit
+                ->first(function (ShopOrderItem $item) use ($normalizedPriceUnit, $product): bool {
+                    return (int) $item->product_id === (int) $product->id
+                        && ProductUnit::normalizeUnit((string) ($item->requested_unit ?: $item->unit)) === $normalizedPriceUnit
                         && (float) ($item->requested_unit_conversion_to_base ?? 0) > 0;
                 })
                 ?->requested_unit_conversion_to_base;
