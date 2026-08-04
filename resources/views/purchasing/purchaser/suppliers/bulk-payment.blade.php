@@ -97,7 +97,6 @@
                             <option value="Cash">Cash</option>
                             <option value="Online">Online</option>
                             <option value="GPay">GPay</option>
-                            <option value="Credit">Credit</option>
                         </select>
                     </div>
 

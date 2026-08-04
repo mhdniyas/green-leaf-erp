@@ -152,60 +152,75 @@
         @media print {
             @page {
                 size: A4 {{ $filteredShops->count() === 1 ? 'portrait' : 'landscape' }};
-                margin: 3mm;
+                margin: 5mm 5mm 5mm 5mm;
             }
             html,
             body {
                 height: auto;
                 overflow: visible;
                 padding: 0;
+                margin: 0;
                 width: auto;
             }
             .no-print { display: none !important; }
             .sort-sheet-page {
                 break-after: page;
-                height: calc({{ $filteredShops->count() === 1 ? '297mm' : '210mm' }} - 6mm);
-                overflow: hidden;
-                padding: 2mm;
-                width: calc({{ $filteredShops->count() === 1 ? '210mm' : '297mm' }} - 6mm);
+                overflow: visible;
+                padding: 0;
+                width: 100%;
             }
-            table { font-size: 12px; }
+            table { 
+                font-size: 9px;
+                width: 100%;
+            }
             thead tr th {
-                font-size: 10px;
+                font-size: 8px;
                 font-weight: 900;
-                padding: 3px 2px;
+                padding: 2px 1.5px;
+                line-height: 1.1;
             }
-            tbody tr { height: 29px; }
+            tbody tr { 
+                height: auto;
+                min-height: 18px;
+            }
             tbody tr td {
-                font-size: 12px;
-                padding: 3px 2px;
+                font-size: 9px;
+                padding: 2px 1.5px;
+                line-height: 1.2;
             }
             tbody tr td:first-child {
-                font-size: 11px;
+                font-size: 8px;
                 font-weight: 900;
             }
             .item-cell {
-                font-size: 13px;
+                font-size: 9px;
                 font-weight: 900;
+                line-height: 1.2;
             }
             .qty-cell,
             .total-cell {
-                font-size: 13px;
+                font-size: 9px;
                 font-weight: 900;
             }
             .page-summary {
-                font-size: 10px;
-                line-height: 1.1;
-                margin-bottom: 2px;
-                padding-bottom: 2px;
+                font-size: 8px;
+                line-height: 1.15;
+                margin-bottom: 2mm;
+                padding-bottom: 1.5mm;
+                border-bottom-width: 1.5px;
             }
             .shop-heading-name {
                 display: block;
                 overflow: visible;
                 -webkit-line-clamp: unset;
+                line-height: 1.1;
             }
-            .shop-heading-tag { font-size: 9px; }
-            thead { display: table-row-group; }
+            .shop-heading-tag { 
+                font-size: 7px;
+                margin-top: 1px;
+            }
+            thead { display: table-header-group; }
+            tbody { display: table-row-group; }
             tr { page-break-inside: avoid; }
             .sort-sheet-page:last-child { break-after: auto; }
             a { text-decoration: none; }

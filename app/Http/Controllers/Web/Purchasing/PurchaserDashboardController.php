@@ -2093,12 +2093,13 @@ class PurchaserDashboardController extends Controller
 
         $userId = (int) $request->user()->id;
 
-        // Get all pending invoices for this supplier and purchaser
+        // Get all pending invoices for this supplier and purchaser (including credit bills)
         $pendingInvoices = PurchaseInvoice::query()
             ->whereHas('purchaserCart', function ($query) use ($userId): void {
                 $query->where('user_id', $userId);
             })
             ->where('supplier_id', $supplier->id)
+            ->whereIn('payment_status', ['unpaid', 'partial', 'credit_pending_approval'])
             ->with(['purchaserCart'])
             ->orderBy('created_at', 'asc')
             ->get();
@@ -2141,7 +2142,7 @@ class PurchaserDashboardController extends Controller
             'bill_ids' => ['required', 'array', 'min:1'],
             'bill_ids.*' => ['required', 'integer', 'exists:purchase_invoices,id'],
             'amount_paid' => ['required', 'numeric', 'min:0'],
-            'payment_method' => ['required', 'string', 'in:Cash,Online,GPay,Credit'],
+            'payment_method' => ['required', 'string', 'in:Cash,Online,GPay'],
             'payment_paid_by' => ['nullable', 'string', 'in:purchaser,company'],
             'discount_allocations' => ['nullable', 'array'],
             'discount_allocations.*' => ['nullable', 'numeric', 'min:0'],
