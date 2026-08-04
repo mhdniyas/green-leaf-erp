@@ -280,6 +280,7 @@
                                     class="flex w-full items-start justify-between gap-3 p-4 text-left border-none bg-transparent cursor-pointer hover:bg-slate-50/60 transition-colors">
                                 <div class="flex-1 min-w-0">
                                     <h3 class="truncate text-base font-black text-slate-900">
+                                        <span class="mr-1.5 inline-block rounded-lg bg-indigo-100 px-1.5 py-0.5 text-xs font-black text-indigo-700">SL {{ $loop->iteration }}</span>
                                         <span class="inline-block rounded-lg bg-slate-100 px-1.5 py-0.5 text-xs font-black text-slate-700 mr-1.5">#{{ $group['product']->sku ?: $group['product_id'] }}</span>
                                         {{ $group['product']->name }}
                                     </h3>
@@ -405,7 +406,10 @@
                          data-status="{{ $loadoutRowStatus }}">
                         <div class="flex items-center justify-between gap-3">
                             <div>
-                                <p class="text-sm font-black text-slate-900">{{ $group['product']->name }}</p>
+                                <p class="text-sm font-black text-slate-900">
+                                    <span class="mr-1.5 inline-block rounded-lg bg-indigo-100 px-1.5 py-0.5 text-xs font-black text-indigo-700">SL {{ $loop->iteration }}</span>
+                                    {{ $group['product']->name }}
+                                </p>
                                 @if (! empty($group['items']))
                                     @php
                                         $loadoutMeasures = collect($group['items'])->map(fn ($item) => $item->requestedMeasureBreakdownLabel())->filter()->unique();
