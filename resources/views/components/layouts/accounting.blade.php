@@ -187,11 +187,6 @@
                     'active' => request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill'),
                 ],
                 [
-                    'label' => 'Other Expenses',
-                    'href' => route('purchaser.other-expenses.index', ['date' => $navDate]),
-                    'active' => request()->routeIs('purchaser.other-expenses.*'),
-                ],
-                [
                     'label' => 'Purchase Invoices',
                     'href' => route('purchasing.invoices.index', ['date' => $navDate]),
                     'active' => request()->routeIs('purchasing.invoices.*'),
@@ -206,7 +201,6 @@
                     || request()->routeIs('purchaser.vendors')
                     || request()->routeIs('purchaser.cart')
                     || request()->routeIs('purchaser.bill')
-                    || request()->routeIs('purchaser.other-expenses.*')
                     || request()->routeIs('purchasing.invoices.*'),
                 'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>',
                 'children' => $purchaserChildren,
@@ -252,19 +246,14 @@
                 'active' => request()->routeIs('purchaser.daily'),
             ],
             [
-                'label' => 'Vendor Carts',
-                'href' => route('purchaser.vendors', ['date' => $navDate]),
-                'active' => request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill'),
+               'label' => 'Vendor Carts',
+               'href' => route('purchaser.vendors', ['date' => $navDate]),
+               'active' => request()->routeIs('purchaser.vendors') || request()->routeIs('purchaser.cart') || request()->routeIs('purchaser.bill'),
             ],
             [
-                'label' => 'Other Expenses',
-                'href' => route('purchaser.other-expenses.index', ['date' => $navDate]),
-                'active' => request()->routeIs('purchaser.other-expenses.*'),
-            ],
-            [
-                'label' => 'Purchase Invoices',
-                'href' => route('purchasing.invoices.index', ['date' => $navDate]),
-                'active' => request()->routeIs('purchasing.invoices.*'),
+               'label' => 'Purchase Invoices',
+               'href' => route('purchasing.invoices.index', ['date' => $navDate]),
+               'active' => request()->routeIs('purchasing.invoices.*'),
             ],
         ];
 
@@ -272,12 +261,11 @@
             'label' => 'Purchasers',
             'href' => route('admin.accounting.purchasers.index'),
             'active' => request()->routeIs('admin.accounting.purchasers.*')
-                || request()->routeIs('purchaser.daily')
-                || request()->routeIs('purchaser.vendors')
-                || request()->routeIs('purchaser.cart')
-                || request()->routeIs('purchaser.bill')
-                || request()->routeIs('purchaser.other-expenses.*')
-                || request()->routeIs('purchasing.invoices.*'),
+               || request()->routeIs('purchaser.daily')
+               || request()->routeIs('purchaser.vendors')
+               || request()->routeIs('purchaser.cart')
+               || request()->routeIs('purchaser.bill')
+               || request()->routeIs('purchasing.invoices.*'),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>',
             'children' => $purchaserChildren,
         ]]);
