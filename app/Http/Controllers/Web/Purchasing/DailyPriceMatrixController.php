@@ -163,7 +163,6 @@ class DailyPriceMatrixController extends Controller
                     'changed_b' => $changedB,
                     'changed_c' => $changedC,
                     'status' => $app?->status ?? 'none',
-                    'is_locked' => $app?->isLocked() ?? false,
                 ];
             }
 
@@ -235,17 +234,6 @@ class DailyPriceMatrixController extends Controller
 
         $previousApproval = $this->previousApprovedApprovalFor($product->id, $dateStr);
 
-        // Check if the price is already locked
-        if ($approval && $approval->isLocked()) {
-            if ($request->wantsJson()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => "Price for {$product->name} on {$dateStr} is locked and cannot be modified.",
-                ], 422);
-            }
-            return redirect()->back()->with('warning', "Price for {$product->name} on {$dateStr} is locked and cannot be modified.");
-        }
-
         if (! $approval) {
             $approval = new DailyPriceApproval([
                 'product_id' => $product->id,
@@ -277,9 +265,6 @@ class DailyPriceMatrixController extends Controller
             $approval->status = 'approved';
             $approval->approved_by = $userId;
             $approval->approved_at = now();
-            // Auto-lock the price when approved by admin
-            $approval->locked_at = now();
-            $approval->locked_by = $userId;
         } else {
             $approval->status = 'pending';
         }
@@ -419,11 +404,6 @@ class DailyPriceMatrixController extends Controller
                             ->where('business_date', $businessDate)
                             ->first();
                         
-                        // Skip if locked
-                        if ($approval && $approval->isLocked()) {
-                            continue;
-                        }
-                        
                         // Skip if no approval exists (can't publish nothing)
                         if (!$approval) {
                             continue;
@@ -450,12 +430,10 @@ class DailyPriceMatrixController extends Controller
                             }
                         }
                         
-                        // Approve and lock the existing approval
+                        // Approve the existing approval
                         $approval->status = 'approved';
                         $approval->approved_by = $userId;
                         $approval->approved_at = now();
-                        $approval->locked_at = now();
-                        $approval->locked_by = $userId;
                         $approval->save();
                         
                         $updatedCells++;
@@ -491,11 +469,6 @@ class DailyPriceMatrixController extends Controller
                             'product_id' => $product->id,
                             'business_date' => $businessDate,
                         ]);
-
-                    // Check if the price is already locked - if so, skip this update
-                    if ($approval->exists && $approval->isLocked()) {
-                        continue;
-                    }
 
                     // Determine price_unit: use submitted unit, or auto-detect from orders, or fall back to product unit
                     $submittedUnit = (string) data_get($rawMatrixPriceUnits->get((int) $productId), $dateStr, '');
@@ -533,11 +506,6 @@ class DailyPriceMatrixController extends Controller
                     $approval->status = $shouldPublish ? 'approved' : 'pending';
                     $approval->approved_by = $shouldPublish ? $userId : null;
                     $approval->approved_at = $shouldPublish ? now() : null;
-                    // Auto-lock when publishing
-                    if ($shouldPublish) {
-                        $approval->locked_at = now();
-                        $approval->locked_by = $userId;
-                    }
                     $approval->save();
 
                     $updatedCells++;
@@ -591,12 +559,10 @@ class DailyPriceMatrixController extends Controller
 
         $validated = $request->validate([
             'json_file' => ['required', 'file', 'mimes:json', 'max:10240'], // Max 10MB
-            'unlock_locked' => ['nullable', 'boolean'],
         ]);
 
         $user = $request->user();
         $userId = (int) $user->id;
-        $unlockLocked = (bool) ($validated['unlock_locked'] ?? false);
 
         // Read uploaded JSON file
         $uploadedFile = $request->file('json_file');
@@ -625,11 +591,9 @@ class DailyPriceMatrixController extends Controller
         }
 
         $updated = 0;
-        $skipped = 0;
         $errors = [];
-        $unlocked = 0;
 
-        DB::transaction(function () use ($data, $userId, $unlockLocked, &$updated, &$skipped, &$errors, &$unlocked): void {
+        DB::transaction(function () use ($data, $userId, &$updated, &$errors): void {
             foreach ($data['prices'] as $priceData) {
                 $productCode = $priceData['product_code'] ?? null;
                 $productName = $priceData['product_name'] ?? null;
@@ -693,20 +657,6 @@ class DailyPriceMatrixController extends Controller
                         $approval->save();
                         $updated++;
                     } else {
-                        // Check if locked
-                        if ($approval->isLocked()) {
-                            if ($unlockLocked) {
-                                // Unlock it
-                                $approval->locked_at = null;
-                                $approval->locked_by = null;
-                                $unlocked++;
-                            } else {
-                                // Skip locked prices
-                                $skipped++;
-                                continue;
-                            }
-                        }
-
                         // Update existing approval
                         $approval->price_a = $price;
                         $approval->price_b = $price;
@@ -722,12 +672,6 @@ class DailyPriceMatrixController extends Controller
         });
 
         $message = "Import completed: {$updated} prices updated";
-        if ($skipped > 0) {
-            $message .= ", {$skipped} locked prices skipped";
-        }
-        if ($unlocked > 0) {
-            $message .= ", {$unlocked} prices unlocked";
-        }
         if (!empty($errors)) {
             $message .= ". Errors: " . implode(', ', array_slice($errors, 0, 5));
         }
@@ -737,8 +681,6 @@ class DailyPriceMatrixController extends Controller
                 'success' => true,
                 'message' => $message,
                 'updated' => $updated,
-                'skipped' => $skipped,
-                'unlocked' => $unlocked,
                 'errors' => $errors,
             ]);
         }

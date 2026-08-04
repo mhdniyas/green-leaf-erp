@@ -288,26 +288,9 @@
                                         $hasChangedA = $cellData['changed_a'] ?? false;
                                         $hasChangedB = $cellData['changed_b'] ?? false;
                                         $hasChangedC = $cellData['changed_c'] ?? false;
-                                        
-                                        $isLocked = $cellData['is_locked'] ?? false;
                                     @endphp
                                     <td class="p-1 border-r border-slate-200 text-center {{ $dateInfo['is_selected'] ? 'bg-cyan-50/40' : '' }}">
-                                        <div class="matrix-cell-container space-y-1" data-product-id="{{ $prod['product_id'] }}" data-date="{{ $dateStr }}" data-is-locked="{{ $isLocked ? '1' : '0' }}">
-                                            @if ($isLocked)
-                                                <div class="flex flex-col items-center justify-center gap-1 p-1">
-                                                    <div class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 border border-red-200">
-                                                        <svg class="w-3 h-3 text-red-600" fill="currentColor" viewBox="0 0 20 20">
-                                                            <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
-                                                        </svg>
-                                                        <span class="text-xs font-black text-red-900">
-                                                            {{ $matrixCategory === 'a' ? ($priceValA !== null ? number_format($priceValA, 2) : '—') : ($matrixCategory === 'b' ? ($priceValB !== null ? number_format($priceValB, 2) : '—') : ($priceValC !== null ? number_format($priceValC, 2) : '—')) }}
-                                                        </span>
-                                                    </div>
-                                                    @if (($cellData['purchase_price'] ?? null) !== null)
-                                                        <span class="text-[9px] font-semibold text-slate-500">Cost {{ number_format((float) $cellData['purchase_price'], 2) }}</span>
-                                                    @endif
-                                                </div>
-                                            @else
+                                        <div class="matrix-cell-container space-y-1" data-product-id="{{ $prod['product_id'] }}" data-date="{{ $dateStr }}">
                                                 <div class="flex items-center gap-1">
                                                     <input
                                                         type="number"
@@ -340,7 +323,6 @@
                                                 @if (($cellData['purchase_price'] ?? null) !== null)
                                                     <div class="text-[9px] font-semibold text-slate-500">Cost {{ number_format((float) $cellData['purchase_price'], 2) }}</div>
                                                 @endif
-                                            @endif
                                             <div class="flex items-center justify-center gap-1">
                                                 <span class="text-[9px] font-bold text-slate-500">Unit:</span>
                                                 <input
@@ -592,7 +574,6 @@
 
                 async function executeImport() {
                     const fileInput = document.getElementById('importJsonFile');
-                    const unlockLocked = document.getElementById('unlockLocked').checked;
                     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
                                       document.querySelector('input[name="_token"]')?.value || '';
 
@@ -614,7 +595,6 @@
 
                     const formData = new FormData();
                     formData.append('json_file', fileInput.files[0]);
-                    formData.append('unlock_locked', unlockLocked ? '1' : '0');
                     formData.append('_token', csrfToken);
 
                     try {
@@ -696,18 +676,6 @@
                             <p class="mt-1.5 text-xs text-slate-500 font-medium">
                                 Upload a JSON file with price data (format: product_code, product_name, dates with prices)
                             </p>
-                        </div>
-
-                        <div class="flex items-start gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
-                            <input 
-                                type="checkbox" 
-                                id="unlockLocked" 
-                                class="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
-                            />
-                            <label for="unlockLocked" class="text-xs font-semibold text-amber-900">
-                                <span class="font-black">Force unlock locked prices</span><br>
-                                <span class="text-amber-700 font-medium">If unchecked, locked prices will be skipped during import.</span>
-                            </label>
                         </div>
 
                         <div class="p-3 rounded-xl bg-slate-50 border border-slate-200">
