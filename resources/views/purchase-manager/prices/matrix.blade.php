@@ -250,12 +250,48 @@
                     </thead>
                     <tbody class="divide-y divide-slate-200 bg-white font-medium text-slate-800">
                         @forelse ($matrixProducts as $prod)
+                            @php
+                                $latestApprovedDate = null;
+                                $latestApprovedPrice = null;
+
+                                foreach ($matrixDates as $dateStr => $dateInfo) {
+                                    $cellData = $prod['prices'][$dateStr] ?? null;
+                                    if (! $cellData || ($cellData['status'] ?? 'none') !== 'approved') {
+                                        continue;
+                                    }
+
+                                    $candidatePrice = match($matrixCategory) {
+                                        'a' => $cellData['price_a'] ?? null,
+                                        'b' => $cellData['price_b'] ?? null,
+                                        'c' => $cellData['price_c'] ?? null,
+                                        default => null,
+                                    };
+
+                                    if ($candidatePrice === null) {
+                                        continue;
+                                    }
+
+                                    if ($latestApprovedDate === null || $dateStr > $latestApprovedDate) {
+                                        $latestApprovedDate = $dateStr;
+                                        $latestApprovedPrice = (float) $candidatePrice;
+                                    }
+                                }
+                            @endphp
                             <tr class="hover:bg-slate-50 transition-colors">
                                 <td class="sticky left-0 z-10 bg-white px-3 py-2 text-center font-black text-slate-500 border-r border-slate-200">
                                     {{ $prod['sl_no'] }}
                                 </td>
                                 <td class="sticky left-14 z-10 bg-white px-4 py-2 font-bold text-slate-900 border-r border-slate-200">
                                     <span class="block truncate max-w-[170px]" title="{{ $prod['name'] }}">{{ $prod['name'] }}</span>
+                                    @if ($latestApprovedDate !== null && $latestApprovedPrice !== null)
+                                        <span class="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-700">
+                                            <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                            </svg>
+                                            Latest {{ number_format($latestApprovedPrice, 2) }}
+                                            <span class="text-emerald-600">{{ \Illuminate\Support\Carbon::parse($latestApprovedDate)->format('d M') }}</span>
+                                        </span>
+                                    @endif
                                     @if ($prod['sku'])
                                         <span class="block text-[10px] font-semibold text-slate-400">{{ $prod['sku'] }} ({{ strtoupper($prod['unit'] ?: 'KG') }})</span>
                                     @endif
@@ -289,7 +325,7 @@
                                         $hasChangedB = $cellData['changed_b'] ?? false;
                                         $hasChangedC = $cellData['changed_c'] ?? false;
                                     @endphp
-                                    <td class="p-1 border-r border-slate-200 text-center {{ $dateInfo['is_selected'] ? 'bg-cyan-50/40' : '' }}">
+                                    <td class="p-1 border-r border-slate-200 text-center {{ $dateInfo['is_selected'] ? 'bg-cyan-50/40' : '' }} {{ $latestApprovedDate === $dateStr ? 'bg-emerald-50/50 ring-1 ring-inset ring-emerald-200' : '' }}">
                                         <div class="matrix-cell-container space-y-1" data-product-id="{{ $prod['product_id'] }}" data-date="{{ $dateStr }}">
                                                 <div class="flex items-center gap-1">
                                                     <input
