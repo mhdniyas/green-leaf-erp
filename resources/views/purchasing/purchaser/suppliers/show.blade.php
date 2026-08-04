@@ -228,6 +228,11 @@
                         <h4 class="font-black text-slate-950 text-xs">Items — <span id="vb-items-count">0</span></h4>
                     </div>
                     <div id="vb-items-list" class="mt-1 divide-y divide-slate-100 text-xs max-h-72 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] pr-1"></div>
+                    <!-- Items Total Summary -->
+                    <div class="mt-2 flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+                        <span class="text-xs font-black uppercase tracking-wider text-slate-600">Items Total</span>
+                        <span id="vb-items-total" class="font-mono text-sm font-black text-slate-950">₹0.00</span>
+                    </div>
                 </div>
                 <!-- GRN -->
                 <div class="border-t border-slate-200 pt-2">
@@ -369,8 +374,22 @@
                             <span class="font-mono font-black text-slate-950 shrink-0">₹${item.total || '0.00'}</span>
                         </div>
                     `).join('');
+                    
+                    // Calculate and display items total
+                    const itemsTotal = data.items.reduce((sum, item) => {
+                        const itemTotal = parseFloat(String(item.total || '0').replace(/,/g, '')) || 0;
+                        return sum + itemTotal;
+                    }, 0);
+                    const itemsTotalNode = document.getElementById('vb-items-total');
+                    if (itemsTotalNode) {
+                        itemsTotalNode.textContent = `₹${itemsTotal.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+                    }
                 } else {
                     itemsList.innerHTML = '<p class="py-1.5 text-slate-500 font-semibold italic text-xs">No items listed</p>';
+                    const itemsTotalNode = document.getElementById('vb-items-total');
+                    if (itemsTotalNode) {
+                        itemsTotalNode.textContent = '₹0.00';
+                    }
                 }
             }
 
