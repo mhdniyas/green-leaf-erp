@@ -1900,6 +1900,15 @@ class PurchaserDashboardController extends Controller
             }
         });
 
+        if ($request->string('return_to')->toString() === 'history') {
+            return redirect()
+                ->route('purchaser.history', array_filter([
+                    'date' => $request->string('date', $date->format('Y-m-d'))->toString(),
+                    'tab' => $request->string('tab', 'today')->toString(),
+                ]))
+                ->with('success', 'Cart submitted successfully.');
+        }
+
         if ($request->string('return_to')->toString() === 'suppliers') {
             return redirect()
                 ->route('purchaser.suppliers', ['date' => $request->string('date', $date->format('Y-m-d'))->toString()])
@@ -2016,6 +2025,15 @@ class PurchaserDashboardController extends Controller
         $message = $remainingBalance > 0 || $updatedInvoice->payment_status === 'credit_pending_approval'
             ? 'Payment updated. Remaining balance or credit is still pending.'
             : 'Payment completed successfully.';
+
+        if ($request->string('return_to')->toString() === 'history') {
+            return redirect()
+                ->route('purchaser.history', array_filter([
+                    'date' => $request->string('date', $updatedInvoice->purchaserCart?->business_date?->format('Y-m-d') ?? now()->format('Y-m-d'))->toString(),
+                    'tab' => $request->string('tab', 'today')->toString(),
+                ]))
+                ->with('success', $message);
+        }
 
         if ($request->string('return_to')->toString() === 'vendors') {
             return redirect()
