@@ -313,20 +313,29 @@
                                         @endif
                                     </div>
                                 </td>
+                                @php
+                                    $rowUnitOptions = collect($prod['unit_options'] ?? [
+                                        ['unit' => strtolower((string) ($prod['unit'] ?? 'kg')), 'label' => strtoupper((string) ($prod['unit'] ?? 'kg'))],
+                                    ]);
+                                @endphp
                                 @foreach ($matrixDates as $dateStr => $dateInfo)
                                     @php
                                         $cellData = $prod['prices'][$dateStr] ?? null;
                                         $priceValA = $cellData['price_a'] ?? null;
                                         $priceValB = $cellData['price_b'] ?? null;
                                         $priceValC = $cellData['price_c'] ?? null;
-                                        $cellUnit = strtoupper($cellData['unit'] ?? 'KG');
+                                        $cellUnit = strtolower((string) ($cellData['unit'] ?? 'kg'));
+                                        $cellUnitDisplay = strtoupper(str_replace('_', ' ', $cellUnit));
+                                        $cellUnitOptions = $rowUnitOptions
+                                            ->when(! $rowUnitOptions->contains(fn ($opt) => strtolower((string) ($opt['unit'] ?? '')) === $cellUnit), fn ($opts) => $opts->prepend(['unit' => $cellUnit, 'label' => $cellUnitDisplay]))
+                                            ->values();
 
                                         $hasChangedA = $cellData['changed_a'] ?? false;
                                         $hasChangedB = $cellData['changed_b'] ?? false;
                                         $hasChangedC = $cellData['changed_c'] ?? false;
                                     @endphp
                                     <td class="p-1 border-r border-slate-200 text-center {{ $dateInfo['is_selected'] ? 'bg-cyan-50/40' : '' }} {{ $latestApprovedDate === $dateStr ? 'bg-emerald-50/50 ring-1 ring-inset ring-emerald-200' : '' }}">
-                                        <div class="matrix-cell-container space-y-1" data-product-id="{{ $prod['product_id'] }}" data-date="{{ $dateStr }}">
+                                        <div class="matrix-cell-container relative space-y-1" data-product-id="{{ $prod['product_id'] }}" data-date="{{ $dateStr }}">
                                                 <div class="flex items-center gap-1">
                                                     <input
                                                         type="number"
@@ -373,16 +382,16 @@
                                                     onclick="toggleUnitSelector(this)"
                                                     class="matrix-cell-unit-btn inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[9px] font-bold hover:bg-cyan-100 hover:text-cyan-700 transition"
                                                 >
-                                                    <span class="unit-display">{{ $cellUnit }}</span>
+                                                    <span class="unit-display">{{ $cellUnitDisplay }}</span>
                                                 </button>
                                                 <div class="unit-selector hidden absolute z-50 bg-white border border-slate-200 rounded-lg shadow-lg p-2 mt-1 min-w-max" style="display: none;">
-                                                    @foreach(['KG', 'BOX', 'PIECE', 'BAG'] as $unit)
+                                                    @foreach($cellUnitOptions as $unitOption)
                                                         <button
                                                             type="button"
-                                                            onclick="selectUnit(this, '{{ $unit }}')"
-                                                                class="block w-full text-left px-3 py-2 text-[10px] font-semibold text-slate-600 hover:bg-cyan-100 rounded transition"
+                                                            onclick="selectUnit(this, '{{ strtolower((string) ($unitOption['unit'] ?? 'kg')) }}', '{{ strtoupper(str_replace('_', ' ', (string) ($unitOption['label'] ?? $unitOption['unit'] ?? 'kg'))) }}')"
+                                                            class="block w-full whitespace-nowrap text-left px-3 py-2 text-[10px] font-semibold text-slate-600 hover:bg-cyan-100 rounded transition"
                                                         >
-                                                            {{ $unit }}
+                                                            {{ strtoupper(str_replace('_', ' ', (string) ($unitOption['label'] ?? $unitOption['unit'] ?? 'KG'))) }}
                                                         </button>
                                                     @endforeach
                                                 </div>
@@ -474,6 +483,8 @@
                     const container = btn.closest('.matrix-cell-container');
                     if (!container) return;
                     const input = container.querySelector('.matrix-cell-input');
+                    const unitInput = container.querySelector('.matrix-cell-unit');
+                    const unitDisplay = container.querySelector('.unit-display');
                     if (!input) return;
 
                     const productId = input.dataset.productId;
@@ -499,6 +510,7 @@
                                 date: dateStr,
                                 price_category: currentMatrixCategory,
                                 price: priceVal,
+                                price_unit: unitInput ? unitInput.value : null,
                             }),
                         });
 
@@ -507,6 +519,13 @@
                             input.dataset.priceA = data.price_a !== null ? Number(data.price_a).toFixed(2) : '';
                             input.dataset.priceB = data.price_b !== null ? Number(data.price_b).toFixed(2) : '';
                             input.dataset.priceC = data.price_c !== null ? Number(data.price_c).toFixed(2) : '';
+                            if (unitInput && data.price_unit) {
+                                const normalizedUnit = String(data.price_unit).toLowerCase();
+                                unitInput.value = normalizedUnit;
+                                if (unitDisplay) {
+                                    unitDisplay.textContent = normalizedUnit.replace('_', ' ').toUpperCase();
+                                }
+                            }
 
                             btn.innerHTML = '<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>';
                             btn.className = 'matrix-cell-save-btn flex-shrink-0 inline-flex items-center justify-center rounded-lg bg-emerald-600 text-white p-1 text-[10px] font-black shadow-md';
@@ -564,7 +583,7 @@
                     selector.classList.toggle('hidden', !isHidden);
                 }
 
-                function selectUnit(btn, unit) {
+                     function selectUnit(btn, unit, label) {
                     const selector = btn.parentElement;
                     const unitBtn = selector.previousElementSibling;
                     const hiddenInput = unitBtn.previousElementSibling;
@@ -576,7 +595,7 @@
                     if (unitBtn) {
                        const display = unitBtn.querySelector('.unit-display');
                        if (display) {
-                           display.textContent = unit;
+                                    display.textContent = label || unit;
                        }
                     }
                     

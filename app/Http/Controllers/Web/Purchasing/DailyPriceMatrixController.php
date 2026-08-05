@@ -11,6 +11,7 @@ use App\Models\DailyProductPrice;
 use App\Models\DailyProductPriceRevision;
 use App\Models\GoodsReceivedItem;
 use App\Models\Product;
+use App\Models\ProductUnit;
 use App\Models\ShopPriceGroup;
 use App\Models\User;
 use App\Services\Purchasing\PurchaserBusinessDayService;
@@ -65,7 +66,7 @@ class DailyPriceMatrixController extends Controller
         $user = $request->user();
         $productQuery = Product::query()
             ->active()
-            ->with('category')
+            ->with(['category', 'orderUnits'])
             ->ordered();
 
         if ($user && ! $user->hasRole('admin')) {
@@ -124,6 +125,7 @@ class DailyPriceMatrixController extends Controller
             $pId = (int) $product->id;
             $productMonthApprovals = ($monthApprovals->get($pId) ?? collect())
                 ->keyBy(fn (DailyPriceApproval $item): string => $item->business_date->toDateString());
+            $unitOptions = $this->measurementUnitOptionsForProduct($product);
 
             $dailyPrices = [];
             $prevPriceA = null;
@@ -158,7 +160,7 @@ class DailyPriceMatrixController extends Controller
                     'price_b' => $priceB,
                     'price_c' => $priceC,
                     'purchase_price' => $purchasePrice,
-                    'unit' => $app?->price_unit ?? $product->unit,
+                    'unit' => ProductUnit::normalizeUnit((string) ($app?->price_unit ?? $product->unit ?? 'kg')),
                     'changed_a' => $changedA,
                     'changed_b' => $changedB,
                     'changed_c' => $changedC,
@@ -175,6 +177,7 @@ class DailyPriceMatrixController extends Controller
                 'name' => $product->name,
                 'sku' => $product->sku,
                 'unit' => $product->unit,
+                'unit_options' => $unitOptions,
                 'base_price' => (float) $product->base_price,
                 'prices' => $dailyPrices,
                 'previous_day' => [
@@ -183,7 +186,7 @@ class DailyPriceMatrixController extends Controller
                     'price_b' => $prevDayApp && $prevDayApp->price_b !== null ? (float) $prevDayApp->price_b : null,
                     'price_c' => $prevDayApp && $prevDayApp->price_c !== null ? (float) $prevDayApp->price_c : null,
                     'purchase_price' => $prevDayApp && $prevDayApp->purchase_price !== null ? (float) $prevDayApp->purchase_price : null,
-                    'unit' => $prevDayApp?->price_unit ?? $product->unit,
+                    'unit' => ProductUnit::normalizeUnit((string) ($prevDayApp?->price_unit ?? $product->unit ?? 'kg')),
                 ],
             ];
         }
@@ -214,6 +217,7 @@ class DailyPriceMatrixController extends Controller
             'date' => ['required', 'date'],
             'price_category' => ['required', 'string', 'in:a,b,c,A,B,C'],
             'price' => ['nullable', 'numeric', 'min:0'],
+            'price_unit' => ['nullable', 'string', 'max:20'],
         ]);
 
         $user = $request->user();
@@ -223,6 +227,7 @@ class DailyPriceMatrixController extends Controller
         $product = Product::query()->findOrFail((int) $validated['product_id']);
         $dateStr = Carbon::parse($validated['date'])->toDateString();
         $cat = strtolower($validated['price_category']);
+        $submittedUnit = ProductUnit::normalizeUnit((string) ($validated['price_unit'] ?? ''));
         $newPrice = isset($validated['price']) && $validated['price'] !== '' && $validated['price'] !== null
             ? round((float) $validated['price'], 2)
             : null;
@@ -239,12 +244,18 @@ class DailyPriceMatrixController extends Controller
                 'product_id' => $product->id,
                 'business_date' => $dateStr,
                 'purchase_price' => (float) ($previousApproval?->purchase_price ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price)),
-                'price_unit' => $product->unit ?: 'kg',
+                'price_unit' => $submittedUnit !== ''
+                    ? $submittedUnit
+                    : ProductUnit::normalizeUnit((string) ($this->detectPrimaryOrderedUnit((int) $product->id, $dateStr) ?? $product->unit ?: 'kg')),
                 'price_a' => $newPrice ?? (float) ($previousApproval?->price_a ?? $product->base_price),
                 'price_b' => $newPrice ?? (float) ($previousApproval?->price_b ?? $product->base_price),
                 'price_c' => $newPrice ?? (float) ($previousApproval?->price_c ?? $product->base_price),
                 'status' => $isAdmin ? 'approved' : 'pending',
             ]);
+        }
+
+        if ($submittedUnit !== '') {
+            $approval->price_unit = $submittedUnit;
         }
 
         if ($cat === 'a') {
@@ -299,6 +310,7 @@ class DailyPriceMatrixController extends Controller
                 'price_a' => $approval->price_a,
                 'price_b' => $approval->price_b,
                 'price_c' => $approval->price_c,
+                'price_unit' => $approval->price_unit,
             ]);
         }
 
@@ -344,7 +356,7 @@ class DailyPriceMatrixController extends Controller
         $allProductIds = collect((array) ($validated['all_product_ids'] ?? []))->filter()->unique();
         $allDates = collect((array) ($validated['all_dates'] ?? []))->filter()->unique();
 
-        if ($rawMatrixPrices->isEmpty() && !$shouldPublish) {
+        if ($rawMatrixPrices->isEmpty() && $rawMatrixPriceUnits->isEmpty() && !$shouldPublish) {
             return redirect()
                 ->route('purchasing.prices.matrix.index', [
                     'date' => $validated['date'],
@@ -353,7 +365,7 @@ class DailyPriceMatrixController extends Controller
                     'week_start' => $validated['week_start'] ?? null,
                     'matrix_category' => $matrixCategory,
                 ])
-                ->with('warning', 'No matrix prices were submitted.');
+                ->with('warning', 'No matrix changes were submitted.');
         }
 
         // When publishing, use all visible products; otherwise use only submitted ones
@@ -361,6 +373,7 @@ class DailyPriceMatrixController extends Controller
             ? $allProductIds
             : $rawMatrixPrices
                 ->keys()
+                ->merge($rawMatrixPriceUnits->keys())
                 ->map(static fn ($id): int => (int) $id)
                 ->filter(static fn (int $id): bool => $id > 0)
                 ->unique()
@@ -411,6 +424,7 @@ class DailyPriceMatrixController extends Controller
                         
                         // Check if there's a new price submitted for this product-date
                         $submittedPrice = data_get($rawMatrixPrices->get((int) $product->id), $dateStr);
+                        $submittedUnit = ProductUnit::normalizeUnit((string) data_get($rawMatrixPriceUnits->get((int) $product->id), $dateStr, ''));
                         
                         if ($submittedPrice !== null && $submittedPrice !== '') {
                             $newPrice = round((float) $submittedPrice, 2);
@@ -428,6 +442,10 @@ class DailyPriceMatrixController extends Controller
                             } else {
                                 $approval->price_c = $newPrice;
                             }
+                        }
+
+                        if ($submittedUnit !== '') {
+                            $approval->price_unit = $submittedUnit;
                         }
                         
                         // Approve the existing approval
@@ -448,20 +466,33 @@ class DailyPriceMatrixController extends Controller
                 }
             } else {
                 // Regular update flow: only process submitted prices
-                foreach ($rawMatrixPrices as $productId => $datePrices) {
+                foreach ($productIds as $productId) {
+                $datePrices = (array) ($rawMatrixPrices->get((int) $productId) ?? []);
+                $dateUnits = (array) ($rawMatrixPriceUnits->get((int) $productId) ?? []);
                 $product = $products->get((int) $productId);
 
-                if (! $product || ! is_array($datePrices)) {
+                if (! $product) {
                     continue;
                 }
 
-                foreach ($datePrices as $dateStr => $priceValue) {
-                    if ($priceValue === null || $priceValue === '') {
+                $allDateKeys = collect(array_keys($datePrices))
+                    ->merge(array_keys($dateUnits))
+                    ->unique()
+                    ->values();
+
+                foreach ($allDateKeys as $dateStr) {
+                    $priceValue = $datePrices[$dateStr] ?? null;
+
+                    $submittedUnit = ProductUnit::normalizeUnit((string) ($dateUnits[$dateStr] ?? ''));
+
+                    if (($priceValue === null || $priceValue === '') && $submittedUnit === '') {
                         continue;
                     }
 
                     $businessDate = Carbon::parse((string) $dateStr)->toDateString();
-                    $newPrice = round((float) $priceValue, 2);
+                    $newPrice = ($priceValue === null || $priceValue === '')
+                        ? null
+                        : round((float) $priceValue, 2);
                     $previousApproval = $this->previousApprovedApprovalFor((int) $product->id, $businessDate);
 
                     $approval = DailyPriceApproval::query()
@@ -471,10 +502,9 @@ class DailyPriceMatrixController extends Controller
                         ]);
 
                     // Determine price_unit: use submitted unit, or auto-detect from orders, or fall back to product unit
-                    $submittedUnit = (string) data_get($rawMatrixPriceUnits->get((int) $productId), $dateStr, '');
                     $priceUnit = ! empty($submittedUnit)
                         ? $submittedUnit
-                        : ($this->detectPrimaryOrderedUnit((int) $product->id, $businessDate) ?? $product->unit ?: 'kg');
+                        : (ProductUnit::normalizeUnit((string) ($this->detectPrimaryOrderedUnit((int) $product->id, $businessDate) ?? $product->unit ?: 'kg')));
 
                     if (! $approval->exists) {
                         $approval->purchase_price = (float) ($previousApproval?->purchase_price ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price));
@@ -489,18 +519,20 @@ class DailyPriceMatrixController extends Controller
                         }
                     }
 
-                    if ($matrixCategory === 'a') {
-                        $approval->price_a = $newPrice;
-                        if ($approval->price_b === null || (float) $approval->price_b <= 0) {
-                            $approval->price_b = (float) ($previousApproval?->price_b ?? $newPrice);
+                    if ($newPrice !== null) {
+                        if ($matrixCategory === 'a') {
+                            $approval->price_a = $newPrice;
+                            if ($approval->price_b === null || (float) $approval->price_b <= 0) {
+                                $approval->price_b = (float) ($previousApproval?->price_b ?? $newPrice);
+                            }
+                            if ($approval->price_c === null || (float) $approval->price_c <= 0) {
+                                $approval->price_c = (float) ($previousApproval?->price_c ?? $newPrice);
+                            }
+                        } elseif ($matrixCategory === 'b') {
+                            $approval->price_b = $newPrice;
+                        } else {
+                            $approval->price_c = $newPrice;
                         }
-                        if ($approval->price_c === null || (float) $approval->price_c <= 0) {
-                            $approval->price_c = (float) ($previousApproval?->price_c ?? $newPrice);
-                        }
-                    } elseif ($matrixCategory === 'b') {
-                        $approval->price_b = $newPrice;
-                    } else {
-                        $approval->price_c = $newPrice;
                     }
 
                     $approval->status = $shouldPublish ? 'approved' : 'pending';
@@ -794,11 +826,50 @@ class DailyPriceMatrixController extends Controller
             ->whereHas('order', fn ($q) => $q->where('business_date', $businessDate)->where('state', 'approved'))
             ->pluck('requested_unit')
             ->filter()
+            ->map(fn ($unit): string => ProductUnit::normalizeUnit((string) $unit))
             ->countBy()
-            ->sort()
+            ->sortDesc()
             ->keys();
 
         return $units->first();
+    }
+
+    /**
+     * @return array<int, array{unit:string,label:string}>
+     */
+    private function measurementUnitOptionsForProduct(Product $product): array
+    {
+        $units = $product->relationLoaded('orderUnits')
+            ? $product->orderUnits
+            : $product->orderUnits()->orderBy('sort_order')->orderBy('id')->get();
+
+        $measurementUnits = $units
+            ->filter(fn ($unit): bool => (float) $unit->conversion_to_base > 0)
+            ->map(function ($unit): array {
+                $normalizedUnit = ProductUnit::normalizeUnit((string) $unit->unit);
+
+                return [
+                    'unit' => $normalizedUnit,
+                    'label' => strtoupper((string) ($unit->label ?: $normalizedUnit)),
+                ];
+            });
+
+        $baseUnit = ProductUnit::normalizeUnit((string) ($product->unit ?: 'kg'));
+
+        $merged = collect([[
+            'unit' => $baseUnit,
+            'label' => strtoupper($baseUnit),
+        ]])
+            ->merge($measurementUnits)
+            ->unique(fn (array $row): string => $row['unit'])
+            ->values();
+
+        return $merged->isEmpty()
+            ? [[
+                'unit' => 'kg',
+                'label' => 'KG',
+            ]]
+            : $merged->all();
     }
 
     private function updateActivePricesForGroup(Product $product, ?ShopPriceGroup $group, float $priceGradeA, int $userId): void
