@@ -12,11 +12,16 @@
                         <p class="mt-1 text-sm font-medium text-slate-300">Filter and send demand to WhatsApp.</p>
                     </div>
                     <div class="flex flex-wrap gap-2">
-                        <a href="{{ route('purchaser.daily', ['date' => $date]) }}" class="inline-flex min-h-9 items-center justify-center rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-black text-white">
+                        <a href="{{ route('purchaser.daily', ['date' => $date]) }}" class="inline-flex min-h-9 items-center justify-center rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-black text-white hover:bg-white/20 transition-colors">
                             ← Daily
                         </a>
-                        <a href="{{ $shareUrl }}" target="_blank" rel="noopener" class="inline-flex min-h-9 items-center justify-center rounded-xl bg-emerald-500 px-4 text-sm font-black text-slate-950">
-                            Share on WhatsApp
+                        <a href="{{ $shareTotalUrl }}" target="_blank" rel="noopener" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 text-sm font-black text-white hover:bg-blue-500 transition-colors shadow-xs">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M11.998 2.166C6.525 2.166 2.09 6.6 2.09 12.073c0 1.742.455 3.378 1.25 4.793L2 22l5.292-1.387c1.36.74 2.912 1.162 4.566 1.162 5.472 0 9.908-4.433 9.908-9.905 0-5.474-4.436-9.704-9.768-9.768-9.768z"/></svg>
+                            Share Total Only
+                        </a>
+                        <a href="{{ $shareUrl }}" target="_blank" rel="noopener" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl bg-emerald-500 px-4 text-sm font-black text-slate-950 hover:bg-emerald-400 transition-colors shadow-xs">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M11.998 2.166C6.525 2.166 2.09 6.6 2.09 12.073c0 1.742.455 3.378 1.25 4.793L2 22l5.292-1.387c1.36.74 2.912 1.162 4.566 1.162 5.472 0 9.908-4.433 9.908-9.905 0-5.474-4.436-9.704-9.768-9.768-9.768z"/></svg>
+                            Share Detailed
                         </a>
                     </div>
                 </div>
@@ -186,7 +191,7 @@
                     </div>
 
                     {{-- Action buttons --}}
-                    <div class="border-t border-slate-100 px-4 py-3 flex items-center gap-2">
+                    <div class="border-t border-slate-100 px-4 py-3 flex flex-wrap items-center gap-2">
                         <button type="submit" class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-950 px-5 text-xs font-black text-white hover:bg-slate-800 transition-colors">
                             Apply Filter
                         </button>
@@ -195,11 +200,18 @@
                             Reset
                         </a>
                         @if ($shareSummary->isNotEmpty())
-                            <a href="{{ $shareUrl }}" target="_blank" rel="noopener"
-                                class="ml-auto inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-xs font-black text-white hover:bg-emerald-500 transition-colors">
-                                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M11.998 2.166C6.525 2.166 2.09 6.6 2.09 12.073c0 1.742.455 3.378 1.25 4.793L2 22l5.292-1.387c1.36.74 2.912 1.162 4.566 1.162 5.472 0 9.908-4.433 9.908-9.905 0-5.474-4.436-9.704-9.768-9.704z"/></svg>
-                                Share Now
-                            </a>
+                            <div class="ml-auto flex items-center gap-2">
+                                <a href="{{ $shareTotalUrl }}" target="_blank" rel="noopener"
+                                    class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 transition-colors shadow-xs">
+                                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M11.998 2.166C6.525 2.166 2.09 6.6 2.09 12.073c0 1.742.455 3.378 1.25 4.793L2 22l5.292-1.387c1.36.74 2.912 1.162 4.566 1.162 5.472 0 9.908-4.433 9.908-9.905 0-5.474-4.436-9.704-9.768-9.768-9.768z"/></svg>
+                                    Share Total Only
+                                </a>
+                                <a href="{{ $shareUrl }}" target="_blank" rel="noopener"
+                                    class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 text-xs font-black text-white hover:bg-emerald-500 transition-colors shadow-xs">
+                                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M11.998 2.166C6.525 2.166 2.09 6.6 2.09 12.073c0 1.742.455 3.378 1.25 4.793L2 22l5.292-1.387c1.36.74 2.912 1.162 4.566 1.162 5.472 0 9.908-4.433 9.908-9.905 0-5.474-4.436-9.704-9.768-9.768-9.768z"/></svg>
+                                    Share Detailed
+                                </a>
+                            </div>
                         @endif
                     </div>
                 </form>
@@ -215,10 +227,16 @@
                         </p>
                     </div>
                     @if ($shareSummary->isNotEmpty())
-                        <a href="{{ $shareUrl }}" target="_blank" rel="noopener"
-                            class="inline-flex h-8 items-center justify-center rounded-xl bg-emerald-600 px-3 text-xs font-black text-white hover:bg-emerald-500">
-                            WhatsApp
-                        </a>
+                        <div class="flex items-center gap-1.5">
+                            <a href="{{ $shareTotalUrl }}" target="_blank" rel="noopener"
+                                class="inline-flex h-8 items-center justify-center gap-1 rounded-xl bg-blue-600 px-3 text-xs font-black text-white hover:bg-blue-500 transition-colors shadow-xs">
+                                Total Only
+                            </a>
+                            <a href="{{ $shareUrl }}" target="_blank" rel="noopener"
+                                class="inline-flex h-8 items-center justify-center gap-1 rounded-xl bg-emerald-600 px-3 text-xs font-black text-white hover:bg-emerald-500 transition-colors shadow-xs">
+                                Detailed
+                            </a>
+                        </div>
                     @endif
                 </div>
 
@@ -230,8 +248,21 @@
                             <p class="mt-1 text-xs font-semibold text-slate-400">Adjust the filter and apply.</p>
                         </div>
                     @else
+                        {{-- Preview format switcher --}}
+                        <div class="mb-3 flex items-center gap-1 rounded-xl bg-slate-100 p-1 w-fit">
+                            <button type="button" id="tab-preview-detailed" onclick="switchPreviewFormat('detailed')"
+                                class="inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-black transition-all bg-white text-slate-950 shadow-xs">
+                                Detailed Format
+                            </button>
+                            <button type="button" id="tab-preview-total" onclick="switchPreviewFormat('total')"
+                                class="inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-black transition-all text-slate-500 hover:text-slate-700">
+                                Total Only Format
+                            </button>
+                        </div>
+
                         <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                            <pre class="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-slate-700">{{ $sharePreviewText }}</pre>
+                            <pre id="preview-text-detailed" class="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-slate-700">{{ $sharePreviewText }}</pre>
+                            <pre id="preview-text-total" class="hidden whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-slate-700">{{ $shareTotalPreviewText }}</pre>
                         </div>
 
                         <div class="mt-3 space-y-1.5">
@@ -259,6 +290,27 @@
     </div>
 
     <script>
+    window.switchPreviewFormat = function(format) {
+        const isTotal = format === 'total';
+        document.getElementById('preview-text-detailed')?.classList.toggle('hidden', isTotal);
+        document.getElementById('preview-text-total')?.classList.toggle('hidden', !isTotal);
+
+        const btnDetailed = document.getElementById('tab-preview-detailed');
+        const btnTotal = document.getElementById('tab-preview-total');
+
+        if (btnDetailed && btnTotal) {
+            btnDetailed.classList.toggle('bg-white', !isTotal);
+            btnDetailed.classList.toggle('text-slate-950', !isTotal);
+            btnDetailed.classList.toggle('shadow-xs', !isTotal);
+            btnDetailed.classList.toggle('text-slate-500', isTotal);
+
+            btnTotal.classList.toggle('bg-white', isTotal);
+            btnTotal.classList.toggle('text-slate-950', isTotal);
+            btnTotal.classList.toggle('shadow-xs', isTotal);
+            btnTotal.classList.toggle('text-slate-500', !isTotal);
+        }
+    };
+
     document.addEventListener('DOMContentLoaded', () => {
         // ── Mode pill tabs ──────────────────────────────────────────────
         const modeInputs = Array.from(document.querySelectorAll('input[name="share_mode"]'));

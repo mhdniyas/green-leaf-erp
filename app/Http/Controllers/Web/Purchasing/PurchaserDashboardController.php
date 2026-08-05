@@ -218,6 +218,9 @@ class PurchaserDashboardController extends Controller
         $sharePreviewText = $this->buildDailySummaryShareText($shareSummary, $date);
         $shareUrl = 'https://api.whatsapp.com/send?text='.rawurlencode($sharePreviewText);
 
+        $shareTotalPreviewText = $this->buildDailySummaryTotalOnlyShareText($shareSummary, $date);
+        $shareTotalUrl = 'https://api.whatsapp.com/send?text='.rawurlencode($shareTotalPreviewText);
+
         return view('purchasing.purchaser.daily_share', [
             'date' => $date->format('Y-m-d'),
             'shareMode' => $shareMode,
@@ -243,6 +246,8 @@ class PurchaserDashboardController extends Controller
             'shareSummary' => $shareSummary,
             'sharePreviewText' => $sharePreviewText,
             'shareUrl' => $shareUrl,
+            'shareTotalPreviewText' => $shareTotalPreviewText,
+            'shareTotalUrl' => $shareTotalUrl,
         ]);
     }
 
@@ -3587,6 +3592,30 @@ class PurchaserDashboardController extends Controller
             foreach ($summary['quantity_buckets'] as $bucket) {
                 $lines[] = $bucket['formatted'].' x '.$bucket['count'];
             }
+
+            $lines[] = 'Total '.$this->formatShareQuantity((float) $summary['total_approved_qty'], $summary['unit']);
+            $lines[] = '';
+        }
+
+        return trim(implode("\n", $lines));
+    }
+
+    private function buildDailySummaryTotalOnlyShareText(Collection $dailySummary, Carbon $date): string
+    {
+        $lines = [
+            '*Total Qty*',
+            $date->format('d M Y'),
+            '---',
+            '',
+        ];
+
+        foreach ($dailySummary as $summary) {
+            $productHeader = '*'.$summary['product_name'].'*';
+            $orderDate = $summary['order_date'];
+            if ($orderDate->format('Y-m-d') !== $date->format('Y-m-d')) {
+                $productHeader .= ' (Pending '.$orderDate->format('d M Y').')';
+            }
+            $lines[] = $productHeader;
 
             $lines[] = 'Total '.$this->formatShareQuantity((float) $summary['total_approved_qty'], $summary['unit']);
             $lines[] = '';
