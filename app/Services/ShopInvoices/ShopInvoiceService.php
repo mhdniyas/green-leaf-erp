@@ -113,7 +113,6 @@ class ShopInvoiceService
                         $dailyPrice = $this->dailyPriceForOrderItem($order, $firstOrderItem);
                         $billingPrice = $this->billingPriceForOrderItems($orderItems, $dailyPrice);
                         $unitPrice = $billingPrice['price'];
-                        $billableUnit = ProductUnit::normalizeUnit((string) ($firstOrderItem->requested_unit ?: $firstOrderItem->product->unit ?: 'kg'));
                         $priceUnit = $billingPrice['price_unit'];
                         $product = $firstOrderItem->product;
                         $approvedQty = (float) $orderItems->sum(fn (ShopOrderItem $item): float => (float) $item->approved_qty);
@@ -146,10 +145,10 @@ class ShopInvoiceService
                             $shortageQty = 0.0;
                         }
 
-                        $priceQuantity = $this->priceQuantityFor($product, $approvedQty, $billableUnit, $orderItems);
-                        $deliveredPriceQuantity = $this->priceQuantityFor($product, $deliveredQty, $billableUnit, $orderItems);
-                        $shortagePriceQuantity = $this->priceQuantityFor($product, $shortageQty, $billableUnit, $orderItems);
-                        $excessPriceQuantity = $this->priceQuantityFor($product, $excessQty, $billableUnit, $orderItems);
+                        $priceQuantity = $this->priceQuantityFor($product, $approvedQty, $priceUnit, $orderItems);
+                        $deliveredPriceQuantity = $this->priceQuantityFor($product, $deliveredQty, $priceUnit, $orderItems);
+                        $shortagePriceQuantity = $this->priceQuantityFor($product, $shortageQty, $priceUnit, $orderItems);
+                        $excessPriceQuantity = $this->priceQuantityFor($product, $excessQty, $priceUnit, $orderItems);
                         $lineSubtotal = round($priceQuantity * $unitPrice, 2);
                         $shortageAmount = round($shortagePriceQuantity * $unitPrice, 2);
                         $excessAmount = round($excessPriceQuantity * $unitPrice, 2);

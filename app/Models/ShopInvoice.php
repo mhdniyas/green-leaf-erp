@@ -89,10 +89,11 @@ class ShopInvoice extends Model
     public function isFinalLocked(): bool
     {
         $hasZeroOrNegativeBalance = (float) $this->balance_amount <= 0.0001;
+        $hasBillableTotal = (float) $this->final_total > 0.0001;
 
         return in_array($this->delivery_status, ['received_full', 'approved_after_discrepancy'], true)
             || in_array($this->status, ['finalized', 'payment_pending'], true)
-            || ($this->status === 'paid' && $hasZeroOrNegativeBalance);
+            || ($this->status === 'paid' && $hasZeroOrNegativeBalance && $hasBillableTotal);
     }
 
     public function generatedBy(): BelongsTo

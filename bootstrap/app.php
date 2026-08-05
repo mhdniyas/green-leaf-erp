@@ -128,7 +128,8 @@ return Application::configure(basePath: dirname(__DIR__))
                 return redirect()->route('inventory.dashboard', ['date' => $navDate])->with('error', $errorMessage);
             }
 
-            return null;
+            // Fallback: redirect to main dashboard for all other 403 errors
+            return redirect()->route('dashboard')->with('error', $errorMessage);
         };
 
         $exceptions->render(function (AuthorizationException $exception, Request $request) use ($redirectUnauthorizedDashboardRequest) {

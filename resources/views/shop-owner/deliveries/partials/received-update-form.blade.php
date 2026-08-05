@@ -108,9 +108,9 @@
                                     $approvedQty = (float) ($invoiceItem->delivered_price_quantity ?? $invoiceItem->price_quantity ?? $invoiceItem->delivered_qty ?? 0);
                                     $displayUnitLabel = strtoupper($invoiceItem->price_unit ?: $item->product->unit);
                                     $unitRate = $invoiceItem->unit_price;
-                                    $lineTotal = $invoiceItem->line_subtotal !== null
-                                        ? (float) $invoiceItem->line_subtotal
-                                        : $approvedQty * $unitRate;
+                                    $lineTotal = $invoiceItem->final_line_total !== null
+                                        ? (float) $invoiceItem->final_line_total
+                                        : ($approvedQty * $unitRate);
                                 } else {
                                     // Fallback if no invoice item
                                     $approvedQty = (float) ($item->loaded_qty ?? $item->approved_qty ?? 0);

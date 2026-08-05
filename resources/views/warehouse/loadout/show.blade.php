@@ -38,7 +38,17 @@
 
         @php
             $remainingProductCount = collect($productGroups)->filter(fn (array $group): bool => (float) $group['total_balance'] > 0.001)->count();
+            $hasAnyDualMeasurement = collect($productGroups)->contains(
+                fn (array $group): bool => (bool) ($group['use_dual_measurement_inputs'] ?? false)
+            );
+            $mobileTotalRows = (int) $shopOrder->items->count();
+            $mobileLoadedRows = (int) $shopOrder->items->where('sorting_status', 'loaded')->count();
+            $mobileAddonRows = (int) $shopOrder->items->filter(
+                fn ($item): bool => str_contains((string) ($item->notes ?? ''), 'Addon item added from warehouse loadout.')
+            )->count();
         @endphp
+
+
 
         @if($canEdit && $hasDuplicates)
             <section class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 shadow-sm">
@@ -90,17 +100,6 @@
 
         @if($canEdit || $canMoveToDelivery || $canMoveToPartialDelivery)
             <div class="grid gap-2 {{ ($canMoveToDelivery || $canMoveToPartialDelivery) && $canEdit ? 'grid-cols-2' : 'grid-cols-1' }}">
-                @if($canEdit)
-                    <button type="submit"
-                            form="loadout-form"
-                            class="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-white shadow-sm transition-all hover:bg-indigo-700 active:scale-[0.98] border-none cursor-pointer">
-                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 12.75 10.5 18 19 6" />
-                        </svg>
-                        Save Loadout
-                    </button>
-                @endif
-
                 @if($canMoveToDelivery)
                     <form action="{{ route('warehouse.loadout.move-to-delivery', $shopOrder) }}"
                           method="POST"
@@ -114,7 +113,7 @@
                             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 8.25h11.25m0 0-3.75-3.75m3.75 3.75-3.75 3.75M14.25 15.75H21m0 0-3.75-3.75M21 15.75l-3.75 3.75" />
                             </svg>
-                            Out for Delivery
+                            Delivery
                         </button>
                     </form>
                 @endif
@@ -132,7 +131,7 @@
                             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008v.008H12v-.008ZM10.34 4.94 2.94 17.76A1.5 1.5 0 0 0 4.24 20h15.52a1.5 1.5 0 0 0 1.3-2.24L13.66 4.94a1.5 1.5 0 0 0-2.6 0Z" />
                             </svg>
-                            Partial Delivery
+                            Delivery
                         </button>
                     </form>
                 @endif
@@ -150,7 +149,7 @@
                             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
                             </svg>
-                            Re-open Loadout / Fix Mistakes
+                            Reopen
                         </button>
                     </form>
                 @endif
@@ -181,75 +180,99 @@
                 ->values();
         @endphp
 
-        <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-            <div class="grid gap-2 sm:grid-cols-[1fr_150px_140px]">
+        <section class="rounded-xl border border-slate-200 bg-white p-2.5 shadow-xs">
+            <div class="grid gap-1.5 sm:grid-cols-[1fr_140px_130px]">
                 <div>
                     <label for="loadout-product-search" class="mb-1 block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Find Product</label>
-                    <input id="loadout-product-search" type="search" placeholder="Search product, SKU, category..." class="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none">
+                    <input id="loadout-product-search" type="search" placeholder="Search product, SKU, category..." class="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none">
                 </div>
+
+                {{-- Custom Tailwind Category Select --}}
                 <div class="relative">
-                    <label for="loadout-product-category" class="mb-1 block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Category</label>
-                    <select id="loadout-product-category" class="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-3 pr-9 text-xs font-black text-slate-700 focus:border-indigo-500 focus:bg-white focus:outline-none">
-                        <option value="">All Categories</option>
-                        @foreach($loadoutProductCategories as $categoryName)
-                            <option value="{{ strtolower($categoryName) }}">{{ $categoryName }}</option>
-                        @endforeach
-                    </select>
-                    <div class="pointer-events-none absolute inset-y-0 right-0 top-5 flex items-center pr-3 text-slate-400">
-                        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <label class="mb-1 block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Category</label>
+                    <input type="hidden" id="loadout-product-category" value="">
+                    <button type="button" id="category-select-trigger" class="flex h-9 w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[11px] font-black text-slate-700 hover:border-indigo-500 hover:bg-white focus:outline-none cursor-pointer">
+                        <span id="category-select-label" class="truncate">All Categories</span>
+                        <svg class="h-3.5 w-3.5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
                         </svg>
+                    </button>
+
+                    <div id="category-select-panel" class="absolute left-0 right-0 top-full z-40 mt-1 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg hidden space-y-0.5">
+                        <button type="button" data-value="" data-label="All Categories" class="category-select-option flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 cursor-pointer border-none bg-transparent">
+                            <span>All Categories</span>
+                        </button>
+                        @foreach($loadoutProductCategories as $categoryName)
+                            <button type="button" data-value="{{ strtolower($categoryName) }}" data-label="{{ $categoryName }}" class="category-select-option flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 cursor-pointer border-none bg-transparent">
+                                <span>{{ $categoryName }}</span>
+                            </button>
+                        @endforeach
                     </div>
                 </div>
+
+                {{-- Custom Tailwind Status Select --}}
                 <div class="relative">
-                    <label for="loadout-product-status" class="mb-1 block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Status</label>
-                    <select id="loadout-product-status" class="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-3 pr-9 text-xs font-black text-slate-700 focus:border-indigo-500 focus:bg-white focus:outline-none">
-                        <option value="">All Status</option>
-                        <option value="pending">Pending</option>
-                        <option value="partial">Partial</option>
-                        <option value="loaded">Loaded</option>
-                    </select>
-                    <div class="pointer-events-none absolute inset-y-0 right-0 top-5 flex items-center pr-3 text-slate-400">
-                        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <label class="mb-1 block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Status</label>
+                    <input type="hidden" id="loadout-product-status" value="">
+                    <button type="button" id="status-select-trigger" class="flex h-9 w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[11px] font-black text-slate-700 hover:border-indigo-500 hover:bg-white focus:outline-none cursor-pointer">
+                        <span id="status-select-label" class="truncate">All Status</span>
+                        <svg class="h-3.5 w-3.5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
                         </svg>
+                    </button>
+
+                    <div id="status-select-panel" class="absolute left-0 right-0 top-full z-40 mt-1 rounded-xl border border-slate-200 bg-white p-1 shadow-lg hidden space-y-0.5">
+                        <button type="button" data-value="" data-label="All Status" class="status-select-option flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 cursor-pointer border-none bg-transparent">
+                            <span>All Status</span>
+                        </button>
+                        <button type="button" data-value="pending" data-label="Pending" class="status-select-option flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 cursor-pointer border-none bg-transparent">
+                            <span>Pending</span>
+                        </button>
+                        <button type="button" data-value="partial" data-label="Partial" class="status-select-option flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 cursor-pointer border-none bg-transparent">
+                            <span>Partial</span>
+                        </button>
+                        <button type="button" data-value="loaded" data-label="Loaded" class="status-select-option flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 cursor-pointer border-none bg-transparent">
+                            <span>Loaded</span>
+                        </button>
                     </div>
                 </div>
             </div>
-            <p id="loadout-product-filter-count" class="mt-2 text-[11px] font-bold text-slate-500">{{ collect($productGroups)->count() }} product(s)</p>
+            <p id="loadout-product-filter-count" class="mt-1.5 text-[10px] font-bold text-slate-500">{{ collect($productGroups)->count() }} product(s)</p>
         </section>
+
+        @if($canEdit)
+            @include('warehouse.loadout.partials.inline-addon', [
+                'shopOrder' => $shopOrder,
+                'addonProductsByCategory' => $addonProductsByCategory,
+            ])
+        @endif
 
         @if($canEdit)
             {{-- ─── LOADOUT FORM ─── --}}
             <form id="loadout-form"
                   action="{{ route('warehouse.loadout.save', $shopOrder) }}"
                   method="POST"
-                  class="space-y-3">
+                class="space-y-2.5">
                 @csrf
 
-                {{-- Top action bar: Load All & Expand/Collapse All --}}
-                <div class="flex flex-wrap items-center justify-between gap-2 px-1">
+                {{-- Top action bar: Load All & Dual-row expand/collapse --}}
+                <div class="flex flex-wrap items-center justify-between gap-1.5 px-0.5">
                     <h2 class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Items Checklist</h2>
-                    <div class="flex items-center gap-2">
-                        <a href="{{ route('warehouse.loadout.addon.create', $shopOrder) }}"
-                           class="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-indigo-700 shadow-sm transition-colors hover:bg-indigo-100 text-decoration-none">
-                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                            </svg>
-                            <span>Addon</span>
-                        </a>
-                        <button type="button"
-                                id="toggle-all-cards-btn"
-                                onclick="toggleExpandAllCards()"
-                                class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-700 cursor-pointer transition-colors shadow-sm">
-                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15L12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
-                            </svg>
-                            <span id="toggle-all-cards-text">Collapse All</span>
-                        </button>
+                    <div class="flex items-center gap-1.5">
+                        @if($hasAnyDualMeasurement)
+                            <button type="button"
+                                    id="toggle-all-cards-btn"
+                                    onclick="toggleExpandAllCards()"
+                                    class="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 px-2.5 text-[9px] font-black uppercase tracking-wider text-slate-700 cursor-pointer transition-colors shadow-2xs">
+                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15L12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                                </svg>
+                                <span id="toggle-all-cards-text">Collapse Dual</span>
+                            </button>
+                        @endif
                         <button type="button"
                                 onclick="clearAllLoadout()"
-                                class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-700 shadow-sm transition-colors hover:bg-slate-50 cursor-pointer">
+                                class="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[9px] font-black uppercase tracking-wider text-slate-700 shadow-2xs transition-colors hover:bg-slate-50 cursor-pointer">
                             <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
                             </svg>
@@ -257,7 +280,7 @@
                         </button>
                         <button type="button"
                                 onclick="loadAllFull()"
-                                class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-white border-none cursor-pointer transition-colors shadow-sm">
+                                class="inline-flex h-8 items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 px-2.5 text-[9px] font-black uppercase tracking-wider text-white border-none cursor-pointer transition-colors shadow-2xs">
                             <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                             </svg>
@@ -266,33 +289,40 @@
                     </div>
                 </div>
 
-                <div class="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-3 sm:p-4">
-                    <div class="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                            <p class="text-[10px] font-black uppercase tracking-[0.14em] text-indigo-700">Batch Stock Action</p>
-                            <p class="text-xs font-semibold text-indigo-900">Input loaded quantities and save to register stock movements immediately.</p>
-                        </div>
-                        <button type="submit"
-                                class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-white border-none cursor-pointer transition-colors shadow-md active:scale-95">
-                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" />
-                            </svg>
-                            Save Loadout Quantities
-                        </button>
+                <div class="rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2">
+                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-indigo-700">Auto Save On</p>
+                    <p class="mt-0.5 text-[11px] font-semibold text-indigo-900">Update quantity, stock saves automatically.</p>
+                </div>
+
+                {{-- Loadout & Addon counts --}}
+                <div class="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-2xs text-[11px] font-black uppercase tracking-[0.08em] text-slate-700">
+                    <div class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
+                        <span>Loadout</span>
+                        <span id="mobile-loadout-count" class="text-slate-900">{{ $mobileLoadedRows }}/{{ $mobileTotalRows }}</span>
+                        <svg id="mobile-loadout-saved" class="hidden h-3.5 w-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                    </div>
+                    <div class="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-indigo-700">
+                        <span>Addon</span>
+                        <span id="mobile-addon-count" class="text-indigo-900">{{ $mobileAddonRows }}</span>
+                        <svg id="mobile-addon-saved" class="hidden h-3.5 w-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
                     </div>
                 </div>
 
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <p class="px-1 text-[11px] font-semibold text-slate-500">
-                        Tap any item to expand loadout inputs. Tap <span class="font-black text-indigo-600">SAVE</span> to update inventory stock immediately.
+                    <p class="px-0.5 text-[10px] font-semibold text-slate-500">
+                        Single-measure items stay open. Dual-measure items can be expanded. Changes are auto-saved.
                     </p>
                     <div id="loadout-action-feedback"
-                         class="hidden rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-xs font-semibold text-cyan-800 shadow-sm">
+                        class="hidden rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-[11px] font-semibold text-cyan-800 shadow-2xs">
                     </div>
                 </div>
 
                 {{-- Product rows (grouped) --}}
-                <div class="space-y-2.5" id="loadout-product-list">
+                <div class="space-y-2" id="loadout-product-list">
                     @foreach($productGroups as $group)
                         @php
                             $isFullyLoaded = $group['is_fully_loaded'];
@@ -305,130 +335,159 @@
                             $loadedActualWeight = (float) ($loadedItem?->actual_weight ?? 0);
                             $balance = $group['total_balance'];
                             $available = $group['available_stock'];
+                            $measurementCount = (int) ($group['measurement_count'] ?? 1);
                             $firstItem = $group['items'][0] ?? null;
-                            $hasSecondaryUnit = $firstItem && $firstItem->requested_unit_quantity && strtolower($firstItem->requested_unit ?? '') !== 'kg';
+                            $hasSecondaryUnit = (bool) ($group['has_secondary_unit'] ?? false);
+                            $requestedUnitRaw = strtoupper((string) ($firstItem->requested_unit ?? ''));
+                            $baseUnitRaw = strtoupper((string) ($group['unit'] ?? ''));
+                            $useDualMeasurementInputs = (bool) ($group['use_dual_measurement_inputs'] ?? false)
+                                && $measurementCount > 1
+                                && $requestedUnitRaw !== ''
+                                && $requestedUnitRaw !== $baseUnitRaw;
                             $requestedUnitName = $hasSecondaryUnit ? strtoupper($firstItem->requested_unit_label ?: $firstItem->requested_unit) : strtoupper($group['unit']);
-                            $orderedUnitQty = $hasSecondaryUnit ? (float) $firstItem->requested_unit_quantity : (float) $approved;
-                            $loadedUnitQty = $group['loaded_order_unit_qty'] ?? $orderedUnitQty;
+                            $orderedUnitQty = $hasSecondaryUnit ? (float) ($group['requested_unit_total'] ?? $approved) : (float) $approved;
+                            $loadedUnitQty = $hasSecondaryUnit ? (float) ($group['loaded_order_unit_qty'] ?? 0.0) : (float) $loaded;
                             $orderedUnitLabel = $hasSecondaryUnit
                                 ? number_format($orderedUnitQty, 2, '.', '').' '.$requestedUnitName
                                 : number_format($approved, 2).' '.strtoupper($group['unit']);
                             $isItemNotAvailable = $firstItem && ($firstItem->sorting_status === 'not_available' || $firstItem->loadout_discrepancy_type === 'not_available');
                         @endphp
 
-                        <div class="loadout-product-row overflow-hidden rounded-2xl border bg-white shadow-sm transition
+                        <div class="loadout-product-row overflow-hidden rounded-xl border bg-white shadow-xs transition
                             {{ $isFullyLoaded ? 'border-emerald-200 bg-emerald-50/20' : ($isPartial ? 'border-amber-200 bg-amber-50/10' : 'border-slate-200') }}"
                              data-search="{{ strtolower(trim(($group['product']->name ?? '').' '.($group['product']->sku ?? '').' '.$loadoutCategoryName)) }}"
                              data-category="{{ strtolower($loadoutCategoryName) }}"
                              data-status="{{ $loadoutRowStatus }}">
 
-                            {{-- Collapsible Card Header --}}
-                            <button type="button"
-                                    onclick="toggleProductCard({{ $group['product_id'] }})"
-                                    class="flex w-full items-start justify-between gap-3 p-4 text-left border-none bg-transparent cursor-pointer hover:bg-slate-50/60 transition-colors">
-                                <div class="flex-1 min-w-0">
-                                    <h3 class="truncate text-base font-black text-slate-900">
-                                        <span class="mr-1.5 inline-block rounded-lg bg-indigo-100 px-1.5 py-0.5 text-xs font-black text-indigo-700">SL {{ $loop->iteration }}</span>
-                                        <span class="inline-block rounded-lg bg-slate-100 px-1.5 py-0.5 text-xs font-black text-slate-700 mr-1.5">#{{ $group['product']->sku ?: $group['product_id'] }}</span>
-                                        {{ $group['product']->name }}
-                                    </h3>
+                            @if($useDualMeasurementInputs)
+                                {{-- Collapsible Card Header for Dual Measurement --}}
+                                <button type="button"
+                                        onclick="toggleProductCard({{ $group['product_id'] }})"
+                                        class="flex w-full items-start justify-between gap-2 p-3 text-left border-none bg-transparent transition-colors cursor-pointer hover:bg-slate-50/60">
+                                    <div class="flex-1 min-w-0">
+                                        <h3 class="truncate text-sm font-black text-slate-900">
+                                            <span class="mr-1 inline-block rounded-md bg-indigo-100 px-1.5 py-0.5 text-[10px] font-black text-indigo-700">SL {{ $loop->iteration }}</span>
+                                            <span class="inline-block rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-black text-slate-700 mr-1">#{{ $group['product']->sku ?: $group['product_id'] }}</span>
+                                            {{ $group['product']->name }}
+                                        </h3>
 
-                                    <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-semibold text-slate-500">
-                                        <span>Ordered: <span class="font-black text-slate-900">{{ $orderedUnitLabel }}</span></span>
-                                        @if($hasSecondaryUnit)
-                                            <span>Est.: <span class="font-bold text-slate-600">{{ number_format($approved, 2) }} {{ strtoupper($group['unit']) }}</span></span>
-                                        @endif
-                                        @if($loaded > 0)
-                                            <span>Loaded: <span class="font-black text-emerald-700">{{ $hasSecondaryUnit ? number_format($loadedUnitQty, 2, '.', '').' '.$requestedUnitName.($loadedActualWeight > 0 ? ' ('.number_format($loadedActualWeight, 2).' '.strtoupper($group['unit']).')' : '') : number_format($loaded, 2).' '.strtoupper($group['unit']) }}</span></span>
-                                        @endif
-                                        @if($loaded > $approved)
-                                            <span class="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800 border border-amber-200">
-                                                Excess: <span class="font-black">{{ number_format($loaded - $approved, 2) }} {{ strtoupper($group['unit']) }}</span>
+                                        <div class="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[10px] font-semibold text-slate-500">
+                                            <span>Ordered: <span class="font-black text-slate-900">{{ $orderedUnitLabel }}</span></span>
+                                            @if($hasSecondaryUnit)
+                                                <span>Est.: <span class="font-bold text-slate-600">{{ number_format($approved, 2) }} {{ strtoupper($group['unit']) }}</span></span>
+                                            @endif
+                                            @if($loaded > 0)
+                                                <span>Loaded: <span class="font-black text-emerald-700">{{ $hasSecondaryUnit ? number_format($loadedUnitQty, 2, '.', '').' '.$requestedUnitName.($loadedActualWeight > 0 ? ' ('.number_format($loadedActualWeight, 2).' '.strtoupper($group['unit']).')' : '') : number_format($loaded, 2).' '.strtoupper($group['unit']) }}</span></span>
+                                            @endif
+                                            @if($loaded > $approved)
+                                                <span class="inline-flex items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 border border-amber-200">
+                                                    Excess: <span class="font-black">{{ number_format($loaded - $approved, 2) }} {{ strtoupper($group['unit']) }}</span>
+                                                </span>
+                                            @endif
+                                            <span class="inline-flex items-center gap-1 rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-800 border border-sky-200">
+                                                Info Stock: <span class="font-black">{{ number_format($available, 2) }} {{ strtoupper($group['unit']) }}</span>
                                             </span>
-                                        @endif
-                                        <span class="inline-flex items-center gap-1 rounded-lg bg-sky-50 px-2 py-0.5 text-[11px] font-bold text-sky-800 border border-sky-200">
-                                            Info Stock: <span class="font-black">{{ number_format($available, 2) }} {{ strtoupper($group['unit']) }}</span>
-                                        </span>
+                                            @if($isItemNotAvailable)
+                                                <span class="rounded-full bg-rose-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-rose-700">Not Available ✕</span>
+                                            @elseif($isFullyLoaded)
+                                                <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-emerald-700">Loaded ✓</span>
+                                            @elseif($isPartial)
+                                                <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-amber-700">Partial</span>
+                                            @else
+                                                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-600">Pending</span>
+                                            @endif
+                                        </div>
                                     </div>
-                                </div>
 
-                                <div class="flex items-center gap-2 mt-1 shrink-0">
-                                    @if($isItemNotAvailable)
-                                        <span class="rounded-full bg-rose-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-rose-700">Not Available ✕</span>
-                                    @elseif($isFullyLoaded)
-                                        <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-700">Loaded ✓</span>
-                                    @elseif($isPartial)
-                                        <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-700">Partial</span>
-                                    @else
-                                        <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-600">Pending</span>
-                                    @endif
-                                    <svg id="arrow-{{ $group['product_id'] }}" class="h-4 w-4 text-slate-400 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                                    </svg>
-                                </div>
-                            </button>
+                                    <div class="flex items-center gap-1.5 mt-0.5 shrink-0">
+                                        <svg id="arrow-{{ $group['product_id'] }}" class="h-4 w-4 text-slate-400 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                                        </svg>
+                                    </div>
+                                </button>
 
-                            {{-- Hidden fields for status & note --}}
-                            <input type="hidden" id="status-field-{{ $group['product_id'] }}" name="item_status[{{ $group['product_id'] }}]" value="{{ $isItemNotAvailable ? 'not_available' : 'loaded' }}">
-                            <input type="hidden" id="note-field-{{ $group['product_id'] }}" name="item_notes[{{ $group['product_id'] }}]" value="{{ $firstItem->loadout_discrepancy_note ?? '' }}">
+                                {{-- Hidden fields for status & note --}}
+                                <input type="hidden" id="status-field-{{ $group['product_id'] }}" name="item_status[{{ $group['product_id'] }}]" value="{{ $isItemNotAvailable ? 'not_available' : 'loaded' }}">
+                                <input type="hidden" id="note-field-{{ $group['product_id'] }}" name="item_notes[{{ $group['product_id'] }}]" value="{{ $firstItem->loadout_discrepancy_note ?? '' }}">
 
-                            {{-- Collapsible Body (COLLAPSED BY DEFAULT) --}}
-                            <div id="card-body-{{ $group['product_id'] }}" class="product-card-body border-t border-slate-100 p-4 pt-3 bg-slate-50/40 hidden">
-                                @if($hasSecondaryUnit)
-                                    {{-- Dual Inputs for Secondary Unit Products (e.g. FULL BUNCH) --}}
+                                {{-- Collapsible Body (COLLAPSED BY DEFAULT) --}}
+                                <div id="card-body-{{ $group['product_id'] }}" class="product-card-body collapsible-body hidden border-t border-slate-100 p-3 pt-2 bg-slate-50/40">
                                     <div class="grid gap-2 sm:grid-cols-2">
                                         {{-- 1. Loaded Secondary Unit Count Stepper --}}
-                                        <div class="flex items-center justify-between gap-2 rounded-xl bg-white border border-slate-200 p-2">
-                                            <span class="text-xs font-black text-slate-700">Loaded {{ $requestedUnitName }}:</span>
+                                        <div class="flex items-center justify-between gap-2 rounded-lg bg-white border border-slate-200 p-2">
+                                            <span class="text-[11px] font-black text-slate-700">Loaded {{ $requestedUnitName }}:</span>
                                             <div class="flex items-center gap-1">
-                                                <button type="button" onclick="stepUnitQty({{ $group['product_id'] }}, -1)" class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 cursor-pointer border-none font-bold text-sm">-</button>
-                                                <input type="number" id="unit-qty-{{ $group['product_id'] }}" name="item_unit_qtys[{{ $group['product_id'] }}]" value="{{ number_format($loadedUnitQty, 2, '.', '') }}" min="0" step="any" inputmode="decimal" data-approved-unit="{{ number_format($orderedUnitQty, 2, '.', '') }}" class="h-8 w-16 rounded-lg border border-slate-200 bg-white text-center text-xs font-black text-slate-900 focus:outline-none" {{ $isItemNotAvailable ? 'readonly' : '' }}>
-                                                <button type="button" onclick="stepUnitQty({{ $group['product_id'] }}, 1)" class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 cursor-pointer border-none font-bold text-sm">+</button>
+                                                <button type="button" onclick="stepUnitQty({{ $group['product_id'] }}, -1)" class="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 cursor-pointer border-none font-bold text-sm">-</button>
+                                                <input type="number" id="unit-qty-{{ $group['product_id'] }}" name="item_unit_qtys[{{ $group['product_id'] }}]" value="{{ number_format($loadedUnitQty, 2, '.', '') }}" min="0" step="any" inputmode="decimal" data-approved-unit="{{ number_format($orderedUnitQty, 2, '.', '') }}" class="h-7 w-14 rounded-md border border-slate-200 bg-white text-center text-[11px] font-black text-slate-900 focus:outline-none" {{ $isItemNotAvailable ? 'readonly' : '' }}>
+                                                <button type="button" onclick="stepUnitQty({{ $group['product_id'] }}, 1)" class="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 cursor-pointer border-none font-bold text-sm">+</button>
                                             </div>
                                         </div>
 
                                         {{-- 2. Actual Weight Input --}}
-                                        <div class="flex items-center justify-between gap-2 rounded-xl bg-white border border-slate-200 p-2">
-                                            <span class="text-xs font-black text-slate-700">Actual Weight:</span>
+                                        <div class="flex items-center justify-between gap-2 rounded-lg bg-white border border-slate-200 p-2">
+                                            <span class="text-[11px] font-black text-slate-700">Actual Weight:</span>
                                             <div class="flex items-center gap-1.5 flex-1 max-w-[170px]">
-                                                <input type="number" id="qty-{{ $group['product_id'] }}" name="items[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" data-approved="{{ number_format($approved, 2, '.', '') }}" data-available="{{ number_format($available, 2, '.', '') }}" data-product="{{ $group['product']->name }}" data-unit="{{ strtoupper($group['unit']) }}" class="qty-input h-9 w-full rounded-lg border border-slate-200 px-2 text-center text-sm font-black focus:outline-none focus:ring-2 focus:ring-indigo-400 {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}" {{ $isItemNotAvailable ? 'readonly' : '' }} required>
-                                                <span class="text-xs font-black text-slate-600">{{ strtoupper($group['unit']) }}</span>
+                                                <input type="number" id="qty-{{ $group['product_id'] }}" name="items[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" data-approved="{{ number_format($approved, 2, '.', '') }}" data-available="{{ number_format($available, 2, '.', '') }}" data-product="{{ $group['product']->name }}" data-unit="{{ strtoupper($group['unit']) }}" class="qty-input h-8 w-full rounded-md border border-slate-200 px-2 text-center text-xs font-black focus:outline-none focus:ring-2 focus:ring-indigo-400 {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}" {{ $isItemNotAvailable ? 'readonly' : '' }} required>
+                                                <span class="text-[11px] font-black text-slate-600">{{ strtoupper($group['unit']) }}</span>
                                             </div>
                                         </div>
                                     </div>
-                                @else
-                                    {{-- Single Input for Direct Base Unit (KG) --}}
-                                    <div class="flex items-center gap-2">
-                                        <button type="button" onclick="stepQty({{ $group['product_id'] }}, -1)" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 cursor-pointer transition-colors border-none">
-                                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M18 12H6" />
-                                            </svg>
-                                        </button>
 
-                                        <div class="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-                                            <span class="text-xs font-black text-slate-500">Actual {{ strtoupper($group['unit']) }}:</span>
-                                            <input type="number" id="qty-{{ $group['product_id'] }}" name="items[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" data-approved="{{ number_format($approved, 2, '.', '') }}" data-available="{{ number_format($available, 2, '.', '') }}" data-product="{{ $group['product']->name }}" data-unit="{{ strtoupper($group['unit']) }}" class="qty-input flex-1 border-none text-center text-sm font-black focus:outline-none {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}" {{ $isItemNotAvailable ? 'readonly' : '' }} required>
-                                            <span class="text-xs font-black text-slate-600">{{ strtoupper($group['unit']) }}</span>
-                                        </div>
-
-                                        <button type="button" onclick="stepQty({{ $group['product_id'] }}, 1)" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 cursor-pointer transition-colors border-none">
-                                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                                            </svg>
+                                    <div class="mt-2 flex items-center justify-end gap-2 border-t border-slate-200/80 pt-2">
+                                        <button type="button" id="not-avail-btn-{{ $group['product_id'] }}" onclick="toggleNotAvailable({{ $group['product_id'] }})" class="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none">
+                                            {{ $isItemNotAvailable ? 'Re-enable Item' : 'Not Available' }}
                                         </button>
                                     </div>
-                                @endif
-
-                                {{-- Action Buttons Row --}}
-                                <div class="mt-3 flex items-center justify-end gap-2 border-t border-slate-200/80 pt-2.5">
-                                    <button type="button" id="not-avail-btn-{{ $group['product_id'] }}" onclick="toggleNotAvailable({{ $group['product_id'] }})" class="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-black uppercase tracking-wider text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none">
-                                        {{ $isItemNotAvailable ? 'Re-enable Item' : 'Not Available' }}
-                                    </button>
-                                    <button type="submit" form="loadout-form" class="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black uppercase tracking-wider text-white shadow-sm transition-all hover:bg-emerald-700 active:scale-[0.98] cursor-pointer border-none">
-                                        SAVE
-                                    </button>
                                 </div>
-                            </div>
+                            @else
+                                {{-- Single Input for Direct Base Unit (Strict Single Row Mobile Layout & Modal Support) --}}
+                                <div class="p-2 sm:p-2.5">
+                                    {{-- Hidden fields for status & note --}}
+                                    <input type="hidden" id="status-field-{{ $group['product_id'] }}" name="item_status[{{ $group['product_id'] }}]" value="{{ $isItemNotAvailable ? 'not_available' : 'loaded' }}">
+                                    <input type="hidden" id="note-field-{{ $group['product_id'] }}" name="item_notes[{{ $group['product_id'] }}]" value="{{ $firstItem->loadout_discrepancy_note ?? '' }}">
+
+                                    <div class="flex items-center justify-between gap-1.5 min-w-0">
+                                        {{-- Product info inline in 1 row --}}
+                                        <div class="flex items-center gap-1.5 min-w-0 flex-1 cursor-pointer" onclick="openSingleQtyModal({{ $group['product_id'] }})">
+                                            <span class="rounded-md bg-indigo-100 px-1.5 py-0.5 text-[9px] font-black text-indigo-700 shrink-0">SL {{ $loop->iteration }}</span>
+                                            <span class="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-black text-slate-700 shrink-0">#{{ $group['product']->sku ?: $group['product_id'] }}</span>
+                                            
+                                            <h3 class="truncate text-xs font-black text-slate-900 shrink-0 max-w-[100px] sm:max-w-xs" title="{{ $group['product']->name }}">{{ $group['product']->name }}</h3>
+
+                                            <div class="hidden sm:flex items-center gap-1.5 text-[9px] font-semibold text-slate-500 shrink-0">
+                                                <span>Ord: <span class="font-black text-slate-900">{{ number_format($orderedUnitQty, 2, '.', '') }}</span></span>
+                                                <span class="text-sky-700">Stk: <span class="font-bold">{{ number_format($available, 2, '.', '') }}</span></span>
+                                            </div>
+
+                                            @if($isItemNotAvailable)
+                                                <span class="rounded-full bg-rose-100 px-1.5 py-0.5 text-[8px] font-black uppercase text-rose-700 shrink-0">N/A ✕</span>
+                                            @elseif($isFullyLoaded)
+                                                <span class="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[8px] font-black uppercase text-emerald-700 shrink-0">Loaded ✓</span>
+                                            @elseif($isPartial)
+                                                <span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[8px] font-black uppercase text-amber-700 shrink-0">Partial</span>
+                                            @else
+                                                <span class="rounded-full bg-slate-100 px-1.5 py-0.5 text-[8px] font-black uppercase text-slate-600 shrink-0">Pending</span>
+                                            @endif
+                                        </div>
+
+                                        {{-- Controls in single row --}}
+                                        <div class="flex items-center gap-1 shrink-0">
+                                            <button type="button" onclick="stepQty({{ $group['product_id'] }}, -1)" class="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 active:bg-slate-200 cursor-pointer transition-colors border-none font-bold text-sm">-</button>
+
+                                            <div class="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white px-1.5 py-0.5 shadow-2xs">
+                                                <input type="number" id="qty-{{ $group['product_id'] }}" name="items[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" data-approved="{{ number_format($approved, 2, '.', '') }}" data-available="{{ number_format($available, 2, '.', '') }}" data-product="{{ $group['product']->name }}" data-unit="{{ strtoupper($group['unit']) }}" class="qty-input w-14 border-none text-center text-xs font-black focus:outline-none {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}" {{ $isItemNotAvailable ? 'readonly' : '' }} required>
+                                                <span class="text-[9px] font-black text-slate-500 uppercase">{{ strtoupper($group['unit']) }}</span>
+                                            </div>
+
+                                            <button type="button" onclick="stepQty({{ $group['product_id'] }}, 1)" class="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-600 cursor-pointer transition-colors border-none font-bold text-sm">+</button>
+
+                                            <button type="button" id="not-avail-btn-{{ $group['product_id'] }}" onclick="toggleNotAvailable({{ $group['product_id'] }})" class="shrink-0 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none">
+                                                {{ $isItemNotAvailable ? 'Enable' : 'N/A' }}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            @endif
                         </div>
                     @endforeach
                 </div>
@@ -545,116 +604,236 @@
 
     </div>
 
-    @if($canMoveToLoadout || $shopOrder->delivery_status === 'delivered' || $canEdit)
+    @if($shopOrder->delivery_status === 'delivered')
     {{-- ─── STICKY BOTTOM ACTION BAR ─── --}}
     <div class="fixed inset-x-0 bottom-[5.5rem] z-50 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.10)] backdrop-blur-sm lg:bottom-0"
          id="sticky-bar">
         <div class="mx-auto flex max-w-xl flex-col gap-2">
-
-            @if($canMoveToLoadout)
-                {{-- Status: in_transit → allow return to loadout only --}}
-                <div class="mb-3 text-center">
-                    <p class="text-[10px] font-semibold text-indigo-600">Order is out for delivery</p>
-                </div>
-                <div class="flex gap-2">
-                    <form action="{{ route('warehouse.loadout.move-to-loadout', $shopOrder) }}"
-                          method="POST"
-                          class="loadout-confirm-form w-full"
-                          data-confirm-title="Move Back to Loadout"
-                          data-confirm-message="Move this order back to loadout so you can update the loaded quantities?"
-                          data-confirm-button="Move to Loadout">
-                        @csrf
-                        <button type="submit"
-                                class="w-full rounded-xl border border-slate-200 bg-slate-100 py-3 text-xs font-black uppercase tracking-wider text-slate-700 transition-all hover:bg-slate-200 active:scale-[0.98] border-none cursor-pointer">
-                            Move to Loadout
-                        </button>
-                    </form>
-                </div>
-
-            @elseif($shopOrder->delivery_status === 'delivered')
-                {{-- Delivered --}}
-                <div class="flex items-center justify-center gap-2 py-2">
-                    <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 border border-emerald-200 px-4 py-2 text-xs font-black uppercase tracking-wider text-emerald-700">
-                        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                        Delivered
-                    </span>
-                </div>
-
-            @elseif($canEdit)
-                @if($canMoveToDelivery)
-                    {{-- Has loaded items → show both Save Changes and Move to Delivery --}}
-                    <div class="text-center">
-                        <p class="text-[9px] font-semibold text-emerald-700">Inventory already updated from saved loadout. Move to Delivery only changes the delivery status.</p>
-                    </div>
-                    <div class="flex gap-2">
-                        <button type="submit"
-                                form="loadout-form"
-                                class="flex-1 rounded-xl border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 text-xs font-black uppercase tracking-wider border-none cursor-pointer transition-all active:scale-[0.98]">
-                            Save Changes
-                        </button>
-                        <form action="{{ route('warehouse.loadout.move-to-delivery', $shopOrder) }}"
-                              method="POST"
-                              id="move-delivery-form"
-                              class="loadout-confirm-form flex-1"
-                              data-confirm-title="Move to Delivery"
-                              data-confirm-message="Move this order to delivery? This will reduce inventory for all loaded items."
-                              data-confirm-button="Move to Delivery">
-                            @csrf
-                            <button type="submit"
-                                    class="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white py-3 text-xs font-black uppercase tracking-wider shadow border-none cursor-pointer transition-all active:scale-[0.98]">
-                                    Move to Delivery
-                            </button>
-                        </form>
-                    </div>
-                @elseif($canMoveToPartialDelivery)
-                    <div class="text-center">
-                        <p class="text-[9px] font-semibold text-amber-700">{{ $remainingProductCount }} product line(s) still have balance. Inventory is already updated for loaded items; use partial delivery to continue with the current load.</p>
-                    </div>
-                    <div class="flex gap-2">
-                        <button type="submit"
-                                form="loadout-form"
-                                class="flex-1 rounded-xl border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 text-xs font-black uppercase tracking-wider border-none cursor-pointer transition-all active:scale-[0.98]">
-                            Save Changes
-                        </button>
-                        <form action="{{ route('warehouse.loadout.move-to-partial-delivery', $shopOrder) }}"
-                              method="POST"
-                              id="move-partial-delivery-form"
-                              class="loadout-confirm-form flex-1"
-                              data-confirm-title="Move to Partial Delivery"
-                              data-confirm-message="This order still has {{ $remainingProductCount }} product line(s) not fully loaded. Move it to delivery as a partial delivery?"
-                              data-confirm-button="Move to Partial Delivery">
-                            @csrf
-                            <button type="submit"
-                                    class="w-full rounded-xl bg-amber-500 hover:bg-amber-600 text-white py-3 text-xs font-black uppercase tracking-wider shadow border-none cursor-pointer transition-all active:scale-[0.98]">
-                                Partial Delivery
-                            </button>
-                        </form>
-                    </div>
-                @else
-                    {{-- No items loaded yet → Save Loadout only --}}
-                    <button type="submit"
-                            form="loadout-form"
-                            class="w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white py-3 text-xs font-black uppercase tracking-wider shadow border-none cursor-pointer transition-all active:scale-[0.98]">
-                        Save Loadout
-                    </button>
-                @endif
-            @endif
+            <div class="flex items-center justify-center gap-2 py-2">
+                <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 border border-emerald-200 px-4 py-2 text-xs font-black uppercase tracking-wider text-emerald-700">
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Delivered
+                </span>
+            </div>
 
         </div>
     </div>
     @endif
 
+    {{-- ─── SINGLE ITEM QUANTITY EDIT POPUP MODAL ─── --}}
+    <div id="single-qty-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs hidden" onclick="if(event.target === this) closeSingleQtyModal()">
+        <div class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-xl space-y-3.5">
+            {{-- Modal Header --}}
+            <div class="flex items-start justify-between gap-2 border-b border-slate-100 pb-2.5">
+                <div>
+                    <div class="flex items-center gap-1.5">
+                        <span id="modal-sl-badge" class="rounded-md bg-indigo-100 px-1.5 py-0.5 text-[10px] font-black text-indigo-700">SL 1</span>
+                        <span id="modal-sku-badge" class="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-black text-slate-700">#SKU</span>
+                    </div>
+                    <h3 id="modal-product-name" class="mt-1 text-sm font-black text-slate-900">Product Name</h3>
+                </div>
+                <button type="button" onclick="closeSingleQtyModal()" class="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 border-none cursor-pointer text-xs font-bold">
+                    ✕
+                </button>
+            </div>
+
+            {{-- Product Info Stats --}}
+            <div class="grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-2.5 text-center">
+                <div>
+                    <p class="text-[9px] font-black uppercase text-slate-400">Ordered</p>
+                    <p id="modal-ordered-qty" class="text-xs font-black text-slate-900">0.00</p>
+                </div>
+                <div>
+                    <p class="text-[9px] font-black uppercase text-slate-400">Loaded</p>
+                    <p id="modal-loaded-qty" class="text-xs font-black text-emerald-700">0.00</p>
+                </div>
+                <div>
+                    <p class="text-[9px] font-black uppercase text-slate-400">Stock</p>
+                    <p id="modal-available-stock" class="text-xs font-black text-sky-700">0.00</p>
+                </div>
+            </div>
+
+            {{-- Input & Stepper --}}
+            <div class="space-y-1.5">
+                <label for="modal-qty-input" class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Loaded Quantity</label>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="stepModalQty(-1)" class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-lg font-black text-slate-700 hover:bg-slate-200 active:bg-slate-300 cursor-pointer border-none">-</button>
+                    <div class="flex flex-1 items-center gap-1.5 rounded-xl border-2 border-indigo-500 bg-white px-3 py-2 shadow-2xs">
+                        <input type="number" id="modal-qty-input" min="0" step="any" inputmode="decimal" class="w-full border-none text-center text-lg font-black text-slate-900 focus:outline-none">
+                        <span id="modal-unit-label" class="text-xs font-black text-slate-500 uppercase">KG</span>
+                    </div>
+                    <button type="button" onclick="stepModalQty(1)" class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-lg font-black text-slate-700 hover:bg-slate-200 active:bg-slate-300 cursor-pointer border-none">+</button>
+                </div>
+            </div>
+
+            {{-- Action Buttons --}}
+            <div class="grid grid-cols-3 gap-2">
+                <button type="button" onclick="setModalFullQty()" class="rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-2 text-xs font-black text-emerald-700 hover:bg-emerald-100 cursor-pointer border-none">
+                    Full Qty
+                </button>
+                <button type="button" onclick="setModalZeroQty()" class="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-black text-slate-700 hover:bg-slate-100 cursor-pointer border-none">
+                    Clear (0)
+                </button>
+                <button type="button" id="modal-not-avail-btn" onclick="toggleModalNotAvailable()" class="rounded-xl border border-rose-200 bg-rose-50 px-2 py-2 text-xs font-black text-rose-700 hover:bg-rose-100 cursor-pointer border-none">
+                    Not Avail
+                </button>
+            </div>
+
+            {{-- Submit & Apply --}}
+            <button type="button" onclick="saveSingleQtyModal()" class="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-white hover:bg-indigo-700 cursor-pointer border-none shadow-sm">
+                Save & Apply
+            </button>
+        </div>
+    </div>
+
+    {{-- ─── NOT AVAILABLE REASON TAILWIND MODAL POPUP ─── --}}
+    <div id="not-available-reason-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs hidden" onclick="if(event.target === this) closeNotAvailableReasonModal()">
+        <div class="w-full max-w-sm rounded-2xl border border-rose-200 bg-white p-4 shadow-xl space-y-3.5">
+            {{-- Modal Header --}}
+            <div class="flex items-start justify-between gap-2 border-b border-slate-100 pb-2.5">
+                <div class="flex items-center gap-2">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-rose-100 text-rose-700">
+                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-black text-slate-900">Mark Not Available</h3>
+                        <p id="not-avail-modal-product-name" class="text-[11px] font-semibold text-slate-500">Product Name</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeNotAvailableReasonModal()" class="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 border-none cursor-pointer text-xs font-bold">
+                    ✕
+                </button>
+            </div>
+
+            {{-- Reason Form --}}
+            <div class="space-y-1.5">
+                <label for="not-avail-reason-input" class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Reason / Note (Optional)</label>
+                <textarea id="not-avail-reason-input" rows="2" placeholder="e.g. Out of stock, Damaged quality, Vendor shortage..." class="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-semibold text-slate-900 focus:border-rose-500 focus:bg-white focus:outline-none"></textarea>
+            </div>
+
+            {{-- Action Buttons --}}
+            <div class="flex items-center gap-2 pt-1">
+                <button type="button" onclick="closeNotAvailableReasonModal()" class="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-black text-slate-700 hover:bg-slate-100 cursor-pointer border-none">
+                    Cancel
+                </button>
+                <button type="button" onclick="confirmNotAvailableReason()" class="flex-1 rounded-xl bg-rose-600 px-3 py-2.5 text-xs font-black uppercase tracking-wider text-white hover:bg-rose-700 cursor-pointer border-none shadow-sm">
+                    Confirm N/A
+                </button>
+            </div>
+        </div>
+    </div>
+
     @push('scripts')
     <script>
         const loadoutForm = document.getElementById('loadout-form');
         const loadoutActionFeedback = document.getElementById('loadout-action-feedback');
+        let currentModalProductId = null;
+        let pendingNotAvailableProductId = null;
+
+        function openSingleQtyModal(productId) {
+            const input = document.getElementById('qty-' + productId);
+            if (!input) return;
+
+            currentModalProductId = productId;
+            const row = input.closest('.loadout-product-row');
+            const slBadge = row ? (row.querySelector('.bg-indigo-100')?.textContent || '') : '';
+            const skuBadge = row ? (row.querySelector('.bg-slate-100')?.textContent || '') : '';
+            const productName = input.dataset.product || '';
+            const unit = input.dataset.unit || '';
+            const approved = parseFloat(input.dataset.approved) || 0;
+            const available = parseFloat(input.dataset.available) || 0;
+            const currentQty = parseFloat(input.value) || 0;
+            const statusField = document.getElementById('status-field-' + productId);
+            const isNotAvail = statusField && statusField.value === 'not_available';
+
+            document.getElementById('modal-sl-badge').textContent = slBadge;
+            document.getElementById('modal-sku-badge').textContent = skuBadge;
+            document.getElementById('modal-product-name').textContent = productName;
+            document.getElementById('modal-unit-label').textContent = unit;
+            document.getElementById('modal-ordered-qty').textContent = approved.toFixed(2) + ' ' + unit;
+            document.getElementById('modal-loaded-qty').textContent = currentQty.toFixed(2) + ' ' + unit;
+            document.getElementById('modal-available-stock').textContent = available.toFixed(2) + ' ' + unit;
+            
+            const modalInput = document.getElementById('modal-qty-input');
+            modalInput.value = currentQty.toFixed(2);
+            modalInput.readOnly = isNotAvail;
+
+            const modalNotAvailBtn = document.getElementById('modal-not-avail-btn');
+            if (modalNotAvailBtn) {
+                modalNotAvailBtn.textContent = isNotAvail ? 'Enable Item' : 'Not Avail';
+            }
+
+            document.getElementById('single-qty-modal').classList.remove('hidden');
+            setTimeout(() => { modalInput.focus(); modalInput.select(); }, 100);
+        }
+
+        function closeSingleQtyModal() {
+            document.getElementById('single-qty-modal').classList.add('hidden');
+            currentModalProductId = null;
+        }
+
+        function stepModalQty(delta) {
+            const modalInput = document.getElementById('modal-qty-input');
+            if (!modalInput || modalInput.readOnly) return;
+            let val = parseFloat(modalInput.value) || 0;
+            val = Math.max(0, val + delta * 0.5);
+            modalInput.value = val.toFixed(2);
+        }
+
+        function setModalFullQty() {
+            if (!currentModalProductId) return;
+            const mainInput = document.getElementById('qty-' + currentModalProductId);
+            if (!mainInput) return;
+            const approved = parseFloat(mainInput.dataset.approved) || 0;
+            const modalInput = document.getElementById('modal-qty-input');
+            if (modalInput) {
+                modalInput.value = approved.toFixed(2);
+            }
+        }
+
+        function setModalZeroQty() {
+            const modalInput = document.getElementById('modal-qty-input');
+            if (modalInput) {
+                modalInput.value = '0.00';
+            }
+        }
+
+        function toggleModalNotAvailable() {
+            if (!currentModalProductId) return;
+            toggleNotAvailable(currentModalProductId);
+            const mainInput = document.getElementById('qty-' + currentModalProductId);
+            const statusField = document.getElementById('status-field-' + currentModalProductId);
+            const isNotAvail = statusField && statusField.value === 'not_available';
+            const modalInput = document.getElementById('modal-qty-input');
+            if (modalInput && mainInput) {
+                modalInput.value = mainInput.value;
+                modalInput.readOnly = isNotAvail;
+            }
+            const modalNotAvailBtn = document.getElementById('modal-not-avail-btn');
+            if (modalNotAvailBtn) {
+                modalNotAvailBtn.textContent = isNotAvail ? 'Enable Item' : 'Not Avail';
+            }
+        }
+
+        function saveSingleQtyModal() {
+            if (!currentModalProductId) return;
+            const mainInput = document.getElementById('qty-' + currentModalProductId);
+            const modalInput = document.getElementById('modal-qty-input');
+            if (mainInput && modalInput) {
+                mainInput.value = (parseFloat(modalInput.value) || 0).toFixed(2);
+                mainInput.dispatchEvent(new Event('change'));
+            }
+            closeSingleQtyModal();
+        }
 
         function toggleProductCard(productId) {
             const body = document.getElementById('card-body-' + productId);
             const arrow = document.getElementById('arrow-' + productId);
-            if (!body) return;
+            if (!body || !body.classList.contains('collapsible-body')) return;
 
             const isHidden = body.classList.contains('hidden');
             body.classList.toggle('hidden', !isHidden);
@@ -664,7 +843,7 @@
         }
 
         function toggleExpandAllCards() {
-            const bodies = document.querySelectorAll('.product-card-body');
+            const bodies = document.querySelectorAll('.product-card-body.collapsible-body');
             const textSpan = document.getElementById('toggle-all-cards-text');
             if (!bodies.length) return;
 
@@ -681,7 +860,7 @@
             });
 
             if (textSpan) {
-                textSpan.textContent = anyHidden ? 'Collapse All' : 'Expand All';
+                textSpan.textContent = anyHidden ? 'Collapse Dual' : 'Expand Dual';
             }
         }
 
@@ -744,6 +923,7 @@
             const statusField = document.getElementById('status-field-' + productId);
             const noteField = document.getElementById('note-field-' + productId);
             const btn = document.getElementById('not-avail-btn-' + productId);
+            const isDualMeasurement = Boolean(unitInput);
 
             if (statusField) {
                 statusField.value = 'loaded';
@@ -764,8 +944,10 @@
             });
 
             if (btn) {
-                btn.textContent = 'Not Available';
-                btn.className = 'rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-black uppercase tracking-wider text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none';
+                btn.textContent = isDualMeasurement ? 'Not Available' : 'Not Avail';
+                btn.className = isDualMeasurement
+                    ? 'rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none'
+                    : 'shrink-0 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wide text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none';
             }
         }
 
@@ -984,32 +1166,90 @@
             input.dispatchEvent(new Event('change'));
         }
 
-        // Toggle Not Available / Out of Stock status for a product
+        // Toggle Not Available / Out of Stock status for a product via Tailwind Modal
         function toggleNotAvailable(productId) {
             const input = document.getElementById('qty-' + productId);
+            const unitInput = document.getElementById('unit-qty-' + productId);
             const statusField = document.getElementById('status-field-' + productId);
             const noteField = document.getElementById('note-field-' + productId);
             const btn = document.getElementById('not-avail-btn-' + productId);
+            const isDualMeasurement = Boolean(unitInput);
             if (!input || !statusField || !btn) return;
 
             if (statusField.value === 'not_available') {
                 statusField.value = 'loaded';
+                if (noteField) noteField.value = '';
                 input.readOnly = false;
                 input.classList.remove('bg-rose-50', 'text-rose-600', 'line-through');
-                btn.textContent = 'Not Available';
-                btn.className = 'shrink-0 rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-2 text-[10px] font-black uppercase tracking-wider text-rose-600 hover:bg-rose-100 cursor-pointer transition-colors border-none';
+                btn.textContent = isDualMeasurement ? 'Not Available' : 'N/A';
+                btn.className = isDualMeasurement
+                    ? 'rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none'
+                    : 'shrink-0 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none';
+                input.dispatchEvent(new Event('change'));
             } else {
-                const note = prompt('Reason for marking Not Available / Out of Stock:');
-                if (note === null) return;
+                openNotAvailableReasonModal(productId);
+            }
+        }
+
+        function openNotAvailableReasonModal(productId) {
+            const input = document.getElementById('qty-' + productId);
+            if (!input) return;
+
+            pendingNotAvailableProductId = productId;
+            const productName = input.dataset.product || 'Product';
+            document.getElementById('not-avail-modal-product-name').textContent = productName;
+            const reasonInput = document.getElementById('not-avail-reason-input');
+            if (reasonInput) reasonInput.value = '';
+
+            document.getElementById('not-available-reason-modal').classList.remove('hidden');
+            setTimeout(() => { if (reasonInput) reasonInput.focus(); }, 100);
+        }
+
+        function closeNotAvailableReasonModal() {
+            document.getElementById('not-available-reason-modal').classList.add('hidden');
+            pendingNotAvailableProductId = null;
+        }
+
+        function confirmNotAvailableReason() {
+            if (!pendingNotAvailableProductId) return;
+            const productId = pendingNotAvailableProductId;
+
+            const input = document.getElementById('qty-' + productId);
+            const unitInput = document.getElementById('unit-qty-' + productId);
+            const statusField = document.getElementById('status-field-' + productId);
+            const noteField = document.getElementById('note-field-' + productId);
+            const btn = document.getElementById('not-avail-btn-' + productId);
+            const isDualMeasurement = Boolean(unitInput);
+            const reasonInput = document.getElementById('not-avail-reason-input');
+            const note = (reasonInput ? reasonInput.value : '').trim() || 'Marked as Not Available';
+
+            if (input && statusField && btn) {
                 statusField.value = 'not_available';
-                noteField.value = note || 'Marked as Not Available';
+                if (noteField) noteField.value = note;
                 input.value = '0.00';
                 input.readOnly = true;
                 input.classList.add('bg-rose-50', 'text-rose-600', 'line-through');
-                btn.textContent = 'Unavailable ✕';
-                btn.className = 'shrink-0 rounded-xl border bg-rose-600 px-2.5 py-2 text-[10px] font-black uppercase tracking-wider text-white cursor-pointer transition-colors border-none';
+                btn.textContent = isDualMeasurement ? 'Unavailable ✕' : 'N/A ✕';
+                btn.className = isDualMeasurement
+                    ? 'rounded-xl border bg-rose-600 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-white cursor-pointer transition-colors border-none'
+                    : 'shrink-0 rounded-lg border bg-rose-600 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-white cursor-pointer transition-colors border-none';
+                
+                input.dispatchEvent(new Event('change'));
             }
-            input.dispatchEvent(new Event('change'));
+
+            closeNotAvailableReasonModal();
+
+            if (typeof currentModalProductId !== 'undefined' && currentModalProductId === productId) {
+                const modalInput = document.getElementById('modal-qty-input');
+                if (modalInput) {
+                    modalInput.value = '0.00';
+                    modalInput.readOnly = true;
+                }
+                const modalNotAvailBtn = document.getElementById('modal-not-avail-btn');
+                if (modalNotAvailBtn) {
+                    modalNotAvailBtn.textContent = 'Enable Item';
+                }
+            }
         }
 
         // Confirm modal for forms
@@ -1020,6 +1260,68 @@
             const productRows = Array.from(document.querySelectorAll('.loadout-product-row'));
             const productEmpty = document.getElementById('loadout-product-empty');
             const productCount = document.getElementById('loadout-product-filter-count');
+            const mobileLoadoutCount = document.getElementById('mobile-loadout-count');
+            const mobileAddonCount = document.getElementById('mobile-addon-count');
+            const mobileLoadoutSaved = document.getElementById('mobile-loadout-saved');
+            const mobileAddonSaved = document.getElementById('mobile-addon-saved');
+
+            const inlineAddonToggle = document.getElementById('toggle-inline-addon');
+            const inlineAddonPanel = document.getElementById('inline-addon-panel');
+            const inlineAddonCombobox = document.getElementById('inline-addon-combobox');
+            const inlineAddonTrigger = document.getElementById('inline-addon-combobox-trigger');
+            const inlineAddonDropdown = document.getElementById('inline-addon-combobox-panel');
+            const inlineAddonSearch = document.getElementById('inline-addon-combobox-search');
+            const inlineAddonHiddenInput = document.getElementById('inline-addon-product-id');
+            const inlineAddonSelectedLabel = document.getElementById('inline-addon-selected-label');
+            const inlineAddonOptions = Array.from(document.querySelectorAll('.inline-addon-option'));
+            const inlineAddonGroups = Array.from(document.querySelectorAll('.inline-addon-category-group'));
+            const inlineAddonEmpty = document.getElementById('inline-addon-combobox-empty');
+
+            const loadoutForm = document.getElementById('loadout-form');
+            let autosaveTimer = null;
+
+            function updateMobileTopInfo() {
+                const qtyInputs = Array.from(document.querySelectorAll('.qty-input'));
+                const totalRows = qtyInputs.length;
+                const loadedRows = qtyInputs.filter((input) => {
+                    const productId = input.id.replace('qty-', '');
+                    const statusField = document.getElementById('status-field-' + productId);
+                    const isNotAvailable = statusField && statusField.value === 'not_available';
+                    const qty = parseFloat(input.value) || 0;
+
+                    return !isNotAvailable && qty > 0.0001;
+                }).length;
+
+                if (mobileLoadoutCount) {
+                    mobileLoadoutCount.textContent = loadedRows + '/' + totalRows;
+                }
+
+                if (mobileAddonCount) {
+                    mobileAddonCount.textContent = mobileAddonCount.textContent || '0';
+                }
+            }
+
+            function markMobileSavedState() {
+                mobileLoadoutSaved?.classList.remove('hidden');
+                mobileAddonSaved?.classList.remove('hidden');
+            }
+
+            function scheduleAutosave() {
+                if (!loadoutForm) {
+                    return;
+                }
+
+                mobileLoadoutSaved?.classList.add('hidden');
+                mobileAddonSaved?.classList.add('hidden');
+
+                if (autosaveTimer) {
+                    clearTimeout(autosaveTimer);
+                }
+
+                autosaveTimer = window.setTimeout(function () {
+                    loadoutForm.requestSubmit();
+                }, 600);
+            }
 
             function filterLoadoutProducts() {
                 const query = (productSearch?.value || '').trim().toLowerCase();
@@ -1052,10 +1354,180 @@
             productSearch?.addEventListener('input', filterLoadoutProducts);
             productCategory?.addEventListener('change', filterLoadoutProducts);
             productStatus?.addEventListener('change', filterLoadoutProducts);
+
+            // Custom Tailwind Category & Status Select Handlers
+            const categoryTrigger = document.getElementById('category-select-trigger');
+            const categoryPanel = document.getElementById('category-select-panel');
+            const categoryLabel = document.getElementById('category-select-label');
+            const categoryHidden = document.getElementById('loadout-product-category');
+            const categoryOptions = document.querySelectorAll('.category-select-option');
+
+            const statusTrigger = document.getElementById('status-select-trigger');
+            const statusPanel = document.getElementById('status-select-panel');
+            const statusLabel = document.getElementById('status-select-label');
+            const statusHidden = document.getElementById('loadout-product-status');
+            const statusOptions = document.querySelectorAll('.status-select-option');
+
+            function toggleCategoryDropdown(show) {
+                if (!categoryPanel) return;
+                const willShow = show !== undefined ? show : categoryPanel.classList.contains('hidden');
+                categoryPanel.classList.toggle('hidden', !willShow);
+                if (willShow && statusPanel) statusPanel.classList.add('hidden');
+            }
+
+            function toggleStatusDropdown(show) {
+                if (!statusPanel) return;
+                const willShow = show !== undefined ? show : statusPanel.classList.contains('hidden');
+                statusPanel.classList.toggle('hidden', !willShow);
+                if (willShow && categoryPanel) categoryPanel.classList.add('hidden');
+            }
+
+            if (categoryTrigger) {
+                categoryTrigger.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    toggleCategoryDropdown();
+                });
+            }
+
+            if (statusTrigger) {
+                statusTrigger.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    toggleStatusDropdown();
+                });
+            }
+
+            categoryOptions.forEach(function (opt) {
+                opt.addEventListener('click', function () {
+                    const val = opt.dataset.value;
+                    const label = opt.dataset.label;
+                    if (categoryHidden) categoryHidden.value = val;
+                    if (categoryLabel) categoryLabel.textContent = label;
+                    toggleCategoryDropdown(false);
+                    filterLoadoutProducts();
+                });
+            });
+
+            statusOptions.forEach(function (opt) {
+                opt.addEventListener('click', function () {
+                    const val = opt.dataset.value;
+                    const label = opt.dataset.label;
+                    if (statusHidden) statusHidden.value = val;
+                    if (statusLabel) statusLabel.textContent = label;
+                    toggleStatusDropdown(false);
+                    filterLoadoutProducts();
+                });
+            });
+
+            document.addEventListener('click', function (e) {
+                if (categoryPanel && !categoryPanel.contains(e.target) && categoryTrigger && !categoryTrigger.contains(e.target)) {
+                    toggleCategoryDropdown(false);
+                }
+                if (statusPanel && !statusPanel.contains(e.target) && statusTrigger && !statusTrigger.contains(e.target)) {
+                    toggleStatusDropdown(false);
+                }
+            });
+
             filterLoadoutProducts();
 
+            if (inlineAddonToggle && inlineAddonPanel) {
+                inlineAddonToggle.addEventListener('click', function () {
+                    inlineAddonPanel.classList.toggle('hidden');
+                });
+            }
+
+            if (
+                inlineAddonCombobox
+                && inlineAddonTrigger
+                && inlineAddonDropdown
+                && inlineAddonSearch
+                && inlineAddonHiddenInput
+                && inlineAddonSelectedLabel
+                && inlineAddonEmpty
+            ) {
+                const normalize = (value) => (value || '').toString().trim().toLowerCase();
+
+                const closeInlineAddonDropdown = () => {
+                    inlineAddonDropdown.classList.add('hidden');
+                    inlineAddonTrigger.classList.remove('border-indigo-500', 'bg-white');
+                };
+
+                const openInlineAddonDropdown = () => {
+                    inlineAddonDropdown.classList.remove('hidden');
+                    inlineAddonTrigger.classList.add('border-indigo-500', 'bg-white');
+                    inlineAddonSearch.focus();
+                    filterInlineAddonOptions();
+                };
+
+                const selectInlineAddonOption = (option) => {
+                    inlineAddonHiddenInput.value = option.dataset.value || '';
+                    inlineAddonSelectedLabel.textContent = option.dataset.label || 'Select addon product';
+
+                    inlineAddonOptions.forEach((item) => item.classList.remove('bg-indigo-100', 'text-indigo-800'));
+                    option.classList.add('bg-indigo-100', 'text-indigo-800');
+
+                    closeInlineAddonDropdown();
+                };
+
+                function filterInlineAddonOptions() {
+                    const query = normalize(inlineAddonSearch.value);
+                    let visibleCount = 0;
+
+                    inlineAddonGroups.forEach((group) => {
+                        const groupOptions = inlineAddonOptions.filter((option) => option.closest('.inline-addon-category-group') === group);
+                        let groupVisible = 0;
+
+                        groupOptions.forEach((option) => {
+                            const searchText = normalize(option.dataset.search);
+                            const visible = query === '' || searchText.includes(query);
+                            option.classList.toggle('hidden', !visible);
+                            if (visible) {
+                                visibleCount++;
+                                groupVisible++;
+                            }
+                        });
+
+                        group.classList.toggle('hidden', groupVisible === 0);
+                    });
+
+                    inlineAddonEmpty.classList.toggle('hidden', visibleCount > 0);
+                }
+
+                inlineAddonTrigger.addEventListener('click', () => {
+                    if (inlineAddonDropdown.classList.contains('hidden')) {
+                        openInlineAddonDropdown();
+                    } else {
+                        closeInlineAddonDropdown();
+                    }
+                });
+
+                inlineAddonSearch.addEventListener('input', filterInlineAddonOptions);
+                inlineAddonSearch.addEventListener('keydown', (event) => {
+                    if (event.key === 'Escape') {
+                        closeInlineAddonDropdown();
+                    }
+                });
+
+                inlineAddonOptions.forEach((option) => {
+                    option.addEventListener('click', () => selectInlineAddonOption(option));
+                });
+
+                document.addEventListener('click', (event) => {
+                    if (!inlineAddonCombobox.contains(event.target)) {
+                        closeInlineAddonDropdown();
+                    }
+                });
+
+                const initialValue = (inlineAddonHiddenInput.value || '').toString();
+                if (initialValue) {
+                    const initialOption = inlineAddonOptions.find((option) => (option.dataset.value || '') === initialValue);
+                    if (initialOption) {
+                        inlineAddonSelectedLabel.textContent = initialOption.dataset.label || inlineAddonSelectedLabel.textContent;
+                        initialOption.classList.add('bg-indigo-100', 'text-indigo-800');
+                    }
+                }
+            }
+
             // AJAX submit for loadout form without page reload
-            const loadoutForm = document.getElementById('loadout-form');
             if (loadoutForm) {
                 loadoutForm.addEventListener('submit', async function(e) {
                     e.preventDefault();
@@ -1099,6 +1571,9 @@
                                     : 'Loadout saved & stock updated successfully! ✓';
                                 setTimeout(() => { feedbackEl.classList.add('hidden'); }, 3500);
                             }
+
+                            updateMobileTopInfo();
+                            markMobileSavedState();
                             
                             if (submitter) {
                                 submitter.disabled = false;
@@ -1161,7 +1636,7 @@
 
             // Inline validation: warn if entered qty > available
             document.querySelectorAll('.qty-input').forEach(function (input) {
-                input.addEventListener('change', function () {
+                const onQtyChanged = function () {
                     const approved = parseFloat(input.dataset.approved);
                     const available = parseFloat(input.dataset.available);
                     const entered = parseFloat(input.value) || 0;
@@ -1186,8 +1661,26 @@
                             setRowStatus(productId, 'No quantity selected');
                         }
                     }
-                });
+
+                    updateMobileTopInfo();
+                    scheduleAutosave();
+                };
+
+                input.addEventListener('input', onQtyChanged);
+                input.addEventListener('change', onQtyChanged);
             });
+
+            document.querySelectorAll('[id^="unit-qty-"]').forEach(function (input) {
+                const onUnitQtyChanged = function () {
+                    updateMobileTopInfo();
+                    scheduleAutosave();
+                };
+
+                input.addEventListener('input', onUnitQtyChanged);
+                input.addEventListener('change', onUnitQtyChanged);
+            });
+
+            updateMobileTopInfo();
         });
     </script>
     @endpush

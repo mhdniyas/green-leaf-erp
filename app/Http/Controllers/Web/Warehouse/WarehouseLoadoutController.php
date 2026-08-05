@@ -132,7 +132,7 @@ class WarehouseLoadoutController extends Controller
     {
         $this->authorizeAccess($request);
 
-        $shopOrder->load(['shop', 'items.product.category', 'deliveredBy']);
+        $shopOrder->load(['shop', 'items.product.category', 'items.product.orderUnits', 'deliveredBy']);
 
         // Group items by product — UI shows one merged row per product
         $productGroups = $shopOrder->items
@@ -141,12 +141,16 @@ class WarehouseLoadoutController extends Controller
                 $productId = $items->first()->product_id;
                 $totalApproved = $this->loadoutApprovedQuantity($items);
                 $totalLoaded = (float) $items->where('sorting_status', 'loaded')->sum('loaded_qty');
+                $totalLoadedOrderUnit = (float) $items->where('sorting_status', 'loaded')->sum(fn (ShopOrderItem $item): float => (float) ($item->loaded_order_unit_qty ?? 0));
+                $totalRequestedOrderUnit = (float) $items->sum(fn (ShopOrderItem $item): float => (float) ($item->requested_qty ?? 0));
                 $totalBalance = max(0.0, round($totalApproved - $totalLoaded, 3));
                 $available = round($this->stockLedgerService->availableSortedStockForProduct($productId) + $totalLoaded, 3);
 
                 $firstItem = $items->first();
-                $loadedItem = $items->firstWhere('sorting_status', 'loaded');
-                $hasSecondaryUnit = ! empty($firstItem->requested_unit) && strtolower($firstItem->requested_unit) !== 'kg';
+                $productBaseUnit = strtolower((string) ($firstItem->product->unit ?? 'kg'));
+                $requestedUnit = strtolower((string) ($firstItem->requested_unit ?? ''));
+                $hasSecondaryUnit = $requestedUnit !== '' && $requestedUnit !== $productBaseUnit;
+                $measurementCount = (int) ($firstItem->product?->orderUnits?->count() ?? 0);
 
                 return [
                     'product_id' => $productId,
@@ -155,8 +159,11 @@ class WarehouseLoadoutController extends Controller
                     'product_grade' => $firstItem->product_grade ?? 'A',
                     'total_approved' => $totalApproved,
                     'total_loaded' => $totalLoaded,
-                    'loaded_order_unit_qty' => (float) ($loadedItem->loaded_order_unit_qty ?? $firstItem->requested_unit_quantity ?? 1.0),
+                    'loaded_order_unit_qty' => $totalLoadedOrderUnit,
                     'has_secondary_unit' => $hasSecondaryUnit,
+                    'measurement_count' => $measurementCount,
+                    'use_dual_measurement_inputs' => $hasSecondaryUnit && $measurementCount > 1,
+                    'requested_unit_total' => $totalRequestedOrderUnit,
                     'requested_unit_quantity' => (float) ($firstItem->requested_unit_quantity ?? 1.0),
                     'requested_unit_label' => $firstItem->requested_unit_label ?? strtoupper($firstItem->requested_unit ?? ''),
                     'requested_unit_conversion_to_base' => (float) ($firstItem->requested_unit_conversion_to_base ?? 1.0),
@@ -170,6 +177,8 @@ class WarehouseLoadoutController extends Controller
             ->sortBy(fn (array $group) => \App\Models\Product::sortableSku((string) ($group['product']?->sku ?? '')))
             ->values();
 
+        $addonProductsByCategory = $this->addonProductsByCategory($shopOrder);
+
         $canEdit = $shopOrder->delivery_status !== 'delivered';
         $anyLoaded = $shopOrder->items->where('sorting_status', 'loaded')->count() > 0;
         $hasRemainingBalance = $productGroups->contains(fn (array $group): bool => (float) $group['total_balance'] > 0.001);
@@ -182,6 +191,7 @@ class WarehouseLoadoutController extends Controller
         return view('warehouse.loadout.show', compact(
             'shopOrder',
             'productGroups',
+            'addonProductsByCategory',
             'canEdit',
             'anyLoaded',
             'canMoveToDelivery',
@@ -311,15 +321,30 @@ class WarehouseLoadoutController extends Controller
         return redirect()->back()->with('success', $message);
     }
 
-    public function createAddon(ShopOrder $shopOrder, Request $request): View
+    public function createAddon(ShopOrder $shopOrder, Request $request): RedirectResponse
     {
         $this->authorizeAccess($request);
         $this->ensureLoadoutEditable($shopOrder);
 
-        $shopOrder->load(['shop', 'items.product']);
+        return redirect()
+            ->route('warehouse.loadout.show', $shopOrder)
+            ->with('success', 'Use the inline Addon section in this loadout screen.');
+    }
 
-        $existingProductIds = $shopOrder->items->pluck('product_id')->filter()->map(fn ($id) => (int) $id)->all();
-        $productsByCategory = Category::query()
+    /**
+     * @return Collection<int, Category>
+     */
+    private function addonProductsByCategory(ShopOrder $shopOrder): Collection
+    {
+        $shopOrder->loadMissing('items.product');
+
+        $existingProductIds = $shopOrder->items
+            ->pluck('product_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        return Category::query()
             ->where('is_active', true)
             ->with(['products' => function ($query) use ($existingProductIds): void {
                 $query
@@ -331,8 +356,6 @@ class WarehouseLoadoutController extends Controller
             ->get()
             ->filter(fn (Category $category): bool => $category->products->isNotEmpty())
             ->values();
-
-        return view('warehouse.loadout.addon', compact('shopOrder', 'productsByCategory'));
     }
 
     public function storeAddon(ShopOrder $shopOrder, Request $request): RedirectResponse
@@ -728,13 +751,16 @@ class WarehouseLoadoutController extends Controller
                 $userId = (int) $request->user()->id;
                 $shopOrder->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
                 $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
-                $this->shopInvoiceService->repriceInvoice(
-                    $invoice,
-                    $userId,
-                    $partialDelivery
-                        ? "Invoice recalculated during partial delivery transition for order {$shopOrder->order_number}."
-                        : "Invoice recalculated during delivery transition for order {$shopOrder->order_number}."
-                );
+
+                if (! $invoice->isFinalLocked()) {
+                    $this->shopInvoiceService->repriceInvoice(
+                        $invoice,
+                        $userId,
+                        $partialDelivery
+                            ? "Invoice recalculated during partial delivery transition for order {$shopOrder->order_number}."
+                            : "Invoice recalculated during delivery transition for order {$shopOrder->order_number}."
+                    );
+                }
             });
         } catch (ValidationException $e) {
             return redirect()->back()->withErrors([$e->getMessage() ?: 'Invoice recalculation failed. Delivery move was cancelled.']);
