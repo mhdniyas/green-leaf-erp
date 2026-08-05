@@ -1457,7 +1457,7 @@ class AdminAccountingController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'email', 'public_uuid']);
 
-        $purchasers = User::query()
+        $allPurchasers = User::query()
             ->whereHas('roles', fn ($query) => $query->where('name', 'purchaser'))
             ->withSum(['purchaserCredits as total_in' => fn ($query) => $query->where('type', 'in')], 'amount')
             ->withSum(['purchaserCredits as total_out' => fn ($query) => $query->where('type', 'out')], 'amount')
@@ -1489,10 +1489,12 @@ class AdminAccountingController extends Controller
             ->values();
 
         $totals = [
-            'total_in' => round((float) $purchasers->sum('total_in'), 2),
-            'total_out' => round((float) $purchasers->sum('total_out'), 2),
-            'balance' => round((float) $purchasers->sum('balance'), 2),
+            'total_in' => round((float) $allPurchasers->sum('total_in'), 2),
+            'total_out' => round((float) $allPurchasers->sum('total_out'), 2),
+            'balance' => round((float) $allPurchasers->sum('balance'), 2),
         ];
+
+        $purchasers = $this->paginateCollection($allPurchasers, $request, 'purchasers_page', 15)->withQueryString();
 
         $cashQuery = PurchaserCredit::query()
             ->with(['purchaser:id,name,email,public_uuid', 'purchaseInvoice:id,invoice_number,public_uuid,amount,payment_method,payment_status', 'creator:id,name'])
@@ -1508,8 +1510,8 @@ class AdminAccountingController extends Controller
         $cashTransactions = (clone $cashQuery)
             ->orderByDesc('business_date')
             ->orderByDesc('id')
-            ->limit(150)
-            ->get();
+            ->paginate(15, ['*'], 'cash_page')
+            ->withQueryString();
 
         $companyBillQuery = PurchaseInvoice::query()
             ->with([
@@ -1534,7 +1536,7 @@ class AdminAccountingController extends Controller
                 });
             });
 
-        $companyBillTransactions = (clone $companyBillQuery)
+        $allCompanyBillTransactions = (clone $companyBillQuery)
             ->orderByDesc(
                 \App\Models\PurchaserCart::query()
                     ->select('business_date')
@@ -1542,7 +1544,6 @@ class AdminAccountingController extends Controller
                     ->limit(1)
             )
             ->orderByDesc('id')
-            ->limit(150)
             ->get()
             ->map(function (PurchaseInvoice $invoice): array {
                 $netAmount = round((float) $invoice->amount - (float) $invoice->discount_amount, 2);
@@ -1564,9 +1565,11 @@ class AdminAccountingController extends Controller
                 ];
             });
 
-        $companyOnlinePaid = round((float) $companyBillTransactions->sum('paid_amount'), 2);
-        $companyCreditPending = round((float) $companyBillTransactions->sum('pending_amount'), 2);
-        $companyBillsByPurchaser = $companyBillTransactions->groupBy(fn (array $row): int => (int) ($row['purchaser']?->id ?? 0));
+        $companyOnlinePaid = round((float) $allCompanyBillTransactions->sum('paid_amount'), 2);
+        $companyCreditPending = round((float) $allCompanyBillTransactions->sum('pending_amount'), 2);
+        $companyBillsByPurchaser = $allCompanyBillTransactions->groupBy(fn (array $row): int => (int) ($row['purchaser']?->id ?? 0));
+
+        $companyBillTransactions = $this->paginateCollection($allCompanyBillTransactions, $request, 'company_bills_page', 15)->withQueryString();
 
         $procurementQuery = ProcurementExpense::query()
             ->with(['purchaser:id,name,email,public_uuid', 'companyAccountingEntry:id,journal_entry_id,reference,business_date,amount,status', 'companyAccountingEntry.journalEntry:id,reference'])
@@ -1594,8 +1597,8 @@ class AdminAccountingController extends Controller
         $procurementTransactions = (clone $procurementQuery)
             ->orderByDesc('expense_date')
             ->orderByDesc('id')
-            ->limit(150)
-            ->get();
+            ->paginate(15, ['*'], 'procurement_page')
+            ->withQueryString();
 
         $otherExpenseQuery = OtherExpense::query()
             ->with(['purchaser:id,name,email,public_uuid', 'companyAccountingEntry:id,journal_entry_id,reference,business_date,amount,status', 'companyAccountingEntry.journalEntry:id,reference'])
@@ -1623,8 +1626,8 @@ class AdminAccountingController extends Controller
         $otherExpenseTransactions = (clone $otherExpenseQuery)
             ->orderByDesc('expense_date')
             ->orderByDesc('id')
-            ->limit(150)
-            ->get();
+            ->paginate(15, ['*'], 'other_page')
+            ->withQueryString();
 
         $cashByPurchaser = PurchaserCredit::query()
             ->select('purchaser_id')
@@ -1659,7 +1662,7 @@ class AdminAccountingController extends Controller
             ->get()
             ->keyBy('user_id');
 
-        $summaryRows = $purchaserOptions
+        $allSummaryRows = $purchaserOptions
             ->when($selectedPurchaserId, fn (Collection $users) => $users->where('id', $selectedPurchaserId))
             ->map(function (User $purchaser) use ($cashByPurchaser, $procurementByPurchaser, $otherExpensesByPurchaser, $companyBillsByPurchaser): array {
                 $cash = $cashByPurchaser->get($purchaser->id);
@@ -1701,6 +1704,8 @@ class AdminAccountingController extends Controller
             ->filter(fn (array $row): bool => $row['cash_in'] > 0 || $row['cash_out'] > 0 || $row['company_online'] > 0 || $row['credit_pending'] > 0 || $row['total_purchaser_expenses'] > 0)
             ->sortByDesc(fn (array $row): string => $row['last_activity']?->toDateString() ?? '')
             ->values();
+
+        $summaryRows = $this->paginateCollection($allSummaryRows, $request, 'summary_page', 15)->withQueryString();
 
         $reportTotals = [
             'cash_in' => $cashTotals['in'],

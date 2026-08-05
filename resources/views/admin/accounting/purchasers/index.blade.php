@@ -197,6 +197,11 @@
                     </tfoot>
                 </table>
             </div>
+            @if ($purchasers->hasPages())
+                <div class="border-t border-slate-200 px-5 py-4">
+                    {{ $purchasers->links() }}
+                </div>
+            @endif
         </section>
 
         <section id="purchaser-reports-section" class="overflow-hidden rounded-[1.9rem] border border-slate-200 bg-white shadow-sm">
@@ -346,6 +351,11 @@
                                 </tbody>
                             </table>
                         </div>
+                        @if ($cashTransactions->hasPages())
+                            <div class="border-t border-slate-200 px-4 py-3">
+                                {{ $cashTransactions->links() }}
+                            </div>
+                        @endif
                     </div>
 
                     <div class="overflow-hidden rounded-2xl border border-slate-200">
@@ -397,6 +407,11 @@
                                 </tbody>
                             </table>
                         </div>
+                        @if ($companyBillTransactions->hasPages())
+                            <div class="border-t border-slate-200 px-4 py-3">
+                                {{ $companyBillTransactions->links() }}
+                            </div>
+                        @endif
                     </div>
                 @elseif($activeReportTab === 'procurement')
                     <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -463,6 +478,11 @@
                                 </tbody>
                             </table>
                         </div>
+                        @if ($procurementTransactions->hasPages())
+                            <div class="border-t border-slate-200 px-4 py-3">
+                                {{ $procurementTransactions->links() }}
+                            </div>
+                        @endif
                     </div>
                 @elseif($activeReportTab === 'other')
                     <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -530,6 +550,11 @@
                                 </tbody>
                             </table>
                         </div>
+                        @if ($otherExpenseTransactions->hasPages())
+                            <div class="border-t border-slate-200 px-4 py-3">
+                                {{ $otherExpenseTransactions->links() }}
+                            </div>
+                        @endif
                     </div>
                 @else
                     <div class="overflow-hidden rounded-2xl border border-slate-200">
@@ -574,6 +599,11 @@
                                 </tbody>
                             </table>
                         </div>
+                        @if ($summaryRows->hasPages())
+                            <div class="border-t border-slate-200 px-4 py-3">
+                                {{ $summaryRows->links() }}
+                            </div>
+                        @endif
                     </div>
                 @endif
             </div>
@@ -630,10 +660,17 @@
 
             document.addEventListener('click', (event) => {
                 const tab = event.target.closest('[data-purchaser-report-tab]');
-                if (! tab) return;
+                if (tab) {
+                    event.preventDefault();
+                    loadPurchaserReports(tab.href);
+                    return;
+                }
 
-                event.preventDefault();
-                loadPurchaserReports(tab.href);
+                const paginationLink = event.target.closest('#purchaser-reports-section nav a, #purchaser-reports-section .pagination a');
+                if (paginationLink && paginationLink.href) {
+                    event.preventDefault();
+                    loadPurchaserReports(paginationLink.href);
+                }
             });
 
             document.addEventListener('submit', (event) => {
