@@ -317,6 +317,21 @@
                                     $rowUnitOptions = collect($prod['unit_options'] ?? [
                                         ['unit' => strtolower((string) ($prod['unit'] ?? 'kg')), 'label' => strtoupper((string) ($prod['unit'] ?? 'kg'))],
                                     ]);
+
+                                    // Include every unit already used in this row's weekly cells so
+                                    // admins can reuse that unit on any day (e.g. CRATE on another day).
+                                    $unitsUsedInWeek = collect($prod['prices'] ?? [])
+                                        ->map(fn ($priceRow) => strtolower((string) ($priceRow['unit'] ?? '')))
+                                        ->filter()
+                                        ->map(fn ($unit) => [
+                                            'unit' => $unit,
+                                            'label' => strtoupper(str_replace('_', ' ', $unit)),
+                                        ]);
+
+                                    $rowUnitOptions = $rowUnitOptions
+                                        ->merge($unitsUsedInWeek)
+                                        ->unique(fn ($opt) => strtolower((string) ($opt['unit'] ?? '')))
+                                        ->values();
                                 @endphp
                                 @foreach ($matrixDates as $dateStr => $dateInfo)
                                     @php
