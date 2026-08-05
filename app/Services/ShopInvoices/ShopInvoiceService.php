@@ -1044,11 +1044,12 @@ class ShopInvoiceService
     {
         $invoice->loadMissing('items');
 
-        $subtotal = round((float) $invoice->items->sum('line_subtotal'), 2);
+        // Store subtotal exactly as listed line amounts (1 + 2 + 3 ...).
+        $subtotal = round((float) $invoice->items->sum('final_line_total'), 2);
         $shortageTotal = round((float) $invoice->items->sum('shortage_amount'), 2);
         $excessTotal = round((float) $invoice->items->sum('excess_amount'), 2);
         $discountTotal = round((float) $invoice->discount_total, 2);
-        $finalTotal = round(max(0.00, $subtotal - $shortageTotal + $excessTotal - $discountTotal), 2);
+        $finalTotal = round(max(0.00, $subtotal - $discountTotal), 2);
         $paidAmount = round((float) $invoice->paid_amount, 2);
         $balanceAmount = round(max(0.00, $finalTotal - $paidAmount), 2);
 
