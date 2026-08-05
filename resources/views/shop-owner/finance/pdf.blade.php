@@ -56,7 +56,6 @@
 
             @php
                 $billedItems = $invoice->items->filter(fn ($item) => (float) $item->delivered_qty > 0 || (float) $item->final_line_total > 0);
-                $notAvailableItems = $invoice->items->filter(fn ($item) => (float) $item->delivered_qty <= 0 && (float) $item->final_line_total <= 0);
                 
                 // Recalculate subtotal from delivered quantities (DB may have wrong values)
                 $recalculatedSubtotal = (float) $billedItems->sum(function ($item) {
@@ -108,20 +107,6 @@
                     </tbody>
                 </table>
             </div>
-
-            @if ($notAvailableItems->isNotEmpty())
-                <div class="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-rose-200 bg-rose-50/60 px-4 py-3 text-xs text-rose-950">
-                    <span class="font-black uppercase tracking-wider text-rose-700 flex items-center gap-1.5 shrink-0">
-                        <svg class="h-4 w-4 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008v.008H12v-.008ZM10.34 4.94 2.94 17.76A1.5 1.5 0 0 0 4.24 20h15.52a1.5 1.5 0 0 0 1.3-2.24L13.66 4.94a1.5 1.5 0 0 0-2.6 0Z" />
-                        </svg>
-                        Out of Stock Items (Rs. 0.00 Billed):
-                    </span>
-                    <span class="font-medium text-slate-800">
-                        {{ $notAvailableItems->map(fn($i) => $i->product_name . ' (' . number_format((float) $i->approved_qty, 2) . ' ' . $i->unit . ')')->join(', ') }}
-                    </span>
-                </div>
-            @endif
 
             @if ($invoice->delivery_note || $invoice->payment_note)
                 <div class="mt-6 grid gap-4 md:grid-cols-2">

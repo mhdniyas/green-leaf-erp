@@ -202,6 +202,7 @@ Route::middleware('auth')->group(function () {
         Route::get('shop-invoices', [ShopInvoiceController::class, 'index'])->name('shop-invoices.index');
         Route::get('shop-invoices/{invoice}', [ShopInvoiceController::class, 'show'])->name('shop-invoices.show');
         Route::get('shop-invoices/{invoice}/pdf', [ShopInvoiceController::class, 'pdf'])->name('shop-invoices.pdf');
+        Route::post('shop-invoices/{invoice}/revert-approval', [ShopInvoiceController::class, 'revertApproval'])->name('shop-invoices.revert-approval');
         Route::patch('shop-invoices/{invoice}/reprice', [ShopInvoiceController::class, 'reprice'])->name('shop-invoices.reprice');
 
         // Daily shop orders (admin marketplace editor)

@@ -16,6 +16,7 @@ use App\Services\Inventory\StockLedgerService;
 use App\Services\ShopInvoices\ShopInvoiceIntegrityValidator;
 use App\Services\ShopInvoices\ShopInvoiceService;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -365,6 +366,94 @@ class ResolveDeliveryReviewAction
         });
     }
 
+    public function revertApprovalForAdminEdit(ShopOrder $order, int $userId, ?string $reviewNote): ShopOrder
+    {
+        return DB::transaction(function () use ($order, $userId, $reviewNote): ShopOrder {
+            /** @var ShopOrder $lockedOrder */
+            $lockedOrder = ShopOrder::query()
+                ->with(['items.product', 'invoice.items'])
+                ->lockForUpdate()
+                ->findOrFail($order->id);
+
+            $this->assertCurrentState($lockedOrder, ['delivered', 'partially_delivered'], ['approved']);
+
+            $invoice = $lockedOrder->invoice;
+
+            if (! $invoice instanceof ShopInvoice) {
+                throw ValidationException::withMessages([
+                    'invoice' => 'Cannot revert approval because the shop invoice is missing.',
+                ]);
+            }
+
+            if (
+                (float) $invoice->paid_amount > 0.0
+                || (float) $invoice->discount_total > 0.0
+                || $invoice->payment_approved_at !== null
+                || $invoice->discount_approved_at !== null
+                || in_array((string) $invoice->status, ['finalized', 'payment_pending', 'paid'], true)
+                || in_array((string) $invoice->payment_status, ['partially_paid', 'paid'], true)
+            ) {
+                throw ValidationException::withMessages([
+                    'invoice' => 'Approval cannot be reverted after discount or payment activity has started.',
+                ]);
+            }
+
+            $this->reverseInventoryAdjustmentsForApprovedReview($lockedOrder, $userId);
+
+            foreach ($lockedOrder->items as $item) {
+                $item->update([
+                    'delivered_qty' => null,
+                    'shortage_qty' => 0,
+                    'excess_qty' => 0,
+                    'shortage_value' => 0,
+                    'excess_value' => 0,
+                    'delivery_discrepancy_type' => 'none',
+                    'delivery_discrepancy_note' => null,
+                ]);
+            }
+
+            $invoice = ShopInvoice::query()->with('items')->lockForUpdate()->findOrFail($invoice->id);
+
+            foreach ($invoice->items as $invoiceItem) {
+                $invoiceItem->update([
+                    'delivered_qty' => 0,
+                    'shortage_qty' => 0,
+                    'excess_qty' => 0,
+                    'shortage_amount' => 0,
+                    'excess_amount' => 0,
+                    'final_line_total' => (float) $invoiceItem->line_subtotal,
+                ]);
+            }
+
+            $invoice->update([
+                'delivery_status' => 'awaiting_review',
+                'status' => 'delivery_review',
+                'delivery_note' => $this->appendReviewNote($invoice->delivery_note, 'Delivery approval reverted', $reviewNote),
+            ]);
+
+            $invoice = $this->shopInvoiceService->recalculate($invoice->fresh('items'));
+
+            $lockedOrder->update([
+                'delivery_status' => 'pending_approval',
+                'delivery_review_status' => 'pending',
+                'is_delivered' => false,
+                'delivered_at' => null,
+                'delivered_by' => $lockedOrder->shop_checked_by,
+                'delivery_notes' => $this->appendReviewNote($lockedOrder->delivery_notes, 'Delivery approval reverted', $reviewNote),
+                'admin_reviewed_by' => $userId,
+                'admin_reviewed_at' => now(),
+                'admin_review_note' => $reviewNote,
+                'total_shortage_value' => 0,
+                'total_excess_value' => 0,
+                'balance_amount' => $invoice->balance_amount,
+                'payment_status' => $invoice->payment_status,
+                'cash_discrepancy' => round((float) $invoice->final_total - (float) $lockedOrder->cash_collected, 2),
+            ]);
+
+            return $lockedOrder->fresh(['items.product', 'invoice.items']);
+        });
+    }
+
     /**
      * @param  array<int, string>  $allowedDeliveryStatuses
      * @param  array<int, string>  $allowedReviewStatuses
@@ -447,5 +536,72 @@ class ResolveDeliveryReviewAction
             ->get()
             ->each
             ->notify(new ShopDeliveryReviewSubmittedNotification($order));
+    }
+
+    private function reverseInventoryAdjustmentsForApprovedReview(ShopOrder $order, int $userId): void
+    {
+        $orderNumber = (string) $order->order_number;
+        $itemIds = $order->items->pluck('id')->map(static fn ($id): int => (int) $id)->all();
+
+        if ($itemIds === []) {
+            return;
+        }
+
+        $movements = StockMovement::query()
+            ->whereIn('shop_order_item_id', $itemIds)
+            ->where(function ($query) use ($orderNumber): void {
+                $query
+                    ->where('notes', 'like', "Delivery shortage added back to inventory - Order: {$orderNumber}; Item:%")
+                    ->orWhere('notes', 'like', "Delivery excess approved - Order: {$orderNumber}; Item:%");
+            })
+            ->orderBy('id')
+            ->get();
+
+        if ($movements->isEmpty()) {
+            return;
+        }
+
+        $movementsByItem = $movements->groupBy(fn (StockMovement $movement): int => (int) ($movement->shop_order_item_id ?? 0));
+
+        foreach ($order->items as $item) {
+            $itemMovements = $movementsByItem->get((int) $item->id, collect());
+
+            if (! $itemMovements instanceof Collection || $itemMovements->isEmpty()) {
+                continue;
+            }
+
+            $this->reverseItemInventoryMovements($itemMovements, $orderNumber, (int) $item->id, $userId);
+        }
+    }
+
+    /**
+     * @param  Collection<int, StockMovement>  $movements
+     */
+    private function reverseItemInventoryMovements(Collection $movements, string $orderNumber, int $itemId, int $userId): void
+    {
+        foreach ($movements as $movement) {
+            $reverseType = match ((string) $movement->type->value) {
+                StockMovementType::SaleReversal->value => StockMovementType::Out,
+                StockMovementType::Out->value => StockMovementType::SaleReversal,
+                default => null,
+            };
+
+            if (! $reverseType instanceof StockMovementType) {
+                continue;
+            }
+
+            StockMovement::query()->create([
+                'batch_id' => $movement->batch_id,
+                'product_id' => $movement->product_id,
+                'warehouse_id' => $movement->warehouse_id,
+                'shop_order_item_id' => $movement->shop_order_item_id,
+                'created_by' => $userId,
+                'grade' => $movement->grade,
+                'type' => $reverseType,
+                'quantity' => (float) $movement->quantity,
+                'cost_per_unit' => (float) $movement->cost_per_unit,
+                'notes' => "Reverted delivery approval inventory effect - Order: {$orderNumber}; Item: {$itemId}; Source movement: {$movement->id}",
+            ]);
+        }
     }
 }

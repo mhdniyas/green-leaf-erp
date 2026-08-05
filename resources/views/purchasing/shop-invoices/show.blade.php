@@ -12,6 +12,14 @@
         $isDeliveryReviewPending = $invoice->delivery_status === 'awaiting_review' || $invoice->order?->delivery_status === 'pending_approval';
         $grossPayableAmount = round(max(0, (float) $invoice->subtotal - (float) $invoice->shortage_total + (float) $invoice->excess_total), 2);
         $maxDiscountAmount = round(max(0, $grossPayableAmount - (float) $invoice->paid_amount), 2);
+        $canRevertDeliveryApproval = auth()->user()->hasRole('admin')
+            && $invoice->order
+            && $invoice->order->delivery_review_status === 'approved'
+            && in_array((string) $invoice->order->delivery_status, ['delivered', 'partially_delivered'], true)
+            && (float) $invoice->paid_amount <= 0
+            && (float) $invoice->discount_total <= 0
+            && $invoice->payment_approved_at === null
+            && $invoice->discount_approved_at === null;
         $formatUnit = fn (?string $unit): string => \App\Models\ProductUnit::normalizeUnit($unit) === 'piece'
             ? 'PCE'
             : strtoupper(str_replace('_', ' ', \App\Models\ProductUnit::normalizeUnit($unit)));
@@ -48,6 +56,14 @@
                     <a href="{{ route('purchasing.shop-invoices.pdf', $invoice) }}" target="_blank" class="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-black uppercase tracking-[0.18em] text-slate-700">
                         Print / PDF
                     </a>
+                    @if ($canRevertDeliveryApproval)
+                        <form method="POST" action="{{ route('purchasing.shop-invoices.revert-approval', $invoice) }}" onsubmit="return confirm('Revert this delivery approval and reopen admin review editing?');">
+                            @csrf
+                            <button type="submit" class="rounded-full border border-amber-300 bg-amber-50 px-4 py-2 text-xs font-black uppercase tracking-[0.18em] text-amber-800 hover:bg-amber-100">
+                                Revert Approval (Edit)
+                            </button>
+                        </form>
+                    @endif
                     <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-slate-700">
                         {{ $invoice->delivery_status === 'awaiting_review' ? 'Awaiting Admin Review' : str($invoice->delivery_status)->replace('_', ' ')->title() }}
                     </span>

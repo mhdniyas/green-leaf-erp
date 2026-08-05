@@ -165,16 +165,6 @@
             text-align: center;
         }
 
-        .out-stock {
-            margin-top: 5mm;
-            padding: 8px 10px;
-            border-radius: 8px;
-            border: 1px solid #fecaca;
-            background: #fff1f2;
-            color: #9f1239;
-            font-size: 12px;
-        }
-
         @media print {
             body {
                 background: #fff;
@@ -267,7 +257,6 @@
                     return $loadedRow ?: $group->first();
                 })
                 ->values();
-            $notAvailableItems = $sortedItems->filter(fn ($item) => $item->sorting_status === 'not_available');
         @endphp
 
         <h3 class="section-title">Delivered Items</h3>
@@ -316,13 +305,6 @@
                 @endforelse
             </tbody>
         </table>
-
-        @if ($notAvailableItems->isNotEmpty())
-            <div class="out-stock">
-                <strong>Out of Stock:</strong>
-                {{ $notAvailableItems->map(fn($i) => ($i->product?->name ?? 'Unknown'). ' (' . number_format((float) $i->approved_qty, 2) . ' ' . strtoupper((string) ($i->product?->unit ?: 'kg')) . ')')->join(', ') }}
-            </div>
-        @endif
 
         @if ($invoice)
             <table class="summary">
