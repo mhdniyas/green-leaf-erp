@@ -387,14 +387,11 @@ class ResolveDeliveryReviewAction
 
             if (
                 (float) $invoice->paid_amount > 0.0
-                || (float) $invoice->discount_total > 0.0
                 || $invoice->payment_approved_at !== null
-                || $invoice->discount_approved_at !== null
-                || in_array((string) $invoice->status, ['finalized', 'payment_pending', 'paid'], true)
                 || in_array((string) $invoice->payment_status, ['partially_paid', 'paid'], true)
             ) {
                 throw ValidationException::withMessages([
-                    'invoice' => 'Approval cannot be reverted after discount or payment activity has started.',
+                    'invoice' => 'Approval cannot be reverted after payment activity has started.',
                 ]);
             }
 
@@ -428,6 +425,10 @@ class ResolveDeliveryReviewAction
             $invoice->update([
                 'delivery_status' => 'awaiting_review',
                 'status' => 'delivery_review',
+                'discount_total' => 0,
+                'discount_note' => null,
+                'discount_approved_by' => null,
+                'discount_approved_at' => null,
                 'delivery_note' => $this->appendReviewNote($invoice->delivery_note, 'Delivery approval reverted', $reviewNote),
             ]);
 

@@ -18,10 +18,9 @@
             && in_array((string) $invoice->order->delivery_status, ['delivered', 'partially_delivered'], true);
         $canRevertDeliveryApproval = $canSeeRevertDeliveryApproval
             && (float) $invoice->paid_amount <= 0
-            && (float) $invoice->discount_total <= 0
             && $invoice->payment_approved_at === null
-            && $invoice->discount_approved_at === null;
-        $revertBlockedReason = 'Revert is blocked because discount/payment workflow already started for this invoice.';
+            && ! in_array((string) $invoice->payment_status, ['partially_paid', 'paid'], true);
+        $revertBlockedReason = 'Revert is blocked because payment activity already started for this invoice.';
         $formatUnit = fn (?string $unit): string => \App\Models\ProductUnit::normalizeUnit($unit) === 'piece'
             ? 'PCE'
             : strtoupper(str_replace('_', ' ', \App\Models\ProductUnit::normalizeUnit($unit)));
