@@ -369,9 +369,8 @@
                 priceLabel.textContent = 'Price (Per box)';
                 convContainer.classList.remove('hidden');
                 
-                qtyInput.step = '1';
-                qtyInput.min = '1';
-                qtyInput.value = Math.round(parseFloat(qtyInput.value)) || 1;
+                qtyInput.step = 'any';
+                qtyInput.min = '0.01';
             } else {
                 btnBox.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all text-slate-600 hover:bg-slate-50';
                 btnKg.className = 'rounded-md px-2.5 py-1 text-[9px] font-black uppercase transition-all bg-white text-slate-955 shadow-xs';
@@ -379,13 +378,8 @@
                 priceLabel.textContent = `Price (Per ${currentProductUnit})`;
                 convContainer.classList.add('hidden');
                 
-                if (currentProductUnit === 'kg') {
-                    qtyInput.step = 'any';
-                    qtyInput.min = '0.01';
-                } else {
-                    qtyInput.step = '1';
-                    qtyInput.min = '1';
-                }
+                qtyInput.step = 'any';
+                qtyInput.min = '0.01';
             }
             updateModalTotalPrice();
         }

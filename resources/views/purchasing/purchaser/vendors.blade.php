@@ -132,7 +132,7 @@
                                                 <span class="text-[8px] font-black uppercase tracking-wider text-slate-400">Qty</span>
                                                 <div class="flex h-8 items-center overflow-hidden rounded-lg border border-slate-200 bg-white">
                                                     <button type="button" onclick="this.nextElementSibling.stepDown(); updateCartItemTotal({{ $item->id }})" class="flex h-full w-7 items-center justify-center bg-slate-50 text-xs font-bold text-slate-500">-</button>
-                                                    <input type="number" step="{{ $item->product->unit === 'kg' ? 'any' : '1' }}" min="{{ $item->product->unit === 'kg' ? '0.01' : '1' }}" name="items[{{ $item->id }}][quantity]" id="quantity-{{ $item->id }}" value="{{ number_format((float) $item->quantity, 2, '.', '') }}" oninput="updateCartItemTotal({{ $item->id }})" class="h-full w-12 bg-transparent text-center text-[10px] font-black text-slate-900 focus:outline-none">
+                                                    <input type="number" step="any" min="0.01" name="items[{{ $item->id }}][quantity]" id="quantity-{{ $item->id }}" value="{{ number_format((float) $item->quantity, 2, '.', '') }}" oninput="updateCartItemTotal({{ $item->id }})" class="h-full w-12 bg-transparent text-center text-[10px] font-black text-slate-900 focus:outline-none">
                                                     <button type="button" onclick="this.previousElementSibling.stepUp(); updateCartItemTotal({{ $item->id }})" class="flex h-full w-7 items-center justify-center bg-slate-50 text-xs font-bold text-slate-500">+</button>
                                                 </div>
                                             </div>
@@ -230,7 +230,7 @@
                                             <div class="mt-2 grid grid-cols-2 gap-2">
                                                 <div>
                                                     <label class="text-[9px] font-bold text-slate-500">Qty ({{ $item->product->unit }})</label>
-                                                    <input type="number" step="{{ $item->product->unit === 'kg' ? 'any' : '1' }}" min="{{ $item->product->unit === 'kg' ? '0.01' : '1' }}" name="items[{{ $item->id }}][quantity]" id="processed-qty-{{ $item->id }}" value="{{ number_format((float) $item->quantity, 2, '.', '') }}" oninput="updateProcessedItemTotal({{ $item->id }})" class="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-center text-[10px] font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
+                                                    <input type="number" step="any" min="0.01" name="items[{{ $item->id }}][quantity]" id="processed-qty-{{ $item->id }}" value="{{ number_format((float) $item->quantity, 2, '.', '') }}" oninput="updateProcessedItemTotal({{ $item->id }})" class="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-center text-[10px] font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
                                                 </div>
                                                 <div>
                                                     <label class="text-[9px] font-bold text-slate-500">Price</label>
@@ -414,7 +414,7 @@
                                             <div class="mt-2 grid grid-cols-2 gap-2">
                                                 <div>
                                                     <label class="text-[9px] font-bold text-slate-500">Qty ({{ $item->product->unit }})</label>
-                                                    <input type="number" step="{{ $item->product->unit === 'kg' ? 'any' : '1' }}" min="{{ $item->product->unit === 'kg' ? '0.01' : '1' }}" name="items[{{ $item->id }}][quantity]" id="processed-qty-{{ $item->id }}" value="{{ number_format((float) $item->quantity, 2, '.', '') }}" oninput="updateProcessedItemTotal({{ $item->id }})" class="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-center text-[10px] font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
+                                                    <input type="number" step="any" min="0.01" name="items[{{ $item->id }}][quantity]" id="processed-qty-{{ $item->id }}" value="{{ number_format((float) $item->quantity, 2, '.', '') }}" oninput="updateProcessedItemTotal({{ $item->id }})" class="mt-1 h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-center text-[10px] font-bold text-slate-900 focus:border-teal-500 focus:outline-none">
                                                 </div>
                                                 <div>
                                                     <label class="text-[9px] font-bold text-slate-500">Price</label>
