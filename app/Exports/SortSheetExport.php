@@ -135,6 +135,7 @@ class SortSheetMainSheet implements FromArray, ShouldAutoSize, WithEvents, WithT
 
         // ── Data rows (2 rows per product) ───────────────────────────────────
         $currentRow = 3;
+        $sl = 1;
 
         foreach ($this->matrix as $productId => $shopQtys) {
             $meta = $this->productMeta[$productId];
@@ -230,6 +231,7 @@ class SortSheetMainSheet implements FromArray, ShouldAutoSize, WithEvents, WithT
             }
 
             $currentRow += 2;
+            $sl++;
         }
 
         // ── Grand totals row ─────────────────────────────────────────────────

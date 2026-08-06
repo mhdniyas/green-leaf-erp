@@ -12,8 +12,10 @@ use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopPriceGroup;
 use App\Models\Warehouse;
+use App\Models\SortSheetPreset;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
@@ -29,10 +31,12 @@ class SortSheetController extends Controller
         $this->authorizeAccess($request);
 
         [$shops, $categories, $priceGroups, $products, $warehouses] = $this->filterOptions($request);
+        $presets = $this->userPresets($request);
+        $presetBatches = $this->userPresetBatches($request);
         $surface = 'sort-sheet';
         $defaultDate = app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
 
-        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'surface', 'defaultDate'));
+        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'defaultDate'));
     }
 
     public function segregationIndex(Request $request): View
@@ -40,10 +44,51 @@ class SortSheetController extends Controller
         $this->authorizeAccess($request);
 
         [$shops, $categories, $priceGroups, $products, $warehouses] = $this->filterOptions($request, orderedOnly: true);
+        $presets = $this->userPresets($request);
+        $presetBatches = $this->userPresetBatches($request);
         $surface = 'segregation';
         $defaultDate = app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
 
-        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'surface', 'defaultDate'));
+        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'defaultDate'));
+    }
+
+    public function portraitIndex(Request $request): View
+    {
+        $this->authorizeAccess($request);
+
+        [$shops, $categories, $priceGroups, $products, $warehouses] = $this->filterOptions($request, orderedOnly: true);
+        $presets = $this->userPresets($request);
+        $presetBatches = $this->userPresetBatches($request);
+        $surface = 'portrait';
+        $defaultDate = app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
+
+        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'defaultDate'));
+    }
+
+    public function wideIndex(Request $request): View
+    {
+        $this->authorizeAccess($request);
+
+        [$shops, $categories, $priceGroups, $products, $warehouses] = $this->filterOptions($request, orderedOnly: true);
+        $presets = $this->userPresets($request);
+        $presetBatches = $this->userPresetBatches($request);
+        $surface = 'wide';
+        $defaultDate = app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
+
+        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'defaultDate'));
+    }
+
+    public function gridIndex(Request $request): View
+    {
+        $this->authorizeAccess($request);
+
+        [$shops, $categories, $priceGroups, $products, $warehouses] = $this->filterOptions($request, orderedOnly: true);
+        $presets = $this->userPresets($request);
+        $presetBatches = $this->userPresetBatches($request);
+        $surface = 'grid';
+        $defaultDate = app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
+
+        return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'defaultDate'));
     }
 
     /**
@@ -55,11 +100,19 @@ class SortSheetController extends Controller
 
         [$shops, $categories, $priceGroups, $products, $warehouses] = $this->filterOptions($request, orderedOnly: $request->routeIs('segregation.*'));
         [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse] = $this->buildMatrixData($request);
+        $presets = $this->userPresets($request);
+        $presetBatches = $this->userPresetBatches($request);
         $filters = $this->filtersFromRequest($request);
-        $surface = $request->routeIs('segregation.*') ? 'segregation' : 'sort-sheet';
+        $surface = match (true) {
+            $request->routeIs('*.shop-wise-portrait*') => 'portrait',
+            $request->routeIs('*.shop-wise-wide*') => 'wide',
+            $request->routeIs('*.grid*') => 'grid',
+            $request->routeIs('segregation.*') => 'segregation',
+            default => 'sort-sheet',
+        };
 
         if (empty($matrix)) {
-            return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'surface', 'selectedWarehouse'))
+            return view('sort-sheet.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches', 'surface', 'selectedWarehouse'))
                 ->with('noOrders', true)
                 ->with('filters', $filters);
         }
@@ -74,6 +127,8 @@ class SortSheetController extends Controller
             'priceGroups',
             'products',
             'warehouses',
+            'presets',
+            'presetBatches',
             'filteredShops',
             'matrix',
             'productMeta',
@@ -84,7 +139,142 @@ class SortSheetController extends Controller
         ))->with('filters', $filters);
     }
 
+    public function storePreset(Request $request): RedirectResponse
+    {
+        $this->authorizeAccess($request);
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:100',
+            'surface' => 'nullable|string|in:sort-sheet,segregation,portrait,wide,grid',
+            'warehouse_id' => 'nullable|integer|exists:warehouses,id',
+            'price_group_id' => 'nullable|integer|exists:shop_price_groups,id',
+            'shop_id' => 'nullable|integer|exists:shops,id',
+            'category_ids' => 'nullable|array',
+            'category_ids.*' => 'integer|exists:categories,id',
+            'product_ids' => 'nullable|array',
+            'product_ids.*' => 'integer|exists:products,id',
+            'separate_category_pages' => 'nullable|boolean',
+            'page_break_category_ids' => 'nullable|array',
+            'page_break_category_ids.*' => 'integer|exists:categories,id',
+        ]);
+
+        SortSheetPreset::create([
+            'user_id' => $request->user()?->id,
+            'name' => $validated['name'],
+            'surface' => $validated['surface'] ?? 'sort-sheet',
+            'warehouse_id' => $validated['warehouse_id'] ?? null,
+            'price_group_id' => $validated['price_group_id'] ?? null,
+            'shop_id' => $validated['shop_id'] ?? null,
+            'category_ids' => $validated['category_ids'] ?? [],
+            'product_ids' => $validated['product_ids'] ?? [],
+            'separate_category_pages' => (bool) ($validated['separate_category_pages'] ?? false),
+            'page_break_category_ids' => $validated['page_break_category_ids'] ?? [],
+        ]);
+
+        return redirect()->back()->with('success', "Custom order preset '{$validated['name']}' saved successfully!");
+    }
+
+    public function destroyPreset(Request $request, SortSheetPreset $preset): RedirectResponse
+    {
+        $this->authorizeAccess($request);
+
+        $preset->delete();
+
+        return redirect()->back()->with('success', 'Custom order preset deleted successfully.');
+    }
+
+    private function userPresets(Request $request): Collection
+    {
+        return SortSheetPreset::query()
+            ->where(function ($query) use ($request) {
+                $query->where('user_id', $request->user()?->id)
+                    ->orWhereNull('user_id');
+            })
+            ->orderBy('name')
+            ->get();
+    }
+
+    private function userPresetBatches(Request $request): Collection
+    {
+        return \App\Models\SortSheetPresetBatch::query()
+            ->where(function ($query) use ($request) {
+                $query->where('user_id', $request->user()?->id)
+                    ->orWhereNull('user_id');
+            })
+            ->orderBy('name')
+            ->get();
+    }
+
+    public function presetsIndex(Request $request): View
+    {
+        $this->authorizeAccess($request);
+
+        [$shops, $categories, $priceGroups, $products, $warehouses] = $this->filterOptions($request);
+        $presets = $this->userPresets($request);
+        $presetBatches = $this->userPresetBatches($request);
+
+        return view('sort-sheet.presets.index', compact('shops', 'categories', 'priceGroups', 'products', 'warehouses', 'presets', 'presetBatches'));
+    }
+
+    public function editPreset(Request $request, SortSheetPreset $preset): View
+    {
+        $this->authorizeAccess($request);
+
+        [$shops, $categories, $priceGroups, $products, $warehouses] = $this->filterOptions($request);
+
+        return view('sort-sheet.presets.edit', compact('preset', 'shops', 'categories', 'priceGroups', 'products', 'warehouses'));
+    }
+
+    public function updatePreset(Request $request, SortSheetPreset $preset): RedirectResponse
+    {
+        $this->authorizeAccess($request);
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:100',
+            'surface' => 'nullable|string|in:sort-sheet,segregation,portrait,wide,grid',
+            'warehouse_id' => 'nullable|integer|exists:warehouses,id',
+            'price_group_id' => 'nullable|integer|exists:shop_price_groups,id',
+            'shop_id' => 'nullable|integer|exists:shops,id',
+            'category_ids' => 'nullable|array',
+            'category_ids.*' => 'integer|exists:categories,id',
+            'product_ids' => 'nullable|array',
+            'product_ids.*' => 'integer|exists:products,id',
+            'separate_category_pages' => 'nullable|boolean',
+            'page_break_category_ids' => 'nullable|array',
+            'page_break_category_ids.*' => 'integer|exists:categories,id',
+        ]);
+
+        $preset->update([
+            'name' => $validated['name'],
+            'surface' => $validated['surface'] ?? 'sort-sheet',
+            'warehouse_id' => $validated['warehouse_id'] ?? null,
+            'price_group_id' => $validated['price_group_id'] ?? null,
+            'shop_id' => $validated['shop_id'] ?? null,
+            'category_ids' => $validated['category_ids'] ?? [],
+            'product_ids' => $validated['product_ids'] ?? [],
+            'separate_category_pages' => (bool) ($validated['separate_category_pages'] ?? false),
+            'page_break_category_ids' => $validated['page_break_category_ids'] ?? [],
+        ]);
+
+        return redirect()->route('sort-sheet.presets.index')->with('success', "Preset '{$preset->name}' updated successfully!");
+    }
+
     public function segregationGenerate(Request $request): View
+    {
+        return $this->generate($request);
+    }
+
+    public function portraitGenerate(Request $request): View
+    {
+        return $this->generate($request);
+    }
+
+    public function wideGenerate(Request $request): View
+    {
+        return $this->generate($request);
+    }
+
+    public function gridGenerate(Request $request): View
     {
         return $this->generate($request);
     }
@@ -126,6 +316,104 @@ class SortSheetController extends Controller
             'generatedAt',
             'companyName',
             'selectedWarehouse',
+        ));
+    }
+
+    public function storePresetBatch(Request $request): RedirectResponse
+    {
+        $this->authorizeAccess($request);
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:100',
+            'preset_ids' => 'required|array|min:1',
+        ]);
+
+        \App\Models\SortSheetPresetBatch::create([
+            'user_id' => $request->user()?->id,
+            'name' => $validated['name'],
+            'preset_ids' => $validated['preset_ids'],
+        ]);
+
+        return redirect()->route('sort-sheet.presets.index')->with('success', "Preset Batch '{$validated['name']}' saved successfully!");
+    }
+
+    public function destroyPresetBatch(Request $request, \App\Models\SortSheetPresetBatch $batch): RedirectResponse
+    {
+        $this->authorizeAccess($request);
+
+        $name = $batch->name;
+        $batch->delete();
+
+        return redirect()->route('sort-sheet.presets.index')->with('success', "Preset Batch '{$name}' deleted successfully!");
+    }
+
+    /**
+     * Batch print multiple selected presets in order.
+     */
+    public function batchPrintPresets(Request $request): View
+    {
+        $this->authorizeExport($request);
+
+        $presetIds = (array) $request->input('preset_ids', []);
+        if (empty($presetIds) && $request->filled('batch_id')) {
+            $batch = \App\Models\SortSheetPresetBatch::where('uuid', $request->input('batch_id'))
+                ->orWhere('id', $request->input('batch_id'))
+                ->first();
+            if ($batch) {
+                $presetIds = $batch->preset_ids ?? [];
+            }
+        }
+
+        $date = $request->input('date', app(PurchaserBusinessDayService::class)->operationalDate()->toDateString());
+
+        $userPresets = $this->userPresets($request);
+        $selectedPresets = collect($presetIds)
+            ->map(fn ($id) => $userPresets->first(fn ($p) => $p->uuid === $id || (string) $p->id === (string) $id))
+            ->filter();
+
+        $batchData = [];
+        foreach ($selectedPresets as $preset) {
+            $subReqParams = array_filter([
+                'date' => $date,
+                'warehouse_id' => $preset->warehouse_id,
+                'price_group_id' => $preset->price_group_id,
+                'shop_id' => $preset->shop_id,
+                'separate_category_pages' => $preset->separate_category_pages ? 1 : null,
+            ]);
+            if (! empty($preset->category_ids)) {
+                $subReqParams['category_ids'] = $preset->category_ids;
+            }
+            if (! empty($preset->product_ids)) {
+                $subReqParams['product_ids'] = $preset->product_ids;
+            }
+            if (! empty($preset->page_break_category_ids)) {
+                $subReqParams['page_break_category_ids'] = $preset->page_break_category_ids;
+            }
+
+            $subReq = Request::create(route('sort-sheet.generate'), 'GET', $subReqParams);
+            $subReq->setUserResolver(fn () => $request->user());
+
+            [$filteredShops, $matrix, $productMeta, $reqDate, $selectedWarehouse] = $this->buildMatrixData($subReq);
+
+            $batchData[] = [
+                'preset' => $preset,
+                'filteredShops' => $filteredShops,
+                'matrix' => $matrix,
+                'productMeta' => $productMeta,
+                'selectedWarehouse' => $selectedWarehouse,
+            ];
+        }
+
+        $generatedBy = $request->user()->name;
+        $generatedAt = now()->format('d M Y, h:i A');
+        $companyName = 'Green Leaf Distribution';
+
+        return view('sort-sheet.presets.batch-print', compact(
+            'batchData',
+            'date',
+            'generatedBy',
+            'generatedAt',
+            'companyName'
         ));
     }
 
@@ -375,7 +663,7 @@ class SortSheetController extends Controller
             }
         }
 
-        $this->sortMatrixByItemCode($matrix, $productMeta);
+        $this->sortMatrixByCategoryOrderAndItemCode($matrix, $productMeta, $categoryIds);
 
         return [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse];
     }
@@ -407,6 +695,7 @@ class SortSheetController extends Controller
             'productIds' => $productIds,
             'priceGroupId' => $request->input('price_group_id'),
             'warehouseId' => $request->integer('warehouse_id') ?: null,
+            'separateCategoryPages' => (bool) $request->boolean('separate_category_pages', false),
         ];
     }
 
@@ -435,14 +724,26 @@ class SortSheetController extends Controller
     /**
      * @param  array<int, array<int, float>>  $matrix
      * @param  array<int, array<string, mixed>>  $productMeta
+     * @param  array<int, int>  $categoryIds
      */
-    private function sortMatrixByItemCode(array &$matrix, array $productMeta): void
+    private function sortMatrixByCategoryOrderAndItemCode(array &$matrix, array $productMeta, array $categoryIds = []): void
     {
-        uksort($matrix, function (int $a, int $b) use ($productMeta): int {
-            return strcmp(
-                Product::sortableSku((string) ($productMeta[$a]['sku'] ?? '')),
-                Product::sortableSku((string) ($productMeta[$b]['sku'] ?? '')),
-            ) ?: strcmp((string) ($productMeta[$a]['name'] ?? ''), (string) ($productMeta[$b]['name'] ?? ''));
+        $categoryOrderMap = array_flip($categoryIds);
+
+        uksort($matrix, function (int $a, int $b) use ($productMeta, $categoryOrderMap): int {
+            $catA = (int) ($productMeta[$a]['category_id'] ?? 0);
+            $catB = (int) ($productMeta[$b]['category_id'] ?? 0);
+
+            $orderA = $categoryOrderMap[$catA] ?? PHP_INT_MAX;
+            $orderB = $categoryOrderMap[$catB] ?? PHP_INT_MAX;
+
+            if ($orderA !== $orderB) {
+                return $orderA <=> $orderB;
+            }
+
+            return strcmp((string) ($productMeta[$a]['category_name'] ?? ''), (string) ($productMeta[$b]['category_name'] ?? ''))
+                ?: strcmp(Product::sortableSku((string) ($productMeta[$a]['sku'] ?? '')), Product::sortableSku((string) ($productMeta[$b]['sku'] ?? '')))
+                ?: strcmp((string) ($productMeta[$a]['name'] ?? ''), (string) ($productMeta[$b]['name'] ?? ''));
         });
     }
 

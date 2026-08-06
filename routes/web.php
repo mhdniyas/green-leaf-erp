@@ -539,6 +539,14 @@ Route::middleware('auth')->group(function () {
     Route::prefix('sort-sheet')->name('sort-sheet.')->middleware('can:sort.sheet.view')->group(function () {
         Route::get('/', [SortSheetController::class, 'index'])->name('index');
         Route::get('/generate', [SortSheetController::class, 'generate'])->name('generate');
+        Route::get('/presets', [SortSheetController::class, 'presetsIndex'])->name('presets.index');
+        Route::post('/presets', [SortSheetController::class, 'storePreset'])->name('presets.store');
+        Route::get('/presets/batch-print', [SortSheetController::class, 'batchPrintPresets'])->name('presets.batch-print');
+        Route::post('/preset-batches', [SortSheetController::class, 'storePresetBatch'])->name('presets.batches.store');
+        Route::delete('/preset-batches/{batch:uuid}', [SortSheetController::class, 'destroyPresetBatch'])->name('presets.batches.destroy');
+        Route::get('/presets/{preset:uuid}/edit', [SortSheetController::class, 'editPreset'])->name('presets.edit');
+        Route::put('/presets/{preset:uuid}', [SortSheetController::class, 'updatePreset'])->name('presets.update');
+        Route::delete('/presets/{preset:uuid}', [SortSheetController::class, 'destroyPreset'])->name('presets.destroy');
         Route::get('/export/excel', [SortSheetController::class, 'exportExcel'])->name('export.excel');
         Route::get('/export/pdf', [SortSheetController::class, 'exportPdf'])->name('export.pdf');
         Route::get('/segregation/pdf', [SortSheetController::class, 'segregationPdf'])->name('segregation.pdf');
@@ -550,6 +558,12 @@ Route::middleware('auth')->group(function () {
     Route::prefix('segregation')->name('segregation.')->middleware('can:sort.sheet.view')->group(function () {
         Route::get('/', [SortSheetController::class, 'segregationIndex'])->name('index');
         Route::get('/generate', [SortSheetController::class, 'segregationGenerate'])->name('generate');
+        Route::get('/portrait', [SortSheetController::class, 'portraitIndex'])->name('shop-wise-portrait');
+        Route::get('/portrait/generate', [SortSheetController::class, 'portraitGenerate'])->name('shop-wise-portrait.generate');
+        Route::get('/wide', [SortSheetController::class, 'wideIndex'])->name('shop-wise-wide');
+        Route::get('/wide/generate', [SortSheetController::class, 'wideGenerate'])->name('shop-wise-wide.generate');
+        Route::get('/grid', [SortSheetController::class, 'gridIndex'])->name('grid');
+        Route::get('/grid/generate', [SortSheetController::class, 'gridGenerate'])->name('grid.generate');
         Route::get('/export/excel', [SortSheetController::class, 'exportExcel'])->name('export.excel');
         Route::get('/matrix-print', [SortSheetController::class, 'segregationMatrixPrint'])->name('matrix-print');
         Route::get('/grid-print', [SortSheetController::class, 'segregationGridPrint'])->name('grid-print');

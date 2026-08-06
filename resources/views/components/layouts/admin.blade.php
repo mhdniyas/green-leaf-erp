@@ -75,30 +75,19 @@
         ];
     }
 
+    if ($currentUser?->can('sort.sheet.view')) {
+        $workspaceItems[] = [
+            'label' => 'Print Dashboard',
+            'href' => route('sort-sheet.index'),
+            'active' => request()->routeIs('sort-sheet.*') || request()->routeIs('segregation.*'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 9V4.5h10.5V9M6 17.25h12A2.25 2.25 0 0 0 20.25 15v-3A2.25 2.25 0 0 0 18 9.75H6A2.25 2.25 0 0 0 3.75 12v3A2.25 2.25 0 0 0 6 17.25Zm1.5 0v2.25h9V17.25" /></svg>',
+        ];
+    }
+
     if (count($workspaceItems) > 0) {
         $sidebarSections[] = [
             'label' => 'Workspace',
             'items' => $workspaceItems,
-        ];
-    }
-
-    if ($currentUser?->can('sort.sheet.view')) {
-        $sidebarSections[] = [
-            'label' => 'Printing',
-            'items' => [
-                [
-                    'label' => 'Sort Sheet',
-                    'href' => route('sort-sheet.index'),
-                    'active' => request()->routeIs('sort-sheet.*'),
-                    'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>',
-                ],
-                [
-                    'label' => 'Selection',
-                    'href' => route('segregation.index'),
-                    'active' => request()->routeIs('segregation.*'),
-                    'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 6.75h15m-15 5.25h15m-15 5.25h15M8.25 4.5v15m7.5-15v15" /></svg>',
-                ],
-            ],
         ];
     }
 
@@ -249,13 +238,31 @@
             </div>
         </div>
 
-        <nav class="flex-1 space-y-5 overflow-y-auto px-4 py-5">
-            @foreach ($sidebarSections as $section)
-                <div class="space-y-2">
-                    <p data-admin-sidebar-label class="px-3 text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">{{ $section['label'] }}</p>
-                    @foreach ($section['items'] as $item)
-                        <x-sidebar-link :item="$item" label-attribute="data-admin-sidebar-label" />
-                    @endforeach
+        <nav class="flex-1 space-y-3 overflow-y-auto px-4 py-5">
+            @foreach ($sidebarSections as $sectionIndex => $section)
+                @php
+                    $sectionIsActive = collect($section['items'])->contains(fn (array $item): bool => (bool) ($item['active'] ?? false));
+                    $groupId = 'admin-sidebar-group-'.$sectionIndex;
+                @endphp
+                <div class="sidebar-group rounded-2xl border border-slate-200/80 bg-slate-50/70">
+                    <button
+                        type="button"
+                        data-admin-group-toggle
+                        aria-expanded="{{ $sectionIsActive ? 'true' : 'false' }}"
+                        aria-controls="{{ $groupId }}"
+                        class="group flex w-full items-center justify-between px-3 py-2.5 text-left text-slate-700 transition hover:text-slate-950"
+                    >
+                        <span data-admin-sidebar-label class="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">{{ $section['label'] }}</span>
+                        <svg class="admin-group-chevron h-4 w-4 text-slate-400 transition-transform duration-200 {{ $sectionIsActive ? 'rotate-90' : '' }}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5.25 15 12l-6 6.75" />
+                        </svg>
+                    </button>
+
+                    <div id="{{ $groupId }}" data-admin-group-items class="space-y-1 border-t border-slate-200/80 px-2 py-2 {{ $sectionIsActive ? '' : 'hidden' }}">
+                        @foreach ($section['items'] as $item)
+                            <x-sidebar-link :item="$item" label-attribute="data-admin-sidebar-label" />
+                        @endforeach
+                    </div>
                 </div>
             @endforeach
         </nav>
@@ -382,6 +389,29 @@
     label-selector="[data-admin-sidebar-label]"
 />
 <script>
+    (() => {
+        const groups = Array.from(document.querySelectorAll('.sidebar-group'));
+
+        groups.forEach((group) => {
+            const toggle = group.querySelector('[data-admin-group-toggle]');
+            const items = group.querySelector('[data-admin-group-items]');
+            const chevron = group.querySelector('.admin-group-chevron');
+
+            if (! toggle || ! items || ! chevron) {
+                return;
+            }
+
+            toggle.addEventListener('click', () => {
+                const isExpanded = toggle.getAttribute('aria-expanded') === 'true';
+                const nextState = ! isExpanded;
+
+                toggle.setAttribute('aria-expanded', nextState ? 'true' : 'false');
+                items.classList.toggle('hidden', ! nextState);
+                chevron.classList.toggle('rotate-90', nextState);
+            });
+        });
+    })();
+
     (() => {
         const themeToggle = document.getElementById('admin-theme-toggle');
         const moonIcon = document.getElementById('admin-theme-toggle-moon');

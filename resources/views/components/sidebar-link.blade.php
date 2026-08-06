@@ -20,6 +20,7 @@
 <div>
     <a
         href="{{ $item['href'] }}"
+        @if (! empty($item['target'])) target="{{ $item['target'] }}" @endif
         title="{{ $item['label'] }}"
         @class([
             'group flex min-h-12 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-black transition-all',
@@ -59,6 +60,7 @@
                 @endphp
                 <a
                     href="{{ $child['href'] }}"
+                    @if (! empty($child['target'])) target="{{ $child['target'] }}" @endif
                     @class([
                         'flex items-center gap-2 rounded-2xl px-4 py-2.5 text-xs font-black transition-all',
                         'bg-white text-slate-950 shadow-sm ring-1 ring-slate-200/80' => $child['active'] ?? false,

@@ -540,13 +540,6 @@
                 </x-nav-item>
                 @endif
 
-                {{-- Sort Sheet --}}
-                @can('sort.sheet.view')
-                <x-nav-item href="{{ route('sort-sheet.index') }}" :active="request()->routeIs('sort-sheet.*')" icon="table-cells">
-                    Sort Sheet
-                </x-nav-item>
-                @endcan
-
                 {{-- Purchasing Group --}}
                 @if(
                     auth()->user()->hasRole('purchase') ||
@@ -607,10 +600,11 @@
                     auth()->user()->hasRole('admin') ||
                     auth()->user()->can('admin.user.view') ||
                     auth()->user()->can('admin.daily-progress.view') ||
-                    auth()->user()->can('admin.activity-log.view')
+                    auth()->user()->can('admin.activity-log.view') ||
+                    auth()->user()->can('sort.sheet.view')
                 )
                 @php
-                    $isAdminActive = request()->routeIs('admin.*');
+                    $isAdminActive = request()->routeIs('admin.*') || request()->routeIs('sort-sheet.*') || request()->routeIs('segregation.*');
                 @endphp
                 <div class="sidebar-group space-y-1">
                     <button
@@ -664,6 +658,11 @@
                             Discrepancies & Wastage
                         </x-nav-item>
                         @endif
+                        @can('sort.sheet.view')
+                        <x-nav-item href="{{ route('sort-sheet.index') }}" :active="request()->routeIs('sort-sheet.*') || request()->routeIs('segregation.*')" :sub="true">
+                            Print Dashboard
+                        </x-nav-item>
+                        @endcan
                     </div>
                 </div>
                 @endif

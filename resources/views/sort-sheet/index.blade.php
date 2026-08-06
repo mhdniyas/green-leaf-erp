@@ -1,7 +1,14 @@
     @php
         $isWarehouseReceiverSortSheet = request()->routeIs('warehouse.receiver.sort-sheet.*');
-        $isSegregation = ($surface ?? null) === 'segregation' || request()->routeIs('segregation.*');
-        $sortSheetLayout = $isWarehouseReceiverSortSheet ? 'layouts.app' : 'layouts.admin';
+        $surface = $surface ?? (match(true) {
+            request()->routeIs('*.shop-wise-portrait*') => 'portrait',
+            request()->routeIs('*.shop-wise-wide*') => 'wide',
+            request()->routeIs('*.grid*') => 'grid',
+            request()->routeIs('segregation.*') => 'segregation',
+            default => 'sort-sheet',
+        });
+        $isSegregation = in_array($surface, ['segregation', 'portrait', 'wide', 'grid'], true) || request()->routeIs('segregation.*');
+        $sortSheetLayout = $isWarehouseReceiverSortSheet ? 'layouts.app' : 'layouts.printing';
         $sortSheetRouteBase = $isWarehouseReceiverSortSheet ? 'warehouse.receiver.sort-sheet' : ($isSegregation ? 'segregation' : 'sort-sheet');
         $sortSheetRoute = fn (string $name, array $params = []) => route($sortSheetRouteBase.'.'.$name, $params);
         $segregationMatrixPrintRoute = fn (array $params = []) => $isSegregation
@@ -10,7 +17,43 @@
         $segregationGridPrintRoute = fn (array $params = []) => $isSegregation
             ? $sortSheetRoute('grid-print', $params)
             : $sortSheetRoute('segregation.grid-print', $params);
-        $pageTitle = $isSegregation ? 'Selection' : 'Sort Sheet';
+
+        $pageTitle = match($surface) {
+            'portrait' => 'Shop Wise Portrait',
+            'wide' => 'Shop Wise Wide',
+            'grid' => 'Segregate Grid',
+            'segregation' => 'Selection',
+            default => 'Sort Sheet',
+        };
+        $pageSubtitle = match($surface) {
+            'portrait' => 'Generate shop-wise portrait sorting matrices from approved orders.',
+            'wide' => 'Generate shop-wise wide/landscape sorting matrices from approved orders.',
+            'grid' => 'Generate segregated grid card views from approved orders.',
+            'segregation' => 'Generate selection prints from approved shop orders.',
+            default => 'Generate sort sheet prints from approved shop orders only.',
+        };
+        $generateButtonLabel = match($surface) {
+            'portrait' => 'Generate Shop Wise Portrait',
+            'wide' => 'Generate Shop Wise Wide',
+            'grid' => 'Generate Segregate Grid',
+            'segregation' => 'Generate Selection',
+            default => 'Generate Sort Sheet',
+        };
+        $formActionUrl = match($surface) {
+            'portrait' => route('segregation.shop-wise-portrait.generate'),
+            'wide' => route('segregation.shop-wise-wide.generate'),
+            'grid' => route('segregation.grid.generate'),
+            'segregation' => route('segregation.generate'),
+            default => route('sort-sheet.generate'),
+        };
+        $resetUrl = match($surface) {
+            'portrait' => route('segregation.shop-wise-portrait'),
+            'wide' => route('segregation.shop-wise-wide'),
+            'grid' => route('segregation.grid'),
+            'segregation' => route('segregation.index'),
+            default => route('sort-sheet.index'),
+        };
+
         $categoryFilterLabel = $isSegregation ? 'Ordered Categories' : 'Product Categories';
         $productFilterLabel = $isSegregation ? 'Ordered Products' : 'Products';
         $user = auth()->user();
@@ -35,12 +78,16 @@
             'shop_id' => $currentShop,
             'price_group_id' => $currentPriceGroup,
             'warehouse_id' => $currentWarehouse,
+            'separate_category_pages' => ! empty($filters['separateCategoryPages']) ? 1 : null,
         ]);
         if (! empty($currentCategoryIds)) {
             $filterParams['category_ids'] = $currentCategoryIds;
         }
         if (! empty($currentProductIds)) {
             $filterParams['product_ids'] = $currentProductIds;
+        }
+        if (! empty($filters['pageBreakCategoryIds'])) {
+            $filterParams['page_break_category_ids'] = $filters['pageBreakCategoryIds'];
         }
         $shopWiseWidePrintParams = array_merge($filterParams, ['orientation' => 'landscape']);
         $shopWisePortraitPrintParams = array_merge($filterParams, ['orientation' => 'portrait']);
@@ -75,103 +122,107 @@
 <x-dynamic-component :component="$sortSheetLayout" :title="$pageTitle">
     <x-slot:actions>
         @if($hasMatrix)
-            @if(!$isSegregation)
-                @if($sortSheetShareUrl)
-                <a href="{{ $sortSheetShareUrl }}"
-                   target="_blank"
-                   rel="noopener"
-                   id="share-whatsapp-btn"
-                   class="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-green-700 transition-all shadow-md hover:shadow-lg">
-                    <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
-                        <path d="M11.998 2.166C6.525 2.166 2.09 6.6 2.09 12.073c0 1.742.455 3.378 1.25 4.793L2 22l5.292-1.387c1.36.74 2.912 1.162 4.566 1.162 5.472 0 9.908-4.433 9.908-9.905 0-5.474-4.436-9.704-9.768-9.704z"/>
-                    </svg>
-                    WhatsApp
-                </a>
-                @endif
+            <div class="flex flex-wrap items-center gap-3">
+                {{-- Subsection: Export & Share --}}
+                <div class="flex flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50/90 p-1.5 shadow-sm">
+                    <span class="px-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Export & Share</span>
+                    @if($sortSheetShareUrl && in_array($surface, ['sort-sheet', 'segregation'], true))
+                    <a href="{{ $sortSheetShareUrl }}"
+                       target="_blank"
+                       rel="noopener"
+                       id="share-whatsapp-btn"
+                       class="inline-flex items-center gap-2 rounded-xl bg-green-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-green-700 transition-all shadow-sm">
+                        <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+                            <path d="M11.998 2.166C6.525 2.166 2.09 6.6 2.09 12.073c0 1.742.455 3.378 1.25 4.793L2 22l5.292-1.387c1.36.74 2.912 1.162 4.566 1.162 5.472 0 9.908-4.433 9.908-9.905 0-5.474-4.436-9.704-9.768-9.704z"/>
+                        </svg>
+                        WhatsApp
+                    </a>
+                    @endif
+                    @if($canExport)
+                    <a href="{{ $sortSheetRoute('export.excel', $filterParams) }}"
+                       id="export-excel-btn"
+                       class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-emerald-700 transition-all shadow-sm">
+                        Excel
+                    </a>
+                    @if($surface === 'sort-sheet')
+                    <a href="{{ $sortSheetRoute('export.pdf', $filterParams) }}"
+                       id="export-pdf-btn"
+                       target="_blank"
+                       class="inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-red-700 transition-all shadow-sm">
+                        PDF
+                    </a>
+                    @endif
+                    @endif
+                </div>
+
+                {{-- Subsection: Print Action --}}
                 @if($canExport)
-                <a href="{{ $sortSheetRoute('export.excel', $filterParams) }}"
-                   id="export-excel-btn"
-                   class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition-all shadow-md hover:shadow-lg">
-                    Excel
+                <div class="flex flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50/90 p-1.5 shadow-sm">
+                    <span class="px-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Print</span>
+                    @if($surface === 'sort-sheet')
+                    <a href="{{ $sortSheetRoute('print', $filterParams) }}"
+                       id="print-sort-sheet-btn"
+                       target="_blank"
+                       class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
+                        Print Sort Sheet
+                    </a>
+                    @elseif($surface === 'segregation')
+                    <a href="{{ $sortSheetRoute('print', $filterParams) }}"
+                       id="print-selection-btn"
+                       target="_blank"
+                       class="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-2 text-xs font-bold text-white hover:bg-slate-800 transition-all shadow-sm">
+                        Print Selection
+                    </a>
+                    @elseif($surface === 'portrait')
+                    <a href="{{ $segregationMatrixPrintRoute($shopWisePortraitPrintParams) }}"
+                       id="print-portrait-btn"
+                       target="_blank"
+                       class="inline-flex items-center gap-1.5 rounded-xl bg-cyan-700 px-3.5 py-2 text-xs font-bold text-white hover:bg-cyan-800 transition-all shadow-sm">
+                        Print Portrait
+                    </a>
+                    @elseif($surface === 'wide')
+                    <a href="{{ $segregationMatrixPrintRoute($shopWiseWidePrintParams) }}"
+                       id="print-wide-btn"
+                       target="_blank"
+                       class="inline-flex items-center gap-1.5 rounded-xl bg-sky-700 px-3.5 py-2 text-xs font-bold text-white hover:bg-sky-800 transition-all shadow-sm">
+                        Print Wide
+                    </a>
+                    @elseif($surface === 'grid')
+                    <a href="{{ $segregationGridPrintRoute($filterParams) }}"
+                       id="print-grid-btn"
+                       target="_blank"
+                       class="inline-flex items-center gap-1.5 rounded-xl bg-indigo-700 px-3.5 py-2 text-xs font-bold text-white hover:bg-indigo-800 transition-all shadow-sm">
+                        Print Grid
+                    </a>
+                    @endif
+                </div>
+                @endif
+            </div>
+        @else
+            <div class="flex flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50/90 p-1.5 shadow-sm">
+                <span class="px-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Print Formats</span>
+                <a href="{{ route('sort-sheet.index', array_filter(['date' => $currentDate])) }}"
+                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all {{ $surface === 'sort-sheet' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200/60' }}">
+                    Sort Sheet
                 </a>
-                <a href="{{ $sortSheetRoute('export.pdf', $filterParams) }}"
-                   id="export-pdf-btn"
-                   target="_blank"
-                   class="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-red-700 transition-all shadow-md hover:shadow-lg">
-                    PDF
+                <a href="{{ route('segregation.index', array_filter(['date' => $currentDate])) }}"
+                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all {{ $surface === 'segregation' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200/60' }}">
+                    Selection
                 </a>
-                <a href="{{ $sortSheetRoute('print', $filterParams) }}"
-                   id="print-btn"
-                   target="_blank"
-                   class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
-                    Print
-                </a>
-                <a href="{{ $segregationMatrixPrintRoute($shopWisePortraitPrintParams) }}"
-                   id="print-segregate-btn"
-                   target="_blank"
-                   class="inline-flex items-center gap-2 rounded-xl bg-cyan-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-cyan-800 transition-all shadow-md hover:shadow-lg">
+                <a href="{{ route('segregation.shop-wise-portrait', array_filter(['date' => $currentDate])) }}"
+                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all {{ $surface === 'portrait' ? 'bg-cyan-700 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200/60' }}">
                     Shop Wise Portrait
                 </a>
-                <a href="{{ $segregationMatrixPrintRoute($shopWiseWidePrintParams) }}"
-                   id="print-segregate-wide-btn"
-                   target="_blank"
-                   class="inline-flex items-center gap-2 rounded-xl bg-sky-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-sky-800 transition-all shadow-md hover:shadow-lg">
+                <a href="{{ route('segregation.shop-wise-wide', array_filter(['date' => $currentDate])) }}"
+                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all {{ $surface === 'wide' ? 'bg-sky-700 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200/60' }}">
                     Shop Wise Wide
                 </a>
-                <a href="{{ $segregationGridPrintRoute($filterParams) }}"
-                   id="print-segregate-grid-btn"
-                   target="_blank"
-                   class="inline-flex items-center gap-2 rounded-xl bg-indigo-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-indigo-800 transition-all shadow-md hover:shadow-lg">
+                <a href="{{ route('segregation.grid', array_filter(['date' => $currentDate])) }}"
+                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all {{ $surface === 'grid' ? 'bg-indigo-700 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200/60' }}">
                     Segregate Grid
                 </a>
-                @endif
-            @else
-                @if($sortSheetShareUrl)
-                <a href="{{ $sortSheetShareUrl }}"
-                   target="_blank"
-                   rel="noopener"
-                   id="selection-share-whatsapp-btn"
-                   class="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-green-700 transition-all shadow-md hover:shadow-lg">
-                    <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
-                        <path d="M11.998 2.166C6.525 2.166 2.09 6.6 2.09 12.073c0 1.742.455 3.378 1.25 4.793L2 22l5.292-1.387c1.36.74 2.912 1.162 4.566 1.162 5.472 0 9.908-4.433 9.908-9.905 0-5.474-4.436-9.704-9.768-9.704z"/>
-                    </svg>
-                    WhatsApp
-                </a>
-                @endif
-                @if($canExport)
-                <a href="{{ $sortSheetRoute('export.excel', $filterParams) }}"
-                   id="selection-export-excel-btn"
-                   class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition-all shadow-md hover:shadow-lg">
-                    Excel
-                </a>
-                <a href="{{ $sortSheetRoute('print', $filterParams) }}"
-                   id="segregation-print-btn"
-                   target="_blank"
-                   class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-800 transition-all shadow-md hover:shadow-lg">
-                    Print Selection
-                </a>
-                <a href="{{ $segregationMatrixPrintRoute($shopWisePortraitPrintParams) }}"
-                   id="selection-matrix-print-btn"
-                   target="_blank"
-                   class="inline-flex items-center gap-2 rounded-xl bg-cyan-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-cyan-800 transition-all shadow-md hover:shadow-lg">
-                    Shop Wise Portrait
-                </a>
-                <a href="{{ $segregationMatrixPrintRoute($shopWiseWidePrintParams) }}"
-                   id="selection-matrix-wide-print-btn"
-                   target="_blank"
-                   class="inline-flex items-center gap-2 rounded-xl bg-sky-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-sky-800 transition-all shadow-md hover:shadow-lg">
-                    Shop Wise Wide
-                </a>
-                <a href="{{ $segregationGridPrintRoute($filterParams) }}"
-                   id="selection-grid-print-btn"
-                   target="_blank"
-                   class="inline-flex items-center gap-2 rounded-xl bg-indigo-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-indigo-800 transition-all shadow-md hover:shadow-lg">
-                    Segregate Grid
-                </a>
-                @endif
-            @endif
+            </div>
         @endif
     </x-slot:actions>
 
@@ -190,7 +241,7 @@
                         {{ $pageTitle }}
                     </h1>
                     <p class="text-xs text-slate-500 mt-1 ml-[52px]">
-                        Generate {{ strtolower($pageTitle) }} prints from approved shop orders only.
+                        {{ $pageSubtitle }}
                     </p>
                 </div>
                 @if($hasMatrix)
@@ -202,130 +253,250 @@
             </div>
         </div>
 
-        {{-- Filters --}}
+        {{-- Filters & Presets --}}
         <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
-            <form method="GET" action="{{ $sortSheetRoute('generate') }}" id="sort-sheet-filter-form"
-                  class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
 
-                {{-- Date --}}
-                <div>
-                    <label for="filter-date" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                        Date <span class="text-red-500">*</span>
-                    </label>
-                    <input
-                        type="date"
-                        id="filter-date"
-                        name="date"
-                        value="{{ $currentDate }}"
-                        class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-xs font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white"
-                    >
-                </div>
-
-                {{-- Warehouse --}}
-                <div class="relative" data-picker-root="warehouses">
-                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                        Warehouse
-                    </label>
-                    <button type="button" id="warehouse-picker-trigger"
-                            class="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
-                        <span id="warehouse-picker-label">All Warehouses</span>
-                        <span class="text-slate-400">▾</span>
-                    </button>
-                    <div id="warehouse-picker-panel" class="absolute left-0 right-0 top-full z-30 mt-2 hidden max-h-72 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl"></div>
-                    <input type="hidden" name="warehouse_id" id="warehouse-hidden-input" value="{{ $currentWarehouse }}">
-                </div>
-
-                {{-- Product Categories --}}
-                <div class="relative lg:col-span-2" data-picker-root="categories">
-                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                        {{ $categoryFilterLabel }}
-                    </label>
-                    <button type="button"
-                            id="category-picker-trigger"
-                            class="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
-                        <span id="category-picker-label">All Categories</span>
-                        <span class="text-slate-400">▾</span>
-                    </button>
-                    <div id="category-picker-panel" class="absolute left-0 right-0 top-full z-30 mt-2 hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-xl">
-                        <input type="search" id="category-picker-search" placeholder="Search categories"
-                               class="h-9 w-full rounded-xl border border-slate-200 px-3 text-xs font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
-                        <div class="mt-3 flex gap-2">
-                            <button type="button" id="category-select-all" class="rounded-lg border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-slate-700 hover:bg-slate-50">Select all</button>
-                            <button type="button" id="category-clear" class="rounded-lg border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-slate-700 hover:bg-slate-50">Clear</button>
-                        </div>
-                        <div id="category-picker-list" class="mt-3 max-h-64 space-y-1 overflow-y-auto"></div>
-                    </div>
-                    <div id="category-hidden-inputs"></div>
-                </div>
-
-                {{-- Products --}}
-                <div class="relative lg:col-span-2" data-picker-root="products">
-                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                        {{ $productFilterLabel }}
-                    </label>
-                    <button type="button"
-                            id="product-picker-trigger"
-                            class="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
-                        <span id="product-picker-label">All Products</span>
-                        <span class="text-slate-400">▾</span>
-                    </button>
-                    <div id="product-picker-panel" class="absolute left-0 right-0 top-full z-30 mt-2 hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-xl lg:w-[520px]">
-                        <input type="search" id="product-picker-search" placeholder="Search item code or name"
-                               class="h-9 w-full rounded-xl border border-slate-200 px-3 text-xs font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
-                        <div class="mt-3 flex gap-2">
-                            <button type="button" id="product-select-visible" class="rounded-lg border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-slate-700 hover:bg-slate-50">Select visible</button>
-                            <button type="button" id="product-clear" class="rounded-lg border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-slate-700 hover:bg-slate-50">Clear products</button>
-                        </div>
-                        <div id="product-picker-list" class="mt-3 max-h-80 space-y-3 overflow-y-auto"></div>
-                    </div>
-                    <div id="product-hidden-inputs"></div>
-                </div>
-
-                {{-- Shop Price Group (shop category) --}}
-                <div class="relative" data-picker-root="price-groups">
-                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                        Shop Category
-                    </label>
-                    <button type="button" id="price-group-picker-trigger"
-                            class="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
-                        <span id="price-group-picker-label">All Shop Categories</span>
-                        <span class="text-slate-400">▾</span>
-                    </button>
-                    <div id="price-group-picker-panel" class="absolute left-0 right-0 top-full z-30 mt-2 hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-xl"></div>
-                    <input type="hidden" name="price_group_id" id="price-group-hidden-input" value="{{ $currentPriceGroup }}">
-                </div>
-
-                {{-- Individual Shop --}}
-                <div class="relative" data-picker-root="shops">
-                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                        Shop
-                    </label>
-                    <button type="button" id="shop-picker-trigger"
-                            class="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
-                        <span id="shop-picker-label">All Shops</span>
-                        <span class="text-slate-400">▾</span>
-                    </button>
-                    <div id="shop-picker-panel" class="absolute left-0 right-0 top-full z-30 mt-2 hidden max-h-72 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl"></div>
-                    <input type="hidden" name="shop_id" id="shop-hidden-input" value="{{ $currentShop }}">
-                </div>
-
-                {{-- Buttons --}}
-                <div class="flex gap-2">
-                    @if($canGenerate)
-                    <button type="submit" id="generate-btn"
-                            class="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white transition-all shadow-md flex items-center justify-center gap-2">
-                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
+            {{-- Custom Order Presets Bar (1-Click Generator) --}}
+            <div class="mb-4 pb-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="text-[10px] font-black uppercase tracking-wider text-amber-600 flex items-center gap-1">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
                         </svg>
-                        {{ $isSegregation ? 'Generate Selection' : 'Generate' }}
-                    </button>
+                        Daily Custom Presets:
+                    </span>
+                    @forelse($presets as $preset)
+                        <div class="inline-flex items-center gap-1.5 rounded-xl bg-amber-50 border border-amber-200/80 px-3 py-1.5 text-xs font-bold text-amber-900 shadow-sm transition hover:bg-amber-100 group">
+                            <button type="button" class="preset-apply-btn flex items-center gap-1.5 hover:text-amber-700" data-preset='@json($preset)'>
+                                <svg class="w-3.5 h-3.5 text-amber-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                                </svg>
+                                <span>{{ $preset->name }}</span>
+                            </button>
+                            <form method="POST" action="{{ route('sort-sheet.presets.destroy', $preset) }}" class="inline ml-1" onsubmit="return confirm('Delete preset \'{{ $preset->name }}\'?')">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="p-0.5 text-amber-400 hover:text-red-600 transition" title="Delete preset">
+                                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </form>
+                        </div>
+                    @empty
+                        <span class="text-xs text-slate-400 font-medium">No saved custom order presets yet.</span>
+                    @endforelse
+
+                    @if(isset($presetBatches) && $presetBatches->isNotEmpty())
+                    <span class="text-[10px] font-black uppercase tracking-wider text-purple-600 flex items-center gap-1 ml-2 border-l border-slate-200 pl-2">
+                        <svg class="w-3.5 h-3.5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231a1.125 1.125 0 01-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.656" />
+                        </svg>
+                        Saved Batches:
+                    </span>
+                    @foreach($presetBatches as $batch)
+                        <div class="inline-flex items-center gap-1.5 rounded-xl bg-purple-50 border border-purple-200 px-3 py-1.5 text-xs font-bold text-purple-900 shadow-sm transition hover:bg-purple-100 group">
+                            <a href="{{ route('sort-sheet.presets.batch-print', ['batch_id' => $batch->uuid, 'date' => $currentDate]) }}" target="_blank"
+                               class="flex items-center gap-1.5 hover:text-purple-700">
+                                <svg class="w-3.5 h-3.5 text-purple-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231a1.125 1.125 0 01-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.656" />
+                                </svg>
+                                <span>Batch: {{ $batch->name }}</span>
+                            </a>
+                            <form method="POST" action="{{ route('sort-sheet.presets.batches.destroy', $batch) }}" class="inline ml-1" onsubmit="return confirm('Delete batch \'{{ $batch->name }}\'?')">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="p-0.5 text-purple-400 hover:text-red-600 transition" title="Delete batch">
+                                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </form>
+                        </div>
+                    @endforeach
                     @endif
-                    @if($hasMatrix || $noOrders)
-                    <a href="{{ $sortSheetRoute('index') }}"
-                       class="rounded-xl border border-slate-200 px-3 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all flex items-center justify-center">
-                        Reset
+                </div>
+
+                <div class="flex items-center gap-2 shrink-0">
+                    <a href="{{ route('sort-sheet.presets.index') }}"
+                       class="px-3.5 py-1.5 rounded-xl border border-amber-300 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231a1.125 1.125 0 01-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.656" />
+                        </svg>
+                        Batch Print Presets
                     </a>
-                    @endif
+                    <button type="button" id="open-save-preset-modal-btn"
+                            class="px-3.5 py-1.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-bold transition flex items-center gap-1.5 shrink-0 shadow-sm">
+                        <svg class="w-3.5 h-3.5 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                        Save Selection as Custom Order
+                    </button>
+                </div>
+            </div>
+
+            <form method="GET" action="{{ $formActionUrl }}" id="sort-sheet-filter-form"
+                  class="space-y-4">
+
+                {{-- Row 1: Primary Date & Location Filters --}}
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+                    {{-- Date --}}
+                    <div>
+                        <label for="filter-date" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                            Date <span class="text-red-500">*</span>
+                        </label>
+                        <input
+                            type="date"
+                            id="filter-date"
+                            name="date"
+                            value="{{ $currentDate }}"
+                            class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-xs font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white"
+                        >
+                    </div>
+
+                    {{-- Warehouse --}}
+                    <div class="relative" data-picker-root="warehouses">
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                            Warehouse
+                        </label>
+                        <button type="button" id="warehouse-picker-trigger"
+                                class="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                            <span id="warehouse-picker-label">All Warehouses</span>
+                            <span class="text-slate-400">▾</span>
+                        </button>
+                        <div id="warehouse-picker-panel" class="absolute left-0 right-0 top-full z-30 mt-2 hidden max-h-72 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl"></div>
+                        <input type="hidden" name="warehouse_id" id="warehouse-hidden-input" value="{{ $currentWarehouse }}">
+                    </div>
+
+                    {{-- Shop Price Group (shop category) --}}
+                    <div class="relative" data-picker-root="price-groups">
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                            Shop Category
+                        </label>
+                        <button type="button" id="price-group-picker-trigger"
+                                class="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                            <span id="price-group-picker-label">All Shop Categories</span>
+                            <span class="text-slate-400">▾</span>
+                        </button>
+                        <div id="price-group-picker-panel" class="absolute left-0 right-0 top-full z-30 mt-2 hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-xl"></div>
+                        <input type="hidden" name="price_group_id" id="price-group-hidden-input" value="{{ $currentPriceGroup }}">
+                    </div>
+
+                    {{-- Individual Shop --}}
+                    <div class="relative" data-picker-root="shops">
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                            Shop
+                        </label>
+                        <button type="button" id="shop-picker-trigger"
+                                class="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                            <span id="shop-picker-label">All Shops</span>
+                            <span class="text-slate-400">▾</span>
+                        </button>
+                        <div id="shop-picker-panel" class="absolute left-0 right-0 top-full z-30 mt-2 hidden max-h-72 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl"></div>
+                        <input type="hidden" name="shop_id" id="shop-hidden-input" value="{{ $currentShop }}">
+                    </div>
+                </div>
+
+                {{-- Row 2: Product & Category Selection Filters --}}
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-end pt-1">
+                    {{-- Product Categories --}}
+                    <div class="relative" data-picker-root="categories">
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                            {{ $categoryFilterLabel }}
+                        </label>
+                        <button type="button"
+                                id="category-picker-trigger"
+                                class="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                            <span id="category-picker-label">All Categories</span>
+                            <span class="text-slate-400">▾</span>
+                        </button>
+                        <div id="category-picker-panel" class="absolute left-0 right-0 top-full z-30 mt-2 hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-xl">
+                            <input type="search" id="category-picker-search" placeholder="Search categories"
+                                   class="h-9 w-full rounded-xl border border-slate-200 px-3 text-xs font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                            <div class="mt-3 flex gap-2">
+                                <button type="button" id="category-select-all" class="rounded-lg border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-slate-700 hover:bg-slate-50">Select all</button>
+                                <button type="button" id="category-clear" class="rounded-lg border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-slate-700 hover:bg-slate-50">Clear</button>
+                            </div>
+                            <div id="category-picker-list" class="mt-3 max-h-64 space-y-1 overflow-y-auto"></div>
+                        </div>
+                        <div id="category-hidden-inputs"></div>
+                        <div id="category-print-order-bar" class="mt-2 hidden flex flex-wrap items-center gap-1.5 text-[10px] font-bold text-slate-600"></div>
+                    </div>
+
+                    {{-- Products --}}
+                    <div class="relative" data-picker-root="products">
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                            {{ $productFilterLabel }}
+                        </label>
+                        <button type="button"
+                                id="product-picker-trigger"
+                                class="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                            <span id="product-picker-label">All Products</span>
+                            <span class="text-slate-400">▾</span>
+                        </button>
+                        <div id="product-picker-panel" class="absolute left-0 right-0 top-full z-30 mt-2 hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-xl lg:w-[520px]">
+                            <input type="search" id="product-picker-search" placeholder="Search item code or name"
+                                   class="h-9 w-full rounded-xl border border-slate-200 px-3 text-xs font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                            <div class="mt-3 flex gap-2">
+                                <button type="button" id="product-select-visible" class="rounded-lg border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-slate-700 hover:bg-slate-50">Select visible</button>
+                                <button type="button" id="product-clear" class="rounded-lg border border-slate-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-slate-700 hover:bg-slate-50">Clear products</button>
+                            </div>
+                            <div id="product-picker-list" class="mt-3 max-h-80 space-y-3 overflow-y-auto"></div>
+                        </div>
+                        <div id="product-hidden-inputs"></div>
+                    </div>
+                </div>
+
+                {{-- Row 3: Custom Print Options & Action Buttons Bar --}}
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-3 border-t border-slate-100">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Print Format:</span>
+                        <a href="{{ route('sort-sheet.index', array_filter(['date' => $currentDate])) }}"
+                           class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all {{ $surface === 'sort-sheet' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+                            Sort Sheet
+                        </a>
+                        <a href="{{ route('segregation.index', array_filter(['date' => $currentDate])) }}"
+                           class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all {{ $surface === 'segregation' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+                            Selection
+                        </a>
+                        <a href="{{ route('segregation.shop-wise-portrait', array_filter(['date' => $currentDate])) }}"
+                           class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all {{ $surface === 'portrait' ? 'bg-cyan-700 text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+                            Shop Wise Portrait
+                        </a>
+                        <a href="{{ route('segregation.shop-wise-wide', array_filter(['date' => $currentDate])) }}"
+                           class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all {{ $surface === 'wide' ? 'bg-sky-700 text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+                            Shop Wise Wide
+                        </a>
+                        <a href="{{ route('segregation.grid', array_filter(['date' => $currentDate])) }}"
+                           class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all {{ $surface === 'grid' ? 'bg-indigo-700 text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+                            Segregate Grid
+                        </a>
+                    </div>
+
+                    <div class="flex items-center gap-3 shrink-0">
+                        <label class="inline-flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer bg-slate-50 border border-slate-200 px-3 py-2.5 rounded-xl hover:bg-slate-100 transition">
+                            <input type="checkbox" name="separate_category_pages" value="1" id="separate-category-pages-checkbox"
+                                   {{ !empty($filters['separateCategoryPages']) ? 'checked' : '' }}
+                                   class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                            <span>Separate Category Pages (Print)</span>
+                        </label>
+
+                        @if($hasMatrix || $noOrders)
+                        <a href="{{ $resetUrl }}"
+                           class="min-h-11 px-5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all flex items-center justify-center">
+                            Reset Filters
+                        </a>
+                        @endif
+                        @if($canGenerate)
+                        <button type="submit" id="generate-btn"
+                                class="min-h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-6 text-xs font-bold text-white transition-all shadow-md flex items-center justify-center gap-2">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
+                            </svg>
+                            {{ $generateButtonLabel }}
+                        </button>
+                        @endif
+                    </div>
                 </div>
             </form>
         </div>
@@ -358,89 +529,59 @@
                     </p>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
-                    @if(!$isSegregation)
-                        @if($sortSheetShareUrl)
-                        <a href="{{ $sortSheetShareUrl }}"
-                           target="_blank"
-                           rel="noopener"
-                           class="inline-flex items-center gap-1.5 rounded-xl bg-green-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-green-700 transition-all shadow-sm">
-                            <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
-                                <path d="M11.998 2.166C6.525 2.166 2.09 6.6 2.09 12.073c0 1.742.455 3.378 1.25 4.793L2 22l5.292-1.387c1.36.74 2.912 1.162 4.566 1.162 5.472 0 9.908-4.433 9.908-9.905 0-5.474-4.436-9.704-9.768-9.704z"/>
-                            </svg>
-                            WhatsApp
-                        </a>
-                        @endif
-                        @if($canExport)
-                        <a href="{{ $sortSheetRoute('export.excel', $filterParams) }}"
-                           class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-emerald-700 transition-all shadow-sm">
-                            Excel
-                        </a>
-                        <a href="{{ $sortSheetRoute('export.pdf', $filterParams) }}"
-                           target="_blank"
-                           class="inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-red-700 transition-all shadow-sm">
-                            PDF
-                        </a>
-                        <a href="{{ $sortSheetRoute('print', $filterParams) }}"
-                           target="_blank"
-                           class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-[10px] font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
-                            Print
-                        </a>
-                        <a href="{{ $segregationMatrixPrintRoute($shopWisePortraitPrintParams) }}"
-                           target="_blank"
-                           class="inline-flex items-center gap-1.5 rounded-xl bg-cyan-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-cyan-800 transition-all shadow-sm">
-                            Shop Wise Portrait
-                        </a>
-                        <a href="{{ $segregationMatrixPrintRoute($shopWiseWidePrintParams) }}"
-                           target="_blank"
-                           class="inline-flex items-center gap-1.5 rounded-xl bg-sky-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-sky-800 transition-all shadow-sm">
-                            Shop Wise Wide
-                        </a>
-                        <a href="{{ $segregationGridPrintRoute($filterParams) }}"
-                           target="_blank"
-                           class="inline-flex items-center gap-1.5 rounded-xl bg-indigo-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-indigo-800 transition-all shadow-sm">
-                            Segregate Grid
-                        </a>
-                        @endif
-                    @else
-                        @if($sortSheetShareUrl)
-                        <a href="{{ $sortSheetShareUrl }}"
-                           target="_blank"
-                           rel="noopener"
-                           class="inline-flex items-center gap-1.5 rounded-xl bg-green-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-green-700 transition-all shadow-sm">
-                            <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
-                                <path d="M11.998 2.166C6.525 2.166 2.09 6.6 2.09 12.073c0 1.742.455 3.378 1.25 4.793L2 22l5.292-1.387c1.36.74 2.912 1.162 4.566 1.162 5.472 0 9.908-4.433 9.908-9.905 0-5.474-4.436-9.704-9.768-9.704z"/>
-                            </svg>
-                            WhatsApp
-                        </a>
-                        @endif
-                        @if($canExport)
-                        <a href="{{ $sortSheetRoute('export.excel', $filterParams) }}"
-                           class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-emerald-700 transition-all shadow-sm">
-                            Excel
-                        </a>
-                        <a href="{{ $sortSheetRoute('print', $filterParams) }}"
-                           target="_blank"
-                           class="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-slate-800 transition-all shadow-sm">
-                            Print Selection
-                        </a>
-                        <a href="{{ $segregationMatrixPrintRoute($shopWisePortraitPrintParams) }}"
-                           target="_blank"
-                           class="inline-flex items-center gap-1.5 rounded-xl bg-cyan-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-cyan-800 transition-all shadow-sm">
-                            Shop Wise Portrait
-                        </a>
-                        <a href="{{ $segregationMatrixPrintRoute($shopWiseWidePrintParams) }}"
-                           target="_blank"
-                           class="inline-flex items-center gap-1.5 rounded-xl bg-sky-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-sky-800 transition-all shadow-sm">
-                            Shop Wise Wide
-                        </a>
-                        <a href="{{ $segregationGridPrintRoute($filterParams) }}"
-                           target="_blank"
-                           class="inline-flex items-center gap-1.5 rounded-xl bg-indigo-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-indigo-800 transition-all shadow-sm">
-                            Segregate Grid
-                        </a>
-                        @endif
+                    @if($sortSheetShareUrl)
+                    <a href="{{ $sortSheetShareUrl }}"
+                       target="_blank"
+                       rel="noopener"
+                       class="inline-flex items-center gap-1.5 rounded-xl bg-green-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-green-700 transition-all shadow-sm">
+                        <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+                            <path d="M11.998 2.166C6.525 2.166 2.09 6.6 2.09 12.073c0 1.742.455 3.378 1.25 4.793L2 22l5.292-1.387c1.36.74 2.912 1.162 4.566 1.162 5.472 0 9.908-4.433 9.908-9.905 0-5.474-4.436-9.704-9.768-9.704z"/>
+                        </svg>
+                        WhatsApp
+                    </a>
+                    @endif
+                    @if($canExport)
+                    <a href="{{ $sortSheetRoute('export.excel', $filterParams) }}"
+                       class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-emerald-700 transition-all shadow-sm">
+                        Excel
+                    </a>
+                    @if($surface === 'sort-sheet')
+                    <a href="{{ $sortSheetRoute('export.pdf', $filterParams) }}"
+                       target="_blank"
+                       class="inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-red-700 transition-all shadow-sm">
+                        PDF
+                    </a>
+                    <a href="{{ $sortSheetRoute('print', $filterParams) }}"
+                       target="_blank"
+                       class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-[10px] font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
+                        Print Sort Sheet
+                    </a>
+                    @elseif($surface === 'segregation')
+                    <a href="{{ $sortSheetRoute('print', $filterParams) }}"
+                       target="_blank"
+                       class="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-slate-800 transition-all shadow-sm">
+                        Print Selection
+                    </a>
+                    @elseif($surface === 'portrait')
+                    <a href="{{ $segregationMatrixPrintRoute($shopWisePortraitPrintParams) }}"
+                       target="_blank"
+                       class="inline-flex items-center gap-1.5 rounded-xl bg-cyan-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-cyan-800 transition-all shadow-sm">
+                        Print Portrait
+                    </a>
+                    @elseif($surface === 'wide')
+                    <a href="{{ $segregationMatrixPrintRoute($shopWiseWidePrintParams) }}"
+                       target="_blank"
+                       class="inline-flex items-center gap-1.5 rounded-xl bg-sky-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-sky-800 transition-all shadow-sm">
+                        Print Wide
+                    </a>
+                    @elseif($surface === 'grid')
+                    <a href="{{ $segregationGridPrintRoute($filterParams) }}"
+                       target="_blank"
+                       class="inline-flex items-center gap-1.5 rounded-xl bg-indigo-700 px-3.5 py-2 text-[10px] font-bold text-white hover:bg-indigo-800 transition-all shadow-sm">
+                        Print Grid
+                    </a>
+                    @endif
                     @endif
                 </div>
             </div>
@@ -467,14 +608,43 @@
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 text-xs">
-                        @php $rowIdx = 0; @endphp
+                        @php
+                            $rowIdx = 0;
+                            $currentCategoryName = null;
+                        @endphp
                         @foreach($matrix as $productId => $shopQtys)
                         @php
                             $meta = $productMeta[$productId];
+                            $catName = $meta['category_name'] ?? 'General';
                             $total = array_sum($shopQtys);
                             $isEven = $rowIdx % 2 === 0;
                             $rowIdx++;
                         @endphp
+                        @if($currentCategoryName !== $catName)
+                        @php $currentCategoryName = $catName; @endphp
+                        <tr class="bg-slate-800 border-y-2 border-slate-900">
+                            <td colspan="{{ 4 + $filteredShops->count() }}" class="py-2.5 px-4 bg-slate-900 text-white font-black text-xs tracking-wider uppercase flex items-center gap-1.5">
+                                <svg class="w-4 h-4 text-emerald-400 shrink-0 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+                                </svg>
+                                <span>Category: {{ $catName }}</span>
+                            </td>
+                        </tr>
+                        <tr class="bg-slate-200 text-slate-800 text-[10px] font-black uppercase tracking-wider border-b border-slate-300">
+                            <th class="py-2 px-3 text-center border-r border-slate-300">SKU</th>
+                            <th class="py-2 px-4 text-left border-r border-slate-300">Product Name</th>
+                            @foreach($filteredShops as $shop)
+                            <th class="py-2 px-2 text-center border-r border-slate-300">
+                                <span class="block text-[10px] font-black">{{ $shop->name }}</span>
+                                @if($shop->warehouse_tag)
+                                <span class="block text-[8px] text-slate-500 font-semibold">{{ $shop->warehouse_tag }}</span>
+                                @endif
+                            </th>
+                            @endforeach
+                            <th class="py-2 px-3 text-center border-r border-slate-300 bg-emerald-100 text-emerald-900">Total</th>
+                            <th class="py-2 px-3 text-center">Unit</th>
+                        </tr>
+                        @endif
                         <tr class="{{ $isEven ? 'bg-slate-50/40' : 'bg-white' }} hover:bg-emerald-50/30 transition-colors group">
                             <td class="py-2.5 px-3 text-center text-slate-700 font-mono text-xs font-bold border-r border-slate-100 whitespace-nowrap">
                                 {{ $meta['sku'] }}
@@ -540,6 +710,42 @@
             @endif
         </div>
         @endif
+       {{-- Save Custom Order Preset Modal --}}
+    <div id="save-preset-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 class="text-base font-black text-slate-900 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                    </svg>
+                    Save Custom Order Preset
+                </h3>
+                <button type="button" id="close-preset-modal-btn" class="p-1 text-slate-400 hover:text-slate-600 transition">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <form method="POST" action="{{ route('sort-sheet.presets.store') }}" id="save-preset-form" class="space-y-4">
+                @csrf
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Preset Name *</label>
+                    <input type="text" name="name" placeholder="e.g. Daily Priority Vegetables" required
+                           class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-xs font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                </div>
+                <input type="hidden" name="surface" value="{{ $surface }}">
+                <input type="hidden" name="warehouse_id" id="preset-warehouse-id">
+                <input type="hidden" name="price_group_id" id="preset-price-group-id">
+                <input type="hidden" name="shop_id" id="preset-shop-id">
+                <div id="preset-category-inputs"></div>
+                <div id="preset-product-inputs"></div>
+                <div class="flex justify-end gap-3 pt-2">
+                    <button type="button" id="cancel-preset-modal-btn" class="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" class="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-xs font-bold text-white shadow-md">Save Custom Order</button>
+                </div>
+            </form>
+        </div>
+    </div>
     </div>
 @push('scripts')
 <script>
@@ -605,18 +811,56 @@ document.addEventListener('DOMContentLoaded', () => {
         return input;
     };
 
+    let selectedPageBreakCategoryIds = [];
+
     const syncHiddenInputs = () => {
         categoryInputs.replaceChildren(...Array.from(selectedCategoryIds).map((id) => hiddenInput('category_ids[]', id)));
         productInputs.replaceChildren(...Array.from(selectedProductIds).map((id) => hiddenInput('product_ids[]', id)));
         warehouseInput.value = selectedWarehouseId;
         priceGroupInput.value = selectedPriceGroupId;
         shopInput.value = selectedShopId;
+
+        const existingPageBreakInputs = form.querySelectorAll('input[name="page_break_category_ids[]"]');
+        existingPageBreakInputs.forEach((el) => el.remove());
+        (selectedPageBreakCategoryIds || []).forEach((id) => {
+            form.appendChild(hiddenInput('page_break_category_ids[]', id));
+        });
     };
 
+    const categoryPrintOrderBar = document.getElementById('category-print-order-bar');
+
     const updateLabels = () => {
-        categoryLabel.textContent = selectedCategoryIds.size === 0
-            ? allCategoryLabel
-            : `${selectedCategoryIds.size} categories selected`;
+        const selectedCatArray = Array.from(selectedCategoryIds);
+        if (selectedCatArray.length === 0) {
+            categoryLabel.textContent = allCategoryLabel;
+            if (categoryPrintOrderBar) {
+                categoryPrintOrderBar.classList.add('hidden');
+                categoryPrintOrderBar.replaceChildren();
+            }
+        } else {
+            const selectedCatNames = selectedCatArray
+                .map((id) => categories.find((c) => c.id === id)?.name)
+                .filter(Boolean);
+
+            categoryLabel.textContent = `${selectedCatArray.length} categories selected`;
+
+            if (categoryPrintOrderBar) {
+                categoryPrintOrderBar.classList.remove('hidden');
+                const titleSpan = document.createElement('span');
+                titleSpan.className = 'font-black uppercase tracking-wider text-slate-400 text-[9px] mr-1';
+                titleSpan.textContent = 'Print Order:';
+
+                const pills = selectedCatNames.map((name, idx) => {
+                    const pill = document.createElement('span');
+                    pill.className = 'inline-flex items-center gap-1 rounded-lg bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-900 border border-emerald-200';
+                    pill.innerHTML = `<span class="text-[9px] font-black text-emerald-600">#${idx + 1}</span> ${name}`;
+                    return pill;
+                });
+
+                categoryPrintOrderBar.replaceChildren(titleSpan, ...pills);
+            }
+        }
+
         productLabel.textContent = selectedProductIds.size === 0
             ? allProductLabel
             : `${selectedProductIds.size} products selected`;
@@ -635,13 +879,15 @@ document.addEventListener('DOMContentLoaded', () => {
         'hover:bg-slate-50',
     ].join(' ');
 
-    const checkMark = (selected) => {
+    const checkMark = (selected, orderIdx = 0) => {
         const mark = document.createElement('span');
-        mark.className = [
-            'flex', 'h-5', 'w-5', 'shrink-0', 'items-center', 'justify-center', 'rounded-md', 'border', 'text-[10px]', 'font-black',
-            selected ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-white',
-        ].join(' ');
-        mark.textContent = selected ? '✓' : '';
+        if (selected && orderIdx > 0) {
+            mark.className = 'flex min-w-8 h-5 px-1.5 shrink-0 items-center justify-center rounded-md border border-emerald-600 bg-emerald-600 text-white text-[10px] font-black gap-0.5';
+            mark.textContent = `#${orderIdx} ✓`;
+        } else {
+            mark.className = 'flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-white text-[10px] font-black';
+            mark.textContent = '';
+        }
         return mark;
     };
 
@@ -664,17 +910,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const renderCategories = () => {
         const query = categorySearch.value.trim().toLowerCase();
+        const selectedCatArray = Array.from(selectedCategoryIds);
+
         const rows = availableCategories()
             .filter((category) => category.name.toLowerCase().includes(query))
             .map((category) => {
                 const selected = selectedCategoryIds.has(category.id);
+                const orderIdx = selected ? selectedCatArray.indexOf(category.id) + 1 : 0;
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = rowClasses(selected);
                 button.dataset.categoryId = category.id;
                 const label = document.createElement('span');
                 label.textContent = category.name;
-                button.append(label, checkMark(selected));
+                button.append(label, checkMark(selected, orderIdx));
                 button.addEventListener('click', (event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -918,6 +1167,68 @@ document.addEventListener('DOMContentLoaded', () => {
     categorySearch.addEventListener('input', renderCategories);
     productSearch.addEventListener('input', renderProducts);
     form.addEventListener('submit', syncHiddenInputs);
+
+    // Apply Preset Listener (1-Click Generator)
+    document.querySelectorAll('.preset-apply-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            try {
+                const preset = JSON.parse(btn.dataset.preset);
+                selectedWarehouseId = preset.warehouse_id ? String(preset.warehouse_id) : '';
+                selectedPriceGroupId = preset.price_group_id ? String(preset.price_group_id) : '';
+                selectedShopId = preset.shop_id ? String(preset.shop_id) : '';
+
+                selectedCategoryIds.clear();
+                (preset.category_ids || []).forEach((id) => selectedCategoryIds.add(id));
+
+                selectedProductIds.clear();
+                (preset.product_ids || []).forEach((id) => selectedProductIds.add(id));
+
+                const sepCheck = document.getElementById('separate-category-pages-checkbox');
+                if (sepCheck) {
+                    sepCheck.checked = Boolean(preset.separate_category_pages);
+                }
+
+                selectedPageBreakCategoryIds = (preset.page_break_category_ids || []).map(String);
+
+                renderAll();
+                form.submit();
+            } catch (err) {
+                console.error('Error applying preset:', err);
+            }
+        });
+    });
+
+    // Save Preset Modal logic
+    const openPresetModalBtn = document.getElementById('open-save-preset-modal-btn');
+    const savePresetModal = document.getElementById('save-preset-modal');
+    const closePresetModalBtn = document.getElementById('close-preset-modal-btn');
+    const cancelPresetModalBtn = document.getElementById('cancel-preset-modal-btn');
+
+    if (openPresetModalBtn && savePresetModal) {
+        openPresetModalBtn.addEventListener('click', () => {
+            document.getElementById('preset-warehouse-id').value = selectedWarehouseId;
+            document.getElementById('preset-price-group-id').value = selectedPriceGroupId;
+            document.getElementById('preset-shop-id').value = selectedShopId;
+
+            const categoryInputsContainer = document.getElementById('preset-category-inputs');
+            categoryInputsContainer.replaceChildren(
+                ...Array.from(selectedCategoryIds).map((id) => hiddenInput('category_ids[]', id))
+            );
+
+            const productInputsContainer = document.getElementById('preset-product-inputs');
+            productInputsContainer.replaceChildren(
+                ...Array.from(selectedProductIds).map((id) => hiddenInput('product_ids[]', id))
+            );
+
+            savePresetModal.classList.remove('hidden');
+        });
+
+        [closePresetModalBtn, cancelPresetModalBtn].forEach((btn) => {
+            if (btn) {
+                btn.addEventListener('click', () => savePresetModal.classList.add('hidden'));
+            }
+        });
+    }
 
     document.addEventListener('click', (event) => {
         if (!event.target.closest('[data-picker-root]')) {

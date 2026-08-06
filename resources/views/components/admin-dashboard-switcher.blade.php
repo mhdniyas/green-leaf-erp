@@ -19,6 +19,7 @@
             $currentUser->can('inventory.stock.view') ||
             $currentUser->can('inventory.sorting.view') ||
             $currentUser->can('inventory.wastage.view'));
+    $canAccessPrintingDashboard = $currentUser && $currentUser->can('sort.sheet.view');
     $staffLandingUrl = \App\Support\StaffAccess::landingUrl($currentUser, $navDate);
 
     $dashboardLinks = [];
@@ -57,6 +58,14 @@
             'label' => 'Inventory',
             'href' => route('inventory.dashboard', ['date' => $navDate]),
             'active' => request()->routeIs('inventory.*'),
+        ];
+    }
+
+    if ($canAccessPrintingDashboard) {
+        $dashboardLinks[] = [
+            'label' => 'Printing',
+            'href' => route('sort-sheet.index'),
+            'active' => request()->routeIs('sort-sheet.*') || request()->routeIs('segregation.*'),
         ];
     }
 
