@@ -76,8 +76,14 @@
             text-align: right;
         }
 
+        .price-status-col {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+        }
+
         .price-status {
-            justify-self: start;
             white-space: nowrap;
             padding: 4px 6px;
             border-radius: 6px;
@@ -86,6 +92,7 @@
             max-width: 84px;
             overflow: hidden;
             text-overflow: ellipsis;
+            text-align: center;
         }
 
         .price-status.increase {
@@ -155,6 +162,13 @@
             color: #172033;
         }
     </style>
+
+    @php
+        function formatPriceCompactPHP(?float $val): string {
+            if ($val === null || $val <= 0) return '';
+            return $val == (int)$val ? (string)(int)$val : rtrim(rtrim(number_format($val, 2, '.', ''), '0'), '.');
+        }
+    @endphp
 
     <div class="mx-auto flex w-full max-w-full min-w-0 flex-col gap-3 py-2 lg:max-w-4xl lg:gap-3 lg:px-4 lg:py-3">
         @include('purchasing.purchaser.partials.feedback')
@@ -235,7 +249,7 @@
                 <div class="grid grid-cols-[minmax(105px,1fr)_56px_84px_82px] items-center gap-[6px] px-[10px] pb-1 pt-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400 select-none">
                     <div>PRODUCT</div>
                     <div class="text-right">PREV</div>
-                    <div>CHANGE</div>
+                    <div class="text-center">CHANGE</div>
                     <div class="text-right">TODAY</div>
                 </div>
 
@@ -255,18 +269,18 @@
                         {{-- Col 2: Compact Previous Price --}}
                         <div class="previous-price" id="row-prev-{{ $product['id'] }}">
                             @if ($product['previous_price'])
-                                ₹{{ $product['previous_price'] == (int) $product['previous_price'] ? number_format($product['previous_price'], 0) : number_format($product['previous_price'], 2) }}
+                                ₹{{ formatPriceCompactPHP($product['previous_price']) }}
                             @else
                                 —
                             @endif
                         </div>
 
-                        {{-- Col 3: Price Status / Change Badge --}}
-                        <div id="row-badge-{{ $product['id'] }}">
+                        {{-- Col 3: Price Status / Change Badge (Centered) --}}
+                        <div class="price-status-col" id="row-badge-{{ $product['id'] }}">
                             @if ($product['price_state'] === 'not_set')
                                 <div class="price-status not-set">Not set</div>
                             @elseif ($product['price_state'] === 'no_previous')
-                                <div class="price-status increase">₹{{ number_format($product['price_today'], 0) }}</div>
+                                <div class="price-status increase">₹{{ formatPriceCompactPHP($product['price_today']) }}</div>
                             @elseif ($product['price_state'] === 'increased')
                                 <div class="price-status increase">▲ ₹{{ number_format($product['diff_amount'], 0) }} · {{ $product['diff_percentage'] }}%</div>
                             @elseif ($product['price_state'] === 'decreased')
@@ -276,13 +290,13 @@
                             @endif
                         </div>
 
-                        {{-- Col 4: Price Input Wrap (82px width, 58px input) --}}
+                        {{-- Col 4: Price Input Wrap (No default .00 for whole numbers) --}}
                         <div class="price-input-wrap">
                             <span class="price-currency">₹</span>
                             <input type="text"
                                    inputmode="decimal"
                                    id="price-{{ $product['id'] }}"
-                                   value="{{ $product['price_today'] ? number_format($product['price_today'], 2, '.', '') : '' }}"
+                                   value="{{ formatPriceCompactPHP($product['price_today']) }}"
                                    placeholder="—"
                                    oninput="handlePriceInput(this, {{ $product['id'] }})"
                                    class="price-input">
@@ -378,6 +392,13 @@
         const updateUrl = '{{ route("purchaser.daily-prices.update") }}';
         let activeModalProduct = null;
         let lastScrollY = 0;
+
+        function formatPriceCompactJS(val) {
+            if (val === null || val === undefined || isNaN(val) || val <= 0) return '';
+            const num = parseFloat(val);
+            if (num % 1 === 0) return num.toString();
+            return num.toFixed(2).replace(/\.?0+$/, '');
+        }
 
         function handlePriceInput(inputEl, productId) {
             const val = parseFloat(inputEl.value);
@@ -497,8 +518,7 @@
 
             if (prevEl) {
                 if (data.previous_price) {
-                    const formatted = data.previous_price % 1 === 0 ? data.previous_price.toFixed(0) : data.previous_price.toFixed(2);
-                    prevEl.textContent = `₹${formatted}`;
+                    prevEl.textContent = `₹${formatPriceCompactJS(data.previous_price)}`;
                 } else {
                     prevEl.textContent = `—`;
                 }
@@ -509,7 +529,7 @@
                 if (data.price_state === 'not_set') {
                     bHtml = `<div class="price-status not-set">Not set</div>`;
                 } else if (data.price_state === 'no_previous') {
-                    bHtml = `<div class="price-status increase">₹${data.today_price.toFixed(0)}</div>`;
+                    bHtml = `<div class="price-status increase">₹${formatPriceCompactJS(data.today_price)}</div>`;
                 } else if (data.price_state === 'increased') {
                     bHtml = `<div class="price-status increase">▲ ₹${Math.round(data.diff_amount)} · ${data.diff_percentage}%</div>`;
                 } else if (data.price_state === 'decreased') {
@@ -525,8 +545,8 @@
             document.getElementById('modal-product-name').textContent = product.name;
             document.getElementById('modal-product-unit').textContent = 'Purchase Unit: 1 ' + product.unit;
 
-            document.getElementById('modal-today-price').textContent = product.price_today ? '₹' + product.price_today.toFixed(2) : 'Not set';
-            document.getElementById('modal-previous-price').textContent = product.previous_price ? '₹' + product.previous_price.toFixed(2) : 'No previous price';
+            document.getElementById('modal-today-price').textContent = product.price_today ? '₹' + formatPriceCompactJS(product.price_today) : 'Not set';
+            document.getElementById('modal-previous-price').textContent = product.previous_price ? '₹' + formatPriceCompactJS(product.previous_price) : 'No previous price';
 
             // Change badge in modal
             const changeBadgeEl = document.getElementById('modal-change-badge');
@@ -557,7 +577,7 @@
                     hHtml += `
                         <div class="flex items-center justify-between py-2">
                             <span class="font-bold text-slate-600">${item.date}</span>
-                            <span class="font-black text-slate-900">₹${item.price.toFixed(2)}</span>
+                            <span class="font-black text-slate-900">₹${formatPriceCompactJS(item.price)}</span>
                             <span class="font-semibold text-slate-500">${item.updated_by}</span>
                         </div>
                     `;
