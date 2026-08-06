@@ -72,6 +72,16 @@
             white-space: nowrap;
         }
 
+        .product-cost-info {
+            font-size: 10px;
+            font-weight: 700;
+            color: #0f766e;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 1px;
+        }
+
         .updater-info {
             font-size: 10px;
             font-weight: 600;
@@ -196,6 +206,8 @@
             </div>
         @endif
 
+        <div id="global-save-info" class="hidden rounded-xl border border-teal-200/90 bg-teal-50/90 px-4 py-2 text-xs font-bold text-teal-900 shadow-2xs"></div>
+
         {{-- Header section with Date Change Input --}}
         <section class="overflow-hidden rounded-2xl bg-slate-950 text-white shadow-md">
             <div class="bg-[linear-gradient(135deg,_#0f172a_0%,_#111827_55%,_#0f766e_100%)] px-4 py-3 sm:px-5">
@@ -281,7 +293,7 @@
                     <div>PRODUCT</div>
                     <div class="text-right">PREV</div>
                     <div class="text-center">CHANGE</div>
-                    <div class="text-right">TODAY</div>
+                    <div class="text-right">{{ strtoupper($operationalDate->format('d M')) }}</div>
                 </div>
 
                 @foreach ($products as $product)
@@ -304,6 +316,11 @@
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
                                         </svg>
                                     </span>
+                                @endif
+                            </div>
+                            <div id="row-cost-avg-{{ $product['id'] }}" class="product-cost-info">
+                                @if (($product['purchaser_avg_price'] ?? null) !== null)
+                                    Cost Avg: ₹{{ formatPriceCompactPHP($product['purchaser_avg_price']) }}
                                 @endif
                             </div>
                             <div id="row-updater-{{ $product['id'] }}" class="updater-info">
@@ -387,10 +404,18 @@
                                class="h-11 w-full rounded-xl border border-teal-300 bg-white pl-8 pr-3 text-right text-base font-black text-slate-900 shadow-xs focus:border-teal-600 focus:outline-none focus:ring-3 focus:ring-teal-500/20 transition-all">
                     </div>
                     <button type="button"
+                            id="modal-save-btn"
                             onclick="triggerModalSave()"
                             class="w-full rounded-xl bg-teal-600 hover:bg-teal-700 active:scale-98 text-white font-black text-xs uppercase tracking-wider py-2.5 transition-all shadow-sm cursor-pointer">
                         SAVE PRICE
                     </button>
+                    <button type="button"
+                            id="modal-refresh-invoices-btn"
+                            onclick="triggerInvoiceRefresh()"
+                            class="w-full rounded-xl border border-teal-600 bg-white text-teal-700 hover:bg-teal-50 font-black text-xs uppercase tracking-wider py-2.5 transition-all shadow-sm cursor-pointer">
+                        REFRESH INVOICES
+                    </button>
+                    <p id="modal-invoice-update-count" class="text-[11px] font-bold text-teal-800 text-center"></p>
                 </div>
 
                 {{-- 2. Price Summary Grid --}}
@@ -489,14 +514,56 @@
             if (isNaN(val) || val <= 0) return;
 
             const mainInput = document.getElementById('price-' + activeModalProduct.id);
-            savePriceAuto(mainInput, activeModalProduct.id, val);
+            savePriceAuto(mainInput, activeModalProduct.id, val, { refreshInvoicesOnly: false });
         }
 
-        function savePriceAuto(inputEl, productId, priceValue) {
-            const modalStatusEl = document.getElementById('modal-save-status');
+        function triggerInvoiceRefresh() {
+            if (!activeModalProduct) return;
 
+            const modalInput = document.getElementById('modal-price-input');
+            const val = parseFloat(modalInput.value);
+            if (isNaN(val) || val <= 0) return;
+
+            const mainInput = document.getElementById('price-' + activeModalProduct.id);
+            savePriceAuto(mainInput, activeModalProduct.id, val, { refreshInvoicesOnly: true });
+        }
+
+        function setModalActionLoading(isLoading, actionLabel = 'Saving...') {
+            const saveBtn = document.getElementById('modal-save-btn');
+            const refreshBtn = document.getElementById('modal-refresh-invoices-btn');
+
+            if (saveBtn) {
+                saveBtn.disabled = isLoading;
+                saveBtn.classList.toggle('opacity-60', isLoading);
+                saveBtn.classList.toggle('cursor-not-allowed', isLoading);
+            }
+
+            if (refreshBtn) {
+                refreshBtn.disabled = isLoading;
+                refreshBtn.classList.toggle('opacity-60', isLoading);
+                refreshBtn.classList.toggle('cursor-not-allowed', isLoading);
+            }
+
+            const modalStatusEl = document.getElementById('modal-save-status');
+            if (modalStatusEl && isLoading) {
+                modalStatusEl.textContent = actionLabel;
+            }
+        }
+
+        function savePriceAuto(inputEl, productId, priceValue, options = {}) {
+            const refreshInvoicesOnly = options.refreshInvoicesOnly === true;
+            const modalStatusEl = document.getElementById('modal-save-status');
+            const updaterEl = document.getElementById('row-updater-' + productId);
+
+            if (updaterEl) {
+                updaterEl.textContent = refreshInvoicesOnly ? 'Refreshing invoices...' : 'Updating...';
+            }
             if (modalStatusEl && activeModalProduct && activeModalProduct.id === productId) {
-                modalStatusEl.textContent = 'Saving...';
+                modalStatusEl.textContent = refreshInvoicesOnly ? 'Refreshing invoices...' : 'Saving...';
+            }
+
+            if (activeModalProduct && activeModalProduct.id === productId) {
+                setModalActionLoading(true, refreshInvoicesOnly ? 'Refreshing invoices...' : 'Saving...');
             }
 
             fetch(updateUrl, {
@@ -508,6 +575,7 @@
                 },
                 body: JSON.stringify({
                     date: currentDate,
+                    refresh_invoices_only: refreshInvoicesOnly,
                     prices: [
                         {
                             product_id: productId,
@@ -519,8 +587,28 @@
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
+                    const invoiceSyncOk = data.invoice_sync_ok === true;
+                    updateModalInvoiceCount(data);
+
+                    if (!invoiceSyncOk) {
+                        showGlobalSaveInfo(data.global_update_message || 'Price saved, but related invoice update check failed.');
+
+                        if (updaterEl) {
+                            updaterEl.textContent = 'Invoice sync failed';
+                        }
+
+                        if (modalStatusEl && activeModalProduct && activeModalProduct.id === productId) {
+                            modalStatusEl.textContent = data.global_update_message || 'Invoice sync failed';
+                        }
+
+                        return;
+                    }
+
                     // Update DOM elements on row
                     updateRowDOM(data);
+                    if (data.global_update_message) {
+                        showGlobalSaveInfo(data.global_update_message);
+                    }
 
                     // If modal is open for this product, update modal DOM
                     if (activeModalProduct && activeModalProduct.id === productId) {
@@ -537,8 +625,8 @@
                         populateModalContent(activeModalProduct);
 
                         if (modalStatusEl) {
-                            modalStatusEl.textContent = '✓ Saved';
-                            setTimeout(() => { modalStatusEl.textContent = ''; }, 2000);
+                            modalStatusEl.textContent = data.global_update_message || (refreshInvoicesOnly ? 'Invoice refresh completed' : '✓ Saved');
+                            setTimeout(() => { modalStatusEl.textContent = ''; }, 3000);
                         }
                     }
 
@@ -557,7 +645,55 @@
             })
             .catch(err => {
                 console.error('Auto-save error:', err);
+                if (updaterEl) {
+                    updaterEl.textContent = 'Update failed';
+                }
+                if (modalStatusEl && activeModalProduct && activeModalProduct.id === productId) {
+                    modalStatusEl.textContent = refreshInvoicesOnly ? 'Invoice refresh failed' : 'Update failed';
+                }
+            })
+            .finally(() => {
+                if (activeModalProduct && activeModalProduct.id === productId) {
+                    setModalActionLoading(false);
+                }
             });
+        }
+
+        function updateModalInvoiceCount(data) {
+            const countEl = document.getElementById('modal-invoice-update-count');
+            if (!countEl) return;
+
+            const updated = Number(data?.invoice_updates_count ?? 0);
+            const targeted = Number(data?.invoice_updates_targeted_count ?? 0);
+            const failed = Number(data?.invoice_updates_failed_count ?? 0);
+
+            if (!Number.isFinite(updated) || !Number.isFinite(targeted) || !Number.isFinite(failed)) {
+                return;
+            }
+
+            if (targeted <= 0) {
+                countEl.textContent = 'Invoices Updated: 0';
+                return;
+            }
+
+            if (failed > 0) {
+                countEl.textContent = `Invoices Updated: ${updated}/${targeted} (Failed: ${failed})`;
+                return;
+            }
+
+            countEl.textContent = `Invoices Updated: ${updated}`;
+        }
+
+        function showGlobalSaveInfo(message) {
+            const infoEl = document.getElementById('global-save-info');
+            if (!infoEl || !message) return;
+
+            infoEl.textContent = message;
+            infoEl.classList.remove('hidden');
+
+            setTimeout(() => {
+                infoEl.classList.add('hidden');
+            }, 3200);
         }
 
         function updateRowDOM(data) {
@@ -565,6 +701,7 @@
             const prevEl = document.getElementById('row-prev-' + pId);
             const badgeEl = document.getElementById('row-badge-' + pId);
             const updaterEl = document.getElementById('row-updater-' + pId);
+            const costEl = document.getElementById('row-cost-avg-' + pId);
 
             if (prevEl) {
                 if (data.previous_price) {
@@ -592,6 +729,14 @@
 
             if (updaterEl && data.updated_by_name) {
                 updaterEl.textContent = `${data.updated_by_name} · ${data.updated_time}`;
+            }
+
+            if (costEl) {
+                if (data.purchaser_avg_price) {
+                    costEl.textContent = `Cost Avg: ₹${formatPriceCompactJS(data.purchaser_avg_price)}`;
+                } else {
+                    costEl.textContent = '';
+                }
             }
         }
 

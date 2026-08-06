@@ -26,6 +26,7 @@ use App\Models\PurchaserCorrectionRequest;
 use App\Models\PurchaserCredit;
 use App\Models\ProcurementExpense;
 use App\Models\ShopOrder;
+use App\Models\ShopInvoice;
 use App\Models\ShopPriceGroup;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
@@ -36,6 +37,8 @@ use App\Services\Purchasing\BulkPaymentService;
 use App\Services\Purchasing\PurchaseInvoiceService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\VendorPriceService;
+use App\Services\ShopInvoices\ShopInvoiceService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -64,6 +67,7 @@ class PurchaserDashboardController extends Controller
         private readonly VendorPriceService $vendorPriceService,
         private readonly PurchaserBusinessDayService $businessDayService,
         private readonly JournalService $journalService,
+        private readonly ShopInvoiceService $shopInvoiceService,
     ) {}
 
     public function index(): RedirectResponse
@@ -3949,6 +3953,26 @@ class PurchaserDashboardController extends Controller
         $products = $productsQuery->get();
         $productIds = $products->pluck('id')->toArray();
 
+        $purchaserAveragePrices = PurchaserCartItem::query()
+            ->whereIn('product_id', $productIds)
+            ->where('quantity', '>', 0)
+            ->where('unit_price', '>', 0)
+            ->whereHas('cart', fn ($q) => $q->whereBetween('business_date', [$sevenDaysAgo, $operationalDate->toDateString()]))
+            ->selectRaw('product_id, SUM(quantity * unit_price) as total_cost, SUM(quantity) as total_qty')
+            ->groupBy('product_id')
+            ->get()
+            ->mapWithKeys(function ($row): array {
+                $totalQty = (float) ($row->total_qty ?? 0);
+
+                if ($totalQty <= 0.0001) {
+                    return [(int) $row->product_id => null];
+                }
+
+                $avg = round(((float) $row->total_cost) / $totalQty, 2);
+
+                return [(int) $row->product_id => $avg > 0 ? $avg : null];
+            });
+
         // Get latest valid price approvals per product for comparison and history
         $today = $operationalDate->toDateString();
 
@@ -3961,7 +3985,7 @@ class PurchaserDashboardController extends Controller
             ->get()
             ->groupBy('product_id');
 
-        $productsWithPrices = $products->map(function ($product) use ($allApprovals, $today) {
+        $productsWithPrices = $products->map(function ($product) use ($allApprovals, $today, $purchaserAveragePrices) {
             $approvals = $allApprovals->get($product->id, collect());
 
             $todayApproval = $approvals->first(fn ($a) => $a->business_date->toDateString() === $today);
@@ -4012,6 +4036,8 @@ class PurchaserDashboardController extends Controller
                 'name' => $product->name,
                 'sku' => $product->sku,
                 'unit' => strtoupper((string) ($product->unit ?: 'KG')),
+                'unit_info_price' => $todayPrice ?? $previousPrice,
+                'purchaser_avg_price' => $purchaserAveragePrices->get((int) $product->id),
                 'price_today' => $todayPrice,
                 'previous_price' => $previousPrice,
                 'diff_amount' => $diffAmount,
@@ -4041,6 +4067,7 @@ class PurchaserDashboardController extends Controller
 
         $validated = $request->validate([
             'date' => ['nullable', 'date'],
+            'refresh_invoices_only' => ['nullable', 'boolean'],
             'prices' => ['required', 'array'],
             'prices.*.product_id' => ['required', 'integer', 'exists:products,id'],
             'prices.*.purchase_price' => ['required', 'numeric', 'min:0'],
@@ -4048,13 +4075,15 @@ class PurchaserDashboardController extends Controller
 
         $user = $request->user();
         $userId = (int) $user->id;
+        $isRefreshAction = (bool) $request->boolean('refresh_invoices_only');
         $dateInput = $request->input('date');
         $businessDateStr = $dateInput ? Carbon::parse($dateInput)->toDateString() : $this->businessDayService->operationalDate()->toDateString();
 
         $updatedCount = 0;
         $targetProductId = null;
+        $updatedProductIds = [];
 
-        DB::transaction(function () use ($validated, $userId, $businessDateStr, &$updatedCount, &$targetProductId): void {
+        DB::transaction(function () use ($validated, $userId, $businessDateStr, &$updatedCount, &$targetProductId, &$updatedProductIds): void {
             foreach ($validated['prices'] as $priceData) {
                 $productId = (int) $priceData['product_id'];
                 $targetProductId = $productId;
@@ -4115,9 +4144,20 @@ class PurchaserDashboardController extends Controller
                 $this->updateActivePricesForGroup($product, $groupC, (float) $approval->price_c, $userId);
                 $this->vendorPriceService->syncPrice($product->id, (float) $approval->purchase_price);
 
+                $updatedProductIds[] = $productId;
                 $updatedCount++;
             }
         });
+
+        $invoiceSyncSummary = $this->syncRelatedInvoicesForApprovedPriceUpdates(
+            productIds: $updatedProductIds,
+            businessDate: $businessDateStr,
+            userId: $userId,
+        );
+        $invoiceUpdatesCount = (int) $invoiceSyncSummary['updated'];
+        $invoiceSyncFailedCount = (int) $invoiceSyncSummary['failed'];
+        $invoiceSyncTargetedCount = (int) $invoiceSyncSummary['targeted'];
+        $invoiceSyncOk = $invoiceSyncFailedCount === 0;
 
         if ($request->wantsJson()) {
             $productId = $targetProductId;
@@ -4166,12 +4206,43 @@ class PurchaserDashboardController extends Controller
                 ];
             })->values()->all();
 
+            $purchaserAvgPrice = PurchaserCartItem::query()
+                ->where('product_id', $productId)
+                ->where('quantity', '>', 0)
+                ->where('unit_price', '>', 0)
+                ->whereHas('cart', fn ($q) => $q->whereBetween('business_date', [Carbon::parse($businessDateStr)->copy()->subDays(7)->toDateString(), $businessDateStr]))
+                ->selectRaw('SUM(quantity * unit_price) as total_cost, SUM(quantity) as total_qty')
+                ->first();
+
+            $avgPrice = null;
+            if ($purchaserAvgPrice) {
+                $totalQty = (float) ($purchaserAvgPrice->total_qty ?? 0);
+                if ($totalQty > 0.0001) {
+                    $avgPrice = round(((float) ($purchaserAvgPrice->total_cost ?? 0)) / $totalQty, 2);
+                }
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => "Successfully updated product price.",
+                'global_update_message' => $invoiceSyncTargetedCount === 0
+                    ? ($isRefreshAction ? 'No related invoices found for refresh.' : null)
+                    : ($invoiceSyncOk
+                        ? ($isRefreshAction
+                            ? "Invoice refresh completed for {$invoiceUpdatesCount} related invoice(s)."
+                            : "Price approved and updated globally in {$invoiceUpdatesCount} related invoice(s).")
+                        : ($isRefreshAction
+                            ? "Invoice refresh failed for {$invoiceSyncFailedCount} related invoice(s)."
+                            : "Price approved, but invoice sync failed for {$invoiceSyncFailedCount} related invoice(s).")),
+                'invoice_updates_count' => $invoiceUpdatesCount,
+                'invoice_updates_targeted_count' => $invoiceSyncTargetedCount,
+                'invoice_updates_failed_count' => $invoiceSyncFailedCount,
+                'invoice_sync_ok' => $invoiceSyncOk,
+                'refresh_action' => $isRefreshAction,
                 'product_id' => $productId,
                 'today_price' => $todayPrice,
                 'previous_price' => $previousPrice,
+                'purchaser_avg_price' => $avgPrice,
                 'diff_amount' => $diffAmount,
                 'diff_percentage' => $diffPercentage,
                 'price_state' => $priceState,
@@ -4182,7 +4253,64 @@ class PurchaserDashboardController extends Controller
             ]);
         }
 
-        return redirect()->route('purchaser.daily-prices')->with('success', "Successfully updated {$updatedCount} product price(s) and synced to matrix.");
+        return redirect()
+            ->route('purchaser.daily-prices')
+            ->with('success', $invoiceSyncTargetedCount === 0
+                ? "Successfully updated {$updatedCount} product price(s) and synced to matrix."
+                : ($invoiceSyncOk
+                    ? "Successfully updated {$updatedCount} product price(s), synced to matrix, and repriced {$invoiceUpdatesCount} related invoice(s)."
+                    : "Updated {$updatedCount} product price(s), but invoice sync failed for {$invoiceSyncFailedCount} related invoice(s)."));
+    }
+
+    /**
+     * Reprice all non-finalized invoices for the same business date that include at least one updated product.
+     *
+     * @param  array<int>  $productIds
+     */
+    private function syncRelatedInvoicesForApprovedPriceUpdates(array $productIds, string $businessDate, int $userId): array
+    {
+        $uniqueProductIds = array_values(array_unique(array_filter(array_map('intval', $productIds), fn (int $id): bool => $id > 0)));
+
+        if ($uniqueProductIds === []) {
+            return [
+                'targeted' => 0,
+                'updated' => 0,
+                'failed' => 0,
+            ];
+        }
+
+        $targetInvoices = ShopInvoice::query()
+            ->whereDate('business_date', $businessDate)
+            ->whereHas('items', fn ($query) => $query->whereIn('product_id', $uniqueProductIds))
+            ->with(['shop.priceGroup', 'items.product', 'order.items.product'])
+            ->get()
+            ->reject(fn (ShopInvoice $invoice): bool => $invoice->isFinalLocked())
+            ->values();
+
+        $targetedInvoices = $targetInvoices->count();
+        $updatedInvoices = 0;
+        $failedInvoices = 0;
+
+        $targetInvoices
+            ->each(function (ShopInvoice $invoice) use ($userId, &$updatedInvoices, &$failedInvoices): void {
+                try {
+                    $this->shopInvoiceService->repriceInvoice(
+                        $invoice,
+                        $userId,
+                        'Auto repriced after purchaser daily price approval',
+                    );
+                    $updatedInvoices++;
+                } catch (\Throwable $exception) {
+                    $failedInvoices++;
+                    report($exception);
+                }
+            });
+
+        return [
+            'targeted' => $targetedInvoices,
+            'updated' => $updatedInvoices,
+            'failed' => $failedInvoices,
+        ];
     }
 
     private function authorizeDailyPriceAccess(): void
