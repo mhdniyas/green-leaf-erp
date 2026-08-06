@@ -246,20 +246,31 @@
 
         $separateCategoryPages = request()->boolean('separate_category_pages', false);
         $pageBreakCategoryIds = array_map('intval', (array) request()->input('page_break_category_ids', []));
+        $showCategoryTitles = request()->has('show_category_titles')
+            ? request()->boolean('show_category_titles')
+            : true;
 
         $categoryBlocks = [];
-        foreach ($matrix as $productId => $shopQtys) {
-            $meta = $productMeta[$productId];
-            $catId = (int) ($meta['category_id'] ?? 0);
-            $catName = $meta['category_name'] ?? 'General';
-            if (! isset($categoryBlocks[$catName])) {
-                $categoryBlocks[$catName] = [
-                    'id' => $catId,
-                    'name' => $catName,
-                    'items' => [],
-                ];
+        if ($showCategoryTitles) {
+            foreach ($matrix as $productId => $shopQtys) {
+                $meta = $productMeta[$productId];
+                $catId = (int) ($meta['category_id'] ?? 0);
+                $catName = $meta['category_name'] ?? 'General';
+                if (! isset($categoryBlocks[$catName])) {
+                    $categoryBlocks[$catName] = [
+                        'id' => $catId,
+                        'name' => $catName,
+                        'items' => [],
+                    ];
+                }
+                $categoryBlocks[$catName]['items'][$productId] = $shopQtys;
             }
-            $categoryBlocks[$catName]['items'][$productId] = $shopQtys;
+        } else {
+            $categoryBlocks['all_products'] = [
+                'id' => 0,
+                'name' => 'All Products',
+                'items' => $matrix,
+            ];
         }
 
         $previousCatId = null;
@@ -280,9 +291,11 @@
         $previousCatId = $catId;
     @endphp
     <div class="category-block {{ $shouldBreak ? 'has-page-break' : '' }}">
+        @if($showCategoryTitles)
         <div style="background: #fff; color: #000; font-weight: 900; font-size: 11px; text-transform: uppercase; padding: 4px 0px 2px 0px; border-bottom: 2px solid #000; letter-spacing: 0.05em; margin-top: 8px; margin-bottom: 4px;">
             Category: {{ $catName }} — {{ \Carbon\Carbon::parse($date)->format('d M Y') }}
         </div>
+        @endif
         <table>
             <colgroup>
                 <col style="width:{{ $slWidth }}%">

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\Auth\ApiAuthController;
 use App\Http\Controllers\Api\Inventory\CategoryController;
 use App\Http\Controllers\Api\Inventory\ProductController;
 use App\Http\Controllers\Api\Inventory\SortBatchController;
@@ -12,7 +13,6 @@ use App\Http\Controllers\Api\Purchasing\GoodsReceivedController;
 use App\Http\Controllers\Api\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Api\Purchasing\PurchaseOrderController;
 use App\Http\Controllers\Api\Purchasing\SupplierController;
-use App\Http\Controllers\Api\Auth\ApiAuthController;
 use App\Http\Controllers\Api\Warehouse\ApiWarehouseLoadoutController;
 use Illuminate\Support\Facades\Route;
 
@@ -29,15 +29,6 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
     Route::prefix('auth')->group(function () {
         Route::post('/login', [ApiAuthController::class, 'login'])->name('auth.login');
     });
-});
-
-// Fallback un-prefixed API routes for production compatibility
-Route::get('/health', fn () => response()->json([
-    'success' => true,
-    'message' => 'API is healthy',
-    'timestamp' => now()->toIso8601String(),
-]));
-Route::post('/auth/login', [ApiAuthController::class, 'login']);
 
     // Protected API routes
     Route::middleware('auth:sanctum')->group(function () {
@@ -79,3 +70,11 @@ Route::post('/auth/login', [ApiAuthController::class, 'login']);
         });
     });
 });
+
+// Fallback un-prefixed API routes for production compatibility
+Route::get('/health', fn () => response()->json([
+    'success' => true,
+    'message' => 'API is healthy',
+    'timestamp' => now()->toIso8601String(),
+]));
+Route::post('/auth/login', [ApiAuthController::class, 'login']);

@@ -728,7 +728,12 @@ class SortSheetController extends Controller
             }
         }
 
-        $this->sortMatrixByCategoryOrderAndItemCode($matrix, $productMeta, $categoryIds);
+        $this->sortMatrixByCategoryOrderAndItemCode(
+            $matrix,
+            $productMeta,
+            $categoryIds,
+            $filters['codeSort'] ?? true,
+        );
 
         return [$filteredShops, $matrix, $productMeta, $date, $selectedWarehouse];
     }
@@ -761,6 +766,10 @@ class SortSheetController extends Controller
             'priceGroupId' => $request->input('price_group_id'),
             'warehouseId' => $request->integer('warehouse_id') ?: null,
             'separateCategoryPages' => (bool) $request->boolean('separate_category_pages', false),
+            'codeSort' => ! $request->has('code_sort') || (bool) $request->boolean('code_sort'),
+            'showCategoryTitles' => $request->has('show_category_titles')
+                ? (bool) $request->boolean('show_category_titles')
+                : (! $request->routeIs('*.grid*') && count($categoryIds) <= 1),
         ];
     }
 
@@ -791,11 +800,16 @@ class SortSheetController extends Controller
      * @param  array<int, array<string, mixed>>  $productMeta
      * @param  array<int, int>  $categoryIds
      */
-    private function sortMatrixByCategoryOrderAndItemCode(array &$matrix, array $productMeta, array $categoryIds = []): void
+    private function sortMatrixByCategoryOrderAndItemCode(array &$matrix, array $productMeta, array $categoryIds = [], bool $codeSort = true): void
     {
-        uksort($matrix, function (int $a, int $b) use ($productMeta): int {
-            return strcmp(Product::sortableSku((string) ($productMeta[$a]['sku'] ?? '')), Product::sortableSku((string) ($productMeta[$b]['sku'] ?? '')))
-                ?: strcmp((string) ($productMeta[$a]['name'] ?? ''), (string) ($productMeta[$b]['name'] ?? ''));
+        uksort($matrix, function (int $a, int $b) use ($productMeta, $codeSort): int {
+            if ($codeSort) {
+                return strcmp(Product::sortableSku((string) ($productMeta[$a]['sku'] ?? '')), Product::sortableSku((string) ($productMeta[$b]['sku'] ?? '')))
+                    ?: strcmp((string) ($productMeta[$a]['name'] ?? ''), (string) ($productMeta[$b]['name'] ?? ''));
+            }
+
+            return strcmp((string) ($productMeta[$a]['name'] ?? ''), (string) ($productMeta[$b]['name'] ?? ''))
+                ?: strcmp(Product::sortableSku((string) ($productMeta[$a]['sku'] ?? '')), Product::sortableSku((string) ($productMeta[$b]['sku'] ?? '')));
         });
     }
 

@@ -73,6 +73,10 @@
             ->all();
         $currentPriceGroup = $filters['priceGroupId'] ?? '';
         $currentWarehouse = $filters['warehouseId'] ?? '';
+        $currentCodeSort = ! array_key_exists('codeSort', $filters) || (bool) $filters['codeSort'];
+        $currentShowCategoryTitles = array_key_exists('showCategoryTitles', $filters)
+            ? (bool) $filters['showCategoryTitles']
+            : ($surface !== 'grid');
         $filterParams = array_filter([
             'date' => $currentDate,
             'shop_id' => $currentShop,
@@ -80,6 +84,8 @@
             'warehouse_id' => $currentWarehouse,
             'separate_category_pages' => ! empty($filters['separateCategoryPages']) ? 1 : null,
         ]);
+        $filterParams['code_sort'] = $currentCodeSort ? 1 : 0;
+        $filterParams['show_category_titles'] = $currentShowCategoryTitles ? 1 : 0;
         if (! empty($currentCategoryIds)) {
             $filterParams['category_ids'] = $currentCategoryIds;
         }
@@ -475,6 +481,22 @@
 
                     <div class="flex items-center gap-3 shrink-0">
                         <label class="inline-flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer bg-slate-50 border border-slate-200 px-3 py-2.5 rounded-xl hover:bg-slate-100 transition">
+                            <input type="hidden" name="code_sort" value="0">
+                            <input type="checkbox" name="code_sort" value="1"
+                                   {{ $currentCodeSort ? 'checked' : '' }}
+                                   class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                            <span>Code Sort</span>
+                        </label>
+
+                        <label class="inline-flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer bg-slate-50 border border-slate-200 px-3 py-2.5 rounded-xl hover:bg-slate-100 transition">
+                            <input type="hidden" name="show_category_titles" value="0">
+                            <input type="checkbox" name="show_category_titles" value="1"
+                                   {{ $currentShowCategoryTitles ? 'checked' : '' }}
+                                   class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                            <span>Show Category Titles</span>
+                        </label>
+
+                        <label class="inline-flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer bg-slate-50 border border-slate-200 px-3 py-2.5 rounded-xl hover:bg-slate-100 transition">
                             <input type="checkbox" name="separate_category_pages" value="1" id="separate-category-pages-checkbox"
                                    {{ !empty($filters['separateCategoryPages']) ? 'checked' : '' }}
                                    class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
@@ -611,6 +633,7 @@
                         @php
                             $rowIdx = 0;
                             $currentCategoryName = null;
+                            $showCategorySections = $surface !== 'grid' && $currentShowCategoryTitles;
                         @endphp
                         @foreach($matrix as $productId => $shopQtys)
                         @php
@@ -620,7 +643,7 @@
                             $isEven = $rowIdx % 2 === 0;
                             $rowIdx++;
                         @endphp
-                        @if($currentCategoryName !== $catName)
+                        @if($showCategorySections && $currentCategoryName !== $catName)
                         @php $currentCategoryName = $catName; @endphp
                         <tr class="bg-slate-800 border-y-2 border-slate-900">
                             <td colspan="{{ 4 + $filteredShops->count() }}" class="py-2.5 px-4 bg-slate-900 text-white font-black text-xs tracking-wider uppercase flex items-center gap-1.5">
