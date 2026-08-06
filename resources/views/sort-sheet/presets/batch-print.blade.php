@@ -116,6 +116,23 @@
             page-break-before: always !important;
         }
 
+        .page-heading {
+            border-bottom: 2px solid #000;
+            margin: 4px 0 6px;
+            padding-bottom: 3px;
+        }
+        .page-heading .title {
+            font-size: 11px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .page-heading .meta {
+            margin-top: 1px;
+            font-size: 9px;
+            font-weight: 700;
+        }
+
         .no-print {
             margin-bottom: 12px;
             display: flex;
@@ -151,7 +168,7 @@
         @media print {
             @page {
                 size: A4 landscape;
-                margin: 5mm;
+                margin: 7mm 5mm 5mm 5mm;
             }
             html, body {
                 height: auto;
@@ -243,13 +260,17 @@
                 $separateCategoryPages ||
                 ($previousCatId !== null && in_array($previousCatId, $pageBreakCategoryIds, true))
             );
+            $showPageHeading = $isFirstCategory || $shouldBreak;
             $isFirstCategory = false;
             $previousCatId = $catId;
         @endphp
         <div class="category-block {{ $shouldBreak ? 'has-page-break' : '' }}">
-            <div style="background: #fff; color: #000; font-weight: 900; font-size: 11px; text-transform: uppercase; padding: 4px 0px 2px 0px; border-bottom: 2px solid #000; letter-spacing: 0.05em; margin-top: 8px; margin-bottom: 4px;">
-                Category: {{ $catName }} — {{ \Carbon\Carbon::parse($date)->format('d M Y') }}
+            @if($showPageHeading)
+            <div class="page-heading">
+                <div class="title">{{ $preset->name }} — Sort Sheet</div>
+                <div class="meta">Date: {{ \Carbon\Carbon::parse($date)->format('d M Y') }} @if($selectedWarehouse) | Warehouse: {{ $selectedWarehouse->name }} @endif</div>
             </div>
+            @endif
             <table>
                 <colgroup>
                     <col style="width:{{ $slWidth }}%">
