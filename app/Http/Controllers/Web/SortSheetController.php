@@ -793,21 +793,8 @@ class SortSheetController extends Controller
      */
     private function sortMatrixByCategoryOrderAndItemCode(array &$matrix, array $productMeta, array $categoryIds = []): void
     {
-        $categoryOrderMap = array_flip($categoryIds);
-
-        uksort($matrix, function (int $a, int $b) use ($productMeta, $categoryOrderMap): int {
-            $catA = (int) ($productMeta[$a]['category_id'] ?? 0);
-            $catB = (int) ($productMeta[$b]['category_id'] ?? 0);
-
-            $orderA = $categoryOrderMap[$catA] ?? PHP_INT_MAX;
-            $orderB = $categoryOrderMap[$catB] ?? PHP_INT_MAX;
-
-            if ($orderA !== $orderB) {
-                return $orderA <=> $orderB;
-            }
-
-            return strcmp((string) ($productMeta[$a]['category_name'] ?? ''), (string) ($productMeta[$b]['category_name'] ?? ''))
-                ?: strcmp(Product::sortableSku((string) ($productMeta[$a]['sku'] ?? '')), Product::sortableSku((string) ($productMeta[$b]['sku'] ?? '')))
+        uksort($matrix, function (int $a, int $b) use ($productMeta): int {
+            return strcmp(Product::sortableSku((string) ($productMeta[$a]['sku'] ?? '')), Product::sortableSku((string) ($productMeta[$b]['sku'] ?? '')))
                 ?: strcmp((string) ($productMeta[$a]['name'] ?? ''), (string) ($productMeta[$b]['name'] ?? ''));
         });
     }
