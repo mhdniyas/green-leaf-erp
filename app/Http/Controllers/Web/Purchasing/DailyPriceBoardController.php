@@ -289,15 +289,20 @@ class DailyPriceBoardController extends Controller
             );
         }
 
+        $productName = $approval->product?->name ?: 'Selected product';
+        $message = $isAdmin
+            ? "{$productName} price saved and published immediately."
+            : "{$productName} price saved and sent for admin approval.";
+
         if ($request->wantsJson()) {
             return response()->json([
                 'success' => true,
-                'message' => "{$approval->product?->name} price saved & published.",
+                'message' => $message,
                 'approval' => $approval->fresh(),
             ]);
         }
 
-        return redirect()->back()->with('success', "{$approval->product?->name} price saved.");
+        return redirect()->back()->with('success', $message);
     }
 
     public function fixZeroOrderPrices(Request $request): RedirectResponse

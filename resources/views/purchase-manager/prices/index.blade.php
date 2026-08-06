@@ -174,12 +174,14 @@
             </form>
         </section>
 
+        <div id="price-save-feedback" class="hidden rounded-3xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-800"></div>
+
         @if (session('success'))
             <div class="rounded-3xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-800">
                 {{ session('success') }}
             </div>
         @endif
-
+ 
         @if (session('warning'))
             <div class="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-bold text-amber-800">
                 {{ session('warning') }}
@@ -545,6 +547,28 @@
                     togglePriceBoardFinalSubmit();
                 }
 
+                function showPriceSaveFeedback(message, tone = 'success') {
+                    const feedback = document.getElementById('price-save-feedback');
+                    if (!feedback) return;
+ 
+                    feedback.classList.remove('hidden');
+                    feedback.classList.remove('border-emerald-200', 'bg-emerald-50', 'text-emerald-800', 'border-amber-200', 'bg-amber-50', 'text-amber-800', 'border-rose-200', 'bg-rose-50', 'text-rose-800');
+ 
+                    if (tone === 'warning') {
+                        feedback.classList.add('border-amber-200', 'bg-amber-50', 'text-amber-800');
+                    } else if (tone === 'error') {
+                        feedback.classList.add('border-rose-200', 'bg-rose-50', 'text-rose-800');
+                    } else {
+                        feedback.classList.add('border-emerald-200', 'bg-emerald-50', 'text-emerald-800');
+                    }
+ 
+                    feedback.textContent = message;
+                    window.clearTimeout(window.priceSaveFeedbackTimeout);
+                    window.priceSaveFeedbackTimeout = window.setTimeout(() => {
+                        feedback.classList.add('hidden');
+                    }, 4000);
+                }
+
                 async function saveSinglePriceRow(approvalId) {
                     const btn = document.getElementById('row-save-btn-' + approvalId);
                     const row = btn?.closest('tr');
@@ -579,29 +603,30 @@
                             }),
                         });
 
-                        const data = await response.json();
-                        if (data.success) {
-                            btn.textContent = 'Saved ✓';
-                            btn.className = 'inline-flex items-center justify-center rounded-xl bg-emerald-600 text-white px-3.5 py-2 text-xs font-black uppercase tracking-wider border-none shadow-md';
-                            row.classList.add('bg-emerald-50/40');
-                            setTimeout(() => {
-                                btn.disabled = false;
-                                btn.textContent = 'Save';
-                                btn.className = 'inline-flex items-center justify-center rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 text-xs font-black uppercase tracking-wider transition-all border-none cursor-pointer shadow-sm active:scale-95';
-                                row.classList.remove('bg-emerald-50/40');
-                            }, 2000);
-                        } else {
-                            alert(data.message || 'Failed to save price row.');
-                            btn.disabled = false;
-                            btn.textContent = originalText;
-                            btn.className = 'inline-flex items-center justify-center rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 text-xs font-black uppercase tracking-wider transition-all border-none cursor-pointer shadow-sm active:scale-95';
-                        }
-                    } catch (err) {
-                        alert('Network error while saving price row.');
-                        btn.disabled = false;
-                        btn.textContent = originalText;
-                        btn.className = 'inline-flex items-center justify-center rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 text-xs font-black uppercase tracking-wider transition-all border-none cursor-pointer shadow-sm active:scale-95';
-                    }
+                       const data = await response.json();
+                       if (data.success) {
+                           btn.textContent = 'Saved ✓';
+                           btn.className = 'inline-flex items-center justify-center rounded-xl bg-emerald-600 text-white px-3.5 py-2 text-xs font-black uppercase tracking-wider border-none shadow-md';
+                           row.classList.add('bg-emerald-50/40');
+                           showPriceSaveFeedback(data.message || 'Price saved successfully.', 'success');
+                           setTimeout(() => {
+                               btn.disabled = false;
+                               btn.textContent = 'Save';
+                               btn.className = 'inline-flex items-center justify-center rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 text-xs font-black uppercase tracking-wider transition-all border-none cursor-pointer shadow-sm active:scale-95';
+                               row.classList.remove('bg-emerald-50/40');
+                           }, 2000);
+                       } else {
+                           showPriceSaveFeedback(data.message || 'Failed to save price row.', 'error');
+                           btn.disabled = false;
+                           btn.textContent = originalText;
+                           btn.className = 'inline-flex items-center justify-center rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 text-xs font-black uppercase tracking-wider transition-all border-none cursor-pointer shadow-sm active:scale-95';
+                       }
+                   } catch (err) {
+                       showPriceSaveFeedback('Network error while saving price row.', 'error');
+                       btn.disabled = false;
+                       btn.textContent = originalText;
+                       btn.className = 'inline-flex items-center justify-center rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 text-xs font-black uppercase tracking-wider transition-all border-none cursor-pointer shadow-sm active:scale-95';
+                   }
                 }
 
                 document.addEventListener('DOMContentLoaded', () => {

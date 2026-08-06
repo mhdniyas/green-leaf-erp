@@ -7,6 +7,7 @@ use App\Models\DailyPriceApproval;
 use App\Models\Product;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class DedicatedDailyPriceMatrixTest extends TestCase
@@ -79,6 +80,50 @@ class DedicatedDailyPriceMatrixTest extends TestCase
             'product_id' => $product->id,
             'price_a' => 85.00,
             'status' => 'approved',
+        ]);
+    }
+
+    public function test_save_row_returns_approval_aware_message_for_non_admin_users(): void
+    {
+        $user = User::factory()->create();
+        $role = Role::create(['name' => 'purchase', 'guard_name' => 'web']);
+        $user->assignRole($role);
+
+        $category = Category::create(['name' => 'Spices', 'is_active' => true]);
+        $product = Product::create([
+            'name' => 'Black Pepper',
+            'sku' => 'BLK-PEP',
+            'category_id' => $category->id,
+            'unit' => 'KG',
+            'base_price' => 45.00,
+            'is_active' => true,
+        ]);
+        $approval = DailyPriceApproval::create([
+            'product_id' => $product->id,
+            'business_date' => '2026-08-03',
+            'purchase_price' => 40.00,
+            'price_a' => 44.00,
+            'price_b' => 44.00,
+            'price_c' => 44.00,
+            'status' => 'pending',
+        ]);
+
+        $response = $this->actingAs($user)->postJson(route('purchasing.prices.save-row', $approval), [
+            'price_a' => 50.00,
+            'price_b' => 50.00,
+            'price_c' => 50.00,
+            'price_unit' => 'KG',
+            'date' => '2026-08-03',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('success', true);
+        $response->assertJsonPath('message', 'Black Pepper price saved and sent for admin approval.');
+
+        $this->assertDatabaseHas('daily_price_approvals', [
+            'id' => $approval->id,
+            'status' => 'pending',
+            'price_a' => 50.00,
         ]);
     }
 }
