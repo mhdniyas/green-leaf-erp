@@ -283,7 +283,10 @@
                                 <th scope="col" class="sticky left-0 z-30 bg-slate-100 px-1.5 py-2 text-center border-r border-slate-200 w-10 min-w-[40px] max-w-[40px]">
                                     SL
                                 </th>
-                                <th scope="col" class="sticky left-10 z-30 bg-slate-100 px-2.5 py-2 border-r border-slate-200 w-40 min-w-[160px] max-w-[160px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">
+                                <th scope="col" class="sticky left-10 z-30 bg-slate-100 px-2 py-2 text-center border-r border-slate-200 w-24 min-w-[96px] max-w-[96px]">
+                                    Code
+                                </th>
+                                <th scope="col" class="sticky left-[136px] z-30 bg-slate-100 px-2.5 py-2 border-r border-slate-200 w-40 min-w-[160px] max-w-[160px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">
                                     Item
                                 </th>
                                 <th scope="col" class="px-1.5 py-2 text-center border-r border-slate-200 min-w-[90px] bg-amber-100/90 text-amber-950 font-black">
@@ -335,7 +338,10 @@
                                     <td class="sticky left-0 z-20 bg-white px-1.5 py-2 text-center font-black text-slate-500 border-r border-slate-200 w-10 min-w-[40px] max-w-[40px]">
                                         {{ $prod['sl_no'] }}
                                     </td>
-                                    <td class="sticky left-10 z-20 bg-white px-2.5 py-2 font-bold text-slate-900 border-r border-slate-200 w-40 min-w-[160px] max-w-[160px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">
+                                    <td class="sticky left-10 z-20 bg-white px-2 py-2 text-center font-black text-slate-700 border-r border-slate-200 w-24 min-w-[96px] max-w-[96px]">
+                                        <span class="block truncate max-w-[90px] text-xs font-black text-slate-700" title="{{ $prod['sku'] }}">{{ $prod['sku'] ?: '—' }}</span>
+                                    </td>
+                                    <td class="sticky left-[136px] z-20 bg-white px-2.5 py-2 font-bold text-slate-900 border-r border-slate-200 w-40 min-w-[160px] max-w-[160px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">
                                         <span class="block truncate max-w-[150px] text-xs font-black text-slate-900" title="{{ $prod['name'] }}">{{ $prod['name'] }}</span>
                                         @if ($latestApprovedDate !== null && $latestApprovedPrice !== null)
                                             <span class="mt-0.5 inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.2 text-[9px] font-black text-emerald-700">
@@ -477,7 +483,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="{{ count($matrixDates) + 3 }}" class="p-8 text-center text-slate-400 font-bold">
+                                    <td colspan="{{ count($matrixDates) + 4 }}" class="p-8 text-center text-slate-400 font-bold">
                                         <div class="max-w-xs mx-auto space-y-1.5">
                                             <svg class="w-7 h-7 mx-auto text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                                                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
