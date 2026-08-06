@@ -1,4 +1,16 @@
 <x-layouts.app title="Loadout — {{ $shopOrder->loadoutDisplayName() }}">
+    <style>
+        /* Remove browser default spinner arrows on number inputs */
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type=number] {
+            -moz-appearance: textfield;
+        }
+    </style>
+
     <div id="loadout-page-top" class="mx-auto flex w-full max-w-xl min-w-0 flex-col gap-4 py-3 pb-56 lg:px-4 lg:py-4 lg:pb-32">
 
         {{-- Header --}}
@@ -302,7 +314,7 @@
                             <span>Clear All</span>
                         </button>
                         
-                        {{-- Show ONCE Load All Full Button --}}
+                        {{-- Show ONCE Load All Full Button (Hidden if already 100% full) --}}
                         <button type="button"
                                 id="load-all-full-btn"
                                 onclick="loadAllFull()"
@@ -570,6 +582,34 @@
     <script>
         const shopOrderId = '{{ $shopOrder->id }}';
 
+        function checkLoadAllButtonVisibility() {
+            const btn = document.getElementById('load-all-full-btn');
+            if (!btn) return;
+
+            const qtyInputs = Array.from(document.querySelectorAll('.qty-input'));
+            const totalRows = qtyInputs.length;
+            if (totalRows === 0) return;
+
+            const isUsed = localStorage.getItem('load_all_used_' + shopOrderId) === 'true';
+            
+            // Check if all products are loaded (entered >= approved or > 0)
+            const loadedRows = qtyInputs.filter((input) => {
+                const productId = input.id.replace('qty-', '');
+                const statusField = document.getElementById('status-field-' + productId);
+                const isNotAvailable = statusField && statusField.value === 'not_available';
+                const qty = parseFloat(input.value) || 0;
+                return !isNotAvailable && qty > 0.0001;
+            }).length;
+
+            const allLoaded = loadedRows === totalRows;
+
+            if (isUsed || allLoaded) {
+                btn.style.display = 'none';
+            } else {
+                btn.style.display = 'inline-flex';
+            }
+        }
+
         function toggleExpandAllCards() {
             const bodies = document.querySelectorAll('.collapsible-body');
             const textSpan = document.getElementById('toggle-all-cards-text');
@@ -672,6 +712,7 @@
             }
 
             setRowStatus(productId, 'Marked Not Available');
+            checkLoadAllButtonVisibility();
         }
 
         function markProductAvailable(productId) {
@@ -692,6 +733,7 @@
             }
 
             setRowStatus(productId, 'Reset to available');
+            checkLoadAllButtonVisibility();
         }
 
         function setFullQuantity(productId) {
@@ -710,6 +752,7 @@
                 unitQtyInput.dispatchEvent(new Event('change'));
                 pulseInput(unitQtyInput);
             }
+            checkLoadAllButtonVisibility();
         }
 
         function stepQuantity(productId, step) {
@@ -722,6 +765,7 @@
             qtyInput.value = current.toFixed(2);
             qtyInput.dispatchEvent(new Event('change'));
             pulseInput(qtyInput);
+            checkLoadAllButtonVisibility();
         }
 
         function stepUnitQty(productId, step) {
@@ -734,6 +778,7 @@
             unitInput.value = current.toFixed(2);
             unitInput.dispatchEvent(new Event('change'));
             pulseInput(unitInput);
+            checkLoadAllButtonVisibility();
         }
 
         {{-- SHOW ONCE: Load All Full Button with Confirmation --}}
@@ -777,8 +822,7 @@
 
                     // Hide Load All Full button so it can never be clicked again
                     localStorage.setItem('load_all_used_' + shopOrderId, 'true');
-                    const btn = document.getElementById('load-all-full-btn');
-                    if (btn) btn.style.display = 'none';
+                    checkLoadAllButtonVisibility();
 
                     showLoadoutFeedback('Loaded all products to full quantity. Click "Save Loadout" to save changes.', 'success');
                 }
@@ -808,6 +852,10 @@
                             pulseInput(unitInput);
                         }
                     });
+
+                    // Reset single-use state when Clear All is confirmed
+                    localStorage.removeItem('load_all_used_' + shopOrderId);
+                    checkLoadAllButtonVisibility();
 
                     showLoadoutFeedback('All quantities cleared to 0.00.', 'info');
                 }
@@ -921,11 +969,7 @@
         }
 
         document.addEventListener('DOMContentLoaded', function () {
-            // Check if Load All Full was already used for this order
-            if (localStorage.getItem('load_all_used_' + shopOrderId) === 'true') {
-                const btn = document.getElementById('load-all-full-btn');
-                if (btn) btn.style.display = 'none';
-            }
+            checkLoadAllButtonVisibility();
 
             const productSearch = document.getElementById('loadout-product-search');
             const productCategory = document.getElementById('loadout-product-category');
@@ -970,6 +1014,8 @@
                 if (mobileAddonCount) {
                     mobileAddonCount.textContent = mobileAddonCount.textContent || '0';
                 }
+
+                checkLoadAllButtonVisibility();
             }
 
             function markMobileSavedState() {
