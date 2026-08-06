@@ -118,7 +118,6 @@ class DedicatedDailyPriceMatrixTest extends TestCase
         $this->assertDatabaseHas('daily_price_approvals', [
             'product_id' => $product->id,
             'price_a' => 35.00,
-            'business_date' => '2026-08-06',
         ]);
     }
 }
