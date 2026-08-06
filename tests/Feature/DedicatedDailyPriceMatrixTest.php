@@ -81,4 +81,44 @@ class DedicatedDailyPriceMatrixTest extends TestCase
             'status' => 'approved',
         ]);
     }
+
+    public function test_matrix_update_saves_submitted_prices(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+        $user = User::factory()->create();
+        $user->syncRoles(['admin']);
+
+        $category = Category::create(['name' => 'Veggies', 'is_active' => true]);
+        $product = Product::create([
+            'name' => 'Potato',
+            'sku' => 'POT-1',
+            'category_id' => $category->id,
+            'unit' => 'KG',
+            'base_price' => 30.00,
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($user)->post(url('/purchasing/prices/matrix'), [
+            'date' => '2026-08-06',
+            'matrix_category' => 'a',
+            'action' => 'update',
+            'matrix_prices' => [
+                $product->id => [
+                    '2026-08-06' => '35.00',
+                ],
+            ],
+            'matrix_price_units' => [
+                $product->id => [
+                    '2026-08-06' => 'kg',
+                ],
+            ],
+        ]);
+
+        $response->assertRedirect();
+        $this->assertDatabaseHas('daily_price_approvals', [
+            'product_id' => $product->id,
+            'price_a' => 35.00,
+            'business_date' => '2026-08-06',
+        ]);
+    }
 }

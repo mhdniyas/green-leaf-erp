@@ -392,6 +392,7 @@ class DailyPriceMatrixController extends Controller
         $updatedCells = 0;
 
         DB::transaction(function () use (
+            $productIds,
             $rawMatrixPrices,
             $rawMatrixPriceUnits,
             $products,
