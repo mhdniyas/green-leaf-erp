@@ -194,8 +194,6 @@ Route::middleware('auth')->group(function () {
         Route::get('prices', [DailyPriceBoardController::class, 'index'])->name('prices.index');
         Route::get('prices/matrix', [DailyPriceMatrixController::class, 'index'])->name('prices.matrix.index');
         Route::post('prices/matrix/cell', [DailyPriceMatrixController::class, 'updateCell'])->name('prices.matrix.cell.update');
-        Route::post('prices/matrix/import-json', [DailyPriceMatrixController::class, 'importFromJson'])->name('prices.matrix.import-json');
-        Route::get('prices/matrix/export-csv', [DailyPriceMatrixController::class, 'exportCsv'])->name('prices.matrix.export-csv');
         Route::post('prices/matrix', [DailyPriceMatrixController::class, 'updateMatrix'])->name('prices.matrix.update');
         Route::post('price-groups/assign-shops', [ShopPriceGroupController::class, 'assignShops'])->name('price-groups.assign-shops');
         Route::resource('price-groups', ShopPriceGroupController::class)->only(['index', 'store', 'update', 'destroy']);
