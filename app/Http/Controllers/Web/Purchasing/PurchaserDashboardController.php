@@ -176,7 +176,9 @@ class PurchaserDashboardController extends Controller
 
         $user = $request->user();
         $frequentProductIds = $this->frequentProductIds((int) $user->id);
-        $dailySummary = $this->buildDailySummary($date, $frequentProductIds);
+        $dailySummary = $this->buildDailySummary($date, $frequentProductIds)
+            ->filter(fn (array $summary): bool => (float) ($summary['remaining_qty'] ?? 0) > 0.0001)
+            ->values();
 
         $availableTags = $dailySummary
             ->pluck('category_name')
