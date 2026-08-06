@@ -29,6 +29,7 @@ class DailyPriceApproval extends Model
         'approved_at',
         'locked_at',
         'locked_by',
+        'updated_by',
     ];
 
     protected $casts = [
@@ -49,6 +50,11 @@ class DailyPriceApproval extends Model
     public function approvedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function updatedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'updated_by');
     }
 
     public function lockedBy(): BelongsTo

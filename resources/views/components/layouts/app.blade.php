@@ -447,6 +447,9 @@
                             <x-nav-item href="{{ route('purchaser.daily') }}" :active="request()->routeIs('purchaser.daily')" :sub="true">
                                 Daily
                             </x-nav-item>
+                            <x-nav-item href="{{ route('purchaser.daily-prices') }}" :active="request()->routeIs('purchaser.daily-prices')" :sub="true">
+                                Daily Prices
+                            </x-nav-item>
                         </div>
                         <div class="space-y-1">
                             <p class="px-3 text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">Orders</p>

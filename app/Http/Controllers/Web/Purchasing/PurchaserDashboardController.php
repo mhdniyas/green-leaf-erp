@@ -12,8 +12,12 @@ use App\Http\Requests\Web\Purchasing\StorePurchaserCorrectionRequest;
 use App\Http\Requests\Web\Purchasing\SubmitPurchaserCartRequest;
 use App\Models\BusinessSetting;
 use App\Models\Category;
+use App\Models\DailyPriceApproval;
+use App\Models\DailyProductPrice;
+use App\Models\DailyProductPriceRevision;
 use App\Models\GoodsReceived;
 use App\Models\Product;
+use App\Models\ProductUnit;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaserCart;
@@ -22,6 +26,7 @@ use App\Models\PurchaserCorrectionRequest;
 use App\Models\PurchaserCredit;
 use App\Models\ProcurementExpense;
 use App\Models\ShopOrder;
+use App\Models\ShopPriceGroup;
 use App\Models\ShopOrderItem;
 use App\Models\StockBatch;
 use App\Models\Supplier;
@@ -176,9 +181,7 @@ class PurchaserDashboardController extends Controller
 
         $user = $request->user();
         $frequentProductIds = $this->frequentProductIds((int) $user->id);
-        $dailySummary = $this->buildDailySummary($date, $frequentProductIds)
-            ->filter(fn (array $summary): bool => (float) ($summary['remaining_qty'] ?? 0) > 0.0001)
-            ->values();
+        $dailySummary = $this->buildDailySummary($date, $frequentProductIds);
 
         $availableTags = $dailySummary
             ->pluck('category_name')
@@ -220,9 +223,6 @@ class PurchaserDashboardController extends Controller
         $sharePreviewText = $this->buildDailySummaryShareText($shareSummary, $date);
         $shareUrl = 'https://api.whatsapp.com/send?text='.rawurlencode($sharePreviewText);
 
-        $shareTotalPreviewText = $this->buildDailySummaryTotalOnlyShareText($shareSummary, $date);
-        $shareTotalUrl = 'https://api.whatsapp.com/send?text='.rawurlencode($shareTotalPreviewText);
-
         return view('purchasing.purchaser.daily_share', [
             'date' => $date->format('Y-m-d'),
             'shareMode' => $shareMode,
@@ -248,8 +248,6 @@ class PurchaserDashboardController extends Controller
             'shareSummary' => $shareSummary,
             'sharePreviewText' => $sharePreviewText,
             'shareUrl' => $shareUrl,
-            'shareTotalPreviewText' => $shareTotalPreviewText,
-            'shareTotalUrl' => $shareTotalUrl,
         ]);
     }
 
@@ -3602,30 +3600,6 @@ class PurchaserDashboardController extends Controller
         return trim(implode("\n", $lines));
     }
 
-    private function buildDailySummaryTotalOnlyShareText(Collection $dailySummary, Carbon $date): string
-    {
-        $lines = [
-            '*Total Qty*',
-            $date->format('d M Y'),
-            '---',
-            '',
-        ];
-
-        foreach ($dailySummary as $summary) {
-            $productHeader = '*'.$summary['product_name'].'*';
-            $orderDate = $summary['order_date'];
-            if ($orderDate->format('Y-m-d') !== $date->format('Y-m-d')) {
-                $productHeader .= ' (Pending '.$orderDate->format('d M Y').')';
-            }
-            $lines[] = $productHeader;
-
-            $lines[] = 'Total '.$this->formatShareQuantity((float) $summary['total_approved_qty'], $summary['unit']);
-            $lines[] = '';
-        }
-
-        return trim(implode("\n", $lines));
-    }
-
     private function buildCartShareText(PurchaserCart $cart, bool $includePrice, float $discountAmount = 0, string $shareFormat = 'total'): string
     {
         $nameWidth = 14;
@@ -3902,6 +3876,340 @@ class PurchaserDashboardController extends Controller
         $formatted = number_format($value, 3, '.', '');
 
         return rtrim(rtrim($formatted, '0'), '.');
+    }
+
+    public function dailyPrices(Request $request): View
+    {
+        $this->authorizeDailyPriceAccess();
+
+        $operationalDate = $this->businessDayService->operationalDate();
+        $searchQuery = trim((string) $request->input('search', ''));
+
+        // Get products from last 7 days + today's shop orders
+        $sevenDaysAgo = $operationalDate->copy()->subDays(7)->toDateString();
+        $todayOrderedProductIds = ShopOrderItem::query()
+            ->whereHas('order', fn ($q) => $q->where('business_date', $operationalDate->toDateString()))
+            ->pluck('product_id')
+            ->unique()
+            ->toArray();
+
+        $recentPurchasedProductIds = PurchaserCartItem::query()
+            ->whereHas('cart', fn ($q) => $q->whereBetween('business_date', [$sevenDaysAgo, $operationalDate->toDateString()]))
+            ->pluck('product_id')
+            ->unique()
+            ->toArray();
+
+        $relevantProductIds = array_unique(array_merge($todayOrderedProductIds, $recentPurchasedProductIds));
+
+        $productsQuery = Product::query()
+            ->active()
+            ->with(['category'])
+            ->whereIn('id', $relevantProductIds)
+            ->ordered();
+
+        if ($searchQuery !== '') {
+            $productsQuery->where(function ($q) use ($searchQuery): void {
+                $q->where('name', 'LIKE', "%{$searchQuery}%")
+                    ->orWhere('sku', 'LIKE', "%{$searchQuery}%");
+            });
+        }
+
+        $products = $productsQuery->get();
+        $productIds = $products->pluck('id')->toArray();
+
+        // Get latest valid price approvals per product for comparison and history
+        $today = $operationalDate->toDateString();
+
+        $allApprovals = DailyPriceApproval::query()
+            ->with(['updatedBy'])
+            ->whereIn('product_id', $productIds)
+            ->where('purchase_price', '>', 0)
+            ->orderByDesc('business_date')
+            ->orderByDesc('id')
+            ->get()
+            ->groupBy('product_id');
+
+        $productsWithPrices = $products->map(function ($product) use ($allApprovals, $today) {
+            $approvals = $allApprovals->get($product->id, collect());
+
+            $todayApproval = $approvals->first(fn ($a) => $a->business_date->toDateString() === $today);
+            $previousApproval = $approvals->first(fn ($a) => $a->business_date->toDateString() < $today);
+
+            $todayPrice = $todayApproval?->purchase_price > 0 ? (float) $todayApproval->purchase_price : null;
+            $previousPrice = $previousApproval?->purchase_price > 0 ? (float) $previousApproval->purchase_price : null;
+
+            $diffAmount = null;
+            $diffPercentage = null;
+            $priceState = 'not_set';
+
+            if ($todayPrice === null) {
+                $priceState = 'not_set';
+            } elseif ($previousPrice === null) {
+                $priceState = 'no_previous';
+            } else {
+                $diffAmount = round($todayPrice - $previousPrice, 2);
+                if (abs($diffAmount) < 0.001) {
+                    $priceState = 'no_change';
+                    $diffAmount = 0.00;
+                    $diffPercentage = 0.0;
+                } elseif ($diffAmount > 0) {
+                    $priceState = 'increased';
+                    $diffPercentage = round(($diffAmount / $previousPrice) * 100, 1);
+                } else {
+                    $priceState = 'decreased';
+                    $diffPercentage = round((abs($diffAmount) / $previousPrice) * 100, 1);
+                }
+            }
+
+            // Up to 5 valid recent price history entries
+            $history = $approvals->take(5)->map(function ($app) {
+                return [
+                    'date' => $app->business_date->format('d M Y'),
+                    'price' => (float) $app->purchase_price,
+                    'updated_by' => $app->updatedBy?->name ?? 'System',
+                ];
+            })->values()->all();
+
+            $updatedAtFormatted = null;
+            if ($todayApproval?->updated_at) {
+                $updatedAtFormatted = $todayApproval->updated_at->format('d M Y \a\t g:i A');
+            }
+
+            return [
+                'id' => $product->id,
+                'name' => $product->name,
+                'sku' => $product->sku,
+                'unit' => strtoupper((string) ($product->unit ?: 'KG')),
+                'price_today' => $todayPrice,
+                'previous_price' => $previousPrice,
+                'diff_amount' => $diffAmount,
+                'diff_percentage' => $diffPercentage,
+                'price_state' => $priceState,
+                'updated_by_name' => $todayApproval?->updatedBy?->name,
+                'updated_time' => $todayApproval?->updated_at ? $todayApproval->updated_at->format('g:i A') : null,
+                'updated_at_formatted' => $updatedAtFormatted,
+                'history' => $history,
+                'status' => $todayApproval?->status ?? 'none',
+            ];
+        });
+
+        return view('purchasing.purchaser.daily-prices', [
+            'products' => $productsWithPrices,
+            'operationalDate' => $operationalDate,
+            'searchQuery' => $searchQuery,
+            'cutoffLabel' => $this->businessDayService->cutoffLabel(),
+        ]);
+    }
+
+    public function updateDailyPrices(Request $request): RedirectResponse|JsonResponse
+    {
+        $this->authorizeDailyPriceAccess();
+
+        $validated = $request->validate([
+            'prices' => ['required', 'array'],
+            'prices.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'prices.*.purchase_price' => ['required', 'numeric', 'min:0'],
+        ]);
+
+        $user = $request->user();
+        $userId = (int) $user->id;
+        $operationalDate = $this->businessDayService->operationalDate();
+        $businessDateStr = $operationalDate->toDateString();
+
+        $updatedCount = 0;
+        $targetProductId = null;
+
+        DB::transaction(function () use ($validated, $userId, $businessDateStr, &$updatedCount, &$targetProductId): void {
+            foreach ($validated['prices'] as $priceData) {
+                $productId = (int) $priceData['product_id'];
+                $targetProductId = $productId;
+                $newPrice = round((float) $priceData['purchase_price'], 2);
+
+                if ($newPrice <= 0) {
+                    continue;
+                }
+
+                $product = Product::query()->find($productId);
+                if (! $product) {
+                    continue;
+                }
+
+                $approval = DailyPriceApproval::query()
+                    ->where('product_id', $productId)
+                    ->where('business_date', $businessDateStr)
+                    ->first();
+
+                $previousApproval = DailyPriceApproval::query()
+                    ->where('product_id', $productId)
+                    ->where('business_date', '<', $businessDateStr)
+                    ->where('status', 'approved')
+                    ->whereNotNull('approved_at')
+                    ->orderByDesc('business_date')
+                    ->first();
+
+                if (! $approval) {
+                    $approval = new DailyPriceApproval([
+                        'product_id' => $productId,
+                        'business_date' => $businessDateStr,
+                        'purchase_price' => $newPrice,
+                        'price_unit' => ProductUnit::normalizeUnit((string) $product->unit ?: 'kg'),
+                        'price_a' => (float) ($previousApproval?->price_a ?? $product->base_price),
+                        'price_b' => (float) ($previousApproval?->price_b ?? $product->base_price),
+                        'price_c' => (float) ($previousApproval?->price_c ?? $product->base_price),
+                        'status' => 'approved',
+                        'approved_by' => $userId,
+                        'approved_at' => now(),
+                    ]);
+                } else {
+                    $approval->purchase_price = $newPrice;
+                    $approval->status = 'approved';
+                    $approval->approved_by = $userId;
+                    $approval->approved_at = now();
+                }
+
+                $approval->updated_by = $userId;
+                $approval->save();
+
+                // Sync to matrix tables and vendor_price
+                $groupA = ShopPriceGroup::query()->where('name', 'A')->first();
+                $groupB = ShopPriceGroup::query()->where('name', 'B')->first();
+                $groupC = ShopPriceGroup::query()->where('name', 'C')->first();
+
+                $this->updateActivePricesForGroup($product, $groupA, (float) $approval->price_a, $userId);
+                $this->updateActivePricesForGroup($product, $groupB, (float) $approval->price_b, $userId);
+                $this->updateActivePricesForGroup($product, $groupC, (float) $approval->price_c, $userId);
+                $this->vendorPriceService->syncPrice($product->id, (float) $approval->purchase_price);
+
+                $updatedCount++;
+            }
+        });
+
+        if ($request->wantsJson()) {
+            $productId = $targetProductId;
+            $allApprovals = DailyPriceApproval::query()
+                ->with(['updatedBy'])
+                ->where('product_id', $productId)
+                ->where('purchase_price', '>', 0)
+                ->orderByDesc('business_date')
+                ->orderByDesc('id')
+                ->get();
+
+            $todayApproval = $allApprovals->first(fn ($a) => $a->business_date->toDateString() === $businessDateStr);
+            $previousApproval = $allApprovals->first(fn ($a) => $a->business_date->toDateString() < $businessDateStr);
+
+            $todayPrice = $todayApproval?->purchase_price > 0 ? (float) $todayApproval->purchase_price : null;
+            $previousPrice = $previousApproval?->purchase_price > 0 ? (float) $previousApproval->purchase_price : null;
+
+            $diffAmount = null;
+            $diffPercentage = null;
+            $priceState = 'not_set';
+
+            if ($todayPrice === null) {
+                $priceState = 'not_set';
+            } elseif ($previousPrice === null) {
+                $priceState = 'no_previous';
+            } else {
+                $diffAmount = round($todayPrice - $previousPrice, 2);
+                if (abs($diffAmount) < 0.001) {
+                    $priceState = 'no_change';
+                    $diffAmount = 0.00;
+                    $diffPercentage = 0.0;
+                } elseif ($diffAmount > 0) {
+                    $priceState = 'increased';
+                    $diffPercentage = round(($diffAmount / $previousPrice) * 100, 1);
+                } else {
+                    $priceState = 'decreased';
+                    $diffPercentage = round((abs($diffAmount) / $previousPrice) * 100, 1);
+                }
+            }
+
+            $history = $allApprovals->take(5)->map(function ($app) {
+                return [
+                    'date' => $app->business_date->format('d M Y'),
+                    'price' => (float) $app->purchase_price,
+                    'updated_by' => $app->updatedBy?->name ?? 'System',
+                ];
+            })->values()->all();
+
+            return response()->json([
+                'success' => true,
+                'message' => "Successfully updated product price.",
+                'product_id' => $productId,
+                'today_price' => $todayPrice,
+                'previous_price' => $previousPrice,
+                'diff_amount' => $diffAmount,
+                'diff_percentage' => $diffPercentage,
+                'price_state' => $priceState,
+                'updated_by_name' => $todayApproval?->updatedBy?->name ?? $user->name,
+                'updated_time' => $todayApproval?->updated_at ? $todayApproval->updated_at->format('g:i A') : now()->format('g:i A'),
+                'updated_at_formatted' => $todayApproval?->updated_at ? $todayApproval->updated_at->format('d M Y \a\t g:i A') : now()->format('d M Y \a\t g:i A'),
+                'history' => $history,
+            ]);
+        }
+
+        return redirect()->route('purchaser.daily-prices')->with('success', "Successfully updated {$updatedCount} product price(s) and synced to matrix.");
+    }
+
+    private function authorizeDailyPriceAccess(): void
+    {
+        abort_unless(
+            auth()->user()?->hasRole('purchaser') ||
+            auth()->user()?->hasRole('purchase') ||
+            auth()->user()?->hasRole('admin'),
+            403
+        );
+    }
+
+    private function updateActivePricesForGroup(Product $product, ?ShopPriceGroup $group, float $priceGradeA, int $userId): void
+    {
+        if (! $group) {
+            return;
+        }
+
+        $grades = [
+            'A' => 1.00,
+            'B' => 0.90,
+            'C' => 0.80,
+        ];
+
+        foreach ($grades as $gradeVal => $multiplier) {
+            $calculatedPrice = round($priceGradeA * $multiplier, 2);
+
+            $activePrice = DailyProductPrice::firstOrNew([
+                'product_id' => $product->id,
+                'shop_price_group_id' => $group->id,
+                'grade' => $gradeVal,
+            ]);
+
+            $oldPrice = $activePrice->exists ? (float) $activePrice->selling_price : null;
+
+            $activePrice->fill([
+                'selling_price' => $calculatedPrice,
+                'price_source' => 'manual',
+                'margin_percent' => null,
+                'manual_override' => true,
+                'override_reason' => 'Purchaser daily price update',
+                'changed_by' => $userId,
+            ]);
+            $activePrice->save();
+
+            if ($oldPrice === null || abs($oldPrice - $calculatedPrice) > 0.0001) {
+                DailyProductPriceRevision::create([
+                    'daily_product_price_id' => $activePrice->id,
+                    'product_id' => $product->id,
+                    'shop_price_group_id' => $group->id,
+                    'grade' => $gradeVal,
+                    'old_price' => $oldPrice,
+                    'new_price' => $calculatedPrice,
+                    'old_margin_percent' => null,
+                    'new_margin_percent' => null,
+                    'change_type' => 'manual',
+                    'reason' => 'Purchaser daily price update',
+                    'changed_by' => $userId,
+                    'changed_at' => now(),
+                ]);
+            }
+        }
     }
 
     private function ensurePurchaser(Request $request): void
