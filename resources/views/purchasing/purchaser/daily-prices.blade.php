@@ -9,13 +9,13 @@
 
         .daily-price-row {
             display: grid;
-            grid-template-columns: minmax(105px, 1.25fr) 56px 84px 82px;
+            grid-template-columns: minmax(105px, 1fr) 56px 84px 82px;
             align-items: center;
             gap: 6px;
 
             width: 100%;
-            min-height: 56px;
-            padding: 8px 10px;
+            height: 56px;
+            padding: 0 10px;
 
             background: #fff;
             border: 1px solid #e5edf5;
@@ -32,15 +32,9 @@
         .product-cell {
             min-width: 0;
             display: flex;
-            flex-direction: column;
-            justify-content: center;
-        }
-
-        .product-title-wrap {
-            display: flex;
             align-items: center;
-            gap: 4px;
-            min-width: 0;
+            gap: 3px;
+            overflow: hidden;
         }
 
         .product-name {
@@ -70,16 +64,6 @@
             font-weight: 600;
             color: #8da0b8;
             white-space: nowrap;
-        }
-
-        .updater-info {
-            font-size: 10px;
-            font-weight: 600;
-            color: #0f766e;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            margin-top: 1px;
         }
 
         .previous-price {
@@ -269,7 +253,7 @@
             @endif
         </form>
 
-        {{-- 4 Fixed Columns Product List --}}
+        {{-- 4 Fixed Columns Product List (Single-Row 56px) --}}
         @if ($products->isEmpty())
             <div class="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-12 text-center text-xs font-bold text-slate-500">
                 No products found. Try adjusting your search, category or date filter.
@@ -277,7 +261,7 @@
         @else
             <div class="daily-price-list flex flex-col gap-1.5">
                 {{-- Column Header Title Bar --}}
-                <div class="grid grid-cols-[minmax(105px,1.25fr)_56px_84px_82px] items-center gap-[6px] px-[10px] pb-1 pt-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400 select-none">
+                <div class="grid grid-cols-[minmax(105px,1fr)_56px_84px_82px] items-center gap-[6px] px-[10px] pb-1 pt-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400 select-none">
                     <div>PRODUCT</div>
                     <div class="text-right">PREV</div>
                     <div class="text-center">CHANGE</div>
@@ -287,30 +271,23 @@
                 @foreach ($products as $product)
                     <div id="product-row-{{ $product['id'] }}" class="daily-price-row">
                         
-                        {{-- Col 1: Product Cell with Updated Info --}}
+                        {{-- Col 1: Product Cell (Single Line) --}}
                         <div class="product-cell">
-                            <div class="product-title-wrap">
-                                <button type="button"
-                                        class="product-name"
-                                        onclick="openProductModal({{ json_encode($product) }})">
-                                    {{ $product['name'] }}
-                                </button>
-                                <span class="product-unit">· {{ $product['unit'] }}</span>
-                                @if ($product['updated_by_name'])
-                                    <span class="inline-flex items-center text-teal-600 shrink-0 cursor-pointer"
-                                          onclick="event.stopPropagation(); openProductModal({{ json_encode($product) }})"
-                                          title="Updated by {{ $product['updated_by_name'] }} at {{ $product['updated_time'] }}">
-                                        <svg class="h-3 w-3 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
-                                        </svg>
-                                    </span>
-                                @endif
-                            </div>
-                            <div id="row-updater-{{ $product['id'] }}" class="updater-info">
-                                @if ($product['updated_by_name'])
-                                    {{ $product['updated_by_name'] }} &middot; {{ $product['updated_time'] }}
-                                @endif
-                            </div>
+                            <button type="button"
+                                    class="product-name"
+                                    title="@if($product['updated_by_name'])Updated by {{ $product['updated_by_name'] }} at {{ $product['updated_time'] }}@endif"
+                                    onclick="openProductModal({{ json_encode($product) }})">
+                                {{ $product['name'] }}
+                            </button>
+                            <span class="product-unit">· {{ $product['unit'] }}</span>
+                            <span id="row-info-icon-{{ $product['id'] }}"
+                                  class="{{ $product['updated_by_name'] ? 'inline-flex' : 'hidden' }} items-center text-teal-600 shrink-0 cursor-pointer ml-0.5"
+                                  onclick="event.stopPropagation(); openProductModal({{ json_encode($product) }})"
+                                  title="@if($product['updated_by_name'])Updated by {{ $product['updated_by_name'] }} at {{ $product['updated_time'] }}@endif">
+                                <svg class="h-3 w-3 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                                </svg>
+                            </span>
                         </div>
 
                         {{-- Col 2: Compact Previous Price --}}
@@ -564,7 +541,7 @@
             const pId = data.product_id;
             const prevEl = document.getElementById('row-prev-' + pId);
             const badgeEl = document.getElementById('row-badge-' + pId);
-            const updaterEl = document.getElementById('row-updater-' + pId);
+            const infoIconEl = document.getElementById('row-info-icon-' + pId);
 
             if (prevEl) {
                 if (data.previous_price) {
@@ -590,8 +567,10 @@
                 badgeEl.innerHTML = bHtml;
             }
 
-            if (updaterEl && data.updated_by_name) {
-                updaterEl.textContent = `${data.updated_by_name} · ${data.updated_time}`;
+            if (infoIconEl && data.updated_by_name) {
+                infoIconEl.classList.remove('hidden');
+                infoIconEl.classList.add('inline-flex');
+                infoIconEl.setAttribute('title', `Updated by ${data.updated_by_name} at ${data.updated_time}`);
             }
         }
 
