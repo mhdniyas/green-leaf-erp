@@ -3902,17 +3902,28 @@ class PurchaserDashboardController extends Controller
         $relevantProductIds = array_unique(array_merge($todayOrderedProductIds, $recentPurchasedProductIds));
 
         $selectedCategory = $request->input('category_id');
+        $user = $request->user();
+        $assignedCategoryIds = $user?->hasAssignedCategoryFilter() ? $user->assignedCategoryIds() : null;
 
-        $categories = Category::query()
+        $categoriesQuery = Category::query()
             ->whereHas('products', fn ($q) => $q->whereIn('id', $relevantProductIds))
-            ->orderBy('name')
-            ->get();
+            ->orderBy('name');
+
+        if ($assignedCategoryIds !== null) {
+            $categoriesQuery->whereIn('id', $assignedCategoryIds);
+        }
+
+        $categories = $categoriesQuery->get();
 
         $productsQuery = Product::query()
             ->active()
             ->with(['category'])
             ->whereIn('id', $relevantProductIds)
             ->ordered();
+
+        if ($assignedCategoryIds !== null) {
+            $productsQuery->whereIn('category_id', $assignedCategoryIds);
+        }
 
         if ($selectedCategory && $selectedCategory !== 'all') {
             $productsQuery->where('category_id', (int) $selectedCategory);
