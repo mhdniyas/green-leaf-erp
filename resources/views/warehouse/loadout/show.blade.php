@@ -48,8 +48,6 @@
             )->count();
         @endphp
 
-
-
         @if($canEdit && $hasDuplicates)
             <section class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 shadow-sm">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -303,7 +301,10 @@
                             </svg>
                             <span>Clear All</span>
                         </button>
+                        
+                        {{-- Show ONCE Load All Full Button --}}
                         <button type="button"
+                                id="load-all-full-btn"
                                 onclick="loadAllFull()"
                                 class="inline-flex h-8 items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 px-2.5 text-[9px] font-black uppercase tracking-wider text-white border-none cursor-pointer transition-colors shadow-2xs">
                             <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
@@ -314,9 +315,20 @@
                     </div>
                 </div>
 
-                <div class="rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2">
-                    <p class="text-[10px] font-black uppercase tracking-[0.14em] text-indigo-700">Auto Save On</p>
-                    <p class="mt-0.5 text-[11px] font-semibold text-indigo-900">Update quantity, stock saves automatically.</p>
+                {{-- Manual Save Notice Bar --}}
+                <div class="rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-2xs flex items-center justify-between gap-2">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Manual Save Mode</p>
+                        <p class="mt-0.5 text-[11px] font-semibold text-slate-700">Update quantities, then click <strong>"Save Loadout"</strong> to save with confirmation popup.</p>
+                    </div>
+                    <button type="button"
+                            onclick="confirmSaveLoadout()"
+                            class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-teal-600 px-3.5 py-2 text-[11px] font-black uppercase tracking-wider text-white hover:bg-teal-700 transition-all border-none cursor-pointer shadow-xs">
+                        <svg class="h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                        </svg>
+                        <span>Save Loadout</span>
+                    </button>
                 </div>
 
                 {{-- Loadout & Addon counts --}}
@@ -339,7 +351,7 @@
 
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <p class="px-0.5 text-[10px] font-semibold text-slate-500">
-                        Single-measure items stay open. Dual-measure items can be expanded. Changes are auto-saved.
+                        Single-measure items stay open. Dual-measure items can be expanded.
                     </p>
                     <div id="loadout-action-feedback"
                         class="hidden rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-[11px] font-semibold text-cyan-800 shadow-2xs">
@@ -448,68 +460,86 @@
                                             </div>
                                         </div>
 
-                                        {{-- 2. Actual Weight Input --}}
+                                        {{-- 2. Loaded Actual Weight Input --}}
                                         <div class="flex items-center justify-between gap-2 rounded-lg bg-white border border-slate-200 p-2">
-                                            <span class="text-[11px] font-black text-slate-700">Actual Weight:</span>
-                                            <div class="flex items-center gap-1.5 flex-1 max-w-[170px]">
-                                                <input type="number" id="qty-{{ $group['product_id'] }}" name="items[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" data-approved="{{ number_format($approved, 2, '.', '') }}" data-available="{{ number_format($available, 2, '.', '') }}" data-product="{{ $group['product']->name }}" data-unit="{{ strtoupper($group['unit']) }}" class="qty-input h-8 w-full rounded-md border border-slate-200 px-2 text-center text-xs font-black focus:outline-none focus:ring-2 focus:ring-indigo-400 {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}" {{ $isItemNotAvailable ? 'readonly' : '' }} required>
-                                                <span class="text-[11px] font-black text-slate-600">{{ strtoupper($group['unit']) }}</span>
+                                            <span class="text-[11px] font-black text-slate-700">Loaded Weight ({{ strtoupper($group['unit']) }}):</span>
+                                            <div class="flex items-center gap-1">
+                                                <input type="number" id="qty-{{ $group['product_id'] }}" name="item_quantities[{{ $group['product_id'] }}]" value="{{ number_format($loadedActualWeight > 0 ? $loadedActualWeight : $loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" data-approved="{{ number_format($approved, 2, '.', '') }}" data-available="{{ number_format($available, 2, '.', '') }}" data-product="{{ $group['product']->name }}" class="qty-input h-7 w-20 rounded-md border border-slate-200 bg-white text-right text-[11px] font-black text-slate-900 focus:outline-none px-1.5" {{ $isItemNotAvailable ? 'readonly' : '' }}>
+                                                <button type="button" id="full-btn-{{ $group['product_id'] }}" onclick="setFullQuantity({{ $group['product_id'] }})" class="h-7 rounded-md border border-emerald-300 bg-emerald-50 px-2 text-[10px] font-black uppercase text-emerald-800 hover:bg-emerald-100 cursor-pointer border-none">Full</button>
                                             </div>
                                         </div>
                                     </div>
 
-                                    <div class="mt-2 flex items-center justify-end gap-2 border-t border-slate-200/80 pt-2">
-                                        <button type="button" id="not-avail-btn-{{ $group['product_id'] }}" onclick="toggleNotAvailable({{ $group['product_id'] }})" class="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none">
-                                            {{ $isItemNotAvailable ? 'Re-enable Item' : 'Not Available' }}
-                                        </button>
+                                    {{-- Quick Actions --}}
+                                    <div class="mt-2 flex items-center justify-between border-t border-slate-200/60 pt-2 text-[11px]">
+                                        <div class="flex items-center gap-2">
+                                            <button type="button" onclick="markProductNotAvailable({{ $group['product_id'] }})" class="text-[10px] font-bold text-rose-600 hover:underline border-none bg-transparent cursor-pointer">Mark Not Available</button>
+                                            <button type="button" onclick="markProductAvailable({{ $group['product_id'] }})" class="text-[10px] font-bold text-emerald-600 hover:underline border-none bg-transparent cursor-pointer">Reset</button>
+                                        </div>
+                                        <span id="row-status-text-{{ $group['product_id'] }}" class="text-[10px] font-bold text-slate-500"></span>
                                     </div>
                                 </div>
                             @else
-                                {{-- Single Input for Direct Base Unit (Strict Single Row Mobile Layout & Modal Support) --}}
-                                <div class="p-2 sm:p-2.5">
-                                    {{-- Hidden fields for status & note --}}
-                                    <input type="hidden" id="status-field-{{ $group['product_id'] }}" name="item_status[{{ $group['product_id'] }}]" value="{{ $isItemNotAvailable ? 'not_available' : 'loaded' }}">
-                                    <input type="hidden" id="note-field-{{ $group['product_id'] }}" name="item_notes[{{ $group['product_id'] }}]" value="{{ $firstItem->loadout_discrepancy_note ?? '' }}">
+                                {{-- Single-Measure Product Body (ALWAYS VISIBLE) --}}
+                                <div class="p-3">
+                                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                        <div class="flex-1 min-w-0">
+                                            <h3 class="truncate text-sm font-black text-slate-900">
+                                                <span class="mr-1 inline-block rounded-md bg-indigo-100 px-1.5 py-0.5 text-[10px] font-black text-indigo-700">SL {{ $loop->iteration }}</span>
+                                                <span class="inline-block rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-black text-slate-700 mr-1">#{{ $group['product']->sku ?: $group['product_id'] }}</span>
+                                                {{ $group['product']->name }}
+                                            </h3>
 
-                                    <div class="flex items-center justify-between gap-1.5 min-w-0">
-                                        {{-- Product info inline in 1 row --}}
-                                        <div class="flex items-center gap-1.5 min-w-0 flex-1 cursor-pointer" onclick="openSingleQtyModal({{ $group['product_id'] }})">
-                                            <span class="rounded-md bg-indigo-100 px-1.5 py-0.5 text-[9px] font-black text-indigo-700 shrink-0">SL {{ $loop->iteration }}</span>
-                                            <span class="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-black text-slate-700 shrink-0">#{{ $group['product']->sku ?: $group['product_id'] }}</span>
-                                            
-                                            <h3 class="truncate text-xs font-black text-slate-900 shrink-0 max-w-[100px] sm:max-w-xs" title="{{ $group['product']->name }}">{{ $group['product']->name }}</h3>
-
-                                            <div class="hidden sm:flex items-center gap-1.5 text-[9px] font-semibold text-slate-500 shrink-0">
-                                                <span>Ord: <span class="font-black text-slate-900">{{ number_format($orderedUnitQty, 2, '.', '') }}</span></span>
-                                                <span class="text-sky-700">Stk: <span class="font-bold">{{ number_format($available, 2, '.', '') }}</span></span>
+                                            <div class="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[10px] font-semibold text-slate-500">
+                                                <span>Ordered: <span class="font-black text-slate-900">{{ number_format($approved, 2) }} {{ strtoupper($group['unit']) }}</span></span>
+                                                @if($loaded > 0)
+                                                    <span>Loaded: <span class="font-black text-emerald-700">{{ number_format($loaded, 2) }} {{ strtoupper($group['unit']) }}</span></span>
+                                                @endif
+                                                @if($loaded > $approved)
+                                                    <span class="inline-flex items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 border border-amber-200">
+                                                        Excess: <span class="font-black">{{ number_format($loaded - $approved, 2) }} {{ strtoupper($group['unit']) }}</span>
+                                                    </span>
+                                                @endif
+                                                <span class="inline-flex items-center gap-1 rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-800 border border-sky-200">
+                                                    Info Stock: <span class="font-black">{{ number_format($available, 2) }} {{ strtoupper($group['unit']) }}</span>
+                                                </span>
+                                                @if($isItemNotAvailable)
+                                                    <span class="rounded-full bg-rose-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-rose-700">Not Available ✕</span>
+                                                @elseif($isFullyLoaded)
+                                                    <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-emerald-700">Loaded ✓</span>
+                                                @elseif($isPartial)
+                                                    <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-amber-700">Partial</span>
+                                                @else
+                                                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-600">Pending</span>
+                                                @endif
                                             </div>
-
-                                            @if($isItemNotAvailable)
-                                                <span class="rounded-full bg-rose-100 px-1.5 py-0.5 text-[8px] font-black uppercase text-rose-700 shrink-0">N/A ✕</span>
-                                            @elseif($isFullyLoaded)
-                                                <span class="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[8px] font-black uppercase text-emerald-700 shrink-0">Loaded ✓</span>
-                                            @elseif($isPartial)
-                                                <span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[8px] font-black uppercase text-amber-700 shrink-0">Partial</span>
-                                            @else
-                                                <span class="rounded-full bg-slate-100 px-1.5 py-0.5 text-[8px] font-black uppercase text-slate-600 shrink-0">Pending</span>
-                                            @endif
                                         </div>
 
-                                        {{-- Controls in single row --}}
-                                        <div class="flex items-center gap-1 shrink-0">
-                                            <button type="button" onclick="stepQty({{ $group['product_id'] }}, -1)" class="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 active:bg-slate-200 cursor-pointer transition-colors border-none font-bold text-sm">-</button>
+                                        <div class="flex items-center gap-1.5 shrink-0 justify-between sm:justify-end">
+                                            <input type="hidden" id="status-field-{{ $group['product_id'] }}" name="item_status[{{ $group['product_id'] }}]" value="{{ $isItemNotAvailable ? 'not_available' : 'loaded' }}">
+                                            <input type="hidden" id="note-field-{{ $group['product_id'] }}" name="item_notes[{{ $group['product_id'] }}]" value="{{ $firstItem->loadout_discrepancy_note ?? '' }}">
 
-                                            <div class="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white px-1.5 py-0.5 shadow-2xs">
-                                                <input type="number" id="qty-{{ $group['product_id'] }}" name="items[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" data-approved="{{ number_format($approved, 2, '.', '') }}" data-available="{{ number_format($available, 2, '.', '') }}" data-product="{{ $group['product']->name }}" data-unit="{{ strtoupper($group['unit']) }}" class="qty-input w-14 border-none text-center text-xs font-black focus:outline-none {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}" {{ $isItemNotAvailable ? 'readonly' : '' }} required>
-                                                <span class="text-[9px] font-black text-slate-500 uppercase">{{ strtoupper($group['unit']) }}</span>
+                                            <div class="flex items-center gap-1">
+                                                <button type="button" onclick="stepQuantity({{ $group['product_id'] }}, -1)" class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 cursor-pointer border-none font-bold text-base shadow-2xs">-</button>
+
+                                                <div class="relative flex items-center">
+                                                    <input type="number" id="qty-{{ $group['product_id'] }}" name="item_quantities[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" data-approved="{{ number_format($approved, 2, '.', '') }}" data-available="{{ number_format($available, 2, '.', '') }}" data-product="{{ $group['product']->name }}" class="qty-input h-8 w-24 rounded-lg border border-slate-200 bg-white text-right text-xs font-black text-slate-900 focus:border-indigo-500 focus:outline-none pr-8 pl-1.5" {{ $isItemNotAvailable ? 'readonly' : '' }}>
+                                                    <span class="pointer-events-none absolute right-2 text-[9px] font-extrabold text-slate-400 uppercase">{{ strtoupper($group['unit']) }}</span>
+                                                </div>
+
+                                                <button type="button" onclick="stepQuantity({{ $group['product_id'] }}, 1)" class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 cursor-pointer border-none font-bold text-base shadow-2xs">+</button>
+
+                                                <button type="button" id="full-btn-{{ $group['product_id'] }}" onclick="setFullQuantity({{ $group['product_id'] }})" class="h-8 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 text-[10px] font-black uppercase tracking-wider text-emerald-800 hover:bg-emerald-100 cursor-pointer border-none shadow-2xs">Full</button>
                                             </div>
-
-                                            <button type="button" onclick="stepQty({{ $group['product_id'] }}, 1)" class="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-600 cursor-pointer transition-colors border-none font-bold text-sm">+</button>
-
-                                            <button type="button" id="not-avail-btn-{{ $group['product_id'] }}" onclick="toggleNotAvailable({{ $group['product_id'] }})" class="shrink-0 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none">
-                                                {{ $isItemNotAvailable ? 'Enable' : 'N/A' }}
-                                            </button>
                                         </div>
+                                    </div>
+
+                                    <div class="mt-1.5 flex items-center justify-between border-t border-slate-100 pt-1.5 text-[11px]">
+                                        <div class="flex items-center gap-2">
+                                            <button type="button" onclick="markProductNotAvailable({{ $group['product_id'] }})" class="text-[10px] font-bold text-rose-600 hover:underline border-none bg-transparent cursor-pointer">Mark Not Available</button>
+                                            <button type="button" onclick="markProductAvailable({{ $group['product_id'] }})" class="text-[10px] font-bold text-emerald-600 hover:underline border-none bg-transparent cursor-pointer">Reset</button>
+                                        </div>
+                                        <span id="row-status-text-{{ $group['product_id'] }}" class="text-[10px] font-bold text-slate-500"></span>
                                     </div>
                                 </div>
                             @endif
@@ -517,793 +547,409 @@
                     @endforeach
                 </div>
             </form>
+        @endif
 
-            <div id="loadout-product-empty" class="hidden rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm font-bold text-slate-500">
-                No products match these filters.
+        {{-- Floating Sticky Save Loadout Bar --}}
+        @if($canEdit)
+            <div class="sticky bottom-3 z-30 mx-auto w-full max-w-xl px-1">
+                <button type="button"
+                        id="floating-save-btn"
+                        onclick="confirmSaveLoadout()"
+                        class="flex w-full items-center justify-center gap-2 rounded-2xl bg-teal-600 px-5 py-3.5 text-xs font-black uppercase tracking-[0.14em] text-white shadow-xl hover:bg-teal-700 active:scale-98 transition-all border-none cursor-pointer">
+                    <svg class="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
+                    <span>SAVE LOADOUT</span>
+                </button>
             </div>
-
-        @else
-            {{-- READ-ONLY: in_transit or delivered view --}}
-            <div class="space-y-2.5" id="loadout-product-list">
-                <h2 class="px-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Loaded Items</h2>
-
-                @foreach($productGroups as $group)
-                    @php
-                        $loadoutRowStatus = $group['is_fully_loaded'] ? 'loaded' : ($group['is_partially_loaded'] ? 'partial' : 'pending');
-                        $loadoutCategoryName = $group['product']->category?->name ?? 'Other';
-                    @endphp
-                    <div class="loadout-product-row rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-                         data-search="{{ strtolower(trim(($group['product']->name ?? '').' '.($group['product']->sku ?? '').' '.$loadoutCategoryName)) }}"
-                         data-category="{{ strtolower($loadoutCategoryName) }}"
-                         data-status="{{ $loadoutRowStatus }}">
-                        <div class="flex items-center justify-between gap-3">
-                            <div>
-                                <p class="text-sm font-black text-slate-900">
-                                    <span class="mr-1.5 inline-block rounded-lg bg-indigo-100 px-1.5 py-0.5 text-xs font-black text-indigo-700">SL {{ $loop->iteration }}</span>
-                                    {{ $group['product']->name }}
-                                </p>
-                                @if (! empty($group['items']))
-                                    @php
-                                        $loadoutMeasures = collect($group['items'])->map(fn ($item) => $item->requestedMeasureBreakdownLabel())->filter()->unique();
-                                    @endphp
-                                    @if ($loadoutMeasures->isNotEmpty())
-                                        <p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-emerald-700">
-                                            {{ $loadoutMeasures->implode(' · ') }}
-                                        </p>
-                                    @endif
-                                @endif
-                                <p class="mt-0.5 text-[11px] font-semibold text-slate-500">
-                                    Loaded: <span class="font-black text-slate-800">{{ number_format($group['total_loaded'], 2) }} {{ $group['unit'] }}</span>
-                                    @if($group['total_balance'] > 0)
-                                        &middot; Balance: <span class="text-amber-600 font-black">{{ number_format($group['total_balance'], 2) }} {{ $group['unit'] }}</span>
-                                    @endif
-                                </p>
-                            </div>
-                            @if($group['is_fully_loaded'])
-                                <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-700">Loaded ✓</span>
-                            @else
-                                <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-700">Partial</span>
-                            @endif
-                        </div>
-                    </div>
-                @endforeach
-            </div>
-
-            <div id="loadout-product-empty" class="hidden rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm font-bold text-slate-500">
-                No products match these filters.
-            </div>
-
-            @php
-                $deliveryDiscrepancyItems = $shopOrder->items->filter(
-                    fn ($item) => (float) ($item->shortage_qty ?? 0) > 0.001 || filled($item->delivery_discrepancy_note)
-                );
-            @endphp
-
-            @if($shopOrder->delivery_notes || $deliveryDiscrepancyItems->isNotEmpty())
-                <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <div class="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
-                        <div>
-                            <h2 class="text-sm font-black text-slate-900">Delivery Update</h2>
-                            <p class="mt-1 text-[11px] font-semibold text-slate-500">
-                                {{ str($shopOrder->delivery_status)->replace('_', ' ')->title() }}
-                                @if($shopOrder->deliveredBy)
-                                    · Updated by {{ $shopOrder->deliveredBy->name }}
-                                @endif
-                            </p>
-                        </div>
-                        @if($shopOrder->delivered_at)
-                            <span class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">
-                                {{ $shopOrder->delivered_at->format('d M, h:i A') }}
-                            </span>
-                        @endif
-                    </div>
-
-                    @if($shopOrder->delivery_notes)
-                        <div class="mt-3 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3">
-                            <p class="text-[10px] font-black uppercase tracking-[0.14em] text-amber-700">Delivery Note</p>
-                            <p class="mt-1 text-sm font-semibold text-amber-900">{{ $shopOrder->delivery_notes }}</p>
-                        </div>
-                    @endif
-
-                    @if($deliveryDiscrepancyItems->isNotEmpty())
-                        <div class="mt-3 space-y-2">
-                            <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Discrepancy Details</p>
-                            @foreach($deliveryDiscrepancyItems as $item)
-                                <div class="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3">
-                                    <div class="flex items-center justify-between gap-3">
-                                        <p class="text-sm font-black text-slate-900">{{ $item->product->name }}</p>
-                                        <span class="text-[10px] font-black uppercase tracking-[0.12em] text-rose-700">
-                                            Short {{ number_format((float) $item->shortage_qty, 2) }} {{ $item->unit }}
-                                        </span>
-                                    </div>
-                                    @if($item->delivery_discrepancy_note)
-                                        <p class="mt-1 text-xs font-semibold text-rose-900">{{ $item->delivery_discrepancy_note }}</p>
-                                    @endif
-                                </div>
-                            @endforeach
-                        </div>
-                    @endif
-                </section>
-            @endif
         @endif
 
     </div>
 
-    @if($shopOrder->delivery_status === 'delivered')
-    {{-- ─── STICKY BOTTOM ACTION BAR ─── --}}
-    <div class="fixed inset-x-0 bottom-[5.5rem] z-50 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.10)] backdrop-blur-sm lg:bottom-0"
-         id="sticky-bar">
-        <div class="mx-auto flex max-w-xl flex-col gap-2">
-            <div class="flex items-center justify-center gap-2 py-2">
-                <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 border border-emerald-200 px-4 py-2 text-xs font-black uppercase tracking-wider text-emerald-700">
-                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                    Delivered
-                </span>
-            </div>
-
-        </div>
-    </div>
-    @endif
-
-    {{-- ─── SINGLE ITEM QUANTITY EDIT POPUP MODAL ─── --}}
-    <div id="single-qty-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs hidden" onclick="if(event.target === this) closeSingleQtyModal()">
-        <div class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-xl space-y-3.5">
-            {{-- Modal Header --}}
-            <div class="flex items-start justify-between gap-2 border-b border-slate-100 pb-2.5">
-                <div>
-                    <div class="flex items-center gap-1.5">
-                        <span id="modal-sl-badge" class="rounded-md bg-indigo-100 px-1.5 py-0.5 text-[10px] font-black text-indigo-700">SL 1</span>
-                        <span id="modal-sku-badge" class="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-black text-slate-700">#SKU</span>
-                    </div>
-                    <h3 id="modal-product-name" class="mt-1 text-sm font-black text-slate-900">Product Name</h3>
-                </div>
-                <button type="button" onclick="closeSingleQtyModal()" class="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 border-none cursor-pointer text-xs font-bold">
-                    ✕
-                </button>
-            </div>
-
-            {{-- Product Info Stats --}}
-            <div class="grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-2.5 text-center">
-                <div>
-                    <p class="text-[9px] font-black uppercase text-slate-400">Ordered</p>
-                    <p id="modal-ordered-qty" class="text-xs font-black text-slate-900">0.00</p>
-                </div>
-                <div>
-                    <p class="text-[9px] font-black uppercase text-slate-400">Loaded</p>
-                    <p id="modal-loaded-qty" class="text-xs font-black text-emerald-700">0.00</p>
-                </div>
-                <div>
-                    <p class="text-[9px] font-black uppercase text-slate-400">Stock</p>
-                    <p id="modal-available-stock" class="text-xs font-black text-sky-700">0.00</p>
-                </div>
-            </div>
-
-            {{-- Input & Stepper --}}
-            <div class="space-y-1.5">
-                <label for="modal-qty-input" class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Loaded Quantity</label>
-                <div class="flex items-center gap-2">
-                    <button type="button" onclick="stepModalQty(-1)" class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-lg font-black text-slate-700 hover:bg-slate-200 active:bg-slate-300 cursor-pointer border-none">-</button>
-                    <div class="flex flex-1 items-center gap-1.5 rounded-xl border-2 border-indigo-500 bg-white px-3 py-2 shadow-2xs">
-                        <input type="number" id="modal-qty-input" min="0" step="any" inputmode="decimal" class="w-full border-none text-center text-lg font-black text-slate-900 focus:outline-none">
-                        <span id="modal-unit-label" class="text-xs font-black text-slate-500 uppercase">KG</span>
-                    </div>
-                    <button type="button" onclick="stepModalQty(1)" class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-lg font-black text-slate-700 hover:bg-slate-200 active:bg-slate-300 cursor-pointer border-none">+</button>
-                </div>
-            </div>
-
-            {{-- Action Buttons --}}
-            <div class="grid grid-cols-3 gap-2">
-                <button type="button" onclick="setModalFullQty()" class="rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-2 text-xs font-black text-emerald-700 hover:bg-emerald-100 cursor-pointer border-none">
-                    Full Qty
-                </button>
-                <button type="button" onclick="setModalZeroQty()" class="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-black text-slate-700 hover:bg-slate-100 cursor-pointer border-none">
-                    Clear (0)
-                </button>
-                <button type="button" id="modal-not-avail-btn" onclick="toggleModalNotAvailable()" class="rounded-xl border border-rose-200 bg-rose-50 px-2 py-2 text-xs font-black text-rose-700 hover:bg-rose-100 cursor-pointer border-none">
-                    Not Avail
-                </button>
-            </div>
-
-            {{-- Submit & Apply --}}
-            <button type="button" onclick="saveSingleQtyModal()" class="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-white hover:bg-indigo-700 cursor-pointer border-none shadow-sm">
-                Save & Apply
-            </button>
-        </div>
-    </div>
-
-    {{-- ─── NOT AVAILABLE REASON TAILWIND MODAL POPUP ─── --}}
-    <div id="not-available-reason-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs hidden" onclick="if(event.target === this) closeNotAvailableReasonModal()">
-        <div class="w-full max-w-sm rounded-2xl border border-rose-200 bg-white p-4 shadow-xl space-y-3.5">
-            {{-- Modal Header --}}
-            <div class="flex items-start justify-between gap-2 border-b border-slate-100 pb-2.5">
-                <div class="flex items-center gap-2">
-                    <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-rose-100 text-rose-700">
-                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                        </svg>
-                    </div>
-                    <div>
-                        <h3 class="text-sm font-black text-slate-900">Mark Not Available</h3>
-                        <p id="not-avail-modal-product-name" class="text-[11px] font-semibold text-slate-500">Product Name</p>
-                    </div>
-                </div>
-                <button type="button" onclick="closeNotAvailableReasonModal()" class="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 border-none cursor-pointer text-xs font-bold">
-                    ✕
-                </button>
-            </div>
-
-            {{-- Reason Form --}}
-            <div class="space-y-1.5">
-                <label for="not-avail-reason-input" class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Reason / Note (Optional)</label>
-                <textarea id="not-avail-reason-input" rows="2" placeholder="e.g. Out of stock, Damaged quality, Vendor shortage..." class="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-semibold text-slate-900 focus:border-rose-500 focus:bg-white focus:outline-none"></textarea>
-            </div>
-
-            {{-- Action Buttons --}}
-            <div class="flex items-center gap-2 pt-1">
-                <button type="button" onclick="closeNotAvailableReasonModal()" class="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-black text-slate-700 hover:bg-slate-100 cursor-pointer border-none">
-                    Cancel
-                </button>
-                <button type="button" onclick="confirmNotAvailableReason()" class="flex-1 rounded-xl bg-rose-600 px-3 py-2.5 text-xs font-black uppercase tracking-wider text-white hover:bg-rose-700 cursor-pointer border-none shadow-sm">
-                    Confirm N/A
-                </button>
-            </div>
-        </div>
-    </div>
-
     @push('scripts')
     <script>
-        const loadoutForm = document.getElementById('loadout-form');
-        const loadoutActionFeedback = document.getElementById('loadout-action-feedback');
-        let currentModalProductId = null;
-        let pendingNotAvailableProductId = null;
+        const shopOrderId = '{{ $shopOrder->id }}';
 
-        function openSingleQtyModal(productId) {
-            const input = document.getElementById('qty-' + productId);
-            if (!input) return;
+        function toggleExpandAllCards() {
+            const bodies = document.querySelectorAll('.collapsible-body');
+            const textSpan = document.getElementById('toggle-all-cards-text');
+            const isExpanding = textSpan ? textSpan.textContent.includes('Expand') : false;
 
-            currentModalProductId = productId;
-            const row = input.closest('.loadout-product-row');
-            const slBadge = row ? (row.querySelector('.bg-indigo-100')?.textContent || '') : '';
-            const skuBadge = row ? (row.querySelector('.bg-slate-100')?.textContent || '') : '';
-            const productName = input.dataset.product || '';
-            const unit = input.dataset.unit || '';
-            const approved = parseFloat(input.dataset.approved) || 0;
-            const available = parseFloat(input.dataset.available) || 0;
-            const currentQty = parseFloat(input.value) || 0;
-            const statusField = document.getElementById('status-field-' + productId);
-            const isNotAvail = statusField && statusField.value === 'not_available';
+            bodies.forEach(function (body) {
+                const productId = body.id.replace('card-body-', '');
+                const arrow = document.getElementById('arrow-' + productId);
 
-            document.getElementById('modal-sl-badge').textContent = slBadge;
-            document.getElementById('modal-sku-badge').textContent = skuBadge;
-            document.getElementById('modal-product-name').textContent = productName;
-            document.getElementById('modal-unit-label').textContent = unit;
-            document.getElementById('modal-ordered-qty').textContent = approved.toFixed(2) + ' ' + unit;
-            document.getElementById('modal-loaded-qty').textContent = currentQty.toFixed(2) + ' ' + unit;
-            document.getElementById('modal-available-stock').textContent = available.toFixed(2) + ' ' + unit;
-            
-            const modalInput = document.getElementById('modal-qty-input');
-            modalInput.value = currentQty.toFixed(2);
-            modalInput.readOnly = isNotAvail;
+                if (isExpanding) {
+                    body.classList.remove('hidden');
+                    if (arrow) arrow.style.transform = 'rotate(180deg)';
+                } else {
+                    body.classList.add('hidden');
+                    if (arrow) arrow.style.transform = 'rotate(0deg)';
+                }
+            });
 
-            const modalNotAvailBtn = document.getElementById('modal-not-avail-btn');
-            if (modalNotAvailBtn) {
-                modalNotAvailBtn.textContent = isNotAvail ? 'Enable Item' : 'Not Avail';
+            if (textSpan) {
+                textSpan.textContent = isExpanding ? 'Collapse Dual' : 'Expand Dual';
             }
-
-            document.getElementById('single-qty-modal').classList.remove('hidden');
-            setTimeout(() => { modalInput.focus(); modalInput.select(); }, 100);
-        }
-
-        function closeSingleQtyModal() {
-            document.getElementById('single-qty-modal').classList.add('hidden');
-            currentModalProductId = null;
-        }
-
-        function stepModalQty(delta) {
-            const modalInput = document.getElementById('modal-qty-input');
-            if (!modalInput || modalInput.readOnly) return;
-            let val = parseFloat(modalInput.value) || 0;
-            val = Math.max(0, val + delta * 0.5);
-            modalInput.value = val.toFixed(2);
-        }
-
-        function setModalFullQty() {
-            if (!currentModalProductId) return;
-            const mainInput = document.getElementById('qty-' + currentModalProductId);
-            if (!mainInput) return;
-            const approved = parseFloat(mainInput.dataset.approved) || 0;
-            const modalInput = document.getElementById('modal-qty-input');
-            if (modalInput) {
-                modalInput.value = approved.toFixed(2);
-            }
-        }
-
-        function setModalZeroQty() {
-            const modalInput = document.getElementById('modal-qty-input');
-            if (modalInput) {
-                modalInput.value = '0.00';
-            }
-        }
-
-        function toggleModalNotAvailable() {
-            if (!currentModalProductId) return;
-            toggleNotAvailable(currentModalProductId);
-            const mainInput = document.getElementById('qty-' + currentModalProductId);
-            const statusField = document.getElementById('status-field-' + currentModalProductId);
-            const isNotAvail = statusField && statusField.value === 'not_available';
-            const modalInput = document.getElementById('modal-qty-input');
-            if (modalInput && mainInput) {
-                modalInput.value = mainInput.value;
-                modalInput.readOnly = isNotAvail;
-            }
-            const modalNotAvailBtn = document.getElementById('modal-not-avail-btn');
-            if (modalNotAvailBtn) {
-                modalNotAvailBtn.textContent = isNotAvail ? 'Enable Item' : 'Not Avail';
-            }
-        }
-
-        function saveSingleQtyModal() {
-            if (!currentModalProductId) return;
-            const mainInput = document.getElementById('qty-' + currentModalProductId);
-            const modalInput = document.getElementById('modal-qty-input');
-            if (mainInput && modalInput) {
-                mainInput.value = (parseFloat(modalInput.value) || 0).toFixed(2);
-                mainInput.dispatchEvent(new Event('change'));
-            }
-            closeSingleQtyModal();
         }
 
         function toggleProductCard(productId) {
             const body = document.getElementById('card-body-' + productId);
             const arrow = document.getElementById('arrow-' + productId);
-            if (!body || !body.classList.contains('collapsible-body')) return;
+
+            if (!body) return;
 
             const isHidden = body.classList.contains('hidden');
-            body.classList.toggle('hidden', !isHidden);
-            if (arrow) {
-                arrow.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
+            if (isHidden) {
+                body.classList.remove('hidden');
+                if (arrow) arrow.style.transform = 'rotate(180deg)';
+            } else {
+                body.classList.add('hidden');
+                if (arrow) arrow.style.transform = 'rotate(0deg)';
             }
         }
 
-        function toggleExpandAllCards() {
-            const bodies = document.querySelectorAll('.product-card-body.collapsible-body');
-            const textSpan = document.getElementById('toggle-all-cards-text');
-            if (!bodies.length) return;
+        function formatLoadoutQty(val) {
+            const num = parseFloat(val);
+            if (isNaN(num)) return '0.00';
+            return num.toFixed(2);
+        }
 
-            const anyHidden = Array.from(bodies).some(b => b.classList.contains('hidden'));
+        function pulseInput(el) {
+            if (!el) return;
+            el.style.backgroundColor = '#ecfdf5';
+            setTimeout(function () {
+                el.style.backgroundColor = '';
+            }, 500);
+        }
 
-            bodies.forEach(body => {
-                const productId = body.id.replace('card-body-', '');
-                const arrow = document.getElementById('arrow-' + productId);
+        function updateFullButtonState(productId, enteredQty, approvedQty) {
+            const fullBtn = document.getElementById('full-btn-' + productId);
+            if (!fullBtn) return;
 
-                body.classList.toggle('hidden', !anyHidden);
-                if (arrow) {
-                    arrow.style.transform = anyHidden ? 'rotate(180deg)' : 'rotate(0deg)';
-                }
-            });
-
-            if (textSpan) {
-                textSpan.textContent = anyHidden ? 'Collapse Dual' : 'Expand Dual';
+            const isFull = Math.abs(enteredQty - approvedQty) < 0.001 && approvedQty > 0;
+            if (isFull) {
+                fullBtn.classList.remove('border-emerald-300', 'bg-emerald-50', 'text-emerald-800');
+                fullBtn.classList.add('border-emerald-600', 'bg-emerald-600', 'text-white');
+                fullBtn.textContent = 'Full ✓';
+            } else {
+                fullBtn.classList.remove('border-emerald-600', 'bg-emerald-600', 'text-white');
+                fullBtn.classList.add('border-emerald-300', 'bg-emerald-50', 'text-emerald-800');
+                fullBtn.textContent = 'Full';
             }
         }
 
-        function formatLoadoutQty(value) {
-            return (parseFloat(value) || 0).toFixed(2);
+        function updateSaveQtyButtonState(productId, enteredQty, approvedQty) {
+            // Reserved for future custom button hooks
         }
 
-        function stepUnitQty(productId, delta) {
-            const input = document.getElementById('unit-qty-' + productId);
-            if (!input || input.readOnly) {
-                return;
+        function setRowStatus(productId, text) {
+            const statusEl = document.getElementById('row-status-text-' + productId);
+            if (statusEl) {
+                statusEl.textContent = text;
             }
-
-            let val = parseFloat(input.value) || 0;
-            val = Math.max(0, val + delta);
-            input.value = val;
         }
 
-        function showLoadoutFeedback(message, tone = 'info') {
-            if (!loadoutActionFeedback) {
-                return;
+        function markProductNotAvailable(productId) {
+            const statusField = document.getElementById('status-field-' + productId);
+            const noteField = document.getElementById('note-field-' + productId);
+            const qtyInput = document.getElementById('qty-' + productId);
+            const unitQtyInput = document.getElementById('unit-qty-' + productId);
+
+            if (statusField) statusField.value = 'not_available';
+            if (noteField) noteField.value = 'Marked not available during loadout.';
+
+            if (qtyInput) {
+                qtyInput.value = '0.00';
+                qtyInput.readOnly = true;
+                pulseInput(qtyInput);
             }
 
-            const toneClasses = {
-                info: ['border-cyan-200', 'bg-cyan-50', 'text-cyan-800'],
-                success: ['border-emerald-200', 'bg-emerald-50', 'text-emerald-800'],
-                warning: ['border-amber-200', 'bg-amber-50', 'text-amber-800'],
-            };
-
-            loadoutActionFeedback.className = 'rounded-2xl border px-4 py-3 text-xs font-semibold shadow-sm';
-            loadoutActionFeedback.classList.add(...(toneClasses[tone] ?? toneClasses.info));
-            loadoutActionFeedback.textContent = message;
-            loadoutActionFeedback.classList.remove('hidden');
-        }
-
-        function setRowStatus(productId, message) {
-            const rowStatus = document.getElementById('status-' + productId);
-            if (!rowStatus) {
-                return;
+            if (unitQtyInput) {
+                unitQtyInput.value = '0.00';
+                unitQtyInput.readOnly = true;
+                pulseInput(unitQtyInput);
             }
 
-            rowStatus.textContent = message;
-            rowStatus.classList.remove('hidden');
-        }
-
-        function pulseInput(input) {
-            if (!input) {
-                return;
-            }
-
-            input.classList.add('ring-2', 'ring-cyan-400', 'border-cyan-400');
-            window.setTimeout(function () {
-                input.classList.remove('ring-2', 'ring-cyan-400', 'border-cyan-400');
-            }, 1000);
+            setRowStatus(productId, 'Marked Not Available');
         }
 
         function markProductAvailable(productId) {
-            const input = document.getElementById('qty-' + productId);
-            const unitInput = document.getElementById('unit-qty-' + productId);
             const statusField = document.getElementById('status-field-' + productId);
             const noteField = document.getElementById('note-field-' + productId);
-            const btn = document.getElementById('not-avail-btn-' + productId);
-            const isDualMeasurement = Boolean(unitInput);
+            const qtyInput = document.getElementById('qty-' + productId);
+            const unitQtyInput = document.getElementById('unit-qty-' + productId);
 
-            if (statusField) {
-                statusField.value = 'loaded';
+            if (statusField) statusField.value = 'loaded';
+            if (noteField) noteField.value = '';
+
+            if (qtyInput) {
+                qtyInput.readOnly = false;
             }
 
-            if (noteField) {
-                noteField.value = '';
+            if (unitQtyInput) {
+                unitQtyInput.readOnly = false;
             }
 
-            [input, unitInput].forEach(function (field) {
-                if (!field) {
-                    return;
-                }
+            setRowStatus(productId, 'Reset to available');
+        }
 
-                field.readOnly = false;
-                field.classList.remove('bg-rose-50', 'text-rose-600', 'line-through');
-                field.classList.add('bg-white', 'text-slate-900');
-            });
+        function setFullQuantity(productId) {
+            const qtyInput = document.getElementById('qty-' + productId);
+            if (!qtyInput) return;
 
-            if (btn) {
-                btn.textContent = isDualMeasurement ? 'Not Available' : 'Not Avail';
-                btn.className = isDualMeasurement
-                    ? 'rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none'
-                    : 'shrink-0 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wide text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none';
+            markProductAvailable(productId);
+            const approved = qtyInput.dataset.approved;
+            qtyInput.value = approved;
+            qtyInput.dispatchEvent(new Event('change'));
+            pulseInput(qtyInput);
+
+            const unitQtyInput = document.getElementById('unit-qty-' + productId);
+            if (unitQtyInput) {
+                unitQtyInput.value = unitQtyInput.dataset.approvedUnit || '0.00';
+                unitQtyInput.dispatchEvent(new Event('change'));
+                pulseInput(unitQtyInput);
             }
         }
 
-        function updateFullButtonState(productId, entered, approved) {
-            const fullButton = document.getElementById('full-btn-' + productId);
-            if (!fullButton) {
-                return;
-            }
+        function stepQuantity(productId, step) {
+            const qtyInput = document.getElementById('qty-' + productId);
+            if (!qtyInput || qtyInput.readOnly) return;
 
-            if (approved > 0 && entered >= approved - 0.001) {
-                fullButton.textContent = 'Save';
-                fullButton.classList.remove('border-indigo-200', 'bg-indigo-50', 'text-indigo-600');
-                fullButton.classList.add('border-emerald-200', 'bg-emerald-50', 'text-emerald-700');
-            } else {
-                fullButton.textContent = 'Full';
-                fullButton.classList.remove('border-emerald-200', 'bg-emerald-50', 'text-emerald-700');
-                fullButton.classList.add('border-indigo-200', 'bg-indigo-50', 'text-indigo-600');
-            }
+            markProductAvailable(productId);
+            let current = parseFloat(qtyInput.value) || 0;
+            current = Math.max(0, current + step);
+            qtyInput.value = current.toFixed(2);
+            qtyInput.dispatchEvent(new Event('change'));
+            pulseInput(qtyInput);
         }
 
-        function handleFullAction(productId) {
-            const input = document.getElementById('qty-' + productId);
-            if (!input) {
-                return;
-            }
+        function stepUnitQty(productId, step) {
+            const unitInput = document.getElementById('unit-qty-' + productId);
+            if (!unitInput || unitInput.readOnly) return;
 
-            const approved = parseFloat(input.dataset.approved) || 0;
-            const entered = parseFloat(input.value) || 0;
-
-            if (approved > 0 && entered >= approved - 0.001) {
-                submitSpecificQty(productId);
-                return;
-            }
-
-            setFull(productId);
+            markProductAvailable(productId);
+            let current = parseFloat(unitInput.value) || 0;
+            current = Math.max(0, current + step);
+            unitInput.value = current.toFixed(2);
+            unitInput.dispatchEvent(new Event('change'));
+            pulseInput(unitInput);
         }
 
-        function updateSaveQtyButtonState(productId, entered, approved) {
-            const saveQtyButton = document.getElementById('save-qty-btn-' + productId);
-            if (!saveQtyButton) {
-                return;
-            }
-
-            if (entered > 0.001 && entered < approved - 0.001) {
-                saveQtyButton.classList.remove('hidden');
-            } else {
-                saveQtyButton.classList.add('hidden');
-            }
-        }
-
-        function submitSpecificQty(productId) {
-            const input = document.getElementById('qty-' + productId);
-            if (!input || !loadoutForm) {
-                return;
-            }
-
-            const entered = formatLoadoutQty(input.value);
-            const productName = input.dataset.product;
-            const unit = input.dataset.unit;
-
-            showLoadoutFeedback('Saving custom quantity for ' + productName + ': ' + entered + ' ' + unit + '.', 'success');
-            setRowStatus(productId, 'Saving custom quantity');
-            loadoutForm.submit();
-        }
-
-        // Set a product's qty input to its approved (full) qty
-        function setFull(productId) {
-            const input = document.getElementById('qty-' + productId);
-            if (input) {
-                markProductAvailable(productId);
-                const approved = formatLoadoutQty(input.dataset.approved);
-                const previous = formatLoadoutQty(input.value);
-                const productName = input.dataset.product;
-                const unit = input.dataset.unit;
-                const unitInput = document.getElementById('unit-qty-' + productId);
-
-                input.value = approved;
-                input.dispatchEvent(new Event('change'));
-                pulseInput(input);
-
-                if (unitInput) {
-                    unitInput.value = formatLoadoutQty(unitInput.dataset.approvedUnit);
-                    unitInput.dispatchEvent(new Event('change'));
-                    pulseInput(unitInput);
-                }
-
-                setRowStatus(productId, approved === previous ? 'Already at full quantity' : 'Full quantity applied');
-                showLoadoutFeedback(productName + ' set to ' + approved + ' ' + unit + '.', 'success');
-                window.showAppAlert({
-                    title: productName,
-                    message: approved === previous
-                        ? productName + ' is already at the full approved quantity of ' + approved + ' ' + unit + '.'
-                        : 'Set ' + productName + ' to the full approved quantity of ' + approved + ' ' + unit + '.',
-                    tone: 'success',
-                    confirmLabel: 'Continue',
-                });
-            }
-        }
-
-        // Load all products at full approved qty
+        {{-- SHOW ONCE: Load All Full Button with Confirmation --}}
         function loadAllFull() {
-            let changedCount = 0;
-            let alreadyFullCount = 0;
-
-            document.querySelectorAll('.qty-input').forEach(function (input) {
-                const productId = input.id.replace('qty-', '');
-                markProductAvailable(productId);
-
-                const approved = formatLoadoutQty(input.dataset.approved);
-                const current = formatLoadoutQty(input.value);
-                const unitInput = document.getElementById('unit-qty-' + productId);
-
-                input.value = approved;
-                input.dispatchEvent(new Event('change'));
-                pulseInput(input);
-
-                if (unitInput) {
-                    unitInput.value = formatLoadoutQty(unitInput.dataset.approvedUnit);
-                    unitInput.dispatchEvent(new Event('change'));
-                    pulseInput(unitInput);
-                }
-
-                if (current === approved) {
-                    alreadyFullCount++;
-                } else {
-                    changedCount++;
-                }
-            });
-
-            const changedSummary = changedCount > 0
-                ? 'Full approved quantities applied for ' + changedCount + ' product(s).'
-                : 'All products are already at full approved quantity.';
-            const alreadyFullSummary = alreadyFullCount > 0 && changedCount > 0
-                ? ' ' + alreadyFullCount + ' product(s) were already full.'
-                : '';
-
-            showLoadoutFeedback(changedSummary + alreadyFullSummary, changedCount > 0 ? 'success' : 'info');
+            if (localStorage.getItem('load_all_used_' + shopOrderId) === 'true') {
+                window.showAppConfirm({
+                    title: 'Action Already Used',
+                    message: 'Load All Full has already been performed for this order and cannot be clicked again.',
+                    confirmLabel: 'OK',
+                    tone: 'info',
+                });
+                return;
+            }
 
             window.showAppConfirm({
-                title: 'Load all products',
-                message: 'Load every product in this shop order as per the purchaser-approved quantities and save it now?',
-                confirmLabel: 'Confirm Load All',
-                cancelLabel: 'Keep Editing',
+                title: 'Load All Full',
+                message: 'Are you sure you want to load all items to 100% full approved quantity? This action can only be done ONCE per order to prevent accidental clicks.',
+                confirmLabel: 'Load All Full',
+                cancelLabel: 'Cancel',
                 tone: 'success',
                 onConfirm: function () {
-                    if (loadoutForm) {
-                        loadoutForm.submit();
-                    }
-                },
+                    let changedCount = 0;
+                    document.querySelectorAll('.qty-input').forEach(function (input) {
+                        const productId = input.id.replace('qty-', '');
+                        markProductAvailable(productId);
+
+                        const approved = formatLoadoutQty(input.dataset.approved);
+                        const unitInput = document.getElementById('unit-qty-' + productId);
+
+                        input.value = approved;
+                        input.dispatchEvent(new Event('change'));
+                        pulseInput(input);
+
+                        if (unitInput) {
+                            unitInput.value = formatLoadoutQty(unitInput.dataset.approvedUnit);
+                            unitInput.dispatchEvent(new Event('change'));
+                            pulseInput(unitInput);
+                        }
+                        changedCount++;
+                    });
+
+                    // Hide Load All Full button so it can never be clicked again
+                    localStorage.setItem('load_all_used_' + shopOrderId, 'true');
+                    const btn = document.getElementById('load-all-full-btn');
+                    if (btn) btn.style.display = 'none';
+
+                    showLoadoutFeedback('Loaded all products to full quantity. Click "Save Loadout" to save changes.', 'success');
+                }
             });
         }
 
         function clearAllLoadout() {
-            let changedCount = 0;
-
-            document.querySelectorAll('.qty-input').forEach(function (input) {
-                const productId = input.id.replace('qty-', '');
-                const current = formatLoadoutQty(input.value);
-                const unitInput = document.getElementById('unit-qty-' + productId);
-
-                markProductAvailable(productId);
-                input.value = '0.00';
-                input.dispatchEvent(new Event('change'));
-                pulseInput(input);
-
-                if (unitInput) {
-                    unitInput.value = '0.00';
-                    unitInput.dispatchEvent(new Event('change'));
-                    pulseInput(unitInput);
-                }
-
-                if (current !== '0.00') {
-                    changedCount++;
-                }
-            });
-
-            const changedSummary = changedCount > 0
-                ? 'Cleared loadout quantities for ' + changedCount + ' product(s).'
-                : 'All loadout quantities are already clear.';
-
-            showLoadoutFeedback(changedSummary, changedCount > 0 ? 'warning' : 'info');
-
             window.showAppConfirm({
-                title: 'Clear all quantities',
-                message: 'Clear every loaded quantity in this shop order and save it now?',
-                confirmLabel: 'Confirm Clear All',
-                cancelLabel: 'Keep Editing',
+                title: 'Clear All Quantities',
+                message: 'Are you sure you want to reset all product quantities to 0.00?',
+                confirmLabel: 'Clear All',
+                cancelLabel: 'Cancel',
                 tone: 'danger',
                 onConfirm: function () {
-                    if (loadoutForm) {
-                        loadoutForm.submit();
-                    }
-                },
+                    document.querySelectorAll('.qty-input').forEach(function (input) {
+                        const productId = input.id.replace('qty-', '');
+                        const unitInput = document.getElementById('unit-qty-' + productId);
+
+                        markProductAvailable(productId);
+                        input.value = '0.00';
+                        input.dispatchEvent(new Event('change'));
+                        pulseInput(input);
+
+                        if (unitInput) {
+                            unitInput.value = '0.00';
+                            unitInput.dispatchEvent(new Event('change'));
+                            pulseInput(unitInput);
+                        }
+                    });
+
+                    showLoadoutFeedback('All quantities cleared to 0.00.', 'info');
+                }
             });
         }
 
-        // Increment/decrement a secondary unit (BOX/CRATE/BAG) qty input by 1
-        function stepUnitQty(productId, direction) {
-            const input = document.getElementById('unit-qty-' + productId);
-            if (!input) return;
-            const step = 1;
-            let current = parseFloat(input.value) || 0;
-            current = Math.max(0, current + direction * step);
-            input.value = current.toFixed(2);
-            input.dispatchEvent(new Event('change'));
-        }
+        function showLoadoutFeedback(text, type) {
+            const feedbackEl = document.getElementById('loadout-action-feedback');
+            if (!feedbackEl) return;
 
-        // Increment/decrement a qty input by step (in 0.5 units)
-        function stepQty(productId, direction) {
-            const input = document.getElementById('qty-' + productId);
-            if (!input) return;
-            const step = 0.5;
-            let current = parseFloat(input.value) || 0;
-            current = Math.max(0, current + direction * step);
-            input.value = current.toFixed(2);
-            input.dispatchEvent(new Event('change'));
-        }
-
-        // Toggle Not Available / Out of Stock status for a product via Tailwind Modal
-        function toggleNotAvailable(productId) {
-            const input = document.getElementById('qty-' + productId);
-            const unitInput = document.getElementById('unit-qty-' + productId);
-            const statusField = document.getElementById('status-field-' + productId);
-            const noteField = document.getElementById('note-field-' + productId);
-            const btn = document.getElementById('not-avail-btn-' + productId);
-            const isDualMeasurement = Boolean(unitInput);
-            if (!input || !statusField || !btn) return;
-
-            if (statusField.value === 'not_available') {
-                statusField.value = 'loaded';
-                if (noteField) noteField.value = '';
-                input.readOnly = false;
-                input.classList.remove('bg-rose-50', 'text-rose-600', 'line-through');
-                btn.textContent = isDualMeasurement ? 'Not Available' : 'N/A';
-                btn.className = isDualMeasurement
-                    ? 'rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none'
-                    : 'shrink-0 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-rose-700 transition-colors hover:bg-rose-100 cursor-pointer border-none';
-                input.dispatchEvent(new Event('change'));
+            feedbackEl.classList.remove('hidden', 'border-rose-200', 'bg-rose-50', 'text-rose-800', 'border-emerald-200', 'bg-emerald-50', 'text-emerald-800', 'border-cyan-200', 'bg-cyan-50', 'text-cyan-800');
+            if (type === 'success') {
+                feedbackEl.classList.add('border-emerald-200', 'bg-emerald-50', 'text-emerald-800');
+            } else if (type === 'info') {
+                feedbackEl.classList.add('border-cyan-200', 'bg-cyan-50', 'text-cyan-800');
             } else {
-                openNotAvailableReasonModal(productId);
+                feedbackEl.classList.add('border-rose-200', 'bg-rose-50', 'text-rose-800');
             }
+            feedbackEl.textContent = text;
+            setTimeout(function () { feedbackEl.classList.add('hidden'); }, 3500);
         }
 
-        function openNotAvailableReasonModal(productId) {
-            const input = document.getElementById('qty-' + productId);
-            if (!input) return;
+        {{-- MANUAL SAVE ONLY: Confirm Popup Modal before Saving --}}
+        function confirmSaveLoadout() {
+            const loadoutForm = document.getElementById('loadout-form');
+            if (!loadoutForm) return;
 
-            pendingNotAvailableProductId = productId;
-            const productName = input.dataset.product || 'Product';
-            document.getElementById('not-avail-modal-product-name').textContent = productName;
-            const reasonInput = document.getElementById('not-avail-reason-input');
-            if (reasonInput) reasonInput.value = '';
-
-            document.getElementById('not-available-reason-modal').classList.remove('hidden');
-            setTimeout(() => { if (reasonInput) reasonInput.focus(); }, 100);
-        }
-
-        function closeNotAvailableReasonModal() {
-            document.getElementById('not-available-reason-modal').classList.add('hidden');
-            pendingNotAvailableProductId = null;
-        }
-
-        function confirmNotAvailableReason() {
-            if (!pendingNotAvailableProductId) return;
-            const productId = pendingNotAvailableProductId;
-
-            const input = document.getElementById('qty-' + productId);
-            const unitInput = document.getElementById('unit-qty-' + productId);
-            const statusField = document.getElementById('status-field-' + productId);
-            const noteField = document.getElementById('note-field-' + productId);
-            const btn = document.getElementById('not-avail-btn-' + productId);
-            const isDualMeasurement = Boolean(unitInput);
-            const reasonInput = document.getElementById('not-avail-reason-input');
-            const note = (reasonInput ? reasonInput.value : '').trim() || 'Marked as Not Available';
-
-            if (input && statusField && btn) {
-                statusField.value = 'not_available';
-                if (noteField) noteField.value = note;
-                input.value = '0.00';
-                input.readOnly = true;
-                input.classList.add('bg-rose-50', 'text-rose-600', 'line-through');
-                btn.textContent = isDualMeasurement ? 'Unavailable ✕' : 'N/A ✕';
-                btn.className = isDualMeasurement
-                    ? 'rounded-xl border bg-rose-600 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-white cursor-pointer transition-colors border-none'
-                    : 'shrink-0 rounded-lg border bg-rose-600 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-white cursor-pointer transition-colors border-none';
-                
-                input.dispatchEvent(new Event('change'));
-            }
-
-            closeNotAvailableReasonModal();
-
-            if (typeof currentModalProductId !== 'undefined' && currentModalProductId === productId) {
-                const modalInput = document.getElementById('modal-qty-input');
-                if (modalInput) {
-                    modalInput.value = '0.00';
-                    modalInput.readOnly = true;
+            window.showAppConfirm({
+                title: 'Save Loadout Quantities',
+                message: 'Are you sure you want to save current loadout quantities and update warehouse stock?',
+                confirmLabel: 'Save Loadout',
+                cancelLabel: 'Cancel',
+                tone: 'primary',
+                onConfirm: function () {
+                    executeLoadoutSave();
                 }
-                const modalNotAvailBtn = document.getElementById('modal-not-avail-btn');
-                if (modalNotAvailBtn) {
-                    modalNotAvailBtn.textContent = 'Enable Item';
+            });
+        }
+
+        async function executeLoadoutSave() {
+            const loadoutForm = document.getElementById('loadout-form');
+            const feedbackEl = document.getElementById('loadout-action-feedback');
+            const floatingBtn = document.getElementById('floating-save-btn');
+            
+            if (!loadoutForm) return;
+
+            if (floatingBtn) {
+                floatingBtn.disabled = true;
+                floatingBtn.innerHTML = '<span>SAVING...</span>';
+            }
+
+            if (feedbackEl) {
+                feedbackEl.classList.remove('hidden', 'border-rose-200', 'bg-rose-50', 'text-rose-800', 'border-emerald-200', 'bg-emerald-50', 'text-emerald-800');
+                feedbackEl.classList.add('border-cyan-200', 'bg-cyan-50', 'text-cyan-800');
+                feedbackEl.textContent = 'Saving loadout quantities & updating stock...';
+            }
+
+            try {
+                const formData = new FormData(loadoutForm);
+                const response = await fetch(loadoutForm.action, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: formData,
+                });
+
+                const data = await response.json().catch(() => ({}));
+
+                if (response.ok || response.status === 200) {
+                    if (feedbackEl) {
+                        feedbackEl.classList.remove('border-cyan-200', 'bg-cyan-50', 'text-cyan-800');
+                        feedbackEl.classList.add('border-emerald-200', 'bg-emerald-50', 'text-emerald-800');
+                        const duplicateCount = Number(data.duplicate_count || 0);
+                        feedbackEl.textContent = duplicateCount > 0
+                            ? 'Loadout saved. Duplicate rows still exist for ' + duplicateCount + ' product(s). Merge them from top warning panel.'
+                            : 'Loadout saved & stock updated successfully! ✓';
+                        setTimeout(() => { feedbackEl.classList.add('hidden'); }, 3500);
+                    }
+
+                    if (floatingBtn) {
+                        floatingBtn.disabled = false;
+                        floatingBtn.innerHTML = '<span>SAVED ✓</span>';
+                        setTimeout(() => {
+                            floatingBtn.innerHTML = '<svg class="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg><span>SAVE LOADOUT</span>';
+                        }, 2000);
+                    }
+                } else {
+                    if (feedbackEl) {
+                        feedbackEl.classList.remove('border-cyan-200', 'bg-cyan-50', 'text-cyan-800');
+                        feedbackEl.classList.add('border-rose-200', 'bg-rose-50', 'text-rose-800');
+                        feedbackEl.textContent = data.message || 'Error saving loadout. Please check inputs.';
+                    }
+                    if (floatingBtn) {
+                        floatingBtn.disabled = false;
+                        floatingBtn.innerHTML = '<span>SAVE LOADOUT</span>';
+                    }
+                }
+            } catch (err) {
+                if (feedbackEl) {
+                    feedbackEl.classList.remove('border-cyan-200', 'bg-cyan-50', 'text-cyan-800');
+                    feedbackEl.classList.add('border-rose-200', 'bg-rose-50', 'text-rose-800');
+                    feedbackEl.textContent = 'Network error while saving loadout.';
+                }
+                if (floatingBtn) {
+                    floatingBtn.disabled = false;
+                    floatingBtn.innerHTML = '<span>SAVE LOADOUT</span>';
                 }
             }
         }
 
-        // Confirm modal for forms
         document.addEventListener('DOMContentLoaded', function () {
+            // Check if Load All Full was already used for this order
+            if (localStorage.getItem('load_all_used_' + shopOrderId) === 'true') {
+                const btn = document.getElementById('load-all-full-btn');
+                if (btn) btn.style.display = 'none';
+            }
+
             const productSearch = document.getElementById('loadout-product-search');
             const productCategory = document.getElementById('loadout-product-category');
             const productStatus = document.getElementById('loadout-product-status');
+            const productCount = document.getElementById('loadout-product-filter-count');
             const productRows = Array.from(document.querySelectorAll('.loadout-product-row'));
             const productEmpty = document.getElementById('loadout-product-empty');
-            const productCount = document.getElementById('loadout-product-filter-count');
+
             const mobileLoadoutCount = document.getElementById('mobile-loadout-count');
-            const mobileAddonCount = document.getElementById('mobile-addon-count');
             const mobileLoadoutSaved = document.getElementById('mobile-loadout-saved');
+            const mobileAddonCount = document.getElementById('mobile-addon-count');
             const mobileAddonSaved = document.getElementById('mobile-addon-saved');
 
-            const inlineAddonToggle = document.getElementById('toggle-inline-addon');
+            const inlineAddonToggle = document.getElementById('inline-addon-toggle-btn');
             const inlineAddonPanel = document.getElementById('inline-addon-panel');
             const inlineAddonCombobox = document.getElementById('inline-addon-combobox');
-            const inlineAddonTrigger = document.getElementById('inline-addon-combobox-trigger');
-            const inlineAddonDropdown = document.getElementById('inline-addon-combobox-panel');
-            const inlineAddonSearch = document.getElementById('inline-addon-combobox-search');
+            const inlineAddonTrigger = document.getElementById('inline-addon-trigger');
+            const inlineAddonDropdown = document.getElementById('inline-addon-dropdown');
+            const inlineAddonSearch = document.getElementById('inline-addon-search');
             const inlineAddonHiddenInput = document.getElementById('inline-addon-product-id');
             const inlineAddonSelectedLabel = document.getElementById('inline-addon-selected-label');
             const inlineAddonOptions = Array.from(document.querySelectorAll('.inline-addon-option'));
             const inlineAddonGroups = Array.from(document.querySelectorAll('.inline-addon-category-group'));
             const inlineAddonEmpty = document.getElementById('inline-addon-combobox-empty');
-
-            const loadoutForm = document.getElementById('loadout-form');
-            let autosaveTimer = null;
 
             function updateMobileTopInfo() {
                 const qtyInputs = Array.from(document.querySelectorAll('.qty-input'));
@@ -1329,23 +975,6 @@
             function markMobileSavedState() {
                 mobileLoadoutSaved?.classList.remove('hidden');
                 mobileAddonSaved?.classList.remove('hidden');
-            }
-
-            function scheduleAutosave() {
-                if (!loadoutForm) {
-                    return;
-                }
-
-                mobileLoadoutSaved?.classList.add('hidden');
-                mobileAddonSaved?.classList.add('hidden');
-
-                if (autosaveTimer) {
-                    clearTimeout(autosaveTimer);
-                }
-
-                autosaveTimer = window.setTimeout(function () {
-                    loadoutForm.requestSubmit();
-                }, 600);
             }
 
             function filterLoadoutProducts() {
@@ -1552,84 +1181,6 @@
                 }
             }
 
-            // AJAX submit for loadout form without page reload
-            if (loadoutForm) {
-                loadoutForm.addEventListener('submit', async function(e) {
-                    e.preventDefault();
-                    
-                    const submitter = e.submitter;
-                    const feedbackEl = document.getElementById('loadout-action-feedback');
-                    
-                    let originalText = '';
-                    if (submitter) {
-                        originalText = submitter.innerHTML;
-                        submitter.disabled = true;
-                        submitter.innerHTML = 'Saving...';
-                    }
-                    
-                    if (feedbackEl) {
-                        feedbackEl.classList.remove('hidden', 'border-rose-200', 'bg-rose-50', 'text-rose-800', 'border-emerald-200', 'bg-emerald-50', 'text-emerald-800');
-                        feedbackEl.classList.add('border-cyan-200', 'bg-cyan-50', 'text-cyan-800');
-                        feedbackEl.textContent = 'Saving loadout quantities & updating stock...';
-                    }
-
-                    try {
-                        const formData = new FormData(loadoutForm);
-                        const response = await fetch(loadoutForm.action, {
-                            method: 'POST',
-                            headers: {
-                                'Accept': 'application/json',
-                                'X-Requested-With': 'XMLHttpRequest',
-                            },
-                            body: formData,
-                        });
-
-                        const data = await response.json().catch(() => ({}));
-
-                        if (response.ok || response.status === 200) {
-                            if (feedbackEl) {
-                                feedbackEl.classList.remove('border-cyan-200', 'bg-cyan-50', 'text-cyan-800');
-                                feedbackEl.classList.add('border-emerald-200', 'bg-emerald-50', 'text-emerald-800');
-                                const duplicateCount = Number(data.duplicate_count || 0);
-                                feedbackEl.textContent = duplicateCount > 0
-                                    ? 'Loadout saved. Duplicate rows still exist for ' + duplicateCount + ' product(s). Merge them from the top warning panel.'
-                                    : 'Loadout saved & stock updated successfully! ✓';
-                                setTimeout(() => { feedbackEl.classList.add('hidden'); }, 3500);
-                            }
-
-                            updateMobileTopInfo();
-                            markMobileSavedState();
-                            
-                            if (submitter) {
-                                submitter.disabled = false;
-                                submitter.innerHTML = 'Saved ✓';
-                                setTimeout(() => { submitter.innerHTML = originalText; }, 2000);
-                            }
-                        } else {
-                            if (feedbackEl) {
-                                feedbackEl.classList.remove('border-cyan-200', 'bg-cyan-50', 'text-cyan-800');
-                                feedbackEl.classList.add('border-rose-200', 'bg-rose-50', 'text-rose-800');
-                                feedbackEl.textContent = data.message || 'Error saving loadout. Please check inputs.';
-                            }
-                            if (submitter) {
-                                submitter.disabled = false;
-                                submitter.innerHTML = originalText;
-                            }
-                        }
-                    } catch (err) {
-                        if (feedbackEl) {
-                            feedbackEl.classList.remove('border-cyan-200', 'bg-cyan-50', 'text-cyan-800');
-                            feedbackEl.classList.add('border-rose-200', 'bg-rose-50', 'text-rose-800');
-                            feedbackEl.textContent = 'Network error while saving loadout.';
-                        }
-                        if (submitter) {
-                            submitter.disabled = false;
-                            submitter.innerHTML = originalText;
-                        }
-                    }
-                });
-            }
-
             document.querySelectorAll('.qty-input').forEach(function (input) {
                 const approved = parseFloat(input.dataset.approved);
                 const entered = parseFloat(input.value) || 0;
@@ -1659,17 +1210,15 @@
                 });
             });
 
-            // Inline validation: warn if entered qty > available
+            // Inline validation: warn if entered qty > available (NO AUTOSAVE)
             document.querySelectorAll('.qty-input').forEach(function (input) {
                 const onQtyChanged = function () {
                     const approved = parseFloat(input.dataset.approved);
                     const available = parseFloat(input.dataset.available);
                     const entered = parseFloat(input.value) || 0;
-                    const productName = input.dataset.product;
                     const productId = input.id.replace('qty-', '');
                     const normalizedEntered = parseFloat(input.value) || 0;
                     updateFullButtonState(productId, normalizedEntered, approved);
-                    updateSaveQtyButtonState(productId, normalizedEntered, approved);
 
                     if (normalizedEntered > available) {
                         input.style.borderColor = '#f59e0b';
@@ -1688,7 +1237,6 @@
                     }
 
                     updateMobileTopInfo();
-                    scheduleAutosave();
                 };
 
                 input.addEventListener('input', onQtyChanged);
@@ -1698,7 +1246,6 @@
             document.querySelectorAll('[id^="unit-qty-"]').forEach(function (input) {
                 const onUnitQtyChanged = function () {
                     updateMobileTopInfo();
-                    scheduleAutosave();
                 };
 
                 input.addEventListener('input', onUnitQtyChanged);
