@@ -187,6 +187,7 @@ class WarehouseLoadoutController extends Controller
         $canMoveToLoadout = $shopOrder->delivery_status !== 'delivered' && $shopOrder->delivery_status !== 'pending_delivery';
         $mergeCandidates = $this->duplicateMergeCandidates($shopOrder->items);
         $hasDuplicates = $mergeCandidates->isNotEmpty();
+        $unpricedProductNames = $this->shopInvoiceService->getUnpricedOrderItemNames($shopOrder);
 
         return view('warehouse.loadout.show', compact(
             'shopOrder',
@@ -200,7 +201,45 @@ class WarehouseLoadoutController extends Controller
             'canMoveToLoadout',
             'mergeCandidates',
             'hasDuplicates',
+            'unpricedProductNames',
         ));
+    }
+
+    public function removeUnpricedItems(ShopOrder $shopOrder, Request $request): RedirectResponse
+    {
+        $this->authorizeAccess($request);
+
+        if ($shopOrder->delivery_status === 'delivered') {
+            abort(403, 'Cannot modify a delivered order.');
+        }
+
+        $unpricedNames = $this->shopInvoiceService->getUnpricedOrderItemNames($shopOrder);
+
+        if ($unpricedNames === []) {
+            return redirect()->back()->with('success', 'No unpriced items found — all items have approved selling prices.');
+        }
+
+        try {
+            DB::transaction(function () use ($shopOrder, $unpricedNames): void {
+                ShopOrder::lockForUpdate()->find($shopOrder->id);
+
+                $removedCount = $shopOrder->items()
+                    ->whereHas('product', fn ($q) => $q->whereIn('name', $unpricedNames))
+                    ->delete();
+
+                $shopOrder->update([
+                    'delivery_notes' => trim(
+                        ($shopOrder->delivery_notes ?? '')."\n[Auto] Removed {$removedCount} unpriced item(s): ".implode(', ', $unpricedNames).'.',
+                    ),
+                ]);
+            });
+        } catch (Throwable $e) {
+            return redirect()->back()->withErrors(['Could not remove unpriced items: '.$e->getMessage()]);
+        }
+
+        return redirect()
+            ->route('warehouse.loadout.show', $shopOrder)
+            ->with('success', 'Removed '.count($unpricedNames).' unpriced item(s): '.implode(', ', $unpricedNames).'.');
     }
 
     public function mergeDuplicates(ShopOrder $shopOrder, Request $request): RedirectResponse|JsonResponse

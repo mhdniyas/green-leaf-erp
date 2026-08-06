@@ -1198,6 +1198,17 @@ class ShopInvoiceService
     }
 
     /**
+     * Return product names from the order that have no approved daily price.
+     * Reuses the same filtering logic that blocks invoice generation.
+     *
+     * @return array<int, string>
+     */
+    public function getUnpricedOrderItemNames(ShopOrder $order): array
+    {
+        return $this->missingDailyPriceProductNamesForOrder($order);
+    }
+
+    /**
      * @return array<int, string>
      */
     private function missingDailyPriceProductNamesForOrder(ShopOrder $order): array

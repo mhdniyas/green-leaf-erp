@@ -171,6 +171,31 @@
             </div>
         @endif
 
+        @if(!empty($unpricedProductNames))
+            <section class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 shadow-sm">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.14em] text-amber-700">Pricing Issue</p>
+                        <h2 class="mt-1 text-sm font-black text-amber-900">{{ count($unpricedProductNames) }} item(s) have no approved selling price</h2>
+                        <p class="mt-1 text-xs font-semibold text-amber-800">{{ implode(', ', $unpricedProductNames) }}</p>
+                        <p class="mt-1 text-[11px] text-amber-700">These items are blocking invoice generation. Remove them to proceed with delivery.</p>
+                    </div>
+                    <form action="{{ route('warehouse.loadout.remove-unpriced-items', $shopOrder) }}"
+                          method="POST"
+                          class="loadout-confirm-form"
+                          data-confirm-title="Remove unpriced items"
+                          data-confirm-message="Remove {{ count($unpricedProductNames) }} item(s) with no approved selling price from this order? This cannot be undone."
+                          data-confirm-button="Remove Items">
+                        @csrf
+                        <button type="submit"
+                                class="inline-flex items-center justify-center rounded-xl bg-amber-600 px-4 py-2 text-[11px] font-black uppercase tracking-wider text-white hover:bg-amber-700 border-none cursor-pointer whitespace-nowrap">
+                            Remove Unpriced Items
+                        </button>
+                    </form>
+                </div>
+            </section>
+        @endif
+
         @php
             $loadoutProductCategories = collect($productGroups)
                 ->map(fn (array $group): string => (string) ($group['product']->category?->name ?? 'Other'))
