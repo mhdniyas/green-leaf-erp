@@ -400,9 +400,21 @@
                                 ? number_format($orderedUnitQty, 2, '.', '').' '.$requestedUnitName
                                 : number_format($approved, 2).' '.strtoupper($group['unit']);
                             $isItemNotAvailable = $firstItem && ($firstItem->sorting_status === 'not_available' || $firstItem->loadout_discrepancy_type === 'not_available');
+                            
+                            $modalData = [
+                                'id' => $group['product_id'],
+                                'sl' => $loop->iteration,
+                                'sku' => $group['product']->sku ?: $group['product_id'],
+                                'name' => $group['product']->name,
+                                'unit' => strtoupper($group['unit']),
+                                'ordered' => number_format($approved, 2, '.', ''),
+                                'loaded' => number_format($loaded, 2, '.', ''),
+                                'available' => number_format($available, 2, '.', ''),
+                                'is_not_available' => $isItemNotAvailable,
+                            ];
                         @endphp
 
-                        <div class="loadout-product-row overflow-hidden rounded-xl border bg-white shadow-xs transition
+                        <div class="loadout-product-row overflow-hidden rounded-2xl border bg-white shadow-xs transition
                             {{ $isFullyLoaded ? 'border-emerald-200 bg-emerald-50/20' : ($isPartial ? 'border-amber-200 bg-amber-50/10' : 'border-slate-200') }}"
                              data-search="{{ strtolower(trim(($group['product']->name ?? '').' '.($group['product']->sku ?? '').' '.$loadoutCategoryName)) }}"
                              data-category="{{ strtolower($loadoutCategoryName) }}"
@@ -459,10 +471,10 @@
                                 <input type="hidden" id="status-field-{{ $group['product_id'] }}" name="item_status[{{ $group['product_id'] }}]" value="{{ $isItemNotAvailable ? 'not_available' : 'loaded' }}">
                                 <input type="hidden" id="note-field-{{ $group['product_id'] }}" name="item_notes[{{ $group['product_id'] }}]" value="{{ $firstItem->loadout_discrepancy_note ?? '' }}">
 
-                                {{-- Collapsible Body (COLLAPSED BY DEFAULT) --}}
+                                {{-- Collapsible Body --}}
                                 <div id="card-body-{{ $group['product_id'] }}" class="product-card-body collapsible-body hidden border-t border-slate-100 p-3 pt-2 bg-slate-50/40">
                                     <div class="grid gap-2 sm:grid-cols-2">
-                                        {{-- 1. Loaded Secondary Unit Count Stepper --}}
+                                        {{-- Loaded Secondary Unit Count Stepper --}}
                                         <div class="flex items-center justify-between gap-2 rounded-lg bg-white border border-slate-200 p-2">
                                             <span class="text-[11px] font-black text-slate-700">Loaded {{ $requestedUnitName }}:</span>
                                             <div class="flex items-center gap-1">
@@ -472,7 +484,7 @@
                                             </div>
                                         </div>
 
-                                        {{-- 2. Loaded Actual Weight Input --}}
+                                        {{-- Loaded Actual Weight Input --}}
                                         <div class="flex items-center justify-between gap-2 rounded-lg bg-white border border-slate-200 p-2">
                                             <span class="text-[11px] font-black text-slate-700">Loaded Weight ({{ strtoupper($group['unit']) }}):</span>
                                             <div class="flex items-center gap-1">
@@ -492,66 +504,50 @@
                                     </div>
                                 </div>
                             @else
-                                {{-- Single-Measure Product Body (ALWAYS VISIBLE) --}}
-                                <div class="p-3">
-                                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                        <div class="flex-1 min-w-0">
-                                            <h3 class="truncate text-sm font-black text-slate-900">
-                                                <span class="mr-1 inline-block rounded-md bg-indigo-100 px-1.5 py-0.5 text-[10px] font-black text-indigo-700">SL {{ $loop->iteration }}</span>
-                                                <span class="inline-block rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-black text-slate-700 mr-1">#{{ $group['product']->sku ?: $group['product_id'] }}</span>
-                                                {{ $group['product']->name }}
-                                            </h3>
+                                {{-- Single-Measure Product Body (MATCHES ORIGINAL CLEAN SINGLE-ROW DESIGN) --}}
+                                <div class="p-2 sm:p-2.5">
+                                    <div class="flex items-center justify-between gap-1.5 min-w-0">
+                                        {{-- Product info inline in 1 row (Click opens modal) --}}
+                                        <div class="flex items-center gap-1.5 min-w-0 flex-1 cursor-pointer" onclick="openSingleQtyModal({{ json_encode($modalData) }})">
+                                            <span class="rounded-md bg-indigo-100 px-1.5 py-0.5 text-[9px] font-black text-indigo-700 shrink-0">SL {{ $loop->iteration }}</span>
+                                            <span class="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-black text-slate-700 shrink-0">#{{ $group['product']->sku ?: $group['product_id'] }}</span>
+                                            
+                                            <h3 class="truncate text-xs font-black text-slate-900 shrink-0 max-w-[110px] sm:max-w-xs" title="{{ $group['product']->name }}">{{ $group['product']->name }}</h3>
 
-                                            <div class="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[10px] font-semibold text-slate-500">
-                                                <span>Ordered: <span class="font-black text-slate-900">{{ number_format($approved, 2) }} {{ strtoupper($group['unit']) }}</span></span>
-                                                @if($loaded > 0)
-                                                    <span>Loaded: <span class="font-black text-emerald-700">{{ number_format($loaded, 2) }} {{ strtoupper($group['unit']) }}</span></span>
-                                                @endif
-                                                @if($loaded > $approved)
-                                                    <span class="inline-flex items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 border border-amber-200">
-                                                        Excess: <span class="font-black">{{ number_format($loaded - $approved, 2) }} {{ strtoupper($group['unit']) }}</span>
-                                                    </span>
-                                                @endif
-                                                <span class="inline-flex items-center gap-1 rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-800 border border-sky-200">
-                                                    Info Stock: <span class="font-black">{{ number_format($available, 2) }} {{ strtoupper($group['unit']) }}</span>
-                                                </span>
-                                                @if($isItemNotAvailable)
-                                                    <span class="rounded-full bg-rose-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-rose-700">Not Available ✕</span>
-                                                @elseif($isFullyLoaded)
-                                                    <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-emerald-700">Loaded ✓</span>
-                                                @elseif($isPartial)
-                                                    <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-amber-700">Partial</span>
-                                                @else
-                                                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-600">Pending</span>
-                                                @endif
+                                            <div class="flex items-center gap-1.5 text-[9px] font-semibold text-slate-500 shrink-0">
+                                                <span>Ord: <span class="font-black text-slate-900">{{ number_format($approved, 2, '.', '') }}</span></span>
+                                                <span class="text-sky-700">Stk: <span class="font-bold">{{ number_format($available, 2, '.', '') }}</span></span>
                                             </div>
+
+                                            @if($isItemNotAvailable)
+                                                <span class="rounded-full bg-rose-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-rose-700 shrink-0">Not Avail ✕</span>
+                                            @elseif($isFullyLoaded)
+                                                <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-emerald-700 shrink-0">LOADED ✓</span>
+                                            @elseif($isPartial)
+                                                <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-amber-700 shrink-0">Partial</span>
+                                            @else
+                                                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-600 shrink-0">Pending</span>
+                                            @endif
                                         </div>
 
-                                        <div class="flex items-center gap-1.5 shrink-0 justify-between sm:justify-end">
+                                        {{-- Inline Stepper & N/A button --}}
+                                        <div class="flex items-center gap-1 shrink-0">
                                             <input type="hidden" id="status-field-{{ $group['product_id'] }}" name="item_status[{{ $group['product_id'] }}]" value="{{ $isItemNotAvailable ? 'not_available' : 'loaded' }}">
                                             <input type="hidden" id="note-field-{{ $group['product_id'] }}" name="item_notes[{{ $group['product_id'] }}]" value="{{ $firstItem->loadout_discrepancy_note ?? '' }}">
 
-                                            <div class="flex items-center gap-1">
-                                                <button type="button" onclick="stepQuantity({{ $group['product_id'] }}, -1)" class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 cursor-pointer border-none font-bold text-base shadow-2xs">-</button>
+                                            <button type="button" onclick="stepQuantity({{ $group['product_id'] }}, -1)" class="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 cursor-pointer border-none font-bold text-sm shadow-2xs">-</button>
 
-                                                <div class="relative flex items-center">
-                                                    <input type="number" id="qty-{{ $group['product_id'] }}" name="item_quantities[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" data-approved="{{ number_format($approved, 2, '.', '') }}" data-available="{{ number_format($available, 2, '.', '') }}" data-product="{{ $group['product']->name }}" class="qty-input h-8 w-24 rounded-lg border border-slate-200 bg-white text-right text-xs font-black text-slate-900 focus:border-indigo-500 focus:outline-none pr-8 pl-1.5" {{ $isItemNotAvailable ? 'readonly' : '' }}>
-                                                    <span class="pointer-events-none absolute right-2 text-[9px] font-extrabold text-slate-400 uppercase">{{ strtoupper($group['unit']) }}</span>
-                                                </div>
-
-                                                <button type="button" onclick="stepQuantity({{ $group['product_id'] }}, 1)" class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 cursor-pointer border-none font-bold text-base shadow-2xs">+</button>
-
-                                                <button type="button" id="full-btn-{{ $group['product_id'] }}" onclick="setFullQuantity({{ $group['product_id'] }})" class="h-8 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 text-[10px] font-black uppercase tracking-wider text-emerald-800 hover:bg-emerald-100 cursor-pointer border-none shadow-2xs">Full</button>
+                                            <div class="relative flex items-center">
+                                                <input type="number" id="qty-{{ $group['product_id'] }}" name="item_quantities[{{ $group['product_id'] }}]" value="{{ number_format($loaded, 2, '.', '') }}" min="0" step="any" inputmode="decimal" data-approved="{{ number_format($approved, 2, '.', '') }}" data-available="{{ number_format($available, 2, '.', '') }}" data-product="{{ $group['product']->name }}" class="qty-input h-7 w-16 rounded-md border border-slate-200 px-1 text-center text-xs font-black focus:outline-none {{ $isItemNotAvailable ? 'bg-rose-50 text-rose-600 line-through' : 'bg-white text-slate-900' }}" {{ $isItemNotAvailable ? 'readonly' : '' }}>
+                                                <span class="pointer-events-none absolute right-1 text-[8px] font-extrabold text-slate-400 uppercase">{{ strtoupper($group['unit']) }}</span>
                                             </div>
-                                        </div>
-                                    </div>
 
-                                    <div class="mt-1.5 flex items-center justify-between border-t border-slate-100 pt-1.5 text-[11px]">
-                                        <div class="flex items-center gap-2">
-                                            <button type="button" onclick="markProductNotAvailable({{ $group['product_id'] }})" class="text-[10px] font-bold text-rose-600 hover:underline border-none bg-transparent cursor-pointer">Mark Not Available</button>
-                                            <button type="button" onclick="markProductAvailable({{ $group['product_id'] }})" class="text-[10px] font-bold text-emerald-600 hover:underline border-none bg-transparent cursor-pointer">Reset</button>
+                                            <button type="button" onclick="stepQuantity({{ $group['product_id'] }}, 1)" class="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 cursor-pointer border-none font-bold text-sm shadow-2xs">+</button>
+
+                                            <button type="button" id="not-avail-btn-{{ $group['product_id'] }}" onclick="markProductNotAvailable({{ $group['product_id'] }})" class="h-7 rounded-md border border-rose-200 bg-rose-50 px-2 text-[9px] font-black uppercase text-rose-700 hover:bg-rose-100 cursor-pointer border-none shadow-2xs">
+                                                N/A
+                                            </button>
                                         </div>
-                                        <span id="row-status-text-{{ $group['product_id'] }}" class="text-[10px] font-bold text-slate-500"></span>
                                     </div>
                                 </div>
                             @endif
@@ -578,9 +574,155 @@
 
     </div>
 
+    {{-- Product Quantity Modal Popup (Matches Screenshot 2) --}}
+    <div id="single-qty-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs hidden">
+        <div class="w-full max-w-sm overflow-hidden rounded-3xl bg-white p-5 shadow-2xl transition-all">
+            {{-- Modal Header --}}
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-1.5">
+                    <span id="modal-sl-badge" class="rounded-md bg-indigo-100 px-2 py-0.5 text-xs font-black text-indigo-700">SL 1</span>
+                    <span id="modal-sku-badge" class="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-black text-slate-700">#1</span>
+                </div>
+                <button type="button" onclick="closeSingleQtyModal()" class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition-colors border-none cursor-pointer">
+                    ✕
+                </button>
+            </div>
+
+            <h3 id="modal-product-name" class="mt-2 text-lg font-black text-slate-900">Product Name</h3>
+
+            {{-- Stats Card (ORDERED / LOADED / STOCK) --}}
+            <div class="mt-4 rounded-2xl bg-slate-50 p-3.5 border border-slate-100 grid grid-cols-3 text-center gap-2">
+                <div>
+                    <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">ORDERED</p>
+                    <p id="modal-stat-ordered" class="mt-0.5 text-xs font-black text-slate-900">0.00 KG</p>
+                </div>
+                <div>
+                    <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">LOADED</p>
+                    <p id="modal-stat-loaded" class="mt-0.5 text-xs font-black text-emerald-600">0.00 KG</p>
+                </div>
+                <div>
+                    <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">STOCK</p>
+                    <p id="modal-stat-stock" class="mt-0.5 text-xs font-black text-sky-600">0.00 KG</p>
+                </div>
+            </div>
+
+            {{-- Loaded Quantity Stepper --}}
+            <div class="mt-4">
+                <label class="block text-[10px] font-black uppercase tracking-wider text-slate-400">LOADED QUANTITY</label>
+                <div class="mt-1.5 flex items-center gap-2">
+                    <button type="button" onclick="modalStepQty(-1)" class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-700 hover:bg-slate-200 text-xl font-black border-none cursor-pointer">-</button>
+                    
+                    <div class="relative flex-1">
+                        <input type="number" id="modal-qty-input" step="any" min="0" class="h-12 w-full rounded-2xl border-2 border-indigo-600 bg-white text-center text-lg font-black text-slate-900 focus:outline-none pr-8">
+                        <span id="modal-unit-label" class="pointer-events-none absolute right-3 top-3.5 text-xs font-black text-slate-400 uppercase">KG</span>
+                    </div>
+
+                    <button type="button" onclick="modalStepQty(1)" class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-700 hover:bg-slate-200 text-xl font-black border-none cursor-pointer">+</button>
+                </div>
+            </div>
+
+            {{-- Quick Action Buttons --}}
+            <div class="mt-4 grid grid-cols-3 gap-2">
+                <button type="button" onclick="modalSetFull()" class="rounded-xl border border-emerald-200 bg-emerald-50 py-2.5 text-xs font-black text-emerald-700 hover:bg-emerald-100 transition-colors border-none cursor-pointer">
+                    Full Qty
+                </button>
+                <button type="button" onclick="modalSetZero()" class="rounded-xl border border-slate-200 bg-slate-100 py-2.5 text-xs font-black text-slate-700 hover:bg-slate-200 transition-colors border-none cursor-pointer">
+                    Clear (0)
+                </button>
+                <button type="button" onclick="modalToggleNotAvail()" class="rounded-xl border border-rose-200 bg-rose-50 py-2.5 text-xs font-black text-rose-700 hover:bg-rose-100 transition-colors border-none cursor-pointer">
+                    Not Avail
+                </button>
+            </div>
+
+            {{-- Primary SAVE & APPLY Button --}}
+            <button type="button" onclick="saveSingleQtyModal()" class="mt-4 w-full rounded-2xl bg-indigo-600 py-3.5 text-xs font-black uppercase tracking-wider text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all border-none cursor-pointer">
+                SAVE & APPLY
+            </button>
+        </div>
+    </div>
+
     @push('scripts')
     <script>
         const shopOrderId = '{{ $shopOrder->id }}';
+        let currentModalProductId = null;
+
+        function openSingleQtyModal(data) {
+            currentModalProductId = data.id;
+
+            const modal = document.getElementById('single-qty-modal');
+            const slBadge = document.getElementById('modal-sl-badge');
+            const skuBadge = document.getElementById('modal-sku-badge');
+            const nameEl = document.getElementById('modal-product-name');
+            const orderedEl = document.getElementById('modal-stat-ordered');
+            const loadedEl = document.getElementById('modal-stat-loaded');
+            const stockEl = document.getElementById('modal-stat-stock');
+            const qtyInput = document.getElementById('modal-qty-input');
+            const unitLabel = document.getElementById('modal-unit-label');
+
+            if (slBadge) slBadge.textContent = 'SL ' + data.sl;
+            if (skuBadge) skuBadge.textContent = '#' + data.sku;
+            if (nameEl) nameEl.textContent = data.name;
+            if (orderedEl) orderedEl.textContent = data.ordered + ' ' + data.unit;
+            if (loadedEl) loadedEl.textContent = data.loaded + ' ' + data.unit;
+            if (stockEl) stockEl.textContent = data.available + ' ' + data.unit;
+            if (unitLabel) unitLabel.textContent = data.unit;
+
+            const targetInput = document.getElementById('qty-' + data.id);
+            if (targetInput && qtyInput) {
+                qtyInput.value = targetInput.value;
+                qtyInput.dataset.approved = targetInput.dataset.approved;
+            }
+
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        function closeSingleQtyModal() {
+            const modal = document.getElementById('single-qty-modal');
+            if (modal) modal.classList.add('hidden');
+            currentModalProductId = null;
+        }
+
+        function modalStepQty(step) {
+            const qtyInput = document.getElementById('modal-qty-input');
+            if (!qtyInput) return;
+            let val = parseFloat(qtyInput.value) || 0;
+            val = Math.max(0, val + step);
+            qtyInput.value = val.toFixed(2);
+        }
+
+        function modalSetFull() {
+            const qtyInput = document.getElementById('modal-qty-input');
+            if (!qtyInput) return;
+            const approved = qtyInput.dataset.approved || '0.00';
+            qtyInput.value = parseFloat(approved).toFixed(2);
+        }
+
+        function modalSetZero() {
+            const qtyInput = document.getElementById('modal-qty-input');
+            if (!qtyInput) return;
+            qtyInput.value = '0.00';
+        }
+
+        function modalToggleNotAvail() {
+            if (!currentModalProductId) return;
+            markProductNotAvailable(currentModalProductId);
+            closeSingleQtyModal();
+        }
+
+        function saveSingleQtyModal() {
+            if (!currentModalProductId) return;
+            const modalQtyInput = document.getElementById('modal-qty-input');
+            const targetInput = document.getElementById('qty-' + currentModalProductId);
+
+            if (targetInput && modalQtyInput) {
+                markProductAvailable(currentModalProductId);
+                targetInput.value = parseFloat(modalQtyInput.value || 0).toFixed(2);
+                targetInput.dispatchEvent(new Event('change'));
+                pulseInput(targetInput);
+            }
+
+            closeSingleQtyModal();
+        }
 
         function checkLoadAllButtonVisibility() {
             const btn = document.getElementById('load-all-full-btn');
@@ -677,10 +819,6 @@
                 fullBtn.classList.add('border-emerald-300', 'bg-emerald-50', 'text-emerald-800');
                 fullBtn.textContent = 'Full';
             }
-        }
-
-        function updateSaveQtyButtonState(productId, enteredQty, approvedQty) {
-            // Reserved for future custom button hooks
         }
 
         function setRowStatus(productId, text) {
@@ -1232,7 +1370,6 @@
                 const entered = parseFloat(input.value) || 0;
                 const productId = input.id.replace('qty-', '');
                 updateFullButtonState(productId, entered, approved);
-                updateSaveQtyButtonState(productId, entered, approved);
             });
 
             document.querySelectorAll('.loadout-confirm-form').forEach(function (form) {
