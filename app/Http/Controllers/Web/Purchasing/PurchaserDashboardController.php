@@ -226,7 +226,9 @@ class PurchaserDashboardController extends Controller
         );
 
         $sharePreviewText = $this->buildDailySummaryShareText($shareSummary, $date);
+        $shareTotalPreviewText = $this->buildDailySummaryShareTotalText($shareSummary, $date);
         $shareUrl = 'https://api.whatsapp.com/send?text='.rawurlencode($sharePreviewText);
+        $shareTotalUrl = 'https://api.whatsapp.com/send?text='.rawurlencode($shareTotalPreviewText);
 
         return view('purchasing.purchaser.daily_share', [
             'date' => $date->format('Y-m-d'),
@@ -252,7 +254,9 @@ class PurchaserDashboardController extends Controller
                 ->values(),
             'shareSummary' => $shareSummary,
             'sharePreviewText' => $sharePreviewText,
+            'shareTotalPreviewText' => $shareTotalPreviewText,
             'shareUrl' => $shareUrl,
+            'shareTotalUrl' => $shareTotalUrl,
         ]);
     }
 
@@ -3599,6 +3603,29 @@ class PurchaserDashboardController extends Controller
             }
 
             $lines[] = 'Total '.$this->formatShareQuantity((float) $summary['total_approved_qty'], $summary['unit']);
+            $lines[] = '';
+        }
+
+        return trim(implode("\n", $lines));
+    }
+
+    private function buildDailySummaryShareTotalText(Collection $dailySummary, Carbon $date): string
+    {
+        $lines = [
+            '*Daily Purchase Total Qty*',
+            $date->format('d M Y'),
+            '---',
+            '',
+        ];
+
+        foreach ($dailySummary as $summary) {
+            $productHeader = '*'.$summary['product_name'].'*';
+            $orderDate = $summary['order_date'];
+            if ($orderDate->format('Y-m-d') !== $date->format('Y-m-d')) {
+                $productHeader .= ' (Pending '.$orderDate->format('d M Y').')';
+            }
+            $lines[] = $productHeader;
+            $lines[] = 'Total '.$this->formatShareQuantity((float) $summary['remaining_qty'], $summary['unit']);
             $lines[] = '';
         }
 
