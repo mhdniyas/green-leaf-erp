@@ -205,6 +205,59 @@ class WarehouseLoadoutController extends Controller
         ));
     }
 
+    /**
+     * Show printable invoice-style loadout slip / dispatched manifest.
+     */
+    public function slip(ShopOrder $shopOrder, Request $request): View
+    {
+        $this->authorizeAccess($request);
+
+        $shopOrder->load(['shop', 'items.product.category', 'items.product.orderUnits', 'deliveredBy']);
+
+        $productGroups = $shopOrder->items
+            ->groupBy('product_id')
+            ->map(function ($items) {
+                $productId = $items->first()->product_id;
+                $totalApproved = $this->loadoutApprovedQuantity($items);
+                $totalLoaded = (float) $items->where('sorting_status', 'loaded')->sum('loaded_qty');
+                $totalLoadedOrderUnit = (float) $items->where('sorting_status', 'loaded')->sum(fn (ShopOrderItem $item): float => (float) ($item->loaded_order_unit_qty ?? 0));
+                $totalRequestedOrderUnit = (float) $items->sum(fn (ShopOrderItem $item): float => (float) ($item->requested_qty ?? 0));
+
+                $firstItem = $items->first();
+                $productBaseUnit = strtolower((string) ($firstItem->product->unit ?? 'kg'));
+                $requestedUnit = strtolower((string) ($firstItem->requested_unit ?? ''));
+                $hasSecondaryUnit = $requestedUnit !== '' && $requestedUnit !== $productBaseUnit;
+
+                return [
+                    'product_id' => $productId,
+                    'product' => $firstItem->product,
+                    'unit' => $firstItem->product->unit ?? 'KG',
+                    'product_grade' => $firstItem->product_grade ?? 'A',
+                    'total_approved' => $totalApproved,
+                    'total_loaded' => $totalLoaded,
+                    'loaded_order_unit_qty' => $totalLoadedOrderUnit,
+                    'has_secondary_unit' => $hasSecondaryUnit,
+                    'requested_unit_total' => $totalRequestedOrderUnit,
+                    'requested_unit_label' => $firstItem->requested_unit_label ?? strtoupper($firstItem->requested_unit ?? ''),
+                    'sorting_status' => $items->first()->sorting_status ?? 'allocated',
+                    'loadout_discrepancy_note' => $items->first()->loadout_discrepancy_note,
+                    'items' => $items,
+                ];
+            })
+            ->sortBy(fn (array $group) => \App\Models\Product::sortableSku((string) ($group['product']?->sku ?? '')))
+            ->values();
+
+        $totalLoadedItems = $productGroups->filter(fn (array $group) => $group['total_loaded'] > 0)->count();
+        $totalLoadedWeight = (float) $productGroups->sum('total_loaded');
+
+        return view('warehouse.loadout.slip', compact(
+            'shopOrder',
+            'productGroups',
+            'totalLoadedItems',
+            'totalLoadedWeight'
+        ));
+    }
+
     public function removeUnpricedItems(ShopOrder $shopOrder, Request $request): RedirectResponse
     {
         $this->authorizeAccess($request);

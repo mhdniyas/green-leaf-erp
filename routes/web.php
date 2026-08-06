@@ -385,6 +385,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/', [WarehouseLoadoutController::class, 'index'])->name('index');
         Route::get('/{shopOrder}/addon', [WarehouseLoadoutController::class, 'createAddon'])->name('addon.create');
         Route::post('/{shopOrder}/addon', [WarehouseLoadoutController::class, 'storeAddon'])->name('addon.store');
+        Route::get('/{shopOrder}/slip', [WarehouseLoadoutController::class, 'slip'])->name('slip');
         Route::get('/{shopOrder}', [WarehouseLoadoutController::class, 'show'])->name('show');
         Route::post('/{shopOrder}/save', [WarehouseLoadoutController::class, 'save'])->name('save');
         Route::post('/{shopOrder}/merge-duplicates', [WarehouseLoadoutController::class, 'mergeDuplicates'])->name('merge-duplicates');

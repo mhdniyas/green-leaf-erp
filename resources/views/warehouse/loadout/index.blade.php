@@ -209,10 +209,17 @@
                                             Direct Purchase
                                         </span>
                                     @endif
-                                    <a href="{{ route('warehouse.loadout.show', $shopOrder) }}"
-                                       class="inline-flex h-8 items-center justify-center rounded-xl {{ $shopOrder->delivery_status === 'in_transit' ? 'bg-slate-800 hover:bg-slate-900' : (in_array($shopOrder->delivery_status, ['delivered', 'pending_approval', 'partially_delivered', 'delivery_issue'], true) ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-indigo-600 hover:bg-indigo-700') }} px-3 text-[11px] font-black text-white transition-colors text-decoration-none">
-                                        {{ $buttonLabel }}
-                                    </a>
+                                    <div class="flex items-center gap-1.5">
+                                        <a href="{{ route('warehouse.loadout.slip', $shopOrder) }}" target="_blank"
+                                           title="Print / View Loadout Slip"
+                                           class="inline-flex h-8 items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 px-2.5 text-[10px] font-black text-slate-700 transition-colors text-decoration-none">
+                                            Slip 📄
+                                        </a>
+                                        <a href="{{ route('warehouse.loadout.show', $shopOrder) }}"
+                                           class="inline-flex h-8 items-center justify-center rounded-xl {{ $shopOrder->delivery_status === 'in_transit' ? 'bg-slate-800 hover:bg-slate-900' : (in_array($shopOrder->delivery_status, ['delivered', 'pending_approval', 'partially_delivered', 'delivery_issue'], true) ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-indigo-600 hover:bg-indigo-700') }} px-3 text-[11px] font-black text-white transition-colors text-decoration-none">
+                                            {{ $buttonLabel }}
+                                        </a>
+                                    </div>
                                 </div>
                             </div>
                         </div>
