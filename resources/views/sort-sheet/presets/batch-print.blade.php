@@ -116,6 +116,10 @@
             page-break-before: always !important;
         }
 
+        .category-block.continuation-table {
+            margin-top: 4px;
+        }
+
         .page-heading {
             border-bottom: 2px solid #000;
             margin: 4px 0 6px;
@@ -264,7 +268,7 @@
             $isFirstCategory = false;
             $previousCatId = $catId;
         @endphp
-        <div class="category-block {{ $shouldBreak ? 'has-page-break' : '' }}">
+        <div class="category-block {{ $shouldBreak ? 'has-page-break' : '' }} {{ $showPageHeading ? '' : 'continuation-table' }}">
             @if($showPageHeading)
             <div class="page-heading">
                 <div class="title">{{ $preset->name }} — Sort Sheet</div>
@@ -280,6 +284,7 @@
                     @endforeach
                     <col style="width:{{ $totalWidth }}%">
                 </colgroup>
+                @if($showPageHeading)
                 <thead>
                     <tr>
                         <th>Code</th>
@@ -295,6 +300,7 @@
                         <th>Total</th>
                     </tr>
                 </thead>
+                @endif
                 <tbody>
                     @foreach($catItems as $productId => $shopQtys)
                     @php
