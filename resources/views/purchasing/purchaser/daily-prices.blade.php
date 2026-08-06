@@ -665,9 +665,10 @@
 
             const updated = Number(data?.invoice_updates_count ?? 0);
             const targeted = Number(data?.invoice_updates_targeted_count ?? 0);
+            const skipped = Number(data?.invoice_updates_skipped_count ?? 0);
             const failed = Number(data?.invoice_updates_failed_count ?? 0);
 
-            if (!Number.isFinite(updated) || !Number.isFinite(targeted) || !Number.isFinite(failed)) {
+            if (!Number.isFinite(updated) || !Number.isFinite(targeted) || !Number.isFinite(skipped) || !Number.isFinite(failed)) {
                 return;
             }
 
@@ -678,6 +679,11 @@
 
             if (failed > 0) {
                 countEl.textContent = `Invoices Updated: ${updated}/${targeted} (Failed: ${failed})`;
+                return;
+            }
+
+            if (skipped > 0) {
+                countEl.textContent = `Invoices Updated: ${updated}/${targeted} (Skipped: ${skipped})`;
                 return;
             }
 

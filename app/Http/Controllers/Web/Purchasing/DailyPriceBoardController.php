@@ -75,11 +75,13 @@ class DailyPriceBoardController extends Controller
         $pageProductIds = $products->getCollection()->pluck('id')->map(fn ($id): int => (int) $id)->all();
 
         $currentApprovals = DailyPriceApproval::query()
-            ->with('product.category')
             ->whereDate('business_date', $targetBusinessDate)
             ->whereIn('product_id', $pageProductIds)
+            ->orderByRaw("CASE WHEN status = 'approved' THEN 0 ELSE 1 END")
+            ->orderByDesc('id')
             ->get()
-            ->keyBy('product_id');
+            ->groupBy('product_id')
+            ->map(fn (Collection $rows): DailyPriceApproval => $rows->first());
 
         $previousApprovals = DailyPriceApproval::query()
             ->with('product.category')

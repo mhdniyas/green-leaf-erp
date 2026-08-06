@@ -44,6 +44,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class PurchaserDashboardController extends Controller
@@ -4117,7 +4118,7 @@ class PurchaserDashboardController extends Controller
                         'business_date' => $businessDateStr,
                         'purchase_price' => $newPrice,
                         'price_unit' => ProductUnit::normalizeUnit((string) $product->unit ?: 'kg'),
-                        'price_a' => (float) ($previousApproval?->price_a ?? $product->base_price),
+                        'price_a' => $newPrice,
                         'price_b' => (float) ($previousApproval?->price_b ?? $product->base_price),
                         'price_c' => (float) ($previousApproval?->price_c ?? $product->base_price),
                         'status' => 'approved',
@@ -4126,6 +4127,13 @@ class PurchaserDashboardController extends Controller
                     ]);
                 } else {
                     $approval->purchase_price = $newPrice;
+                    $approval->price_a = $newPrice;
+                    if ($approval->price_b === null || (float) $approval->price_b <= 0) {
+                        $approval->price_b = (float) ($previousApproval?->price_b ?? $newPrice);
+                    }
+                    if ($approval->price_c === null || (float) $approval->price_c <= 0) {
+                        $approval->price_c = (float) ($previousApproval?->price_c ?? $newPrice);
+                    }
                     $approval->status = 'approved';
                     $approval->approved_by = $userId;
                     $approval->approved_at = now();
@@ -4155,6 +4163,7 @@ class PurchaserDashboardController extends Controller
             userId: $userId,
         );
         $invoiceUpdatesCount = (int) $invoiceSyncSummary['updated'];
+        $invoiceSyncSkippedCount = (int) ($invoiceSyncSummary['skipped'] ?? 0);
         $invoiceSyncFailedCount = (int) $invoiceSyncSummary['failed'];
         $invoiceSyncTargetedCount = (int) $invoiceSyncSummary['targeted'];
         $invoiceSyncOk = $invoiceSyncFailedCount === 0;
@@ -4228,14 +4237,19 @@ class PurchaserDashboardController extends Controller
                 'global_update_message' => $invoiceSyncTargetedCount === 0
                     ? ($isRefreshAction ? 'No related invoices found for refresh.' : null)
                     : ($invoiceSyncOk
-                        ? ($isRefreshAction
-                            ? "Invoice refresh completed for {$invoiceUpdatesCount} related invoice(s)."
-                            : "Price approved and updated globally in {$invoiceUpdatesCount} related invoice(s).")
+                        ? ($invoiceSyncSkippedCount > 0
+                            ? ($isRefreshAction
+                                ? "Invoice refresh completed for {$invoiceUpdatesCount} invoice(s); {$invoiceSyncSkippedCount} skipped due to pending/missing approved prices."
+                                : "Price approved and updated in {$invoiceUpdatesCount} invoice(s); {$invoiceSyncSkippedCount} skipped due to pending/missing approved prices.")
+                            : ($isRefreshAction
+                                ? "Invoice refresh completed for {$invoiceUpdatesCount} related invoice(s)."
+                                : "Price approved and updated globally in {$invoiceUpdatesCount} related invoice(s)."))
                         : ($isRefreshAction
                             ? "Invoice refresh failed for {$invoiceSyncFailedCount} related invoice(s)."
                             : "Price approved, but invoice sync failed for {$invoiceSyncFailedCount} related invoice(s).")),
                 'invoice_updates_count' => $invoiceUpdatesCount,
                 'invoice_updates_targeted_count' => $invoiceSyncTargetedCount,
+                'invoice_updates_skipped_count' => $invoiceSyncSkippedCount,
                 'invoice_updates_failed_count' => $invoiceSyncFailedCount,
                 'invoice_sync_ok' => $invoiceSyncOk,
                 'refresh_action' => $isRefreshAction,
@@ -4258,7 +4272,9 @@ class PurchaserDashboardController extends Controller
             ->with('success', $invoiceSyncTargetedCount === 0
                 ? "Successfully updated {$updatedCount} product price(s) and synced to matrix."
                 : ($invoiceSyncOk
-                    ? "Successfully updated {$updatedCount} product price(s), synced to matrix, and repriced {$invoiceUpdatesCount} related invoice(s)."
+                    ? ($invoiceSyncSkippedCount > 0
+                        ? "Successfully updated {$updatedCount} product price(s), repriced {$invoiceUpdatesCount} invoice(s), and skipped {$invoiceSyncSkippedCount} invoice(s) with pending/missing approved prices."
+                        : "Successfully updated {$updatedCount} product price(s), synced to matrix, and repriced {$invoiceUpdatesCount} related invoice(s).")
                     : "Updated {$updatedCount} product price(s), but invoice sync failed for {$invoiceSyncFailedCount} related invoice(s)."));
     }
 
@@ -4275,6 +4291,7 @@ class PurchaserDashboardController extends Controller
             return [
                 'targeted' => 0,
                 'updated' => 0,
+                'skipped' => 0,
                 'failed' => 0,
             ];
         }
@@ -4289,10 +4306,11 @@ class PurchaserDashboardController extends Controller
 
         $targetedInvoices = $targetInvoices->count();
         $updatedInvoices = 0;
+        $skippedInvoices = 0;
         $failedInvoices = 0;
 
         $targetInvoices
-            ->each(function (ShopInvoice $invoice) use ($userId, &$updatedInvoices, &$failedInvoices): void {
+            ->each(function (ShopInvoice $invoice) use ($userId, &$updatedInvoices, &$skippedInvoices, &$failedInvoices): void {
                 try {
                     $this->shopInvoiceService->repriceInvoice(
                         $invoice,
@@ -4300,6 +4318,8 @@ class PurchaserDashboardController extends Controller
                         'Auto repriced after purchaser daily price approval',
                     );
                     $updatedInvoices++;
+                } catch (ValidationException $exception) {
+                    $skippedInvoices++;
                 } catch (\Throwable $exception) {
                     $failedInvoices++;
                     report($exception);
@@ -4309,6 +4329,7 @@ class PurchaserDashboardController extends Controller
         return [
             'targeted' => $targetedInvoices,
             'updated' => $updatedInvoices,
+            'skipped' => $skippedInvoices,
             'failed' => $failedInvoices,
         ];
     }
