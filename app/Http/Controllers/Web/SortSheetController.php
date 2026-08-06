@@ -183,6 +183,70 @@ class SortSheetController extends Controller
         return redirect()->back()->with('success', 'Custom order preset deleted successfully.');
     }
 
+    public function reorderPresets(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $this->authorizeAccess($request);
+
+        $orderIds = (array) $request->input('preset_ids', []);
+        foreach ($orderIds as $index => $uuid) {
+            SortSheetPreset::where('uuid', $uuid)
+                ->orWhere('id', $uuid)
+                ->update(['sort_order' => $index + 1]);
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    public function movePresetUp(Request $request, SortSheetPreset $preset): RedirectResponse
+    {
+        $this->authorizeAccess($request);
+
+        $presets = $this->userPresets($request);
+        $index = $presets->search(fn ($p) => $p->id === $preset->id);
+
+        if ($index !== false && $index > 0) {
+            $prevPreset = $presets->get($index - 1);
+            $temp = $preset->sort_order;
+            $preset->sort_order = $prevPreset->sort_order === $temp ? $index - 1 : $prevPreset->sort_order;
+            $prevPreset->sort_order = $temp === $prevPreset->sort_order ? $index : $temp;
+
+            if ($preset->sort_order >= $prevPreset->sort_order) {
+                $prevPreset->sort_order = $index;
+                $preset->sort_order = $index - 1;
+            }
+
+            $preset->save();
+            $prevPreset->save();
+        }
+
+        return redirect()->back()->with('success', "Preset '{$preset->name}' moved up.");
+    }
+
+    public function movePresetDown(Request $request, SortSheetPreset $preset): RedirectResponse
+    {
+        $this->authorizeAccess($request);
+
+        $presets = $this->userPresets($request);
+        $index = $presets->search(fn ($p) => $p->id === $preset->id);
+
+        if ($index !== false && $index < $presets->count() - 1) {
+            $nextPreset = $presets->get($index + 1);
+            $temp = $preset->sort_order;
+            $preset->sort_order = $nextPreset->sort_order === $temp ? $index + 1 : $nextPreset->sort_order;
+            $nextPreset->sort_order = $temp === $nextPreset->sort_order ? $index : $temp;
+
+            if ($preset->sort_order <= $nextPreset->sort_order) {
+                $nextPreset->sort_order = $index;
+                $preset->sort_order = $index + 1;
+            }
+
+            $preset->save();
+            $nextPreset->save();
+        }
+
+        return redirect()->back()->with('success', "Preset '{$preset->name}' moved down.");
+    }
+
     private function userPresets(Request $request): Collection
     {
         return SortSheetPreset::query()
@@ -190,7 +254,8 @@ class SortSheetController extends Controller
                 $query->where('user_id', $request->user()?->id)
                     ->orWhereNull('user_id');
             })
-            ->orderBy('name')
+            ->orderBy('sort_order', 'asc')
+            ->orderBy('id', 'asc')
             ->get();
     }
 

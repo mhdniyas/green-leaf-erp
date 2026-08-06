@@ -15,6 +15,7 @@ class SortSheetPreset extends Model
         'uuid',
         'user_id',
         'name',
+        'sort_order',
         'surface',
         'warehouse_id',
         'price_group_id',

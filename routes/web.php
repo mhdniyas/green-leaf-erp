@@ -546,6 +546,9 @@ Route::middleware('auth')->group(function () {
         Route::delete('/preset-batches/{batch:uuid}', [SortSheetController::class, 'destroyPresetBatch'])->name('presets.batches.destroy');
         Route::get('/presets/{preset:uuid}/edit', [SortSheetController::class, 'editPreset'])->name('presets.edit');
         Route::put('/presets/{preset:uuid}', [SortSheetController::class, 'updatePreset'])->name('presets.update');
+        Route::post('/presets/reorder', [SortSheetController::class, 'reorderPresets'])->name('presets.reorder');
+        Route::post('/presets/{preset:uuid}/move-up', [SortSheetController::class, 'movePresetUp'])->name('presets.move-up');
+        Route::post('/presets/{preset:uuid}/move-down', [SortSheetController::class, 'movePresetDown'])->name('presets.move-down');
         Route::delete('/presets/{preset:uuid}', [SortSheetController::class, 'destroyPreset'])->name('presets.destroy');
         Route::get('/export/excel', [SortSheetController::class, 'exportExcel'])->name('export.excel');
         Route::get('/export/pdf', [SortSheetController::class, 'exportPdf'])->name('export.pdf');

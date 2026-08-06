@@ -56,7 +56,7 @@
                     <a href="{{ route('sort-sheet.presets.batch-print', ['batch_id' => $batch->uuid, 'date' => date('Y-m-d')]) }}" target="_blank"
                        class="px-3 py-1.5 rounded-xl bg-purple-700 hover:bg-purple-800 text-white text-[11px] font-bold shadow-sm transition flex items-center gap-1">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231a1.125 1.125 0 01-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.656" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231a1.125 1.125 0 01-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 18.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.656" />
                         </svg>
                         Print Batch
                     </a>
@@ -145,7 +145,7 @@
                                     'separate_category_pages' => $preset->separate_category_pages ? 1 : null,
                                 ]);
                             @endphp
-                            <tr class="hover:bg-slate-50 transition">
+                            <tr class="preset-row hover:bg-slate-50 transition-all duration-200" data-preset-uuid="{{ $preset->uuid }}">
                                 <td class="py-3.5 px-3 text-center">
                                     <input type="checkbox" name="preset_ids[]" value="{{ $preset->uuid }}" class="preset-batch-checkbox rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer">
                                 </td>
@@ -218,6 +218,18 @@
                                                 Run
                                             </button>
                                         </form>
+
+                                        <button type="button" class="preset-move-up-btn p-1.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition {{ $loop->first ? 'hidden' : '' }}" title="Move Up in sequence">
+                                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+                                            </svg>
+                                        </button>
+
+                                        <button type="button" class="preset-move-down-btn p-1.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition {{ $loop->last ? 'hidden' : '' }}" title="Move Down in sequence">
+                                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                                            </svg>
+                                        </button>
 
                                         <a href="{{ route('sort-sheet.presets.edit', $preset) }}"
                                            class="p-1.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition"
@@ -518,8 +530,71 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Instant Smooth AJAX Reordering Handler
+    const presetTbody = document.querySelector('table tbody');
+    const updateMoveButtons = () => {
+        const rows = document.querySelectorAll('.preset-row');
+        rows.forEach((row, idx) => {
+            const upBtn = row.querySelector('.preset-move-up-btn');
+            const downBtn = row.querySelector('.preset-move-down-btn');
+            if (upBtn) upBtn.classList.toggle('hidden', idx === 0);
+            if (downBtn) downBtn.classList.toggle('hidden', idx === rows.length - 1);
+        });
+    };
+
+    const savePresetOrder = async () => {
+        const rows = Array.from(document.querySelectorAll('.preset-row'));
+        const presetIds = rows.map(r => r.dataset.presetUuid).filter(Boolean);
+
+        try {
+            await fetch("{{ route('sort-sheet.presets.reorder') }}", {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': "{{ csrf_token() }}",
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ preset_ids: presetIds })
+            });
+        } catch (e) {
+            console.error('Failed to save preset order:', e);
+        }
+    };
+
+    document.addEventListener('click', (e) => {
+        const upBtn = e.target.closest('.preset-move-up-btn');
+        const downBtn = e.target.closest('.preset-move-down-btn');
+
+        if (upBtn) {
+            e.preventDefault();
+            const row = upBtn.closest('.preset-row');
+            const prevRow = row?.previousElementSibling;
+            if (row && prevRow && prevRow.classList.contains('preset-row')) {
+                row.classList.add('bg-amber-100/90');
+                presetTbody.insertBefore(row, prevRow);
+                updateMoveButtons();
+                savePresetOrder();
+                setTimeout(() => row.classList.remove('bg-amber-100/90'), 400);
+            }
+        }
+
+        if (downBtn) {
+            e.preventDefault();
+            const row = downBtn.closest('.preset-row');
+            const nextRow = row?.nextElementSibling;
+            if (row && nextRow && nextRow.classList.contains('preset-row')) {
+                row.classList.add('bg-amber-100/90');
+                presetTbody.insertBefore(nextRow, row);
+                updateMoveButtons();
+                savePresetOrder();
+                setTimeout(() => row.classList.remove('bg-amber-100/90'), 400);
+            }
+        }
+    });
+
     updateAllCards();
     updateBatchBtnState();
+    updateMoveButtons();
 });
 </script>
 @endpush
