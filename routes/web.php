@@ -481,10 +481,12 @@ Route::middleware('auth')->group(function () {
             Route::post('purchasers/{user:public_uuid}/login-as', [AdminAccountingController::class, 'loginAsPurchaser'])->name('purchasers.login-as');
             Route::post('purchasers/{user:public_uuid}/buy', [AdminAccountingController::class, 'buyAsPurchaser'])->name('purchasers.buy');
         });
-        Route::post('users/{user}/approve', [UserController::class, 'approve'])->name('users.approve');
+        Route::post('users/{user:public_uuid}/approve', [UserController::class, 'approve'])->name('users.approve');
         Route::get('user-access', [UserAccessController::class, 'index'])->name('user-access.index');
         Route::post('user-access/{user:public_uuid}', [UserAccessController::class, 'store'])->name('user-access.store');
-        Route::resource('users', UserController::class)->middleware('can:admin.user.view');
+        Route::resource('users', UserController::class)
+            ->scoped(['user' => 'public_uuid'])
+            ->middleware('can:admin.user.view');
         Route::resource('warehouses', WarehouseController::class)->middleware('can:inventory.stock.adjust');
         Route::middleware('can:hr.employee.view')->group(function () {
             Route::get('staff', [StaffManagementController::class, 'index'])->name('staff.index');

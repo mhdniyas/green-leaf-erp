@@ -79,6 +79,8 @@ class UserController extends Controller
 
     public function update(UpdateUserRequest $request, User $user): RedirectResponse
     {
+        Gate::authorize('update', $user);
+
         $this->service->update($user, UserData::fromRequest($request));
 
         return redirect()->route('admin.users.index')
