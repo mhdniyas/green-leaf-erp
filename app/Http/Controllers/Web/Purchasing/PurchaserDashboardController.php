@@ -3901,11 +3901,22 @@ class PurchaserDashboardController extends Controller
 
         $relevantProductIds = array_unique(array_merge($todayOrderedProductIds, $recentPurchasedProductIds));
 
+        $selectedCategory = $request->input('category_id');
+
+        $categories = Category::query()
+            ->whereHas('products', fn ($q) => $q->whereIn('id', $relevantProductIds))
+            ->orderBy('name')
+            ->get();
+
         $productsQuery = Product::query()
             ->active()
             ->with(['category'])
             ->whereIn('id', $relevantProductIds)
             ->ordered();
+
+        if ($selectedCategory && $selectedCategory !== 'all') {
+            $productsQuery->where('category_id', (int) $selectedCategory);
+        }
 
         if ($searchQuery !== '') {
             $productsQuery->where(function ($q) use ($searchQuery): void {
@@ -3961,8 +3972,8 @@ class PurchaserDashboardController extends Controller
                 }
             }
 
-            // Up to 5 valid recent price history entries
-            $history = $approvals->take(5)->map(function ($app) {
+            // Up to 3 valid recent price history entries
+            $history = $approvals->take(3)->map(function ($app) {
                 return [
                     'date' => $app->business_date->format('d M Y'),
                     'price' => (float) $app->purchase_price,
@@ -3995,6 +4006,8 @@ class PurchaserDashboardController extends Controller
 
         return view('purchasing.purchaser.daily-prices', [
             'products' => $productsWithPrices,
+            'categories' => $categories,
+            'selectedCategory' => $selectedCategory,
             'operationalDate' => $operationalDate,
             'searchQuery' => $searchQuery,
             'cutoffLabel' => $this->businessDayService->cutoffLabel(),
@@ -4123,7 +4136,7 @@ class PurchaserDashboardController extends Controller
                 }
             }
 
-            $history = $allApprovals->take(5)->map(function ($app) {
+            $history = $allApprovals->take(3)->map(function ($app) {
                 return [
                     'date' => $app->business_date->format('d M Y'),
                     'price' => (float) $app->purchase_price,

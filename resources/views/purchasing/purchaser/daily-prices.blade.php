@@ -183,8 +183,8 @@
             </div>
         </section>
 
-        {{-- Search section --}}
-        <form action="{{ route('purchaser.daily-prices') }}" method="GET" class="rounded-xl border border-slate-200/80 bg-white p-1.5 shadow-2xs">
+        {{-- Search & Category Filter Section --}}
+        <form action="{{ route('purchaser.daily-prices') }}" method="GET" class="flex flex-col gap-2 rounded-xl border border-slate-200/80 bg-white p-2 shadow-2xs">
             <div class="flex min-w-0 gap-2">
                 <div class="relative flex-1">
                     <svg class="absolute left-3 top-2.5 h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -192,14 +192,42 @@
                     </svg>
                     <input type="search" name="search" value="{{ $searchQuery }}" placeholder="Search product name or SKU..." class="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/80 pl-9 pr-3 text-xs font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none focus:ring-3 focus:ring-teal-500/10 transition-all">
                 </div>
+
+                @if ($categories->isNotEmpty())
+                    <select name="category_id" onchange="this.form.submit()" class="h-9 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 text-xs font-bold text-slate-700 focus:border-teal-500 focus:bg-white focus:outline-none shrink-0 cursor-pointer max-w-[130px] sm:max-w-[170px]">
+                        <option value="all">All Categories</option>
+                        @foreach ($categories as $cat)
+                            <option value="{{ $cat->id }}" {{ (string) $selectedCategory === (string) $cat->id ? 'selected' : '' }}>
+                                {{ $cat->name }}
+                            </option>
+                        @endforeach
+                    </select>
+                @endif
+
                 <button type="submit" class="inline-flex h-9 shrink-0 items-center justify-center rounded-xl bg-slate-950 px-4 text-xs font-black text-white hover:bg-slate-800 transition-colors shadow-2xs">Search</button>
             </div>
+
+            {{-- Category Quick Pills --}}
+            @if ($categories->isNotEmpty())
+                <div class="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
+                    <a href="{{ route('purchaser.daily-prices', array_filter(['search' => $searchQuery, 'category_id' => 'all'])) }}"
+                       class="shrink-0 px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all {{ !$selectedCategory || $selectedCategory === 'all' ? 'bg-slate-900 text-white shadow-2xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                        All
+                    </a>
+                    @foreach ($categories as $cat)
+                        <a href="{{ route('purchaser.daily-prices', array_filter(['search' => $searchQuery, 'category_id' => $cat->id])) }}"
+                           class="shrink-0 px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all {{ (string) $selectedCategory === (string) $cat->id ? 'bg-teal-700 text-white shadow-2xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                            {{ $cat->name }}
+                        </a>
+                    @endforeach
+                </div>
+            @endif
         </form>
 
         {{-- 4 Fixed Columns Product List --}}
         @if ($products->isEmpty())
             <div class="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-12 text-center text-xs font-bold text-slate-500">
-                No products found. Try adjusting your search query.
+                No products found. Try adjusting your search or category filter.
             </div>
         @else
             <div class="daily-price-list flex flex-col gap-1.5">
@@ -265,7 +293,7 @@
         @endif
     </div>
 
-    {{-- Details Popup Modal (Matching PRD Spec) --}}
+    {{-- Details Popup Modal (White Card Design, Top Set Price, Top 3 History) --}}
     <div id="product-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs hidden transition-opacity">
         <div class="w-full max-w-md overflow-hidden rounded-3xl bg-white p-5 shadow-2xl border border-slate-100 transition-all max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
             {{-- Header --}}
@@ -282,7 +310,29 @@
             </div>
 
             <div class="mt-4 space-y-4">
-                {{-- Price Summary Grid --}}
+                {{-- 1. SET TODAY'S PRICE (ON TOP) - Clean White/Light Card --}}
+                <div class="rounded-2xl border border-teal-200/80 bg-teal-50/40 p-4 space-y-3 shadow-2xs">
+                    <div class="flex items-center justify-between">
+                        <label for="modal-price-input" class="block text-[10px] font-black uppercase tracking-wider text-teal-900">SET TODAY'S PRICE</label>
+                        <span id="modal-save-status" class="text-[10px] font-bold text-teal-700"></span>
+                    </div>
+                    <div class="relative flex items-center">
+                        <span class="absolute left-3.5 text-sm font-black text-slate-400 select-none">₹</span>
+                        <input type="text"
+                               inputmode="decimal"
+                               id="modal-price-input"
+                               placeholder="—"
+                               oninput="handleModalPriceInput(this)"
+                               class="h-11 w-full rounded-xl border border-teal-300 bg-white pl-8 pr-3 text-right text-base font-black text-slate-900 shadow-xs focus:border-teal-600 focus:outline-none focus:ring-3 focus:ring-teal-500/20 transition-all">
+                    </div>
+                    <button type="button"
+                            onclick="triggerModalSave()"
+                            class="w-full rounded-xl bg-teal-600 hover:bg-teal-700 active:scale-98 text-white font-black text-xs uppercase tracking-wider py-2.5 transition-all shadow-sm cursor-pointer">
+                        SAVE PRICE
+                    </button>
+                </div>
+
+                {{-- 2. Price Summary Grid --}}
                 <div class="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4 space-y-3">
                     <div class="grid grid-cols-2 gap-4">
                         <div>
@@ -304,37 +354,15 @@
                     </div>
                 </div>
 
-                {{-- Recent Price History (Latest 5 Valid Records) --}}
+                {{-- 3. Recent Price History (Top 3 Recent) --}}
                 <div class="rounded-2xl border border-slate-200/80 bg-white p-4 space-y-2.5 shadow-2xs">
-                    <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">RECENT PRICE HISTORY</p>
+                    <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">RECENT PRICE HISTORY (TOP 3)</p>
                     <div id="modal-history-list" class="divide-y divide-slate-100 text-xs font-semibold text-slate-700">
                         <!-- Populated dynamically by JS -->
                     </div>
                 </div>
 
-                {{-- Price Input Section inside Popup --}}
-                <div class="rounded-2xl bg-[linear-gradient(135deg,_#0f172a_0%,_#111827_60%,_#0f766e_100%)] p-4 text-white shadow-lg space-y-3">
-                    <div class="flex items-center justify-between">
-                        <label for="modal-price-input" class="block text-[10px] font-black uppercase tracking-wider text-teal-300">SET TODAY'S PRICE</label>
-                        <span id="modal-save-status" class="text-[10px] font-bold text-teal-300"></span>
-                    </div>
-                    <div class="relative flex items-center">
-                        <span class="absolute left-3 text-sm font-black text-teal-200">₹</span>
-                        <input type="text"
-                               inputmode="decimal"
-                               id="modal-price-input"
-                               placeholder="—"
-                               oninput="handleModalPriceInput(this)"
-                               class="h-11 w-full rounded-xl border border-white/20 bg-white/10 pl-7 pr-3 text-right text-base font-black text-white focus:bg-white/20 focus:border-teal-300 focus:outline-none focus:ring-3 focus:ring-teal-400/20 transition-all">
-                    </div>
-                    <button type="button"
-                            onclick="triggerModalSave()"
-                            class="w-full rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-black text-xs uppercase tracking-wider py-2.5 transition-all shadow-md cursor-pointer">
-                        SAVE PRICE
-                    </button>
-                </div>
-
-                {{-- Audit Footer --}}
+                {{-- 4. Audit Footer --}}
                 <div id="modal-audit-info" class="rounded-2xl bg-emerald-50/80 border border-emerald-200/60 p-3 text-xs text-emerald-950 hidden space-y-0.5">
                     <p id="modal-audit-username" class="font-black text-emerald-950">Updated by User</p>
                     <p id="modal-audit-timestamp" class="text-[11px] font-medium text-emerald-800">Timestamp</p>
@@ -521,11 +549,11 @@
                 modalInput.value = mainInput.value;
             }
 
-            // Populate recent 5 price history
+            // Populate top 3 recent price history
             const historyListEl = document.getElementById('modal-history-list');
             if (product.history && product.history.length > 0) {
                 let hHtml = '';
-                product.history.forEach(item => {
+                product.history.slice(0, 3).forEach(item => {
                     hHtml += `
                         <div class="flex items-center justify-between py-2">
                             <span class="font-bold text-slate-600">${item.date}</span>
