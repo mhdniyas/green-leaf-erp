@@ -4,7 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
+use Symfony\Component\HttpFoundation\Response;
 
 class ApiVersionMiddleware
 {
@@ -13,10 +13,14 @@ class ApiVersionMiddleware
      */
     public function handle(Request $request, Closure $next): Response
     {
-        // Ensure API version is set in response headers
+        /** @var Response $response */
         $response = $next($request);
-        $response->header('X-API-Version', 'v1');
-        $response->header('Content-Type', 'application/json');
+
+        if (method_exists($response, 'header')) {
+            $response->header('X-API-Version', 'v1');
+        } else {
+            $response->headers->set('X-API-Version', 'v1');
+        }
 
         return $response;
     }
