@@ -9,7 +9,7 @@
 
         .daily-price-row {
             display: grid;
-            grid-template-columns: minmax(105px, 1fr) 56px 84px 82px;
+            grid-template-columns: minmax(105px, 1.25fr) 56px 84px 82px;
             align-items: center;
             gap: 6px;
 
@@ -32,8 +32,15 @@
         .product-cell {
             min-width: 0;
             display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .product-title-wrap {
+            display: flex;
             align-items: center;
             gap: 4px;
+            min-width: 0;
         }
 
         .product-name {
@@ -63,6 +70,16 @@
             font-weight: 600;
             color: #8da0b8;
             white-space: nowrap;
+        }
+
+        .updater-info {
+            font-size: 10px;
+            font-weight: 600;
+            color: #0f766e;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 1px;
         }
 
         .previous-price {
@@ -179,26 +196,40 @@
             </div>
         @endif
 
-        {{-- Header section --}}
+        {{-- Header section with Date Change Input --}}
         <section class="overflow-hidden rounded-2xl bg-slate-950 text-white shadow-md">
             <div class="bg-[linear-gradient(135deg,_#0f172a_0%,_#111827_55%,_#0f766e_100%)] px-4 py-3 sm:px-5">
-                <div class="flex items-center justify-between">
+                <div class="flex items-center justify-between gap-2">
                     <div>
                         <p class="text-[9px] font-black uppercase tracking-[0.2em] text-teal-300">Purchaser Pricing</p>
                         <h1 class="text-base sm:text-lg font-black tracking-tight text-white">Daily Prices</h1>
                     </div>
-                    <div class="text-right">
-                        <span class="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[11px] font-bold text-teal-100 border border-white/10 backdrop-blur-xs">
-                            <span class="h-1.5 w-1.5 rounded-full bg-teal-400 animate-pulse"></span>
-                            {{ $operationalDate->format('d M Y') }} &middot; {{ $cutoffLabel }}
-                        </span>
-                    </div>
+                    
+                    {{-- Interactive Date Picker --}}
+                    <form action="{{ route('purchaser.daily-prices') }}" method="GET" class="flex items-center gap-1.5">
+                        @if ($searchQuery)
+                            <input type="hidden" name="search" value="{{ $searchQuery }}">
+                        @endif
+                        @if ($selectedCategory)
+                            <input type="hidden" name="category_id" value="{{ $selectedCategory }}">
+                        @endif
+                        
+                        <div class="relative flex items-center">
+                            <input type="date"
+                                   name="date"
+                                   value="{{ $operationalDate->format('Y-m-d') }}"
+                                   onchange="this.form.submit()"
+                                   class="h-8 rounded-full border border-white/20 bg-white/10 px-3 text-[11px] font-bold text-teal-100 backdrop-blur-xs focus:bg-white/20 focus:outline-none focus:ring-2 focus:ring-teal-400/30 cursor-pointer">
+                        </div>
+                    </form>
                 </div>
             </div>
         </section>
 
         {{-- Search & Category Filter Section --}}
         <form action="{{ route('purchaser.daily-prices') }}" method="GET" class="flex flex-col gap-2 rounded-xl border border-slate-200/80 bg-white p-2 shadow-2xs">
+            <input type="hidden" name="date" value="{{ $operationalDate->format('Y-m-d') }}">
+            
             <div class="flex min-w-0 gap-2">
                 <div class="relative flex-1">
                     <svg class="absolute left-3 top-2.5 h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -224,12 +255,12 @@
             {{-- Category Quick Pills --}}
             @if ($categories->isNotEmpty())
                 <div class="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
-                    <a href="{{ route('purchaser.daily-prices', array_filter(['search' => $searchQuery, 'category_id' => 'all'])) }}"
+                    <a href="{{ route('purchaser.daily-prices', array_filter(['date' => $operationalDate->format('Y-m-d'), 'search' => $searchQuery, 'category_id' => 'all'])) }}"
                        class="shrink-0 px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all {{ !$selectedCategory || $selectedCategory === 'all' ? 'bg-slate-900 text-white shadow-2xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
                         All
                     </a>
                     @foreach ($categories as $cat)
-                        <a href="{{ route('purchaser.daily-prices', array_filter(['search' => $searchQuery, 'category_id' => $cat->id])) }}"
+                        <a href="{{ route('purchaser.daily-prices', array_filter(['date' => $operationalDate->format('Y-m-d'), 'search' => $searchQuery, 'category_id' => $cat->id])) }}"
                            class="shrink-0 px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all {{ (string) $selectedCategory === (string) $cat->id ? 'bg-teal-700 text-white shadow-2xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
                             {{ $cat->name }}
                         </a>
@@ -241,12 +272,12 @@
         {{-- 4 Fixed Columns Product List --}}
         @if ($products->isEmpty())
             <div class="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-12 text-center text-xs font-bold text-slate-500">
-                No products found. Try adjusting your search or category filter.
+                No products found. Try adjusting your search, category or date filter.
             </div>
         @else
             <div class="daily-price-list flex flex-col gap-1.5">
                 {{-- Column Header Title Bar --}}
-                <div class="grid grid-cols-[minmax(105px,1fr)_56px_84px_82px] items-center gap-[6px] px-[10px] pb-1 pt-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400 select-none">
+                <div class="grid grid-cols-[minmax(105px,1.25fr)_56px_84px_82px] items-center gap-[6px] px-[10px] pb-1 pt-0.5 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400 select-none">
                     <div>PRODUCT</div>
                     <div class="text-right">PREV</div>
                     <div class="text-center">CHANGE</div>
@@ -256,14 +287,30 @@
                 @foreach ($products as $product)
                     <div id="product-row-{{ $product['id'] }}" class="daily-price-row">
                         
-                        {{-- Col 1: Product Cell --}}
+                        {{-- Col 1: Product Cell with Updated Info --}}
                         <div class="product-cell">
-                            <button type="button"
-                                    class="product-name"
-                                    onclick="openProductModal({{ json_encode($product) }})">
-                                {{ $product['name'] }}
-                            </button>
-                            <span class="product-unit">· {{ $product['unit'] }}</span>
+                            <div class="product-title-wrap">
+                                <button type="button"
+                                        class="product-name"
+                                        onclick="openProductModal({{ json_encode($product) }})">
+                                    {{ $product['name'] }}
+                                </button>
+                                <span class="product-unit">· {{ $product['unit'] }}</span>
+                                @if ($product['updated_by_name'])
+                                    <span class="inline-flex items-center text-teal-600 shrink-0 cursor-pointer"
+                                          onclick="event.stopPropagation(); openProductModal({{ json_encode($product) }})"
+                                          title="Updated by {{ $product['updated_by_name'] }} at {{ $product['updated_time'] }}">
+                                        <svg class="h-3 w-3 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                                        </svg>
+                                    </span>
+                                @endif
+                            </div>
+                            <div id="row-updater-{{ $product['id'] }}" class="updater-info">
+                                @if ($product['updated_by_name'])
+                                    {{ $product['updated_by_name'] }} &middot; {{ $product['updated_time'] }}
+                                @endif
+                            </div>
                         </div>
 
                         {{-- Col 2: Compact Previous Price --}}
@@ -290,7 +337,7 @@
                             @endif
                         </div>
 
-                        {{-- Col 4: Price Input Wrap (No default .00 for whole numbers) --}}
+                        {{-- Col 4: Price Input Wrap (82px width, 58px input) --}}
                         <div class="price-input-wrap">
                             <span class="price-currency">₹</span>
                             <input type="text"
@@ -327,7 +374,7 @@
                 {{-- 1. SET TODAY'S PRICE (ON TOP) - Clean White/Light Card --}}
                 <div class="rounded-2xl border border-teal-200/80 bg-teal-50/40 p-4 space-y-3 shadow-2xs">
                     <div class="flex items-center justify-between">
-                        <label for="modal-price-input" class="block text-[10px] font-black uppercase tracking-wider text-teal-900">SET TODAY'S PRICE</label>
+                        <label for="modal-price-input" class="block text-[10px] font-black uppercase tracking-wider text-teal-900">SET PRICE FOR {{ $operationalDate->format('d M Y') }}</label>
                         <span id="modal-save-status" class="text-[10px] font-bold text-teal-700"></span>
                     </div>
                     <div class="relative flex items-center">
@@ -350,7 +397,7 @@
                 <div class="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4 space-y-3">
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">TODAY'S PRICE</p>
+                            <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">PRICE FOR {{ $operationalDate->format('d M') }}</p>
                             <p id="modal-today-price" class="text-base font-black text-slate-900 mt-0.5">₹0.00</p>
                         </div>
                         <div>
@@ -390,6 +437,7 @@
         const debounceTimers = {};
         const csrfToken = '{{ csrf_token() }}';
         const updateUrl = '{{ route("purchaser.daily-prices.update") }}';
+        const currentDate = '{{ $operationalDate->format("Y-m-d") }}';
         let activeModalProduct = null;
         let lastScrollY = 0;
 
@@ -459,6 +507,7 @@
                     'X-CSRF-TOKEN': csrfToken
                 },
                 body: JSON.stringify({
+                    date: currentDate,
                     prices: [
                         {
                             product_id: productId,
@@ -515,6 +564,7 @@
             const pId = data.product_id;
             const prevEl = document.getElementById('row-prev-' + pId);
             const badgeEl = document.getElementById('row-badge-' + pId);
+            const updaterEl = document.getElementById('row-updater-' + pId);
 
             if (prevEl) {
                 if (data.previous_price) {
@@ -538,6 +588,10 @@
                     bHtml = `<div class="price-status no-change">— 0%</div>`;
                 }
                 badgeEl.innerHTML = bHtml;
+            }
+
+            if (updaterEl && data.updated_by_name) {
+                updaterEl.textContent = `${data.updated_by_name} · ${data.updated_time}`;
             }
         }
 

@@ -3882,7 +3882,17 @@ class PurchaserDashboardController extends Controller
     {
         $this->authorizeDailyPriceAccess();
 
-        $operationalDate = $this->businessDayService->operationalDate();
+        $dateInput = $request->input('date');
+        if ($dateInput) {
+            try {
+                $operationalDate = Carbon::parse($dateInput);
+            } catch (\Throwable $e) {
+                $operationalDate = $this->businessDayService->operationalDate();
+            }
+        } else {
+            $operationalDate = $this->businessDayService->operationalDate();
+        }
+
         $searchQuery = trim((string) $request->input('search', ''));
 
         // Get products from last 7 days + today's shop orders
@@ -4030,6 +4040,7 @@ class PurchaserDashboardController extends Controller
         $this->authorizeDailyPriceAccess();
 
         $validated = $request->validate([
+            'date' => ['nullable', 'date'],
             'prices' => ['required', 'array'],
             'prices.*.product_id' => ['required', 'integer', 'exists:products,id'],
             'prices.*.purchase_price' => ['required', 'numeric', 'min:0'],
@@ -4037,8 +4048,8 @@ class PurchaserDashboardController extends Controller
 
         $user = $request->user();
         $userId = (int) $user->id;
-        $operationalDate = $this->businessDayService->operationalDate();
-        $businessDateStr = $operationalDate->toDateString();
+        $dateInput = $request->input('date');
+        $businessDateStr = $dateInput ? Carbon::parse($dateInput)->toDateString() : $this->businessDayService->operationalDate()->toDateString();
 
         $updatedCount = 0;
         $targetProductId = null;
