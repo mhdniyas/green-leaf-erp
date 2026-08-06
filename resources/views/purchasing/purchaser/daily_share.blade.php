@@ -184,23 +184,25 @@
 
                     {{-- Action buttons --}}
                     <div class="border-t border-slate-100 px-4 py-3 flex flex-wrap items-center gap-2">
-                        <input type="hidden" name="auto_share" id="auto-share-target" value="">
+                        <button type="submit" class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-950 px-5 text-xs font-black text-white hover:bg-slate-800 transition-colors">
+                            Apply Filter
+                        </button>
 
-                        <button type="submit" onclick="document.getElementById('auto-share-target').value='total';"
-                            class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 transition-colors shadow-xs cursor-pointer">
+                        <a href="{{ $shareTotalUrl }}" target="_blank" rel="noopener"
+                            class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500 transition-colors shadow-xs">
                             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M12 2a10 10 0 0 0-8.58 15.13L2 22l5.05-1.33A10 10 0 1 0 12 2zm0 18a8 8 0 0 1-4.14-1.15l-.3-.18-3.08.81.82-3-.2-.32A8 8 0 1 1 12 20zm4.4-6c-.24-.12-1.42-.7-1.64-.78-.22-.08-.38-.12-.54.12s-.62.78-.76.94-.28.18-.52.06a6.54 6.54 0 0 1-1.93-1.19 7.22 7.22 0 0 1-1.34-1.67c-.14-.24 0-.36.12-.48s.24-.28.36-.42.16-.24.24-.4.04-.3-.02-.42c-.06-.12-.54-1.3-.74-1.78-.2-.48-.4-.42-.54-.42h-.46a.89.89 0 0 0-.64.3 2.7 2.7 0 0 0-.84 2c0 1.18.86 2.32.98 2.48s1.69 2.58 4.1 3.62c.57.25 1.02.4 1.37.51.58.18 1.1.16 1.52.1.46-.07 1.42-.58 1.62-1.14s.2-.1.14-.24c-.06-.12-.24-.2-.48-.32z"/>
                             </svg>
                             <span>Total Qty</span>
-                        </button>
+                        </a>
 
-                        <button type="submit" onclick="document.getElementById('auto-share-target').value='selection';"
-                            class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 text-xs font-black text-white hover:bg-emerald-500 transition-colors shadow-xs cursor-pointer">
+                        <a href="{{ $shareUrl }}" target="_blank" rel="noopener"
+                            class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 text-xs font-black text-white hover:bg-emerald-500 transition-colors shadow-xs">
                             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M12 2a10 10 0 0 0-8.58 15.13L2 22l5.05-1.33A10 10 0 1 0 12 2zm0 18a8 8 0 0 1-4.14-1.15l-.3-.18-3.08.81.82-3-.2-.32A8 8 0 1 1 12 20zm4.4-6c-.24-.12-1.42-.7-1.64-.78-.22-.08-.38-.12-.54.12s-.62.78-.76.94-.28.18-.52.06a6.54 6.54 0 0 1-1.93-1.19 7.22 7.22 0 0 1-1.34-1.67c-.14-.24 0-.36.12-.48s.24-.28.36-.42.16-.24.24-.4.04-.3-.02-.42c-.06-.12-.54-1.3-.74-1.78-.2-.48-.4-.42-.54-.42h-.46a.89.89 0 0 0-.64.3 2.7 2.7 0 0 0-.84 2c0 1.18.86 2.32.98 2.48s1.69 2.58 4.1 3.62c.57.25 1.02.4 1.37.51.58.18 1.1.16 1.52.1.46-.07 1.42-.58 1.62-1.14s.2-.1.14-.24c-.06-.12-.24-.2-.48-.32z"/>
                             </svg>
                             <span>Selection</span>
-                        </button>
+                        </a>
 
                         <a href="{{ route('purchaser.daily.share', ['date' => $date, 'share_mode' => 'changed']) }}"
                             class="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 px-4 text-xs font-black text-slate-700 hover:bg-slate-50 transition-colors">
@@ -298,11 +300,6 @@
     };
 
     document.addEventListener('DOMContentLoaded', () => {
-        @if(request('auto_share') === 'total')
-            window.open(@json($shareTotalUrl), '_blank');
-        @elseif(request('auto_share') === 'selection')
-            window.open(@json($shareUrl), '_blank');
-        @endif
         // ── Mode pill tabs ──────────────────────────────────────────────
         const modeInputs = Array.from(document.querySelectorAll('input[name="share_mode"]'));
         const modeCards  = Array.from(document.querySelectorAll('[data-share-mode-card]'));
