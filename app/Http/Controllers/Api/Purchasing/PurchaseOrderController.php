@@ -32,6 +32,14 @@ class PurchaseOrderController extends Controller
 
         $orders = $this->service->paginateFiltered($validated);
 
+        \Log::info('Purchasing orders index requested', [
+            'url' => $request->fullUrl(),
+            'filters' => $validated,
+            'user' => $request->user()?->id,
+            'total' => $orders->total(),
+            'items' => collect($orders->items())->map(fn($o) => ['po_number' => $o->po_number, 'status' => $o->status->value ?? $o->status])->toArray()
+        ]);
+
         return ApiResponse::paginated(PurchaseOrderResource::collection($orders));
     }
 
