@@ -3928,28 +3928,12 @@ class PurchaserDashboardController extends Controller
         $searchQuery = trim((string) $request->input('search', ''));
         $doubleCheck = (bool) $request->boolean('double_check');
 
-        // Get products from last 7 days + today's shop orders
-        $sevenDaysAgo = $operationalDate->copy()->subDays(7)->toDateString();
-        $todayOrderedProductIds = ShopOrderItem::query()
-            ->whereHas('order', fn ($q) => $q->where('business_date', $operationalDate->toDateString()))
-            ->pluck('product_id')
-            ->unique()
-            ->toArray();
-
-        $recentPurchasedProductIds = PurchaserCartItem::query()
-            ->whereHas('cart', fn ($q) => $q->whereBetween('business_date', [$sevenDaysAgo, $operationalDate->toDateString()]))
-            ->pluck('product_id')
-            ->unique()
-            ->toArray();
-
-        $relevantProductIds = array_unique(array_merge($todayOrderedProductIds, $recentPurchasedProductIds));
-
         $selectedCategory = $request->input('category_id');
         $user = $request->user();
         $assignedCategoryIds = $user?->hasAssignedCategoryFilter() ? $user->assignedCategoryIds() : null;
 
         $categoriesQuery = Category::query()
-            ->whereHas('products', fn ($q) => $q->whereIn('id', $relevantProductIds))
+            ->whereHas('products', fn ($q) => $q->active())
             ->orderBy('name');
 
         if ($assignedCategoryIds !== null) {
@@ -3961,7 +3945,6 @@ class PurchaserDashboardController extends Controller
         $productsQuery = Product::query()
             ->active()
             ->with(['category'])
-            ->whereIn('id', $relevantProductIds)
             ->ordered();
 
         if ($assignedCategoryIds !== null) {

@@ -242,7 +242,7 @@
         </section>
 
         {{-- Search & Category Filter Section --}}
-        <form action="{{ route('purchaser.daily-prices') }}" method="GET" class="flex flex-col gap-2 rounded-xl border border-slate-200/80 bg-white p-2 shadow-2xs">
+        <form id="daily-price-search-form" action="{{ route('purchaser.daily-prices') }}" method="GET" class="flex flex-col gap-2 rounded-xl border border-slate-200/80 bg-white p-2 shadow-2xs">
             <input type="hidden" name="date" value="{{ $operationalDate->format('Y-m-d') }}">
             
             <div class="flex min-w-0 gap-2">
@@ -250,7 +250,7 @@
                     <svg class="absolute left-3 top-2.5 h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                     </svg>
-                    <input type="search" name="search" value="{{ $searchQuery }}" placeholder="Search product name or SKU..." class="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/80 pl-9 pr-3 text-xs font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none focus:ring-3 focus:ring-teal-500/10 transition-all">
+                    <input id="daily-price-search-input" type="search" name="search" value="{{ $searchQuery }}" placeholder="Search product name or SKU..." autocomplete="off" class="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/80 pl-9 pr-3 text-xs font-bold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none focus:ring-3 focus:ring-teal-500/10 transition-all">
                 </div>
 
                 @if ($categories->isNotEmpty())
@@ -867,12 +867,43 @@
             window.scrollTo(0, lastScrollY);
         }
 
+        function initLiveSearch() {
+            const searchForm = document.getElementById('daily-price-search-form');
+            const searchInput = document.getElementById('daily-price-search-input');
+
+            if (!searchForm || !searchInput) {
+                return;
+            }
+
+            let liveSearchTimer = null;
+            let lastSubmittedValue = searchInput.value.trim();
+
+            searchInput.addEventListener('input', function () {
+                if (liveSearchTimer) {
+                    clearTimeout(liveSearchTimer);
+                }
+
+                liveSearchTimer = setTimeout(() => {
+                    const nextValue = searchInput.value.trim();
+
+                    if (nextValue === lastSubmittedValue) {
+                        return;
+                    }
+
+                    lastSubmittedValue = nextValue;
+                    searchForm.submit();
+                }, 300);
+            });
+        }
+
         // Close modal on backdrop click
         document.getElementById('product-modal').addEventListener('click', function(e) {
             if (e.target === this) {
                 closeProductModal();
             }
         });
+
+        initLiveSearch();
     </script>
     @endpush
 </x-layouts.app>

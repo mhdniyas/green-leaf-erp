@@ -735,4 +735,101 @@ class ApiWarehouseLoadoutController extends Controller
 
         return ! ($rows->count() === 2 && $loadedRows === 1 && $allocatedRows === 1);
     }
+
+    /**
+     * Get available products that can be added as addons for this loadout order.
+     */
+    public function addonProducts(ShopOrder $shopOrder, Request $request): JsonResponse
+    {
+        $this->authorizeAccess($request);
+
+        $existingProductIds = $shopOrder->items
+            ->pluck('product_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $categories = Category::query()
+            ->where('is_active', true)
+            ->with(['products' => function ($query) use ($existingProductIds): void {
+                $query
+                    ->where('is_active', true)
+                    ->whereNotIn('id', $existingProductIds)
+                    ->ordered();
+            }])
+            ->orderBy('name')
+            ->get()
+            ->filter(fn (Category $category): bool => $category->products->isNotEmpty())
+            ->map(fn (Category $category) => [
+                'id' => $category->id,
+                'name' => $category->name,
+                'products' => $category->products->map(fn (Product $product) => [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'sku' => $product->sku,
+                    'unit' => $product->unit ?? 'KG',
+                ])->values()->toArray(),
+            ])
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'categories' => $categories,
+        ]);
+    }
+
+    /**
+     * Add an addon product to the loadout order.
+     */
+    public function storeAddon(ShopOrder $shopOrder, Request $request): JsonResponse
+    {
+        $this->authorizeAccess($request);
+
+        if ($shopOrder->delivery_status === 'delivered') {
+            return response()->json(['success' => false, 'message' => 'Cannot add addon to a delivered order.'], 422);
+        }
+
+        $validated = $request->validate([
+            'product_id' => ['required', 'integer', 'exists:products,id'],
+            'quantity' => ['required', 'numeric', 'min:0.01'],
+        ]);
+
+        $product = Product::query()
+            ->active()
+            ->findOrFail((int) $validated['product_id']);
+        $quantity = round((float) $validated['quantity'], 3);
+
+        if ($shopOrder->items()->where('product_id', $product->id)->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => "{$product->name} is already in this loadout order. Edit the existing line instead."
+            ], 422);
+        }
+
+        $shopOrder->loadMissing('shop');
+        $price = $this->priceBoardService->sellingPriceFor($product, $shopOrder->shop, ProductGrade::GradeA);
+
+        $item = ShopOrderItem::create([
+            'shop_order_id' => $shopOrder->id,
+            'product_id' => $product->id,
+            'product_grade' => ProductGrade::GradeA->value,
+            'requested_qty' => $quantity,
+            'approved_qty' => $quantity,
+            'unit' => $product->unit ?: 'KG',
+            'locked_price_group_id' => $price['group']->id,
+            'locked_selling_price' => $price['price'],
+            'locked_price_source' => $price['source'],
+            'line_total' => round($quantity * (float) $price['price'], 2),
+            'notes' => 'Addon item added from warehouse loadout.',
+            'fulfillment_type' => 'warehouse',
+            'sorting_status' => 'allocated',
+            'is_sorted' => false,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => "{$product->name} added as addon product successfully.",
+            'item' => $item,
+        ]);
+    }
 }
