@@ -337,6 +337,8 @@ class ApiWarehouseLoadoutController extends Controller
 
                 $productIds = collect(array_keys($itemsInput))
                     ->merge(array_keys($unitQtysInput))
+                    ->merge(array_keys($request->input('item_status', [])))
+                    ->merge(array_keys($request->input('item_notes', [])))
                     ->map(fn ($id) => (int) $id)
                     ->unique()
                     ->values();
@@ -597,6 +599,15 @@ class ApiWarehouseLoadoutController extends Controller
             'success' => true,
             'message' => $partialDelivery ? 'Moved to partial delivery.' : 'Moved to delivery successfully.',
         ]);
+    }
+
+    /**
+     * Transition order to partial delivery.
+     */
+    public function moveToPartialDelivery(ShopOrder $shopOrder, Request $request): JsonResponse
+    {
+        $request->merge(['partial' => true]);
+        return $this->moveToDelivery($shopOrder, $request);
     }
 
     /**

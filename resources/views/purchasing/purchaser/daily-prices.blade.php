@@ -886,6 +886,11 @@
                 liveSearchTimer = setTimeout(() => {
                     const nextValue = searchInput.value.trim();
 
+                    // Auto-search only for 3+ characters; allow empty input to reset results.
+                    if (nextValue.length > 0 && nextValue.length < 3) {
+                        return;
+                    }
+
                     if (nextValue === lastSubmittedValue) {
                         return;
                     }

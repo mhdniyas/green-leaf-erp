@@ -535,6 +535,8 @@ class WarehouseLoadoutController extends Controller
 
                 $productIds = collect(array_keys($itemsInput))
                     ->merge(array_keys($unitQtysInput))
+                    ->merge(array_keys($request->input('item_status', [])))
+                    ->merge(array_keys($request->input('item_notes', [])))
                     ->map(fn ($id) => (int) $id)
                     ->unique()
                     ->values();

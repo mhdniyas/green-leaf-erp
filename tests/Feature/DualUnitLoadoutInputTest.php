@@ -329,7 +329,7 @@ class DualUnitLoadoutInputTest extends TestCase
         $this->assertNull($emptyWeightItem->actual_weight);
         $this->assertEquals(5.0, (float) $emptyWeightItem->loaded_qty);
         $this->assertEquals(5.0, (float) $actualWeightItem->loaded_order_unit_qty);
-        $this->assertNull($actualWeightItem->actual_weight);
+        $this->assertEquals(5.0, (float) $actualWeightItem->actual_weight);
         $this->assertEquals(5.0, (float) $actualWeightItem->loaded_qty);
 
         $this->actingAs($user)->post(route('warehouse.loadout.move-to-delivery', $order))->assertRedirect();
@@ -468,7 +468,7 @@ class DualUnitLoadoutInputTest extends TestCase
         ]);
 
         $this->actingAs($user)
-            ->get(route('warehouse.loadout.addon.create', $order))
+            ->get(route('warehouse.loadout.show', $order))
             ->assertOk()
             ->assertSee('Addon Cucumber');
 

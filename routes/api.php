@@ -44,6 +44,7 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
             Route::get('/{shopOrder}', [ApiWarehouseLoadoutController::class, 'show'])->name('show');
             Route::post('/{shopOrder}/save', [ApiWarehouseLoadoutController::class, 'save'])->name('save');
             Route::post('/{shopOrder}/move-to-delivery', [ApiWarehouseLoadoutController::class, 'moveToDelivery'])->name('move-to-delivery');
+            Route::post('/{shopOrder}/move-to-partial-delivery', [ApiWarehouseLoadoutController::class, 'moveToPartialDelivery'])->name('move-to-partial-delivery');
             Route::post('/{shopOrder}/move-to-loadout', [ApiWarehouseLoadoutController::class, 'moveToLoadout'])->name('move-to-loadout');
             Route::get('/{shopOrder}/addons', [ApiWarehouseLoadoutController::class, 'addonProducts'])->name('addons');
             Route::post('/{shopOrder}/addon', [ApiWarehouseLoadoutController::class, 'storeAddon'])->name('addon.store');
