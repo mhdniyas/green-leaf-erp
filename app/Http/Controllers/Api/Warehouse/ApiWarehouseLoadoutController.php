@@ -137,7 +137,7 @@ class ApiWarehouseLoadoutController extends Controller
     {
         $this->authorizeAccess($request);
 
-        $shopOrder->load(['shop', 'items.product.category', 'items.product.orderUnits', 'deliveredBy']);
+        $shopOrder->load(['shop', 'items.product.category', 'items.product.orderUnits', 'deliveredBy', 'invoice.items']);
 
         $productGroups = $shopOrder->items
             ->groupBy('product_id')
@@ -193,6 +193,84 @@ class ApiWarehouseLoadoutController extends Controller
         $mergeCandidates = $this->duplicateMergeCandidates($shopOrder->items);
         $unpricedProductNames = $this->shopInvoiceService->getUnpricedOrderItemNames($shopOrder);
 
+        $invoiceData = null;
+        if ($shopOrder->invoice) {
+            $invoiceData = [
+                'id' => $shopOrder->invoice->id,
+                'invoice_number' => $shopOrder->invoice->invoice_number,
+                'business_date' => $shopOrder->invoice->business_date->toDateString(),
+                'status' => $shopOrder->invoice->status,
+                'delivery_status' => $shopOrder->invoice->delivery_status,
+                'payment_status' => $shopOrder->invoice->payment_status,
+                'subtotal' => (float) $shopOrder->invoice->subtotal,
+                'shortage_total' => (float) $shopOrder->invoice->shortage_total,
+                'excess_total' => (float) $shopOrder->invoice->excess_total,
+                'discount_total' => (float) $shopOrder->invoice->discount_total,
+                'final_total' => (float) $shopOrder->invoice->final_total,
+                'paid_amount' => (float) $shopOrder->invoice->paid_amount,
+                'balance_amount' => (float) $shopOrder->invoice->balance_amount,
+                'delivery_note' => $shopOrder->invoice->delivery_note,
+                'items' => $shopOrder->invoice->items->map(fn ($item) => [
+                    'id' => $item->id,
+                    'product_name' => $item->product_name,
+                    'unit' => $item->unit,
+                    'approved_qty' => (float) $item->approved_qty,
+                    'delivered_qty' => (float) $item->delivered_qty,
+                    'shortage_qty' => (float) $item->shortage_qty,
+                    'excess_qty' => (float) $item->excess_qty,
+                    'unit_price' => (float) $item->unit_price,
+                    'line_subtotal' => (float) $item->line_subtotal,
+                    'final_line_total' => (float) $item->final_line_total,
+                ])->values()->toArray(),
+            ];
+        } else {
+            $items = [];
+            $subtotal = 0.0;
+            $excessTotal = 0.0;
+            
+            foreach ($shopOrder->items as $item) {
+                if ($item->sorting_status !== 'loaded') continue;
+                
+                $unitPrice = (float) ($item->locked_selling_price ?? 0.0);
+                $loadedQty = (float) $item->loaded_qty;
+                $approvedQty = (float) $item->approved_qty;
+                $excessQty = (float) ($item->excess_qty ?? 0.0);
+                
+                $lineSubtotal = round($approvedQty * $unitPrice, 2);
+                $finalLineTotal = round($loadedQty * $unitPrice, 2);
+                
+                $subtotal += $lineSubtotal;
+                $excessTotal += ($excessQty * $unitPrice);
+                
+                $items[] = [
+                    'product_name' => $item->product?->name ?? 'Unknown Product',
+                    'unit' => $item->product?->unit ?? 'KG',
+                    'approved_qty' => $approvedQty,
+                    'delivered_qty' => $loadedQty,
+                    'shortage_qty' => max(0.0, round($approvedQty - $loadedQty, 2)),
+                    'excess_qty' => $excessQty,
+                    'unit_price' => $unitPrice,
+                    'line_subtotal' => $lineSubtotal,
+                    'final_line_total' => $finalLineTotal,
+                ];
+            }
+            
+            $invoiceData = [
+                'invoice_number' => 'DRAFT-' . $shopOrder->order_number,
+                'business_date' => $shopOrder->business_date->toDateString(),
+                'status' => 'draft',
+                'subtotal' => $subtotal,
+                'shortage_total' => 0.0,
+                'excess_total' => $excessTotal,
+                'discount_total' => 0.0,
+                'final_total' => $subtotal + $excessTotal,
+                'paid_amount' => 0.0,
+                'balance_amount' => $subtotal + $excessTotal,
+                'delivery_note' => null,
+                'items' => $items,
+            ];
+        }
+
         return response()->json([
             'success' => true,
             'order' => [
@@ -219,6 +297,7 @@ class ApiWarehouseLoadoutController extends Controller
             'has_duplicates' => $mergeCandidates->isNotEmpty(),
             'merge_candidates' => $mergeCandidates,
             'unpriced_product_names' => $unpricedProductNames,
+            'invoice' => $invoiceData,
         ]);
     }
 

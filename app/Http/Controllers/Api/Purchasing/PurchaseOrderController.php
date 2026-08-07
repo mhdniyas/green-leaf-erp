@@ -20,11 +20,17 @@ class PurchaseOrderController extends Controller
         private readonly PurchaseOrderService $service,
     ) {}
 
-    public function index(): JsonResponse
+    public function index(\Illuminate\Http\Request $request): JsonResponse
     {
         Gate::authorize('viewAny', PurchaseOrder::class);
 
-        $orders = $this->service->paginate();
+        $validated = $request->validate([
+            'search' => ['nullable', 'string', 'max:120'],
+            'status' => ['nullable', 'string'],
+            'date' => ['nullable', 'date'],
+        ]);
+
+        $orders = $this->service->paginateFiltered($validated);
 
         return ApiResponse::paginated(PurchaseOrderResource::collection($orders));
     }

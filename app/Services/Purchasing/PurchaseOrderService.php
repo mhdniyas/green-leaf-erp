@@ -27,6 +27,30 @@ class PurchaseOrderService
             ->paginate($perPage);
     }
 
+    public function paginateFiltered(array $filters, int $perPage = 15): LengthAwarePaginator
+    {
+        $search = trim((string) ($filters['search'] ?? ''));
+        $status = $filters['status'] ?? null;
+        $date = $filters['date'] ?? null;
+
+        return $this->repository->query()
+            ->with(['supplier', 'createdBy', 'items.product'])
+            ->when($status, fn ($query) => $query->where('status', $status))
+            ->when($date, fn ($query) => $query->whereDate('order_date', $date))
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($subQuery) use ($search): void {
+                    $subQuery->where('po_number', 'like', "%{$search}%")
+                        ->orWhereHas('supplier', function ($supplierQuery) use ($search): void {
+                            $supplierQuery->where('name', 'like', "%{$search}%")
+                                ->orWhere('code', 'like', "%{$search}%");
+                        });
+                });
+            })
+            ->orderByDesc('order_date')
+            ->orderByDesc('id')
+            ->paginate($perPage);
+    }
+
     public function create(PurchaseOrderData $data, int $userId): PurchaseOrder
     {
         return DB::transaction(function () use ($data, $userId) {
