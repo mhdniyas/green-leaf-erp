@@ -225,6 +225,9 @@
                         @if ($selectedCategory)
                             <input type="hidden" name="category_id" value="{{ $selectedCategory }}">
                         @endif
+                        @if (!empty($doubleCheck))
+                            <input type="hidden" name="double_check" value="1">
+                        @endif
                         
                         <div class="relative flex items-center">
                             <input type="date"
@@ -264,15 +267,27 @@
                 <button type="submit" class="inline-flex h-9 shrink-0 items-center justify-center rounded-xl bg-slate-950 px-4 text-xs font-black text-white hover:bg-slate-800 transition-colors shadow-2xs">Search</button>
             </div>
 
+            <label class="inline-flex items-center gap-2 text-[11px] font-bold text-slate-700">
+                <input
+                    type="checkbox"
+                    name="double_check"
+                    value="1"
+                    {{ !empty($doubleCheck) ? 'checked' : '' }}
+                    onchange="this.form.submit()"
+                    class="h-3.5 w-3.5 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                >
+                Double Check Mode (show purchase value)
+            </label>
+
             {{-- Category Quick Pills --}}
             @if ($categories->isNotEmpty())
                 <div class="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
-                    <a href="{{ route('purchaser.daily-prices', array_filter(['date' => $operationalDate->format('Y-m-d'), 'search' => $searchQuery, 'category_id' => 'all'])) }}"
+                    <a href="{{ route('purchaser.daily-prices', array_filter(['date' => $operationalDate->format('Y-m-d'), 'search' => $searchQuery, 'category_id' => 'all', 'double_check' => !empty($doubleCheck) ? 1 : null])) }}"
                        class="shrink-0 px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all {{ !$selectedCategory || $selectedCategory === 'all' ? 'bg-slate-900 text-white shadow-2xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
                         All
                     </a>
                     @foreach ($categories as $cat)
-                        <a href="{{ route('purchaser.daily-prices', array_filter(['date' => $operationalDate->format('Y-m-d'), 'search' => $searchQuery, 'category_id' => $cat->id])) }}"
+                        <a href="{{ route('purchaser.daily-prices', array_filter(['date' => $operationalDate->format('Y-m-d'), 'search' => $searchQuery, 'category_id' => $cat->id, 'double_check' => !empty($doubleCheck) ? 1 : null])) }}"
                            class="shrink-0 px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all {{ (string) $selectedCategory === (string) $cat->id ? 'bg-teal-700 text-white shadow-2xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
                             {{ $cat->name }}
                         </a>
@@ -328,6 +343,13 @@
                                     Selling A: ₹{{ formatPriceCompactPHP($product['selling_price_a']) }}
                                 @endif
                             </div>
+                            @if (!empty($doubleCheck))
+                                <div id="row-purchase-check-{{ $product['id'] }}" class="updater-info">
+                                    @if (($product['purchase_today'] ?? null) !== null)
+                                        Purchase: ₹{{ formatPriceCompactPHP($product['purchase_today']) }}
+                                    @endif
+                                </div>
+                            @endif
                             <div id="row-updater-{{ $product['id'] }}" class="updater-info">
                                 @if ($product['updated_by_name'])
                                     {{ $product['updated_by_name'] }} &middot; {{ $product['updated_time'] }}
@@ -715,6 +737,7 @@
             const updaterEl = document.getElementById('row-updater-' + pId);
             const costEl = document.getElementById('row-cost-avg-' + pId);
             const sellingAEl = document.getElementById('row-selling-a-' + pId);
+            const purchaseCheckEl = document.getElementById('row-purchase-check-' + pId);
 
             if (prevEl) {
                 if (data.previous_price) {
@@ -757,6 +780,14 @@
                     sellingAEl.textContent = `Selling A: ₹${formatPriceCompactJS(data.selling_price_a)}`;
                 } else {
                     sellingAEl.textContent = '';
+                }
+            }
+
+            if (purchaseCheckEl) {
+                if (data.purchase_today) {
+                    purchaseCheckEl.textContent = `Purchase: ₹${formatPriceCompactJS(data.purchase_today)}`;
+                } else {
+                    purchaseCheckEl.textContent = '';
                 }
             }
         }

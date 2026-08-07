@@ -3926,6 +3926,7 @@ class PurchaserDashboardController extends Controller
         }
 
         $searchQuery = trim((string) $request->input('search', ''));
+        $doubleCheck = (bool) $request->boolean('double_check');
 
         // Get products from last 7 days + today's shop orders
         $sevenDaysAgo = $operationalDate->copy()->subDays(7)->toDateString();
@@ -4020,11 +4021,14 @@ class PurchaserDashboardController extends Controller
             $todayApproval = $finalApprovals->first(fn ($a) => $a->business_date->toDateString() === $today);
             $previousApproval = $finalApprovals->first(fn ($a) => $a->business_date->toDateString() < $today);
 
-            $todayPrice = $todayApproval?->purchase_price > 0 ? (float) $todayApproval->purchase_price : null;
-            $previousPrice = $previousApproval?->purchase_price > 0 ? (float) $previousApproval->purchase_price : null;
-            $sellingPriceA = $todayApproval?->price_a !== null && (float) $todayApproval->price_a > 0
+            $purchaseToday = $todayApproval?->purchase_price > 0 ? (float) $todayApproval->purchase_price : null;
+            $purchasePrevious = $previousApproval?->purchase_price > 0 ? (float) $previousApproval->purchase_price : null;
+            $todayPrice = $todayApproval?->price_a !== null && (float) $todayApproval->price_a > 0
                 ? (float) $todayApproval->price_a
-                : $todayPrice;
+                : null;
+            $previousPrice = $previousApproval?->price_a !== null && (float) $previousApproval->price_a > 0
+                ? (float) $previousApproval->price_a
+                : null;
 
             $diffAmount = null;
             $diffPercentage = null;
@@ -4051,9 +4055,13 @@ class PurchaserDashboardController extends Controller
 
             // Up to 3 valid recent price history entries
             $history = $approvals->take(3)->map(function ($app) {
+                $historyPrice = $app->price_a !== null && (float) $app->price_a > 0
+                    ? (float) $app->price_a
+                    : (float) $app->purchase_price;
+
                 return [
                     'date' => $app->business_date->format('d M Y'),
-                    'price' => (float) $app->purchase_price,
+                    'price' => $historyPrice,
                     'updated_by' => $app->updatedBy?->name ?? 'System',
                 ];
             })->values()->all();
@@ -4070,7 +4078,9 @@ class PurchaserDashboardController extends Controller
                 'unit' => strtoupper((string) ($product->unit ?: 'KG')),
                 'unit_info_price' => $todayPrice ?? $previousPrice,
                 'purchaser_avg_price' => $purchaserAveragePrices->get((int) $product->id),
-                'selling_price_a' => $sellingPriceA,
+                'selling_price_a' => $todayPrice,
+                'purchase_today' => $purchaseToday,
+                'purchase_previous' => $purchasePrevious,
                 'price_today' => $todayPrice,
                 'previous_price' => $previousPrice,
                 'diff_amount' => $diffAmount,
@@ -4090,6 +4100,7 @@ class PurchaserDashboardController extends Controller
             'selectedCategory' => $selectedCategory,
             'operationalDate' => $operationalDate,
             'searchQuery' => $searchQuery,
+            'doubleCheck' => $doubleCheck,
             'cutoffLabel' => $this->businessDayService->cutoffLabel(),
         ]);
     }
@@ -4120,9 +4131,9 @@ class PurchaserDashboardController extends Controller
             foreach ($validated['prices'] as $priceData) {
                 $productId = (int) $priceData['product_id'];
                 $targetProductId = $productId;
-                $newPrice = round((float) $priceData['purchase_price'], 2);
+                $newSellingPrice = round((float) $priceData['purchase_price'], 2);
 
-                if ($newPrice <= 0) {
+                if ($newSellingPrice <= 0) {
                     continue;
                 }
 
@@ -4148,9 +4159,9 @@ class PurchaserDashboardController extends Controller
                     $approval = new DailyPriceApproval([
                         'product_id' => $productId,
                         'business_date' => $businessDateStr,
-                        'purchase_price' => $newPrice,
+                        'purchase_price' => (float) ($previousApproval?->purchase_price ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price)),
                         'price_unit' => ProductUnit::normalizeUnit((string) $product->unit ?: 'kg'),
-                        'price_a' => $newPrice,
+                        'price_a' => $newSellingPrice,
                         'price_b' => (float) ($previousApproval?->price_b ?? $product->base_price),
                         'price_c' => (float) ($previousApproval?->price_c ?? $product->base_price),
                         'status' => 'approved',
@@ -4158,13 +4169,12 @@ class PurchaserDashboardController extends Controller
                         'approved_at' => now(),
                     ]);
                 } else {
-                    $approval->purchase_price = $newPrice;
-                    $approval->price_a = $newPrice;
+                    $approval->price_a = $newSellingPrice;
                     if ($approval->price_b === null || (float) $approval->price_b <= 0) {
-                        $approval->price_b = (float) ($previousApproval?->price_b ?? $newPrice);
+                        $approval->price_b = (float) ($previousApproval?->price_b ?? $newSellingPrice);
                     }
                     if ($approval->price_c === null || (float) $approval->price_c <= 0) {
-                        $approval->price_c = (float) ($previousApproval?->price_c ?? $newPrice);
+                        $approval->price_c = (float) ($previousApproval?->price_c ?? $newSellingPrice);
                     }
                     $approval->status = 'approved';
                     $approval->approved_by = $userId;
@@ -4182,7 +4192,6 @@ class PurchaserDashboardController extends Controller
                 $this->updateActivePricesForGroup($product, $groupA, (float) $approval->price_a, $userId);
                 $this->updateActivePricesForGroup($product, $groupB, (float) $approval->price_b, $userId);
                 $this->updateActivePricesForGroup($product, $groupC, (float) $approval->price_c, $userId);
-                $this->vendorPriceService->syncPrice($product->id, (float) $approval->purchase_price);
 
                 $updatedProductIds[] = $productId;
                 $updatedCount++;
@@ -4217,11 +4226,14 @@ class PurchaserDashboardController extends Controller
             $todayApproval = $finalApprovals->first(fn ($a) => $a->business_date->toDateString() === $businessDateStr);
             $previousApproval = $finalApprovals->first(fn ($a) => $a->business_date->toDateString() < $businessDateStr);
 
-            $todayPrice = $todayApproval?->purchase_price > 0 ? (float) $todayApproval->purchase_price : null;
-            $previousPrice = $previousApproval?->purchase_price > 0 ? (float) $previousApproval->purchase_price : null;
-            $sellingPriceA = $todayApproval?->price_a !== null && (float) $todayApproval->price_a > 0
+            $purchaseToday = $todayApproval?->purchase_price > 0 ? (float) $todayApproval->purchase_price : null;
+            $purchasePrevious = $previousApproval?->purchase_price > 0 ? (float) $previousApproval->purchase_price : null;
+            $todayPrice = $todayApproval?->price_a !== null && (float) $todayApproval->price_a > 0
                 ? (float) $todayApproval->price_a
-                : $todayPrice;
+                : null;
+            $previousPrice = $previousApproval?->price_a !== null && (float) $previousApproval->price_a > 0
+                ? (float) $previousApproval->price_a
+                : null;
 
             $diffAmount = null;
             $diffPercentage = null;
@@ -4247,9 +4259,13 @@ class PurchaserDashboardController extends Controller
             }
 
             $history = $allApprovals->take(3)->map(function ($app) {
+                $historyPrice = $app->price_a !== null && (float) $app->price_a > 0
+                    ? (float) $app->price_a
+                    : (float) $app->purchase_price;
+
                 return [
                     'date' => $app->business_date->format('d M Y'),
-                    'price' => (float) $app->purchase_price,
+                    'price' => $historyPrice,
                     'updated_by' => $app->updatedBy?->name ?? 'System',
                 ];
             })->values()->all();
@@ -4295,7 +4311,9 @@ class PurchaserDashboardController extends Controller
                 'product_id' => $productId,
                 'today_price' => $todayPrice,
                 'previous_price' => $previousPrice,
-                'selling_price_a' => $sellingPriceA,
+                'selling_price_a' => $todayPrice,
+                'purchase_today' => $purchaseToday,
+                'purchase_previous' => $purchasePrevious,
                 'purchaser_avg_price' => $avgPrice,
                 'diff_amount' => $diffAmount,
                 'diff_percentage' => $diffPercentage,
