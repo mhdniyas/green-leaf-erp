@@ -4022,6 +4022,9 @@ class PurchaserDashboardController extends Controller
 
             $todayPrice = $todayApproval?->purchase_price > 0 ? (float) $todayApproval->purchase_price : null;
             $previousPrice = $previousApproval?->purchase_price > 0 ? (float) $previousApproval->purchase_price : null;
+            $sellingPriceA = $todayApproval?->price_a !== null && (float) $todayApproval->price_a > 0
+                ? (float) $todayApproval->price_a
+                : $todayPrice;
 
             $diffAmount = null;
             $diffPercentage = null;
@@ -4067,6 +4070,7 @@ class PurchaserDashboardController extends Controller
                 'unit' => strtoupper((string) ($product->unit ?: 'KG')),
                 'unit_info_price' => $todayPrice ?? $previousPrice,
                 'purchaser_avg_price' => $purchaserAveragePrices->get((int) $product->id),
+                'selling_price_a' => $sellingPriceA,
                 'price_today' => $todayPrice,
                 'previous_price' => $previousPrice,
                 'diff_amount' => $diffAmount,
@@ -4215,6 +4219,9 @@ class PurchaserDashboardController extends Controller
 
             $todayPrice = $todayApproval?->purchase_price > 0 ? (float) $todayApproval->purchase_price : null;
             $previousPrice = $previousApproval?->purchase_price > 0 ? (float) $previousApproval->purchase_price : null;
+            $sellingPriceA = $todayApproval?->price_a !== null && (float) $todayApproval->price_a > 0
+                ? (float) $todayApproval->price_a
+                : $todayPrice;
 
             $diffAmount = null;
             $diffPercentage = null;
@@ -4288,6 +4295,7 @@ class PurchaserDashboardController extends Controller
                 'product_id' => $productId,
                 'today_price' => $todayPrice,
                 'previous_price' => $previousPrice,
+                'selling_price_a' => $sellingPriceA,
                 'purchaser_avg_price' => $avgPrice,
                 'diff_amount' => $diffAmount,
                 'diff_percentage' => $diffPercentage,

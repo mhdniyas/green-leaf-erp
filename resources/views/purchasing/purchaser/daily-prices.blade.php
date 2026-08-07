@@ -323,6 +323,11 @@
                                     Cost Avg: ₹{{ formatPriceCompactPHP($product['purchaser_avg_price']) }}
                                 @endif
                             </div>
+                            <div id="row-selling-a-{{ $product['id'] }}" class="updater-info">
+                                @if (($product['selling_price_a'] ?? null) !== null)
+                                    Selling A: ₹{{ formatPriceCompactPHP($product['selling_price_a']) }}
+                                @endif
+                            </div>
                             <div id="row-updater-{{ $product['id'] }}" class="updater-info">
                                 @if ($product['updated_by_name'])
                                     {{ $product['updated_by_name'] }} &middot; {{ $product['updated_time'] }}
@@ -617,6 +622,7 @@
                         activeModalProduct.diff_amount = data.diff_amount;
                         activeModalProduct.diff_percentage = data.diff_percentage;
                         activeModalProduct.price_state = data.price_state;
+                        activeModalProduct.selling_price_a = data.selling_price_a;
                         activeModalProduct.updated_by_name = data.updated_by_name;
                         activeModalProduct.updated_time = data.updated_time;
                         activeModalProduct.updated_at_formatted = data.updated_at_formatted;
@@ -708,6 +714,7 @@
             const badgeEl = document.getElementById('row-badge-' + pId);
             const updaterEl = document.getElementById('row-updater-' + pId);
             const costEl = document.getElementById('row-cost-avg-' + pId);
+            const sellingAEl = document.getElementById('row-selling-a-' + pId);
 
             if (prevEl) {
                 if (data.previous_price) {
@@ -742,6 +749,14 @@
                     costEl.textContent = `Cost Avg: ₹${formatPriceCompactJS(data.purchaser_avg_price)}`;
                 } else {
                     costEl.textContent = '';
+                }
+            }
+
+            if (sellingAEl) {
+                if (data.selling_price_a) {
+                    sellingAEl.textContent = `Selling A: ₹${formatPriceCompactJS(data.selling_price_a)}`;
+                } else {
+                    sellingAEl.textContent = '';
                 }
             }
         }
