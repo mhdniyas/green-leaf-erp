@@ -742,6 +742,17 @@ class WarehouseLoadoutController extends Controller
 
                 $newStatus = $anyItemLoaded ? 'ready_for_dispatch' : 'pending_delivery';
                 $shopOrder->update(['delivery_status' => $newStatus]);
+
+                // Synchronize and reprice the invoice immediately on loadout save
+                $shopOrder->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
+                $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
+                if ($invoice && !$invoice->isFinalLocked()) {
+                    $this->shopInvoiceService->repriceInvoice(
+                        $invoice,
+                        $userId,
+                        "Invoice recalculated during loadout save for order {$shopOrder->order_number}."
+                    );
+                }
             });
         } catch (ValidationException $e) {
             if ($request->wantsJson()) {

@@ -137,7 +137,7 @@ class ApiWarehouseLoadoutController extends Controller
     {
         $this->authorizeAccess($request);
 
-        $shopOrder->load(['shop', 'items.product.category', 'items.product.orderUnits', 'deliveredBy', 'invoice.items']);
+        $shopOrder->load(['shop', 'items.product.category', 'items.product.orderUnits', 'deliveredBy', 'invoice.items.product']);
 
         $productGroups = $shopOrder->items
             ->groupBy('product_id')
@@ -213,6 +213,8 @@ class ApiWarehouseLoadoutController extends Controller
                 'items' => $shopOrder->invoice->items->map(fn ($item) => [
                     'id' => $item->id,
                     'product_name' => $item->product_name,
+                    'product_sku' => $item->product?->sku ?? '',
+                    'product_category_id' => $item->product?->category_id,
                     'unit' => $item->unit,
                     'approved_qty' => (float) $item->approved_qty,
                     'delivered_qty' => (float) $item->delivered_qty,
@@ -244,6 +246,8 @@ class ApiWarehouseLoadoutController extends Controller
                 
                 $items[] = [
                     'product_name' => $item->product?->name ?? 'Unknown Product',
+                    'product_sku' => $item->product?->sku ?? '',
+                    'product_category_id' => $item->product?->category_id,
                     'unit' => $item->product?->unit ?? 'KG',
                     'approved_qty' => $approvedQty,
                     'delivered_qty' => $loadedQty,
@@ -525,6 +529,17 @@ class ApiWarehouseLoadoutController extends Controller
 
                 $newStatus = $anyItemLoaded ? 'ready_for_dispatch' : 'pending_delivery';
                 $shopOrder->update(['delivery_status' => $newStatus]);
+
+                // Synchronize and reprice the invoice immediately on loadout save
+                $shopOrder->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
+                $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
+                if ($invoice && !$invoice->isFinalLocked()) {
+                    $this->shopInvoiceService->repriceInvoice(
+                        $invoice,
+                        $userId,
+                        "Invoice recalculated during loadout save for order {$shopOrder->order_number}."
+                    );
+                }
             });
         } catch (ValidationException $e) {
             return response()->json([
