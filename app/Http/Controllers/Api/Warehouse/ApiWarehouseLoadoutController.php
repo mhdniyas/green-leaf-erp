@@ -46,6 +46,7 @@ class ApiWarehouseLoadoutController extends Controller
             'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
             'source' => ['nullable', 'string', 'in:all,shop,direct'],
             'category_id' => ['nullable', 'integer', 'exists:categories,id'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
         ]);
 
         $search = trim((string) ($validated['search'] ?? ''));
@@ -53,6 +54,7 @@ class ApiWarehouseLoadoutController extends Controller
         $selectedShopId = isset($validated['shop_id']) ? (int) $validated['shop_id'] : null;
         $selectedSource = (string) ($validated['source'] ?? 'all');
         $selectedCategoryId = isset($validated['category_id']) ? (int) $validated['category_id'] : null;
+        $selectedWarehouseId = isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
 
         $orders = ShopOrder::query()
             ->whereIn('delivery_status', [
@@ -73,6 +75,9 @@ class ApiWarehouseLoadoutController extends Controller
             ->when($selectedSource === 'direct', fn ($query) => $query->where('order_source', 'admin_direct_purchase'))
             ->when($selectedCategoryId, function ($query) use ($selectedCategoryId): void {
                 $query->whereHas('items.product', fn ($productQuery) => $productQuery->where('category_id', $selectedCategoryId));
+            })
+            ->when($selectedWarehouseId, function ($query) use ($selectedWarehouseId): void {
+                $query->whereHas('items.product', fn ($productQuery) => $productQuery->where('default_warehouse_id', $selectedWarehouseId));
             })
             ->when($search !== '', function ($query) use ($search): void {
                 $query->where(function ($searchQuery) use ($search): void {
@@ -137,7 +142,7 @@ class ApiWarehouseLoadoutController extends Controller
     {
         $this->authorizeAccess($request);
 
-        $shopOrder->load(['shop', 'items.product.category', 'items.product.orderUnits', 'deliveredBy', 'invoice.items.product']);
+        $shopOrder->load(['shop', 'items.product.category', 'items.product.orderUnits', 'items.product.defaultWarehouse', 'deliveredBy', 'invoice.items.product']);
 
         $productGroups = $shopOrder->items
             ->groupBy('product_id')
@@ -160,6 +165,9 @@ class ApiWarehouseLoadoutController extends Controller
                     'product_id' => $productId,
                     'product_name' => $firstItem->product?->name ?? 'Unknown Product',
                     'product_sku' => $firstItem->product?->sku ?? '',
+                    'default_warehouse_id' => $firstItem->product?->default_warehouse_id,
+                    'default_warehouse_name' => $firstItem->product?->defaultWarehouse?->name,
+                    'default_warehouse_code' => $firstItem->product?->defaultWarehouse?->code,
                     'category_name' => $firstItem->product?->category?->name ?? 'General',
                     'unit' => $firstItem->product->unit ?? 'KG',
                     'product_grade' => $firstItem->product_grade ?? 'A',
@@ -887,12 +895,18 @@ class ApiWarehouseLoadoutController extends Controller
         }
 
         $userId = (int) $request->user()->id;
+        $warehouseId = $request->input('warehouse_id') ? (int) $request->input('warehouse_id') : null;
 
         try {
-            DB::transaction(function () use ($shopOrder, $userId) {
+            DB::transaction(function () use ($shopOrder, $userId, $warehouseId) {
                 ShopOrder::lockForUpdate()->find($shopOrder->id);
 
-                $rows = $shopOrder->items()->lockForUpdate()->get();
+                $rows = $shopOrder->items()
+                    ->when($warehouseId, function ($query) use ($warehouseId) {
+                        $query->whereHas('product', fn ($q) => $q->where('default_warehouse_id', $warehouseId));
+                    })
+                    ->lockForUpdate()
+                    ->get();
                 $grouped = $rows->groupBy('product_id');
 
                 foreach ($grouped as $productId => $productRows) {
