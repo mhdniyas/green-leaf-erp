@@ -35,7 +35,12 @@ class PurchaseOrderService
 
         return $this->repository->query()
             ->with(['supplier', 'createdBy', 'items.product'])
-            ->when($status, fn ($query) => $query->where('status', $status))
+            ->when($status, function ($query) use ($status) {
+                if (str_contains($status, ',')) {
+                    return $query->whereIn('status', explode(',', $status));
+                }
+                return $query->where('status', $status);
+            })
             ->when($date, fn ($query) => $query->whereDate('order_date', $date))
             ->when($search !== '', function ($query) use ($search): void {
                 $query->where(function ($subQuery) use ($search): void {

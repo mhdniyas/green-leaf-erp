@@ -7,7 +7,6 @@ namespace App\Http\Controllers\Web\Purchasing;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\DailyPriceApproval;
-use App\Models\GoodsReceivedItem;
 use App\Models\Product;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Http\Request;
@@ -31,34 +30,10 @@ class DailyPriceBoardController extends Controller
         $categoryId = $request->filled('category_id') ? (int) $request->input('category_id') : null;
         $perPage = max(10, min(50, (int) $request->input('per_page', 20)));
 
-        $user = $request->user();
-        $isNonAdminPurchaser = $user && ! $user->hasRole('admin');
-        $assignedCatIds = $isNonAdminPurchaser ? $user->assignedCategoryIds() : [];
-        $purchasedProductIds = $isNonAdminPurchaser
-            ? GoodsReceivedItem::query()
-                ->whereHas('goodsReceived', fn ($grnQuery) => $grnQuery->where('received_by', $user->id))
-                ->pluck('product_id')
-                ->filter()
-                ->unique()
-                ->toArray()
-            : [];
-
         $productQuery = Product::query()
             ->active()
             ->with('category')
             ->ordered();
-
-        if ($isNonAdminPurchaser && (! empty($assignedCatIds) || ! empty($purchasedProductIds))) {
-            $productQuery->where(function ($query) use ($assignedCatIds, $purchasedProductIds): void {
-                if (! empty($assignedCatIds)) {
-                    $query->whereIn('category_id', $assignedCatIds);
-                }
-
-                if (! empty($purchasedProductIds)) {
-                    $query->orWhereIn('id', $purchasedProductIds);
-                }
-            });
-        }
 
         if ($categoryId) {
             $productQuery->where('category_id', $categoryId);

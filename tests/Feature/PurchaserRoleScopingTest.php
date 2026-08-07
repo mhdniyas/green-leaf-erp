@@ -111,4 +111,45 @@ class PurchaserRoleScopingTest extends TestCase
         $response->assertStatus(200);
         $response->assertSee('Global Product');
     }
+
+    public function test_purchaser_daily_prices_search_shows_products_outside_assigned_categories(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+
+        $assignedCategory = Category::create(['name' => 'Assigned Category', 'is_active' => true]);
+        $otherCategory = Category::create(['name' => 'Other Category', 'is_active' => true]);
+
+        $purchaser = User::factory()->create([
+            'assigned_category_ids' => [$assignedCategory->id],
+        ]);
+        $purchaser->syncRoles(['purchase']);
+
+        Product::create([
+            'name' => 'Bill Tomato',
+            'sku' => 'BILL-01',
+            'category_id' => $otherCategory->id,
+            'unit' => 'KG',
+            'base_price' => 12.00,
+            'is_active' => true,
+        ]);
+
+        Product::create([
+            'name' => 'Assigned Only Product',
+            'sku' => 'ASS-01',
+            'category_id' => $assignedCategory->id,
+            'unit' => 'KG',
+            'base_price' => 10.00,
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($purchaser)->get(route('purchasing.prices.index', [
+            'search' => 'BILL',
+            'category_id' => 'all',
+            'date' => '2026-08-02',
+        ]));
+
+        $response->assertStatus(200);
+        $response->assertSee('Bill Tomato');
+        $response->assertDontSee('Assigned Only Product');
+    }
 }

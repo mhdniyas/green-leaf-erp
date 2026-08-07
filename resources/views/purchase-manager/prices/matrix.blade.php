@@ -6,7 +6,7 @@
 
 @section('content')
     @php
-        $isAdminViewer = auth()->user()?->hasRole('admin');
+        $canEditPrices = auth()->user()?->hasRole('purchase');
         $currentCarbonDate = \Illuminate\Support\Carbon::parse($purchaseDate);
         $prevDayDate = $currentCarbonDate->copy()->subDay()->toDateString();
         $nextDayDate = $currentCarbonDate->copy()->addDay()->toDateString();
@@ -232,28 +232,20 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
                     </svg>
                     <span>
-                        @if ($isAdminViewer)
-                            <strong class="font-black">Update Price</strong> saves drafts; <strong class="font-black text-emerald-800">Approve &amp; Publish</strong> publishes live prices instantly.
+                        @if ($canEditPrices)
+                            <strong class="font-black">Save Final Price</strong> updates the live purchaser matrix immediately.
                         @else
-                            <strong class="font-black">Update Price</strong> saves proposed matrix values for admin approval.
+                            Price matrix is view only for this role.
                         @endif
                     </span>
                 </p>
                 <div class="flex items-center gap-2">
-                    <button
-                        type="submit"
-                        onclick="document.getElementById('matrix-form-action').value='update'"
-                        class="flex-1 sm:flex-initial h-8 inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-800 hover:bg-slate-50 active:scale-95 transition shadow-2xs touch-manipulation"
-                    >
-                        Update Price
-                    </button>
-                    @if ($isAdminViewer)
+                    @if ($canEditPrices)
                         <button
                             type="submit"
-                            onclick="document.getElementById('matrix-form-action').value='approve_publish'"
-                            class="flex-1 sm:flex-initial h-8 inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-black text-white hover:bg-emerald-500 active:scale-95 transition shadow-2xs touch-manipulation"
+                            class="flex-1 sm:flex-initial h-8 inline-flex items-center justify-center rounded-xl border border-cyan-200 bg-cyan-600 px-4 text-xs font-black text-white hover:bg-cyan-500 active:scale-95 transition shadow-2xs touch-manipulation"
                         >
-                            Approve &amp; Publish
+                            Save Final Price
                         </button>
                     @endif
                 </div>
@@ -426,56 +418,47 @@
                                                         data-changed-c="{{ $hasChangedC ? '1' : '0' }}"
                                                         value="{{ $matrixCategory === 'a' ? ($priceValA !== null ? number_format($priceValA, 2, '.', '') : '') : ($matrixCategory === 'b' ? ($priceValB !== null ? number_format($priceValB, 2, '.', '') : '') : ($priceValC !== null ? number_format($priceValC, 2, '.', '') : '')) }}"
                                                         onkeydown="if(event.key==='Enter'){ event.preventDefault(); saveMatrixCell(this.nextElementSibling); }"
-                                                        class="matrix-cell-input flex-1 min-w-[56px] h-8 rounded-lg border border-slate-200 bg-white py-0.5 px-1 text-center font-black text-xs focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/20 focus:outline-none transition touch-manipulation {{ ($matrixCategory === 'a' && $hasChangedA) || ($matrixCategory === 'b' && $hasChangedB) || ($matrixCategory === 'c' && $hasChangedC) ? 'text-red-600 font-black bg-red-50/40 border-red-200' : 'text-slate-900' }}"
+                                                        @if (! $canEditPrices) readonly @endif
+                                                        class="matrix-cell-input flex-1 min-w-[56px] h-8 rounded-lg border border-slate-200 bg-white py-0.5 px-1 text-center font-black text-xs focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/20 focus:outline-none transition touch-manipulation {{ ($matrixCategory === 'a' && $hasChangedA) || ($matrixCategory === 'b' && $hasChangedB) || ($matrixCategory === 'c' && $hasChangedC) ? 'text-red-600 font-black bg-red-50/40 border-red-200' : 'text-slate-900' }} {{ ! $canEditPrices ? 'bg-slate-50 text-slate-500 cursor-not-allowed' : '' }}"
                                                     >
-                                                    <button
-                                                        type="button"
-                                                        title="Save cell price"
-                                                        onclick="saveMatrixCell(this)"
-                                                        class="matrix-cell-save-btn flex-shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-lg bg-slate-900 text-white p-1 text-xs font-black hover:bg-cyan-600 active:scale-95 transition touch-manipulation shadow-2xs"
-                                                    >
-                                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                                                        </svg>
-                                                    </button>
+                                                    @if ($canEditPrices)
+                                                        <button
+                                                            type="button"
+                                                            title="Save final price"
+                                                            onclick="saveMatrixCell(this)"
+                                                            class="matrix-cell-save-btn flex-shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-lg bg-slate-900 text-white p-1 text-xs font-black hover:bg-cyan-600 active:scale-95 transition touch-manipulation shadow-2xs"
+                                                        >
+                                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                                            </svg>
+                                                        </button>
+                                                    @endif
                                                 </div>
-
-                                                <!-- Purchasing Cost Badge -->
-                                                @if (($cellData['purchase_price'] ?? null) !== null)
-                                                    <div class="text-[8.5px] font-extrabold text-slate-500 bg-slate-100/70 py-0.2 px-1 rounded">Cost {{ number_format((float) $cellData['purchase_price'], 2) }}</div>
-                                                @endif
-
-                                                <!-- Unit Selector Control -->
-                                                <div class="flex items-center justify-center gap-0.5 relative">
-                                                    <span class="text-[8.5px] font-bold text-slate-400">Unit:</span>
-                                                    <input
-                                                        type="hidden"
-                                                        class="matrix-cell-unit"
-                                                        name="matrix_price_units[{{ $prod['product_id'] }}][{{ $dateStr }}]"
-                                                        value="{{ $cellUnit }}"
-                                                    >
-                                                    <button
-                                                        type="button"
-                                                        title="Click to change unit"
-                                                        onclick="toggleUnitSelector(this)"
-                                                        class="matrix-cell-unit-btn h-5 inline-flex items-center gap-0.5 px-1.5 rounded bg-slate-100 text-slate-700 text-[9px] font-black hover:bg-cyan-100 hover:text-cyan-800 transition active:scale-95 touch-manipulation"
-                                                    >
-                                                        <span class="unit-display">{{ $cellUnitDisplay }}</span>
-                                                        <svg class="w-2.5 h-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                                                        </svg>
-                                                    </button>
-                                                    <div class="unit-selector hidden absolute left-1/2 -translate-x-1/2 top-full z-[100] mt-0.5 bg-white border border-slate-200 rounded-lg shadow-xl p-1 min-w-[100px] space-y-0.5">
-                                                        @foreach($cellUnitOptions as $unitOption)
-                                                            <button
-                                                                type="button"
-                                                                onclick="selectUnit(this, '{{ strtolower((string) ($unitOption['unit'] ?? 'kg')) }}', '{{ strtoupper(str_replace('_', ' ', (string) ($unitOption['label'] ?? $unitOption['unit'] ?? 'kg'))) }}')"
-                                                                class="block w-full whitespace-nowrap text-left px-2 py-1 text-[9.5px] font-extrabold text-slate-700 hover:bg-cyan-50 hover:text-cyan-800 rounded transition"
-                                                            >
-                                                                {{ strtoupper(str_replace('_', ' ', (string) ($unitOption['label'] ?? $unitOption['unit'] ?? 'KG'))) }}
-                                                            </button>
-                                                        @endforeach
-                                                    </div>
+                                                    @if ($canEditPrices)
+                                                        <button
+                                                            type="button"
+                                                            title="Click to change unit"
+                                                            onclick="toggleUnitSelector(this)"
+                                                            class="matrix-cell-unit-btn h-5 inline-flex items-center gap-0.5 px-1.5 rounded bg-slate-100 text-slate-700 text-[9px] font-black hover:bg-cyan-100 hover:text-cyan-800 transition active:scale-95 touch-manipulation"
+                                                        >
+                                                            <span class="unit-display">{{ $cellUnitDisplay }}</span>
+                                                            <svg class="w-2.5 h-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                                                            </svg>
+                                                        </button>
+                                                        <div class="unit-selector hidden absolute left-1/2 -translate-x-1/2 top-full z-[100] mt-0.5 bg-white border border-slate-200 rounded-lg shadow-xl p-1 min-w-[100px] space-y-0.5">
+                                                            @foreach($cellUnitOptions as $unitOption)
+                                                                <button
+                                                                    type="button"
+                                                                    data-unit="{{ $unitOption['unit'] }}"
+                                                                    onclick="selectUnit(this, '{{ $unitOption['unit'] }}')"
+                                                                    class="w-full text-left px-2 py-1 rounded text-[9px] font-bold hover:bg-cyan-50 hover:text-cyan-800 transition"
+                                                                >{{ $unitOption['label'] }}</button>
+                                                            @endforeach
+                                                        </div>
+                                                    @else
+                                                        <span class="text-[9px] font-black text-slate-500">{{ $cellUnitDisplay }}</span>
+                                                    @endif
                                                 </div>
                                             </div>
                                         </td>

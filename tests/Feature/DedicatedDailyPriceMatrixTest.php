@@ -6,6 +6,7 @@ use App\Models\Category;
 use App\Models\DailyPriceApproval;
 use App\Models\Product;
 use App\Models\User;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -47,7 +48,7 @@ class DedicatedDailyPriceMatrixTest extends TestCase
     {
         $this->seed(\Database\Seeders\RolePermissionSeeder::class);
         $user = User::factory()->create();
-        $user->syncRoles(['admin']);
+        $user->syncRoles(['purchase']);
 
         $category = Category::create(['name' => 'Veggies', 'is_active' => true]);
         $product = Product::create([
@@ -79,6 +80,7 @@ class DedicatedDailyPriceMatrixTest extends TestCase
             'product_id' => $product->id,
             'price_a' => 85.00,
             'status' => 'approved',
+            'approved_by' => $user->id,
         ]);
     }
 
@@ -86,7 +88,7 @@ class DedicatedDailyPriceMatrixTest extends TestCase
     {
         $this->seed(\Database\Seeders\RolePermissionSeeder::class);
         $user = User::factory()->create();
-        $user->syncRoles(['admin']);
+        $user->syncRoles(['purchase']);
 
         $category = Category::create(['name' => 'Veggies', 'is_active' => true]);
         $product = Product::create([
@@ -118,6 +120,48 @@ class DedicatedDailyPriceMatrixTest extends TestCase
         $this->assertDatabaseHas('daily_price_approvals', [
             'product_id' => $product->id,
             'price_a' => 35.00,
+            'status' => 'approved',
+            'approved_by' => $user->id,
+        ]);
+    }
+
+    public function test_next_day_matrix_is_seeded_from_previous_day(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+
+        $category = Category::create(['name' => 'Veggies', 'is_active' => true]);
+        $product = Product::create([
+            'name' => 'Cabbage',
+            'sku' => 'CAB-1',
+            'category_id' => $category->id,
+            'unit' => 'KG',
+            'base_price' => 20.00,
+            'is_active' => true,
+        ]);
+
+        DailyPriceApproval::create([
+            'product_id' => $product->id,
+            'business_date' => '2026-08-06',
+            'purchase_price' => 18.00,
+            'price_unit' => 'kg',
+            'price_a' => 25.00,
+            'price_b' => 22.50,
+            'price_c' => 20.00,
+            'status' => 'approved',
+            'approved_at' => now(),
+        ]);
+
+        Artisan::call('greenleaf:seed-daily-price-matrix', [
+            '--date' => '2026-08-07',
+        ]);
+
+        $this->assertDatabaseHas('daily_price_approvals', [
+            'product_id' => $product->id,
+            'business_date' => '2026-08-07 00:00:00',
+            'price_a' => 25.00,
+            'price_b' => 22.50,
+            'price_c' => 20.00,
+            'status' => 'approved',
         ]);
     }
 }
