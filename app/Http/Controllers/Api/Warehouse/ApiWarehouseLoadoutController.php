@@ -46,6 +46,8 @@ class ApiWarehouseLoadoutController extends Controller
             'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
             'source' => ['nullable', 'string', 'in:all,shop,direct'],
             'category_id' => ['nullable', 'integer', 'exists:categories,id'],
+            'category_ids' => ['nullable', 'array'],
+            'category_ids.*' => ['integer', 'exists:categories,id'],
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
         ]);
 
@@ -53,7 +55,14 @@ class ApiWarehouseLoadoutController extends Controller
         $selectedDate = $validated['date'] ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
         $selectedShopId = isset($validated['shop_id']) ? (int) $validated['shop_id'] : null;
         $selectedSource = (string) ($validated['source'] ?? 'all');
-        $selectedCategoryId = isset($validated['category_id']) ? (int) $validated['category_id'] : null;
+        
+        $selectedCategoryIds = null;
+        if (isset($validated['category_ids'])) {
+            $selectedCategoryIds = array_map('intval', $validated['category_ids']);
+        } elseif (isset($validated['category_id'])) {
+            $selectedCategoryIds = [(int) $validated['category_id']];
+        }
+
         $selectedWarehouseId = isset($validated['warehouse_id']) ? (int) $validated['warehouse_id'] : null;
 
         $orders = ShopOrder::query()
@@ -73,8 +82,8 @@ class ApiWarehouseLoadoutController extends Controller
             ->when($selectedSource === 'all', fn ($query) => $query->where('order_source', '!=', 'admin_direct_purchase'))
             ->when($selectedSource === 'shop', fn ($query) => $query->where('order_source', 'shop_owner'))
             ->when($selectedSource === 'direct', fn ($query) => $query->where('order_source', 'admin_direct_purchase'))
-            ->when($selectedCategoryId, function ($query) use ($selectedCategoryId): void {
-                $query->whereHas('items.product', fn ($productQuery) => $productQuery->where('category_id', $selectedCategoryId));
+            ->when($selectedCategoryIds, function ($query) use ($selectedCategoryIds): void {
+                $query->whereHas('items.product', fn ($productQuery) => $productQuery->whereIn('category_id', $selectedCategoryIds));
             })
             ->when($selectedWarehouseId, function ($query) use ($selectedWarehouseId): void {
                 $query->whereHas('items.product', fn ($productQuery) => $productQuery->where('default_warehouse_id', $selectedWarehouseId));
