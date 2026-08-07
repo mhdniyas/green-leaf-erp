@@ -46,8 +46,7 @@ class ApiWarehouseLoadoutController extends Controller
             'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
             'source' => ['nullable', 'string', 'in:all,shop,direct'],
             'category_id' => ['nullable', 'integer', 'exists:categories,id'],
-            'category_ids' => ['nullable', 'array'],
-            'category_ids.*' => ['integer', 'exists:categories,id'],
+            'category_ids' => ['nullable'],
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
         ]);
 
@@ -57,8 +56,13 @@ class ApiWarehouseLoadoutController extends Controller
         $selectedSource = (string) ($validated['source'] ?? 'all');
         
         $selectedCategoryIds = null;
-        if (isset($validated['category_ids'])) {
-            $selectedCategoryIds = array_map('intval', $validated['category_ids']);
+        if ($request->has('category_ids')) {
+            $rawIds = $request->get('category_ids');
+            if (is_array($rawIds)) {
+                $selectedCategoryIds = array_map('intval', $rawIds);
+            } elseif (is_string($rawIds) && strlen($rawIds) > 0) {
+                $selectedCategoryIds = array_map('intval', explode(',', $rawIds));
+            }
         } elseif (isset($validated['category_id'])) {
             $selectedCategoryIds = [(int) $validated['category_id']];
         }
