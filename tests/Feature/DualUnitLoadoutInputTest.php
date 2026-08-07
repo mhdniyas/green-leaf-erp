@@ -484,7 +484,8 @@ class DualUnitLoadoutInputTest extends TestCase
             'product_id' => $addonProduct->id,
             'requested_qty' => '3.50',
             'approved_qty' => '3.50',
-            'sorting_status' => 'allocated',
+            'loaded_qty' => '3.50',
+            'sorting_status' => 'loaded',
             'fulfillment_type' => 'warehouse',
         ]);
     }
@@ -707,5 +708,88 @@ class DualUnitLoadoutInputTest extends TestCase
         ]);
 
         return [$user, $order, $product];
+    }
+
+    public function test_api_load_all_loads_all_items_at_full_approved_qty(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+        [$user, $order, $product] = $this->createBasicLoadoutOrder(12.50);
+
+        $anotherProduct = Product::create([
+            'name' => 'Addon Beetroot',
+            'sku' => 'BEE-ADD',
+            'category_id' => $product->category_id,
+            'unit' => 'KG',
+            'base_price' => 15.00,
+            'is_active' => true,
+        ]);
+        ShopOrderItem::create([
+            'shop_order_id' => $order->id,
+            'product_id' => $anotherProduct->id,
+            'product_grade' => 'A',
+            'requested_qty' => 5.0,
+            'approved_qty' => 5.0,
+            'unit' => 'KG',
+            'locked_selling_price' => 15.00,
+            'line_total' => 75.00,
+            'fulfillment_type' => 'warehouse',
+            'sorting_status' => 'allocated',
+        ]);
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->postJson("/api/v1/warehouse/loadout/{$order->order_number}/load-all");
+
+        $response->assertOk();
+        $response->assertJson([
+            'success' => true,
+            'message' => 'All products loaded at full approved quantities successfully.',
+        ]);
+
+        $orderItems = ShopOrderItem::where('shop_order_id', $order->id)->get();
+        $this->assertCount(2, $orderItems);
+        foreach ($orderItems as $item) {
+            $this->assertEquals('loaded', $item->sorting_status);
+            $this->assertEquals($item->approved_qty, $item->loaded_qty);
+        }
+        $this->assertEquals('ready_for_dispatch', $order->fresh()->delivery_status);
+    }
+
+    public function test_api_store_addon_marks_loaded_and_consumes_inventory(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+        [$user, $order, $product] = $this->createBasicLoadoutOrder(12.50);
+
+        $addonProduct = Product::create([
+            'name' => 'Api Addon Spinach',
+            'sku' => 'SPI-ADD-API',
+            'category_id' => $product->category_id,
+            'unit' => 'KG',
+            'base_price' => 8.00,
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($user, 'sanctum')
+            ->postJson("/api/v1/warehouse/loadout/{$order->order_number}/addon", [
+                'product_id' => $addonProduct->id,
+                'quantity' => '4.20',
+            ]);
+
+        $response->assertOk();
+        $response->assertJson([
+            'success' => true,
+        ]);
+
+        $this->assertDatabaseHas('shop_order_items', [
+            'shop_order_id' => $order->id,
+            'product_id' => $addonProduct->id,
+            'requested_qty' => '4.20',
+            'approved_qty' => '4.20',
+            'loaded_qty' => '4.20',
+            'loaded_order_unit_qty' => '4.20',
+            'sorting_status' => 'loaded',
+            'is_sorted' => true,
+        ]);
+
+        $this->assertEquals(4.20, (float) StockMovement::where('product_id', $addonProduct->id)->where('type', 'out')->sum('quantity'));
     }
 }

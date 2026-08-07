@@ -820,27 +820,166 @@ class ApiWarehouseLoadoutController extends Controller
         $shopOrder->loadMissing('shop');
         $price = $this->priceBoardService->sellingPriceFor($product, $shopOrder->shop, ProductGrade::GradeA);
 
-        $item = ShopOrderItem::create([
-            'shop_order_id' => $shopOrder->id,
-            'product_id' => $product->id,
-            'product_grade' => ProductGrade::GradeA->value,
-            'requested_qty' => $quantity,
-            'approved_qty' => $quantity,
-            'unit' => $product->unit ?: 'KG',
-            'locked_price_group_id' => $price['group']->id,
-            'locked_selling_price' => $price['price'],
-            'locked_price_source' => $price['source'],
-            'line_total' => round($quantity * (float) $price['price'], 2),
-            'notes' => 'Addon item added from warehouse loadout.',
-            'fulfillment_type' => 'warehouse',
-            'sorting_status' => 'allocated',
-            'is_sorted' => false,
-        ]);
+        $item = DB::transaction(function () use ($shopOrder, $product, $quantity, $price, $request) {
+            $userId = (int) $request->user()->id;
+
+            $item = ShopOrderItem::create([
+                'shop_order_id' => $shopOrder->id,
+                'product_id' => $product->id,
+                'product_grade' => ProductGrade::GradeA->value,
+                'requested_qty' => $quantity,
+                'approved_qty' => $quantity,
+                'loaded_qty' => $quantity,
+                'loaded_order_unit_qty' => $quantity,
+                'unit' => $product->unit ?: 'KG',
+                'locked_price_group_id' => $price['group']->id,
+                'locked_selling_price' => $price['price'],
+                'locked_price_source' => $price['source'],
+                'line_total' => round($quantity * (float) $price['price'], 2),
+                'notes' => 'Addon item added from warehouse loadout.',
+                'fulfillment_type' => 'warehouse',
+                'sorting_status' => 'loaded',
+                'is_sorted' => true,
+            ]);
+
+            $this->stockLedgerService->consumeStockForProductAllowingNegative(
+                (int) $product->id,
+                $quantity,
+                $userId,
+                StockMovementType::Out,
+                "Loadout dispatch to delivery — Order: {$shopOrder->order_number}"
+            );
+
+            return $item;
+        });
 
         return response()->json([
             'success' => true,
-            'message' => "{$product->name} added as addon product successfully.",
+            'message' => "{$product->name} added as addon product successfully and marked loaded. Inventory updated.",
             'item' => $item,
+        ]);
+    }
+
+    /**
+     * Load all products in the shop order at 100% of approved quantity.
+     */
+    public function loadAll(ShopOrder $shopOrder, Request $request): JsonResponse
+    {
+        $this->authorizeAccess($request);
+
+        if (! in_array($shopOrder->delivery_status, ['pending_delivery', 'ready_for_dispatch'])) {
+            return response()->json(['success' => false, 'message' => 'Order is not in editable status.'], 422);
+        }
+
+        $userId = (int) $request->user()->id;
+
+        try {
+            DB::transaction(function () use ($shopOrder, $userId) {
+                ShopOrder::lockForUpdate()->find($shopOrder->id);
+
+                $rows = $shopOrder->items()->lockForUpdate()->get();
+                $grouped = $rows->groupBy('product_id');
+
+                foreach ($grouped as $productId => $productRows) {
+                    $totalApproved = $this->loadoutApprovedQuantity($productRows);
+                    $firstRow = $productRows->first();
+
+                    $conversionToBase = (float) ($firstRow->requested_unit_conversion_to_base ?? 1.0);
+                    $hasRequestedUnit = filled($firstRow->requested_unit)
+                        && strtolower((string) $firstRow->requested_unit) !== 'kg';
+
+                    $requestedUnitQty = $hasRequestedUnit && $conversionToBase > 0
+                        ? round($totalApproved / $conversionToBase, 2)
+                        : $totalApproved;
+
+                    $oldLoadedQty = (float) $productRows->where('sorting_status', 'loaded')->sum('loaded_qty');
+                    $diff = $totalApproved - $oldLoadedQty;
+
+                    if ($diff > 0.001) {
+                        $this->stockLedgerService->consumeStockForProductAllowingNegative(
+                            $productId,
+                            $diff,
+                            $userId,
+                            StockMovementType::Out,
+                            "Loadout dispatch to delivery — Order: {$shopOrder->order_number}"
+                        );
+                    } elseif ($diff < -0.001) {
+                        $lastOut = StockMovement::where('product_id', $productId)
+                            ->where('type', StockMovementType::Out)
+                            ->where('notes', 'like', "%Order: {$shopOrder->order_number}%")
+                            ->latest()
+                            ->first();
+
+                        $batchId = $lastOut?->batch_id;
+                        if (! $batchId) {
+                            $anyBatch = StockBatch::where('product_id', $productId)->latest()->first();
+                            $batchId = $anyBatch?->id;
+                        }
+
+                        if ($batchId) {
+                            StockMovement::create([
+                                'batch_id' => $batchId,
+                                'product_id' => $productId,
+                                'created_by' => $userId,
+                                'grade' => $lastOut?->grade ?? $firstRow->product_grade ?? 'A',
+                                'type' => StockMovementType::SaleReversal,
+                                'quantity' => abs($diff),
+                                'cost_per_unit' => $lastOut?->cost_per_unit ?? 0.0,
+                                'warehouse_id' => $lastOut?->warehouse_id ?? ($batchId ? StockBatch::find($batchId)?->warehouse_id : null),
+                                'notes' => "Loadout adjustment (decrease) — Order: {$shopOrder->order_number}",
+                            ]);
+                        }
+                    }
+
+                    $unitSellingPrice = (float) ($firstRow->locked_selling_price ?? 0.0);
+
+                    $basePriceData = [
+                        'locked_price_group_id' => $firstRow->locked_price_group_id,
+                        'locked_selling_price' => $firstRow->locked_selling_price,
+                        'locked_price_source' => $firstRow->locked_price_source,
+                        'unit_cost' => $firstRow->unit_cost,
+                        'unit' => $firstRow->unit,
+                        'requested_product_unit_id' => $firstRow->requested_product_unit_id,
+                        'requested_unit' => $firstRow->requested_unit,
+                        'requested_unit_label' => $firstRow->requested_unit_label,
+                        'requested_unit_conversion_to_base' => $firstRow->requested_unit_conversion_to_base,
+                        'product_grade' => $firstRow->product_grade ?? 'A',
+                        'fulfillment_type' => $firstRow->fulfillment_type,
+                    ];
+
+                    $targetRows = [
+                        array_merge($basePriceData, [
+                            'requested_qty' => $totalApproved,
+                            'approved_qty' => $totalApproved,
+                            'loaded_qty' => $totalApproved,
+                            'loaded_order_unit_qty' => $hasRequestedUnit ? $requestedUnitQty : null,
+                            'requested_unit_quantity' => $requestedUnitQty,
+                            'line_total' => round($totalApproved * $unitSellingPrice, 2),
+                            'actual_weight' => $hasRequestedUnit ? null : $totalApproved,
+                            'delivered_qty' => null,
+                            'excess_qty' => 0.0,
+                            'excess_value' => 0.0,
+                            'loadout_discrepancy_type' => 'none',
+                            'loadout_discrepancy_note' => null,
+                            'sorting_status' => 'loaded',
+                            'is_sorted' => true,
+                            'sorted_at' => now(),
+                            'sorted_by' => $userId,
+                        ])
+                    ];
+
+                    $this->applyOrderItemRows($productRows, $shopOrder->id, $productId, $targetRows);
+                }
+
+                $shopOrder->update(['delivery_status' => 'ready_for_dispatch']);
+            });
+        } catch (Throwable $e) {
+            return response()->json(['success' => false, 'message' => 'Load All failed: '.$e->getMessage()], 500);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'All products loaded at full approved quantities successfully.',
         ]);
     }
 }

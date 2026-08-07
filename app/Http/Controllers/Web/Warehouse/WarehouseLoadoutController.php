@@ -474,26 +474,40 @@ class WarehouseLoadoutController extends Controller
         $shopOrder->loadMissing('shop');
         $price = $this->priceBoardService->sellingPriceFor($product, $shopOrder->shop, ProductGrade::GradeA);
 
-        ShopOrderItem::create([
-            'shop_order_id' => $shopOrder->id,
-            'product_id' => $product->id,
-            'product_grade' => ProductGrade::GradeA->value,
-            'requested_qty' => $quantity,
-            'approved_qty' => $quantity,
-            'unit' => $product->unit ?: 'KG',
-            'locked_price_group_id' => $price['group']->id,
-            'locked_selling_price' => $price['price'],
-            'locked_price_source' => $price['source'],
-            'line_total' => round($quantity * (float) $price['price'], 2),
-            'notes' => 'Addon item added from warehouse loadout.',
-            'fulfillment_type' => 'warehouse',
-            'sorting_status' => 'allocated',
-            'is_sorted' => false,
-        ]);
+        DB::transaction(function () use ($shopOrder, $product, $quantity, $price, $request): void {
+            $userId = (int) $request->user()->id;
+
+            ShopOrderItem::create([
+                'shop_order_id' => $shopOrder->id,
+                'product_id' => $product->id,
+                'product_grade' => ProductGrade::GradeA->value,
+                'requested_qty' => $quantity,
+                'approved_qty' => $quantity,
+                'loaded_qty' => $quantity,
+                'loaded_order_unit_qty' => $quantity,
+                'unit' => $product->unit ?: 'KG',
+                'locked_price_group_id' => $price['group']->id,
+                'locked_selling_price' => $price['price'],
+                'locked_price_source' => $price['source'],
+                'line_total' => round($quantity * (float) $price['price'], 2),
+                'notes' => 'Addon item added from warehouse loadout.',
+                'fulfillment_type' => 'warehouse',
+                'sorting_status' => 'loaded',
+                'is_sorted' => true,
+            ]);
+
+            $this->stockLedgerService->consumeStockForProductAllowingNegative(
+                (int) $product->id,
+                $quantity,
+                $userId,
+                StockMovementType::Out,
+                "Loadout dispatch to delivery — Order: {$shopOrder->order_number}"
+            );
+        });
 
         return redirect()
             ->route('warehouse.loadout.show', $shopOrder)
-            ->with('success', "{$product->name} added to the purchaser order. You can now load it normally.");
+            ->with('success', "{$product->name} added and marked loaded. Inventory updated.");
     }
 
     /**

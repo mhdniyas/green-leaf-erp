@@ -20,12 +20,12 @@ class PurchaseOrderPolicy
 
     public function viewAny(User $user): bool
     {
-        return $user->can('purchasing.order.view');
+        return $user->can('purchasing.order.view') || $user->can('warehouse.receive.view');
     }
 
     public function view(User $user, PurchaseOrder $po): bool
     {
-        return $user->can('purchasing.order.view');
+        return $user->can('purchasing.order.view') || $user->can('warehouse.receive.view');
     }
 
     public function create(User $user): bool
