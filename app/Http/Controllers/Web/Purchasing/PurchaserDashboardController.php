@@ -3985,7 +3985,7 @@ class PurchaserDashboardController extends Controller
             ->whereIn('product_id', $productIds)
             ->where('quantity', '>', 0)
             ->where('unit_price', '>', 0)
-            ->whereHas('cart', fn ($q) => $q->whereBetween('business_date', [$sevenDaysAgo, $operationalDate->toDateString()]))
+            ->whereHas('cart', fn ($q) => $q->whereDate('business_date', $operationalDate->toDateString()))
             ->selectRaw('product_id, SUM(quantity * unit_price) as total_cost, SUM(quantity) as total_qty')
             ->groupBy('product_id')
             ->get()
@@ -4015,9 +4015,10 @@ class PurchaserDashboardController extends Controller
 
         $productsWithPrices = $products->map(function ($product) use ($allApprovals, $today, $purchaserAveragePrices) {
             $approvals = $allApprovals->get($product->id, collect());
+            $finalApprovals = $approvals->filter(fn ($a): bool => $a->status === 'approved' && $a->approved_at !== null)->values();
 
-            $todayApproval = $approvals->first(fn ($a) => $a->business_date->toDateString() === $today);
-            $previousApproval = $approvals->first(fn ($a) => $a->business_date->toDateString() < $today);
+            $todayApproval = $finalApprovals->first(fn ($a) => $a->business_date->toDateString() === $today);
+            $previousApproval = $finalApprovals->first(fn ($a) => $a->business_date->toDateString() < $today);
 
             $todayPrice = $todayApproval?->purchase_price > 0 ? (float) $todayApproval->purchase_price : null;
             $previousPrice = $previousApproval?->purchase_price > 0 ? (float) $previousApproval->purchase_price : null;
@@ -4205,8 +4206,12 @@ class PurchaserDashboardController extends Controller
                 ->orderByDesc('id')
                 ->get();
 
-            $todayApproval = $allApprovals->first(fn ($a) => $a->business_date->toDateString() === $businessDateStr);
-            $previousApproval = $allApprovals->first(fn ($a) => $a->business_date->toDateString() < $businessDateStr);
+            $finalApprovals = $allApprovals
+                ->filter(fn ($a): bool => $a->status === 'approved' && $a->approved_at !== null)
+                ->values();
+
+            $todayApproval = $finalApprovals->first(fn ($a) => $a->business_date->toDateString() === $businessDateStr);
+            $previousApproval = $finalApprovals->first(fn ($a) => $a->business_date->toDateString() < $businessDateStr);
 
             $todayPrice = $todayApproval?->purchase_price > 0 ? (float) $todayApproval->purchase_price : null;
             $previousPrice = $previousApproval?->purchase_price > 0 ? (float) $previousApproval->purchase_price : null;
@@ -4246,7 +4251,7 @@ class PurchaserDashboardController extends Controller
                 ->where('product_id', $productId)
                 ->where('quantity', '>', 0)
                 ->where('unit_price', '>', 0)
-                ->whereHas('cart', fn ($q) => $q->whereBetween('business_date', [Carbon::parse($businessDateStr)->copy()->subDays(7)->toDateString(), $businessDateStr]))
+                ->whereHas('cart', fn ($q) => $q->whereDate('business_date', $businessDateStr))
                 ->selectRaw('SUM(quantity * unit_price) as total_cost, SUM(quantity) as total_qty')
                 ->first();
 
