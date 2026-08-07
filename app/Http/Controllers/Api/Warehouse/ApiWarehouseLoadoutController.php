@@ -283,8 +283,14 @@ class ApiWarehouseLoadoutController extends Controller
             ];
         }
 
+        $categories = \App\Models\Category::query()
+            ->whereHas('products')
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
         return response()->json([
             'success' => true,
+            'categories' => $categories,
             'order' => [
                 'id' => $shopOrder->id,
                 'order_number' => $shopOrder->order_number,

@@ -536,11 +536,36 @@
                     auth()->user()->can('inventory.wastage.view')
                 )
                 @php
-                    $isInventoryActive = request()->routeIs('inventory.*');
+                    $isInventoryActive = request()->routeIs('inventory.*') || request()->routeIs('warehouse.receiver.*') || request()->routeIs('warehouse.loadout.*');
                 @endphp
-                <x-nav-item href="{{ route('inventory.dashboard') }}" icon="archive-box" :active="$isInventoryActive">
-                    Inventory Dashboard
-                </x-nav-item>
+                <div class="sidebar-group space-y-1">
+                    <button
+                        type="button"
+                        class="sidebar-group-toggle group flex w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold transition-all {{ $isInventoryActive ? 'bg-white text-slate-950 shadow-[0_10px_24px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/80' : 'text-slate-500 hover:bg-white/70 hover:text-slate-950 hover:shadow-sm' }}"
+                        aria-expanded="{{ $isInventoryActive ? 'true' : 'false' }}"
+                    >
+                        <span class="flex items-center gap-3">
+                            <svg class="h-4 w-4 shrink-0 opacity-80 transition-opacity group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+                            </svg>
+                            <span>Inventory</span>
+                        </span>
+                        <svg class="chevron-icon h-3.5 w-3.5 transition-transform duration-200 {{ $isInventoryActive ? 'rotate-90 opacity-100' : 'opacity-50 group-hover:opacity-100' }}" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
+                    </button>
+                    <div class="sidebar-group-items ml-6 space-y-1 border-l border-slate-200 py-1 pl-4 pr-1 transition-all duration-200 {{ $isInventoryActive ? '' : 'hidden' }}">
+                        <x-nav-item href="{{ route('inventory.dashboard') }}" :active="request()->routeIs('inventory.dashboard') || request()->routeIs('inventory.deliveries.dashboard')" :sub="true">
+                            Dashboard
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('warehouse.receiver.checklist', ['tab' => 'pending']) }}" :active="request()->routeIs('warehouse.receiver.receive-grn') || (request()->routeIs('warehouse.receiver.checklist') && request()->query('tab', 'pending') === 'pending')" :sub="true">
+                            Receive (In)
+                        </x-nav-item>
+                        <x-nav-item href="{{ route('warehouse.loadout.index') }}" :active="request()->routeIs('warehouse.loadout.*')" :sub="true">
+                            Loadout (Out)
+                        </x-nav-item>
+                    </div>
+                </div>
                 @endif
 
                 {{-- Purchasing Group --}}
