@@ -50,6 +50,42 @@
             </div>
         </section>
 
+        <!-- Shop Details & Contact Info Section -->
+        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+                <div class="flex items-center gap-2">
+                    <span class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">DESTINATION SHOP</span>
+                    @if($shopOrder->shop?->code)
+                        <span class="rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[9px] font-black text-slate-700 font-mono">{{ $shopOrder->shop->code }}</span>
+                    @endif
+                    @if($shopOrder->shop?->warehouse_tag)
+                        <span class="rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 px-2 py-0.5 text-[9px] font-black uppercase">{{ $shopOrder->shop->warehouse_tag }}</span>
+                    @endif
+                </div>
+                <h2 class="text-base font-black text-slate-950 mt-1">{{ $shopOrder->shop?->name ?? 'Direct Customer' }}</h2>
+                @if($shopOrder->shop?->address)
+                    <p class="text-xs text-slate-500 mt-0.5">{{ $shopOrder->shop->address }}</p>
+                @endif
+            </div>
+
+            @if($shopOrder->shop?->contact_phone || $shopOrder->shop?->contact_name)
+                <div class="flex items-center gap-3 self-start sm:self-auto shrink-0 bg-slate-50 border border-slate-200 rounded-xl p-2.5">
+                    <div>
+                        <p class="text-[9px] font-black uppercase tracking-wider text-slate-400">Contact Person</p>
+                        <p class="text-xs font-bold text-slate-800">{{ $shopOrder->shop->contact_name ?? 'N/A' }}</p>
+                    </div>
+                    @if($shopOrder->shop?->contact_phone)
+                        <a href="tel:{{ $shopOrder->shop->contact_phone }}" class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-black text-white hover:bg-emerald-500 shadow-sm transition-colors text-decoration-none border-none">
+                            <svg class="h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-2.828-1.41-5.183-3.765-6.593-6.593l1.293-.97c.362-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
+                            </svg>
+                            {{ $shopOrder->shop->contact_phone }}
+                        </a>
+                    @endif
+                </div>
+            @endif
+        </section>
+
         @php
             $remainingProductCount = collect($productGroups)->filter(fn(array $group): bool => (float) $group['total_balance'] > 0.001)->count();
             $hasAnyDualMeasurement = collect($productGroups)->contains(

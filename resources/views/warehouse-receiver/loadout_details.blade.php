@@ -23,6 +23,41 @@
             </div>
         </section>
 
+        {{-- Shop Details & Contact Card --}}
+        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-2">
+            <div class="flex items-center justify-between">
+                <span class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Shop Information</span>
+                @if($order->shop?->code)
+                    <span class="rounded-full bg-slate-100 border border-slate-200 px-2.5 py-0.5 text-[9px] font-black text-slate-700 font-mono">
+                        {{ $order->shop->code }}
+                    </span>
+                @endif
+            </div>
+            <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div>
+                    <h3 class="text-base font-black text-slate-950">{{ $order->shop?->name ?? 'Direct Customer' }}</h3>
+                    @if($order->shop?->contact_name)
+                        <p class="text-xs font-semibold text-slate-700 mt-1">
+                            Contact Person: <span class="font-bold text-slate-900">{{ $order->shop->contact_name }}</span>
+                        </p>
+                    @endif
+                    @if($order->shop?->address)
+                        <p class="text-xs text-slate-500 mt-1">
+                            {{ $order->shop->address }}
+                        </p>
+                    @endif
+                </div>
+                @if($order->shop?->contact_phone)
+                    <a href="tel:{{ $order->shop->contact_phone }}" class="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-black text-white hover:bg-emerald-500 shadow-sm transition-colors text-decoration-none border-none">
+                        <svg class="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-2.828-1.41-5.183-3.765-6.593-6.593l1.293-.97c.362-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
+                        </svg>
+                        Call: {{ $order->shop->contact_phone }}
+                    </a>
+                @endif
+            </div>
+        </section>
+
         @php
             $pendingItems = $order->items->where('sorting_status', '!=', 'loaded');
             $loadedItems = $order->items->where('sorting_status', 'loaded');

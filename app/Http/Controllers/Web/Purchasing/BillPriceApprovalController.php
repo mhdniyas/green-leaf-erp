@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Web\Purchasing;
 
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Models\Shop;
 use App\Models\ShopDailyProductPrice;
 use App\Models\ShopInvoice;
 use App\Services\Purchasing\PurchaserBusinessDayService;
@@ -34,18 +35,42 @@ class BillPriceApprovalController extends Controller
             return $date;
         }
 
+        $search = trim($request->string('search')->toString());
         $searchProduct = trim($request->string('search_product')->toString());
         $searchShop = trim($request->string('search_shop')->toString());
         $status = strtolower(trim($request->string('status')->toString() ?: 'all'));
+        $sort = $this->resolveSort($request->string('sort')->toString());
+        $direction = $this->resolveDirection($request->string('direction')->toString());
 
         $categories = Category::query()
             ->active()
             ->orderBy('name')
             ->get(['id', 'name']);
 
-        $billCards = ShopInvoice::query()
+        $billCardsQuery = ShopInvoice::query()
+            ->withCount('items')
+            ->addSelect([
+                'shop_name' => Shop::query()
+                    ->select('name')
+                    ->whereColumn('shops.id', 'shop_invoices.shop_id')
+                    ->limit(1),
+            ])
             ->with(['shop', 'items.product.category'])
             ->whereDate('business_date', $date)
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($searchQuery) use ($search): void {
+                    $searchQuery
+                        ->where('invoice_number', 'like', "%{$search}%")
+                        ->orWhere('status', 'like', "%{$search}%")
+                        ->orWhereHas('shop', fn ($shopQuery) => $shopQuery
+                            ->where('name', 'like', "%{$search}%")
+                            ->orWhere('code', 'like', "%{$search}%")
+                            ->orWhere('warehouse_tag', 'like', "%{$search}%"))
+                        ->orWhereHas('items.product', fn ($productQuery) => $productQuery
+                            ->where('name', 'like', "%{$search}%")
+                            ->orWhere('sku', 'like', "%{$search}%"));
+                });
+            })
             ->when($searchProduct !== '', function ($query) use ($searchProduct): void {
                 $query->whereHas('items.product', fn ($productQuery) => $productQuery
                     ->where('name', 'like', "%{$searchProduct}%")
@@ -58,9 +83,17 @@ class BillPriceApprovalController extends Controller
                     ->orWhere('warehouse_tag', 'like', "%{$searchShop}%"));
             })
             ->whereHas('items')
-            ->orderBy('shop_id')
-            ->orderBy('invoice_number')
-            ->get();
+            ->when($status !== 'all' && $status !== '', fn ($query) => $query->where('status', $status));
+
+        match ($sort) {
+            'invoice' => $billCardsQuery->orderBy('invoice_number', $direction),
+            'total' => $billCardsQuery->orderByRaw('COALESCE(final_total, subtotal) '.strtoupper($direction))->orderBy('invoice_number'),
+            'items' => $billCardsQuery->orderBy('items_count', $direction)->orderBy('invoice_number'),
+            'status' => $billCardsQuery->orderBy('status', $direction)->orderBy('shop_name')->orderBy('invoice_number'),
+            default => $billCardsQuery->orderBy('shop_name', $direction)->orderBy('invoice_number'),
+        };
+
+        $billCards = $billCardsQuery->get();
 
         $summary = [
             'bills' => $billCards->count(),
@@ -73,9 +106,12 @@ class BillPriceApprovalController extends Controller
 
         return view('purchasing.purchaser.bill-price-approval', [
             'date' => $date,
+            'search' => $search,
             'searchProduct' => $searchProduct,
             'searchShop' => $searchShop,
             'status' => $status,
+            'sort' => $sort,
+            'direction' => $direction,
             'categories' => $categories,
             'billCards' => $billCards,
             'summary' => $summary,
@@ -170,9 +206,12 @@ class BillPriceApprovalController extends Controller
         return redirect()
             ->route('purchaser.bill-prices.index', array_filter([
                 'date' => $date,
+                'search' => $request->input('search'),
                 'search_product' => $request->input('search_product'),
                 'search_shop' => $request->input('search_shop'),
                 'status' => $request->input('status'),
+                'sort' => $request->input('sort'),
+                'direction' => $request->input('direction'),
                 'category_id' => $request->input('category_id'),
                 'invoice_id' => $request->input('invoice_id'),
             ], fn ($value) => $value !== null && $value !== ''))
@@ -299,9 +338,12 @@ class BillPriceApprovalController extends Controller
         return redirect()
             ->route('purchaser.bill-prices.index', array_filter([
                 'date' => $specialPrice->business_date->toDateString(),
+                'search' => $request->input('search'),
                 'search_product' => $request->input('search_product'),
                 'search_shop' => $request->input('search_shop'),
                 'status' => $request->input('status'),
+                'sort' => $request->input('sort'),
+                'direction' => $request->input('direction'),
                 'category_id' => $request->input('category_id'),
                 'invoice_id' => $request->input('invoice_id'),
             ], fn ($value) => $value !== null && $value !== ''))
@@ -321,9 +363,12 @@ class BillPriceApprovalController extends Controller
         return redirect()
             ->route('purchaser.bill-prices.index', array_filter([
                 'date' => $date,
+                'search' => $request->input('search'),
                 'search_product' => $request->input('search_product'),
                 'search_shop' => $request->input('search_shop'),
                 'status' => $request->input('status'),
+                'sort' => $request->input('sort'),
+                'direction' => $request->input('direction'),
                 'category_id' => $request->input('category_id'),
                 'invoice_id' => $request->input('invoice_id'),
             ], fn ($value) => $value !== null && $value !== ''))
@@ -374,13 +419,28 @@ class BillPriceApprovalController extends Controller
         return redirect()
             ->route('purchaser.bill-prices.index', array_filter([
                 'date' => $todayDate,
+                'search' => $request->input('search'),
                 'search_product' => $request->input('search_product'),
                 'search_shop' => $request->input('search_shop'),
                 'status' => $request->input('status'),
+                'sort' => $request->input('sort'),
+                'direction' => $request->input('direction'),
                 'category_id' => $request->input('category_id'),
                 'invoice_id' => $request->input('invoice_id'),
             ], fn ($value) => $value !== null && $value !== ''))
             ->with('success', "{$copied} special price(s) copied from {$previousDate} as drafts.");
+    }
+
+    private function resolveSort(string $sort): string
+    {
+        return in_array($sort, ['shop', 'invoice', 'total', 'items', 'status'], true)
+            ? $sort
+            : 'shop';
+    }
+
+    private function resolveDirection(string $direction): string
+    {
+        return strtolower($direction) === 'desc' ? 'desc' : 'asc';
     }
 
     private function repriceMatchingInvoice(ShopDailyProductPrice $specialPrice, int $userId): void

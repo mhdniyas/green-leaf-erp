@@ -498,12 +498,28 @@
                             <a href="{{ route('warehouse.loadout.show', $order) }}" class="block text-decoration-none">
                                 <div class="rounded-2xl border border-slate-200 bg-white p-4 flex items-center justify-between gap-3 shadow-sm hover:border-indigo-200 transition-colors">
                                     <div class="min-w-0">
-                                        <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-500 mb-1.5">
-                                            {{ $order->shop->warehouse_tag ?? 'NO TAG' }}
-                                        </span>
+                                        <div class="flex items-center gap-1.5 flex-wrap mb-1">
+                                            <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-slate-500">
+                                                {{ $order->shop->warehouse_tag ?? 'NO TAG' }}
+                                            </span>
+                                            @if($order->shop?->code)
+                                                <span class="text-[10px] font-mono font-bold text-slate-500">({{ $order->shop->code }})</span>
+                                            @endif
+                                        </div>
                                         <h4 class="truncate text-sm font-black text-slate-900">{{ $order->loadoutDisplayName() }}</h4>
-                                        <p class="text-[10px] text-slate-400 font-medium">Order: <span class="font-mono">{{ $order->order_number }}</span></p>
-                                        <p class="text-[10px] text-slate-500 font-bold mt-1.5">
+                                        @if($order->shop?->contact_phone)
+                                            <p class="text-[11px] font-bold text-emerald-700 mt-0.5 flex items-center gap-1">
+                                                <svg class="h-3 w-3 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-2.828-1.41-5.183-3.765-6.593-6.593l1.293-.97c.362-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
+                                                </svg>
+                                                <span>{{ $order->shop->contact_phone }}</span>
+                                                @if($order->shop->contact_name)
+                                                    <span class="text-slate-400 font-normal">({{ $order->shop->contact_name }})</span>
+                                                @endif
+                                            </p>
+                                        @endif
+                                        <p class="text-[10px] text-slate-400 font-medium mt-0.5">Order: <span class="font-mono">{{ $order->order_number }}</span></p>
+                                        <p class="text-[10px] text-slate-500 font-bold mt-1">
                                             Progress: {{ $order->loaded_items_count }} / {{ $order->total_items_count }} items loaded
                                         </p>
                                     </div>

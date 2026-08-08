@@ -390,9 +390,17 @@
                         &middot; Tag: <span class="tag-badge">{{ $shopOrder->shop->warehouse_tag }}</span>
                     @endif
                 </div>
+                @if($shopOrder->shop?->contact_name || $shopOrder->shop?->contact_phone)
+                    <div class="shop-meta" style="margin-top: 4px; font-weight: 700; color: #0f172a;">
+                        Contact: {{ $shopOrder->shop->contact_name ?? 'N/A' }}
+                        @if($shopOrder->shop?->contact_phone)
+                            &middot; Phone: <a href="tel:{{ $shopOrder->shop->contact_phone }}" style="color: #2563eb; text-decoration: none;">{{ $shopOrder->shop->contact_phone }}</a>
+                        @endif
+                    </div>
+                @endif
                 @if($shopOrder->shop?->address)
                     <div class="shop-meta" style="margin-top: 4px; font-size: 10px; color: #64748b;">
-                        {{ $shopOrder->shop->address }}
+                        Address: {{ $shopOrder->shop->address }}
                     </div>
                 @endif
             </div>

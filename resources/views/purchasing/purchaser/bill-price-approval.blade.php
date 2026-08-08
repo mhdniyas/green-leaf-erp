@@ -1,8 +1,11 @@
 <x-layouts.app title="Approval - Bill">
     @php
         $dateQuery = array_filter([
+            'search' => $search !== '' ? $search : null,
             'search_product' => $searchProduct !== '' ? $searchProduct : null,
             'search_shop' => $searchShop !== '' ? $searchShop : null,
+            'sort' => $sort,
+            'direction' => $direction,
         ], fn ($value) => $value !== null && $value !== '');
     @endphp
 
@@ -19,8 +22,11 @@
                     <a href="{{ route('purchaser.bill-prices.index', array_merge($dateQuery, ['date' => $yesterdayShortcutDate])) }}" class="inline-flex h-9 items-center justify-center rounded-xl border px-3 text-xs font-black uppercase tracking-wider transition {{ $date->toDateString() === $yesterdayShortcutDate ? 'border-slate-950 bg-slate-950 text-white shadow-sm' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">Yesterday</a>
 
                     <form method="GET" action="{{ route('purchaser.bill-prices.index') }}" class="flex items-center gap-1.5">
+                        <input type="hidden" name="search" value="{{ $search }}">
                         <input type="hidden" name="search_product" value="{{ $searchProduct }}">
                         <input type="hidden" name="search_shop" value="{{ $searchShop }}">
+                        <input type="hidden" name="sort" value="{{ $sort }}">
+                        <input type="hidden" name="direction" value="{{ $direction }}">
                         <input type="text" name="date" value="{{ $date->toDateString() }}" inputmode="numeric" placeholder="YYYY-MM-DD" pattern="\d{4}-\d{2}-\d{2}" class="h-9 w-32 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 outline-none focus:border-lime-400 focus:bg-white">
                         <button class="h-9 rounded-xl bg-slate-950 px-3 text-xs font-bold text-white transition hover:bg-slate-800">Go</button>
                     </form>
@@ -54,13 +60,27 @@
         </section>
 
         <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <form method="GET" action="{{ route('purchaser.bill-prices.index') }}" class="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
+            <form method="GET" action="{{ route('purchaser.bill-prices.index') }}" class="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.9fr)_auto]">
                 <input type="hidden" name="date" value="{{ $date->toDateString() }}">
+                <input type="search" name="search" value="{{ $search }}" placeholder="Search bill, shop, product, SKU..." class="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 outline-none focus:border-lime-400 focus:bg-white">
                 <input type="text" name="search_shop" value="{{ $searchShop }}" placeholder="Search shop..." class="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 outline-none focus:border-lime-400 focus:bg-white">
                 <input type="text" name="search_product" value="{{ $searchProduct }}" placeholder="Search product..." class="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 outline-none focus:border-lime-400 focus:bg-white">
+                <div class="grid grid-cols-2 gap-2">
+                    <select name="sort" class="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 outline-none focus:border-lime-400 focus:bg-white">
+                        <option value="shop" @selected($sort === 'shop')>Sort: Shop</option>
+                        <option value="invoice" @selected($sort === 'invoice')>Sort: Bill No</option>
+                        <option value="total" @selected($sort === 'total')>Sort: Total</option>
+                        <option value="items" @selected($sort === 'items')>Sort: Items</option>
+                        <option value="status" @selected($sort === 'status')>Sort: Status</option>
+                    </select>
+                    <select name="direction" class="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 outline-none focus:border-lime-400 focus:bg-white">
+                        <option value="asc" @selected($direction === 'asc')>Asc</option>
+                        <option value="desc" @selected($direction === 'desc')>Desc</option>
+                    </select>
+                </div>
                 <div class="flex gap-2">
                     <button class="h-10 flex-1 rounded-xl bg-slate-950 px-4 text-xs font-black text-white transition hover:bg-slate-900 sm:flex-none">Search</button>
-                    @if($searchShop !== '' || $searchProduct !== '')
+                    @if($search !== '' || $searchShop !== '' || $searchProduct !== '' || $sort !== 'shop' || $direction !== 'asc')
                         <a href="{{ route('purchaser.bill-prices.index', ['date' => $date->toDateString()]) }}" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-600 transition hover:bg-slate-100">Clear</a>
                     @endif
                 </div>
