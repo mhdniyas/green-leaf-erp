@@ -229,5 +229,6 @@
     label-selector="[data-printing-sidebar-label]"
 />
 @stack('scripts')
+<x-global-loader />
 </body>
 </html>

@@ -280,5 +280,6 @@
     label-selector="[data-staff-sidebar-label]"
 />
 @stack('scripts')
+<x-global-loader />
 </body>
 </html>

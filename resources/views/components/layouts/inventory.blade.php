@@ -249,5 +249,6 @@
     label-selector="[data-inventory-sidebar-label]"
 />
 @stack('scripts')
+<x-global-loader />
 </body>
 </html>

@@ -989,5 +989,6 @@
     })();
 </script>
 @stack('scripts')
+<x-global-loader />
 </body>
 </html>

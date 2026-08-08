@@ -682,6 +682,7 @@ class ApiWarehouseLoadoutController extends Controller
         if (
             ! $request->user()->hasRole('warehouse_receiver')
             && ! $request->user()->hasRole('admin')
+            && ! $request->user()->hasRole('purchaser')
             && ! $request->user()->can('warehouse.receive.confirm')
         ) {
             abort(403, 'Unauthorized access.');

@@ -182,7 +182,7 @@ class BillPriceApprovalController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        $this->authorizeAccess($request);
+        $this->authorizePurchaserAccess($request);
 
         $validated = $request->validate([
             'business_date' => ['required', 'date'],
@@ -238,7 +238,7 @@ class BillPriceApprovalController extends Controller
 
     public function updateInvoicePrices(Request $request, ShopInvoice $invoice): RedirectResponse|JsonResponse
     {
-        $this->authorizeAccess($request);
+        $this->authorizePurchaserAccess($request);
 
         $invoice->loadMissing(['shop', 'items.product']);
 
@@ -340,7 +340,7 @@ class BillPriceApprovalController extends Controller
 
     public function approve(Request $request, ShopDailyProductPrice $specialPrice): RedirectResponse
     {
-        $this->authorizeAccess($request);
+        $this->authorizePurchaserAccess($request);
 
         $specialPrice->loadMissing(['shop', 'product']);
 
@@ -369,7 +369,7 @@ class BillPriceApprovalController extends Controller
 
     public function destroy(Request $request, ShopDailyProductPrice $specialPrice): RedirectResponse
     {
-        $this->authorizeAccess($request);
+        $this->authorizePurchaserAccess($request);
 
         $specialPrice->loadMissing(['shop', 'product']);
         $date = $specialPrice->business_date->toDateString();
@@ -394,7 +394,7 @@ class BillPriceApprovalController extends Controller
 
     public function copyPreviousDay(Request $request): RedirectResponse
     {
-        $this->authorizeAccess($request);
+        $this->authorizePurchaserAccess($request);
 
         $date = $this->resolveDate($request);
         if ($date instanceof RedirectResponse) {
@@ -503,6 +503,14 @@ class BillPriceApprovalController extends Controller
             $request->user()?->hasRole('admin')
             || $request->user()?->hasRole('purchase')
             || $request->user()?->hasRole('purchaser'),
+            403,
+        );
+    }
+
+    private function authorizePurchaserAccess(Request $request): void
+    {
+        abort_unless(
+            $request->user()?->hasRole('purchaser'),
             403,
         );
     }

@@ -435,5 +435,6 @@
     label-selector="[data-accounting-sidebar-label]"
 />
 @stack('scripts')
+<x-global-loader />
 </body>
 </html>

@@ -274,5 +274,6 @@
     label-selector="[data-purchasing-sidebar-label]"
 />
 @stack('scripts')
+<x-global-loader />
 </body>
 </html>

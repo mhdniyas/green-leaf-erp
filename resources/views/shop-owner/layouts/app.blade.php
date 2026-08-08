@@ -63,5 +63,6 @@
         close-button-id="shop-owner-mobile-sidebar-close"
     />
     @stack('scripts')
+    <x-global-loader />
 </body>
 </html>
