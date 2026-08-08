@@ -52,6 +52,17 @@
 
                         <div>
                             <label for="company_email" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Email</label>
+
+                    <div class="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+                        <label class="flex cursor-pointer items-start gap-3">
+                            <input type="hidden" name="allow_historical_invoice_repricing" value="0">
+                            <input type="checkbox" name="allow_historical_invoice_repricing" value="1" {{ old('allow_historical_invoice_repricing', $companyDetails['allow_historical_invoice_repricing']) ? 'checked' : '' }} class="mt-1 h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500">
+                            <span>
+                                <span class="block text-sm font-black text-slate-900">Allow historical invoice repricing</span>
+                                <span class="mt-1 block text-xs font-semibold leading-5 text-slate-600">When enabled, unlocked invoices from past business dates can be repriced. Finalized invoices stay frozen.</span>
+                            </span>
+                        </label>
+                    </div>
                             <input id="company_email" type="email" name="company_email" value="{{ old('company_email', $companyDetails['company_email']) }}" class="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
                             @error('company_email')
                                 <p class="mt-1 text-xs font-bold text-rose-600">{{ $message }}</p>

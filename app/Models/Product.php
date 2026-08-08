@@ -96,6 +96,11 @@ class Product extends Model implements AuditableContract
         return $this->hasMany(DailyProductPrice::class);
     }
 
+    public function shopDailyProductPrices(): HasMany
+    {
+        return $this->hasMany(ShopDailyProductPrice::class);
+    }
+
     public function wholesalePrices(): HasMany
     {
         return $this->hasMany(ProductWholesalePrice::class);

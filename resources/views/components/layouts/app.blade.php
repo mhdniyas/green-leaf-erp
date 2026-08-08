@@ -480,6 +480,9 @@
                         </div>
                         <div class="space-y-1">
                             <p class="px-3 text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">More</p>
+                            <x-nav-item href="{{ route('purchaser.bill-prices.index') }}" :active="request()->routeIs('purchaser.bill-prices.*')" :sub="true">
+                                Approval - Bill
+                            </x-nav-item>
                             <x-nav-item href="{{ route('purchaser.history') }}" :active="request()->routeIs('purchaser.history')" :sub="true">
                                 Report
                             </x-nav-item>

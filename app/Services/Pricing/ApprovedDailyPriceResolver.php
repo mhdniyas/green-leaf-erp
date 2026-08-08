@@ -8,6 +8,7 @@ use App\Models\DailyPriceApproval;
 use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\Shop;
+use App\Models\ShopDailyProductPrice;
 use App\Models\ShopPriceGroup;
 use Carbon\CarbonInterface;
 use Illuminate\Validation\ValidationException;
@@ -15,7 +16,16 @@ use Illuminate\Validation\ValidationException;
 class ApprovedDailyPriceResolver
 {
     /**
-     * @return array{approval: DailyPriceApproval, group: ShopPriceGroup, price: float, price_unit: string, price_column: string, category_code: string}
+     * @return array{
+     *     source: string,
+     *     approval: DailyPriceApproval|null,
+     *     special_price: ShopDailyProductPrice|null,
+     *     group: ShopPriceGroup,
+     *     price: float,
+     *     price_unit: string,
+     *     price_column: string,
+     *     category_code: string
+     * }
      */
     public function resolve(Product $product, Shop $shop, CarbonInterface|string $businessDate): array
     {
@@ -25,6 +35,34 @@ class ApprovedDailyPriceResolver
             throw ValidationException::withMessages([
                 'prices' => 'This shop does not have an active price category assigned.',
             ]);
+        }
+
+        $specialPrice = ShopDailyProductPrice::query()
+            ->whereDate('business_date', $businessDate)
+            ->where('shop_id', $shop->id)
+            ->where('product_id', $product->id)
+            ->where('status', 'approved')
+            ->first();
+
+        if ($specialPrice instanceof ShopDailyProductPrice) {
+            $price = round((float) $specialPrice->selling_price, 2);
+
+            if ($price <= 0.0) {
+                throw ValidationException::withMessages([
+                    'prices' => "Special price for {$product->name} is invalid.",
+                ]);
+            }
+
+            return [
+                'source' => 'special',
+                'approval' => null,
+                'special_price' => $specialPrice,
+                'group' => $group,
+                'price' => $price,
+                'price_unit' => ProductUnit::normalizeUnit((string) ($specialPrice->price_unit ?: $product->unit ?: 'kg')),
+                'price_column' => 'special',
+                'category_code' => 'SPECIAL',
+            ];
         }
 
         $priceColumn = $this->priceColumnForGroup($group);
@@ -55,7 +93,9 @@ class ApprovedDailyPriceResolver
         }
 
         return [
+            'source' => 'normal',
             'approval' => $approval,
+            'special_price' => null,
             'group' => $group,
             'price' => $price,
             'price_unit' => ProductUnit::normalizeUnit((string) ($approval->price_unit ?: $product->unit ?: 'kg')),

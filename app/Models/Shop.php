@@ -49,6 +49,11 @@ class Shop extends Model
         return $this->belongsTo(ShopPriceGroup::class, 'shop_price_group_id');
     }
 
+    public function dailyProductPrices(): HasMany
+    {
+        return $this->hasMany(ShopDailyProductPrice::class);
+    }
+
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);

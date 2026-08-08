@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\ShopInvoices;
 
+use App\Models\BusinessSetting;
 use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\Shop;
@@ -17,6 +18,7 @@ use App\Models\ShopOrderItem;
 use App\Services\Finance\JournalService;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Pricing\ApprovedDailyPriceResolver;
+use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -24,10 +26,13 @@ use Illuminate\Validation\ValidationException;
 
 class ShopInvoiceService
 {
+    private const HISTORICAL_REPRICING_SETTING_KEY = 'allow_historical_invoice_repricing';
+
     public function __construct(
         private readonly ApprovedDailyPriceResolver $approvedDailyPriceResolver,
         private readonly JournalService $journalService,
         private readonly OwnedShopAccountingService $ownedShopAccountingService,
+        private readonly PurchaserBusinessDayService $businessDayService,
     ) {}
 
     /**
@@ -83,6 +88,10 @@ class ShopInvoiceService
             ]);
 
             if ($invoice->exists && $invoice->isFinalLocked()) {
+                return $invoice->fresh('items');
+            }
+
+            if ($invoice->exists && $this->isHistoricalInvoice($invoice->business_date) && ! $this->allowHistoricalRepricing()) {
                 return $invoice->fresh('items');
             }
 
@@ -796,6 +805,12 @@ class ShopInvoiceService
             ]);
         }
 
+        if ($this->isHistoricalInvoice($invoice->business_date) && ! $this->allowHistoricalRepricing()) {
+            throw ValidationException::withMessages([
+                'invoice' => 'Historical invoice repricing is disabled. Ask an admin to enable the setting before updating past invoices.',
+            ]);
+        }
+
         return DB::transaction(function () use ($invoice, $userId, $reason): ShopInvoice {
             $orderItemsByProduct = $invoice->order
                 ? $invoice->order->items
@@ -882,6 +897,16 @@ class ShopInvoiceService
             'skipped' => [],
         ];
 
+        if ($this->isHistoricalInvoiceDate($businessDate) && ! $this->allowHistoricalRepricing()) {
+            $summary['skipped'][] = [
+                'order_number' => null,
+                'shop_name' => null,
+                'products' => ['Historical invoice repricing is disabled.'],
+            ];
+
+            return $summary;
+        }
+
         ShopInvoice::query()
             ->with(['shop.priceGroup', 'items.product', 'order'])
             ->whereDate('business_date', $businessDate)
@@ -917,6 +942,26 @@ class ShopInvoiceService
             });
 
         return $summary;
+    }
+
+    private function allowHistoricalRepricing(): bool
+    {
+        return filter_var(
+            BusinessSetting::query()
+                ->where('key', self::HISTORICAL_REPRICING_SETTING_KEY)
+                ->value('value') ?? false,
+            FILTER_VALIDATE_BOOLEAN
+        );
+    }
+
+    private function isHistoricalInvoice(Carbon|string $businessDate): bool
+    {
+        return Carbon::parse($businessDate)->toDateString() < $this->businessDayService->operationalDate()->toDateString();
+    }
+
+    private function isHistoricalInvoiceDate(string $businessDate): bool
+    {
+        return Carbon::parse($businessDate)->toDateString() < $this->businessDayService->operationalDate()->toDateString();
     }
 
     private function allocateShopPaymentToPendingInvoices(ShopInvoicePaymentRequest $paymentRequest, float $paymentAmount, int $userId, ?string $adminNote = null): float

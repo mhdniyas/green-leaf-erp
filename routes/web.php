@@ -33,6 +33,7 @@ use App\Http\Controllers\Web\Inventory\WarehouseSortingController;
 use App\Http\Controllers\Web\Inventory\WastageController;
 use App\Http\Controllers\Web\ProfileController;
 use App\Http\Controllers\Web\Purchasing\AdminShopOrderController;
+use App\Http\Controllers\Web\Purchasing\BillPriceApprovalController;
 use App\Http\Controllers\Web\Purchasing\DailyPriceBoardController;
 use App\Http\Controllers\Web\Purchasing\DailyPriceMatrixController;
 use App\Http\Controllers\Web\Purchasing\GoodsReceivedController;
@@ -202,6 +203,13 @@ Route::middleware('auth')->group(function () {
         Route::get('shop-invoices/{invoice}/pdf', [ShopInvoiceController::class, 'pdf'])->name('shop-invoices.pdf');
         Route::post('shop-invoices/{invoice}/revert-approval', [ShopInvoiceController::class, 'revertApproval'])->name('shop-invoices.revert-approval');
         Route::patch('shop-invoices/{invoice}/reprice', [ShopInvoiceController::class, 'reprice'])->name('shop-invoices.reprice');
+        Route::get('bill-prices', [BillPriceApprovalController::class, 'index'])->name('bill-prices.index');
+        Route::post('bill-prices', [BillPriceApprovalController::class, 'store'])->name('bill-prices.store');
+        Route::get('bill-prices/{invoice}', [BillPriceApprovalController::class, 'show'])->name('bill-prices.show');
+        Route::post('bill-prices/{invoice}/special-prices', [BillPriceApprovalController::class, 'updateInvoicePrices'])->name('bill-prices.invoice-prices.update');
+        Route::post('bill-prices/copy-previous-day', [BillPriceApprovalController::class, 'copyPreviousDay'])->name('bill-prices.copy-previous-day');
+        Route::patch('bill-prices/{specialPrice}/approve', [BillPriceApprovalController::class, 'approve'])->name('bill-prices.approve');
+        Route::delete('bill-prices/{specialPrice}', [BillPriceApprovalController::class, 'destroy'])->name('bill-prices.destroy');
 
         // Daily shop orders (admin marketplace editor)
         Route::get('shop-orders', [AdminShopOrderController::class, 'index'])->name('shop-orders.index');
@@ -320,6 +328,13 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/cash', [PurchaserDashboardController::class, 'cash'])->name('purchaser.cash');
     Route::get('/purchaser/procurement-expenses', [ProcurementExpenseController::class, 'index'])->name('purchaser.procurement-expenses.index');
     Route::get('/purchaser/other-expenses', [OtherExpenseController::class, 'index'])->name('purchaser.other-expenses.index');
+    Route::get('/purchaser/bill-prices', [BillPriceApprovalController::class, 'index'])->name('purchaser.bill-prices.index');
+    Route::post('/purchaser/bill-prices', [BillPriceApprovalController::class, 'store'])->name('purchaser.bill-prices.store');
+    Route::get('/purchaser/bill-prices/{invoice}', [BillPriceApprovalController::class, 'show'])->name('purchaser.bill-prices.show');
+    Route::post('/purchaser/bill-prices/{invoice}/special-prices', [BillPriceApprovalController::class, 'updateInvoicePrices'])->name('purchaser.bill-prices.invoice-prices.update');
+    Route::post('/purchaser/bill-prices/copy-previous-day', [BillPriceApprovalController::class, 'copyPreviousDay'])->name('purchaser.bill-prices.copy-previous-day');
+    Route::patch('/purchaser/bill-prices/{specialPrice}/approve', [BillPriceApprovalController::class, 'approve'])->name('purchaser.bill-prices.approve');
+    Route::delete('/purchaser/bill-prices/{specialPrice}', [BillPriceApprovalController::class, 'destroy'])->name('purchaser.bill-prices.destroy');
     Route::get('/purchaser/cart/{cart}/bill', [PurchaserDashboardController::class, 'bill'])->name('purchaser.bill');
     Route::get('/purchaser/history', [PurchaserDashboardController::class, 'history'])->name('purchaser.history');
     Route::get('/purchaser/settings', [PurchaserDashboardController::class, 'settings'])->name('purchaser.settings');

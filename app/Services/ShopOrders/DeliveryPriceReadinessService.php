@@ -9,9 +9,14 @@ use App\Models\Product;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\ShopPriceGroup;
+use App\Services\Pricing\ApprovedDailyPriceResolver;
 
 class DeliveryPriceReadinessService
 {
+    public function __construct(
+        private readonly ApprovedDailyPriceResolver $approvedDailyPriceResolver,
+    ) {}
+
     /**
      * @return array{
      *     ready: bool,
@@ -89,26 +94,13 @@ class DeliveryPriceReadinessService
             return $base;
         }
 
-        $approval = DailyPriceApproval::query()
-            ->where('product_id', $product->id)
-            ->whereDate('business_date', $order->business_date)
-            ->first();
-
-        if (! $approval instanceof DailyPriceApproval) {
+        try {
+            $resolvedPrice = $this->approvedDailyPriceResolver->resolve($product, $order->shop, $order->business_date);
+        } catch (\Throwable) {
             return $base;
         }
 
-        if ($approval->status !== 'approved' || $approval->approved_at === null) {
-            return [
-                ...$base,
-                'status' => 'pending_approval',
-                'status_label' => 'Pending Admin Approval',
-                'status_tone' => 'info',
-            ];
-        }
-
-        $priceColumn = $this->priceColumnForOrder($order);
-        $unitPrice = $priceColumn !== null ? round((float) $approval->{$priceColumn}, 2) : 0.0;
+        $unitPrice = round((float) ($resolvedPrice['price'] ?? 0.0), 2);
 
         if ($unitPrice <= 0.0) {
             return [
@@ -135,16 +127,6 @@ class DeliveryPriceReadinessService
         $group = $order->shop?->priceGroup;
 
         return $group instanceof ShopPriceGroup ? strtoupper((string) $group->name) : '-';
-    }
-
-    private function priceColumnForOrder(ShopOrder $order): ?string
-    {
-        return match ($this->priceCategory($order)) {
-            'A' => 'price_a',
-            'B' => 'price_b',
-            'C' => 'price_c',
-            default => null,
-        };
     }
 
     /**

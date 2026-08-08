@@ -56,6 +56,7 @@ class ShopInvoiceIntegrityValidator
         );
 
         $invoicePrice = round((float) $item->unit_price, 2);
+        $priceSource = (string) ($approvedPrice['source'] ?? 'normal');
 
         if (abs($invoicePrice - $approvedPrice['price']) > 0.0001) {
             throw ValidationException::withMessages([
@@ -63,7 +64,7 @@ class ShopInvoiceIntegrityValidator
                     'Invoice price mismatch for %s. Invoice has %.2f but approved %s price is %.2f.',
                     $item->product_name,
                     $invoicePrice,
-                    $approvedPrice['category_code'],
+                    $priceSource === 'special' ? 'special' : $approvedPrice['category_code'],
                     $approvedPrice['price'],
                 ),
             ]);

@@ -17,6 +17,7 @@ class CompanySettingsController extends Controller
         'company_address',
         'company_phone',
         'company_email',
+        'allow_historical_invoice_repricing',
     ];
 
     public function edit(Request $request): View
@@ -32,6 +33,7 @@ class CompanySettingsController extends Controller
             'company_address' => $settings->get('company_address'),
             'company_phone' => $settings->get('company_phone'),
             'company_email' => $settings->get('company_email'),
+            'allow_historical_invoice_repricing' => filter_var($settings->get('allow_historical_invoice_repricing') ?? false, FILTER_VALIDATE_BOOLEAN),
         ];
 
         return view('admin.company-settings.edit', compact('companyDetails'));
@@ -46,6 +48,7 @@ class CompanySettingsController extends Controller
             'company_address' => ['nullable', 'string', 'max:500'],
             'company_phone' => ['nullable', 'string', 'max:50'],
             'company_email' => ['nullable', 'email', 'max:120'],
+            'allow_historical_invoice_repricing' => ['nullable', 'boolean'],
         ]);
 
         foreach (self::SETTING_KEYS as $key) {
