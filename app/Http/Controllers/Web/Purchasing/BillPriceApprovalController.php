@@ -180,6 +180,120 @@ class BillPriceApprovalController extends Controller
         ]);
     }
 
+    public function discount(Request $request, ShopInvoice $invoice): View
+    {
+        $this->authorizePurchaserAccess($request);
+
+        $invoice->loadMissing(['shop', 'items.product.category']);
+
+        $categoryId = $request->filled('category_id') ? (int) $request->input('category_id') : null;
+        $search = trim($request->string('search')->toString());
+        $categories = $this->categoriesForInvoice($invoice);
+        $items = $this->filteredInvoiceItems($invoice, $categoryId, $search);
+
+        return view('purchasing.purchaser.bill-price-discount', [
+            'invoice' => $invoice,
+            'categories' => $categories,
+            'categoryId' => $categoryId,
+            'search' => $search,
+            'selectedCategory' => $categoryId ? $categories->firstWhere('id', $categoryId) : null,
+            'items' => $items,
+            'visibleTotal' => $items->sum(fn ($item): float => round((float) ($item->final_line_total ?: $item->line_subtotal), 2)),
+        ]);
+    }
+
+    public function applyDiscount(Request $request, ShopInvoice $invoice): RedirectResponse
+    {
+        $this->authorizePurchaserAccess($request);
+
+        $invoice->loadMissing(['shop', 'items.product']);
+
+        $validated = $request->validate([
+            'category_id' => ['nullable', 'integer', 'exists:categories,id'],
+            'search' => ['nullable', 'string', 'max:255'],
+            'selected_items' => ['required', 'array', 'min:1'],
+            'selected_items.*' => ['integer'],
+            'discount_amount' => ['required', 'numeric', 'min:0.01'],
+        ]);
+
+        $selectedItemIds = collect($validated['selected_items'])
+            ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values();
+
+        $selectedItems = $invoice->items
+            ->whereIn('id', $selectedItemIds)
+            ->filter(fn ($item): bool => (int) ($item->product_id ?? 0) > 0)
+            ->values();
+
+        if ($selectedItems->isEmpty()) {
+            throw ValidationException::withMessages([
+                'selected_items' => 'Select at least one product from this bill.',
+            ]);
+        }
+
+        $discountAmount = round((float) $validated['discount_amount'], 2);
+        $selectedSubtotal = round($selectedItems->sum(
+            fn ($item): float => round((float) ($item->final_line_total ?: $item->line_subtotal), 2)
+        ), 2);
+
+        if ($discountAmount >= $selectedSubtotal) {
+            throw ValidationException::withMessages([
+                'discount_amount' => 'Discount must be less than the selected product total.',
+            ]);
+        }
+
+        $discountedPrices = $this->discountedSpecialPricesFor($selectedItems, $discountAmount);
+        $userId = (int) $request->user()->id;
+        $updated = 0;
+
+        foreach ($discountedPrices as $row) {
+            $existingCreatedBy = ShopDailyProductPrice::query()
+                ->whereDate('business_date', $invoice->business_date)
+                ->where('shop_id', $invoice->shop_id)
+                ->where('product_id', $row['product_id'])
+                ->value('created_by');
+
+            ShopDailyProductPrice::query()->updateOrCreate(
+                [
+                    'business_date' => $invoice->business_date->toDateString(),
+                    'shop_id' => (int) $invoice->shop_id,
+                    'product_id' => $row['product_id'],
+                ],
+                [
+                    'selling_price' => $row['selling_price'],
+                    'price_unit' => $row['price_unit'],
+                    'status' => 'approved',
+                    'reason' => 'Selected product discount from bill total',
+                    'created_by' => $existingCreatedBy ?? $userId,
+                    'approved_by' => $userId,
+                    'approved_at' => now(),
+                ]
+            );
+
+            $updated++;
+        }
+
+        try {
+            $this->shopInvoiceService->repriceInvoice(
+                $invoice,
+                $userId,
+                'Selected product discount applied by '.$request->user()->name.' for '.$invoice->invoice_number,
+            );
+        } catch (ValidationException $exception) {
+            return back()->withErrors($exception->errors())->withInput();
+        }
+
+        return redirect()
+            ->route('purchaser.bill-prices.show', array_filter([
+                'invoice' => $invoice,
+                'category_id' => $validated['category_id'] ?? null,
+                'search' => $validated['search'] ?? null,
+            ], fn ($value) => $value !== null && $value !== ''))
+            ->with('success', "{$updated} product price(s) adjusted from selected discount.");
+    }
+
     public function store(Request $request): RedirectResponse
     {
         $this->authorizePurchaserAccess($request);
@@ -446,6 +560,91 @@ class BillPriceApprovalController extends Controller
                 'invoice_id' => $request->input('invoice_id'),
             ], fn ($value) => $value !== null && $value !== ''))
             ->with('success', "{$copied} special price(s) copied from {$previousDate} as drafts.");
+    }
+
+    private function categoriesForInvoice(ShopInvoice $invoice): Collection
+    {
+        return $invoice->items
+            ->map(fn ($item) => $item->product?->category)
+            ->filter()
+            ->unique('id')
+            ->sortBy('name')
+            ->values();
+    }
+
+    private function filteredInvoiceItems(ShopInvoice $invoice, ?int $categoryId, string $search): Collection
+    {
+        return $invoice->items
+            ->when($categoryId !== null, fn (Collection $items): Collection => $items
+                ->filter(fn ($item): bool => (int) ($item->product?->category_id ?? 0) === $categoryId))
+            ->when($search !== '', fn (Collection $items): Collection => $items
+                ->filter(function ($item) use ($search): bool {
+                    $haystack = strtolower(implode(' ', array_filter([
+                        (string) ($item->product?->sku ?? ''),
+                        (string) ($item->product?->name ?? $item->product_name ?? ''),
+                        (string) ($item->product?->category?->name ?? ''),
+                        (string) ($item->price_unit ?? $item->unit ?? ''),
+                    ])));
+
+                    return str_contains($haystack, strtolower($search));
+                }))
+            ->sortBy(fn ($item): string => sprintf(
+                '%s|%s|%s',
+                Product::sortableSku((string) ($item->product?->sku ?? '')),
+                $item->product?->name ?? $item->product_name
+                ?? '',
+                $item->product?->category?->name ?? 'No Category'
+            ))
+            ->values();
+    }
+
+    /**
+     * @return array<int, array{product_id: int, selling_price: float, price_unit: string|null}>
+     */
+    private function discountedSpecialPricesFor(Collection $selectedItems, float $discountAmount): array
+    {
+        $subtotal = round($selectedItems->sum(
+            fn ($item): float => round((float) ($item->final_line_total ?: $item->line_subtotal), 2)
+        ), 2);
+        $discountRate = $discountAmount / $subtotal;
+        $distributedDiscount = 0.0;
+        $lastIndex = $selectedItems->keys()->last();
+        $prices = [];
+
+        foreach ($selectedItems as $index => $item) {
+            $lineTotal = round((float) ($item->final_line_total ?: $item->line_subtotal), 2);
+            $quantity = round((float) ($item->delivered_price_quantity ?: $item->price_quantity), 4);
+
+            if ($lineTotal <= 0.0 || $quantity <= 0.0) {
+                throw ValidationException::withMessages([
+                    'selected_items' => 'Selected products must have a bill amount and bill quantity.',
+                ]);
+            }
+
+            if ($index !== $lastIndex) {
+                $itemDiscount = round($lineTotal * $discountRate, 2);
+                $distributedDiscount = round($distributedDiscount + $itemDiscount, 2);
+            } else {
+                $itemDiscount = round($discountAmount - $distributedDiscount, 2);
+            }
+
+            $netAmount = round($lineTotal - $itemDiscount, 2);
+            $sellingPrice = round($netAmount / $quantity, 2);
+
+            if ($sellingPrice <= 0.0) {
+                throw ValidationException::withMessages([
+                    'discount_amount' => 'Discount makes one selected product price zero. Reduce the discount.',
+                ]);
+            }
+
+            $prices[] = [
+                'product_id' => (int) $item->product_id,
+                'selling_price' => $sellingPrice,
+                'price_unit' => filled($item->price_unit ?? null) ? (string) $item->price_unit : ($item->unit ?: null),
+            ];
+        }
+
+        return $prices;
     }
 
     private function resolveSort(string $sort): string

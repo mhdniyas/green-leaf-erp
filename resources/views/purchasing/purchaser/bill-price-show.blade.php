@@ -35,7 +35,10 @@
                     <p class="mt-0.5 text-xs font-semibold text-slate-600">{{ $invoice->invoice_number }} • {{ $billDate->format('d M Y') }}</p>
                     <p class="mt-1 text-[11px] font-bold text-slate-500">Items sorted by product code.</p>
                 </div>
-                <a href="{{ route('purchaser.bill-prices.index', ['date' => $billDate->toDateString()]) }}" class="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">Back to Bills</a>
+                <div class="flex gap-2">
+                    <a href="{{ route('purchaser.bill-prices.discount', $invoice) }}" class="inline-flex h-9 flex-1 items-center justify-center rounded-xl bg-teal-600 px-3 text-xs font-black text-white transition hover:bg-teal-500 sm:flex-none">Discount From Total</a>
+                    <a href="{{ route('purchaser.bill-prices.index', ['date' => $billDate->toDateString()]) }}" class="inline-flex h-9 flex-1 items-center justify-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50 sm:flex-none">Back to Bills</a>
+                </div>
             </div>
         </section>
 

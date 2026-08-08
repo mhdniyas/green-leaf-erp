@@ -331,6 +331,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/bill-prices', [BillPriceApprovalController::class, 'index'])->name('purchaser.bill-prices.index');
     Route::post('/purchaser/bill-prices', [BillPriceApprovalController::class, 'store'])->name('purchaser.bill-prices.store');
     Route::get('/purchaser/bill-prices/{invoice}', [BillPriceApprovalController::class, 'show'])->name('purchaser.bill-prices.show');
+    Route::get('/purchaser/bill-prices/{invoice}/discount', [BillPriceApprovalController::class, 'discount'])->name('purchaser.bill-prices.discount');
+    Route::post('/purchaser/bill-prices/{invoice}/discount', [BillPriceApprovalController::class, 'applyDiscount'])->name('purchaser.bill-prices.discount.apply');
     Route::post('/purchaser/bill-prices/{invoice}/special-prices', [BillPriceApprovalController::class, 'updateInvoicePrices'])->name('purchaser.bill-prices.invoice-prices.update');
     Route::post('/purchaser/bill-prices/copy-previous-day', [BillPriceApprovalController::class, 'copyPreviousDay'])->name('purchaser.bill-prices.copy-previous-day');
     Route::patch('/purchaser/bill-prices/{specialPrice}/approve', [BillPriceApprovalController::class, 'approve'])->name('purchaser.bill-prices.approve');
