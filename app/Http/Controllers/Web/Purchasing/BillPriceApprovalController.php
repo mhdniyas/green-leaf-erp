@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Web\Purchasing;
 
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Models\Product;
 use App\Models\Shop;
 use App\Models\ShopDailyProductPrice;
 use App\Models\ShopInvoice;
@@ -128,6 +129,7 @@ class BillPriceApprovalController extends Controller
         $invoice->loadMissing(['shop', 'items.product.category']);
 
         $categoryId = $request->filled('category_id') ? (int) $request->input('category_id') : null;
+        $search = trim($request->string('search')->toString());
         $categories = $invoice->items
             ->map(fn ($item) => $item->product?->category)
             ->filter()
@@ -138,10 +140,23 @@ class BillPriceApprovalController extends Controller
         $items = $invoice->items
             ->when($categoryId !== null, fn (Collection $items): Collection => $items
                 ->filter(fn ($item): bool => (int) ($item->product?->category_id ?? 0) === $categoryId))
+            ->when($search !== '', fn (Collection $items): Collection => $items
+                ->filter(function ($item) use ($search): bool {
+                    $haystack = strtolower(implode(' ', array_filter([
+                        (string) ($item->product?->sku ?? ''),
+                        (string) ($item->product?->name ?? $item->product_name ?? ''),
+                        (string) ($item->product?->category?->name ?? ''),
+                        (string) ($item->price_unit ?? $item->unit ?? ''),
+                    ])));
+
+                    return str_contains($haystack, strtolower($search));
+                }))
             ->sortBy(fn ($item): string => sprintf(
-                '%s|%s',
-                $item->product?->category?->name ?? 'No Category',
+                '%s|%s|%s',
+                Product::sortableSku((string) ($item->product?->sku ?? '')),
                 $item->product?->name ?? $item->product_name
+                ?? '',
+                $item->product?->category?->name ?? 'No Category'
             ))
             ->values();
 
@@ -157,6 +172,7 @@ class BillPriceApprovalController extends Controller
             'invoice' => $invoice,
             'categories' => $categories,
             'categoryId' => $categoryId,
+            'search' => $search,
             'selectedCategory' => $categoryId ? $categories->firstWhere('id', $categoryId) : null,
             'items' => $items,
             'specialPrices' => $specialPrices,
@@ -315,6 +331,7 @@ class BillPriceApprovalController extends Controller
             ->route('purchaser.bill-prices.show', array_filter([
                 'invoice' => $invoice,
                 'category_id' => $validated['category_id'] ?? null,
+                'search' => $request->input('search'),
             ], fn ($value) => $value !== null && $value !== ''))
             ->with('success', $updated > 0
                 ? "{$updated} special price(s) approved for {$invoice->invoice_number}."

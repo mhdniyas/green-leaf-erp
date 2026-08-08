@@ -2,6 +2,10 @@
     @php
         $billDate = $invoice->business_date;
         $invoiceTotal = (float) ($invoice->final_total ?: $invoice->subtotal);
+        $detailQuery = array_filter([
+            'search' => $search !== '' ? $search : null,
+            'category_id' => $categoryId,
+        ], fn ($value) => $value !== null && $value !== '');
     @endphp
 
     <div class="mx-auto flex w-full max-w-4xl flex-col gap-4">
@@ -29,6 +33,7 @@
                     <p class="text-[9px] font-black uppercase tracking-[0.18em] text-slate-500">Special Price Edit</p>
                     <h1 class="mt-0.5 text-lg font-black text-slate-950">{{ $invoice->shop?->name ?? 'Unknown shop' }}</h1>
                     <p class="mt-0.5 text-xs font-semibold text-slate-600">{{ $invoice->invoice_number }} • {{ $billDate->format('d M Y') }}</p>
+                    <p class="mt-1 text-[11px] font-bold text-slate-500">Items sorted by product code.</p>
                 </div>
                 <a href="{{ route('purchaser.bill-prices.index', ['date' => $billDate->toDateString()]) }}" class="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50">Back to Bills</a>
             </div>
@@ -56,11 +61,24 @@
                 </div>
 
                 <div class="sticky top-0 z-10 border-b border-dashed border-slate-400 bg-white py-3 print:static">
+                    <form method="GET" action="{{ route('purchaser.bill-prices.show', $invoice) }}" class="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                        @if($categoryId !== null)
+                            <input type="hidden" name="category_id" value="{{ $categoryId }}">
+                        @endif
+                        <input type="search" name="search" value="{{ $search }}" placeholder="Search code, item, category..." class="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 outline-none focus:border-lime-400 focus:bg-white">
+                        <div class="flex gap-2">
+                            <button class="h-10 flex-1 rounded-xl bg-slate-950 px-4 text-xs font-black text-white transition hover:bg-slate-900 sm:flex-none">Search</button>
+                            @if($search !== '')
+                                <a href="{{ route('purchaser.bill-prices.show', array_filter(['invoice' => $invoice, 'category_id' => $categoryId], fn ($value) => $value !== null && $value !== '')) }}" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-600 transition hover:bg-slate-100">Clear</a>
+                            @endif
+                        </div>
+                    </form>
+
                     <p class="mb-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Category</p>
                     <div class="flex items-center gap-1.5 overflow-x-auto pb-1">
-                        <a href="{{ route('purchaser.bill-prices.show', $invoice) }}" class="shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition {{ $categoryId === null ? 'border-slate-950 bg-slate-950 text-white shadow-sm' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">All</a>
+                        <a href="{{ route('purchaser.bill-prices.show', array_filter(['invoice' => $invoice, 'search' => $search !== '' ? $search : null], fn ($value) => $value !== null && $value !== '')) }}" class="shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition {{ $categoryId === null ? 'border-slate-950 bg-slate-950 text-white shadow-sm' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">All</a>
                         @foreach($categories as $category)
-                            <a href="{{ route('purchaser.bill-prices.show', ['invoice' => $invoice, 'category_id' => $category->id]) }}" class="shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition {{ (string) $categoryId === (string) $category->id ? 'border-teal-600 bg-teal-600 text-white shadow-sm' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">{{ $category->name }}</a>
+                            <a href="{{ route('purchaser.bill-prices.show', array_filter(['invoice' => $invoice, 'category_id' => $category->id, 'search' => $search !== '' ? $search : null], fn ($value) => $value !== null && $value !== '')) }}" class="shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition {{ (string) $categoryId === (string) $category->id ? 'border-teal-600 bg-teal-600 text-white shadow-sm' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100' }}">{{ $category->name }}</a>
                         @endforeach
                     </div>
                 </div>
@@ -68,6 +86,7 @@
                 <form method="POST" action="{{ route('purchaser.bill-prices.invoice-prices.update', $invoice) }}" data-special-price-form>
                     @csrf
                     <input type="hidden" name="category_id" value="{{ $categoryId }}">
+                    <input type="hidden" name="search" value="{{ $search }}">
 
                     <div class="border-b border-dashed border-slate-400 py-3">
                         <div class="space-y-3">
@@ -81,7 +100,7 @@
                                     <div class="flex items-start justify-between gap-3">
                                         <div class="min-w-0">
                                             <p class="truncate text-sm font-black text-slate-950">{{ $item->product?->name ?? $item->product_name }}</p>
-                                            <p class="mt-0.5 text-[11px] font-semibold text-slate-500">{{ $item->product?->category?->name ?? 'No Category' }} • Qty {{ number_format($quantity, 2) }} {{ $item->price_unit ?: $item->unit }}</p>
+                                            <p class="mt-0.5 text-[11px] font-semibold text-slate-500">Code {{ $item->product?->sku ?: 'NA' }} • {{ $item->product?->category?->name ?? 'No Category' }} • Qty {{ number_format($quantity, 2) }} {{ $item->price_unit ?: $item->unit }}</p>
                                         </div>
                                         <p class="shrink-0 text-xs font-black text-slate-950">₹{{ number_format($lineTotal, 2) }}</p>
                                     </div>
@@ -118,7 +137,7 @@
                                 </article>
                             @empty
                                 <div class="rounded-xl border border-slate-200 bg-slate-50 p-5 text-center text-xs font-bold text-slate-400">
-                                    No items found for {{ $selectedCategory?->name ?? 'this category' }}.
+                                    No items found for {{ $selectedCategory?->name ?? 'this category' }}@if($search !== '') matching "{{ $search }}"@endif.
                                 </div>
                             @endforelse
                         </div>
