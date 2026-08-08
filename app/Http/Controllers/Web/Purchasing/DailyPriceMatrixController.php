@@ -25,6 +25,8 @@ use Illuminate\View\View;
 
 class DailyPriceMatrixController extends Controller
 {
+    private const MISSING_PRICE_FALLBACK = 9999.00;
+
     public function __construct(
         private readonly PurchaserBusinessDayService $businessDayService,
         private readonly VendorPriceService $vendorPriceService,
@@ -304,6 +306,221 @@ class DailyPriceMatrixController extends Controller
         return redirect()->back()->with('success', "Price for {$product->name} on {$dateStr} saved.");
     }
 
+    public function fillForward(Request $request): RedirectResponse
+    {
+        $this->authorizeBoardAccess();
+        $this->authorizePurchaserUpdate();
+
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+            'search' => ['nullable', 'string', 'max:255'],
+            'category_id' => ['nullable', 'integer'],
+            'week_start' => ['required', 'date'],
+            'matrix_category' => ['required', 'string', 'in:a,b,c,A,B,C'],
+            'all_product_ids' => ['required', 'array', 'min:1'],
+            'all_product_ids.*' => ['integer', 'exists:products,id'],
+            'all_dates' => ['required', 'array', 'min:1'],
+            'all_dates.*' => ['date'],
+        ]);
+
+        $userId = (int) $request->user()->id;
+        $matrixCategory = strtolower((string) $validated['matrix_category']);
+        $productIds = collect($validated['all_product_ids'])
+            ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values();
+        $dateStrings = collect($validated['all_dates'])
+            ->map(fn ($date): string => Carbon::parse((string) $date)->toDateString())
+            ->unique()
+            ->sort()
+            ->values();
+
+        if ($productIds->isEmpty() || $dateStrings->isEmpty()) {
+            return redirect()
+                ->route('purchasing.prices.matrix.index', [
+                    'date' => $validated['date'],
+                    'search' => $validated['search'] ?? null,
+                    'category_id' => $validated['category_id'] ?? null,
+                    'week_start' => $validated['week_start'],
+                    'matrix_category' => $matrixCategory,
+                ])
+                ->with('warning', 'No visible products or dates were available to fill.');
+        }
+
+        $products = Product::query()
+            ->whereIn('id', $productIds)
+            ->get()
+            ->keyBy('id');
+
+        $firstDate = $dateStrings->first();
+        $lastDate = $dateStrings->last();
+        $existingApprovals = DailyPriceApproval::query()
+            ->whereIn('product_id', $productIds)
+            ->whereBetween('business_date', [$firstDate, $lastDate])
+            ->get()
+            ->groupBy('product_id')
+            ->map(fn ($rows) => $rows->keyBy(fn (DailyPriceApproval $approval): string => $approval->business_date->toDateString()));
+
+        $filledRows = 0;
+        $filledCells = 0;
+        $publishedDates = [];
+
+        DB::transaction(function () use (
+            $productIds,
+            $dateStrings,
+            $products,
+            $existingApprovals,
+            $userId,
+            &$filledRows,
+            &$filledCells,
+            &$publishedDates
+        ): void {
+            foreach ($productIds as $productId) {
+                $product = $products->get((int) $productId);
+
+                if (! $product instanceof Product) {
+                    continue;
+                }
+
+                $carryApproval = $this->previousApprovedApprovalFor((int) $productId, (string) $dateStrings->first());
+                $productApprovals = $existingApprovals->get((int) $productId) ?? collect();
+
+                foreach ($dateStrings as $dateStr) {
+                    $approval = $productApprovals->get($dateStr);
+
+                    if ($approval instanceof DailyPriceApproval && $this->hasUsableSellingPrice($approval)) {
+                        $filledExistingCells = $this->fillMissingApprovalPrices($approval, $carryApproval, $product, $userId);
+                        if ($filledExistingCells > 0) {
+                            $filledRows++;
+                            $filledCells += $filledExistingCells;
+                            $publishedDates[$dateStr] = true;
+                            $this->publishDailyPriceApproval($product, $approval, $userId);
+                        }
+                        $carryApproval = $approval;
+                        continue;
+                    }
+
+                    if (! $approval instanceof DailyPriceApproval) {
+                        $approval = DailyPriceApproval::query()->firstOrNew([
+                            'product_id' => (int) $productId,
+                            'business_date' => $dateStr,
+                        ]);
+                    }
+
+                    $before = [
+                        'price_a' => (float) $approval->price_a,
+                        'price_b' => (float) $approval->price_b,
+                        'price_c' => (float) $approval->price_c,
+                    ];
+
+                    $approval->purchase_price = $this->carriedPurchasePriceFor($carryApproval, $product);
+                    $approval->price_unit = ProductUnit::normalizeUnit((string) ($carryApproval?->price_unit ?: $product->unit ?: 'kg'));
+                    $approval->price_a = $this->carriedSellingPriceFor($carryApproval, 'price_a');
+                    $approval->price_b = $this->carriedSellingPriceFor($carryApproval, 'price_b');
+                    $approval->price_c = $this->carriedSellingPriceFor($carryApproval, 'price_c');
+                    $approval->status = 'approved';
+                    $approval->approved_by = $userId;
+                    $approval->approved_at = now();
+                    $approval->updated_by = $userId;
+                    $approval->save();
+
+                    $filledRows++;
+                    $filledCells += collect(['price_a', 'price_b', 'price_c'])
+                        ->filter(fn (string $field): bool => (float) $before[$field] <= 0 && (float) $approval->{$field} > 0)
+                        ->count();
+                    $publishedDates[$dateStr] = true;
+                    $carryApproval = $approval;
+
+                    $this->publishDailyPriceApproval($product, $approval, $userId);
+                }
+            }
+        });
+
+        foreach (array_keys($publishedDates) as $dateStr) {
+            $this->shopInvoiceService->generateForBusinessDate($dateStr, $userId);
+            $this->shopInvoiceService->repriceAllForBusinessDate(
+                $dateStr,
+                $userId,
+                "Purchaser filled missing matrix prices for {$dateStr}.",
+            );
+        }
+
+        $message = $filledRows > 0
+            ? "Filled {$filledRows} missing matrix row(s), {$filledCells} price value(s), from last approved prices."
+            : 'No missing matrix prices needed filling.';
+
+        return redirect()
+            ->route('purchasing.prices.matrix.index', [
+                'date' => $validated['date'],
+                'search' => $validated['search'] ?? null,
+                'category_id' => $validated['category_id'] ?? null,
+                'week_start' => $validated['week_start'],
+                'matrix_category' => $matrixCategory,
+            ])
+            ->with($filledRows > 0 ? 'success' : 'warning', $message);
+    }
+
+    private function hasUsableSellingPrice(DailyPriceApproval $approval): bool
+    {
+        return (float) $approval->price_a > 0
+            || (float) $approval->price_b > 0
+            || (float) $approval->price_c > 0;
+    }
+
+    private function fillMissingApprovalPrices(DailyPriceApproval $approval, ?DailyPriceApproval $carryApproval, Product $product, int $userId): int
+    {
+        $filledCells = 0;
+        $fields = ['price_a', 'price_b', 'price_c'];
+
+        foreach ($fields as $field) {
+            if ((float) $approval->{$field} > 0) {
+                continue;
+            }
+
+            $approval->{$field} = $this->carriedSellingPriceFor($carryApproval, $field);
+            $filledCells++;
+        }
+
+        if ((float) $approval->purchase_price <= 0) {
+            $approval->purchase_price = $this->carriedPurchasePriceFor($carryApproval, $product);
+        }
+
+        if (! filled($approval->price_unit)) {
+            $approval->price_unit = ProductUnit::normalizeUnit((string) ($carryApproval?->price_unit ?: $product->unit ?: 'kg'));
+        }
+
+        if ($filledCells > 0) {
+            $approval->status = 'approved';
+            $approval->approved_by = $approval->approved_by ?: $userId;
+            $approval->approved_at = $approval->approved_at ?: now();
+            $approval->updated_by = $userId;
+            $approval->save();
+        }
+
+        return $filledCells;
+    }
+
+    private function carriedSellingPriceFor(?DailyPriceApproval $approval, string $field): float
+    {
+        $price = (float) ($approval?->{$field} ?? 0);
+
+        return $price > 0 ? round($price, 2) : self::MISSING_PRICE_FALLBACK;
+    }
+
+    private function carriedPurchasePriceFor(?DailyPriceApproval $approval, Product $product): float
+    {
+        $carriedPrice = (float) ($approval?->purchase_price ?? 0);
+
+        if ($carriedPrice > 0) {
+            return round($carriedPrice, 4);
+        }
+
+        $productPrice = (float) ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price);
+
+        return $productPrice > 0 ? round($productPrice, 4) : self::MISSING_PRICE_FALLBACK;
+    }
+
     public function updateMatrix(Request $request): RedirectResponse
     {
         $this->authorizeBoardAccess();
@@ -482,7 +699,7 @@ class DailyPriceMatrixController extends Controller
 
     private function authorizePurchaserUpdate(): void
     {
-        abort_unless(auth()->user()?->hasRole('purchase'), 403);
+        abort_unless(auth()->user()?->hasRole('purchase') || auth()->user()?->hasRole('admin'), 403);
     }
 
     private function previousApprovedApprovalFor(int $productId, string $businessDate): ?DailyPriceApproval

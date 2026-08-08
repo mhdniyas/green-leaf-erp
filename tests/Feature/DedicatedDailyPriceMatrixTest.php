@@ -41,6 +41,7 @@ class DedicatedDailyPriceMatrixTest extends TestCase
         $response->assertViewHas('matrixProducts');
         $response->assertViewHas('matrixCategory', 'a');
         $response->assertSee('Daily Price Matrix Table');
+        $response->assertSee('Fill Missing');
         $response->assertSee('Tomato H');
     }
 
@@ -162,6 +163,111 @@ class DedicatedDailyPriceMatrixTest extends TestCase
             'price_b' => 22.50,
             'price_c' => 20.00,
             'status' => 'approved',
+        ]);
+    }
+
+    public function test_matrix_fill_forward_copies_latest_price_into_missing_visible_days(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+
+        $user = User::factory()->create();
+        $user->syncRoles(['purchase']);
+
+        $category = Category::create(['name' => 'Veggies', 'is_active' => true]);
+        $product = Product::create([
+            'name' => 'Ladies Finger',
+            'sku' => 'LF-1',
+            'category_id' => $category->id,
+            'unit' => 'KG',
+            'base_price' => 0,
+            'vendor_price' => 0,
+            'is_active' => true,
+        ]);
+
+        DailyPriceApproval::create([
+            'product_id' => $product->id,
+            'business_date' => '2026-08-02',
+            'purchase_price' => 35.00,
+            'price_unit' => 'kg',
+            'price_a' => 40.00,
+            'price_b' => 36.00,
+            'price_c' => 32.00,
+            'status' => 'approved',
+            'approved_at' => now(),
+        ]);
+
+        $response = $this->actingAs($user)->post(route('purchasing.prices.matrix.fill-forward'), [
+            'date' => '2026-08-08',
+            'week_start' => '2026-08-02',
+            'matrix_category' => 'a',
+            'all_product_ids' => [$product->id],
+            'all_dates' => [
+                '2026-08-02',
+                '2026-08-03',
+                '2026-08-04',
+                '2026-08-05',
+                '2026-08-06',
+                '2026-08-07',
+                '2026-08-08',
+            ],
+        ]);
+
+        $response->assertRedirect(route('purchasing.prices.matrix.index', [
+            'date' => '2026-08-08',
+            'week_start' => '2026-08-02',
+            'matrix_category' => 'a',
+        ]));
+
+        foreach (['2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07', '2026-08-08'] as $date) {
+            $this->assertDatabaseHas('daily_price_approvals', [
+                'product_id' => $product->id,
+                'business_date' => $date.' 00:00:00',
+                'price_a' => 40.00,
+                'price_b' => 36.00,
+                'price_c' => 32.00,
+                'status' => 'approved',
+                'approved_by' => $user->id,
+            ]);
+        }
+    }
+
+    public function test_matrix_fill_forward_uses_9999_when_no_previous_price_exists(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+
+        $user = User::factory()->create();
+        $user->syncRoles(['purchase']);
+
+        $category = Category::create(['name' => 'Veggies', 'is_active' => true]);
+        $product = Product::create([
+            'name' => 'No Price Item',
+            'sku' => 'NO-PRICE',
+            'category_id' => $category->id,
+            'unit' => 'KG',
+            'base_price' => 0,
+            'vendor_price' => 0,
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($user)->post(route('purchasing.prices.matrix.fill-forward'), [
+            'date' => '2026-08-08',
+            'week_start' => '2026-08-02',
+            'matrix_category' => 'a',
+            'all_product_ids' => [$product->id],
+            'all_dates' => ['2026-08-08'],
+        ]);
+
+        $response->assertRedirect();
+
+        $this->assertDatabaseHas('daily_price_approvals', [
+            'product_id' => $product->id,
+            'business_date' => '2026-08-08 00:00:00',
+            'purchase_price' => 9999.0000,
+            'price_a' => 9999.00,
+            'price_b' => 9999.00,
+            'price_c' => 9999.00,
+            'status' => 'approved',
+            'approved_by' => $user->id,
         ]);
     }
 }

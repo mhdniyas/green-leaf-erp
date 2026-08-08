@@ -6,7 +6,7 @@
 
 @section('content')
     @php
-        $canEditPrices = auth()->user()?->hasRole('purchase');
+        $canEditPrices = auth()->user()?->hasRole('purchase') || auth()->user()?->hasRole('admin');
         $currentCarbonDate = \Illuminate\Support\Carbon::parse($purchaseDate);
         $prevDayDate = $currentCarbonDate->copy()->subDay()->toDateString();
         $nextDayDate = $currentCarbonDate->copy()->addDay()->toDateString();
@@ -97,6 +97,16 @@
                         <button type="submit" class="flex-1 h-9 inline-flex items-center justify-center rounded-xl bg-slate-900 px-3 text-xs font-black text-white hover:bg-slate-800 active:scale-95 transition shadow-2xs touch-manipulation">
                             Apply Filters
                         </button>
+                        @if ($canEditPrices)
+                            <button
+                                type="submit"
+                                form="matrix-fill-forward-form"
+                                data-submit-label="Fill Missing"
+                                class="h-9 inline-flex items-center justify-center whitespace-nowrap rounded-xl border border-amber-200 bg-amber-500 px-3 text-xs font-black text-white hover:bg-amber-400 active:scale-95 transition shadow-2xs touch-manipulation"
+                            >
+                                Fill Missing
+                            </button>
+                        @endif
                         <a href="{{ route('purchasing.prices.index', ['date' => $purchaseDate]) }}" class="h-9 inline-flex items-center justify-center whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 hover:bg-slate-50 transition active:scale-95 shadow-2xs touch-manipulation">
                             Proposal Board
                         </a>
@@ -203,7 +213,24 @@
                         <span>{{ $error }}</span>
                     </div>
                 @endforeach
-            </div>
+ on             </div>
+        @endif
+
+        @if ($canEditPrices)
+            <form method="POST" action="{{ route('purchasing.prices.matrix.fill-forward') }}" id="matrix-fill-forward-form">
+                @csrf
+                <input type="hidden" name="date" value="{{ $purchaseDate }}">
+                <input type="hidden" name="search" value="{{ $search }}">
+                <input type="hidden" name="category_id" value="{{ $categoryId }}">
+                <input type="hidden" name="week_start" value="{{ $weekStartDate }}">
+                <input type="hidden" name="matrix_category" value="{{ $matrixCategory }}">
+                @foreach ($matrixProducts as $prod)
+                    <input type="hidden" name="all_product_ids[]" value="{{ $prod['product_id'] }}">
+                @endforeach
+                @foreach ($matrixDates as $dateStr => $dateInfo)
+                    <input type="hidden" name="all_dates[]" value="{{ $dateStr }}">
+                @endforeach
+            </form>
         @endif
 
         <!-- Dedicated Matrix Table Card -->
@@ -243,6 +270,7 @@
                     @if ($canEditPrices)
                         <button
                             type="submit"
+                            data-submit-label="Save Final Price"
                             class="flex-1 sm:flex-initial h-8 inline-flex items-center justify-center rounded-xl border border-cyan-200 bg-cyan-600 px-4 text-xs font-black text-white hover:bg-cyan-500 active:scale-95 transition shadow-2xs touch-manipulation"
                         >
                             Save Final Price
@@ -667,6 +695,16 @@
                 }
 
                 document.getElementById('matrix-filter-form')?.addEventListener('submit', function() {
+                    showLoadingOverlay();
+                });
+
+                document.getElementById('matrix-fill-forward-form')?.addEventListener('submit', function(event) {
+                    const confirmed = window.confirm('Fill all missing visible matrix prices from each product\\'s latest approved price? Existing positive prices will not be overwritten.');
+                    if (!confirmed) {
+                        event.preventDefault();
+                        return;
+                    }
+
                     showLoadingOverlay();
                 });
 

@@ -1,11 +1,11 @@
-<x-layouts.app title="Discount Bill Prices">
+<x-layouts.app title="Discount Bill Prices" :show-mobile-nav="false">
     @php
         $billDate = $invoice->business_date;
         $invoiceTotal = (float) ($invoice->final_total ?: $invoice->subtotal);
         $oldSelectedItems = collect(old('selected_items', []))->map(fn ($id) => (string) $id)->all();
     @endphp
 
-    <div class="mx-auto flex w-full max-w-4xl flex-col gap-4 pb-28 lg:pb-4">
+    <div class="mx-auto flex w-full max-w-4xl flex-col gap-4 pb-24 lg:pb-4">
         @if($errors->any())
             <div class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-900">
                 <ul class="list-disc space-y-1 pl-4">
@@ -131,7 +131,7 @@
             </section>
 
             @if($items->isNotEmpty())
-                <div class="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 p-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur lg:sticky lg:bottom-0 lg:rounded-2xl lg:border lg:shadow-sm">
+                <div class="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/95 p-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur lg:sticky lg:bottom-0 lg:rounded-2xl lg:border lg:p-3 lg:shadow-sm">
                     <div class="mx-auto grid max-w-4xl grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
                         <div class="min-w-0">
                             <p class="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500"><span data-selected-count>0</span> selected</p>
