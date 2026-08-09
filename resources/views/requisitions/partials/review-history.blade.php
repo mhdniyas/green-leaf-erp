@@ -5,7 +5,8 @@
         ->values();
     $initialApprovedQty = (float) $order->items->sum(fn ($item): float => (float) ($item->approved_qty ?? 0));
     $initialRequestedQty = (float) $order->items->sum(fn ($item): float => (float) $item->requested_qty);
-    $initialNote = $order->manager_note ?: ($order->state === 'rejected' ? $order->update_reason : null);
+    $rawInitialNote = $order->manager_note ?: ($order->state === 'rejected' ? $order->update_reason : null);
+    $initialNote = ($rawInitialNote && str_contains(strtolower($rawInitialNote), 'automatically approved')) ? null : $rawInitialNote;
     $hasInitialReview = $order->reviewed_at !== null;
     $initialChangedItems = $order->items
         ->filter(function ($item): bool {

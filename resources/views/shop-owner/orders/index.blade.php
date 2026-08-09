@@ -12,7 +12,7 @@
 @endif
 
 @section('content')
-    <div class="space-y-6">
+    <div class="space-y-3 sm:space-y-4">
         @include('shop-owner.orders.partials.order-tabs')
 
         @include('shop-owner.partials.date-range-filter', [
@@ -22,15 +22,15 @@
             'clearUrl' => route('shop-owner.orders.index'),
         ])
 
-        <section class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-            <div class="flex items-center justify-between gap-4">
+        <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs sm:p-4">
+            <div class="flex items-center justify-between gap-3">
                 <div>
-                    <p class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Current Workflow</p>
-                    <h2 class="mt-1 text-xl font-black text-slate-950">Tomorrow Cart Snapshot</h2>
+                    <p class="text-[9px] font-black uppercase tracking-wider text-slate-500 sm:text-[10px]">Current Workflow</p>
+                    <h2 class="mt-0.5 text-base font-black text-slate-950 sm:text-lg">Tomorrow Cart Snapshot</h2>
                 </div>
             </div>
 
-            <div class="mt-5">
+            <div class="mt-3">
                 @if ($tomorrowOrder)
                     @include('shop-owner.orders.partials.order-summary-card', ['order' => $tomorrowOrder])
                 @else
@@ -39,9 +39,9 @@
             </div>
         </section>
 
-        <section class="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 class="text-xl font-black text-slate-950">Approval History</h2>
-            <div class="mt-5">
+        <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs sm:p-4">
+            <h2 class="text-base font-black text-slate-950 sm:text-lg">Approval History</h2>
+            <div class="mt-3">
                 @include('shop-owner.orders.partials.order-history-table', ['orders' => $orders])
             </div>
         </section>

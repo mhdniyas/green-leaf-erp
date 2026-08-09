@@ -4,72 +4,73 @@
     );
 @endphp
 
-<div class="space-y-3 md:hidden">
+{{-- Mobile View: Strict Single-Row Cards --}}
+<div class="space-y-1.5 md:hidden">
     @foreach ($sortedItems as $item)
-        <article class="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-            <div class="flex items-start justify-between gap-3">
-                <div>
-                    <p class="font-bold text-slate-900">{{ $item->product->name }}</p>
-                    <p class="mt-1 text-xs text-slate-500">Code {{ $item->product->sku }}</p>
-                    <p class="mt-1 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700">{{ $item->requestedMeasureBreakdownLabel() }}</p>
-                </div>
-                <span class="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-600">{{ $item->unit }}</span>
+        @php
+            $reqQty = (float) $item->requested_qty;
+            $apprQty = (float) ($item->approved_qty ?? 0);
+            $delivQty = (float) ($item->delivered_qty ?? 0);
+            $isRejected = $item->approved_qty !== null && $apprQty < $reqQty;
+        @endphp
+        <article class="flex items-center justify-between gap-1.5 rounded-lg border border-slate-200 bg-white p-2 shadow-xs text-xs transition hover:border-slate-300">
+            {{-- Item & SKU --}}
+            <div class="min-w-0 flex-1">
+                <p class="font-bold text-slate-900 truncate">
+                    @if($item->product?->sku)
+                        <span class="font-mono text-[9px] font-semibold text-slate-400 mr-1">#{{ $item->product->sku }}</span>
+                    @endif
+                    {{ $item->product->name }}
+                </p>
             </div>
-            <div class="mt-4 grid grid-cols-3 gap-3">
-                <div>
-                    <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Requested</p>
-                    <p class="mt-1 text-sm font-bold text-slate-900">{{ number_format((float) $item->requested_qty, 2) }} {{ $item->unit }}</p>
-                </div>
-                <div>
-                    <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Approved</p>
-                    <p class="mt-1 text-sm font-bold text-slate-900">{{ number_format((float) ($item->approved_qty ?? 0), 2) }}</p>
-                </div>
-                <div>
-                    <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Rejected</p>
-                    <p class="mt-1 text-sm font-bold text-rose-700">{{ number_format(max(0, (float) $item->requested_qty - (float) ($item->approved_qty ?? 0)), 2) }}</p>
-                </div>
-            </div>
-            <div class="mt-3 grid grid-cols-1 gap-3">
-                <div>
-                    <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Delivered</p>
-                    <p class="mt-1 text-sm font-bold text-slate-900">{{ number_format((float) ($item->delivered_qty ?? 0), 2) }}</p>
-                </div>
-                @if ($item->notes)
-                    <div>
-                        <p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Review Note</p>
-                        <p class="mt-1 text-sm font-semibold leading-6 text-slate-700">{{ $item->notes }}</p>
-                    </div>
+
+            {{-- Quantities: Requested -> Approved/Delivered --}}
+            <div class="shrink-0 text-right flex items-center gap-1.5">
+                <span class="font-bold text-slate-700 whitespace-nowrap">{{ number_format($reqQty, 2) }} {{ strtoupper($item->unit) }}</span>
+                @if ($delivQty > 0)
+                    <span class="text-[9px] font-black text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 whitespace-nowrap">Del: {{ number_format($delivQty, 2) }}</span>
+                @elseif ($item->approved_qty !== null)
+                    <span class="text-[9px] font-black {{ $isRejected ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-slate-700 bg-slate-100 border-slate-200' }} border px-1.5 py-0.5 rounded whitespace-nowrap">Appr: {{ number_format($apprQty, 2) }}</span>
+                @else
+                    <span class="text-[9px] font-semibold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded whitespace-nowrap">Pending</span>
                 @endif
             </div>
         </article>
     @endforeach
 </div>
 
-<div class="hidden overflow-x-auto md:block">
-    <table class="min-w-full border-collapse text-left">
+{{-- Desktop Table View --}}
+<div class="hidden overflow-x-auto rounded-xl border border-slate-200 md:block">
+    <table class="min-w-full border-collapse text-left text-xs whitespace-nowrap">
         <thead>
-            <tr class="border-b border-slate-100 text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
-                <th class="py-3 pr-4">Product</th>
-                <th class="py-3 pr-4 text-right">Requested</th>
-                <th class="py-3 pr-4 text-right">Approved</th>
-                <th class="py-3 pr-4 text-right">Rejected</th>
-                <th class="py-3 pr-4 text-right">Delivered</th>
-                <th class="py-3 pr-4">Review Note</th>
+            <tr class="border-b border-slate-100 bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                <th class="px-3 py-2.5">#</th>
+                <th class="px-3 py-2.5">Product Item</th>
+                <th class="px-3 py-2.5 text-right">Requested</th>
+                <th class="px-3 py-2.5 text-right">Approved</th>
+                <th class="px-3 py-2.5 text-right">Delivered</th>
+                <th class="px-3 py-2.5">Review Note</th>
             </tr>
         </thead>
-        <tbody class="divide-y divide-slate-100 text-sm text-slate-700">
+        <tbody class="divide-y divide-slate-100 bg-white text-slate-700">
             @foreach ($sortedItems as $item)
-                <tr>
-                    <td class="py-4 pr-4">
-                        <p class="font-bold text-slate-900">{{ $item->product->name }}</p>
-                        <p class="mt-1 text-xs text-slate-500">Code {{ $item->product->sku }}</p>
-                        <p class="mt-1 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700">{{ $item->requestedMeasureBreakdownLabel() }}</p>
+                @php
+                    $reqQty = (float) $item->requested_qty;
+                    $apprQty = (float) ($item->approved_qty ?? 0);
+                    $delivQty = (float) ($item->delivered_qty ?? 0);
+                @endphp
+                <tr class="hover:bg-slate-50/50 transition-colors">
+                    <td class="px-3 py-2 font-bold text-slate-500">{{ $loop->iteration }}</td>
+                    <td class="px-3 py-2 font-bold text-slate-950">
+                        @if($item->product?->sku)
+                            <span class="inline-block rounded bg-slate-100 px-1 py-0.5 text-[9px] font-mono text-slate-600 mr-1">#{{ $item->product->sku }}</span>
+                        @endif
+                        {{ $item->product->name }}
                     </td>
-                    <td class="py-4 pr-4 text-right font-bold">{{ number_format((float) $item->requested_qty, 2) }} {{ $item->unit }}</td>
-                    <td class="py-4 pr-4 text-right font-bold">{{ number_format((float) ($item->approved_qty ?? 0), 2) }} {{ $item->unit }}</td>
-                    <td class="py-4 pr-4 text-right font-bold text-rose-700">{{ number_format(max(0, (float) $item->requested_qty - (float) ($item->approved_qty ?? 0)), 2) }} {{ $item->unit }}</td>
-                    <td class="py-4 pr-4 text-right font-bold">{{ number_format((float) ($item->delivered_qty ?? 0), 2) }} {{ $item->unit }}</td>
-                    <td class="py-4 pr-4 text-sm font-semibold text-slate-600">{{ $item->notes ?? '—' }}</td>
+                    <td class="px-3 py-2 text-right font-bold text-slate-900">{{ number_format($reqQty, 2) }} {{ strtoupper($item->unit) }}</td>
+                    <td class="px-3 py-2 text-right font-bold text-slate-800">{{ number_format($apprQty, 2) }} {{ strtoupper($item->unit) }}</td>
+                    <td class="px-3 py-2 text-right font-bold text-emerald-700">{{ number_format($delivQty, 2) }} {{ strtoupper($item->unit) }}</td>
+                    <td class="px-3 py-2 text-slate-600 text-xs">{{ $item->notes ?? '—' }}</td>
                 </tr>
             @endforeach
         </tbody>
