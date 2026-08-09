@@ -25,6 +25,7 @@ use App\Http\Controllers\Web\Inventory\BatchController;
 use App\Http\Controllers\Web\Inventory\CategoryController;
 use App\Http\Controllers\Web\Inventory\DailyInventoryCloseController;
 use App\Http\Controllers\Web\Inventory\DeliveryDashboardController;
+use App\Http\Controllers\Web\Inventory\DeliveryDashboardOperationController;
 use App\Http\Controllers\Web\Inventory\FulfillmentReportController;
 use App\Http\Controllers\Web\Inventory\ProductController;
 use App\Http\Controllers\Web\Inventory\ShopOrderQuantityCorrectionController;
@@ -184,6 +185,7 @@ Route::middleware('auth')->group(function () {
         Route::post('sorting-checklist/wastage/{batch}', [WarehouseSortingController::class, 'recordWastage'])->name('sorting.checklist.wastage');
         Route::post('sorting-checklist/complete-order/{order}', [WarehouseSortingController::class, 'completeAllocation'])->name('sorting.checklist.complete-order');
         Route::get('deliveries/dashboard', DeliveryDashboardController::class)->name('deliveries.dashboard');
+        Route::post('deliveries/dashboard/{shopOrder}/lock-invoice', [DeliveryDashboardOperationController::class, 'lockInvoice'])->name('deliveries.dashboard.lock-invoice');
         Route::get('reports/fulfillment', FulfillmentReportController::class)->name('reports.fulfillment');
     });
 
@@ -403,7 +405,7 @@ Route::middleware('auth')->group(function () {
     });
 
     // ── Warehouse Loadout (PRD v2) ─────────────────────────────────────────
-    Route::prefix('warehouse/loadout')->name('warehouse.loadout.')->middleware('can:warehouse.receive.view')->group(function () {
+    Route::prefix('warehouse/loadout')->name('warehouse.loadout.')->group(function () {
         Route::get('/', [WarehouseLoadoutController::class, 'index'])->name('index');
         Route::get('/{shopOrder}/addon', [WarehouseLoadoutController::class, 'createAddon'])->name('addon.create');
         Route::post('/{shopOrder}/addon', [WarehouseLoadoutController::class, 'storeAddon'])->name('addon.store');

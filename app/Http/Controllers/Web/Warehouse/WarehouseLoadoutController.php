@@ -290,9 +290,12 @@ class WarehouseLoadoutController extends Controller
             return redirect()->back()->withErrors(['Could not remove unpriced items: '.$e->getMessage()]);
         }
 
-        return redirect()
-            ->route('warehouse.loadout.show', $shopOrder)
-            ->with('success', 'Removed '.count($unpricedNames).' unpriced item(s): '.implode(', ', $unpricedNames).'.');
+        return $this->redirectAfterOperation(
+            $request,
+            $shopOrder,
+            'Removed '.count($unpricedNames).' unpriced item(s): '.implode(', ', $unpricedNames).'.',
+            'show',
+        );
     }
 
     public function mergeDuplicates(ShopOrder $shopOrder, Request $request): RedirectResponse|JsonResponse
@@ -807,9 +810,12 @@ class WarehouseLoadoutController extends Controller
             ]);
         });
 
-        return redirect()
-            ->route('warehouse.loadout.show', $shopOrder)
-            ->with('success', 'Order moved back to loadout. You can now edit loadout quantities and save updates.');
+        return $this->redirectAfterOperation(
+            $request,
+            $shopOrder,
+            'Order moved back to loadout. You can now edit loadout quantities and save updates.',
+            'show',
+        );
     }
 
     private function moveOrderToDelivery(ShopOrder $shopOrder, Request $request, bool $partialDelivery): RedirectResponse
@@ -887,11 +893,27 @@ class WarehouseLoadoutController extends Controller
             return redirect()->back()->withErrors([$e->getMessage()]);
         }
 
-        return redirect()
-            ->route('warehouse.loadout.index')
-            ->with('success', $partialDelivery
+        return $this->redirectAfterOperation(
+            $request,
+            $shopOrder,
+            $partialDelivery
                 ? 'Order moved to delivery as a partial delivery.'
-                : 'Order moved to delivery. Status updated.');
+                : 'Order moved to delivery. Status updated.',
+            'index',
+        );
+    }
+
+    private function redirectAfterOperation(Request $request, ShopOrder $shopOrder, string $message, string $fallback = 'show'): RedirectResponse
+    {
+        if ($request->boolean('return_to_dashboard')) {
+            return redirect()->back()->with('success', $message);
+        }
+
+        if ($fallback === 'index') {
+            return redirect()->route('warehouse.loadout.index')->with('success', $message);
+        }
+
+        return redirect()->route('warehouse.loadout.show', $shopOrder)->with('success', $message);
     }
 
     private function authorizeAccess(Request $request): void
