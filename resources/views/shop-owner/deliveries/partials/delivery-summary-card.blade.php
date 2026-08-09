@@ -37,8 +37,8 @@
                 <p class="mt-1 text-lg font-black text-slate-950 sm:mt-2 sm:text-2xl">{{ number_format($displayDeliveredQuantity, 2) }}</p>
             </div>
             <div class="rounded-xl border border-slate-200 bg-white p-2.5 sm:rounded-[1.5rem] sm:p-4">
-                <p class="text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[10px] sm:tracking-[0.16em]">Shortage Value</p>
-                <p class="mt-1 text-lg font-black text-red-600 sm:mt-2 sm:text-2xl">Rs. {{ number_format((float) $order->total_shortage_value, 2) }}</p>
+                <p class="text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[10px] sm:tracking-[0.16em]">Invoice Total</p>
+                <p class="mt-1 text-lg font-black text-slate-950 sm:mt-2 sm:text-2xl">Rs. {{ number_format((float) ($order->invoice?->final_total ?? 0), 2) }}</p>
             </div>
             <div class="rounded-xl border border-slate-200 bg-white p-2.5 sm:rounded-[1.5rem] sm:p-4">
                 <p class="text-[8px] font-black uppercase tracking-[0.1em] text-slate-500 sm:text-[10px] sm:tracking-[0.16em]">Warehouse Stage</p>

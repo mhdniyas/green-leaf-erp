@@ -2,7 +2,7 @@
 
 @section('title', 'Delivery Details')
 @section('page_title', 'Delivery Details')
-@section('page_description', 'Review allocation, update received details, and track damages or shortages.')
+@section('page_description', 'Review allocation, update received details, and track delivery invoices.')
 @php($breadcrumbs = [['label' => 'Deliveries', 'url' => route('shop-owner.deliveries.index')], ['label' => $order->order_number]])
 
 @section('content')

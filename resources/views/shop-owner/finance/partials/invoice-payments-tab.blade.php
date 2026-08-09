@@ -18,132 +18,131 @@
     $dailyClosingCash = max(0.0, $latestClosingBalance - $carryOverDebt);
 @endphp
 
-<div class="space-y-5">
-    <section class="overflow-hidden rounded-[1.5rem] border border-emerald-200 bg-white shadow-sm">
-        <div class="border-b border-emerald-100 bg-emerald-50 px-4 py-5 sm:px-6">
-            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+<div class="space-y-4 sm:space-y-5">
+    {{-- Green Leaf Bills Section --}}
+    <section class="overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-xs">
+        <div class="border-b border-emerald-100 bg-emerald-50/70 p-3 sm:p-5">
+            <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div class="min-w-0">
-                    <p class="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-700">Green Leaf Bills</p>
-                    <h2 class="mt-2 text-xl font-black text-slate-950">Pay Green Leaf invoice bills</h2>
-                    <p class="mt-1 text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Green Leaf Invoice Payments</p>
-                    <p class="mt-1 text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Submit bill payment for approval</p>
-                    <p class="mt-2 max-w-3xl text-sm font-semibold leading-6 text-slate-600">Use this section for invoice bill payments. Oldest pending bills are cleared first after admin/accounts approval.</p>
+                    <span class="inline-block rounded-full bg-emerald-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-800">Green Leaf Bills</span>
+                    <h2 class="mt-1 text-base font-black text-slate-950 sm:text-lg">Pay Green Leaf Invoice Bills</h2>
+                    <p class="mt-0.5 text-xs font-semibold text-slate-600">Oldest pending bills cleared first after approval.</p>
                 </div>
-                <div class="grid grid-cols-2 gap-3 sm:min-w-[420px]">
-                    <div class="rounded-[1.1rem] border border-emerald-200 bg-white p-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Pending Bills</p>
-                        <p class="mt-2 text-lg font-black text-rose-700">Rs. {{ number_format($totalDue, 2) }}</p>
+                <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:min-w-[420px]">
+                    <div class="rounded-xl border border-emerald-200/80 bg-white p-2.5">
+                        <p class="text-[9px] font-black uppercase tracking-wider text-slate-500">Pending</p>
+                        <p class="mt-0.5 text-sm font-black text-rose-700 sm:text-base">Rs. {{ number_format($totalDue, 2) }}</p>
                     </div>
-                    <div class="rounded-[1.1rem] border border-emerald-200 bg-white p-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Net Payable</p>
-                        <p class="mt-2 text-lg font-black text-slate-950">Rs. {{ number_format($netDue, 2) }}</p>
+                    <div class="rounded-xl border border-emerald-200/80 bg-white p-2.5">
+                        <p class="text-[9px] font-black uppercase tracking-wider text-slate-500">Net Payable</p>
+                        <p class="mt-0.5 text-sm font-black text-slate-950 sm:text-base">Rs. {{ number_format($netDue, 2) }}</p>
                     </div>
-                    <div class="rounded-[1.1rem] border border-amber-200 bg-amber-50 p-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">Approval Pending</p>
-                        <p class="mt-2 text-lg font-black text-amber-800">Rs. {{ number_format((float) $pendingPaymentAmount, 2) }}</p>
+                    <div class="rounded-xl border border-amber-200/80 bg-amber-50/80 p-2.5">
+                        <p class="text-[9px] font-black uppercase tracking-wider text-amber-700">Approval Pending</p>
+                        <p class="mt-0.5 text-sm font-black text-amber-800 sm:text-base">Rs. {{ number_format((float) $pendingPaymentAmount, 2) }}</p>
                     </div>
-                    <div class="rounded-[1.1rem] border border-cyan-200 bg-cyan-50 p-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Credit</p>
-                        <p class="mt-2 text-lg font-black text-cyan-800">Rs. {{ number_format($availableInvoicePaymentCredit, 2) }}</p>
+                    <div class="rounded-xl border border-cyan-200/80 bg-cyan-50/80 p-2.5">
+                        <p class="text-[9px] font-black uppercase tracking-wider text-cyan-700">Credit</p>
+                        <p class="mt-0.5 text-sm font-black text-cyan-800 sm:text-base">Rs. {{ number_format($availableInvoicePaymentCredit, 2) }}</p>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="grid gap-0 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.55fr)]">
-            <div class="p-4 sm:p-6">
-                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                        <h3 class="text-base font-black text-slate-950">Pending bill order</h3>
-                        <p class="mt-1 text-sm font-semibold text-slate-500">Default payment allocation starts from the oldest bill.</p>
-                    </div>
+        <div class="grid gap-0 xl:grid-cols-[minmax(0,1fr)_minmax(340px,0.5fr)]">
+            <div class="p-3 sm:p-4">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-sm font-black text-slate-950">Pending Bill List</h3>
                 </div>
 
                 @if ($payableInvoices->isEmpty())
-                    <div class="mt-5 rounded-[1.25rem] border border-emerald-200 bg-emerald-50 p-5 text-center">
-                        <p class="text-sm font-black text-emerald-800">No unpaid Green Leaf bills are available.</p>
+                    <div class="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center">
+                        <p class="text-xs font-black text-emerald-800">No unpaid Green Leaf bills available.</p>
                     </div>
                 @else
-                    <div class="mt-5 overflow-x-auto rounded-[1.25rem] border border-slate-200">
+                    <div class="mt-3 overflow-x-auto rounded-xl border border-slate-200">
                         <table class="min-w-full text-left text-xs whitespace-nowrap">
                             <thead class="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500">
                                 <tr>
                                     <th class="px-3 py-2">Invoice</th>
                                     <th class="px-3 py-2">Date</th>
                                     <th class="px-3 py-2 text-right">Balance</th>
+                                    <th class="px-3 py-2 text-right">Action</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100">
                                 @foreach ($payableInvoices as $invoice)
-                                    <tr>
-                                        <td class="px-3 py-2 font-black text-slate-950">{{ $invoice->invoice_number }}</td>
-                                        <td class="px-3 py-2 font-semibold text-slate-500">{{ $invoice->business_date?->format('d M Y') }}</td>
-                                        <td class="px-3 py-2 text-right font-black text-rose-700">Rs. {{ number_format((float) $invoice->balance_amount, 2) }}</td>
+                                    <tr class="hover:bg-slate-50/50 transition-colors">
+                                        <td class="px-3 py-1.5 font-bold">
+                                            <a href="{{ route('shop-owner.finance.show', $invoice) }}" class="text-emerald-700 hover:text-emerald-900 hover:underline">
+                                                {{ $invoice->invoice_number }}
+                                            </a>
+                                        </td>
+                                        <td class="px-3 py-1.5 font-semibold text-slate-500">{{ $invoice->business_date?->format('d M Y') }}</td>
+                                        <td class="px-3 py-1.5 text-right font-black text-rose-700">Rs. {{ number_format((float) $invoice->balance_amount, 2) }}</td>
+                                        <td class="px-3 py-1.5 text-right">
+                                            <a href="{{ route('shop-owner.finance.show', $invoice) }}" class="inline-flex items-center text-xs font-bold text-emerald-700 hover:text-emerald-900">
+                                                Open &rarr;
+                                            </a>
+                                        </td>
                                     </tr>
                                 @endforeach
                             </tbody>
-                            <tfoot class="bg-slate-950 text-xs font-black text-white">
+                            <tfoot class="bg-slate-900 text-xs font-black text-white">
                                 <tr>
-                                    <td class="px-3 py-2" colspan="2">Total Pending</td>
-                                    <td class="px-3 py-2 text-right">Rs. {{ number_format($totalDue, 2) }}</td>
+                                    <td class="px-3 py-1.5" colspan="2">Total Pending</td>
+                                    <td class="px-3 py-1.5 text-right" colspan="2">Rs. {{ number_format($totalDue, 2) }}</td>
                                 </tr>
                             </tfoot>
                         </table>
                     </div>
 
                     @if ($payableInvoices instanceof \Illuminate\Contracts\Pagination\Paginator && $payableInvoices->hasPages())
-                        <div class="mt-3">{{ $payableInvoices->links() }}</div>
+                        <div class="mt-2">{{ $payableInvoices->links() }}</div>
                     @endif
                 @endif
             </div>
 
-            <div class="border-t border-emerald-100 bg-slate-50 p-4 sm:p-6 xl:border-l xl:border-t-0">
-                <h3 class="text-base font-black text-slate-950">Submit Green Leaf payment</h3>
-                <p class="mt-1 text-sm font-semibold text-slate-500">Partial payment is allowed. Extra amount becomes credit after approval.</p>
+            <div class="border-t border-emerald-100 bg-slate-50/50 p-3 sm:p-4 xl:border-l xl:border-t-0">
+                <h3 class="text-sm font-black text-slate-950">Submit Green Leaf Payment</h3>
+                <p class="mt-0.5 text-xs text-slate-500">Partial payment allowed. Extra amount becomes credit.</p>
 
                 @if ($payableInvoices->isEmpty())
-                    <div class="mt-5 rounded-[1.25rem] border border-dashed border-slate-300 bg-white p-5 text-center">
-                        <p class="text-sm font-black text-slate-700">No bill payment needed.</p>
+                    <div class="mt-3 rounded-xl border border-dashed border-slate-300 bg-white p-4 text-center">
+                        <p class="text-xs font-black text-slate-700">No bill payment needed.</p>
                     </div>
                 @else
-                    <form method="POST" action="{{ route('shop-owner.accounting.payment-requests.store') }}" class="mt-5 space-y-4">
+                    <form method="POST" action="{{ route('shop-owner.accounting.payment-requests.store') }}" class="mt-3 space-y-2.5">
                         @csrf
                         <input type="hidden" name="amount_mode" value="custom">
                         <input type="hidden" name="payment_date" value="{{ today()->toDateString() }}">
 
-                        <label class="block">
-                            <span class="mb-1.5 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Amount Paid</span>
-                            <input type="number" step="0.01" min="0.01" name="amount" value="{{ old('amount', number_format($netDue > 0 ? $netDue : $totalDue, 2, '.', '')) }}" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                        <div>
+                            <span class="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-500">Amount Paid</span>
+                            <input type="number" step="0.01" min="0.01" name="amount" value="{{ old('amount', number_format($netDue > 0 ? $netDue : $totalDue, 2, '.', '')) }}" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
                             @error('amount')
-                                <span class="mt-1 block text-xs font-bold text-red-600">{{ $message }}</span>
+                                <span class="mt-0.5 block text-[11px] font-bold text-red-600">{{ $message }}</span>
                             @enderror
-                        </label>
-                        <label class="block">
-                            <span class="mb-1.5 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Mode</span>
-                            <select name="payment_method" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
-                                <option value="cash" @selected(old('payment_method', 'cash') === 'cash')>Cash</option>
-                                <option value="online_upi" @selected(old('payment_method') === 'online_upi')>Online UPI</option>
-                                <option value="cheque" @selected(old('payment_method') === 'cheque')>Cheque</option>
-                            </select>
-                            @error('payment_method')
-                                <span class="mt-1 block text-xs font-bold text-red-600">{{ $message }}</span>
-                            @enderror
-                        </label>
-                        <label class="block">
-                            <span class="mb-1.5 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Reference / Check No.</span>
-                            <input type="text" name="payment_reference" value="{{ old('payment_reference') }}" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none" placeholder="Optional">
-                            @error('payment_reference')
-                                <span class="mt-1 block text-xs font-bold text-red-600">{{ $message }}</span>
-                            @enderror
-                        </label>
-                        <label class="block">
-                            <span class="mb-1.5 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Note</span>
-                            <input type="text" name="shop_note" value="{{ old('shop_note') }}" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none" placeholder="Optional note">
-                            @error('shop_note')
-                                <span class="mt-1 block text-xs font-bold text-red-600">{{ $message }}</span>
-                            @enderror
-                        </label>
-                        <button type="submit" class="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500">
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <span class="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-500">Mode</span>
+                                <select name="payment_method" class="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                                    <option value="cash" @selected(old('payment_method', 'cash') === 'cash')>Cash</option>
+                                    <option value="online_upi" @selected(old('payment_method') === 'online_upi')>Online UPI</option>
+                                    <option value="cheque" @selected(old('payment_method') === 'cheque')>Cheque</option>
+                                </select>
+                            </div>
+                            <div>
+                                <span class="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-500">Ref / Check No.</span>
+                                <input type="text" name="payment_reference" value="{{ old('payment_reference') }}" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none" placeholder="Optional">
+                            </div>
+                        </div>
+                        <div>
+                            <span class="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-500">Note</span>
+                            <input type="text" name="shop_note" value="{{ old('shop_note') }}" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none" placeholder="Optional note">
+                        </div>
+                        <button type="submit" class="inline-flex h-10 w-full items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-black text-white transition hover:bg-emerald-500">
                             Submit Green Leaf Payment
                         </button>
                     </form>
@@ -153,111 +152,83 @@
     </section>
 
     @if ($isOwnedAccountingShop)
-        <section class="overflow-hidden rounded-[1.5rem] border border-cyan-200 bg-white shadow-sm">
-            <div class="border-b border-cyan-100 bg-cyan-50 px-4 py-5 sm:px-6">
-                <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <section class="overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-xs">
+            <div class="border-b border-cyan-100 bg-cyan-50/70 p-3 sm:p-5">
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div class="min-w-0">
-                        <p class="text-[11px] font-black uppercase tracking-[0.18em] text-cyan-700">Aishwarya Veg</p>
-                        <h2 class="mt-2 text-xl font-black text-slate-950">Pay cashbook closing balance</h2>
-                        <p class="mt-1 text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Shop Closing Balance Payment</p>
-                        <p class="mt-1 text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Pay from calculated daily closing balance</p>
-                        <p class="mt-2 max-w-3xl text-sm font-semibold leading-6 text-cyan-900">This is the owned-shop cashbook amount payable to Aishwarya Veg. It affects closing balance only after admin/accounts approval.</p>
+                        <span class="inline-block rounded-full bg-cyan-100 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-cyan-800">Aishwarya Veg</span>
+                        <h2 class="mt-1 text-base font-black text-slate-950 sm:text-lg">Pay Cashbook Closing Balance</h2>
+                        <p class="mt-0.5 text-xs font-semibold text-cyan-900">Owned-shop cashbook amount payable to Aishwarya Veg.</p>
                     </div>
-                    <div class="grid grid-cols-2 gap-3 sm:min-w-[420px]">
-                        <div class="rounded-[1.1rem] border border-cyan-200 bg-white p-4">
-                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Balance Date</p>
-                            <p class="mt-2 text-sm font-black text-slate-950">{{ $latestBalanceDate ? $latestBalanceDate->format('d M Y') : 'Not available' }}</p>
+                    <div class="grid grid-cols-2 gap-2 sm:min-w-[420px]">
+                        <div class="rounded-xl border border-cyan-200/80 bg-white p-2.5">
+                            <p class="text-[9px] font-black uppercase tracking-wider text-cyan-700">Balance Date</p>
+                            <p class="mt-0.5 text-xs font-black text-slate-950">{{ $latestBalanceDate ? $latestBalanceDate->format('d M Y') : 'N/A' }}</p>
                         </div>
-                        <div class="rounded-[1.1rem] border border-cyan-200 bg-white p-4">
-                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Closing Pending</p>
-                            <p class="mt-2 text-lg font-black {{ $shopBalancePayable > 0 ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format($shopBalancePayable, 2) }}</p>
-                            @if ($isOwnedAccountingShop && $carryOverDebt > 0)
-                                <p class="mt-1 text-[10px] font-semibold text-slate-500">(Rs. {{ number_format($carryOverDebt, 2) }} + Rs. {{ number_format($dailyClosingCash, 2) }})</p>
-                            @endif
+                        <div class="rounded-xl border border-cyan-200/80 bg-white p-2.5">
+                            <p class="text-[9px] font-black uppercase tracking-wider text-cyan-700">Closing Pending</p>
+                            <p class="mt-0.5 text-sm font-black {{ $shopBalancePayable > 0 ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format($shopBalancePayable, 2) }}</p>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div class="grid gap-0 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.55fr)]">
-                <div class="p-4 sm:p-6">
-                    <h3 class="text-base font-black text-slate-950">Cashbook payable status</h3>
-                    <div class="mt-5 grid gap-3 sm:grid-cols-3">
-                        <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
-                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Daily Closing</p>
-                            <p class="mt-2 text-lg font-black text-slate-950">Rs. {{ number_format($latestClosingBalance, 2) }}</p>
-                            @if ($isOwnedAccountingShop && $carryOverDebt > 0)
-                                <p class="mt-1 text-[9px] font-semibold text-slate-500">({{ number_format($carryOverDebt, 2) }} + {{ number_format($dailyClosingCash, 2) }})</p>
-                            @endif
+            <div class="grid gap-0 xl:grid-cols-[minmax(0,1fr)_minmax(340px,0.5fr)]">
+                <div class="p-3 sm:p-4">
+                    <h3 class="text-sm font-black text-slate-950">Cashbook Payable Status</h3>
+                    <div class="mt-3 grid gap-2 sm:grid-cols-3">
+                        <div class="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+                            <p class="text-[9px] font-black uppercase tracking-wider text-slate-500">Daily Closing</p>
+                            <p class="mt-0.5 text-sm font-black text-slate-950">Rs. {{ number_format($latestClosingBalance, 2) }}</p>
                         </div>
-                        <div class="rounded-[1.25rem] border border-rose-200 bg-rose-50 p-4">
-                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-rose-700">Payable</p>
-                            <p class="mt-2 text-lg font-black text-rose-700">Rs. {{ number_format($shopBalancePayable, 2) }}</p>
-                            @if ($isOwnedAccountingShop && $carryOverDebt > 0)
-                                <p class="mt-1 text-[9px] font-semibold text-rose-600">({{ number_format($carryOverDebt, 2) }} + {{ number_format($dailyClosingCash, 2) }})</p>
-                            @endif
+                        <div class="rounded-xl border border-rose-200 bg-rose-50 p-2.5">
+                            <p class="text-[9px] font-black uppercase tracking-wider text-rose-700">Payable</p>
+                            <p class="mt-0.5 text-sm font-black text-rose-700">Rs. {{ number_format($shopBalancePayable, 2) }}</p>
                         </div>
-                        <div class="rounded-[1.25rem] border border-amber-200 bg-amber-50 p-4">
-                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">Bill Approval Hold</p>
-                            <p class="mt-2 text-lg font-black text-amber-800">Rs. {{ number_format((float) ($pendingBillApprovalSummary['amount'] ?? 0), 2) }}</p>
+                        <div class="rounded-xl border border-amber-200 bg-amber-50 p-2.5">
+                            <p class="text-[9px] font-black uppercase tracking-wider text-amber-700">Bill Hold</p>
+                            <p class="mt-0.5 text-sm font-black text-amber-800">Rs. {{ number_format((float) ($pendingBillApprovalSummary['amount'] ?? 0), 2) }}</p>
                         </div>
                     </div>
-
-                    @if (($pendingBillApprovalSummary['count'] ?? 0) > 0)
-                        <div class="mt-5 rounded-[1.25rem] border border-amber-200 bg-amber-50 p-4">
-                            <p class="text-sm font-black text-amber-900">{{ $pendingBillApprovalSummary['count'] }} bill approval{{ ($pendingBillApprovalSummary['count'] ?? 0) === 1 ? '' : 's' }} still pending.</p>
-                            <p class="mt-1 text-sm font-semibold text-amber-800">Those bills are added to cashbook only after accounting approval.</p>
-                        </div>
-                    @endif
                 </div>
 
-                <div class="border-t border-cyan-100 bg-slate-50 p-4 sm:p-6 xl:border-l xl:border-t-0">
-                    <h3 class="text-base font-black text-slate-950">Submit Aishwarya Veg payment</h3>
-                    <p class="mt-1 text-sm font-semibold text-slate-500">Paid by shop owner. Admin/accounts must approve it.</p>
+                <div class="border-t border-cyan-100 bg-slate-50/50 p-3 sm:p-4 xl:border-l xl:border-t-0">
+                    <h3 class="text-sm font-black text-slate-950">Submit Aishwarya Veg Payment</h3>
+                    <p class="mt-0.5 text-xs text-slate-500">Submitted by shop owner for admin approval.</p>
 
                     @if ($shopBalancePayable <= 0)
-                        <div class="mt-5 rounded-[1.25rem] border border-emerald-200 bg-white p-5 text-center">
-                            <p class="text-sm font-black text-emerald-800">No positive closing balance is pending for payment.</p>
+                        <div class="mt-3 rounded-xl border border-emerald-200 bg-white p-4 text-center">
+                            <p class="text-xs font-black text-emerald-800">No positive closing balance pending.</p>
                         </div>
                     @else
-                        <form method="POST" action="{{ route('shop-owner.accounting.payment-requests.store') }}" class="mt-5 space-y-4">
+                        <form method="POST" action="{{ route('shop-owner.accounting.payment-requests.store') }}" class="mt-3 space-y-2.5">
                             @csrf
                             <input type="hidden" name="amount_mode" value="shop_balance">
                             <input type="hidden" name="payment_date" value="{{ today()->toDateString() }}">
 
-                            <label class="block">
-                                <span class="mb-1.5 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Amount Paid</span>
-                                <input type="number" step="0.01" min="0.01" name="amount" value="{{ old('amount', number_format($shopBalancePayable, 2, '.', '')) }}" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900 focus:border-cyan-500 focus:outline-none">
-                                @error('amount')
-                                    <span class="mt-1 block text-xs font-bold text-red-600">{{ $message }}</span>
-                                @enderror
-                            </label>
-                            <label class="block">
-                                <span class="mb-1.5 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Mode</span>
-                                <select name="payment_method" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900 focus:border-cyan-500 focus:outline-none">
-                                    <option value="cash" @selected(old('payment_method', 'cash') === 'cash')>Cash</option>
-                                    <option value="online_upi" @selected(old('payment_method') === 'online_upi')>Online UPI</option>
-                                    <option value="cheque" @selected(old('payment_method') === 'cheque')>Cheque</option>
-                                </select>
-                                @error('payment_method')
-                                    <span class="mt-1 block text-xs font-bold text-red-600">{{ $message }}</span>
-                                @enderror
-                            </label>
-                            <label class="block">
-                                <span class="mb-1.5 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Reference / Check No.</span>
-                                <input type="text" name="payment_reference" value="{{ old('payment_reference') }}" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none" placeholder="Optional">
-                                @error('payment_reference')
-                                    <span class="mt-1 block text-xs font-bold text-red-600">{{ $message }}</span>
-                                @enderror
-                            </label>
-                            <label class="block">
-                                <span class="mb-1.5 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Note</span>
-                                <input type="text" name="shop_note" value="{{ old('shop_note') }}" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none" placeholder="Cash paid from closing balance">
-                                @error('shop_note')
-                                    <span class="mt-1 block text-xs font-bold text-red-600">{{ $message }}</span>
-                                @enderror
-                            </label>
-                            <button type="submit" class="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-cyan-700 px-5 text-sm font-black text-white transition hover:bg-cyan-600">
+                            <div>
+                                <span class="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-500">Amount Paid</span>
+                                <input type="number" step="0.01" min="0.01" name="amount" value="{{ old('amount', number_format($shopBalancePayable, 2, '.', '')) }}" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-900 focus:border-cyan-500 focus:outline-none">
+                            </div>
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <span class="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-500">Mode</span>
+                                    <select name="payment_method" class="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-900 focus:border-cyan-500 focus:outline-none">
+                                        <option value="cash" @selected(old('payment_method', 'cash') === 'cash')>Cash</option>
+                                        <option value="online_upi" @selected(old('payment_method') === 'online_upi')>Online UPI</option>
+                                        <option value="cheque" @selected(old('payment_method') === 'cheque')>Cheque</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <span class="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-500">Ref / Check No.</span>
+                                    <input type="text" name="payment_reference" value="{{ old('payment_reference') }}" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none" placeholder="Optional">
+                                </div>
+                            </div>
+                            <div>
+                                <span class="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-500">Note</span>
+                                <input type="text" name="shop_note" value="{{ old('shop_note') }}" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 focus:border-cyan-500 focus:outline-none" placeholder="Cash paid from closing balance">
+                            </div>
+                            <button type="submit" class="inline-flex h-10 w-full items-center justify-center rounded-xl bg-cyan-700 px-4 text-xs font-black text-white transition hover:bg-cyan-600">
                                 Submit Aishwarya Veg Payment
                             </button>
                         </form>
@@ -267,16 +238,52 @@
         </section>
     @endif
 
-    <section class="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-        <h2 class="text-lg font-black text-slate-950 sm:text-xl">Payment History</h2>
-        <p class="mt-1 text-sm font-semibold text-slate-500">Pending rows wait for admin/accounts approval. Approved rows update invoices or cashbook balance.</p>
+    {{-- Payment Requests History Section --}}
+    <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs sm:p-4">
+        <h2 class="text-base font-black text-slate-950 sm:text-lg">Payment History</h2>
+        <p class="mt-0.5 text-xs font-semibold text-slate-500">Pending rows wait for admin/accounts approval.</p>
 
         @if ($invoicePaymentRequests->isEmpty())
-            <div class="mt-5 rounded-[1.25rem] border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
-                <p class="text-sm font-black text-slate-700">No payment requests yet.</p>
+            <div class="mt-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-center">
+                <p class="text-xs font-black text-slate-700">No payment requests yet.</p>
             </div>
         @else
-            <div class="mt-5 overflow-x-auto rounded-[1.25rem] border border-slate-200">
+            {{-- Mobile View: Compact Single-Row Style Cards --}}
+            <div class="mt-3 space-y-2 md:hidden">
+                @foreach ($invoicePaymentRequests as $paymentRequest)
+                    <article class="rounded-xl border border-slate-200 bg-white p-2.5 shadow-xs">
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="min-w-0 flex-1">
+                                <div class="flex items-center gap-1.5">
+                                    <span class="truncate text-xs font-black text-slate-900">
+                                        @if($paymentRequest->invoice)
+                                            <a href="{{ route('shop-owner.finance.show', $paymentRequest->invoice) }}" class="text-emerald-700 hover:underline">
+                                                {{ $paymentRequest->invoice->invoice_number }}
+                                            </a>
+                                        @else
+                                            {{ $paymentRequest->applicationLabel() }}
+                                        @endif
+                                    </span>
+                                </div>
+                                <div class="mt-0.5 flex items-center gap-1.5 text-[10px] text-slate-500">
+                                    <span>{{ $paymentRequest->created_at?->format('d M Y') }}</span>
+                                    <span>·</span>
+                                    <span>{{ $paymentRequest->paymentMethodLabel() }}</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 text-right">
+                                <div>
+                                    <span class="text-xs font-black text-slate-950">Rs. {{ number_format((float) $paymentRequest->requested_amount, 2) }}</span>
+                                </div>
+                                @include('shop-owner.components.status-badge', ['label' => $paymentRequest->statusLabel(), 'tone' => $paymentRequest->statusTone()])
+                            </div>
+                        </div>
+                    </article>
+                @endforeach
+            </div>
+
+            {{-- Desktop Table View --}}
+            <div class="hidden overflow-x-auto rounded-xl border border-slate-200 mt-3 md:block">
                 <table class="min-w-full border-collapse text-left text-xs whitespace-nowrap">
                     <thead>
                         <tr class="border-b border-slate-100 text-[10px] font-black uppercase tracking-wider text-slate-500 bg-slate-50">
@@ -292,12 +299,19 @@
                     <tbody class="divide-y divide-slate-100 text-slate-700">
                         @foreach ($invoicePaymentRequests as $paymentRequest)
                             <tr>
-                                <td class="px-3 py-2 font-bold text-slate-900">{{ $paymentRequest->invoice?->invoice_number ?? $paymentRequest->applicationLabel() }}</td>
+                                <td class="px-3 py-2 font-bold text-slate-900">
+                                    @if($paymentRequest->invoice)
+                                        <a href="{{ route('shop-owner.finance.show', $paymentRequest->invoice) }}" class="text-emerald-700 hover:underline">
+                                            {{ $paymentRequest->invoice->invoice_number }}
+                                        </a>
+                                    @else
+                                        {{ $paymentRequest->applicationLabel() }}
+                                    @endif
+                                </td>
                                 <td class="px-3 py-2 font-semibold text-slate-500">{{ $paymentRequest->created_at?->format('d M Y h:i A') }}</td>
                                 <td class="px-3 py-2">@include('shop-owner.components.status-badge', ['label' => $paymentRequest->statusLabel(), 'tone' => $paymentRequest->statusTone()])</td>
                                 <td class="px-3 py-2 font-semibold text-slate-600">
                                     {{ $paymentRequest->paymentMethodLabel() }}{{ $paymentRequest->payment_reference ? ' | Ref: '.$paymentRequest->payment_reference : '' }}
-                                    <span class="block text-[10px] text-slate-500">{{ $paymentRequest->shop_note ?: $paymentRequest->admin_note ?: 'No note' }}</span>
                                 </td>
                                 <td class="px-3 py-2 text-right font-black text-slate-950">Rs. {{ number_format((float) $paymentRequest->requested_amount, 2) }}</td>
                                 <td class="px-3 py-2 text-right font-black text-emerald-700">Rs. {{ number_format((float) $paymentRequest->applied_amount, 2) }}</td>
@@ -308,7 +322,7 @@
                 </table>
             </div>
 
-            <div class="mt-3">
+            <div class="mt-2 border-t border-slate-100 pt-2">
                 {{ $invoicePaymentRequests->links() }}
             </div>
         @endif

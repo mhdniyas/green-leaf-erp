@@ -158,8 +158,20 @@ class ShopOwnerController extends Controller
         $activeShop = $this->currentShop($request);
         [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
 
+        $pendingBillTillToday = (float) ShopInvoice::query()
+            ->where('shop_id', $activeShop->id)
+            ->whereDate('business_date', '<=', today())
+            ->sum('balance_amount');
+
+        $pendingBillCountTillToday = ShopInvoice::query()
+            ->where('shop_id', $activeShop->id)
+            ->whereDate('business_date', '<=', today())
+            ->where('balance_amount', '>', 0)
+            ->count();
+
         return view('shop-owner.deliveries.index', [
             'deliveries' => $this->shopOrdersQuery($activeShop)
+                ->with(['invoice', 'deliveredBy'])
                 ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))
                 ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate))
                 ->where(function ($query): void {
@@ -168,8 +180,11 @@ class ShopOwnerController extends Controller
                         ->orWhereHas('invoice');
                 })
                 ->latest('business_date')
+                ->latest('id')
                 ->paginate(12, ['*'], 'deliveries_page')
                 ->withQueryString(),
+            'pendingBillTillToday' => $pendingBillTillToday,
+            'pendingBillCountTillToday' => $pendingBillCountTillToday,
             'filterStartDate' => $filterStartDate,
             'filterEndDate' => $filterEndDate,
         ]);

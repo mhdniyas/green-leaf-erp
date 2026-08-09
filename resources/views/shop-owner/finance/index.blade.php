@@ -2,11 +2,11 @@
 
 @section('title', 'Finance')
 @section('page_title', 'Finance')
-@section('page_description', 'Review your daily invoices, delivery deductions, and payment balances in one place.')
+@section('page_description', 'Review daily invoices, payment balances, and financial status in one place.')
 @php($breadcrumbs = [['label' => 'Finance']])
 
 @section('content')
-    <div class="space-y-5">
+    <div class="space-y-4 sm:space-y-5">
         @include('shop-owner.finance.partials.finance-summary-cards', [
             'totalBilled' => $totalBilled,
             'outstandingBalance' => $outstandingBalance,
@@ -18,12 +18,12 @@
             'carryOver' => $carryOver,
         ])
 
-        <section class="rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
-            <div class="grid grid-cols-2 gap-2 rounded-[1.1rem] bg-slate-100 p-1.5 text-sm font-black text-slate-600 sm:inline-grid sm:auto-cols-fr sm:grid-flow-col">
-                <a href="{{ route('shop-owner.finance.index', ['tab' => 'invoices']) }}" class="rounded-[0.9rem] px-4 py-3 text-center transition {{ $activeTab === 'invoices' ? 'bg-white text-slate-950 shadow-sm' : 'hover:bg-white/70' }}">
+        <section class="rounded-2xl border border-slate-200 bg-white p-2.5 shadow-xs sm:p-3">
+            <div class="grid grid-cols-2 gap-1.5 rounded-xl bg-slate-100 p-1 text-xs font-black text-slate-600 sm:inline-grid sm:auto-cols-fr sm:grid-flow-col">
+                <a href="{{ route('shop-owner.finance.index', ['tab' => 'invoices']) }}" class="rounded-lg px-3.5 py-2 text-center transition {{ $activeTab === 'invoices' ? 'bg-white text-slate-950 shadow-xs' : 'hover:bg-white/70' }}">
                     Invoices
                 </a>
-                <a href="{{ route('shop-owner.payments.index') }}" class="rounded-[0.9rem] px-4 py-3 text-center transition hover:bg-white/70">
+                <a href="{{ route('shop-owner.payments.index') }}" class="rounded-lg px-3.5 py-2 text-center transition hover:bg-white/70">
                     Payments
                 </a>
             </div>
@@ -50,9 +50,9 @@
                 'pendingBillApprovalSummary' => $pendingBillApprovalSummary,
             ])
         @else
-            <section class="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-                <h2 class="text-lg font-black text-slate-950 sm:text-xl">Daily Invoices</h2>
-                <div class="mt-5">
+            <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs sm:p-4">
+                <h2 class="text-base font-black text-slate-950 sm:text-lg">Daily Invoices</h2>
+                <div class="mt-3">
                     @include('shop-owner.finance.partials.payment-history-table', ['invoices' => $invoices])
                 </div>
             </section>
