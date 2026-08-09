@@ -358,10 +358,13 @@
                                         @csrf
                                         <select name="supplier_id" class="h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-900 focus:outline-none">
                                             @foreach ($allSuppliers as $sup)
-                                                <option value="{{ $sup->id }}" @selected($supplier?->id === $sup->id)>{{ $sup->name }}</option>
+                                                <option value="{{ $sup->id }}" @selected((int) $invoice->supplier_id === (int) $sup->id)>{{ $sup->name }}</option>
                                             @endforeach
                                         </select>
-                                        <button type="submit" class="h-8 w-full rounded-lg bg-indigo-600 text-xs font-black text-white hover:bg-indigo-500">Update Vendor</button>
+                                        <a href="{{ route('purchasing.suppliers.create') }}" class="inline-flex h-8 w-full items-center justify-center rounded-lg border border-indigo-300 bg-white text-xs font-black text-indigo-700 hover:bg-indigo-100">
+                                            Add New Vendor
+                                        </a>
+                                        <button type="submit" class="h-8 w-full rounded-lg bg-indigo-600 text-xs font-black text-white hover:bg-indigo-500">Swap Vendor</button>
                                     </form>
                                 </details>
                             </div>

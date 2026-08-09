@@ -18,6 +18,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\View\View;
 
@@ -81,6 +82,9 @@ class PurchaseInvoiceController extends Controller
             'outstanding_amount' => round(max(0, $summaryNetTotal - $summaryPaidAmount), 2),
         ];
         $canManageSuppliers = $request->user()->hasRole('admin') || $request->user()->hasRole('purchase') || $request->user()->can('purchasing.supplier.update');
+        $allSuppliers = $request->user()->hasRole('admin')
+            ? Supplier::query()->orderBy('name')->get(['id', 'name'])
+            : collect();
 
         $flaggedInvoices = PurchaseInvoice::query()
             ->with(['supplier', 'purchaserCart.items', 'goodsReceived.items'])
@@ -98,6 +102,7 @@ class PurchaseInvoiceController extends Controller
             'paymentFilter' => $paymentFilter,
             'activeTab' => $activeTab,
             'canManageSuppliers' => $canManageSuppliers,
+            'allSuppliers' => $allSuppliers,
             'canPayCompanyVendorCredit' => $request->user()->hasRole('admin'),
             'pendingVendorCreditRequests' => $this->pendingVendorCreditRequests(),
             'flaggedInvoices' => $flaggedInvoices,

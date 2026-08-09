@@ -284,6 +284,19 @@
                                                 </button>
                                             </form>
                                         @endif
+                                        @if (auth()->user()?->hasRole('admin') && isset($allSuppliers) && $allSuppliers->isNotEmpty())
+                                            <form method="POST" action="{{ route('purchasing.invoices.change-supplier', $invoice) }}" class="flex w-full items-center gap-1.5">
+                                                @csrf
+                                                <select name="supplier_id" class="h-9 min-w-[150px] rounded-xl border border-indigo-200 bg-white px-2 text-[11px] font-black text-slate-900 focus:outline-none">
+                                                    @foreach ($allSuppliers as $sup)
+                                                        <option value="{{ $sup->id }}" @selected((int) $invoice->supplier_id === (int) $sup->id)>{{ $sup->name }}</option>
+                                                    @endforeach
+                                                </select>
+                                                <button type="submit" class="inline-flex h-9 items-center justify-center rounded-xl bg-indigo-600 px-3 text-[11px] font-black text-white hover:bg-indigo-500">
+                                                    Swap Vendor
+                                                </button>
+                                            </form>
+                                        @endif
                                         <x-purchase-manager.components.action-button :href="route('purchasing.invoices.show', $invoice)" variant="secondary">View</x-purchase-manager.components.action-button>
                                     </div>
                                 </td>
