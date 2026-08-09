@@ -152,4 +152,46 @@ class PurchaserRoleScopingTest extends TestCase
         $response->assertSee('Bill Tomato');
         $response->assertDontSee('Assigned Only Product');
     }
+
+    public function test_purchaser_product_codes_page_is_category_scoped_and_searchable(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+
+        $assignedCategory = Category::create(['name' => 'Leaf Items', 'is_active' => true]);
+        $otherCategory = Category::create(['name' => 'Fruit Items', 'is_active' => true]);
+
+        $purchaser = User::factory()->create([
+            'assigned_category_ids' => [$assignedCategory->id],
+        ]);
+        $purchaser->syncRoles(['purchaser']);
+
+        Product::create([
+            'name' => 'Catalog Spinach',
+            'sku' => 'CAT-101',
+            'category_id' => $assignedCategory->id,
+            'unit' => 'kg',
+            'base_price' => 10.00,
+            'is_active' => true,
+        ]);
+
+        Product::create([
+            'name' => 'Hidden Apple',
+            'sku' => 'CAT-202',
+            'category_id' => $otherCategory->id,
+            'unit' => 'kg',
+            'base_price' => 20.00,
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($purchaser)->get(route('purchaser.products', [
+            'search' => 'CAT',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Product Codes');
+        $response->assertSee('Catalog Spinach');
+        $response->assertSee('CAT-101');
+        $response->assertDontSee('Hidden Apple');
+        $response->assertDontSee('CAT-202');
+    }
 }

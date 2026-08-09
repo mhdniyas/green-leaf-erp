@@ -34,6 +34,10 @@
                         [$statusText, $statusClass] = $statusLabels[$shopOrder->delivery_status] ?? ['Unknown', 'bg-slate-400/20 text-slate-300'];
                     @endphp
                     <div class="flex items-center gap-2">
+                        <a href="{{ route('warehouse.receiver.products.index') }}" target="_blank"
+                            class="inline-flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white hover:bg-white/20 transition-all border border-white/15 text-decoration-none shadow-sm">
+                            Products
+                        </a>
                         <a href="{{ route('warehouse.loadout.slip', $shopOrder) }}" target="_blank"
                             class="inline-flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white hover:bg-white/20 transition-all border border-white/15 text-decoration-none shadow-sm">
                             <svg class="h-3.5 w-3.5 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">

@@ -14,6 +14,22 @@
                 Bulk Measures
             </a>
         @endcan
+        <a href="{{ route('inventory.products.export.whatsapp', request()->except('page')) }}"
+           target="_blank"
+           rel="noopener"
+           class="inline-flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs font-semibold text-green-700 shadow-sm transition-colors hover:bg-green-100">
+            WhatsApp
+        </a>
+        <a href="{{ route('inventory.products.export.csv', request()->except('page')) }}"
+           class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50">
+            CSV
+        </a>
+        <a href="{{ route('inventory.products.export.pdf', request()->except('page')) }}"
+           target="_blank"
+           rel="noopener"
+           class="inline-flex items-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-700 shadow-sm transition-colors hover:bg-cyan-100">
+            PDF
+        </a>
         @can('inventory.category.view')
             <a href="{{ route('inventory.categories.index') }}"
                class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50">

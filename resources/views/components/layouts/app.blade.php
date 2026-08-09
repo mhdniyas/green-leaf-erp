@@ -287,6 +287,13 @@
             'type' => 'link',
         ],
         [
+            'label' => 'Products',
+            'route' => 'warehouse.receiver.products.index',
+            'active' => request()->routeIs('warehouse.receiver.products.*'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 6.75h15M4.5 12h15M4.5 17.25h15M8.25 6.75v10.5" /></svg>',
+            'type' => 'link',
+        ],
+        [
             'label' => 'Sort',
             'route' => 'warehouse.receiver.sort-sheet.index',
             'active' => request()->routeIs('warehouse.receiver.sort-sheet.*'),
@@ -449,6 +456,9 @@
                             </x-nav-item>
                             <x-nav-item href="{{ route('purchaser.daily-prices') }}" :active="request()->routeIs('purchaser.daily-prices')" :sub="true">
                                 Daily Prices
+                            </x-nav-item>
+                            <x-nav-item href="{{ route('purchaser.products') }}" :active="request()->routeIs('purchaser.products')" :sub="true">
+                                Products
                             </x-nav-item>
                         </div>
                         <div class="space-y-1">

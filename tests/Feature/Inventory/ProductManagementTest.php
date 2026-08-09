@@ -288,4 +288,45 @@ class ProductManagementTest extends TestCase
         ]);
         $response2->assertSessionHasErrors(['sku' => 'This SKU belongs to a deleted product. Restore the deleted product instead.']);
     }
+
+    public function test_product_catalog_exports_include_category_wise_codes(): void
+    {
+        $category = Category::firstOrFail();
+        Product::create([
+            'category_id' => $category->id,
+            'name' => 'Export Tomato',
+            'sku' => 'EXP-001',
+            'unit' => 'kg',
+            'base_price' => 42.50,
+            'is_active' => true,
+        ]);
+
+        $csvResponse = $this->actingAs($this->admin)->get(route('inventory.products.export.csv', [
+            'search' => 'Export Tomato',
+        ]));
+
+        $csvResponse->assertOk();
+        $csvResponse->assertHeader('content-type', 'text/csv; charset=UTF-8');
+        $csvContent = $csvResponse->streamedContent();
+
+        $this->assertStringContainsString('EXP-001', $csvContent);
+        $this->assertStringContainsString('Export Tomato', $csvContent);
+        $this->assertStringContainsString($category->name, $csvContent);
+
+        $pdfResponse = $this->actingAs($this->admin)->get(route('inventory.products.export.pdf', [
+            'search' => 'Export Tomato',
+        ]));
+
+        $pdfResponse->assertOk();
+        $pdfResponse->assertSee('Category-wise inventory list with product codes');
+        $pdfResponse->assertSee('EXP-001');
+
+        $whatsAppResponse = $this->actingAs($this->admin)->get(route('inventory.products.export.whatsapp', [
+            'search' => 'Export Tomato',
+        ]));
+
+        $whatsAppResponse->assertRedirect();
+        $this->assertStringContainsString('api.whatsapp.com/send', $whatsAppResponse->headers->get('Location'));
+        $this->assertStringContainsString('EXP-001', rawurldecode((string) $whatsAppResponse->headers->get('Location')));
+    }
 }

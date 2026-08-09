@@ -133,6 +133,9 @@ Route::middleware('auth')->group(function () {
         Route::put('products/measures/bulk', [ProductController::class, 'updateBulkMeasures'])->name('products.measures.bulk.update');
         Route::get('products/measures/bulk/export-json', [ProductController::class, 'exportBulkMeasures'])->name('products.measures.bulk.export-json');
         Route::post('products/measures/bulk/import-json', [ProductController::class, 'importBulkMeasures'])->name('products.measures.bulk.import-json');
+        Route::get('products/export/csv', [ProductController::class, 'exportCsv'])->name('products.export.csv');
+        Route::get('products/export/pdf', [ProductController::class, 'exportPdf'])->name('products.export.pdf');
+        Route::get('products/export/whatsapp', [ProductController::class, 'exportWhatsApp'])->name('products.export.whatsapp');
         Route::patch('products/{product}/status', [ProductController::class, 'updateStatus'])->name('products.status.update');
         Route::get('products-trash', [ProductController::class, 'trash'])->name('products.trash');
         Route::patch('products-trash/{product}/restore', [ProductController::class, 'restore'])->name('products.restore');
@@ -313,6 +316,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/dashboard', [PurchaserDashboardController::class, 'index'])->name('purchaser.dashboard');
     Route::get('/purchaser/daily', [PurchaserDashboardController::class, 'daily'])->name('purchaser.daily');
     Route::get('/purchaser/daily/share', [PurchaserDashboardController::class, 'dailyShare'])->name('purchaser.daily.share');
+    Route::get('/purchaser/products', [PurchaserDashboardController::class, 'products'])->name('purchaser.products');
     Route::get('/purchaser/daily-prices', [PurchaserDashboardController::class, 'dailyPrices'])->name('purchaser.daily-prices');
     Route::post('/purchaser/daily-prices', [PurchaserDashboardController::class, 'updateDailyPrices'])->name('purchaser.daily-prices.update');
     Route::get('/purchaser/shop-orders', [PurchaserDashboardController::class, 'shopOrders'])->name('purchaser.shop-orders.index');

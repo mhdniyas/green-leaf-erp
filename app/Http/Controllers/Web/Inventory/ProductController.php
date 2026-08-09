@@ -19,6 +19,7 @@ use App\Services\Inventory\ProductService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\View\View;
 use Spatie\Permission\Models\Permission;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -256,6 +257,51 @@ class ProductController extends Controller
             ->with('success', "{$updated} product measures imported.");
     }
 
+    public function exportCsv(Request $request): StreamedResponse
+    {
+        $products = $this->filteredExportProducts($request);
+        $filename = 'green-leaf-products-'.now()->format('Y-m-d-His').'.csv';
+
+        return response()->streamDownload(function () use ($products): void {
+            $handle = fopen('php://output', 'w');
+
+            fputcsv($handle, ['Category', 'Code', 'Product Name', 'Base Unit', 'Order Units', 'Status', 'Base Price']);
+
+            $products->each(function (Product $product) use ($handle): void {
+                fputcsv($handle, [
+                    $product->category?->name ?? 'Uncategorized',
+                    $product->sku,
+                    $product->name,
+                    strtoupper((string) $product->unit),
+                    $this->orderUnitLabels($product)->join(' / '),
+                    $product->is_active ? 'Active' : 'Inactive',
+                    number_format((float) $product->base_price, 2, '.', ''),
+                ]);
+            });
+
+            fclose($handle);
+        }, $filename, [
+            'Content-Type' => 'text/csv',
+        ]);
+    }
+
+    public function exportPdf(Request $request): View
+    {
+        $products = $this->filteredExportProducts($request);
+        $groupedProducts = $this->categoryGroupedProducts($products);
+        $filters = $this->exportFilters($request);
+
+        return view('inventory.products.pdf', compact('groupedProducts', 'products', 'filters'));
+    }
+
+    public function exportWhatsApp(Request $request): RedirectResponse
+    {
+        $products = $this->filteredExportProducts($request);
+        $message = $this->buildWhatsAppProductText($products);
+
+        return redirect()->away('https://api.whatsapp.com/send?text='.rawurlencode($message));
+    }
+
     public function updateStatus(Request $request, Product $product): RedirectResponse
     {
         abort_unless($request->user()?->hasRole('admin') || $request->user()?->can('inventory.product.status.update'), 403);
@@ -307,6 +353,104 @@ class ProductController extends Controller
 
         return redirect()->route('inventory.products.index')
             ->with('success', 'Product deleted.');
+    }
+
+    /**
+     * @return Collection<int, Product>
+     */
+    private function filteredExportProducts(Request $request): Collection
+    {
+        $status = in_array($request->string('status')->toString(), ['active', 'inactive'], true)
+            ? $request->string('status')->toString()
+            : null;
+        $unit = $request->string('unit')->toString() ?: null;
+
+        return Product::query()
+            ->with(['category', 'orderUnits'])
+            ->when($request->integer('category_id') > 0, fn ($query) => $query->where('category_id', $request->integer('category_id')))
+            ->when($status === 'active', fn ($query) => $query->where('is_active', true))
+            ->when($status === 'inactive', fn ($query) => $query->where('is_active', false))
+            ->when($unit, fn ($query) => $query->where('unit', $unit))
+            ->when($request->string('search')->toString() !== '', function ($query) use ($request): void {
+                $search = $request->string('search')->toString();
+                $query->where(function ($query) use ($search): void {
+                    $query->where('name', 'like', "%{$search}%")
+                        ->orWhere('sku', 'like', "%{$search}%")
+                        ->orWhere('unit', 'like', "%{$search}%")
+                        ->orWhereHas('category', fn ($categoryQuery) => $categoryQuery->where('name', 'like', "%{$search}%"));
+                });
+            })
+            ->orderByDesc('is_active')
+            ->ordered()
+            ->get()
+            ->sortBy([
+                fn (Product $product): string => $product->category?->name ?? 'Uncategorized',
+                fn (Product $product): string => $product->sku_sort_value,
+                fn (Product $product): string => $product->name,
+            ])
+            ->values();
+    }
+
+    /**
+     * @param  Collection<int, Product>  $products
+     * @return Collection<string, Collection<int, Product>>
+     */
+    private function categoryGroupedProducts(Collection $products): Collection
+    {
+        return $products
+            ->groupBy(fn (Product $product): string => $product->category?->name ?? 'Uncategorized')
+            ->sortKeys();
+    }
+
+    /**
+     * @return Collection<int, string>
+     */
+    private function orderUnitLabels(Product $product): Collection
+    {
+        if ($product->orderUnits->isEmpty()) {
+            return collect([strtoupper((string) $product->unit)]);
+        }
+
+        return $product->orderUnits
+            ->where('is_orderable', true)
+            ->map(fn (ProductUnit $unit): string => (string) ($unit->label ?: strtoupper((string) $unit->unit)))
+            ->values();
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function exportFilters(Request $request): array
+    {
+        return collect($request->only(['search', 'category_id', 'status', 'unit']))
+            ->filter(fn ($value): bool => filled($value))
+            ->map(fn ($value): string => (string) $value)
+            ->all();
+    }
+
+    /**
+     * @param  Collection<int, Product>  $products
+     */
+    private function buildWhatsAppProductText(Collection $products): string
+    {
+        $lines = [
+            'Green Leaf Product Catalog',
+            'Generated: '.now()->format('d M Y, h:i A'),
+            'Total products: '.$products->count(),
+            '',
+        ];
+
+        $this->categoryGroupedProducts($products)->each(function (Collection $categoryProducts, string $categoryName) use (&$lines): void {
+            $lines[] = '*'.$categoryName.'*';
+
+            $categoryProducts->values()->each(function (Product $product, int $index) use (&$lines): void {
+                $lines[] = ($index + 1).'. '.$product->sku.' - '.$product->name.' ('.strtoupper((string) $product->unit).')';
+            });
+
+            $lines[] = '';
+        });
+
+        return trim(implode("\n", $lines));
     }
 
     private function filteredBulkMeasureProducts(Request $request)

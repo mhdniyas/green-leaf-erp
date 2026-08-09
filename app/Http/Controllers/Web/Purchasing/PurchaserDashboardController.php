@@ -119,6 +119,60 @@ class PurchaserDashboardController extends Controller
             ->with('status', 'Order category preferences saved successfully.');
     }
 
+    public function products(Request $request): View
+    {
+        $this->ensurePurchaser($request);
+
+        $user = $request->user();
+        $status = in_array($request->string('status')->toString(), ['active', 'inactive'], true)
+            ? $request->string('status')->toString()
+            : 'active';
+        $search = trim($request->string('search')->toString());
+        $categoryId = $request->integer('category_id') ?: null;
+        $unit = $request->string('unit')->toString() ?: null;
+        $assignedCategoryIds = $user->hasAssignedCategoryFilter() ? $user->assignedCategoryIds() : null;
+
+        $categories = Category::query()
+            ->where('is_active', true)
+            ->when($assignedCategoryIds !== null, fn ($query) => $query->whereIn('id', $assignedCategoryIds))
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        $products = Product::query()
+            ->with(['category:id,name', 'orderUnits'])
+            ->when($assignedCategoryIds !== null, fn ($query) => $query->whereIn('category_id', $assignedCategoryIds))
+            ->when($categoryId, fn ($query) => $query->where('category_id', $categoryId))
+            ->when($status === 'active', fn ($query) => $query->where('is_active', true))
+            ->when($status === 'inactive', fn ($query) => $query->where('is_active', false))
+            ->when($unit, fn ($query) => $query->where('unit', $unit))
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($query) use ($search): void {
+                    $query->where('name', 'like', "%{$search}%")
+                        ->orWhere('sku', 'like', "%{$search}%")
+                        ->orWhere('unit', 'like', "%{$search}%")
+                        ->orWhereHas('category', fn ($categoryQuery) => $categoryQuery->where('name', 'like', "%{$search}%"));
+                });
+            })
+            ->orderByDesc('is_active')
+            ->ordered()
+            ->get()
+            ->sortBy([
+                fn (Product $product): string => $product->category?->name ?? 'Uncategorized',
+                fn (Product $product): string => $product->sku_sort_value,
+                fn (Product $product): string => $product->name,
+            ])
+            ->values();
+
+        return view('purchasing.purchaser.products', [
+            'products' => $products,
+            'productsByCategory' => $products->groupBy(fn (Product $product): string => $product->category?->name ?? 'Uncategorized')->sortKeys(),
+            'categories' => $categories,
+            'selectedStatus' => $status,
+            'selectedUnit' => $unit,
+            'search' => $search,
+        ]);
+    }
+
     public function daily(Request $request): View|RedirectResponse
     {
         $this->ensurePurchaser($request);

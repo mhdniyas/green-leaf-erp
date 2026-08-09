@@ -56,6 +56,19 @@
             </div>
         </form>
 
+        <section class="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 shadow-sm lg:rounded-[2rem] lg:p-4">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <p class="text-xs font-black uppercase tracking-[0.16em] text-emerald-800">Warehouse Grocery List</p>
+                    <p class="mt-1 text-xs font-bold text-emerald-900"><span data-selected-count>0</span> selected for WhatsApp sharing.</p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button type="button" data-clear-grocery class="inline-flex h-9 items-center rounded-xl border border-emerald-200 bg-white px-3 text-xs font-black text-emerald-700 hover:bg-emerald-100">Clear</button>
+                    <button type="button" data-share-grocery class="inline-flex h-9 items-center rounded-xl bg-emerald-700 px-3 text-xs font-black text-white hover:bg-emerald-600">WhatsApp</button>
+                </div>
+            </div>
+        </section>
+
         <section class="space-y-3">
             <div class="flex items-center justify-between px-1">
                 <h2 class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Product List</h2>
@@ -63,14 +76,23 @@
             </div>
 
             @forelse($products as $product)
-                <article class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                @php
+                    $orderUnits = $product->orderUnits->where('is_orderable', true)->pluck('label')->filter()->values();
+                    $unitLabel = strtoupper((string) $product->unit);
+                @endphp
+                <article data-grocery-row data-code="{{ $product->sku }}" data-name="{{ $product->name }}" data-unit="{{ $unitLabel }}" data-category="{{ $product->category?->name ?? 'No Category' }}" class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                     <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0">
-                            <h3 class="truncate text-sm font-black text-slate-950">{{ $product->name }}</h3>
+                        <label class="flex min-w-0 flex-1 items-start gap-3">
+                            <input type="checkbox" data-grocery-check class="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                            <div class="min-w-0">
+                            <span class="block truncate text-sm font-black text-slate-950">{{ $product->name }}</span>
                             <p class="mt-1 text-[11px] font-bold text-slate-500">
                                 <span class="font-mono">{{ $product->sku }}</span>
                                 &middot; {{ $product->category?->name ?? 'No Category' }}
                                 &middot; {{ strtoupper($product->unit) }}
+                            </p>
+                            <p class="mt-1 text-[11px] font-bold text-slate-400">
+                                Order units: {{ $orderUnits->isNotEmpty() ? $orderUnits->join(' / ') : $unitLabel }}
                             </p>
                             <p class="mt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
                                 Status changed:
@@ -80,7 +102,9 @@
                                     Not recorded
                                 @endif
                             </p>
-                        </div>
+                            <input type="text" data-grocery-qty placeholder="Qty for WhatsApp" class="mt-3 h-9 w-full max-w-xs rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-black text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none">
+                            </div>
+                        </label>
                         @can('inventory.product.status.update')
                             <form method="POST" action="{{ route('inventory.products.status.update', $product) }}" class="shrink-0">
                                 @csrf
@@ -113,4 +137,57 @@
             </div>
         @endif
     </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const rows = Array.from(document.querySelectorAll('[data-grocery-row]'));
+            const countNodes = Array.from(document.querySelectorAll('[data-selected-count]'));
+            const selectedRows = () => rows.filter((row) => row.querySelector('[data-grocery-check]')?.checked);
+            const updateCount = () => countNodes.forEach((node) => node.textContent = selectedRows().length);
+
+            rows.forEach((row) => {
+                row.querySelector('[data-grocery-check]')?.addEventListener('change', updateCount);
+                row.querySelector('[data-grocery-qty]')?.addEventListener('input', () => {
+                    const checkbox = row.querySelector('[data-grocery-check]');
+                    if (checkbox && row.querySelector('[data-grocery-qty]').value.trim() !== '') {
+                        checkbox.checked = true;
+                        updateCount();
+                    }
+                });
+            });
+
+            document.querySelectorAll('[data-clear-grocery]').forEach((button) => {
+                button.addEventListener('click', () => {
+                    rows.forEach((row) => {
+                        const checkbox = row.querySelector('[data-grocery-check]');
+                        const qty = row.querySelector('[data-grocery-qty]');
+                        if (checkbox) checkbox.checked = false;
+                        if (qty) qty.value = '';
+                    });
+                    updateCount();
+                });
+            });
+
+            document.querySelectorAll('[data-share-grocery]').forEach((button) => {
+                button.addEventListener('click', () => {
+                    const picked = selectedRows();
+                    if (picked.length === 0) {
+                        alert('Select products before sharing.');
+                        return;
+                    }
+
+                    const lines = ['Warehouse Grocery List', ''];
+                    picked.forEach((row, index) => {
+                        const qty = row.querySelector('[data-grocery-qty]')?.value.trim();
+                        const qtyText = qty ? ` - ${qty}` : '';
+                        lines.push(`${index + 1}. ${row.dataset.code} - ${row.dataset.name}${qtyText} ${row.dataset.unit}`);
+                    });
+
+                    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(lines.join('\n'))}`, '_blank', 'noopener');
+                });
+            });
+
+            updateCount();
+        });
+    </script>
 </x-layouts.app>

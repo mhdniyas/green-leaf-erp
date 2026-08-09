@@ -6,9 +6,14 @@
                 <h1 class="text-base font-black text-slate-900">Warehouse Loadout</h1>
                 <p class="mt-1 text-[11px] font-semibold text-slate-500">Track waiting, partial, ready, and in-transit orders.</p>
             </div>
-            <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">
-                {{ now()->format('d M Y') }}
-            </span>
+            <div class="flex shrink-0 items-center gap-2">
+                <a href="{{ route('warehouse.receiver.products.index') }}" class="inline-flex h-8 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-wider text-slate-600 shadow-sm hover:bg-slate-50">
+                    Products
+                </a>
+                <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                    {{ now()->format('d M Y') }}
+                </span>
+            </div>
         </div>
 
         <form method="GET" action="{{ route('warehouse.loadout.index') }}" class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
