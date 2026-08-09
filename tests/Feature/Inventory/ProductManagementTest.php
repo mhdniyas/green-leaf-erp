@@ -236,6 +236,8 @@ class ProductManagementTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertSee('Manually Created Product');
+        $response->assertSee('focus=measures');
+        $response->assertSee('add_measure=1#product-measures');
 
         $seededResponse = $this->actingAs($this->admin)->get(route('inventory.products.index', ['search' => 'Tomato H']));
         $seededResponse->assertStatus(200);
@@ -246,6 +248,8 @@ class ProductManagementTest extends TestCase
         $editResponse = $this->actingAs($this->admin)->get(route('inventory.products.edit', $seededProduct));
         $editResponse->assertStatus(200);
         $editResponse->assertSee($seededProduct->name);
+        $editResponse->assertSee('id="product-measures"', false);
+        $editResponse->assertSee('Add Unit');
     }
 
     public function test_14_sku_validation_checks_active_and_soft_deleted_records(): void
