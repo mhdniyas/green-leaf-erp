@@ -19,6 +19,7 @@ use App\Http\Requests\Web\Admin\UpdateShopAccountingEntryRequest;
 use App\Http\Requests\Web\Admin\UpdateShopPettyCashSettingsRequest;
 use App\Models\CompanyAccountingEntry;
 use App\Models\Client;
+use App\Models\BusinessSetting;
 use App\Models\OtherExpense;
 use App\Models\ProcurementExpense;
 use App\Models\PurchaserCredit;
@@ -1443,7 +1444,8 @@ class AdminAccountingController extends Controller
             : 'cash';
         $fromDate = Carbon::parse($request->input('from_date', now()->startOfMonth()->toDateString()))->startOfDay();
         $toDate = Carbon::parse($request->input('to_date', now()->toDateString()))->endOfDay();
-        $selectedPurchaserId = $request->integer('purchaser_id') ?: null;
+        $defaultPurchaser = $this->resolveDefaultPurchaserUser();
+        $selectedPurchaserId = $request->integer('purchaser_id') ?: ($defaultPurchaser?->id ?: null);
         $selectedCategory = (string) $request->input('category', '');
         $procurementCategoryFilter = in_array($selectedCategory, array_keys(ProcurementExpense::categories()), true) ? $selectedCategory : '';
         $otherCategoryFilter = in_array($selectedCategory, array_keys(OtherExpense::categories()), true) ? $selectedCategory : '';
@@ -1456,6 +1458,11 @@ class AdminAccountingController extends Controller
             ->whereHas('roles', fn ($query) => $query->where('name', 'purchaser'))
             ->orderBy('name')
             ->get(['id', 'name', 'email', 'public_uuid']);
+
+        if ($defaultPurchaser && ! $purchaserOptions->contains(fn (User $u): bool => (int) $u->id === (int) $defaultPurchaser->id)) {
+            $purchaserOptions->push($defaultPurchaser);
+            $purchaserOptions = $purchaserOptions->sortBy('name')->values();
+        }
 
         $allPurchasers = User::query()
             ->whereHas('roles', fn ($query) => $query->where('name', 'purchaser'))
@@ -1487,6 +1494,32 @@ class AdminAccountingController extends Controller
                 return $direction === 'desc' ? -$comparison : $comparison;
             })
             ->values();
+
+        if ($defaultPurchaser && ! $allPurchasers->contains(fn (array $row): bool => (int) ($row['purchaser']?->id ?? 0) === (int) $defaultPurchaser->id)) {
+            $defaultTotalIn = round((float) PurchaserCredit::query()->where('purchaser_id', $defaultPurchaser->id)->where('type', 'in')->sum('amount'), 2);
+            $defaultTotalOut = round((float) PurchaserCredit::query()->where('purchaser_id', $defaultPurchaser->id)->where('type', 'out')->sum('amount'), 2);
+            $allPurchasers->push([
+                'purchaser' => $defaultPurchaser,
+                'total_in' => $defaultTotalIn,
+                'total_out' => $defaultTotalOut,
+                'balance' => round($defaultTotalIn - $defaultTotalOut, 2),
+            ]);
+
+            $allPurchasers = $allPurchasers
+                ->sort(function (array $left, array $right) use ($sort, $direction): int {
+                    $leftValue = $left[$sort] ?? null;
+                    $rightValue = $right[$sort] ?? null;
+
+                    if ($leftValue === $rightValue) {
+                        return 0;
+                    }
+
+                    $comparison = $leftValue <=> $rightValue;
+
+                    return $direction === 'desc' ? -$comparison : $comparison;
+                })
+                ->values();
+        }
 
         $totals = [
             'total_in' => round((float) $allPurchasers->sum('total_in'), 2),
@@ -1526,7 +1559,7 @@ class AdminAccountingController extends Controller
             ->where(function ($query): void {
                 $query->where(function ($paidQuery): void {
                     $paidQuery->where('payment_paid_by', 'company')
-                        ->whereIn('payment_method', ['Online', 'GPay', 'online', 'online_upi', 'upi', 'bank'])
+                        ->whereIn('payment_method', ['Cash', 'cash', 'Online', 'GPay', 'online', 'online_upi', 'upi', 'bank'])
                         ->where('paid_amount', '>', 0);
                 })->orWhere(function ($creditQuery): void {
                     $creditQuery->where(function ($methodQuery): void {
@@ -1551,6 +1584,10 @@ class AdminAccountingController extends Controller
                 $pendingAmount = max(0, round($netAmount - $paidAmount, 2));
                 $isCreditPending = strcasecmp((string) $invoice->payment_method, 'Credit') === 0
                     || $invoice->payment_status === 'credit_pending_approval';
+                $isCompanyCashPaid = ! $isCreditPending
+                    && strcasecmp((string) $invoice->payment_paid_by, 'company') === 0
+                    && strcasecmp((string) $invoice->payment_method, 'cash') === 0
+                    && $paidAmount > 0;
 
                 return [
                     'invoice' => $invoice,
@@ -1559,8 +1596,8 @@ class AdminAccountingController extends Controller
                     'supplier' => $invoice->supplier,
                     'paid_amount' => $isCreditPending ? 0.0 : $paidAmount,
                     'pending_amount' => $isCreditPending ? $pendingAmount : 0.0,
-                    'kind' => $isCreditPending ? 'Credit Pending' : 'Company Online Paid',
-                    'method' => $invoice->payment_method ?: 'Online',
+                    'kind' => $isCreditPending ? 'Credit Pending' : ($isCompanyCashPaid ? 'Company Cash Paid' : 'Company Online Paid'),
+                    'method' => $invoice->payment_method ?: ($isCompanyCashPaid ? 'Cash' : 'Online'),
                     'status' => str((string) ($invoice->payment_status ?: 'pending'))->replace('_', ' ')->title()->toString(),
                 ];
             });
@@ -1733,6 +1770,7 @@ class AdminAccountingController extends Controller
             'sort',
             'direction',
             'purchaserOptions',
+            'defaultPurchaser',
             'reportFilters',
             'reportTotals',
             'cashTransactions',
@@ -1750,7 +1788,9 @@ class AdminAccountingController extends Controller
     public function purchaserShow(Request $request, User $user): View
     {
         $this->ensureAccountingAccess($request, AccountingAccess::PurchaserCashManage);
-        abort_unless($user->hasRole('purchaser'), 404);
+        $defaultPurchaser = $this->resolveDefaultPurchaserUser();
+        $isConfiguredDefaultPurchaser = $defaultPurchaser && (int) $defaultPurchaser->id === (int) $user->id;
+        abort_unless($user->hasRole('purchaser') || $isConfiguredDefaultPurchaser, 404);
 
         $query = PurchaserCredit::query()
             ->where('purchaser_id', $user->id)
@@ -1791,13 +1831,15 @@ class AdminAccountingController extends Controller
         $totalOut = (float) $allCredits->where('type', 'out')->sum('amount');
         $balance = $totalIn - $totalOut;
 
-        return view('admin.accounting.purchasers.show', compact('user', 'credits', 'totalIn', 'totalOut', 'balance'));
+        return view('admin.accounting.purchasers.show', compact('user', 'credits', 'totalIn', 'totalOut', 'balance', 'isConfiguredDefaultPurchaser'));
     }
 
     public function storePurchaserCredit(Request $request, User $user): RedirectResponse
     {
         $this->ensureAccountingAccess($request, AccountingAccess::PurchaserCashManage);
-        abort_unless($user->hasRole('purchaser'), 404);
+        $defaultPurchaser = $this->resolveDefaultPurchaserUser();
+        $isConfiguredDefaultPurchaser = $defaultPurchaser && (int) $defaultPurchaser->id === (int) $user->id;
+        abort_unless($user->hasRole('purchaser') || $isConfiguredDefaultPurchaser, 404);
 
         $validated = $request->validate([
             'amount' => ['required', 'numeric', 'gt:0'],
@@ -1852,6 +1894,23 @@ class AdminAccountingController extends Controller
     public function stopPurchaserViewAsAdmin(Request $request): RedirectResponse
     {
         return $this->impersonation->stop($request);
+    }
+
+    private function resolveDefaultPurchaserUser(): ?User
+    {
+        $configuredId = (int) (BusinessSetting::query()->where('key', 'default_purchaser_user_id')->value('value') ?? 0);
+
+        if ($configuredId > 0) {
+            $configuredUser = User::query()->find($configuredId);
+            if ($configuredUser) {
+                return $configuredUser;
+            }
+        }
+
+        return User::query()
+            ->whereHas('roles', fn ($query) => $query->where('name', 'purchaser'))
+            ->orderBy('name')
+            ->first(['id', 'name', 'email', 'public_uuid']);
     }
 
     private function ensureAccountingAccess(Request $request, string $permission): void

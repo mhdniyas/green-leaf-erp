@@ -11,6 +11,9 @@
                     <p class="text-[10px] font-black uppercase tracking-[0.26em] text-slate-400">Purchaser Ledger</p>
                     <h1 class="mt-2 text-2xl font-black tracking-tight text-slate-950">{{ $user->name }}</h1>
                     <p class="mt-2 text-sm font-semibold text-slate-600">{{ $user->email }} • Purchaser Account Details</p>
+                    @if(!empty($isConfiguredDefaultPurchaser))
+                        <p class="mt-2 inline-flex rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-blue-700">Default company purchaser</p>
+                    @endif
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
                     @if($canLoginAsPurchaser)
@@ -206,5 +209,6 @@
                 @endif
             </section>
         </div>
+
     </div>
 </x-layouts.accounting>

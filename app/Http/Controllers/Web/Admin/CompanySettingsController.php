@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Web\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\BusinessSetting;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -18,6 +19,7 @@ class CompanySettingsController extends Controller
         'company_phone',
         'company_email',
         'allow_historical_invoice_repricing',
+        'default_purchaser_user_id',
     ];
 
     public function edit(Request $request): View
@@ -34,9 +36,17 @@ class CompanySettingsController extends Controller
             'company_phone' => $settings->get('company_phone'),
             'company_email' => $settings->get('company_email'),
             'allow_historical_invoice_repricing' => filter_var($settings->get('allow_historical_invoice_repricing') ?? false, FILTER_VALIDATE_BOOLEAN),
+            'default_purchaser_user_id' => ($settings->get('default_purchaser_user_id') !== null && $settings->get('default_purchaser_user_id') !== '')
+                ? (int) $settings->get('default_purchaser_user_id')
+                : null,
         ];
 
-        return view('admin.company-settings.edit', compact('companyDetails'));
+        $purchaserUsers = User::query()
+            ->whereHas('roles', fn ($query) => $query->whereIn('name', ['purchaser', 'admin']))
+            ->orderBy('name')
+            ->get(['id', 'name', 'email']);
+
+        return view('admin.company-settings.edit', compact('companyDetails', 'purchaserUsers'));
     }
 
     public function update(Request $request): RedirectResponse
@@ -49,6 +59,7 @@ class CompanySettingsController extends Controller
             'company_phone' => ['nullable', 'string', 'max:50'],
             'company_email' => ['nullable', 'email', 'max:120'],
             'allow_historical_invoice_repricing' => ['nullable', 'boolean'],
+            'default_purchaser_user_id' => ['nullable', 'integer', 'exists:users,id'],
         ]);
 
         foreach (self::SETTING_KEYS as $key) {

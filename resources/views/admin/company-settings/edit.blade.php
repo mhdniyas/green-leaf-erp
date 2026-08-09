@@ -52,6 +52,28 @@
 
                         <div>
                             <label for="company_email" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Email</label>
+                            <input id="company_email" type="email" name="company_email" value="{{ old('company_email', $companyDetails['company_email']) }}" class="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
+                            @error('company_email')
+                                <p class="mt-1 text-xs font-bold text-rose-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="default_purchaser_user_id" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Default Purchaser Account</label>
+                        <select id="default_purchaser_user_id" name="default_purchaser_user_id" class="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
+                            <option value="">Select default purchaser</option>
+                            @foreach($purchaserUsers as $purchaserUser)
+                                <option value="{{ $purchaserUser->id }}" @selected((int) old('default_purchaser_user_id', $companyDetails['default_purchaser_user_id'] ?? 0) === (int) $purchaserUser->id)>
+                                    {{ $purchaserUser->name }} ({{ $purchaserUser->email }})
+                                </option>
+                            @endforeach
+                        </select>
+                        <p class="mt-1 text-xs font-semibold text-slate-500">Used as fallback account for purchaser ledger reports and company purchase ownership flows.</p>
+                        @error('default_purchaser_user_id')
+                            <p class="mt-1 text-xs font-bold text-rose-600">{{ $message }}</p>
+                        @enderror
+                    </div>
 
                     <div class="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
                         <label class="flex cursor-pointer items-start gap-3">
@@ -62,12 +84,6 @@
                                 <span class="mt-1 block text-xs font-semibold leading-5 text-slate-600">When enabled, unlocked invoices from past business dates can be repriced. Finalized invoices stay frozen.</span>
                             </span>
                         </label>
-                    </div>
-                            <input id="company_email" type="email" name="company_email" value="{{ old('company_email', $companyDetails['company_email']) }}" class="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
-                            @error('company_email')
-                                <p class="mt-1 text-xs font-bold text-rose-600">{{ $message }}</p>
-                            @enderror
-                        </div>
                     </div>
                 </div>
 

@@ -230,6 +230,9 @@
                                     <option value="{{ $option->id }}" @selected((int) $reportQuery['purchaser_id'] === (int) $option->id)>{{ $option->name }}</option>
                                 @endforeach
                             </select>
+                            @if(!request()->filled('purchaser_id') && isset($defaultPurchaser) && $defaultPurchaser)
+                                <p class="mt-1 text-[10px] font-semibold text-slate-300">Default: {{ $defaultPurchaser->name }}</p>
+                            @endif
                         </label>
                         <label>
                             <span class="block text-[9px] font-black uppercase tracking-[0.14em] text-slate-300">Category</span>
@@ -262,7 +265,7 @@
                         <p class="mt-1 text-[10px] font-semibold text-slate-500">Cash purchases + online bills + purchaser expenses</p>
                     </div>
                     <div class="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-blue-700">Company Online Paid</p>
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-blue-700">Company Paid Bills</p>
                         <p class="mt-2 text-2xl font-black text-blue-950">Rs. {{ number_format($reportTotals['company_online_out'], 2) }}</p>
                     </div>
                     <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
@@ -361,7 +364,7 @@
                     <div class="overflow-hidden rounded-2xl border border-slate-200">
                         <div class="border-b border-slate-200 bg-slate-50 px-4 py-3">
                             <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Company Bill Payments</p>
-                            <h3 class="mt-1 text-sm font-black text-slate-950">Online bills paid by company and credit bills still pending</h3>
+                            <h3 class="mt-1 text-sm font-black text-slate-950">Cash or online bills paid by company, plus credit bills still pending</h3>
                         </div>
                         <div class="overflow-x-auto">
                             <table class="min-w-full text-left text-sm">
