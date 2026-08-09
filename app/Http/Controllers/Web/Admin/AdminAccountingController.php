@@ -1754,7 +1754,7 @@ class AdminAccountingController extends Controller
 
         $query = PurchaserCredit::query()
             ->where('purchaser_id', $user->id)
-            ->with(['purchaseInvoice', 'creator']);
+            ->with(['purchaseInvoice.supplier', 'creator']);
 
         // Search by invoice number or description
         if ($request->filled('search')) {
@@ -1767,10 +1767,21 @@ class AdminAccountingController extends Controller
             });
         }
 
+        // Search by vendor details linked to purchase invoices.
+        if ($request->filled('vendor_search')) {
+            $vendorSearch = $request->string('vendor_search')->trim();
+            $query->whereHas('purchaseInvoice.supplier', function ($q) use ($vendorSearch) {
+                $q->where('name', 'like', "%{$vendorSearch}%")
+                    ->orWhere('contact', 'like', "%{$vendorSearch}%")
+                    ->orWhere('mobile_number', 'like', "%{$vendorSearch}%");
+            });
+        }
+
         $credits = $query
             ->orderByDesc('business_date')
             ->orderByDesc('id')
-            ->paginate(15);
+            ->paginate(15)
+            ->withQueryString();
 
         // Calculate totals from all credits (not just paginated)
         $allCredits = PurchaserCredit::query()

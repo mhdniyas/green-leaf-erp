@@ -88,8 +88,9 @@
                         <h2 class="text-lg font-black text-slate-950">In & Out Transactions Ledger</h2>
                         <p class="mt-1 text-xs font-semibold text-slate-500">A detailed statement of cash advances (In) and invoice payouts (Out).</p>
                     </div>
-                    <form method="GET" action="{{ route('admin.accounting.purchasers.show', $user->public_uuid) }}" class="flex gap-2 w-full sm:w-auto">
-                        <input type="text" name="search" value="{{ request('search') }}" placeholder="Search invoice or description..." class="flex-1 sm:w-48 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none">
+                    <form method="GET" action="{{ route('admin.accounting.purchasers.show', $user->public_uuid) }}" class="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-nowrap">
+                        <input type="text" name="search" value="{{ request('search') }}" placeholder="Search invoice or description..." class="w-full sm:w-48 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none">
+                        <input type="text" name="vendor_search" value="{{ request('vendor_search') }}" placeholder="Search vendor name/mobile..." class="w-full sm:w-52 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none">
                         <button type="submit" class="inline-flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-black text-slate-700 transition hover:bg-slate-100">
                             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -134,6 +135,9 @@
                                                         <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
                                                     </svg>
                                                 </a>
+                                                @if($credit->purchaseInvoice->supplier)
+                                                    <p class="text-[11px] font-bold text-slate-500">Vendor: {{ $credit->purchaseInvoice->supplier->name }}</p>
+                                                @endif
                                             @endif
                                         </div>
                                     </td>
@@ -147,8 +151,8 @@
                             @empty
                                 <tr>
                                     <td colspan="5" class="py-12 text-center text-sm font-bold text-slate-400">
-                                        @if(request('search'))
-                                            No transactions found matching "{{ request('search') }}"
+                                        @if(request('search') || request('vendor_search'))
+                                            No transactions found for the current search filters.
                                         @else
                                             No transactions recorded on this account yet.
                                         @endif
