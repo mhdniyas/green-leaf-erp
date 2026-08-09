@@ -24,9 +24,16 @@
         ];
         $expenseCategories = \App\Models\ProcurementExpense::categories();
         $otherExpenseCategories = \App\Models\OtherExpense::categories();
+        $defaultPurchaserCategoryCount = $defaultPurchaser?->assignedCategoryIds() ? count($defaultPurchaser->assignedCategoryIds()) : 0;
     @endphp
 
     <div class="mx-auto max-w-[96rem] space-y-6">
+        @if (session('success'))
+            <div class="rounded-[1.4rem] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-black text-emerald-800">
+                {{ session('success') }}
+            </div>
+        @endif
+
         <section class="rounded-[1.9rem] border border-slate-200 bg-white p-6 shadow-sm">
             <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div>
@@ -47,6 +54,37 @@
                 </div>
             </div>
         </section>
+
+        @if($canLoginAsPurchaser)
+            <section class="rounded-[1.6rem] border border-cyan-200 bg-cyan-50 p-5 shadow-sm">
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-700">Default Purchaser</p>
+                        @if($defaultPurchaser)
+                            <h2 class="mt-2 text-xl font-black text-slate-950">{{ $defaultPurchaser->name }}</h2>
+                            <p class="mt-1 text-sm font-semibold text-cyan-900">{{ $defaultPurchaser->email }} · {{ $defaultPurchaserCategoryCount > 0 ? $defaultPurchaserCategoryCount.' assigned categories' : 'all categories' }}</p>
+                        @else
+                            <h2 class="mt-2 text-xl font-black text-slate-950">No default purchaser selected</h2>
+                            <p class="mt-1 text-sm font-semibold text-cyan-900">Admin purchaser product pages will show all products until you choose a default purchaser.</p>
+                        @endif
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <a href="{{ route('purchaser.products') }}" class="inline-flex h-10 items-center rounded-xl bg-slate-950 px-4 text-xs font-black uppercase tracking-[0.14em] text-white transition hover:bg-slate-800">
+                            Open Product Codes
+                        </a>
+                        @if($defaultPurchaser)
+                            <form method="POST" action="{{ route('admin.accounting.purchasers.default.clear') }}">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="inline-flex h-10 items-center rounded-xl border border-cyan-300 bg-white px-4 text-xs font-black uppercase tracking-[0.14em] text-cyan-800 transition hover:bg-cyan-100">
+                                    Clear Default
+                                </button>
+                            </form>
+                        @endif
+                    </div>
+                </div>
+            </section>
+        @endif
 
         {{-- Cash Distribution KPI Overview Cards --}}
         <section class="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -144,10 +182,16 @@
                                 $totalIn = (float) $row['total_in'];
                                 $totalOut = (float) $row['total_out'];
                                 $balance = (float) $row['balance'];
+                                $isDefaultPurchaser = $defaultPurchaser && (int) $defaultPurchaser->id === (int) $purchaser->id;
                             @endphp
-                            <tr class="transition hover:bg-slate-50">
+                            <tr class="transition {{ $isDefaultPurchaser ? 'bg-cyan-50/70' : 'hover:bg-slate-50' }}">
                                 <td class="px-4 py-4">
-                                    <p class="font-black text-slate-950">{{ $purchaser->name }}</p>
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <p class="font-black text-slate-950">{{ $purchaser->name }}</p>
+                                        @if($isDefaultPurchaser)
+                                            <span class="rounded-full border border-cyan-200 bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-cyan-700">Default</span>
+                                        @endif
+                                    </div>
                                     <p class="mt-1 text-xs font-semibold text-slate-500">{{ $purchaser->email }}</p>
                                 </td>
                                 <td class="px-4 py-4 text-right font-black text-slate-950">Rs. {{ number_format($totalIn, 2) }}</td>
@@ -160,12 +204,22 @@
                                 </td>
                                 @if($canLoginAsPurchaser)
                                     <td class="px-4 py-4 text-right">
-                                        <form method="POST" action="{{ route('admin.accounting.purchasers.login-as', $purchaser->public_uuid) }}" class="inline-flex">
-                                            @csrf
-                                            <button type="submit" class="inline-flex h-9 items-center rounded-xl border border-blue-200 bg-blue-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-blue-700 transition hover:bg-blue-100">
-                                                Login as Purchaser
-                                            </button>
-                                        </form>
+                                        <div class="flex flex-wrap justify-end gap-2">
+                                            @if(! $isDefaultPurchaser)
+                                                <form method="POST" action="{{ route('admin.accounting.purchasers.default', $purchaser->public_uuid) }}" class="inline-flex">
+                                                    @csrf
+                                                    <button type="submit" class="inline-flex h-9 items-center rounded-xl border border-cyan-200 bg-cyan-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-cyan-700 transition hover:bg-cyan-100">
+                                                        Make Default
+                                                    </button>
+                                                </form>
+                                            @endif
+                                            <form method="POST" action="{{ route('admin.accounting.purchasers.login-as', $purchaser->public_uuid) }}" class="inline-flex">
+                                                @csrf
+                                                <button type="submit" class="inline-flex h-9 items-center rounded-xl border border-blue-200 bg-blue-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-blue-700 transition hover:bg-blue-100">
+                                                    Login
+                                                </button>
+                                            </form>
+                                        </div>
                                     </td>
                                 @endif
                                 <td class="px-4 py-4 text-right">

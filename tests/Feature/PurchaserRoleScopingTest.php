@@ -194,4 +194,74 @@ class PurchaserRoleScopingTest extends TestCase
         $response->assertDontSee('Hidden Apple');
         $response->assertDontSee('CAT-202');
     }
+
+    public function test_admin_can_make_and_clear_default_purchaser(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->syncRoles(['admin']);
+
+        $purchaser = User::factory()->create(['name' => 'Default Buyer']);
+        $purchaser->syncRoles(['purchaser']);
+
+        $this->actingAs($admin)
+            ->post(route('admin.accounting.purchasers.default', $purchaser->public_uuid))
+            ->assertRedirect();
+
+        $this->assertSame($purchaser->id, $admin->refresh()->own_purchase_purchaser_id);
+
+        $this->actingAs($admin)
+            ->delete(route('admin.accounting.purchasers.default.clear'))
+            ->assertRedirect();
+
+        $this->assertNull($admin->refresh()->own_purchase_purchaser_id);
+    }
+
+    public function test_admin_product_codes_page_uses_default_purchaser_category_scope(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+
+        $assignedCategory = Category::create(['name' => 'Default Buyer Category', 'is_active' => true]);
+        $otherCategory = Category::create(['name' => 'Admin Wide Category', 'is_active' => true]);
+
+        $purchaser = User::factory()->create([
+            'assigned_category_ids' => [$assignedCategory->id],
+        ]);
+        $purchaser->syncRoles(['purchaser']);
+
+        $admin = User::factory()->create([
+            'own_purchase_purchaser_id' => $purchaser->id,
+        ]);
+        $admin->syncRoles(['admin']);
+
+        Product::create([
+            'name' => 'Default Scoped Spinach',
+            'sku' => 'DEF-101',
+            'category_id' => $assignedCategory->id,
+            'unit' => 'kg',
+            'base_price' => 10.00,
+            'is_active' => true,
+        ]);
+
+        Product::create([
+            'name' => 'Admin Hidden Apple',
+            'sku' => 'DEF-202',
+            'category_id' => $otherCategory->id,
+            'unit' => 'kg',
+            'base_price' => 20.00,
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('purchaser.products', [
+            'search' => 'DEF',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Default Scoped Spinach');
+        $response->assertSee('DEF-101');
+        $response->assertSee('Scoped to '.$purchaser->name);
+        $response->assertDontSee('Admin Hidden Apple');
+        $response->assertDontSee('DEF-202');
+    }
 }

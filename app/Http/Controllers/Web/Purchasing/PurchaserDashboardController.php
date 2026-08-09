@@ -124,13 +124,14 @@ class PurchaserDashboardController extends Controller
         $this->ensurePurchaser($request);
 
         $user = $request->user();
+        $effectivePurchaser = $this->effectivePurchaserForCategoryScope($user);
         $status = in_array($request->string('status')->toString(), ['active', 'inactive'], true)
             ? $request->string('status')->toString()
             : 'active';
         $search = trim($request->string('search')->toString());
         $categoryId = $request->integer('category_id') ?: null;
         $unit = $request->string('unit')->toString() ?: null;
-        $assignedCategoryIds = $user->hasAssignedCategoryFilter() ? $user->assignedCategoryIds() : null;
+        $assignedCategoryIds = $effectivePurchaser?->hasAssignedCategoryFilter() ? $effectivePurchaser->assignedCategoryIds() : null;
 
         $categories = Category::query()
             ->where('is_active', true)
@@ -170,6 +171,7 @@ class PurchaserDashboardController extends Controller
             'selectedStatus' => $status,
             'selectedUnit' => $unit,
             'search' => $search,
+            'effectivePurchaser' => $effectivePurchaser,
         ]);
     }
 
@@ -4503,6 +4505,25 @@ class PurchaserDashboardController extends Controller
 
         $operationalDate = $this->businessDayService->operationalDate();
         PurchaserCart::cancelOverdueCartsAndOrders($operationalDate);
+    }
+
+    private function effectivePurchaserForCategoryScope(?User $user): ?User
+    {
+        if (! $user) {
+            return null;
+        }
+
+        if ($user->hasRole('admin') && $user->own_purchase_purchaser_id) {
+            $linkedPurchaser = $user->ownPurchasePurchaser()
+                ->whereHas('roles', fn ($query) => $query->where('name', 'purchaser'))
+                ->first();
+
+            if ($linkedPurchaser instanceof User) {
+                return $linkedPurchaser;
+            }
+        }
+
+        return $user;
     }
 
     private function ensurePurchaseManager(Request $request): void

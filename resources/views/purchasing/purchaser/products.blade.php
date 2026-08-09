@@ -8,6 +8,9 @@
                 <div>
                     <p class="text-[9px] font-black uppercase tracking-wider text-teal-400 sm:text-[10px]">Purchaser Catalog</p>
                     <h1 class="mt-0.5 text-base font-black tracking-tight sm:text-xl">Product Codes</h1>
+                    @if(auth()->user()?->hasRole('admin') && $effectivePurchaser && ! $effectivePurchaser->is(auth()->user()))
+                        <p class="mt-1 text-[11px] font-bold text-slate-300">Scoped to {{ $effectivePurchaser->name }}</p>
+                    @endif
                 </div>
                 <button type="button" data-share-grocery class="inline-flex h-8 items-center justify-center rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white hover:bg-emerald-500 transition-colors shrink-0">
                     Share List &rarr;

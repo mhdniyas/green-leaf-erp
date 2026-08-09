@@ -1495,6 +1495,9 @@ class AdminAccountingController extends Controller
         ];
 
         $purchasers = $this->paginateCollection($allPurchasers, $request, 'purchasers_page', 15)->withQueryString();
+        $defaultPurchaser = $request->user()?->ownPurchasePurchaser()
+            ->whereHas('roles', fn ($query) => $query->where('name', 'purchaser'))
+            ->first(['id', 'name', 'email', 'public_uuid', 'assigned_category_ids']);
 
         $cashQuery = PurchaserCredit::query()
             ->with(['purchaser:id,name,email,public_uuid', 'purchaseInvoice:id,invoice_number,public_uuid,amount,payment_method,payment_status', 'creator:id,name'])
@@ -1744,7 +1747,37 @@ class AdminAccountingController extends Controller
             'categoryTotals',
             'otherCategoryTotals',
             'summaryRows',
+            'defaultPurchaser',
         ));
+    }
+
+    public function makeDefaultPurchaser(Request $request, User $user): RedirectResponse
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::PurchaserCashManage);
+        abort_unless($request->user()?->hasRole('admin'), 403);
+        abort_unless($user->hasRole('purchaser'), 404);
+
+        $request->user()->forceFill([
+            'own_purchase_purchaser_id' => $user->id,
+        ])->save();
+
+        return redirect()
+            ->back()
+            ->with('success', $user->name.' is now your default purchaser.');
+    }
+
+    public function clearDefaultPurchaser(Request $request): RedirectResponse
+    {
+        $this->ensureAccountingAccess($request, AccountingAccess::PurchaserCashManage);
+        abort_unless($request->user()?->hasRole('admin'), 403);
+
+        $request->user()->forceFill([
+            'own_purchase_purchaser_id' => null,
+        ])->save();
+
+        return redirect()
+            ->back()
+            ->with('success', 'Default purchaser cleared.');
     }
 
     public function purchaserShow(Request $request, User $user): View

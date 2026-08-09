@@ -502,8 +502,10 @@ Route::middleware('auth')->group(function () {
             Route::get('purchasers', [AdminAccountingController::class, 'purchasersIndex'])->name('purchasers.index');
             Route::get('purchasers/direct-purchase/create', [RequisitionController::class, 'createAdminDirectPurchase'])->name('purchasers.direct-purchase.create');
             Route::post('purchasers/direct-purchase', [RequisitionController::class, 'storeAdminDirectPurchase'])->name('purchasers.direct-purchase.store');
+            Route::delete('purchasers/default', [AdminAccountingController::class, 'clearDefaultPurchaser'])->name('purchasers.default.clear');
             Route::get('purchasers/{user:public_uuid}', [AdminAccountingController::class, 'purchaserShow'])->name('purchasers.show');
             Route::post('purchasers/{user:public_uuid}/credits', [AdminAccountingController::class, 'storePurchaserCredit'])->name('purchasers.credits.store');
+            Route::post('purchasers/{user:public_uuid}/default', [AdminAccountingController::class, 'makeDefaultPurchaser'])->name('purchasers.default');
             Route::post('purchasers/{user:public_uuid}/login-as', [AdminAccountingController::class, 'loginAsPurchaser'])->name('purchasers.login-as');
             Route::post('purchasers/{user:public_uuid}/buy', [AdminAccountingController::class, 'buyAsPurchaser'])->name('purchasers.buy');
         });

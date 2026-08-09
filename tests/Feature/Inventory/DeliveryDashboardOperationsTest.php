@@ -112,7 +112,7 @@ class DeliveryDashboardOperationsTest extends TestCase
         $response->assertOk();
         $response->assertSee('Admin Delivery Desk');
         $response->assertSee('Main Road Shop');
-        $response->assertSee('Lock Invoice');
+        $response->assertSee('Move Delivery');
         $response->assertDontSee('Category Bill Check');
         $response->assertDontSee('CRT-001');
         $response->assertDontSee('Itemized Shortages Analysis');
