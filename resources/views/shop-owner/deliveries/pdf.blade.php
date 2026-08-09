@@ -309,23 +309,11 @@
         @if ($invoice)
             <table class="summary">
                 <tr>
-                    <td>Subtotal</td>
-                    <td class="text-right">Rs. {{ number_format($recalculatedSubtotal, 2) }}</td>
-                </tr>
-                <tr>
-                    <td>Shortage</td>
-                    <td class="text-right">Rs. {{ number_format((float) $invoice->shortage_total, 2) }}</td>
-                </tr>
-                <tr>
-                    <td>Excess</td>
-                    <td class="text-right">Rs. {{ number_format((float) $invoice->excess_total, 2) }}</td>
-                </tr>
-                <tr>
                     <td>Discount</td>
                     <td class="text-right">Rs. {{ number_format((float) $invoice->discount_total, 2) }}</td>
                 </tr>
                 <tr>
-                    <td>Final Total</td>
+                    <td>Grand Total</td>
                     <td class="text-right">Rs. {{ number_format($recalculatedSubtotal - (float) $invoice->shortage_total + (float) $invoice->excess_total - (float) $invoice->discount_total, 2) }}</td>
                 </tr>
             </table>
