@@ -248,6 +248,11 @@
                 $rate = (float) ($invoiceItem->unit_price ?? 0);
                 return $qty * $rate;
             });
+            $invoiceSubtotal = $invoice ? (float) ($invoice->subtotal ?? 0) : 0.0;
+            $discountTotal = $invoice ? (float) ($invoice->discount_total ?? 0) : 0.0;
+            $grandTotal = $invoice
+                ? (float) ($invoice->final_total ?? max(0, $invoiceSubtotal - $discountTotal))
+                : 0.0;
 
             $fulfilledItems = $sortedItems
                 ->filter(fn ($item) => $item->sorting_status === 'loaded' && (float) ($item->loaded_qty ?? 0) > 0)
@@ -310,11 +315,11 @@
             <table class="summary">
                 <tr>
                     <td>Discount</td>
-                    <td class="text-right">Rs. {{ number_format((float) $invoice->discount_total, 2) }}</td>
+                    <td class="text-right">Rs. {{ number_format($discountTotal, 2) }}</td>
                 </tr>
                 <tr>
                     <td>Grand Total</td>
-                    <td class="text-right">Rs. {{ number_format($recalculatedSubtotal - (float) $invoice->shortage_total + (float) $invoice->excess_total - (float) $invoice->discount_total, 2) }}</td>
+                    <td class="text-right">Rs. {{ number_format($grandTotal, 2) }}</td>
                 </tr>
             </table>
         @endif
