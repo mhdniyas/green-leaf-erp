@@ -43,7 +43,7 @@
                     <label for="product-unit" class="mb-0.5 block text-[9px] font-black uppercase tracking-wider text-slate-500">Unit</label>
                     <select id="product-unit" name="unit" class="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs font-bold text-slate-700 focus:border-teal-500 focus:bg-white focus:outline-none">
                         <option value="">All Units</option>
-                        @foreach(['kg', 'box', 'piece', 'bag', 'bunch', 'full_bunch', 'packet', 'crate', 'tray', 'roll'] as $unit)
+                        @foreach(['kg', 'box', 'piece', 'bag', 'bunch', 'full_bunch', 'packet', 'crate', 'tray', 'roll', 'chaak'] as $unit)
                             <option value="{{ $unit }}" @selected($selectedUnit === $unit)>{{ strtoupper($unit) }}</option>
                         @endforeach
                     </select>

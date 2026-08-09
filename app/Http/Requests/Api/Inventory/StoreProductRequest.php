@@ -19,7 +19,7 @@ class StoreProductRequest extends FormRequest
             'category_id' => ['required', 'integer', 'exists:categories,id'],
             'name' => ['required', 'string', 'min:2', 'max:255'],
             'sku' => ['required', 'string', 'max:100', 'unique:products,sku', 'regex:/^[A-Za-z0-9\-_]+$/'],
-            'unit' => ['required', 'string', 'in:kg,box,bunch,piece,bag,packet,crate,tray,roll'],
+            'unit' => ['required', 'string', 'in:kg,box,bunch,piece,bag,packet,crate,tray,roll,chaak'],
             'description' => ['nullable', 'string', 'max:1000'],
             'is_active' => ['sometimes', 'boolean'],
             'image_data' => ['nullable', 'string'],

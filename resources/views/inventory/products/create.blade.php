@@ -10,6 +10,8 @@ $units = [
     'packet' => 'Packet',
     'crate' => 'Crate',
     'tray' => 'Tray',
+    'roll' => 'Roll',
+    'chaak' => 'Chaak',
 ];
 $baseUnit = old('unit', $product->unit ?? 'kg');
 $existingUnitRows = isset($product)
@@ -175,7 +177,7 @@ $unitRows = old('units', $existingUnitRows);
                     </div>
                 </div>
 
-                <div id="product-measures" class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 transition-shadow">
+                <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                             <h3 class="text-sm font-black text-slate-950">Units & Measures</h3>
@@ -607,21 +609,6 @@ $unitRows = old('units', $existingUnitRows);
 
             document.getElementById('unit')?.addEventListener('change', handleBaseUnitChange);
             syncProductUnitRows();
-
-            const measureParams = new URLSearchParams(window.location.search);
-            if (measureParams.get('focus') === 'measures') {
-                const measuresPanel = document.getElementById('product-measures');
-                measuresPanel?.classList.add('shadow-lg', 'shadow-emerald-100', 'ring-2', 'ring-emerald-200');
-                measuresPanel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-                if (measureParams.get('add_measure') === '1') {
-                    document.getElementById('add-product-unit-row')?.click();
-                    setTimeout(() => {
-                        const rows = document.querySelectorAll('[data-product-unit-row]');
-                        rows[rows.length - 1]?.querySelector('[data-unit-conversion]')?.focus();
-                    }, 100);
-                }
-            }
 
             function handleImageSelect(event) {
                 const files = event.target.files;

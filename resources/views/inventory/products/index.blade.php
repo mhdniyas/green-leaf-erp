@@ -98,7 +98,7 @@
         <select id="unit-filter" name="unit"
                 class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white">
             <option value="">All Units</option>
-            @foreach(['kg', 'box', 'piece', 'bag', 'bunch', 'full_bunch', 'packet', 'crate', 'tray', 'roll'] as $u)
+            @foreach(['kg', 'box', 'piece', 'bag', 'bunch', 'full_bunch', 'packet', 'crate', 'tray', 'roll', 'chaak'] as $u)
                 <option value="{{ $u }}" @selected(request('unit') === $u)>{{ strtoupper($u) }}</option>
             @endforeach
         </select>
@@ -220,15 +220,6 @@
                         </td>
                         <td class="px-6 py-4 text-right">
                             <div class="flex items-center justify-end gap-2">
-                                <a href="{{ route('inventory.products.edit', $product) }}?focus=measures&add_measure=1#product-measures"
-                                   class="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-black text-emerald-700 transition-colors hover:bg-emerald-100"
-                                   title="Add measurements"
-                                   aria-label="Add measurements for {{ $product->name }}">
-                                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                                    </svg>
-                                    <span class="hidden xl:inline">Measures</span>
-                                </a>
                                 <a href="{{ route('inventory.products.edit', $product) }}"
                                    class="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
                                    title="Edit">
