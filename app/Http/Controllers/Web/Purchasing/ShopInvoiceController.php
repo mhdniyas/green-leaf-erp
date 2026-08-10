@@ -66,7 +66,7 @@ class ShopInvoiceController extends Controller
     {
         abort_unless($request->user()?->hasRole('purchase') || $request->user()?->hasRole('admin'), 403);
 
-        $invoice->load(['shop', 'order', 'items.product', 'items.orderItem', 'paymentApprovedBy', 'discountApprovedBy', 'priceUpdatedBy']);
+        $invoice->load(['shop', 'order.shopCheckedBy', 'items.product', 'items.orderItem', 'paymentApprovedBy', 'discountApprovedBy', 'priceUpdatedBy']);
         $invoice->load(['paymentRequests.requestedBy', 'paymentRequests.reviewedBy']);
 
         return view('purchasing.shop-invoices.show', compact('invoice'));

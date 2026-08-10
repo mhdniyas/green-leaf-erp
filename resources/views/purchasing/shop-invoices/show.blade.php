@@ -128,6 +128,120 @@
             </div>
         </section>
 
+        @php
+            $rawDeliveryNote = $invoice->delivery_note ?: $invoice->order?->delivery_notes;
+            $orderNote = $invoice->order?->manager_note;
+
+            $itemVerifNotes = $invoice->items
+                ->map(fn ($item) => trim((string) $item->orderItem?->shop_verification_note))
+                ->filter()
+                ->values();
+            $uniqueItemVerifNotes = $itemVerifNotes->unique();
+
+            // If no top-level delivery note exists, but all item verification notes are identical, use that as the single delivery note
+            $deliveryNote = $rawDeliveryNote;
+            if (empty($deliveryNote) && $uniqueItemVerifNotes->count() === 1) {
+                $deliveryNote = $uniqueItemVerifNotes->first();
+            }
+
+            // Show item-level remarks only if item has a distinct verification note (different from common delivery note), discrepancy note, or order note
+            $itemsWithNotes = $invoice->items->filter(function ($item) use ($deliveryNote, $uniqueItemVerifNotes) {
+                $itemVerif = trim((string) $item->orderItem?->shop_verification_note);
+                $itemDiscrepancy = trim((string) $item->orderItem?->delivery_discrepancy_note);
+                $itemOrder = trim((string) $item->orderItem?->notes);
+
+                $hasDistinctVerif = !empty($itemVerif) && ($uniqueItemVerifNotes->count() > 1 && $itemVerif !== $deliveryNote);
+
+                return $hasDistinctVerif || !empty($itemDiscrepancy) || !empty($itemOrder);
+            });
+
+            $paymentNotes = $invoice->paymentRequests->filter(fn ($pr) => !empty($pr->shop_note));
+            $hasShopOwnerNotes = $deliveryNote || $orderNote || $itemsWithNotes->isNotEmpty() || $paymentNotes->isNotEmpty();
+        @endphp
+
+        @if ($hasShopOwnerNotes)
+            <section class="rounded-3xl border border-amber-200 bg-amber-50/60 shadow-sm overflow-hidden">
+                <div class="border-b border-amber-200/80 bg-amber-100/60 px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                        <div class="flex h-9 w-9 items-center justify-center rounded-2xl bg-amber-500 text-white shadow-xs">
+                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.255-3.388c.195-.291.515-.475.865-.501 1.153-.086 2.294-.213 3.423-.379 1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-base font-black text-amber-950">Notes from Shop Owner</h3>
+                            <p class="text-xs font-semibold text-amber-800">Verification remarks, delivery notes & product feedback submitted by shop owner.</p>
+                        </div>
+                    </div>
+                    @if ($invoice->order?->shop_checked_at)
+                        <span class="w-fit text-xs font-bold text-amber-900 bg-amber-200/80 px-3 py-1.5 rounded-full border border-amber-300">
+                            Verified by {{ $invoice->order->shopCheckedBy?->name ?? 'Shop Owner' }} &middot; {{ $invoice->order->shop_checked_at->format('d M Y, h:i A') }}
+                        </span>
+                    @endif
+                </div>
+
+                <div class="p-5 space-y-4">
+                    @if ($deliveryNote)
+                        <div class="rounded-2xl border border-amber-200/80 bg-white p-4 shadow-xs">
+                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">Delivery Review Note</p>
+                            <p class="mt-1 text-sm font-bold text-slate-900 leading-relaxed">{{ $deliveryNote }}</p>
+                        </div>
+                    @endif
+
+                    @if ($orderNote)
+                        <div class="rounded-2xl border border-amber-200/80 bg-white p-4 shadow-xs">
+                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">Order Requisition Note</p>
+                            <p class="mt-1 text-sm font-bold text-slate-900 leading-relaxed">{{ $orderNote }}</p>
+                        </div>
+                    @endif
+
+                    @if ($itemsWithNotes->isNotEmpty())
+                        <div class="rounded-2xl border border-amber-200/80 bg-white p-4 shadow-xs">
+                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700 mb-3">Item Remarks from Shop Owner</p>
+                            <div class="divide-y divide-slate-100">
+                                @foreach ($itemsWithNotes as $item)
+                                    <div class="py-2.5 first:pt-0 last:pb-0">
+                                        <p class="font-black text-slate-950 text-sm">{{ $item->product_name }}</p>
+                                        <div class="mt-1 space-y-1">
+                                            @if ($item->orderItem?->shop_verification_note)
+                                                <p class="text-xs text-amber-900 font-semibold">
+                                                    <span class="font-black text-amber-700">Shop Note:</span> {{ $item->orderItem->shop_verification_note }}
+                                                </p>
+                                            @endif
+                                            @if ($item->orderItem?->delivery_discrepancy_note)
+                                                <p class="text-xs text-rose-800 font-semibold">
+                                                    <span class="font-black text-rose-600">Discrepancy:</span> {{ $item->orderItem->delivery_discrepancy_note }}
+                                                </p>
+                                            @endif
+                                            @if ($item->orderItem?->notes)
+                                                <p class="text-xs text-slate-600 font-semibold">
+                                                    <span class="font-black text-slate-500">Order Note:</span> {{ $item->orderItem->notes }}
+                                                </p>
+                                            @endif
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
+
+                    @if ($paymentNotes->isNotEmpty())
+                        <div class="rounded-2xl border border-amber-200/80 bg-white p-4 shadow-xs">
+                            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700 mb-3">Payment Request Notes</p>
+                            <div class="divide-y divide-slate-100">
+                                @foreach ($paymentNotes as $pr)
+                                    <div class="py-2 first:pt-0 last:pb-0 text-xs font-semibold text-slate-800">
+                                        <span class="font-black text-amber-800">{{ ucfirst(str_replace('_', ' ', $pr->request_type)) }} (Rs. {{ number_format((float)$pr->requested_amount, 2) }}):</span>
+                                        {{ $pr->shop_note }}
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
+                </div>
+            </section>
+        @endif
+
         @if (($invoice->delivery_status === 'awaiting_review' || $invoice->order?->delivery_status === 'pending_approval') && (auth()->user()->hasRole('purchase') || auth()->user()->hasRole('admin')))
             <section class="overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-sm">
                 <div class="flex flex-col gap-3 border-b border-amber-100 bg-amber-50/70 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
@@ -204,8 +318,26 @@
                                         @if ($formatUnit($item->price_unit ?: $item->unit) !== $formatUnit($item->unit))
                                             <p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-cyan-600">Bill {{ $formatUnit($item->price_unit) }}</p>
                                         @endif
+                                        @php
+                                            $itemVerif = trim((string) $item->orderItem?->shop_verification_note);
+                                            $showItemVerifNote = !empty($itemVerif) && ($uniqueItemVerifNotes->count() > 1 && $itemVerif !== $deliveryNote);
+                                        @endphp
+                                        @if ($showItemVerifNote)
+                                            <div class="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs">
+                                                <span class="font-black text-amber-800">Shop Note:</span>
+                                                <span class="font-semibold text-slate-900">{{ $itemVerif }}</span>
+                                            </div>
+                                        @endif
+                                        @if ($item->orderItem?->delivery_discrepancy_note)
+                                            <div class="mt-1 rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs">
+                                                <span class="font-black text-rose-800">Discrepancy:</span>
+                                                <span class="font-semibold text-slate-900">{{ $item->orderItem->delivery_discrepancy_note }}</span>
+                                            </div>
+                                        @endif
                                         @if ($item->orderItem?->notes)
-                                            <p class="mt-1 max-w-[14rem] truncate text-xs text-slate-500">Existing: {{ $item->orderItem->notes }}</p>
+                                            <div class="mt-1 text-xs text-slate-500">
+                                                <span class="font-bold text-slate-600">Order Note:</span> {{ $item->orderItem->notes }}
+                                            </div>
                                         @endif
                                     </td>
                                     <td class="px-3 py-2.5 text-right font-semibold text-slate-900">{{ number_format((float) $item->approved_qty, 2) }}</td>
@@ -390,6 +522,27 @@
                                 <td class="px-5 py-4">
                                     <p class="font-semibold text-slate-950">{{ $item->product_name }}</p>
                                     <p class="mt-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Order {{ $formatUnit($item->product->unit) }}</p>
+                                    @php
+                                        $itemVerif = trim((string) $item->orderItem?->shop_verification_note);
+                                        $showItemVerifNote = !empty($itemVerif) && ($uniqueItemVerifNotes->count() > 1 && $itemVerif !== $deliveryNote);
+                                    @endphp
+                                    @if ($showItemVerifNote)
+                                        <div class="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs">
+                                            <span class="font-black text-amber-800">Shop Note:</span>
+                                            <span class="font-semibold text-slate-900">{{ $itemVerif }}</span>
+                                        </div>
+                                    @endif
+                                    @if ($item->orderItem?->delivery_discrepancy_note)
+                                        <div class="mt-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs">
+                                            <span class="font-black text-rose-800">Discrepancy:</span>
+                                            <span class="font-semibold text-slate-900">{{ $item->orderItem->delivery_discrepancy_note }}</span>
+                                        </div>
+                                    @endif
+                                    @if ($item->orderItem?->notes)
+                                        <div class="mt-1 text-xs text-slate-500">
+                                            <span class="font-bold text-slate-600">Order Note:</span> {{ $item->orderItem->notes }}
+                                        </div>
+                                    @endif
                                 </td>
                                 <td class="px-5 py-4 text-right text-slate-700">{{ number_format((float) $item->approved_qty, 2) }} {{ $formatUnit($item->product->unit) }}</td>
                                 <td class="px-5 py-4 text-right font-black text-slate-900">{{ number_format((float) ($item->price_quantity ?: $item->approved_qty), 4) }} {{ $formatUnit($item->price_unit ?: $item->product->unit) }}</td>
