@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\Shop;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Models\ShopOrderLoadoutState;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Services\Inventory\StockLedgerService;
@@ -154,6 +155,7 @@ class ApiWarehouseLoadoutController extends Controller
     public function show(ShopOrder $shopOrder, Request $request): JsonResponse
     {
         $this->authorizeAccess($request);
+        $selectedWarehouseId = $request->integer('warehouse_id') ?: null;
 
         $shopOrder->load(['shop', 'items.product.category', 'items.product.orderUnits', 'items.product.defaultWarehouse', 'deliveredBy', 'invoice.items.product']);
 
@@ -173,6 +175,10 @@ class ApiWarehouseLoadoutController extends Controller
                 $requestedUnit = strtolower((string) ($firstItem->requested_unit ?? ''));
                 $hasSecondaryUnit = $requestedUnit !== '' && $requestedUnit !== $productBaseUnit;
                 $measurementCount = (int) ($firstItem->product?->orderUnits?->count() ?? 0);
+                $conversionToBase = (float) ($firstItem->requested_unit_conversion_to_base ?? 1.0);
+                $defaultLoadedOrderUnitQty = $hasSecondaryUnit && $conversionToBase > 0
+                    ? round($totalApproved / $conversionToBase, 2)
+                    : null;
 
                 return [
                     'product_id' => $productId,
@@ -187,6 +193,8 @@ class ApiWarehouseLoadoutController extends Controller
                     'total_approved' => $totalApproved,
                     'total_loaded' => $totalLoaded,
                     'loaded_order_unit_qty' => $totalLoadedOrderUnit,
+                    'default_loaded_qty' => $totalApproved,
+                    'default_loaded_order_unit_qty' => $defaultLoadedOrderUnitQty,
                     'has_secondary_unit' => $hasSecondaryUnit,
                     'measurement_count' => $measurementCount,
                     'use_dual_measurement_inputs' => $hasSecondaryUnit && $measurementCount > 1,
@@ -213,6 +221,7 @@ class ApiWarehouseLoadoutController extends Controller
         $canMoveToLoadout = $shopOrder->delivery_status !== 'delivered' && $shopOrder->delivery_status !== 'pending_delivery';
         $mergeCandidates = $this->duplicateMergeCandidates($shopOrder->items);
         $unpricedProductNames = $this->shopInvoiceService->getUnpricedOrderItemNames($shopOrder);
+        $loadoutState = $this->loadoutStateSummary($shopOrder, $selectedWarehouseId);
 
         $invoiceData = null;
         if ($shopOrder->invoice) {
@@ -325,11 +334,31 @@ class ApiWarehouseLoadoutController extends Controller
             'can_move_to_partial_delivery' => $canMoveToPartialDelivery,
             'has_remaining_balance' => $hasRemainingBalance,
             'can_move_to_loadout' => $canMoveToLoadout,
+            'has_loadout_started' => $loadoutState['has_loadout_started'],
+            'loadout_initialized_at' => $loadoutState['loadout_initialized_at'],
+            'loadout_states_by_warehouse' => $loadoutState['loadout_states_by_warehouse'],
             'has_duplicates' => $mergeCandidates->isNotEmpty(),
             'merge_candidates' => $mergeCandidates,
             'unpriced_product_names' => $unpricedProductNames,
             'invoice' => $invoiceData,
         ]);
+    }
+
+    /**
+     * Initialize untouched warehouse-scoped loadout rows with full approved quantities.
+     */
+    public function initialize(ShopOrder $shopOrder, Request $request): JsonResponse
+    {
+        $this->authorizeAccess($request);
+
+        $request->validate([
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Automatic persisted loadout initialization is not enabled because it would update loadout rows and consume stock on editor open.',
+        ], 409);
     }
 
     /**
@@ -373,6 +402,8 @@ class ApiWarehouseLoadoutController extends Controller
                     ->map(fn ($id) => (int) $id)
                     ->unique()
                     ->values();
+
+                $this->markLoadoutStartedForProducts($shopOrder, $productIds);
 
                 foreach ($productIds as $productId) {
                     $actualWeight = isset($itemsInput[$productId]) && $itemsInput[$productId] !== ''
@@ -689,6 +720,135 @@ class ApiWarehouseLoadoutController extends Controller
         }
     }
 
+    /**
+     * @return array<int>
+     */
+    private function warehouseIdsForOrder(ShopOrder $shopOrder, ?int $warehouseId = null): array
+    {
+        if ($warehouseId !== null) {
+            return [$warehouseId];
+        }
+
+        return $shopOrder->items()
+            ->join('products', 'products.id', '=', 'shop_order_items.product_id')
+            ->whereNotNull('products.default_warehouse_id')
+            ->distinct()
+            ->orderBy('products.default_warehouse_id')
+            ->pluck('products.default_warehouse_id')
+            ->map(fn ($id): int => (int) $id)
+            ->values()
+            ->all();
+    }
+
+    private function lockOrCreateLoadoutState(int $shopOrderId, int $warehouseId): ShopOrderLoadoutState
+    {
+        $state = ShopOrderLoadoutState::query()
+            ->where('shop_order_id', $shopOrderId)
+            ->where('warehouse_id', $warehouseId)
+            ->lockForUpdate()
+            ->first();
+
+        if ($state) {
+            return $state;
+        }
+
+        ShopOrderLoadoutState::query()->create([
+            'shop_order_id' => $shopOrderId,
+            'warehouse_id' => $warehouseId,
+        ]);
+
+        return ShopOrderLoadoutState::query()
+            ->where('shop_order_id', $shopOrderId)
+            ->where('warehouse_id', $warehouseId)
+            ->lockForUpdate()
+            ->firstOrFail();
+    }
+
+    private function markLoadoutStartedForProducts(ShopOrder $shopOrder, Collection $productIds): void
+    {
+        $ids = $productIds
+            ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return;
+        }
+
+        $warehouseIds = Product::query()
+            ->whereIn('id', $ids)
+            ->whereNotNull('default_warehouse_id')
+            ->distinct()
+            ->pluck('default_warehouse_id')
+            ->map(fn ($id): int => (int) $id);
+
+        foreach ($warehouseIds as $warehouseId) {
+            $state = $this->lockOrCreateLoadoutState($shopOrder->id, $warehouseId);
+            if ($state->started_at === null) {
+                $state->forceFill(['started_at' => now()])->save();
+            }
+        }
+    }
+
+    /**
+     * @return array{has_loadout_started: bool, loadout_initialized_at: ?string, loadout_states_by_warehouse: array<int, array<string, mixed>>}
+     */
+    private function loadoutStateSummary(ShopOrder $shopOrder, ?int $selectedWarehouseId): array
+    {
+        $warehouseIds = $this->warehouseIdsForOrder($shopOrder, $selectedWarehouseId);
+        $states = ShopOrderLoadoutState::query()
+            ->where('shop_order_id', $shopOrder->id)
+            ->whereIn('warehouse_id', $warehouseIds)
+            ->get()
+            ->keyBy('warehouse_id');
+
+        $statesByWarehouse = [];
+        $hasStarted = false;
+        $initializedAt = null;
+
+        foreach ($warehouseIds as $warehouseId) {
+            $state = $states->get($warehouseId);
+            $startedAt = $state?->started_at?->toIso8601String();
+            $warehouseInitializedAt = $state?->initialized_at?->toIso8601String();
+            $started = $startedAt !== null
+                || $warehouseInitializedAt !== null
+                || $this->warehouseHasLegacyLoadoutActivity($shopOrder, $warehouseId);
+            $hasStarted = $hasStarted || $started;
+            $initializedAt ??= $warehouseInitializedAt;
+            $statesByWarehouse[$warehouseId] = [
+                'warehouse_id' => $warehouseId,
+                'has_loadout_started' => $started,
+                'started_at' => $startedAt,
+                'loadout_initialized_at' => $warehouseInitializedAt,
+            ];
+        }
+
+        return [
+            'has_loadout_started' => $hasStarted,
+            'loadout_initialized_at' => $initializedAt,
+            'loadout_states_by_warehouse' => $statesByWarehouse,
+        ];
+    }
+
+    private function warehouseHasLegacyLoadoutActivity(ShopOrder $shopOrder, int $warehouseId): bool
+    {
+        return $shopOrder->items()
+            ->whereHas('product', fn ($query) => $query->where('default_warehouse_id', $warehouseId))
+            ->where(function ($query): void {
+                $query
+                    ->where('sorting_status', '!=', 'allocated')
+                    ->orWhere('loaded_qty', '>', 0)
+                    ->orWhere('loaded_order_unit_qty', '>', 0)
+                    ->orWhereNotNull('loadout_discrepancy_note')
+                    ->orWhere(function ($inner): void {
+                        $inner->whereNotNull('loadout_discrepancy_type')
+                            ->where('loadout_discrepancy_type', '!=', 'none');
+                    });
+            })
+            ->exists();
+    }
+
     private function applyOrderItemRows(Collection $existingRows, int $shopOrderId, int $productId, array $targetRows): void
     {
         $existingRows = $existingRows->values();
@@ -892,6 +1052,8 @@ class ApiWarehouseLoadoutController extends Controller
                 StockMovementType::Out,
                 "Loadout dispatch to delivery — Order: {$shopOrder->order_number}"
             );
+
+            $this->markLoadoutStartedForProducts($shopOrder, collect([(int) $product->id]));
 
             return $item;
         });
