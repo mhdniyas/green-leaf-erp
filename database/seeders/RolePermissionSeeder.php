@@ -65,6 +65,10 @@ class RolePermissionSeeder extends Seeder
             'purchasing.price.view',
             'purchasing.price.update',
 
+            // Purchaser reports
+            'purchaser.reports.sales.view',
+            'purchaser.reports.items.view',
+
             // Accounting
             'accounting.ledger.view',
             'accounting.entry.create',
@@ -178,6 +182,8 @@ class RolePermissionSeeder extends Seeder
                 'purchasing.order.create',
                 'purchasing.grn.view',
                 'purchasing.grn.create',
+                'purchaser.reports.sales.view',
+                'purchaser.reports.items.view',
             ],
 
             'warehouse_receiver' => [

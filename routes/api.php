@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\Inventory\StockBatchController;
 use App\Http\Controllers\Api\Inventory\StockController;
 use App\Http\Controllers\Api\Inventory\WastageController;
 use App\Http\Controllers\Api\Purchaser\BillPriceApiController;
+use App\Http\Controllers\Api\Purchaser\PurchaserReportController;
 use App\Http\Controllers\Api\Purchasing\GoodsReceivedController;
 use App\Http\Controllers\Api\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Api\Purchasing\PurchaseOrderController;
@@ -43,6 +44,12 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
         Route::prefix('purchaser')->name('purchaser.')->group(function () {
             Route::post('/special-price/approve', [BillPriceApiController::class, 'approveSpecialPrice'])->name('special-price.approve');
             Route::post('/bill-prices/update', [BillPriceApiController::class, 'updateBillPrice'])->name('bill-prices.update');
+            Route::get('/reports/sales-summary', [PurchaserReportController::class, 'salesSummary'])
+                ->middleware('can:purchaser.reports.sales.view')
+                ->name('reports.sales-summary');
+            Route::get('/reports/item-summary', [PurchaserReportController::class, 'itemSummary'])
+                ->middleware('can:purchaser.reports.items.view')
+                ->name('reports.item-summary');
         });
 
         // ── Warehouse Loadout API ─────────────────────────────────────────────
