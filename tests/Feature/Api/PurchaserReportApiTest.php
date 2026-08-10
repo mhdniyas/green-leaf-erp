@@ -13,6 +13,7 @@ use App\Models\ShopOrder;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class PurchaserReportApiTest extends TestCase
@@ -63,7 +64,7 @@ class PurchaserReportApiTest extends TestCase
         $this->invoice($alpha, '2026-08-01', 'finalized', 100, 40, 60, 'INV-ALPHA-1');
         $this->invoice($alpha, '2026-08-02', 'paid', 50, 50, 0, 'INV-ALPHA-2');
         $this->invoice($beta, '2026-08-02', 'payment_pending', 80, 20, 60, 'INV-BETA-1');
-        $this->invoice(Shop::factory()->create(), '2026-08-02', 'generated', 999, 0, 999, 'INV-IGNORED');
+        $this->invoice(Shop::factory()->create(), '2026-08-02', 'draft', 999, 0, 999, 'INV-IGNORED');
 
         $response = $this->actingAs($purchaser)->getJson(route('api.v1.purchaser.reports.sales-summary', [
             'date_from' => '2026-08-01',
@@ -110,7 +111,7 @@ class PurchaserReportApiTest extends TestCase
         $this->line($invoiceB, $potato, 'kg', 'box', 30, 0.50, 50);
         $this->line($invoiceA, $herb, 'bunch', null, 3, 0, 15);
 
-        $ignoredInvoice = $this->invoice(Shop::factory()->create(), '2026-08-03', 'generated', 500, 0, 500, 'ITEM-IGNORED');
+        $ignoredInvoice = $this->invoice(Shop::factory()->create(), '2026-08-03', 'draft', 500, 0, 500, 'ITEM-IGNORED');
         $ignoredProduct = Product::factory()->create(['name' => 'Ignored Product']);
         $this->line($ignoredInvoice, $ignoredProduct, 'piece', 'PIECE', 9, 9, 500);
 
@@ -140,6 +141,36 @@ class PurchaserReportApiTest extends TestCase
             ->assertJsonMissing(['product_name' => 'Ignored Product']);
     }
 
+    public function test_report_api_range_month_matches_mobile_filters_and_includes_generated_bills(): void
+    {
+        Carbon::setTestNow('2026-08-10 12:00:00');
+
+        try {
+            $purchaser = User::factory()->create();
+            $purchaser->assignRole('purchaser');
+            $shop = Shop::factory()->create(['name' => 'Mobile Month Shop', 'code' => 'MOB']);
+            $category = Category::factory()->create(['name' => 'Mobile Category']);
+            $product = Product::factory()->create(['category_id' => $category->id, 'name' => 'Mobile Potato', 'sku' => 'MOB-POT']);
+            $invoice = $this->invoice($shop, '2026-08-03', 'generated', 240, 0, 240, 'MOBILE-MONTH-1');
+
+            $this->line($invoice, $product, 'kg', null, 12, 0, 240);
+
+            $this->actingAs($purchaser)
+                ->getJson(route('api.v1.purchaser.reports.item-summary', ['range' => 'month']))
+                ->assertOk()
+                ->assertJsonPath('data.period.date_from', '2026-08-01')
+                ->assertJsonPath('data.period.date_to', '2026-08-10')
+                ->assertJsonPath('data.summary.invoice_lines', 1)
+                ->assertJsonFragment([
+                    'product_name' => 'Mobile Potato',
+                    'unit' => 'KG',
+                    'billed_quantity' => '12.0000',
+                ]);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
     public function test_report_request_validates_dates_status_shop_and_pagination(): void
     {
         $purchaser = User::factory()->create();
@@ -148,7 +179,7 @@ class PurchaserReportApiTest extends TestCase
         $this->actingAs($purchaser)->getJson(route('api.v1.purchaser.reports.sales-summary', [
             'date_from' => '2026-08-10',
             'date_to' => '2026-08-01',
-            'status' => 'generated',
+            'status' => 'draft',
             'shop_id' => 999999,
             'per_page' => 101,
         ]))->assertUnprocessable()

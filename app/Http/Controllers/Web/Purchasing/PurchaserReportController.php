@@ -110,7 +110,7 @@ class PurchaserReportController extends Controller
             'date_from' => ['nullable', 'date_format:Y-m-d'],
             'date_to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:date_from'],
             'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
-            'status' => ['nullable', Rule::in(['all', 'finalized', 'payment_pending', 'paid'])],
+            'status' => ['nullable', Rule::in(['all', 'generated', 'delivery_review', 'finalized', 'payment_pending', 'paid'])],
             'search' => ['nullable', 'string', 'max:120'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],

@@ -91,6 +91,8 @@ class PurchaserReportWebTest extends TestCase
             ->assertSee('This Week')
             ->assertSee('This Month')
             ->assertSee('Custom')
+            ->assertSee('Generated')
+            ->assertSee('Delivery review')
             ->assertSee('Item Summary')
             ->assertSee(route('purchaser.reports.sales-summary.csv'), false)
             ->assertSee(route('purchaser.reports.sales-summary.excel'), false)

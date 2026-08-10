@@ -51,6 +51,8 @@
             Status
             <select name="status" class="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-2 text-sm font-semibold text-slate-900">
                 <option value="all">All billable</option>
+                <option value="generated" @selected($filters['status'] === 'generated')>Generated</option>
+                <option value="delivery_review" @selected($filters['status'] === 'delivery_review')>Delivery review</option>
                 <option value="finalized" @selected($filters['status'] === 'finalized')>Finalized</option>
                 <option value="payment_pending" @selected($filters['status'] === 'payment_pending')>Payment pending</option>
                 <option value="paid" @selected($filters['status'] === 'paid')>Paid</option>

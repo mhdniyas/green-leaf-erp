@@ -9,6 +9,7 @@ use App\Http\Requests\Api\Purchaser\PurchaserReportRequest;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Reports\PurchaserReportService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Carbon;
 
 class PurchaserReportController extends Controller
 {
@@ -41,11 +42,12 @@ class PurchaserReportController extends Controller
     private function filters(PurchaserReportRequest $request): array
     {
         $validated = $request->validated();
-        $operationalDate = $this->businessDay->operationalDate()->toDateString();
+        $range = (string) ($validated['range'] ?? (isset($validated['date_from']) ? 'custom' : 'today'));
+        [$dateFrom, $dateTo] = $this->dates($range, $validated);
 
         return [
-            'date_from' => (string) ($validated['date_from'] ?? $operationalDate),
-            'date_to' => (string) ($validated['date_to'] ?? $validated['date_from'] ?? $operationalDate),
+            'date_from' => $dateFrom->toDateString(),
+            'date_to' => $dateTo->toDateString(),
             'shop_id' => isset($validated['shop_id']) ? (int) $validated['shop_id'] : null,
             'status' => isset($validated['status']) ? (string) $validated['status'] : null,
             'search' => trim((string) ($validated['search'] ?? '')),
@@ -69,5 +71,22 @@ class PurchaserReportController extends Controller
                 'search' => $filters['search'],
             ],
         ];
+    }
+
+    /** @param array<string, mixed> $validated @return array{Carbon, Carbon} */
+    private function dates(string $range, array $validated): array
+    {
+        $today = $this->businessDay->operationalDate();
+
+        return match ($range) {
+            'yesterday' => [$today->copy()->subDay(), $today->copy()->subDay()],
+            'week' => [$today->copy()->startOfWeek(), $today],
+            'month' => [$today->copy()->startOfMonth(), $today],
+            'custom' => [
+                Carbon::createFromFormat('Y-m-d', (string) ($validated['date_from'] ?? $today->toDateString())),
+                Carbon::createFromFormat('Y-m-d', (string) ($validated['date_to'] ?? $validated['date_from'] ?? $today->toDateString())),
+            ],
+            default => [$today, $today],
+        };
     }
 }

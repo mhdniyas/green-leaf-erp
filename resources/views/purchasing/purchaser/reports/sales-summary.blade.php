@@ -32,7 +32,7 @@
         </section>
 
         @if ($report['shops'] === [])
-            <div class="px-5 py-12 text-center text-sm font-semibold text-slate-500">No finalized sales found for this period.</div>
+            <div class="px-5 py-12 text-center text-sm font-semibold text-slate-500">No billable sales found for this period.</div>
         @else
             <div class="hidden overflow-x-auto md:block">
                 <table class="w-full text-left text-sm">
