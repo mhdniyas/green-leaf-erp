@@ -84,7 +84,7 @@
         ];
     @endphp
 
-    <div class="space-y-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
         @foreach($byProduct as $productId => $grades)
         @php
             $firstEntry = $grades->first();
@@ -94,92 +94,125 @@
             $bufferQty = (float) ($firstEntry->buffer_qty ?? 0);
             $isBelowBuffer = $bufferQty > 0 && $totalStock < $bufferQty;
             $isNegative = $totalStock < -0.001;
+            $prodAllocations = ($allocations->get($productId) ?? collect())->sortBy('order.shop.name');
         @endphp
-        <div class="bg-white rounded-3xl border border-gray-200 overflow-hidden shadow-sm flex flex-col justify-between">
+        <div class="group bg-white rounded-2xl border border-gray-200 shadow-xs hover:shadow-md hover:border-brand-300 transition-all duration-200 flex flex-col justify-between overflow-hidden h-full">
             
-            {{-- Card Header --}}
-            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-slate-50/50">
-                <div class="flex items-center gap-3">
-                    @if($productImage)
-                        <img src="{{ asset('storage/' . $productImage) }}" class="w-8 h-8 rounded-lg object-cover shrink-0" alt="{{ $productName }}">
-                    @else
-                        <div class="w-8 h-8 rounded-lg bg-brand-100 flex items-center justify-center shrink-0">
-                            <svg class="w-4 h-4 text-brand-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
-                            </svg>
-                        </div>
-                    @endif
-                    <p class="text-sm font-black text-slate-800 tracking-tight">{{ $productName }}</p>
-                </div>
-                <div class="text-right">
-                    <p class="text-sm font-black {{ $isNegative ? 'text-rose-700' : ($isBelowBuffer ? 'text-amber-700' : 'text-slate-800') }}">
-                        {{ number_format($totalStock, 2) }} <span class="text-xs font-bold text-slate-400">kg total stock</span>
-                    </p>
-                    @if($bufferQty > 0)
-                        <p class="mt-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">Buffer {{ number_format($bufferQty, 2) }} kg</p>
-                    @endif
-                </div>
-            </div>
-
-            {{-- Card Body: Grade Breakdown --}}
-            <div class="grid grid-cols-1 sm:grid-cols-{{ min($grades->count(), 5) }} divide-y sm:divide-y-0 sm:divide-x divide-gray-100 bg-white border-b border-gray-100">
-                @foreach($grades as $entry)
-                @php
-                    $color = $gradeColors[$entry->grade] ?? 'bg-gray-50 text-gray-700 border border-gray-200';
-                @endphp
-                <div class="px-6 py-4 flex items-center justify-between">
-                    <span class="inline-flex items-center text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg {{ $color }}">
-                        {{ $entry->grade === 'Unsorted' ? 'Unsorted / Pending' : 'Grade ' . $entry->grade }}
-                    </span>
-                    <span class="text-lg font-black text-slate-800 font-mono">
-                        {{ number_format((float) $entry->current_stock, 2) }}
-                        <span class="text-xs font-bold text-slate-400 font-sans">kg</span>
-                    </span>
-                </div>
-                @endforeach
-            </div>
-
-            {{-- Card Footer: Daily Shop Dispatches & Allocations --}}
-            @php
-                $prodAllocations = ($allocations->get($productId) ?? collect())->sortBy('order.shop.name');
-            @endphp
-            <div class="px-6 py-4 bg-slate-50/20">
-                <div class="flex items-center justify-between mb-3">
-                    <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                        Today's Shop Allocations & Load Info ({{ \Carbon\Carbon::parse($date)->format('M d, Y') }})
-                    </h4>
-                    <span class="text-[9px] font-bold text-slate-400">
-                        {{ $prodAllocations->count() }} dispatches
-                    </span>
-                </div>
-                @if($prodAllocations->isEmpty())
-                    <p class="text-xs text-slate-400 font-semibold italic">No shop allocations recorded on this date.</p>
+            {{-- Square Image Header --}}
+            <div class="relative aspect-square w-full bg-slate-50 overflow-hidden flex items-center justify-center p-3 border-b border-gray-100">
+                @if($productImage)
+                    <img src="{{ asset('storage/' . $productImage) }}" class="w-full h-full object-cover rounded-xl group-hover:scale-105 transition-transform duration-300" alt="{{ $productName }}">
                 @else
-                    <div class="flex flex-wrap gap-2.5">
-                        @foreach($prodAllocations as $allocItem)
-                            @php
-                                $statusBadge = match($allocItem->sorting_status) {
-                                    'loaded' => 'bg-indigo-50 text-indigo-700 border-indigo-200',
-                                    'allocated' => 'bg-emerald-50 text-emerald-700 border-emerald-200',
-                                    default => 'bg-amber-50 text-amber-700 border-amber-200',
-                                };
-                            @endphp
-                            <div class="inline-flex items-center gap-2 rounded-xl border border-slate-200/60 px-3 py-1 bg-white text-xs font-bold shadow-xs">
-                                <span class="text-slate-600 font-extrabold">{{ $allocItem->order->shop ? $allocItem->order->shop->name : 'N/A' }}</span>
-                                <span class="text-slate-800 font-mono font-black">{{ number_format((float) $allocItem->approved_qty, 2) }} <span class="text-[10px] text-slate-400 font-sans font-bold">{{ $allocItem->unit }}</span></span>
-                                <span class="inline-flex items-center text-[9px] font-black uppercase px-1.5 py-0.5 rounded-md border {{ $statusBadge }}">
-                                    @if($allocItem->sorting_status === 'loaded')
-                                        🚚 Loaded
-                                    @elseif($allocItem->sorting_status === 'allocated')
-                                        ✓ Allocated
-                                    @else
-                                        ⌛ Pending
-                                    @endif
-                                </span>
-                            </div>
-                        @endforeach
+                    <div class="w-full h-full rounded-xl bg-gradient-to-br from-slate-100 to-slate-200/70 flex flex-col items-center justify-center text-slate-400 group-hover:scale-105 transition-transform duration-300">
+                        <svg class="w-10 h-10 stroke-[1.5] text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
+                        </svg>
                     </div>
                 @endif
+
+                {{-- Status Badges Overlay --}}
+                @if($isNegative)
+                    <span class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-rose-600/90 text-white text-[10px] font-black uppercase tracking-wider backdrop-blur-xs shadow-xs">
+                        Negative Stock
+                    </span>
+                @elseif($isBelowBuffer)
+                    <span class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-amber-500/90 text-white text-[10px] font-black uppercase tracking-wider backdrop-blur-xs shadow-xs">
+                        Below Buffer
+                    </span>
+                @endif
+
+                {{-- Total Stock Pill Overlay --}}
+                <div class="absolute bottom-2.5 right-2.5 px-2.5 py-1 rounded-xl bg-slate-950/85 backdrop-blur-md text-white shadow-xs">
+                    <span class="text-xs font-black font-mono {{ $isNegative ? 'text-rose-400' : ($isBelowBuffer ? 'text-amber-300' : 'text-white') }}">
+                        {{ number_format($totalStock, 2) }}
+                    </span>
+                    <span class="text-[10px] font-bold text-slate-300">kg</span>
+                </div>
+            </div>
+
+            {{-- Card Body --}}
+            <div class="p-4 flex-1 flex flex-col justify-between space-y-3 bg-white">
+                <div>
+                    <h3 class="text-sm font-black text-slate-900 group-hover:text-brand-600 transition-colors line-clamp-1" title="{{ $productName }}">
+                        {{ $productName }}
+                    </h3>
+                    
+                    <div class="mt-1 flex items-center justify-between text-xs">
+                        <span class="text-[11px] font-semibold text-slate-500">Buffer Target</span>
+                        <span class="font-bold text-slate-700 font-mono text-[11px]">
+                            {{ $bufferQty > 0 ? number_format($bufferQty, 2) . ' kg' : 'Not set' }}
+                        </span>
+                    </div>
+                </div>
+
+                {{-- Grade Breakdown --}}
+                <div class="pt-2.5 border-t border-gray-100">
+                    <div class="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5">
+                        <span>Grades</span>
+                        <span>Stock Qty</span>
+                    </div>
+                    <div class="space-y-1">
+                        @foreach($grades as $entry)
+                        @php
+                            $color = match($entry->grade) {
+                                'A' => 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                                'B' => 'bg-sky-50 text-sky-700 border-sky-200',
+                                'C' => 'bg-amber-50 text-amber-700 border-amber-200',
+                                'D' => 'bg-rose-50 text-rose-700 border-rose-200',
+                                default => 'bg-slate-100 text-slate-700 border-slate-200',
+                            };
+                            $gradeLabel = $entry->grade === 'Unsorted' ? 'Unsorted' : 'Grade ' . $entry->grade;
+                        @endphp
+                        <div class="flex items-center justify-between px-2 py-1 rounded-lg border text-xs {{ $color }}">
+                            <span class="text-[10px] font-extrabold uppercase tracking-tight">{{ $gradeLabel }}</span>
+                            <span class="font-mono font-black text-[11px]">{{ number_format((float) $entry->current_stock, 2) }} <span class="text-[9px] font-bold opacity-75 font-sans">kg</span></span>
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+
+                {{-- Shop Allocations --}}
+                <div class="pt-2.5 border-t border-gray-100">
+                    <div class="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5">
+                        <span>Shop Allocations</span>
+                        <span class="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 font-mono">{{ $prodAllocations->count() }}</span>
+                    </div>
+                    @if($prodAllocations->isEmpty())
+                        <p class="text-[11px] font-medium text-slate-400 italic py-1">No dispatches today</p>
+                    @else
+                        <div class="max-h-24 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin scrollbar-thumb-slate-200">
+                            @foreach($prodAllocations as $allocItem)
+                                @php
+                                    $statusBadge = match($allocItem->sorting_status) {
+                                        'loaded' => 'bg-indigo-50 text-indigo-700 border-indigo-200',
+                                        'allocated' => 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                                        default => 'bg-amber-50 text-amber-700 border-amber-200',
+                                    };
+                                @endphp
+                                <div class="flex items-center justify-between gap-1.5 p-1.5 rounded-lg bg-slate-50 border border-slate-100 text-[11px]">
+                                    <div class="min-w-0 flex-1">
+                                        <p class="font-extrabold text-slate-700 truncate" title="{{ $allocItem->order->shop ? $allocItem->order->shop->name : 'N/A' }}">
+                                            {{ $allocItem->order->shop ? $allocItem->order->shop->name : 'N/A' }}
+                                        </p>
+                                    </div>
+                                    <div class="flex items-center gap-1 shrink-0">
+                                        <span class="font-mono font-black text-slate-800">{{ number_format((float) $allocItem->approved_qty, 2) }}</span>
+                                        <span class="text-[9px] font-bold text-slate-400">{{ $allocItem->unit }}</span>
+                                        <span class="inline-flex items-center text-[8px] font-black uppercase px-1 py-0.5 rounded border {{ $statusBadge }}">
+                                            @if($allocItem->sorting_status === 'loaded')
+                                                Loaded
+                                            @elseif($allocItem->sorting_status === 'allocated')
+                                                Allocated
+                                            @else
+                                                Pending
+                                            @endif
+                                        </span>
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
+                </div>
             </div>
 
         </div>
