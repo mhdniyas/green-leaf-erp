@@ -44,6 +44,20 @@
                 ? round($baseQuantity / (float) $conversionToBase, 4)
                 : round($baseQuantity, 4);
         };
+        $loadedInvoiceValue = round((float) $invoice->items->sum('line_subtotal'), 2);
+        $netDeliveryImpact = round((float) $invoice->excess_total - (float) $invoice->shortage_total, 2);
+        $reviewItems = $invoice->items->filter(function ($item) {
+            $reportedShort = (float) ($item->orderItem?->shop_reported_missing_qty ?? $item->shortage_qty ?? 0);
+            $reportedExcess = (float) ($item->orderItem?->shop_reported_excess_qty ?? $item->excess_qty ?? 0);
+            $shopNote = trim((string) $item->orderItem?->shop_verification_note);
+            $discrepancyNote = trim((string) $item->orderItem?->delivery_discrepancy_note);
+
+            return $reportedShort > 0.0001 || $reportedExcess > 0.0001 || $shopNote !== '' || $discrepancyNote !== '';
+        });
+        if ($isDeliveryReviewPending && $reviewItems->isEmpty()) {
+            $reviewItems = $invoice->items;
+        }
+        $hiddenItemCount = max(0, $invoice->items->count() - $reviewItems->count());
     @endphp
     <div class="space-y-6">
         <section class="rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -98,33 +112,51 @@
                 </form>
             </div>
 
-            <div class="overflow-x-auto">
-                <table class="min-w-full text-left text-sm">
-                    <thead class="border-b border-slate-100 bg-slate-50 text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
-                        <tr>
-                            <th class="px-5 py-4">Shop</th>
-                            <th class="px-5 py-4">Business Date</th>
-                            <th class="px-5 py-4 text-right">Subtotal</th>
-                            <th class="px-5 py-4 text-right">Shortage</th>
-                            <th class="px-5 py-4 text-right">Excess</th>
-                            <th class="px-5 py-4 text-right">Discount</th>
-                            <th class="px-5 py-4 text-right">Paid</th>
-                            <th class="px-5 py-4 text-right">Balance</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        <tr>
-                            <td class="px-5 py-4 font-semibold text-slate-950">{{ $invoice->shop?->name ?? 'N/A' }}</td>
-                            <td class="px-5 py-4 text-slate-700">{{ $invoice->business_date->format('d M Y') }}</td>
-                            <td class="px-5 py-4 text-right font-black text-slate-950">Rs. {{ number_format((float) $invoice->subtotal, 2) }}</td>
-                            <td class="px-5 py-4 text-right font-black text-amber-600">Rs. {{ number_format((float) $invoice->shortage_total, 2) }}</td>
-                            <td class="px-5 py-4 text-right font-black text-cyan-700">Rs. {{ number_format((float) $invoice->excess_total, 2) }}</td>
-                            <td class="px-5 py-4 text-right font-black text-indigo-700">Rs. {{ number_format((float) $invoice->discount_total, 2) }}</td>
-                            <td class="px-5 py-4 text-right font-black text-emerald-700">Rs. {{ number_format((float) $invoice->paid_amount, 2) }}</td>
-                            <td class="px-5 py-4 text-right font-black text-rose-600">Rs. {{ number_format((float) $invoice->balance_amount, 2) }}</td>
-                        </tr>
-                    </tbody>
-                </table>
+            <div class="px-5 py-5">
+                <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Loaded Value</p>
+                        <p class="mt-2 text-lg font-black text-slate-950">Rs. {{ number_format($loadedInvoiceValue, 2) }}</p>
+                    </div>
+                    <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">Shortage</p>
+                        <p class="mt-2 text-lg font-black text-amber-800">-Rs. {{ number_format((float) $invoice->shortage_total, 2) }}</p>
+                    </div>
+                    <div class="rounded-2xl border border-cyan-200 bg-cyan-50 p-4">
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Excess</p>
+                        <p class="mt-2 text-lg font-black text-cyan-800">+Rs. {{ number_format((float) $invoice->excess_total, 2) }}</p>
+                    </div>
+                    <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Final Invoice</p>
+                        <p class="mt-2 text-lg font-black text-slate-950">Rs. {{ number_format((float) $invoice->final_total, 2) }}</p>
+                    </div>
+                    <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Balance</p>
+                        <p class="mt-2 text-lg font-black {{ (float) $invoice->balance_amount > 0 ? 'text-rose-700' : 'text-emerald-700' }}">Rs. {{ number_format((float) $invoice->balance_amount, 2) }}</p>
+                    </div>
+                </div>
+
+                @if ($isDeliveryReviewPending)
+                    <div class="mt-4 flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                            <p class="text-sm font-black text-amber-950">Approval waiting</p>
+                            <p class="mt-1 text-sm font-semibold text-amber-800">{{ $reviewItems->count() }} item{{ $reviewItems->count() === 1 ? '' : 's' }} need admin attention{{ $hiddenItemCount > 0 ? ', '.$hiddenItemCount.' unchanged item'.($hiddenItemCount === 1 ? '' : 's').' hidden below' : '' }}.</p>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <a href="#delivery-review-approval" class="inline-flex h-10 items-center justify-center rounded-xl bg-amber-600 px-4 text-xs font-black uppercase tracking-[0.14em] text-white hover:bg-amber-700">
+                                Review & Approve
+                            </a>
+                            @if($invoice->order)
+                                <form method="POST" action="{{ route('warehouse.loadout.move-to-loadout', $invoice->order) }}">
+                                    @csrf
+                                    <button type="submit" class="inline-flex h-10 items-center justify-center rounded-xl border border-amber-300 bg-white px-4 text-xs font-black uppercase tracking-[0.14em] text-amber-800 hover:bg-amber-100">
+                                        Edit Loadout
+                                    </button>
+                                </form>
+                            @endif
+                        </div>
+                    </div>
+                @endif
             </div>
         </section>
 
@@ -132,27 +164,14 @@
             $rawDeliveryNote = $invoice->delivery_note ?: $invoice->order?->delivery_notes;
             $orderNote = $invoice->order?->manager_note;
 
-            $itemVerifNotes = $invoice->items
-                ->map(fn ($item) => trim((string) $item->orderItem?->shop_verification_note))
-                ->filter()
-                ->values();
-            $uniqueItemVerifNotes = $itemVerifNotes->unique();
-
-            // If no top-level delivery note exists, but all item verification notes are identical, use that as the single delivery note
             $deliveryNote = $rawDeliveryNote;
-            if (empty($deliveryNote) && $uniqueItemVerifNotes->count() === 1) {
-                $deliveryNote = $uniqueItemVerifNotes->first();
-            }
 
-            // Show item-level remarks only if item has a distinct verification note (different from common delivery note), discrepancy note, or order note
-            $itemsWithNotes = $invoice->items->filter(function ($item) use ($deliveryNote, $uniqueItemVerifNotes) {
+            $itemsWithNotes = $invoice->items->filter(function ($item) {
                 $itemVerif = trim((string) $item->orderItem?->shop_verification_note);
                 $itemDiscrepancy = trim((string) $item->orderItem?->delivery_discrepancy_note);
                 $itemOrder = trim((string) $item->orderItem?->notes);
 
-                $hasDistinctVerif = !empty($itemVerif) && ($uniqueItemVerifNotes->count() > 1 && $itemVerif !== $deliveryNote);
-
-                return $hasDistinctVerif || !empty($itemDiscrepancy) || !empty($itemOrder);
+                return !empty($itemVerif) || !empty($itemDiscrepancy) || !empty($itemOrder);
             });
 
             $paymentNotes = $invoice->paymentRequests->filter(fn ($pr) => !empty($pr->shop_note));
@@ -160,8 +179,9 @@
         @endphp
 
         @if ($hasShopOwnerNotes)
-            <section class="rounded-3xl border border-amber-200 bg-amber-50/60 shadow-sm overflow-hidden">
-                <div class="border-b border-amber-200/80 bg-amber-100/60 px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <details class="rounded-3xl border border-amber-200 bg-amber-50/60 shadow-sm overflow-hidden" {{ $isDeliveryReviewPending ? '' : 'open' }}>
+                <summary class="cursor-pointer list-none border-b border-amber-200/80 bg-amber-100/60 px-5 py-4">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div class="flex items-center gap-3">
                         <div class="flex h-9 w-9 items-center justify-center rounded-2xl bg-amber-500 text-white shadow-xs">
                             <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -178,7 +198,8 @@
                             Verified by {{ $invoice->order->shopCheckedBy?->name ?? 'Shop Owner' }} &middot; {{ $invoice->order->shop_checked_at->format('d M Y, h:i A') }}
                         </span>
                     @endif
-                </div>
+                    </div>
+                </summary>
 
                 <div class="p-5 space-y-4">
                     @if ($deliveryNote)
@@ -239,16 +260,16 @@
                         </div>
                     @endif
                 </div>
-            </section>
+            </details>
         @endif
 
         @if (($invoice->delivery_status === 'awaiting_review' || $invoice->order?->delivery_status === 'pending_approval') && (auth()->user()->hasRole('purchase') || auth()->user()->hasRole('admin')))
-            <section class="overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-sm">
+            <section id="delivery-review-approval" class="overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-sm">
                 <div class="flex flex-col gap-3 border-b border-amber-100 bg-amber-50/70 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                         <p class="text-[11px] font-black uppercase tracking-[0.16em] text-amber-700">Delivery Review</p>
-                        <h2 class="mt-1 text-lg font-black text-slate-950">Admin Approval Required</h2>
-                        <p class="mt-1 text-sm font-semibold text-slate-600">Confirm final delivered quantity. Short reduces the bill; accepted excess adds to the bill and consumes inventory.</p>
+                        <h2 class="mt-1 text-lg font-black text-slate-950">Review Exceptions & Approve</h2>
+                        <p class="mt-1 text-sm font-semibold text-slate-600">Only items with shop notes, shortage, or excess are shown here. Final quantity stays in the loadout unit.</p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
                         @if($invoice->order)
@@ -289,7 +310,7 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
-                            @foreach ($invoice->items as $item)
+                            @foreach ($reviewItems as $item)
                                 @php
                                     $reportedDeliveredQty = (float) ($item->orderItem?->shop_reported_received_qty ?? $item->delivered_qty);
                                     $reportedShortageQty = (float) ($item->orderItem?->shop_reported_missing_qty ?? $item->shortage_qty);
@@ -320,7 +341,7 @@
                                         @endif
                                         @php
                                             $itemVerif = trim((string) $item->orderItem?->shop_verification_note);
-                                            $showItemVerifNote = !empty($itemVerif) && ($uniqueItemVerifNotes->count() > 1 && $itemVerif !== $deliveryNote);
+                                            $showItemVerifNote = !empty($itemVerif);
                                         @endphp
                                         @if ($showItemVerifNote)
                                             <div class="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs">
@@ -498,10 +519,16 @@
             </script>
         @endif
 
-        <section class="rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <div class="border-b border-slate-100 px-5 py-4">
-                <h2 class="text-lg font-black text-slate-950">Invoice Items</h2>
-            </div>
+        <details class="rounded-3xl border border-slate-200 bg-white shadow-sm" {{ $isDeliveryReviewPending ? '' : 'open' }}>
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-4 border-b border-slate-100 px-5 py-4">
+                <div>
+                    <h2 class="text-lg font-black text-slate-950">All Invoice Items</h2>
+                    <p class="mt-1 text-sm font-semibold text-slate-500">{{ $invoice->items->count() }} item{{ $invoice->items->count() === 1 ? '' : 's' }} in the generated invoice</p>
+                </div>
+                <span class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black uppercase tracking-[0.14em] text-slate-700">
+                    Toggle
+                </span>
+            </summary>
             <div class="overflow-x-auto">
                 <table class="min-w-full text-left text-sm">
                     <thead class="border-b border-slate-100 bg-slate-50 text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
@@ -524,7 +551,7 @@
                                     <p class="mt-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Order {{ $formatUnit($item->product->unit) }}</p>
                                     @php
                                         $itemVerif = trim((string) $item->orderItem?->shop_verification_note);
-                                        $showItemVerifNote = !empty($itemVerif) && ($uniqueItemVerifNotes->count() > 1 && $itemVerif !== $deliveryNote);
+                                        $showItemVerifNote = !empty($itemVerif);
                                     @endphp
                                     @if ($showItemVerifNote)
                                         <div class="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs">
@@ -556,7 +583,7 @@
                     </tbody>
                 </table>
             </div>
-        </section>
+        </details>
 
         @if (auth()->user()->hasRole('purchase') || auth()->user()->hasRole('admin'))
             <section class="rounded-3xl border border-slate-200 bg-white shadow-sm">

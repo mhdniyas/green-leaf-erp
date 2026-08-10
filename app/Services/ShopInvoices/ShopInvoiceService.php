@@ -1128,6 +1128,53 @@ class ShopInvoiceService
         return $invoice->fresh('items');
     }
 
+    /**
+     * @param  Collection<int, ShopOrderItem>|null  $orderItems
+     * @return array{
+     *     delivered_qty: float,
+     *     delivered_price_quantity: float,
+     *     shortage_qty: float,
+     *     shortage_price_quantity: float,
+     *     excess_qty: float,
+     *     excess_price_quantity: float,
+     *     shortage_amount: float,
+     *     excess_amount: float,
+     *     final_line_total: float
+     * }
+     */
+    public function calculateDeliveryAdjustmentForInvoiceItem(
+        ShopInvoiceItem $invoiceItem,
+        float $deliveredQty,
+        float $shortageQty,
+        float $excessQty,
+        ?Collection $orderItems = null,
+    ): array {
+        $invoiceItem->loadMissing('product');
+
+        $product = $invoiceItem->product;
+        $priceUnit = (string) ($invoiceItem->price_unit ?: $product?->unit ?: $invoiceItem->unit);
+        $unitPrice = (float) $invoiceItem->unit_price;
+
+        $deliveredPriceQuantity = $this->priceQuantityFor($product, $deliveredQty, $priceUnit, $orderItems);
+        $shortagePriceQuantity = $this->priceQuantityFor($product, $shortageQty, $priceUnit, $orderItems);
+        $excessPriceQuantity = $this->priceQuantityFor($product, $excessQty, $priceUnit, $orderItems);
+        $shortageAmount = round($shortagePriceQuantity * $unitPrice, 2);
+        $excessAmount = round($excessPriceQuantity * $unitPrice, 2);
+        $finalLineTotal = round($deliveredPriceQuantity * $unitPrice, 2);
+
+        return [
+            'delivered_qty' => round($deliveredQty, 2),
+            'delivered_price_quantity' => $deliveredPriceQuantity,
+            'shortage_qty' => round($shortageQty, 2),
+            'shortage_price_quantity' => $shortagePriceQuantity,
+            'excess_qty' => round($excessQty, 2),
+            'excess_price_quantity' => $excessPriceQuantity,
+            'shortage_amount' => $shortageAmount,
+            'excess_amount' => $excessAmount,
+            'final_line_total' => $finalLineTotal,
+        ];
+    }
+
     private function shouldPostPaymentToJournal(ShopInvoice $invoice): bool
     {
         return true;

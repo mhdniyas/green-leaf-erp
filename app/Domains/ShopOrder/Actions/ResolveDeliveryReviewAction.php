@@ -242,17 +242,14 @@ class ResolveDeliveryReviewAction
                     $deliveredQty = round((float) $items->sum('delivered_qty'), 2);
                     $shortageQty = round((float) $items->sum('shortage_qty'), 2);
                     $excessQty = round((float) $items->sum('excess_qty'), 2);
-                    $shortageAmount = round($shortageQty * (float) $invoiceItem->unit_price, 2);
-                    $excessAmount = round($excessQty * (float) $invoiceItem->unit_price, 2);
 
-                    $invoiceItem->update([
-                        'delivered_qty' => $deliveredQty,
-                        'shortage_qty' => $shortageQty,
-                        'excess_qty' => $excessQty,
-                        'shortage_amount' => $shortageAmount,
-                        'excess_amount' => $excessAmount,
-                        'final_line_total' => round((float) $invoiceItem->line_subtotal - $shortageAmount + $excessAmount, 2),
-                    ]);
+                    $invoiceItem->update($this->shopInvoiceService->calculateDeliveryAdjustmentForInvoiceItem(
+                        $invoiceItem,
+                        $deliveredQty,
+                        $shortageQty,
+                        $excessQty,
+                        $items instanceof Collection ? $items->values() : collect($items)->values(),
+                    ));
                 });
 
             $invoice->update([
