@@ -94,6 +94,8 @@ class PurchaserReportWebTest extends TestCase
             ->assertSee('Generated')
             ->assertSee('Delivery review')
             ->assertSee('Item Summary')
+            ->assertSee('Settings')
+            ->assertSee(route('purchaser.settings'), false)
             ->assertSee(route('purchaser.reports.sales-summary.csv'), false)
             ->assertSee(route('purchaser.reports.sales-summary.excel'), false)
             ->assertSee(route('purchaser.reports.sales-summary.pdf'), false)
@@ -161,6 +163,7 @@ class PurchaserReportWebTest extends TestCase
             ->assertSee('5 PIECE')
             ->assertSee('₹51.00')
             ->assertSee('₹32.00')
+            ->assertSee('Settings')
             ->assertSee('hidden overflow-x-auto md:block', false)
             ->assertSee('divide-y divide-slate-200 md:hidden', false);
     }

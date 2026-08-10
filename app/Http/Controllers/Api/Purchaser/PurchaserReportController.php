@@ -38,12 +38,13 @@ class PurchaserReportController extends Controller
         ]);
     }
 
-    /** @return array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int} */
+    /** @return array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int,category_ids:?array<int, int>} */
     private function filters(PurchaserReportRequest $request): array
     {
         $validated = $request->validated();
         $range = (string) ($validated['range'] ?? (isset($validated['date_from']) ? 'custom' : 'today'));
         [$dateFrom, $dateTo] = $this->dates($range, $validated);
+        $user = $request->user();
 
         return [
             'date_from' => $dateFrom->toDateString(),
@@ -53,10 +54,11 @@ class PurchaserReportController extends Controller
             'search' => trim((string) ($validated['search'] ?? '')),
             'page' => (int) ($validated['page'] ?? 1),
             'per_page' => (int) ($validated['per_page'] ?? 25),
+            'category_ids' => $user?->hasAssignedCategoryFilter() ? $user->assignedCategoryIds() : null,
         ];
     }
 
-    /** @param array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int} $filters */
+    /** @param array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int,category_ids:?array<int, int>} $filters */
     private function context(array $filters): array
     {
         return [
@@ -69,6 +71,7 @@ class PurchaserReportController extends Controller
                 'shop_id' => $filters['shop_id'],
                 'status' => $filters['status'] ?? 'all',
                 'search' => $filters['search'],
+                'category_ids' => $filters['category_ids'] ?? null,
             ],
         ];
     }

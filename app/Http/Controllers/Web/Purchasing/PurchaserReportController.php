@@ -102,7 +102,7 @@ class PurchaserReportController extends Controller
         ]);
     }
 
-    /** @return array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int} */
+    /** @return array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int,category_ids:?array<int, int>} */
     private function filters(Request $request): array
     {
         $validated = $request->validate([
@@ -131,6 +131,9 @@ class PurchaserReportController extends Controller
             'search' => trim((string) ($validated['search'] ?? '')),
             'page' => (int) ($validated['page'] ?? 1),
             'per_page' => (int) ($validated['per_page'] ?? 25),
+            'category_ids' => $request->user()?->hasAssignedCategoryFilter()
+                ? $request->user()->assignedCategoryIds()
+                : null,
         ];
     }
 
@@ -163,6 +166,7 @@ class PurchaserReportController extends Controller
             'filters' => $filters,
             'selectedRange' => $request->string('range')->toString() ?: 'today',
             'shops' => Shop::query()->orderBy('name')->get(['id', 'name', 'code']),
+            'hasCategorySettings' => ($filters['category_ids'] ?? null) !== null,
         ];
     }
 

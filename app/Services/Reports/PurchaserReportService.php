@@ -13,7 +13,7 @@ class PurchaserReportService
     private const INCLUDED_STATUSES = ['generated', 'delivery_review', 'finalized', 'payment_pending', 'paid'];
 
     /**
-     * @param  array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int}  $filters
+     * @param  array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int,category_ids?:?array<int, int>}  $filters
      * @return array<string, mixed>
      */
     public function salesSummary(array $filters): array
@@ -30,7 +30,7 @@ class PurchaserReportService
     }
 
     /**
-     * @param  array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int}  $filters
+     * @param  array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int,category_ids?:?array<int, int>}  $filters
      * @return array<string, mixed>
      */
     public function salesSummaryExport(array $filters): array
@@ -44,7 +44,7 @@ class PurchaserReportService
     }
 
     /**
-     * @param  array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int}  $filters
+     * @param  array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int,category_ids?:?array<int, int>}  $filters
      * @return array<string, mixed>
      */
     public function itemSummary(array $filters): array
@@ -73,7 +73,7 @@ class PurchaserReportService
     }
 
     /**
-     * @param  array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int}  $filters
+     * @param  array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int,category_ids?:?array<int, int>}  $filters
      * @return array<string, mixed>
      */
     public function itemSummaryExport(array $filters): array
@@ -98,15 +98,26 @@ class PurchaserReportService
     }
 
     /**
-     * @param  array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int}  $filters
+     * @param  array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int,category_ids?:?array<int, int>}  $filters
      */
     private function filteredInvoices(array $filters): Builder
     {
+        $categoryIds = $this->categoryIds($filters);
+
         return DB::table('shop_invoices')
             ->join('shops', 'shops.id', '=', 'shop_invoices.shop_id')
             ->whereDate('shop_invoices.business_date', '>=', $filters['date_from'])
             ->whereDate('shop_invoices.business_date', '<=', $filters['date_to'])
             ->whereIn('shop_invoices.status', $this->statuses($filters['status']))
+            ->when($categoryIds !== null, function (Builder $query) use ($categoryIds): void {
+                $query->whereExists(function (Builder $exists) use ($categoryIds): void {
+                    $exists->selectRaw('1')
+                        ->from('shop_invoice_items')
+                        ->join('products', 'products.id', '=', 'shop_invoice_items.product_id')
+                        ->whereColumn('shop_invoice_items.shop_invoice_id', 'shop_invoices.id')
+                        ->whereIn('products.category_id', $categoryIds);
+                });
+            })
             ->when($filters['shop_id'] !== null, fn (Builder $query) => $query->where('shop_invoices.shop_id', $filters['shop_id']))
             ->when($filters['search'] !== '', function (Builder $query) use ($filters): void {
                 $search = '%'.$filters['search'].'%';
@@ -170,11 +181,12 @@ class PurchaserReportService
     }
 
     /**
-     * @param  array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int}  $filters
+     * @param  array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int,category_ids?:?array<int, int>}  $filters
      */
     private function itemLinesQuery(array $filters): Builder
     {
         $quantityExpression = $this->itemQuantityExpression();
+        $categoryIds = $this->categoryIds($filters);
 
         return DB::table('shop_invoice_items')
             ->join('shop_invoices', 'shop_invoices.id', '=', 'shop_invoice_items.shop_invoice_id')
@@ -185,6 +197,7 @@ class PurchaserReportService
             ->whereDate('shop_invoices.business_date', '<=', $filters['date_to'])
             ->whereIn('shop_invoices.status', $this->statuses($filters['status']))
             ->whereRaw("{$quantityExpression} > 0")
+            ->when($categoryIds !== null, fn (Builder $query) => $query->whereIn('products.category_id', $categoryIds))
             ->when($filters['shop_id'] !== null, fn (Builder $query) => $query->where('shop_invoices.shop_id', $filters['shop_id']))
             ->when($filters['search'] !== '', function (Builder $query) use ($filters): void {
                 $search = '%'.$filters['search'].'%';
@@ -244,6 +257,20 @@ class PurchaserReportService
     private function itemUnitExpression(): string
     {
         return "UPPER(COALESCE(NULLIF(shop_invoice_items.price_unit, ''), shop_invoice_items.unit))";
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     * @return array<int, int>|null
+     */
+    private function categoryIds(array $filters): ?array
+    {
+        $categoryIds = $filters['category_ids'] ?? null;
+        if (! is_array($categoryIds) || $categoryIds === []) {
+            return null;
+        }
+
+        return array_values(array_filter(array_map('intval', $categoryIds)));
     }
 
     /** @return array<int, string> */

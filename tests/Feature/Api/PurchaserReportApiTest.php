@@ -171,6 +171,49 @@ class PurchaserReportApiTest extends TestCase
         }
     }
 
+    public function test_reports_respect_authenticated_purchaser_category_settings(): void
+    {
+        $includedCategory = Category::factory()->create(['name' => 'Included Category']);
+        $excludedCategory = Category::factory()->create(['name' => 'Excluded Category']);
+        $purchaser = User::factory()->create(['assigned_category_ids' => [$includedCategory->id]]);
+        $purchaser->assignRole('purchaser');
+        $includedShop = Shop::factory()->create(['name' => 'Included Shop', 'code' => 'INC']);
+        $excludedShop = Shop::factory()->create(['name' => 'Excluded Shop', 'code' => 'EXC']);
+        $includedProduct = Product::factory()->create([
+            'category_id' => $includedCategory->id,
+            'name' => 'Included Potato',
+            'sku' => 'INC-POT',
+        ]);
+        $excludedProduct = Product::factory()->create([
+            'category_id' => $excludedCategory->id,
+            'name' => 'Excluded Onion',
+            'sku' => 'EXC-ONI',
+        ]);
+        $includedInvoice = $this->invoice($includedShop, '2026-08-03', 'generated', 100, 0, 100, 'INC-INV');
+        $excludedInvoice = $this->invoice($excludedShop, '2026-08-03', 'generated', 90, 0, 90, 'EXC-INV');
+
+        $this->line($includedInvoice, $includedProduct, 'kg', null, 10, 0, 100);
+        $this->line($excludedInvoice, $excludedProduct, 'kg', null, 9, 0, 90);
+
+        $this->actingAs($purchaser)
+            ->getJson(route('api.v1.purchaser.reports.item-summary', [
+                'date_from' => '2026-08-03',
+                'date_to' => '2026-08-03',
+            ]))->assertOk()
+            ->assertJsonPath('data.applied_filters.category_ids', [$includedCategory->id])
+            ->assertJsonFragment(['product_name' => 'Included Potato'])
+            ->assertJsonMissing(['product_name' => 'Excluded Onion']);
+
+        $this->actingAs($purchaser)
+            ->getJson(route('api.v1.purchaser.reports.sales-summary', [
+                'date_from' => '2026-08-03',
+                'date_to' => '2026-08-03',
+            ]))->assertOk()
+            ->assertJsonPath('data.totals.total_sales', '100.00')
+            ->assertJsonFragment(['shop_name' => 'Included Shop'])
+            ->assertJsonMissing(['shop_name' => 'Excluded Shop']);
+    }
+
     public function test_report_request_validates_dates_status_shop_and_pagination(): void
     {
         $purchaser = User::factory()->create();
