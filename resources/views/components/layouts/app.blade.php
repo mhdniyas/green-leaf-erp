@@ -251,14 +251,25 @@
             'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M5.25 21V8.25A2.25 2.25 0 017.5 6h9a2.25 2.25 0 012.25 2.25V21M9 9.75h6M9 13.5h6M9 17.25h3" /></svg>',
             'type' => 'link',
         ],
-        [
-            'label' => 'Report',
-            'route' => 'purchaser.history',
-            'active' => request()->routeIs('purchaser.history'),
-            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>',
-            'type' => 'link',
-        ],
     ];
+    if ($currentUser?->can('purchaser.reports.sales.view')) {
+        $purchaserMobileNavItems[] = [
+            'label' => 'Sales',
+            'route' => 'purchaser.reports.sales-summary',
+            'active' => request()->routeIs('purchaser.reports.sales-summary'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 20.25h18M5.25 17.25V10.5h3v6.75m3 0V5.25h3v12m3 0V8.25h3v9" /></svg>',
+            'type' => 'link',
+        ];
+    }
+    if ($currentUser?->can('purchaser.reports.items.view')) {
+        $purchaserMobileNavItems[] = [
+            'label' => 'Items',
+            'route' => 'purchaser.reports.item-summary',
+            'active' => request()->routeIs('purchaser.reports.item-summary'),
+            'icon' => '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 6.75h15m-15 5.25h15m-15 5.25h15M7.5 4.5v15" /></svg>',
+            'type' => 'link',
+        ];
+    }
     $warehouseReceiverMobileNavItems = [
         [
             'label' => 'Receive',
@@ -496,6 +507,16 @@
                             <x-nav-item href="{{ route('purchaser.history') }}" :active="request()->routeIs('purchaser.history')" :sub="true">
                                 Report
                             </x-nav-item>
+                            @can('purchaser.reports.sales.view')
+                                <x-nav-item href="{{ route('purchaser.reports.sales-summary') }}" :active="request()->routeIs('purchaser.reports.sales-summary')" :sub="true">
+                                    Sales Summary
+                                </x-nav-item>
+                            @endcan
+                            @can('purchaser.reports.items.view')
+                                <x-nav-item href="{{ route('purchaser.reports.item-summary') }}" :active="request()->routeIs('purchaser.reports.item-summary')" :sub="true">
+                                    Item Summary
+                                </x-nav-item>
+                            @endcan
                             <x-nav-item href="{{ route('purchaser.settings') }}" :active="request()->routeIs('purchaser.settings')" :sub="true">
                                 Settings
                             </x-nav-item>
@@ -847,7 +868,7 @@
             <a
                 href="{{ $item['href'] ?? route($item['route'], $item['params'] ?? []) }}"
                 @class([
-                    'group relative flex min-h-[50px] min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl border-0 px-1.5 font-bold transition-all duration-200',
+                    'group relative flex min-h-[50px] min-w-0 flex-1 items-center justify-center gap-0.5 rounded-xl border-0 px-0.5 font-bold transition-all duration-200',
                     'bg-cyan-500 text-white shadow-sm' => $isActive,
                     'bg-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300' => ! $isActive,
                 ])
@@ -862,7 +883,7 @@
                     @endif
                 </span>
                 <span @class([
-                    'min-w-0 truncate whitespace-nowrap text-[10px] font-black',
+                    'min-w-0 truncate whitespace-nowrap text-[9px] font-black',
                     'hidden' => ! $showLabel,
                 ])>{{ $item['label'] }}</span>
             </a>

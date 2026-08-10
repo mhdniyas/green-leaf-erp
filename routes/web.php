@@ -43,6 +43,7 @@ use App\Http\Controllers\Web\Purchasing\ProcurementExpenseController;
 use App\Http\Controllers\Web\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Web\Purchasing\PurchaseOrderController;
 use App\Http\Controllers\Web\Purchasing\PurchaserDashboardController;
+use App\Http\Controllers\Web\Purchasing\PurchaserReportController;
 use App\Http\Controllers\Web\Purchasing\ShopInvoiceController;
 use App\Http\Controllers\Web\Purchasing\ShopPriceGroupController;
 use App\Http\Controllers\Web\Purchasing\SupplierController;
@@ -346,6 +347,12 @@ Route::middleware('auth')->group(function () {
     Route::delete('/purchaser/bill-prices/{specialPrice}', [BillPriceApprovalController::class, 'destroy'])->name('purchaser.bill-prices.destroy');
     Route::get('/purchaser/cart/{cart}/bill', [PurchaserDashboardController::class, 'bill'])->name('purchaser.bill');
     Route::get('/purchaser/history', [PurchaserDashboardController::class, 'history'])->name('purchaser.history');
+    Route::get('/purchaser/reports/sales-summary', [PurchaserReportController::class, 'salesSummary'])
+        ->middleware('can:purchaser.reports.sales.view')
+        ->name('purchaser.reports.sales-summary');
+    Route::get('/purchaser/reports/item-summary', [PurchaserReportController::class, 'itemSummary'])
+        ->middleware('can:purchaser.reports.items.view')
+        ->name('purchaser.reports.item-summary');
     Route::get('/purchaser/settings', [PurchaserDashboardController::class, 'settings'])->name('purchaser.settings');
     Route::post('/purchaser/settings', [PurchaserDashboardController::class, 'updateSettings'])->name('purchaser.settings.update');
     Route::post('/purchaser/carts', [PurchaserDashboardController::class, 'storeCart'])->name('purchaser.carts.store');
