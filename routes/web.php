@@ -350,9 +350,27 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/reports/sales-summary', [PurchaserReportController::class, 'salesSummary'])
         ->middleware('can:purchaser.reports.sales.view')
         ->name('purchaser.reports.sales-summary');
+    Route::get('/purchaser/reports/sales-summary/csv', [PurchaserReportController::class, 'salesSummaryCsv'])
+        ->middleware('can:purchaser.reports.sales.view')
+        ->name('purchaser.reports.sales-summary.csv');
+    Route::get('/purchaser/reports/sales-summary/excel', [PurchaserReportController::class, 'salesSummaryExcel'])
+        ->middleware('can:purchaser.reports.sales.view')
+        ->name('purchaser.reports.sales-summary.excel');
+    Route::get('/purchaser/reports/sales-summary/pdf', [PurchaserReportController::class, 'salesSummaryPdf'])
+        ->middleware('can:purchaser.reports.sales.view')
+        ->name('purchaser.reports.sales-summary.pdf');
     Route::get('/purchaser/reports/item-summary', [PurchaserReportController::class, 'itemSummary'])
         ->middleware('can:purchaser.reports.items.view')
         ->name('purchaser.reports.item-summary');
+    Route::get('/purchaser/reports/item-summary/csv', [PurchaserReportController::class, 'itemSummaryCsv'])
+        ->middleware('can:purchaser.reports.items.view')
+        ->name('purchaser.reports.item-summary.csv');
+    Route::get('/purchaser/reports/item-summary/excel', [PurchaserReportController::class, 'itemSummaryExcel'])
+        ->middleware('can:purchaser.reports.items.view')
+        ->name('purchaser.reports.item-summary.excel');
+    Route::get('/purchaser/reports/item-summary/pdf', [PurchaserReportController::class, 'itemSummaryPdf'])
+        ->middleware('can:purchaser.reports.items.view')
+        ->name('purchaser.reports.item-summary.pdf');
     Route::get('/purchaser/settings', [PurchaserDashboardController::class, 'settings'])->name('purchaser.settings');
     Route::post('/purchaser/settings', [PurchaserDashboardController::class, 'updateSettings'])->name('purchaser.settings.update');
     Route::post('/purchaser/carts', [PurchaserDashboardController::class, 'storeCart'])->name('purchaser.carts.store');

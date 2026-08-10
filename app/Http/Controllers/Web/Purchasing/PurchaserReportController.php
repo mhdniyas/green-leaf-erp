@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Purchasing;
 
+use App\Exports\PurchaserReportArrayExport;
 use App\Http\Controllers\Controller;
 use App\Models\Shop;
 use App\Services\Purchasing\PurchaserBusinessDayService;
@@ -12,6 +13,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
+use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PurchaserReportController extends Controller
 {
@@ -40,6 +44,62 @@ class PurchaserReportController extends Controller
             $filters,
             $this->reports->itemSummary($filters),
         ));
+    }
+
+    public function salesSummaryCsv(Request $request): StreamedResponse
+    {
+        $filters = $this->filters($request);
+        $rows = $this->salesExportRows($this->reports->salesSummaryExport($filters));
+
+        return $this->csv($rows, $this->filename('purchaser-sales-summary', $filters, 'csv'));
+    }
+
+    public function itemSummaryCsv(Request $request): StreamedResponse
+    {
+        $filters = $this->filters($request);
+        $rows = $this->itemExportRows($this->reports->itemSummaryExport($filters));
+
+        return $this->csv($rows, $this->filename('purchaser-item-summary', $filters, 'csv'));
+    }
+
+    public function salesSummaryExcel(Request $request): BinaryFileResponse
+    {
+        $filters = $this->filters($request);
+
+        return Excel::download(
+            new PurchaserReportArrayExport($this->salesExportRows($this->reports->salesSummaryExport($filters)), 'Sales Summary'),
+            $this->filename('purchaser-sales-summary', $filters, 'xlsx'),
+        );
+    }
+
+    public function itemSummaryExcel(Request $request): BinaryFileResponse
+    {
+        $filters = $this->filters($request);
+
+        return Excel::download(
+            new PurchaserReportArrayExport($this->itemExportRows($this->reports->itemSummaryExport($filters)), 'Item Summary'),
+            $this->filename('purchaser-item-summary', $filters, 'xlsx'),
+        );
+    }
+
+    public function salesSummaryPdf(Request $request): View
+    {
+        $filters = $this->filters($request);
+
+        return view('purchasing.purchaser.reports.sales-summary-pdf', [
+            'filters' => $filters,
+            'report' => $this->reports->salesSummaryExport($filters),
+        ]);
+    }
+
+    public function itemSummaryPdf(Request $request): View
+    {
+        $filters = $this->filters($request);
+
+        return view('purchasing.purchaser.reports.item-summary-pdf', [
+            'filters' => $filters,
+            'report' => $this->reports->itemSummaryExport($filters),
+        ]);
     }
 
     /** @return array{date_from:string,date_to:string,shop_id:?int,status:?string,search:string,page:int,per_page:int} */
@@ -104,5 +164,93 @@ class PurchaserReportController extends Controller
             'selectedRange' => $request->string('range')->toString() ?: 'today',
             'shops' => Shop::query()->orderBy('name')->get(['id', 'name', 'code']),
         ];
+    }
+
+    /**
+     * @param  array<int, array<int, mixed>>  $rows
+     */
+    private function csv(array $rows, string $filename): StreamedResponse
+    {
+        return response()->streamDownload(function () use ($rows): void {
+            $file = fopen('php://output', 'w');
+
+            if ($file === false) {
+                return;
+            }
+
+            foreach ($rows as $row) {
+                fputcsv($file, $row);
+            }
+
+            fclose($file);
+        }, $filename, ['Content-Type' => 'text/csv']);
+    }
+
+    /**
+     * @param  array<string, mixed>  $report
+     * @return array<int, array<int, mixed>>
+     */
+    private function salesExportRows(array $report): array
+    {
+        $totals = $report['totals'];
+        $rows = [
+            ['Sales Summary'],
+            ['Total Sales', $totals['total_sales'], 'Paid', $totals['paid_amount'], 'Outstanding', $totals['outstanding_amount']],
+            ['Total Shops', $totals['total_shops'], 'Total Invoices', $totals['total_invoices']],
+            [],
+            ['Shop', 'Code', 'Invoices', 'Sales', 'Paid', 'Outstanding'],
+        ];
+
+        foreach ($report['shops'] as $shop) {
+            $rows[] = [
+                $shop['shop_name'],
+                $shop['shop_code'],
+                $shop['invoice_count'],
+                $shop['total_sales'],
+                $shop['paid_amount'],
+                $shop['outstanding_amount'],
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param  array<string, mixed>  $report
+     * @return array<int, array<int, mixed>>
+     */
+    private function itemExportRows(array $report): array
+    {
+        $summary = $report['summary'];
+        $rows = [
+            ['Item Summary'],
+            ['Products', $summary['distinct_products'], 'Product Units', $summary['product_unit_rows'], 'Invoice Lines', $summary['invoice_lines']],
+            [],
+            ['Product', 'SKU', 'Category', 'Unit', 'Quantity', 'Sales', 'Invoice Lines', 'Invoices', 'Shops'],
+        ];
+
+        foreach ($report['items'] as $item) {
+            $rows[] = [
+                $item['product_name'],
+                $item['product_sku'] ?? '',
+                $item['category_name'] ?? 'Uncategorized',
+                $item['unit'],
+                $item['billed_quantity'],
+                $item['line_sales_amount'],
+                $item['invoice_line_count'],
+                $item['invoice_count'],
+                $item['shop_count'],
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     */
+    private function filename(string $prefix, array $filters, string $extension): string
+    {
+        return "{$prefix}-{$filters['date_from']}_{$filters['date_to']}.{$extension}";
     }
 }

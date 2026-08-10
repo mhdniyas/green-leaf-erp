@@ -6,7 +6,12 @@
                 <h1 class="mt-1 text-xl font-black">Sales Summary</h1>
                 <p class="mt-1 text-xs font-semibold text-slate-400">{{ \Illuminate\Support\Carbon::parse($filters['date_from'])->format('d M Y') }} – {{ \Illuminate\Support\Carbon::parse($filters['date_to'])->format('d M Y') }}</p>
             </div>
-            <a href="{{ route('purchaser.reports.item-summary', request()->query()) }}" class="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200">Item Summary</a>
+            <div class="flex flex-wrap gap-2">
+                <a href="{{ route('purchaser.reports.sales-summary.csv', request()->query()) }}" class="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200">CSV</a>
+                <a href="{{ route('purchaser.reports.sales-summary.excel', request()->query()) }}" class="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200">Excel</a>
+                <a href="{{ route('purchaser.reports.sales-summary.pdf', request()->query()) }}" class="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200">PDF</a>
+                <a href="{{ route('purchaser.reports.item-summary', request()->query()) }}" class="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200">Item Summary</a>
+            </div>
         </header>
 
         @include('purchasing.purchaser.reports.partials.filters', ['routeName' => 'purchaser.reports.sales-summary'])

@@ -14,6 +14,7 @@ use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Maatwebsite\Excel\Facades\Excel;
 use Tests\TestCase;
 
 class PurchaserReportWebTest extends TestCase
@@ -46,6 +47,12 @@ class PurchaserReportWebTest extends TestCase
             ->assertRedirect(route('dashboard'))
             ->assertSessionHas('error');
         $this->actingAs($warehouse)->get(route('purchaser.reports.item-summary'))
+            ->assertRedirect(route('dashboard'))
+            ->assertSessionHas('error');
+        $this->actingAs($warehouse)->get(route('purchaser.reports.sales-summary.csv'))
+            ->assertRedirect(route('dashboard'))
+            ->assertSessionHas('error');
+        $this->actingAs($warehouse)->get(route('purchaser.reports.item-summary.pdf'))
             ->assertRedirect(route('dashboard'))
             ->assertSessionHas('error');
 
@@ -85,6 +92,9 @@ class PurchaserReportWebTest extends TestCase
             ->assertSee('This Month')
             ->assertSee('Custom')
             ->assertSee('Item Summary')
+            ->assertSee(route('purchaser.reports.sales-summary.csv'), false)
+            ->assertSee(route('purchaser.reports.sales-summary.excel'), false)
+            ->assertSee(route('purchaser.reports.sales-summary.pdf'), false)
             ->assertSee(route('purchaser.reports.sales-summary'), false)
             ->assertSee(route('purchaser.reports.item-summary'), false);
     }
@@ -151,6 +161,63 @@ class PurchaserReportWebTest extends TestCase
             ->assertSee('₹32.00')
             ->assertSee('hidden overflow-x-auto md:block', false)
             ->assertSee('divide-y divide-slate-200 md:hidden', false);
+    }
+
+    public function test_sales_and_item_reports_export_csv_excel_and_printable_pdf(): void
+    {
+        $purchaser = User::factory()->create();
+        $purchaser->assignRole('purchaser');
+        $shop = Shop::factory()->create(['name' => 'Export Shop', 'code' => 'EXP']);
+        $invoice = $this->invoice($shop, '2026-08-10', 'paid', 125.75, 100.25, 25.50, 'EXPORT-1');
+        $category = Category::factory()->create(['name' => 'Export Category']);
+        $product = Product::factory()->create(['category_id' => $category->id, 'name' => 'Export Potato', 'sku' => 'EXP-POT']);
+
+        $this->line($invoice, $product, 'kg', 'BOX', 20, 0.50, 125.75);
+
+        $query = [
+            'range' => 'custom',
+            'date_from' => '2026-08-10',
+            'date_to' => '2026-08-10',
+        ];
+
+        $salesCsv = $this->actingAs($purchaser)
+            ->get(route('purchaser.reports.sales-summary.csv', $query))
+            ->assertOk()
+            ->assertHeader('content-type', 'text/csv; charset=UTF-8')
+            ->streamedContent();
+
+        $this->assertStringContainsString('Sales Summary', $salesCsv);
+        $this->assertStringContainsString('"Export Shop",EXP,1,125.75,100.25,25.50', $salesCsv);
+
+        $itemCsv = $this->actingAs($purchaser)
+            ->get(route('purchaser.reports.item-summary.csv', $query))
+            ->assertOk()
+            ->streamedContent();
+
+        $this->assertStringContainsString('Item Summary', $itemCsv);
+        $this->assertStringContainsString('"Export Potato",EXP-POT,"Export Category",BOX,0.5000,125.75,1,1,1', $itemCsv);
+
+        $this->actingAs($purchaser)
+            ->get(route('purchaser.reports.sales-summary.pdf', $query))
+            ->assertOk()
+            ->assertSee('Purchaser Sales Summary')
+            ->assertSee('Rs. 125.75')
+            ->assertSee('Export Shop');
+
+        $this->actingAs($purchaser)
+            ->get(route('purchaser.reports.item-summary.pdf', $query))
+            ->assertOk()
+            ->assertSee('Purchaser Item Summary')
+            ->assertSee('Export Potato')
+            ->assertSee('0.5');
+
+        Excel::fake();
+
+        $this->actingAs($purchaser)->get(route('purchaser.reports.sales-summary.excel', $query));
+        Excel::assertDownloaded('purchaser-sales-summary-2026-08-10_2026-08-10.xlsx');
+
+        $this->actingAs($purchaser)->get(route('purchaser.reports.item-summary.excel', $query));
+        Excel::assertDownloaded('purchaser-item-summary-2026-08-10_2026-08-10.xlsx');
     }
 
     public function test_custom_range_validation_rejects_invalid_dates(): void
