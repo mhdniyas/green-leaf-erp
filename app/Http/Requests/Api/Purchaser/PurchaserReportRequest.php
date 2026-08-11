@@ -30,6 +30,7 @@ class PurchaserReportRequest extends FormRequest
             'search' => ['nullable', 'string', 'max:120'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'sort' => ['nullable', Rule::in(['sku', 'balance'])],
         ];
     }
 

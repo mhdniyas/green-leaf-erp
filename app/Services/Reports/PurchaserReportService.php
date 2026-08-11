@@ -19,11 +19,11 @@ class PurchaserReportService
     public function salesSummary(array $filters): array
     {
         $invoices = $this->filteredInvoices($filters);
-        $shops = $this->salesRowsQuery($invoices)
+        $shops = $this->salesRowsQuery($invoices, $filters)
             ->paginate($filters['per_page'], ['*'], 'page', $filters['page']);
 
         return [
-            'totals' => $this->salesTotals($invoices),
+            'totals' => $this->salesTotals($invoices, $filters),
             'shops' => collect($shops->items())->map(fn (object $row): array => $this->salesRow($row))->all(),
             'pagination' => $this->pagination($shops),
         ];
@@ -38,8 +38,8 @@ class PurchaserReportService
         $invoices = $this->filteredInvoices($filters);
 
         return [
-            'totals' => $this->salesTotals($invoices),
-            'shops' => $this->salesRowsQuery($invoices)->get()->map(fn (object $row): array => $this->salesRow($row))->all(),
+            'totals' => $this->salesTotals($invoices, $filters),
+            'shops' => $this->salesRowsQuery($invoices, $filters)->get()->map(fn (object $row): array => $this->salesRow($row))->all(),
         ];
     }
 
@@ -55,10 +55,7 @@ class PurchaserReportService
         $distinctProducts = (clone $lines)->distinct()->count('shop_invoice_items.product_id');
         $invoiceLines = (clone $lines)->count();
 
-        $rows = $aggregate
-            ->orderBy('unit')
-            ->orderByDesc('billed_quantity')
-            ->orderBy('product_name')
+        $rows = $this->sortedItemRows($aggregate, (string) ($filters['sort'] ?? 'sku'))
             ->paginate($filters['per_page'], ['*'], 'page', $filters['page']);
 
         return [
@@ -87,10 +84,7 @@ class PurchaserReportService
                 'product_unit_rows' => (int) DB::query()->fromSub(clone $aggregate, 'item_rows')->count(),
                 'invoice_lines' => (int) (clone $lines)->count(),
             ],
-            'items' => $aggregate
-                ->orderBy('unit')
-                ->orderByDesc('billed_quantity')
-                ->orderBy('product_name')
+            'items' => $this->sortedItemRows($aggregate, (string) ($filters['sort'] ?? 'sku'))
                 ->get()
                 ->map(fn (object $row): array => $this->itemRow($row))
                 ->all(),
@@ -129,8 +123,12 @@ class PurchaserReportService
             });
     }
 
-    private function salesRowsQuery(Builder $invoices): Builder
+    private function salesRowsQuery(Builder $invoices, array $filters): Builder
     {
+        if ($this->categoryIds($filters) !== null) {
+            return $this->categoryScopedSalesRowsQuery($invoices, $this->categoryIds($filters) ?? []);
+        }
+
         return (clone $invoices)
             ->select([
                 'shop_invoices.shop_id',
@@ -147,8 +145,27 @@ class PurchaserReportService
     }
 
     /** @return array<string, mixed> */
-    private function salesTotals(Builder $invoices): array
+    private function salesTotals(Builder $invoices, array $filters): array
     {
+        if ($this->categoryIds($filters) !== null) {
+            $rows = $this->categoryScopedSalesRowsQuery($invoices, $this->categoryIds($filters) ?? []);
+            $totals = DB::query()->fromSub($rows, 'scoped_sales')
+                ->selectRaw('COUNT(*) as shop_count')
+                ->selectRaw('COALESCE(SUM(invoice_count), 0) as invoice_count')
+                ->selectRaw('COALESCE(SUM(total_sales), 0) as total_sales')
+                ->selectRaw('COALESCE(SUM(paid_amount), 0) as paid_amount')
+                ->selectRaw('COALESCE(SUM(outstanding_amount), 0) as outstanding_amount')
+                ->first();
+
+            return [
+                'total_sales' => $this->money($totals?->total_sales),
+                'total_shops' => (int) ($totals?->shop_count ?? 0),
+                'total_invoices' => (int) ($totals?->invoice_count ?? 0),
+                'paid_amount' => $this->money($totals?->paid_amount),
+                'outstanding_amount' => $this->money($totals?->outstanding_amount),
+            ];
+        }
+
         $totals = (clone $invoices)
             ->selectRaw('COUNT(*) as invoice_count')
             ->selectRaw('COUNT(DISTINCT shop_invoices.shop_id) as shop_count')
@@ -230,6 +247,50 @@ class PurchaserReportService
             ->selectRaw('COUNT(DISTINCT shop_invoices.shop_id) as shop_count')
             ->groupBy('shop_invoice_items.product_id')
             ->groupByRaw($unitExpression);
+    }
+
+    private function sortedItemRows(Builder $query, string $sort): Builder
+    {
+        return $sort === 'balance'
+            ? $query->orderByDesc('billed_quantity')->orderBy('product_sku')->orderBy('product_name')
+            : $query->orderByRaw("CASE WHEN product_sku IS NULL OR product_sku = '' THEN 1 ELSE 0 END")
+                ->orderBy('product_sku')
+                ->orderBy('product_name')
+                ->orderBy('unit');
+    }
+
+    /** @param array<int, int> $categoryIds */
+    private function categoryScopedSalesRowsQuery(Builder $invoices, array $categoryIds): Builder
+    {
+        $scopedInvoices = (clone $invoices)
+            ->join('shop_invoice_items as scoped_items', 'scoped_items.shop_invoice_id', '=', 'shop_invoices.id')
+            ->join('products as scoped_products', 'scoped_products.id', '=', 'scoped_items.product_id')
+            ->whereIn('scoped_products.category_id', $categoryIds)
+            ->select([
+                'shop_invoices.id as invoice_id',
+                'shop_invoices.shop_id',
+                'shops.name as shop_name',
+                'shops.code as shop_code',
+                'shop_invoices.paid_amount',
+            ])
+            ->selectRaw('SUM(scoped_items.final_line_total) as scoped_total')
+            ->groupBy(
+                'shop_invoices.id',
+                'shop_invoices.shop_id',
+                'shops.name',
+                'shops.code',
+                'shop_invoices.paid_amount',
+            );
+
+        return DB::query()->fromSub($scopedInvoices, 'category_invoices')
+            ->select(['shop_id', 'shop_name', 'shop_code'])
+            ->selectRaw('COUNT(*) as invoice_count')
+            ->selectRaw('SUM(scoped_total) as total_sales')
+            ->selectRaw('SUM(CASE WHEN paid_amount > scoped_total THEN scoped_total ELSE paid_amount END) as paid_amount')
+            ->selectRaw('SUM(scoped_total - CASE WHEN paid_amount > scoped_total THEN scoped_total ELSE paid_amount END) as outstanding_amount')
+            ->groupBy('shop_id', 'shop_name', 'shop_code')
+            ->orderByDesc('total_sales')
+            ->orderBy('shop_name');
     }
 
     /** @return array<string, mixed> */

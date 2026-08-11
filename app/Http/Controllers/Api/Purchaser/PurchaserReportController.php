@@ -54,6 +54,7 @@ class PurchaserReportController extends Controller
             'search' => trim((string) ($validated['search'] ?? '')),
             'page' => (int) ($validated['page'] ?? 1),
             'per_page' => (int) ($validated['per_page'] ?? 25),
+            'sort' => (string) ($validated['sort'] ?? 'sku'),
             'category_ids' => $user?->hasAssignedCategoryFilter() ? $user->assignedCategoryIds() : null,
         ];
     }

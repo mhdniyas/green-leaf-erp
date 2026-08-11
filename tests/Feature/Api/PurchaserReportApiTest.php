@@ -214,6 +214,31 @@ class PurchaserReportApiTest extends TestCase
             ->assertJsonMissing(['shop_name' => 'Excluded Shop']);
     }
 
+    public function test_sales_summary_totals_only_include_assigned_lines_from_mixed_invoices(): void
+    {
+        $includedCategory = Category::factory()->create();
+        $excludedCategory = Category::factory()->create();
+        $purchaser = User::factory()->create(['assigned_category_ids' => [$includedCategory->id]]);
+        $purchaser->assignRole('purchaser');
+        $shop = Shop::factory()->create(['name' => 'Mixed Shop']);
+        $includedProduct = Product::factory()->create(['category_id' => $includedCategory->id]);
+        $excludedProduct = Product::factory()->create(['category_id' => $excludedCategory->id]);
+        $invoice = $this->invoice($shop, '2026-08-03', 'generated', 150, 0, 150, 'MIXED-INV');
+
+        $this->line($invoice, $includedProduct, 'kg', null, 5, 0, 50);
+        $this->line($invoice, $excludedProduct, 'kg', null, 10, 0, 100);
+
+        $this->actingAs($purchaser)
+            ->getJson(route('api.v1.purchaser.reports.sales-summary', [
+                'date_from' => '2026-08-03',
+                'date_to' => '2026-08-03',
+            ]))
+            ->assertOk()
+            ->assertJsonPath('data.totals.total_sales', '50.00')
+            ->assertJsonPath('data.totals.outstanding_amount', '50.00')
+            ->assertJsonPath('data.shops.0.total_sales', '50.00');
+    }
+
     public function test_report_request_validates_dates_status_shop_and_pagination(): void
     {
         $purchaser = User::factory()->create();

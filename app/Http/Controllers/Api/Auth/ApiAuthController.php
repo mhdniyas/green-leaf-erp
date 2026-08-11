@@ -45,6 +45,7 @@ class ApiAuthController extends Controller
                 'email' => $user->email,
                 'roles' => $user->getRoleNames(),
                 'permissions' => $user->getAllPermissions()->pluck('name'),
+                'assigned_category_ids' => $user->assignedCategoryIds(),
             ],
         ]);
     }
@@ -65,6 +66,7 @@ class ApiAuthController extends Controller
                 'email' => $user->email,
                 'roles' => $user->getRoleNames(),
                 'permissions' => $user->getAllPermissions()->pluck('name'),
+                'assigned_category_ids' => $user->assignedCategoryIds(),
             ],
         ]);
     }
