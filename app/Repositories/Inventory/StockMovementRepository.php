@@ -36,7 +36,8 @@ class StockMovementRepository extends BaseRepository
      * Eloquent 'grade' enum cast from being applied, keeping grade as a
      * raw string value safe for array-key lookup.
      */
-    public function currentStockByProductAndGrade(?string $date = null, ?int $warehouseId = null): Collection
+    /** @param array<int, int>|null $categoryIds */
+    public function currentStockByProductAndGrade(?string $date = null, ?int $warehouseId = null, ?array $categoryIds = null): Collection
     {
         $driver = (new Product)->getConnection()->getDriverName();
         $positiveMovementTypes = [
@@ -68,6 +69,7 @@ class StockMovementRepository extends BaseRepository
             )
             ->when($date, fn ($q) => $q->whereDate('stock_movements.created_at', '<=', $date))
             ->when($warehouseId, fn ($q) => $q->where('stock_movements.warehouse_id', $warehouseId))
+            ->when($categoryIds !== null, fn ($q) => $q->whereIn('products.category_id', $categoryIds))
             ->groupBy('stock_movements.product_id', 'products.public_uuid', 'products.name', 'products.sku', 'products.image', 'categories.name', 'products.buffer_qty', 'products.carryover_enabled', 'stock_movements.grade')
             ->havingRaw('current_stock > 0.0001')
             ->orderByRaw(Product::numericSkuPriorityExpression('products.sku', $driver))
@@ -81,6 +83,7 @@ class StockMovementRepository extends BaseRepository
         $pendingBatches = StockBatch::where('status', BatchStatus::Pending)
             ->when($date, fn ($q) => $q->whereDate('received_at', '<=', $date))
             ->when($warehouseId, fn ($q) => $q->where('warehouse_id', $warehouseId))
+            ->when($categoryIds !== null, fn ($q) => $q->whereHas('product', fn ($productQuery) => $productQuery->whereIn('category_id', $categoryIds)))
             ->with(['product.category', 'wastageEntries'])
             ->get();
 

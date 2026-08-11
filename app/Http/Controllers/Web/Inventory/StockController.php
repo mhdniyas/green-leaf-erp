@@ -8,6 +8,8 @@ use App\Http\Controllers\Controller;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\StockAdjustment;
+use App\Models\Warehouse;
+use App\Repositories\Inventory\CategoryRepository;
 use App\Repositories\Inventory\StockMovementRepository;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Http\Request;
@@ -22,6 +24,7 @@ class StockController extends Controller
     public function __construct(
         private readonly StockMovementRepository $stockMovements,
         private readonly PurchaserBusinessDayService $businessDayService,
+        private readonly CategoryRepository $categories,
     ) {}
 
     public function index(Request $request): View
@@ -42,7 +45,20 @@ class StockController extends Controller
             }
         }
 
-        $stockRows = $this->stockMovements->currentStockByProductAndGrade($date);
+        $warehouses = Warehouse::query()->active()->orderBy('name')->get(['id', 'name', 'code']);
+        $selectedWarehouseId = $request->integer('warehouse_id');
+        $selectedWarehouseId = $warehouses->contains('id', $selectedWarehouseId) ? $selectedWarehouseId : null;
+        $assignedCategoryIds = $request->user()?->hasAssignedCategoryFilter()
+            ? $request->user()->assignedCategoryIds()
+            : null;
+        $categories = $this->categories->findAllActive()
+            ->when($assignedCategoryIds !== null, fn (Collection $items) => $items->whereIn('id', $assignedCategoryIds))
+            ->values();
+        $selectedCategoryId = $request->integer('category_id');
+        $selectedCategoryId = $categories->contains('id', $selectedCategoryId) ? $selectedCategoryId : null;
+        $categoryIds = $selectedCategoryId ? [$selectedCategoryId] : $assignedCategoryIds;
+
+        $stockRows = $this->stockMovements->currentStockByProductAndGrade($date, $selectedWarehouseId, $categoryIds);
         $stockByProduct = $stockRows->groupBy('product_id');
         $negativeProductCount = $stockByProduct
             ->filter(fn ($rows) => (float) $rows->sum('current_stock') < -0.001)
@@ -60,9 +76,11 @@ class StockController extends Controller
             ->count();
         $adjustmentTotals = StockAdjustment::query()
             ->whereDate('business_date', $date)
+            ->when($categoryIds !== null, fn ($query) => $query->whereHas('product', fn ($productQuery) => $productQuery->whereIn('category_id', $categoryIds)))
             ->selectRaw("COALESCE(SUM(CASE WHEN category = 'wastage' THEN ABS(variance_qty) ELSE 0 END), 0) as wastage_qty")
             ->selectRaw("COALESCE(SUM(CASE WHEN category = 'old_stock' THEN variance_qty ELSE 0 END), 0) as old_stock_qty")
             ->first();
+        $showAdjustmentTotals = ! $selectedWarehouseId;
 
         $search = trim($request->string('search')->toString());
         $sort = $request->string('sort')->toString();
@@ -130,6 +148,11 @@ class StockController extends Controller
             'search',
             'sort',
             'perPage',
+            'warehouses',
+            'selectedWarehouseId',
+            'categories',
+            'selectedCategoryId',
+            'showAdjustmentTotals',
         ));
     }
 }

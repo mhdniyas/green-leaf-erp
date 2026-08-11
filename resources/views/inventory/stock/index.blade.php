@@ -47,6 +47,7 @@
         </a>
     </div>
 
+    @if($showAdjustmentTotals)
     <div class="mb-6 grid gap-4 sm:grid-cols-2">
         <div class="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 shadow-sm">
             <p class="text-[10px] font-black uppercase tracking-[0.16em] text-rose-700">Counted wastage</p>
@@ -57,9 +58,49 @@
             <p class="mt-1 text-2xl font-black text-cyan-950">{{ number_format((float) $adjustmentTotals->old_stock_qty, 3) }} <span class="text-sm">kg</span></p>
         </div>
     </div>
+    @endif
+
+    @php($stockTabQuery = request()->except(['page', 'warehouse_id', 'category_id']))
+    <div class="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+        <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Warehouse</p>
+        <div class="mt-2 flex gap-2 overflow-x-auto pb-1">
+            <a href="{{ route('inventory.stock.index', array_merge($stockTabQuery, ['warehouse_id' => null, 'category_id' => $selectedCategoryId])) }}" @class([
+                'shrink-0 rounded-xl px-3 py-2 text-xs font-black transition',
+                'bg-slate-950 text-white' => ! $selectedWarehouseId,
+                'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50' => $selectedWarehouseId,
+            ])>All warehouses</a>
+            @foreach($warehouses as $warehouse)
+                <a href="{{ route('inventory.stock.index', array_merge($stockTabQuery, ['warehouse_id' => $warehouse->id, 'category_id' => $selectedCategoryId])) }}" @class([
+                    'shrink-0 rounded-xl px-3 py-2 text-xs font-black transition',
+                    'bg-brand-600 text-white shadow-sm' => $selectedWarehouseId === $warehouse->id,
+                    'border border-slate-200 bg-white text-slate-600 hover:border-brand-200 hover:bg-brand-50' => $selectedWarehouseId !== $warehouse->id,
+                ])>{{ $warehouse->name }} <span class="opacity-70">{{ $warehouse->code }}</span></a>
+            @endforeach
+        </div>
+    </div>
+
+    <div class="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+        <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Product category</p>
+        <div class="mt-2 flex gap-2 overflow-x-auto pb-1">
+            <a href="{{ route('inventory.stock.index', array_merge($stockTabQuery, ['warehouse_id' => $selectedWarehouseId, 'category_id' => null])) }}" @class([
+                'shrink-0 rounded-xl px-3 py-2 text-xs font-black transition',
+                'bg-slate-950 text-white' => ! $selectedCategoryId,
+                'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50' => $selectedCategoryId,
+            ])>All categories</a>
+            @foreach($categories as $category)
+                <a href="{{ route('inventory.stock.index', array_merge($stockTabQuery, ['warehouse_id' => $selectedWarehouseId, 'category_id' => $category->id])) }}" @class([
+                    'shrink-0 rounded-xl px-3 py-2 text-xs font-black transition',
+                    'bg-emerald-600 text-white shadow-sm' => $selectedCategoryId === $category->id,
+                    'border border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50' => $selectedCategoryId !== $category->id,
+                ])>{{ $category->name }}</a>
+            @endforeach
+        </div>
+    </div>
 
     <form method="GET" action="{{ route('inventory.stock.index') }}" class="mb-6 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:flex-row sm:items-end">
         <input type="hidden" name="date" value="{{ $date }}">
+        @if($selectedWarehouseId) <input type="hidden" name="warehouse_id" value="{{ $selectedWarehouseId }}"> @endif
+        @if($selectedCategoryId) <input type="hidden" name="category_id" value="{{ $selectedCategoryId }}"> @endif
         <label class="block flex-1">
             <span class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Search products</span>
             <input type="search" name="search" value="{{ $search }}" placeholder="Name, SKU or category" class="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
@@ -186,6 +227,7 @@
                 </div>
 
                 @can('inventory.stock.adjust')
+                    @if(! $selectedWarehouseId)
                     <button
                         type="button"
                         onclick="openStockAdjustmentModal('{{ $productRouteKey }}', @js($productName), {{ number_format($totalStock, 3, '.', '') }})"
@@ -193,6 +235,7 @@
                     >
                         Update Qty
                     </button>
+                    @endif
                 @endcan
             </div>
 
