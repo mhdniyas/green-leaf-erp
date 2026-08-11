@@ -52,12 +52,12 @@
             </section>
 
             <section class="border-b border-slate-200 bg-white py-5">
-                <form method="GET" action="{{ route('marketplace.index') }}" class="mx-auto grid max-w-7xl gap-3 px-4 sm:px-6 md:grid-cols-[1fr_220px_180px_auto] lg:px-8">
+                <form id="marketplace-filters" class="mx-auto grid max-w-7xl gap-3 px-4 sm:px-6 md:grid-cols-[1fr_220px_180px_auto] lg:px-8">
                     <label class="grid gap-1 text-xs font-black uppercase tracking-wider text-slate-500">Search
-                        <input name="q" type="search" value="{{ $filters['q'] }}" class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm normal-case tracking-normal outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100" placeholder="Search apple, tomato, grapes...">
+                        <input id="market-search" name="q" type="search" value="{{ $filters['q'] }}" class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm normal-case tracking-normal outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100" placeholder="Search apple, tomato, grapes...">
                     </label>
                     <label class="grid gap-1 text-xs font-black uppercase tracking-wider text-slate-500">Category
-                        <select name="category" class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm normal-case tracking-normal outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100">
+                        <select id="market-category" name="category" class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm normal-case tracking-normal outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100">
                             <option value="">All categories</option>
                             @foreach ($categories as $category)
                                 <option value="{{ $category->id }}" @selected($filters['category'] === $category->id)>{{ $category->name }}</option>
@@ -65,7 +65,7 @@
                         </select>
                     </label>
                     <label class="grid gap-1 text-xs font-black uppercase tracking-wider text-slate-500">Sort
-                        <select name="sort" class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm normal-case tracking-normal outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100">
+                        <select id="market-sort" name="sort" class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm normal-case tracking-normal outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100">
                             <option value="featured" @selected($filters['sort'] === 'featured')>Featured</option>
                             <option value="price_low" @selected($filters['sort'] === 'price_low')>Price: low to high</option>
                             <option value="price_high" @selected($filters['sort'] === 'price_high')>Price: high to low</option>
@@ -74,7 +74,7 @@
                     </label>
                     <div class="flex items-end gap-2">
                         <button type="submit" class="w-full rounded-xl bg-brand-700 px-5 py-3 text-sm font-black text-white hover:bg-brand-800">Apply</button>
-                        <a href="{{ route('marketplace.index') }}" class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:border-brand-300">Reset</a>
+                        <button type="button" id="reset-market-filters" class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 hover:border-brand-300">Reset</button>
                     </div>
                 </form>
             </section>
@@ -83,16 +83,16 @@
                 <div class="mx-auto grid max-w-7xl gap-8 px-4 sm:px-6 lg:grid-cols-[1fr_360px] lg:px-8">
                     <div>
                         <div class="mb-6 flex flex-wrap gap-2">
-                            <a href="{{ route('marketplace.index', ['q' => $filters['q'], 'sort' => $filters['sort']]) }}" class="rounded-full {{ $filters['category'] === null ? 'bg-brand-700 text-white' : 'border border-brand-200 bg-white text-brand-800' }} px-4 py-2 text-xs font-black">All</a>
+                            <button type="button" class="market-category-chip rounded-full {{ $filters['category'] === null ? 'bg-brand-700 text-white' : 'border border-brand-200 bg-white text-brand-800' }} px-4 py-2 text-xs font-black" data-category="">All</button>
                             @foreach ($categories as $category)
-                                <a href="{{ route('marketplace.index', ['category' => $category->id, 'q' => $filters['q'], 'sort' => $filters['sort']]) }}" class="rounded-full {{ $filters['category'] === $category->id ? 'bg-brand-700 text-white' : 'border border-brand-200 bg-white text-brand-800 hover:border-brand-500' }} px-4 py-2 text-xs font-black">{{ $category->name }}</a>
+                                <button type="button" class="market-category-chip rounded-full {{ $filters['category'] === $category->id ? 'bg-brand-700 text-white' : 'border border-brand-200 bg-white text-brand-800 hover:border-brand-500' }} px-4 py-2 text-xs font-black" data-category="{{ $category->id }}">{{ $category->name }}</button>
                             @endforeach
                         </div>
 
                         @if ($marketProducts->isNotEmpty())
-                            <div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                            <div id="market-grid" class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
                                 @foreach ($marketProducts as $product)
-                                    <article class="group overflow-hidden rounded-3xl border border-brand-100 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-xl">
+                                    <article class="market-card group overflow-hidden rounded-3xl border border-brand-100 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-xl" data-category="{{ $product['category_id'] }}" data-name="{{ strtolower($product['name'].' '.$product['category']) }}" data-price="{{ $product['price'] }}">
                                         <div class="relative h-52 overflow-hidden bg-amber-50">
                                             <img src="{{ $product['image'] }}" alt="{{ $product['name'] }}" loading="lazy" class="h-full w-full object-cover transition duration-500 group-hover:scale-105">
                                             <span class="absolute left-3 top-3 rounded-full bg-white/95 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-brand-700 shadow">{{ $product['category'] }}</span>
@@ -116,8 +116,12 @@
                                     </article>
                                 @endforeach
                             </div>
+                            <div id="empty-market-products" class="mt-6 hidden rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center">
+                                <p class="text-xl font-black text-slate-950">No marketplace products found.</p>
+                                <p class="mt-3 text-sm font-semibold text-slate-600">Try another category/search, or send an enquiry for current availability.</p>
+                            </div>
                         @else
-                            <div class="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center">
+                            <div id="empty-market-products" class="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center">
                                 <p class="text-xl font-black text-slate-950">No marketplace products found.</p>
                                 <p class="mt-3 text-sm font-semibold text-slate-600">Try another category/search, or send an enquiry for current availability.</p>
                             </div>
@@ -172,12 +176,81 @@
         <script>
             (() => {
                 const storageKey = 'greenleaf-marketplace-cart';
+                const filterForm = document.getElementById('marketplace-filters');
+                const searchInput = document.getElementById('market-search');
+                const categorySelect = document.getElementById('market-category');
+                const sortSelect = document.getElementById('market-sort');
+                const resetFilters = document.getElementById('reset-market-filters');
+                const marketGrid = document.getElementById('market-grid');
+                const marketCards = Array.from(document.querySelectorAll('.market-card'));
+                const emptyMarketProducts = document.getElementById('empty-market-products');
+                const categoryChips = Array.from(document.querySelectorAll('.market-category-chip'));
                 const cartItems = document.getElementById('cart-items');
                 const cartCount = document.getElementById('cart-count');
                 const cartTotal = document.getElementById('cart-total');
                 const message = document.getElementById('marketplace-message');
                 const formatter = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 });
                 let cart = JSON.parse(localStorage.getItem(storageKey) || '[]');
+
+                const activeChipClasses = ['bg-brand-700', 'text-white'];
+                const inactiveChipClasses = ['border', 'border-brand-200', 'bg-white', 'text-brand-800'];
+                const setActiveCategoryChip = (category) => {
+                    categoryChips.forEach((chip) => {
+                        const isActive = chip.dataset.category === category;
+                        chip.classList.remove(...activeChipClasses, ...inactiveChipClasses);
+                        chip.classList.add(...(isActive ? activeChipClasses : inactiveChipClasses));
+                    });
+                };
+                const applyMarketFilters = () => {
+                    if (!marketGrid) return;
+                    const search = (searchInput?.value || '').trim().toLowerCase();
+                    const category = categorySelect?.value || '';
+                    const sort = sortSelect?.value || 'featured';
+                    const visibleCards = marketCards.filter((card) => {
+                        const matchesCategory = category === '' || card.dataset.category === category;
+                        const matchesSearch = search === '' || (card.dataset.name || '').includes(search);
+                        const shouldShow = matchesCategory && matchesSearch;
+                        card.classList.toggle('hidden', !shouldShow);
+                        return shouldShow;
+                    });
+
+                    visibleCards
+                        .sort((first, second) => {
+                            const firstPrice = Number.parseFloat(first.dataset.price || '0');
+                            const secondPrice = Number.parseFloat(second.dataset.price || '0');
+                            const firstName = first.dataset.name || '';
+                            const secondName = second.dataset.name || '';
+
+                            if (sort === 'price_low') return firstPrice - secondPrice;
+                            if (sort === 'price_high') return secondPrice - firstPrice;
+                            if (sort === 'name') return firstName.localeCompare(secondName);
+                            return 0;
+                        })
+                        .forEach((card) => marketGrid.appendChild(card));
+
+                    emptyMarketProducts?.classList.toggle('hidden', visibleCards.length > 0);
+                    setActiveCategoryChip(category);
+                };
+
+                filterForm?.addEventListener('submit', (event) => {
+                    event.preventDefault();
+                    applyMarketFilters();
+                });
+                searchInput?.addEventListener('input', applyMarketFilters);
+                sortSelect?.addEventListener('change', applyMarketFilters);
+                categorySelect?.addEventListener('change', applyMarketFilters);
+                categoryChips.forEach((chip) => {
+                    chip.addEventListener('click', () => {
+                        if (categorySelect) categorySelect.value = chip.dataset.category || '';
+                        applyMarketFilters();
+                    });
+                });
+                resetFilters?.addEventListener('click', () => {
+                    if (searchInput) searchInput.value = '';
+                    if (categorySelect) categorySelect.value = '';
+                    if (sortSelect) sortSelect.value = 'featured';
+                    applyMarketFilters();
+                });
 
                 const save = () => localStorage.setItem(storageKey, JSON.stringify(cart));
                 const syncMessage = () => {
@@ -226,6 +299,7 @@
                     if (message) message.value = '';
                 });
 
+                applyMarketFilters();
                 render();
             })();
         </script>
