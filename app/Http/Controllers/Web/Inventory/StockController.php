@@ -60,8 +60,9 @@ class StockController extends Controller
         $selectedCategory = $categories->first(fn ($category) => Str::slug($category->name) === $selectedCategorySlug);
         $selectedCategoryId = $selectedCategory?->id;
         $categoryIds = $selectedCategoryId ? [$selectedCategoryId] : $assignedCategoryIds;
+        $search = trim($request->string('search')->toString());
 
-        $stockRows = $this->stockMovements->currentStockByProductAndGrade($date, $selectedWarehouseId, $categoryIds);
+        $stockRows = $this->stockMovements->currentStockByProductAndGrade($date, $selectedWarehouseId, $categoryIds, $search);
         $showEmptyStock = $request->boolean('show_empty');
         $showEmptyWarehouseProducts = $showEmptyStock && $stockRows->isEmpty();
 
@@ -71,12 +72,13 @@ class StockController extends Controller
                 ->with('category:id,name')
                 ->when($categoryIds !== null, fn ($query) => $query->whereIn('category_id', $categoryIds))
                 ->ordered()
-                ->get(['id', 'public_uuid', 'name', 'sku', 'image', 'buffer_qty', 'carryover_enabled', 'category_id'])
+                ->get(['id', 'public_uuid', 'name', 'sku', 'unit', 'image', 'buffer_qty', 'carryover_enabled', 'category_id'])
                 ->map(fn (Product $product) => (object) [
                     'product_id' => $product->id,
                     'product_route_key' => $product->getRouteKey(),
                     'product_name' => $product->name,
                     'product_sku' => $product->sku,
+                    'product_unit' => $product->unit,
                     'product_image' => $product->image,
                     'category_name' => $product->category?->name ?? 'Other',
                     'buffer_qty' => $product->buffer_qty,
@@ -101,7 +103,7 @@ class StockController extends Controller
             ->filter(fn ($rows): bool => (bool) ($rows->first()->carryover_enabled ?? false))
             ->count();
         $adjustmentTotals = StockAdjustment::query()
-            ->whereDate('business_date', $date)
+            ->where('business_date', $date)
             ->when($selectedWarehouseId, fn ($query) => $query->where('warehouse_id', $selectedWarehouseId))
             ->when($categoryIds !== null, fn ($query) => $query->whereHas('product', fn ($productQuery) => $productQuery->whereIn('category_id', $categoryIds)))
             ->selectRaw("COALESCE(SUM(CASE WHEN category = 'wastage' THEN ABS(variance_qty) ELSE 0 END), 0) as wastage_qty")
@@ -109,7 +111,6 @@ class StockController extends Controller
             ->first();
         $showAdjustmentTotals = true;
 
-        $search = trim($request->string('search')->toString());
         $sort = $request->string('sort')->toString();
         $sort = in_array($sort, ['sku_asc', 'name_asc', 'name_desc', 'stock_high', 'stock_low', 'below_buffer'], true)
             ? $sort
@@ -155,12 +156,14 @@ class StockController extends Controller
             ['path' => route('inventory.stock.index'), 'pageName' => 'page'],
         );
 
-        // Fetch dispatches/allocations for the date
+        // Fetch dispatches only for products shown on this page.
+        $pageProductIds = $stock->getCollection()->keys()->map(fn ($id) => (int) $id);
         $allocations = ShopOrderItem::whereHas('order', function ($query) use ($date) {
-            $query->whereDate('business_date', $date)
+            $query->where('business_date', $date)
                 ->where('state', 'approved');
         })
-            ->with(['order.shop'])
+            ->whereIn('product_id', $pageProductIds)
+            ->with(['order:id,shop_id,business_date,state', 'order.shop:id,name'])
             ->get()
             ->groupBy('product_id');
 

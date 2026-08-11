@@ -188,6 +188,7 @@
             $productName = $firstEntry->product_name;
             $productImage = $firstEntry->product_image;
             $productRouteKey = $firstEntry->product_route_key;
+            $productUnit = $firstEntry->product_unit ?: 'kg';
             $totalStock  = $grades->sum(fn ($e) => (float) $e->current_stock);
             $bufferQty = (float) ($firstEntry->buffer_qty ?? 0);
             $isBelowBuffer = $bufferQty > 0 && $totalStock < $bufferQty;
@@ -238,13 +239,13 @@
                     <span class="text-xs font-black font-mono {{ $isNegative ? 'text-rose-400' : ($isBelowBuffer ? 'text-amber-300' : 'text-white') }}">
                         {{ number_format($totalStock, 2) }}
                     </span>
-                    <span class="text-[10px] font-bold text-slate-300">kg</span>
+                    <span class="text-[10px] font-bold text-slate-300">{{ $productUnit }}</span>
                 </div>
 
                 @can('inventory.stock.adjust')
                     <button
                         type="button"
-                        onclick="openStockAdjustmentModal('{{ $productRouteKey }}', @js($productName), {{ number_format($totalStock, 3, '.', '') }}, {{ $selectedWarehouseId ? $selectedWarehouseId : 'null' }})"
+                        onclick="openStockAdjustmentModal('{{ $productRouteKey }}', @js($productName), {{ number_format($totalStock, 3, '.', '') }}, {{ $selectedWarehouseId ? $selectedWarehouseId : 'null' }}, @js($productUnit))"
                         class="absolute bottom-2.5 left-2.5 rounded-xl bg-white/95 px-2.5 py-1 text-[10px] font-black text-slate-700 shadow-sm ring-1 ring-slate-900/10 backdrop-blur-sm transition hover:bg-brand-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
                     >
                         Update Qty
@@ -262,7 +263,7 @@
                     <div class="mt-1 flex items-center justify-between text-xs">
                         <span class="text-[11px] font-semibold text-slate-500">Buffer Target</span>
                         <span class="font-bold text-slate-700 font-mono text-[11px]">
-                            {{ $bufferQty > 0 ? number_format($bufferQty, 2) . ' kg' : 'Not set' }}
+                            {{ $bufferQty > 0 ? number_format($bufferQty, 2) . ' ' . $productUnit : 'Not set' }}
                         </span>
                     </div>
                 </div>
@@ -287,7 +288,7 @@
                         @endphp
                         <div class="flex items-center justify-between px-2 py-1 rounded-lg border text-xs {{ $color }}">
                             <span class="text-[10px] font-extrabold uppercase tracking-tight">{{ $gradeLabel }}</span>
-                            <span class="font-mono font-black text-[11px]">{{ number_format((float) $entry->current_stock, 2) }} <span class="text-[9px] font-bold opacity-75 font-sans">kg</span></span>
+                            <span class="font-mono font-black text-[11px]">{{ number_format((float) $entry->current_stock, 2) }} <span class="text-[9px] font-bold opacity-75 font-sans">{{ $productUnit }}</span></span>
                         </div>
                         @endforeach
                     </div>
@@ -361,7 +362,7 @@
                     <input type="hidden" name="warehouse_id" id="stock-adjustment-warehouse-id">
                     <div class="rounded-2xl bg-slate-50 p-4">
                         <div class="flex items-center justify-between text-xs font-bold text-slate-500"><span>System quantity</span><span id="stock-adjustment-system-label" class="font-mono text-base font-black text-slate-950"></span></div>
-                        <label for="stock-adjustment-counted-qty" class="mt-4 block text-xs font-black text-slate-700">Physical quantity counted (kg)</label>
+                        <label for="stock-adjustment-counted-qty" id="stock-adjustment-counted-label" class="mt-4 block text-xs font-black text-slate-700">Physical quantity counted</label>
                         <input id="stock-adjustment-counted-qty" name="counted_qty" type="number" min="0" step="0.001" required oninput="updateStockAdjustmentPreview()" class="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-right text-sm font-black text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
                     </div>
                     <div id="stock-adjustment-preview" class="hidden rounded-2xl border p-3 text-xs font-bold"></div>
@@ -384,15 +385,17 @@
                 old_stock: ['Old stock found during count', 'Previous-day stock not recorded', 'Stock received before system entry', 'Other old stock'],
                 wastage: ['Damaged or spoiled stock', 'Expired / unsellable stock', 'Handling or sorting loss', 'Missing stock after count', 'Other wastage'],
             };
-            function openStockAdjustmentModal(productKey, productName, systemQty, warehouseId) {
+            function openStockAdjustmentModal(productKey, productName, systemQty, warehouseId, unit) {
                 document.getElementById('stock-adjustment-title').textContent = productName;
                 document.getElementById('stock-adjustment-system-qty').value = systemQty.toFixed(3);
                 document.getElementById('stock-adjustment-warehouse-id').value = warehouseId ?? '';
-                document.getElementById('stock-adjustment-system-label').textContent = systemQty.toFixed(3) + ' kg';
+                document.getElementById('stock-adjustment-system-label').textContent = systemQty.toFixed(3) + ' ' + unit;
+                document.getElementById('stock-adjustment-counted-label').textContent = 'Physical quantity counted (' + unit + ')';
                 document.getElementById('stock-adjustment-counted-qty').value = systemQty.toFixed(3);
                 const notes = document.getElementById('stock-adjustment-notes');
                 notes.value = '';
                 document.getElementById('stock-adjustment-form').action = stockAdjustmentRoute.replace('PRODUCT_KEY', productKey);
+                document.getElementById('stock-adjustment-form').dataset.unit = unit;
                 updateStockAdjustmentPreview();
                 document.getElementById('stock-adjustment-modal').classList.remove('hidden');
                 document.getElementById('stock-adjustment-modal').classList.add('flex');
@@ -412,7 +415,7 @@
                 setStockAdjustmentReasons(isExcess ? 'old_stock' : 'wastage');
                 reasonWrap.classList.remove('hidden');
                 preview.classList.remove('hidden'); preview.className = 'rounded-2xl border p-3 text-xs font-bold ' + (isExcess ? 'border-cyan-200 bg-cyan-50 text-cyan-800' : 'border-rose-200 bg-rose-50 text-rose-800');
-                preview.textContent = (isExcess ? 'Old Stock: +' : 'Wastage: ') + difference.toFixed(3) + ' kg';
+                preview.textContent = (isExcess ? 'Old Stock: +' : 'Wastage: ') + difference.toFixed(3) + ' ' + document.getElementById('stock-adjustment-form').dataset.unit;
             }
             function setStockAdjustmentReasons(category) {
                 const select = document.getElementById('stock-adjustment-reason');
