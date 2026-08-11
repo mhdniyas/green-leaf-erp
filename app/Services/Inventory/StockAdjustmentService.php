@@ -184,7 +184,7 @@ class StockAdjustmentService
             $negativeTypes = [StockMovementType::Out->value, StockMovementType::Wastage->value, StockMovementType::Sale->value, StockMovementType::Adjustment->value];
             $lots = StockMovement::query()->where('product_id', $productId)
                 ->selectRaw('batch_id, warehouse_id, grade, MAX(cost_per_unit) as cost_per_unit, SUM(CASE WHEN type IN (?, ?) THEN quantity WHEN type IN (?, ?, ?, ?) THEN -quantity ELSE 0 END) as available_quantity', [...$positiveTypes, ...$negativeTypes])
-                ->groupBy('batch_id', 'warehouse_id', 'grade')->havingRaw('available_quantity > 0.0001')->lockForUpdate()->get();
+                ->groupBy('batch_id', 'warehouse_id', 'grade')->havingRaw('ABS(available_quantity) > 0.0001')->lockForUpdate()->get();
             $pending = StockBatch::query()->where('product_id', $productId)->where('status', BatchStatus::Pending->value)->where('warehouse_receive_pending', false)->lockForUpdate()->get();
             foreach ($pending as $batch) {
                 $writtenOff = (float) StockMovement::query()->where('batch_id', $batch->id)->where('grade', ProductGrade::Unsorted->value)->whereIn('type', [StockMovementType::Wastage->value, StockMovementType::Adjustment->value])->sum('quantity');
@@ -193,7 +193,18 @@ class StockAdjustmentService
             }
             if ($lots->isEmpty()) return false;
             foreach ($lots as $lot) {
-                StockMovement::create(['product_id'=>$productId,'batch_id'=>$lot->batch_id,'warehouse_id'=>$lot->warehouse_id,'created_by'=>$userId,'grade'=>$lot->grade,'type'=>StockMovementType::Wastage->value,'quantity'=>(float)$lot->available_quantity,'cost_per_unit'=>(float)$lot->cost_per_unit,'notes'=>'Global inventory empty process']);
+                $availableQuantity = (float) $lot->available_quantity;
+                StockMovement::create([
+                    'product_id'=>$productId,
+                    'batch_id'=>$lot->batch_id,
+                    'warehouse_id'=>$lot->warehouse_id,
+                    'created_by'=>$userId,
+                    'grade'=>$lot->grade,
+                    'type'=>$availableQuantity > 0 ? StockMovementType::Wastage->value : StockMovementType::In->value,
+                    'quantity'=>abs($availableQuantity),
+                    'cost_per_unit'=>(float)$lot->cost_per_unit,
+                    'notes'=>'Global inventory empty process: balance reset to zero',
+                ]);
             }
             return true;
         });
