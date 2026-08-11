@@ -11,6 +11,7 @@ use App\Models\StockBatch;
 use App\Models\StockMovement;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class StockLedgerService
 {
@@ -43,21 +44,13 @@ class StockLedgerService
             return 0.0;
         }
 
-        $remainingQuantity = $quantity;
-        $consumedQuantity = 0.0;
+        return DB::transaction(function () use ($productId, $quantity, $userId, $movementType, $notes, $shopOrderItemId): float {
+            $this->lockStockBatchesForProduct($productId);
 
-        [$remainingQuantity, $consumedQuantity] = $this->consumeSortedLots(
-            $productId,
-            $remainingQuantity,
-            $consumedQuantity,
-            $userId,
-            $movementType,
-            $notes,
-            $shopOrderItemId,
-        );
+            $remainingQuantity = $quantity;
+            $consumedQuantity = 0.0;
 
-        if ($remainingQuantity > 0.0) {
-            [$remainingQuantity, $consumedQuantity] = $this->consumePendingBatches(
+            [$remainingQuantity, $consumedQuantity] = $this->consumeSortedLots(
                 $productId,
                 $remainingQuantity,
                 $consumedQuantity,
@@ -66,9 +59,21 @@ class StockLedgerService
                 $notes,
                 $shopOrderItemId,
             );
-        }
 
-        return round($consumedQuantity, 3);
+            if ($remainingQuantity > 0.0) {
+                [$remainingQuantity, $consumedQuantity] = $this->consumePendingBatches(
+                    $productId,
+                    $remainingQuantity,
+                    $consumedQuantity,
+                    $userId,
+                    $movementType,
+                    $notes,
+                    $shopOrderItemId,
+                );
+            }
+
+            return round($consumedQuantity, 3);
+        });
     }
 
     public function consumeStockForProductAllowingNegative(
@@ -83,36 +88,55 @@ class StockLedgerService
             return 0.0;
         }
 
-        $consumedQuantity = $this->consumeSortedStockForProduct(
-            $productId,
-            $quantity,
-            $userId,
-            $movementType,
-            $notes,
-            $shopOrderItemId,
-        );
-        $remainingQuantity = round($quantity - $consumedQuantity, 3);
+        return DB::transaction(function () use ($productId, $quantity, $userId, $movementType, $notes, $shopOrderItemId): float {
+            $this->lockStockBatchesForProduct($productId);
 
-        if ($remainingQuantity <= 0.0) {
-            return round($consumedQuantity, 3);
-        }
+            $remainingQuantity = $quantity;
+            $consumedQuantity = 0.0;
 
-        $batch = $this->negativeStockBatchForProduct($productId, $userId);
+            [$remainingQuantity, $consumedQuantity] = $this->consumeSortedLots(
+                $productId,
+                $remainingQuantity,
+                $consumedQuantity,
+                $userId,
+                $movementType,
+                $notes,
+                $shopOrderItemId,
+            );
 
-        StockMovement::create([
-            'product_id' => $productId,
-            'batch_id' => $batch->id,
-            'created_by' => $userId,
-            'grade' => ProductGrade::GradeA->value,
-            'type' => $movementType->value,
-            'quantity' => $remainingQuantity,
-            'cost_per_unit' => (float) $batch->cost_per_kg,
-            'warehouse_id' => $batch->warehouse_id,
-            'shop_order_item_id' => $shopOrderItemId,
-            'notes' => $notes.'; negative stock allowed',
-        ]);
+            if ($remainingQuantity > 0.0) {
+                [$remainingQuantity, $consumedQuantity] = $this->consumePendingBatches(
+                    $productId,
+                    $remainingQuantity,
+                    $consumedQuantity,
+                    $userId,
+                    $movementType,
+                    $notes,
+                    $shopOrderItemId,
+                );
+            }
 
-        return round($quantity, 3);
+            if ($remainingQuantity <= 0.0) {
+                return round($consumedQuantity, 3);
+            }
+
+            $batch = $this->negativeStockBatchForProduct($productId, $userId);
+
+            StockMovement::create([
+                'product_id' => $productId,
+                'batch_id' => $batch->id,
+                'created_by' => $userId,
+                'grade' => ProductGrade::GradeA->value,
+                'type' => $movementType->value,
+                'quantity' => $remainingQuantity,
+                'cost_per_unit' => (float) $batch->cost_per_kg,
+                'warehouse_id' => $batch->warehouse_id,
+                'shop_order_item_id' => $shopOrderItemId,
+                'notes' => $notes.'; negative stock allowed',
+            ]);
+
+            return round($quantity, 3);
+        });
     }
 
     /**
@@ -284,6 +308,7 @@ class StockLedgerService
     {
         $latestBatch = StockBatch::query()
             ->where('product_id', $productId)
+            ->lockForUpdate()
             ->latest('received_at')
             ->latest('id')
             ->first();
@@ -312,5 +337,15 @@ class StockLedgerService
                 'sorted_at' => now(),
             ],
         );
+    }
+
+    private function lockStockBatchesForProduct(int $productId): void
+    {
+        StockBatch::query()
+            ->where('product_id', $productId)
+            ->whereNull('deleted_at')
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->pluck('id');
     }
 }

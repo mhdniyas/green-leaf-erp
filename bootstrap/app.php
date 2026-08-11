@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\ApiVersionMiddleware;
+use App\Http\Middleware\LogSlowPathPerformance;
 use App\Http\Middleware\SecureHeaders;
 use App\Http\Middleware\UpdateLastSeen;
 use App\Models\PurchaseInvoice;
@@ -31,6 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         $middleware->append(SecureHeaders::class);
+        $middleware->append(LogSlowPathPerformance::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $redirectUnauthorizedDashboardRequest = function (Request $request) {

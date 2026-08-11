@@ -36,6 +36,16 @@ return [
         'trace' => env('LOG_DEPRECATIONS_TRACE', false),
     ],
 
+    'performance' => [
+        'enabled' => env('PERFORMANCE_LOG_ENABLED', false),
+        'min_duration_ms' => env('PERFORMANCE_LOG_MIN_DURATION_MS', 250),
+        'min_query_count' => env('PERFORMANCE_LOG_MIN_QUERY_COUNT', 20),
+        'min_query_time_ms' => env('PERFORMANCE_LOG_MIN_QUERY_TIME_MS', 150),
+        'min_payload_bytes' => env('PERFORMANCE_LOG_MIN_PAYLOAD_BYTES', 30720),
+        'slow_query_ms' => env('PERFORMANCE_LOG_SLOW_QUERY_MS', 100),
+        'max_slow_queries' => env('PERFORMANCE_LOG_MAX_SLOW_QUERIES', 5),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Log Channels

@@ -11,6 +11,7 @@ use App\Models\Shop;
 use App\Models\ShopDailyProductPrice;
 use App\Models\ShopPriceGroup;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 
 class ApprovedDailyPriceResolver
@@ -29,6 +30,8 @@ class ApprovedDailyPriceResolver
      */
     public function resolve(Product $product, Shop $shop, CarbonInterface|string $businessDate): array
     {
+        $businessDate = Carbon::parse($businessDate)->startOfDay();
+        $nextBusinessDate = $businessDate->copy()->addDay();
         $group = $shop->priceGroup;
 
         if (! $group instanceof ShopPriceGroup || ! $group->is_active) {
@@ -38,7 +41,8 @@ class ApprovedDailyPriceResolver
         }
 
         $specialPrice = ShopDailyProductPrice::query()
-            ->whereDate('business_date', $businessDate)
+            ->where('business_date', '>=', $businessDate->toDateString())
+            ->where('business_date', '<', $nextBusinessDate->toDateString())
             ->where('shop_id', $shop->id)
             ->where('product_id', $product->id)
             ->where('status', 'approved')
@@ -69,7 +73,8 @@ class ApprovedDailyPriceResolver
 
         $approval = DailyPriceApproval::query()
             ->where('product_id', $product->id)
-            ->whereDate('business_date', $businessDate)
+            ->where('business_date', '>=', $businessDate->toDateString())
+            ->where('business_date', '<', $nextBusinessDate->toDateString())
             ->first();
 
         if (! $approval instanceof DailyPriceApproval) {

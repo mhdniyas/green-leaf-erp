@@ -19,6 +19,7 @@ use App\Services\Inventory\StockLedgerService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\ShopInvoices\ShopInvoiceService;
+use App\Support\PerformanceProbe;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -40,6 +41,10 @@ class ApiWarehouseLoadoutController extends Controller
     public function index(Request $request): JsonResponse
     {
         $this->authorizeAccess($request);
+        $probe = PerformanceProbe::start('loadout.index', [
+            'route' => $request->route()?->getName(),
+            'date' => $request->query('date'),
+        ]);
 
         $validated = $request->validate([
             'search' => ['nullable', 'string', 'max:120'],
@@ -55,7 +60,7 @@ class ApiWarehouseLoadoutController extends Controller
         $selectedDate = $validated['date'] ?? app(PurchaserBusinessDayService::class)->operationalDate()->toDateString();
         $selectedShopId = isset($validated['shop_id']) ? (int) $validated['shop_id'] : null;
         $selectedSource = (string) ($validated['source'] ?? 'all');
-        
+
         $selectedCategoryIds = null;
         if ($request->has('category_ids')) {
             $rawIds = $request->get('category_ids');
@@ -136,9 +141,16 @@ class ApiWarehouseLoadoutController extends Controller
                     'progress_percentage' => $totalCount > 0 ? round(($loadedCount / $totalCount) * 100) : 0,
                 ];
             });
+        $probe?->checkpoint('orders_query_and_map');
 
         $shops = Shop::query()->whereHas('orders')->orderBy('name')->get(['id', 'name', 'code', 'warehouse_tag']);
         $categories = Category::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $probe?->checkpoint('filter_reference_data');
+        $probe?->finish([
+            'order_count' => $orders->count(),
+            'shop_count' => $shops->count(),
+            'category_count' => $categories->count(),
+        ]);
 
         return response()->json([
             'success' => true,
@@ -156,8 +168,24 @@ class ApiWarehouseLoadoutController extends Controller
     {
         $this->authorizeAccess($request);
         $selectedWarehouseId = $request->integer('warehouse_id') ?: null;
+        $probe = PerformanceProbe::start('loadout.show', [
+            'route' => $request->route()?->getName(),
+            'shop_order_id' => $shopOrder->id,
+            'warehouse_id' => $selectedWarehouseId,
+        ]);
+        $etag = $this->loadoutEditorEtag($shopOrder, $selectedWarehouseId);
+
+        if ($this->requestEtagsContain($request, $etag)) {
+            $probe?->checkpoint('etag_not_modified');
+            $probe?->finish([
+                'not_modified' => true,
+            ]);
+
+            return response()->json(null, 304)->setEtag($etag);
+        }
 
         $shopOrder->load(['shop', 'items.product.category', 'items.product.orderUnits', 'items.product.defaultWarehouse', 'deliveredBy', 'invoice.items.product']);
+        $probe?->checkpoint('load_order_relations');
 
         $productGroups = $shopOrder->items
             ->groupBy('product_id')
@@ -210,8 +238,9 @@ class ApiWarehouseLoadoutController extends Controller
                     'discrepancy_note' => $firstItem->loadout_discrepancy_note,
                 ];
             })
-            ->sortBy(fn (array $group) => \App\Models\Product::sortableSku((string) ($group['product_sku'] ?? '')))
+            ->sortBy(fn (array $group) => Product::sortableSku((string) ($group['product_sku'] ?? '')))
             ->values();
+        $probe?->checkpoint('build_product_groups');
 
         $canEdit = $shopOrder->delivery_status !== 'delivered';
         $anyLoaded = $shopOrder->items->where('sorting_status', 'loaded')->count() > 0;
@@ -222,6 +251,7 @@ class ApiWarehouseLoadoutController extends Controller
         $mergeCandidates = $this->duplicateMergeCandidates($shopOrder->items);
         $unpricedProductNames = $this->shopInvoiceService->getUnpricedOrderItemNames($shopOrder);
         $loadoutState = $this->loadoutStateSummary($shopOrder, $selectedWarehouseId);
+        $probe?->checkpoint('build_status_metadata');
 
         $invoiceData = null;
         if ($shopOrder->invoice) {
@@ -259,21 +289,23 @@ class ApiWarehouseLoadoutController extends Controller
             $items = [];
             $subtotal = 0.0;
             $excessTotal = 0.0;
-            
+
             foreach ($shopOrder->items as $item) {
-                if ($item->sorting_status !== 'loaded') continue;
-                
+                if ($item->sorting_status !== 'loaded') {
+                    continue;
+                }
+
                 $unitPrice = (float) ($item->locked_selling_price ?? 0.0);
                 $loadedQty = (float) $item->loaded_qty;
                 $approvedQty = (float) $item->approved_qty;
                 $excessQty = (float) ($item->excess_qty ?? 0.0);
-                
+
                 $lineSubtotal = round($approvedQty * $unitPrice, 2);
                 $finalLineTotal = round($loadedQty * $unitPrice, 2);
-                
+
                 $subtotal += $lineSubtotal;
                 $excessTotal += ($excessQty * $unitPrice);
-                
+
                 $items[] = [
                     'product_name' => $item->product?->name ?? 'Unknown Product',
                     'product_sku' => $item->product?->sku ?? '',
@@ -288,9 +320,9 @@ class ApiWarehouseLoadoutController extends Controller
                     'final_line_total' => $finalLineTotal,
                 ];
             }
-            
+
             $invoiceData = [
-                'invoice_number' => 'DRAFT-' . $shopOrder->order_number,
+                'invoice_number' => 'DRAFT-'.$shopOrder->order_number,
                 'business_date' => $shopOrder->business_date->toDateString(),
                 'status' => 'draft',
                 'subtotal' => $subtotal,
@@ -304,11 +336,19 @@ class ApiWarehouseLoadoutController extends Controller
                 'items' => $items,
             ];
         }
+        $probe?->checkpoint('build_invoice_data');
 
-        $categories = \App\Models\Category::query()
+        $categories = Category::query()
             ->whereHas('products')
             ->orderBy('name')
             ->get(['id', 'name']);
+        $probe?->checkpoint('load_categories');
+        $probe?->finish([
+            'item_count' => $shopOrder->items->count(),
+            'product_group_count' => $productGroups->count(),
+            'invoice_item_count' => is_array($invoiceData) ? count($invoiceData['items'] ?? []) : 0,
+            'category_count' => $categories->count(),
+        ]);
 
         return response()->json([
             'success' => true,
@@ -341,7 +381,7 @@ class ApiWarehouseLoadoutController extends Controller
             'merge_candidates' => $mergeCandidates,
             'unpriced_product_names' => $unpricedProductNames,
             'invoice' => $invoiceData,
-        ]);
+        ])->setEtag($etag);
     }
 
     /**
@@ -367,6 +407,17 @@ class ApiWarehouseLoadoutController extends Controller
     public function save(Request $request, ShopOrder $shopOrder): JsonResponse
     {
         $this->authorizeAccess($request);
+        $probe = PerformanceProbe::start('loadout.save', [
+            'route' => $request->route()?->getName(),
+            'shop_order_id' => $shopOrder->id,
+            'submitted_product_count' => collect($request->input('items', []))
+                ->keys()
+                ->merge(collect($request->input('item_unit_qtys', []))->keys())
+                ->merge(collect($request->input('item_status', []))->keys())
+                ->merge(collect($request->input('item_notes', []))->keys())
+                ->unique()
+                ->count(),
+        ]);
 
         if (! in_array($shopOrder->delivery_status, ['pending_delivery', 'ready_for_dispatch'])) {
             $msg = $shopOrder->delivery_status === 'in_transit'
@@ -401,6 +452,7 @@ class ApiWarehouseLoadoutController extends Controller
                     ->merge(array_keys($request->input('item_notes', [])))
                     ->map(fn ($id) => (int) $id)
                     ->unique()
+                    ->sort()
                     ->values();
 
                 $this->markLoadoutStartedForProducts($shopOrder, $productIds);
@@ -591,7 +643,7 @@ class ApiWarehouseLoadoutController extends Controller
                 // Synchronize and reprice the invoice immediately on loadout save
                 $shopOrder->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
                 $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
-                if ($invoice && !$invoice->isFinalLocked()) {
+                if ($invoice && ! $invoice->isFinalLocked()) {
                     $this->shopInvoiceService->repriceInvoice(
                         $invoice,
                         $userId,
@@ -599,6 +651,7 @@ class ApiWarehouseLoadoutController extends Controller
                     );
                 }
             });
+            $probe?->checkpoint('transaction_save_and_invoice_sync');
         } catch (ValidationException $e) {
             return response()->json([
                 'success' => false,
@@ -613,6 +666,10 @@ class ApiWarehouseLoadoutController extends Controller
         }
 
         $duplicateCount = $this->duplicateMergeCandidates($shopOrder->fresh('items')->items)->count();
+        $probe?->checkpoint('duplicate_check');
+        $probe?->finish([
+            'duplicate_count' => $duplicateCount,
+        ]);
 
         return response()->json([
             'success' => true,
@@ -644,7 +701,7 @@ class ApiWarehouseLoadoutController extends Controller
         }
 
         try {
-            DB::transaction(function () use ($shopOrder, $partialDelivery, $request) {
+            DB::transaction(function () use ($shopOrder, $request) {
                 ShopOrder::lockForUpdate()->find($shopOrder->id);
 
                 $shopOrder->update([
@@ -680,6 +737,7 @@ class ApiWarehouseLoadoutController extends Controller
     public function moveToPartialDelivery(ShopOrder $shopOrder, Request $request): JsonResponse
     {
         $request->merge(['partial' => true]);
+
         return $this->moveToDelivery($shopOrder, $request);
     }
 
@@ -861,6 +919,7 @@ class ApiWarehouseLoadoutController extends Controller
 
             if ($existing) {
                 $existing->update($attributes);
+
                 continue;
             }
 
@@ -1016,7 +1075,7 @@ class ApiWarehouseLoadoutController extends Controller
         if ($shopOrder->items()->where('product_id', $product->id)->exists()) {
             return response()->json([
                 'success' => false,
-                'message' => "{$product->name} is already in this loadout order. Edit the existing line instead."
+                'message' => "{$product->name} is already in this loadout order. Edit the existing line instead.",
             ], 422);
         }
 
@@ -1089,7 +1148,7 @@ class ApiWarehouseLoadoutController extends Controller
                     })
                     ->lockForUpdate()
                     ->get();
-                $grouped = $rows->groupBy('product_id');
+                $grouped = $rows->groupBy('product_id')->sortKeys();
 
                 foreach ($grouped as $productId => $productRows) {
                     $totalApproved = $this->loadoutApprovedQuantity($productRows);
@@ -1176,7 +1235,7 @@ class ApiWarehouseLoadoutController extends Controller
                             'is_sorted' => true,
                             'sorted_at' => now(),
                             'sorted_by' => $userId,
-                        ])
+                        ]),
                     ];
 
                     $this->applyOrderItemRows($productRows, $shopOrder->id, $productId, $targetRows);
@@ -1192,5 +1251,48 @@ class ApiWarehouseLoadoutController extends Controller
             'success' => true,
             'message' => 'All products loaded at full approved quantities successfully.',
         ]);
+    }
+
+    private function loadoutEditorEtag(ShopOrder $shopOrder, ?int $selectedWarehouseId): string
+    {
+        $itemState = $shopOrder->items()
+            ->selectRaw('COUNT(*) as item_count, MAX(updated_at) as max_updated_at')
+            ->toBase()
+            ->first();
+        $itemVersion = ($itemState?->item_count ?? 0).'|'.($itemState?->max_updated_at ?? '');
+
+        $invoiceVersion = (string) DB::table('shop_invoices')
+            ->leftJoin('shop_invoice_items', 'shop_invoice_items.shop_invoice_id', '=', 'shop_invoices.id')
+            ->where('shop_invoices.shop_order_id', $shopOrder->id)
+            ->selectRaw('MAX(GREATEST(shop_invoices.updated_at, COALESCE(shop_invoice_items.updated_at, shop_invoices.updated_at))) as max_updated_at')
+            ->value('max_updated_at');
+
+        $stateVersion = (string) ShopOrderLoadoutState::query()
+            ->where('shop_order_id', $shopOrder->id)
+            ->when($selectedWarehouseId, fn ($query) => $query->where('warehouse_id', $selectedWarehouseId))
+            ->max('updated_at');
+
+        return sha1(implode('|', [
+            'loadout-editor-v1',
+            $shopOrder->id,
+            $selectedWarehouseId ?? 'all',
+            $shopOrder->updated_at?->toJSON(),
+            $itemVersion,
+            $invoiceVersion,
+            $stateVersion,
+        ]));
+    }
+
+    private function requestEtagsContain(Request $request, string $etag): bool
+    {
+        $header = (string) $request->headers->get('If-None-Match', '');
+
+        if ($header === '') {
+            return false;
+        }
+
+        return collect(explode(',', $header))
+            ->map(fn (string $value): string => trim(str_replace('W/', '', $value), " \t\n\r\0\x0B\""))
+            ->contains($etag);
     }
 }

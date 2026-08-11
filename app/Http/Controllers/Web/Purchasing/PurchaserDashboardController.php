@@ -16,6 +16,7 @@ use App\Models\DailyPriceApproval;
 use App\Models\DailyProductPrice;
 use App\Models\DailyProductPriceRevision;
 use App\Models\GoodsReceived;
+use App\Models\ProcurementExpense;
 use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\PurchaseInvoice;
@@ -24,11 +25,10 @@ use App\Models\PurchaserCart;
 use App\Models\PurchaserCartItem;
 use App\Models\PurchaserCorrectionRequest;
 use App\Models\PurchaserCredit;
-use App\Models\ProcurementExpense;
-use App\Models\ShopOrder;
 use App\Models\ShopInvoice;
-use App\Models\ShopPriceGroup;
+use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Models\ShopPriceGroup;
 use App\Models\StockBatch;
 use App\Models\Supplier;
 use App\Models\User;
@@ -38,6 +38,7 @@ use App\Services\Purchasing\PurchaseInvoiceService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\Purchasing\VendorPriceService;
 use App\Services\ShopInvoices\ShopInvoiceService;
+use App\Support\PerformanceProbe;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -764,6 +765,12 @@ class PurchaserDashboardController extends Controller
 
         $user = $request->user();
         $focusCartId = $request->integer('focus_cart');
+        $probe = PerformanceProbe::start('purchaser.vendors', [
+            'route' => $request->route()?->getName(),
+            'date' => $date->format('Y-m-d'),
+            'tab' => $request->query('tab'),
+            'user_id' => $user->id,
+        ]);
 
         $carts = PurchaserCart::query()
             ->where('user_id', $user->id)
@@ -778,12 +785,16 @@ class PurchaserDashboardController extends Controller
             ])
             ->orderByDesc('updated_at')
             ->get();
+        $probe?->checkpoint('load_carts_with_relations');
 
         $relatedBatchState = $this->relatedBatchStateForCarts($carts);
+        $probe?->checkpoint('related_batch_state');
         $relatedReceiptNotes = $this->relatedReceiptNotesForCarts($carts);
+        $probe?->checkpoint('related_receipt_notes');
         $relatedReceiptDiscrepancies = $carts->mapWithKeys(fn (PurchaserCart $cart): array => [
             (int) $cart->id => $this->buildReceiptDiscrepancySummary($cart->goodsReceived),
         ])->all();
+        $probe?->checkpoint('receipt_discrepancies');
         $draftCarts = $carts->where('status', 'draft')->values();
         $submittedCarts = $carts->where('status', 'submitted')->values();
         $pendingCarts = $submittedCarts
@@ -801,6 +812,7 @@ class PurchaserDashboardController extends Controller
                 default => 'draft',
             };
         }
+        $probe?->checkpoint('split_tabs');
 
         $mergeSuggestions = $this->buildDraftMergeSuggestions($draftCarts);
         $mergeableDraftCounts = $mergeSuggestions
@@ -808,14 +820,34 @@ class PurchaserDashboardController extends Controller
                 (int) $suggestion['target_cart']->id => (int) $suggestion['count'] - 1,
             ])
             ->all();
+        $probe?->checkpoint('merge_suggestions');
 
         $productCatalog = Product::query()
             ->with('category')
             ->active()
             ->ordered()
             ->get();
+        $probe?->checkpoint('product_catalog');
 
         $suppliers = $this->scopedSuppliersForUser($request->user());
+        $probe?->checkpoint('suppliers');
+        $vendorPriceHintsByCart = $carts->mapWithKeys(fn (PurchaserCart $cart): array => [
+            $cart->id => $this->vendorPriceService->previousPricesForSupplier(
+                $cart->supplier_id,
+                $cart->items->pluck('product_id')->all(),
+            ),
+        ])->all();
+        $probe?->checkpoint('vendor_price_hints');
+        $deadlineAlert = $this->buildDeadlineAlert((int) $user->id, $date);
+        $probe?->checkpoint('deadline_alert');
+        $probe?->finish([
+            'cart_count' => $carts->count(),
+            'draft_count' => $draftCarts->count(),
+            'pending_count' => $pendingCarts->count(),
+            'completed_count' => $completedCarts->count(),
+            'product_count' => $productCatalog->count(),
+            'supplier_count' => $suppliers->count(),
+        ]);
 
         return view('purchasing.purchaser.vendors', [
             'date' => $date->format('Y-m-d'),
@@ -826,18 +858,13 @@ class PurchaserDashboardController extends Controller
             'mergeableDraftCounts' => $mergeableDraftCounts,
             'productCatalog' => $productCatalog,
             'suppliers' => $suppliers,
-            'vendorPriceHintsByCart' => $carts->mapWithKeys(fn (PurchaserCart $cart): array => [
-                $cart->id => $this->vendorPriceService->previousPricesForSupplier(
-                    $cart->supplier_id,
-                    $cart->items->pluck('product_id')->all(),
-                ),
-            ])->all(),
+            'vendorPriceHintsByCart' => $vendorPriceHintsByCart,
             'activeTab' => $activeTab,
             'focusCartId' => $focusCartId,
             'relatedBatchState' => $relatedBatchState,
             'relatedReceiptNotes' => $relatedReceiptNotes,
             'relatedReceiptDiscrepancies' => $relatedReceiptDiscrepancies,
-            'deadlineAlert' => $this->buildDeadlineAlert((int) $user->id, $date),
+            'deadlineAlert' => $deadlineAlert,
         ]);
     }
 
@@ -2173,7 +2200,7 @@ class PurchaserDashboardController extends Controller
         $pendingBills = $carts
             ->map(function (PurchaserCart $cart): ?array {
                 $invoice = $cart->purchaseInvoice;
-                
+
                 if ($invoice) {
                     // Cart has invoice - check if it has any remaining balance
                     $netAmount = max(0, (float) $invoice->amount - (float) $invoice->discount_amount);
@@ -2183,11 +2210,11 @@ class PurchaserDashboardController extends Controller
                     if ($invoice->payment_status === 'paid' || $remaining <= 0) {
                         return null;
                     }
-                    
+
                     // Include any invoice with remaining balance (unpaid, partial, or credit)
                     return [
                         'id' => $invoice->id,
-                        'invoice_number' => $invoice->invoice_number ?: 'PENDING-' . $cart->cart_number,
+                        'invoice_number' => $invoice->invoice_number ?: 'PENDING-'.$cart->cart_number,
                         'cart_number' => $cart->cart_number,
                         'date' => $cart->business_date->format('d M Y'),
                         'amount' => round((float) $invoice->amount, 2),
@@ -3344,13 +3371,17 @@ class PurchaserDashboardController extends Controller
      */
     private function relatedGoodsReceiptsForCart(PurchaserCart $cart): Collection
     {
+        if ($cart->goods_received_id !== null) {
+            return GoodsReceived::query()
+                ->select(['id', 'grn_number', 'notes', 'received_at'])
+                ->whereKey($cart->goods_received_id)
+                ->orderByDesc('received_at')
+                ->get();
+        }
+
         return GoodsReceived::query()
-            ->when(
-                $cart->goods_received_id !== null,
-                fn ($query) => $query->whereKey($cart->goods_received_id),
-                fn ($query) => $query->whereRaw('1 = 0'),
-            )
-            ->orWhere('notes', 'like', '%Cart: '.$cart->cart_number.'%')
+            ->select(['id', 'grn_number', 'notes', 'received_at'])
+            ->where('notes', 'like', '%Cart: '.$cart->cart_number.'%')
             ->orderByDesc('received_at')
             ->get();
     }
@@ -4325,7 +4356,7 @@ class PurchaserDashboardController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => "Successfully updated product price.",
+                'message' => 'Successfully updated product price.',
                 'global_update_message' => $invoiceSyncTargetedCount === 0
                     ? ($isRefreshAction ? 'No related invoices found for refresh.' : null)
                     : ($invoiceSyncOk

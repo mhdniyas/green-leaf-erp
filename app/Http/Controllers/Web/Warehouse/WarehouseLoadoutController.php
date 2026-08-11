@@ -174,7 +174,7 @@ class WarehouseLoadoutController extends Controller
                     'items' => $items,
                 ];
             })
-            ->sortBy(fn (array $group) => \App\Models\Product::sortableSku((string) ($group['product']?->sku ?? '')))
+            ->sortBy(fn (array $group) => Product::sortableSku((string) ($group['product']?->sku ?? '')))
             ->values();
 
         $addonProductsByCategory = $this->addonProductsByCategory($shopOrder);
@@ -244,7 +244,7 @@ class WarehouseLoadoutController extends Controller
                     'items' => $items,
                 ];
             })
-            ->sortBy(fn (array $group) => \App\Models\Product::sortableSku((string) ($group['product']?->sku ?? '')))
+            ->sortBy(fn (array $group) => Product::sortableSku((string) ($group['product']?->sku ?? '')))
             ->values();
 
         $totalLoadedItems = $productGroups->filter(fn (array $group) => $group['total_loaded'] > 0)->count();
@@ -529,6 +529,7 @@ class WarehouseLoadoutController extends Controller
             if ($request->wantsJson()) {
                 return response()->json(['success' => false, 'message' => $msg], 422);
             }
+
             return redirect()->back()->withErrors([$msg]);
         }
 
@@ -556,6 +557,7 @@ class WarehouseLoadoutController extends Controller
                     ->merge(array_keys($request->input('item_notes', [])))
                     ->map(fn ($id) => (int) $id)
                     ->unique()
+                    ->sort()
                     ->values();
 
                 foreach ($productIds as $productId) {
@@ -749,7 +751,7 @@ class WarehouseLoadoutController extends Controller
                 // Synchronize and reprice the invoice immediately on loadout save
                 $shopOrder->loadMissing(['shop.priceGroup', 'items.product', 'invoice.items']);
                 $invoice = $this->shopInvoiceService->synchronizeOrderInvoice($shopOrder, $userId);
-                if ($invoice && !$invoice->isFinalLocked()) {
+                if ($invoice && ! $invoice->isFinalLocked()) {
                     $this->shopInvoiceService->repriceInvoice(
                         $invoice,
                         $userId,
@@ -765,6 +767,7 @@ class WarehouseLoadoutController extends Controller
                     'errors' => $e->errors(),
                 ], 422);
             }
+
             return redirect()->back()->withErrors($e->errors())->withInput();
         }
 
