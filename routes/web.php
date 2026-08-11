@@ -340,6 +340,7 @@ Route::middleware('auth')->group(function () {
         Route::get('prices/matrix/export/whatsapp', [DailyPriceMatrixController::class, 'exportWhatsApp'])->name('prices.matrix.export.whatsapp');
         Route::post('prices/matrix/cell', [DailyPriceMatrixController::class, 'updateCell'])->name('prices.matrix.cell.update');
         Route::post('prices/matrix/fill-forward', [DailyPriceMatrixController::class, 'fillForward'])->name('prices.matrix.fill-forward');
+        Route::post('prices/matrix/remove-future', [DailyPriceMatrixController::class, 'removeFuturePrices'])->name('prices.matrix.remove-future');
         Route::post('prices/matrix', [DailyPriceMatrixController::class, 'updateMatrix'])->name('prices.matrix.update');
         Route::post('price-groups/assign-shops', [ShopPriceGroupController::class, 'assignShops'])->name('price-groups.assign-shops');
         Route::resource('price-groups', ShopPriceGroupController::class)->only(['index', 'store', 'update', 'destroy']);

@@ -262,6 +262,35 @@ class PurchaserReportApiTest extends TestCase
             ->assertJsonValidationErrors('date_to');
     }
 
+    public function test_purchaser_can_read_and_update_category_preferences(): void
+    {
+        $first = Category::factory()->create(['name' => 'First Preference']);
+        $second = Category::factory()->create(['name' => 'Second Preference']);
+        $purchaser = User::factory()->create(['assigned_category_ids' => [$first->id]]);
+        $purchaser->assignRole('purchaser');
+
+        $this->actingAs($purchaser)
+            ->getJson(route('api.v1.purchaser.settings.show'))
+            ->assertOk()
+            ->assertJsonPath('data.assigned_category_ids', [$first->id])
+            ->assertJsonFragment(['name' => 'Second Preference']);
+
+        $this->actingAs($purchaser)
+            ->postJson(route('api.v1.purchaser.settings.update'), [
+                'category_ids' => [$second->id],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.assigned_category_ids', [$second->id]);
+
+        $this->assertSame([$second->id], $purchaser->fresh()->assignedCategoryIds());
+
+        $warehouse = User::factory()->create();
+        $warehouse->assignRole('warehouse_receiver');
+        $this->actingAs($warehouse)
+            ->getJson(route('api.v1.purchaser.settings.show'))
+            ->assertForbidden();
+    }
+
     private function invoice(
         Shop $shop,
         string $date,

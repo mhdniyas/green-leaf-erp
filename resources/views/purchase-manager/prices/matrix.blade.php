@@ -113,6 +113,15 @@
                             >
                                 Fill Missing
                             </button>
+                            <button
+                                type="submit"
+                                form="matrix-remove-future-form"
+                                data-submit-label="Remove Future Prices"
+                                onclick="return confirm('Remove all visible product prices after {{ $purchaseDate }}?')"
+                                class="h-9 inline-flex items-center justify-center whitespace-nowrap rounded-xl border border-rose-200 bg-white px-3 text-xs font-black text-rose-700 hover:bg-rose-50 active:scale-95 transition shadow-2xs touch-manipulation"
+                            >
+                                Remove Future Prices
+                            </button>
                         @endif
                         <a href="{{ route('purchasing.prices.index', ['date' => $purchaseDate]) }}" class="h-9 inline-flex items-center justify-center whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 hover:bg-slate-50 transition active:scale-95 shadow-2xs touch-manipulation">
                             Proposal Board
@@ -251,6 +260,21 @@
 
         @if ($canEditPrices)
             <form method="POST" action="{{ route('purchasing.prices.matrix.fill-forward') }}" id="matrix-fill-forward-form">
+                @csrf
+                <input type="hidden" name="date" value="{{ $purchaseDate }}">
+                <input type="hidden" name="search" value="{{ $search }}">
+                <input type="hidden" name="category_id" value="{{ $categoryId }}">
+                <input type="hidden" name="week_start" value="{{ $weekStartDate }}">
+                <input type="hidden" name="matrix_category" value="{{ $matrixCategory }}">
+                @foreach ($matrixProducts as $prod)
+                    <input type="hidden" name="all_product_ids[]" value="{{ $prod['product_id'] }}">
+                @endforeach
+                @foreach ($matrixDates as $dateStr => $dateInfo)
+                    <input type="hidden" name="all_dates[]" value="{{ $dateStr }}">
+                @endforeach
+            </form>
+
+            <form method="POST" action="{{ route('purchasing.prices.matrix.remove-future') }}" id="matrix-remove-future-form">
                 @csrf
                 <input type="hidden" name="date" value="{{ $purchaseDate }}">
                 <input type="hidden" name="search" value="{{ $search }}">

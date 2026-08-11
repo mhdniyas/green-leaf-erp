@@ -383,6 +383,7 @@ class DailyPriceMatrixController extends Controller
             ->values();
         $dateStrings = collect($validated['all_dates'])
             ->map(fn ($date): string => Carbon::parse((string) $date)->toDateString())
+            ->filter(fn (string $date): bool => $date <= Carbon::parse((string) $validated['date'])->toDateString())
             ->unique()
             ->sort()
             ->values();
@@ -449,6 +450,7 @@ class DailyPriceMatrixController extends Controller
                             $this->publishDailyPriceApproval($product, $approval, $userId);
                         }
                         $carryApproval = $approval;
+
                         continue;
                     }
 
@@ -510,6 +512,61 @@ class DailyPriceMatrixController extends Controller
                 'matrix_category' => $matrixCategory,
             ])
             ->with($filledRows > 0 ? 'success' : 'warning', $message);
+    }
+
+    public function removeFuturePrices(Request $request): RedirectResponse
+    {
+        $this->authorizeBoardAccess();
+        $this->authorizePurchaserUpdate();
+
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+            'search' => ['nullable', 'string', 'max:255'],
+            'category_id' => ['nullable', 'integer'],
+            'week_start' => ['required', 'date'],
+            'matrix_category' => ['required', 'string', 'in:a,b,c,A,B,C'],
+            'all_product_ids' => ['required', 'array', 'min:1'],
+            'all_product_ids.*' => ['integer', 'exists:products,id'],
+            'all_dates' => ['required', 'array', 'min:1'],
+            'all_dates.*' => ['date'],
+        ]);
+
+        $matrixCategory = strtolower((string) $validated['matrix_category']);
+        $selectedDate = Carbon::parse((string) $validated['date'])->toDateString();
+        $productIds = collect($validated['all_product_ids'])
+            ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values();
+        $futureDates = collect($validated['all_dates'])
+            ->map(fn ($date): string => Carbon::parse((string) $date)->toDateString())
+            ->filter(fn (string $date): bool => $date > $selectedDate)
+            ->unique()
+            ->values();
+
+        $deletedRows = 0;
+
+        if ($productIds->isNotEmpty() && $futureDates->isNotEmpty()) {
+            $deletedRows = DailyPriceApproval::query()
+                ->whereIn('product_id', $productIds)
+                ->whereDate('business_date', '>', $selectedDate)
+                ->whereDate('business_date', '<=', (string) $futureDates->max())
+                ->delete();
+        }
+
+        $message = $deletedRows > 0
+            ? "Removed {$deletedRows} future matrix price row(s) after {$selectedDate}."
+            : 'No future matrix prices needed removing.';
+
+        return redirect()
+            ->route('purchasing.prices.matrix.index', [
+                'date' => $selectedDate,
+                'search' => $validated['search'] ?? null,
+                'category_id' => $validated['category_id'] ?? null,
+                'week_start' => $validated['week_start'],
+                'matrix_category' => $matrixCategory,
+            ])
+            ->with($deletedRows > 0 ? 'success' : 'warning', $message);
     }
 
     private function hasUsableSellingPrice(DailyPriceApproval $approval): bool

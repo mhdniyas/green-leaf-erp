@@ -51,6 +51,10 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
             Route::get('/reports/item-summary', [PurchaserReportController::class, 'itemSummary'])
                 ->middleware('can:purchaser.reports.items.view')
                 ->name('reports.item-summary');
+            Route::get('/settings', [\App\Http\Controllers\Api\Purchaser\PurchaserSettingsController::class, 'show'])
+                ->name('settings.show');
+            Route::post('/settings', [\App\Http\Controllers\Api\Purchaser\PurchaserSettingsController::class, 'update'])
+                ->name('settings.update');
         });
 
         // ── Warehouse Loadout API ─────────────────────────────────────────────

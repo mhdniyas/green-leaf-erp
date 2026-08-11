@@ -42,6 +42,7 @@ class DedicatedDailyPriceMatrixTest extends TestCase
         $response->assertViewHas('matrixCategory', 'a');
         $response->assertSee('Daily Price Matrix Table');
         $response->assertSee('Fill Missing');
+        $response->assertSee('Remove Future Prices');
         $response->assertSee('Tomato H');
     }
 
@@ -268,6 +269,92 @@ class DedicatedDailyPriceMatrixTest extends TestCase
             'price_c' => 9999.00,
             'status' => 'approved',
             'approved_by' => $user->id,
+        ]);
+    }
+
+    public function test_matrix_fill_forward_does_not_fill_dates_after_selected_business_date(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+
+        $user = User::factory()->create();
+        $user->syncRoles(['purchase']);
+        $category = Category::create(['name' => 'Veggies', 'is_active' => true]);
+        $product = Product::create([
+            'name' => 'Carrot',
+            'sku' => 'CARROT-1',
+            'category_id' => $category->id,
+            'unit' => 'KG',
+            'base_price' => 30.00,
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($user)->post(route('purchasing.prices.matrix.fill-forward'), [
+            'date' => '2026-08-11',
+            'week_start' => '2026-08-10',
+            'matrix_category' => 'a',
+            'all_product_ids' => [$product->id],
+            'all_dates' => ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13'],
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('daily_price_approvals', [
+            'product_id' => $product->id,
+            'business_date' => '2026-08-11 00:00:00',
+        ]);
+        $this->assertDatabaseMissing('daily_price_approvals', [
+            'product_id' => $product->id,
+            'business_date' => '2026-08-12 00:00:00',
+        ]);
+    }
+
+    public function test_remove_future_prices_only_deletes_visible_dates_after_selected_date(): void
+    {
+        $this->seed(\Database\Seeders\RolePermissionSeeder::class);
+
+        $user = User::factory()->create();
+        $user->syncRoles(['purchase']);
+        $category = Category::create(['name' => 'Veggies', 'is_active' => true]);
+        $product = Product::create([
+            'name' => 'Beans',
+            'sku' => 'BEANS-1',
+            'category_id' => $category->id,
+            'unit' => 'KG',
+            'base_price' => 40.00,
+            'is_active' => true,
+        ]);
+
+        foreach (['2026-08-11', '2026-08-12', '2026-08-18'] as $date) {
+            DailyPriceApproval::create([
+                'product_id' => $product->id,
+                'business_date' => $date,
+                'purchase_price' => 35.00,
+                'price_unit' => 'kg',
+                'price_a' => 40.00,
+                'price_b' => 40.00,
+                'price_c' => 40.00,
+                'status' => 'approved',
+                'approved_at' => now(),
+            ]);
+        }
+
+        $this->actingAs($user)->post(route('purchasing.prices.matrix.remove-future'), [
+            'date' => '2026-08-11',
+            'week_start' => '2026-08-10',
+            'matrix_category' => 'a',
+            'all_product_ids' => [$product->id],
+            'all_dates' => ['2026-08-10', '2026-08-11', '2026-08-12'],
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('daily_price_approvals', [
+            'product_id' => $product->id,
+            'business_date' => '2026-08-11 00:00:00',
+        ]);
+        $this->assertDatabaseMissing('daily_price_approvals', [
+            'product_id' => $product->id,
+            'business_date' => '2026-08-12 00:00:00',
+        ]);
+        $this->assertDatabaseHas('daily_price_approvals', [
+            'product_id' => $product->id,
+            'business_date' => '2026-08-18 00:00:00',
         ]);
     }
 }
