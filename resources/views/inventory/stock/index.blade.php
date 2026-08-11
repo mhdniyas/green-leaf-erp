@@ -60,7 +60,9 @@
     </div>
     @endif
 
-    @php($stockTabQuery = request()->except(['page', 'warehouse_id', 'category_id']))
+    @php
+        $stockTabQuery = request()->except(['page', 'warehouse_id', 'category_id']);
+    @endphp
     <div class="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
         <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Warehouse</p>
         <div class="mt-2 flex gap-2 overflow-x-auto pb-1">
