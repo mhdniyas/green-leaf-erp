@@ -2,17 +2,20 @@
 
     <x-slot:actions>
         <div class="flex items-center gap-2">
-            <a href="{{ route('inventory.stock.index', ['date' => \Carbon\Carbon::parse($date)->subDay()->format('Y-m-d')]) }}" class="p-2 bg-white rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors shadow-xs" title="Previous Day">
+            <a href="{{ route('inventory.stock.index', array_merge(request()->except(['page', 'date']), ['date' => \Carbon\Carbon::parse($date)->subDay()->format('Y-m-d')])) }}" class="p-2 bg-white rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors shadow-xs" title="Previous Day">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
             </a>
             <form id="date-form" method="GET" action="{{ route('inventory.stock.index') }}" class="flex items-center gap-2">
+                @if($search !== '') <input type="hidden" name="search" value="{{ $search }}"> @endif
+                <input type="hidden" name="sort" value="{{ $sort }}">
+                <input type="hidden" name="per_page" value="{{ $perPage }}">
                 <input id="date-select" type="date" name="date" value="{{ $date }}" onchange="document.getElementById('date-form').submit();"
                        class="border border-gray-200 rounded-xl px-3 py-1.5 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white shadow-xs">
             </form>
-            <a href="{{ route('inventory.stock.index', ['date' => \Carbon\Carbon::parse($date)->addDay()->format('Y-m-d')]) }}" class="p-2 bg-white rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors shadow-xs" title="Next Day">
+            <a href="{{ route('inventory.stock.index', array_merge(request()->except(['page', 'date']), ['date' => \Carbon\Carbon::parse($date)->addDay()->format('Y-m-d')])) }}" class="p-2 bg-white rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors shadow-xs" title="Next Day">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
             </a>
-            <a href="{{ route('inventory.stock.index', ['date' => \Carbon\Carbon::today()->format('Y-m-d')]) }}" class="px-3 py-1.5 bg-brand-50 text-brand-700 border border-brand-200 rounded-xl text-xs font-bold hover:bg-brand-100 transition-colors shadow-xs">
+            <a href="{{ route('inventory.stock.index', array_merge(request()->except(['page', 'date']), ['date' => \Carbon\Carbon::today()->format('Y-m-d')])) }}" class="px-3 py-1.5 bg-brand-50 text-brand-700 border border-brand-200 rounded-xl text-xs font-bold hover:bg-brand-100 transition-colors shadow-xs">
                 Today
             </a>
             <a href="{{ route('inventory.batches.create') }}"
@@ -55,6 +58,33 @@
         </div>
     </div>
 
+    <form method="GET" action="{{ route('inventory.stock.index') }}" class="mb-6 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:flex-row sm:items-end">
+        <input type="hidden" name="date" value="{{ $date }}">
+        <label class="block flex-1">
+            <span class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Search products</span>
+            <input type="search" name="search" value="{{ $search }}" placeholder="Name, SKU or category" class="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
+        </label>
+        <label class="block sm:w-48">
+            <span class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Sort by</span>
+            <select name="sort" class="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 focus:border-brand-500 focus:outline-none">
+                <option value="name_asc" @selected($sort === 'name_asc')>Product name: A–Z</option>
+                <option value="name_desc" @selected($sort === 'name_desc')>Product name: Z–A</option>
+                <option value="stock_high" @selected($sort === 'stock_high')>Stock: high to low</option>
+                <option value="stock_low" @selected($sort === 'stock_low')>Stock: low to high</option>
+                <option value="below_buffer" @selected($sort === 'below_buffer')>Below buffer first</option>
+            </select>
+        </label>
+        <label class="block sm:w-28">
+            <span class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Per page</span>
+            <select name="per_page" class="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 focus:border-brand-500 focus:outline-none">
+                @foreach([12, 24, 48] as $option)
+                    <option value="{{ $option }}" @selected($perPage === $option)>{{ $option }}</option>
+                @endforeach
+            </select>
+        </label>
+        <button type="submit" class="h-10 rounded-xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800">Apply</button>
+    </form>
+
     {{-- Grade legend --}}
     <div class="flex flex-wrap gap-3 mb-6 bg-white border border-gray-200 rounded-2xl p-4 shadow-xs">
         @foreach([
@@ -84,7 +114,7 @@
     @else
 
     @php
-        $byProduct = $stock->groupBy('product_id');
+        $byProduct = $stock->getCollection();
 
         $gradeColors = [
             'A' => 'bg-green-50 text-green-700 border border-green-200',
@@ -254,6 +284,9 @@
         </div>
         @endforeach
     </div>
+    @if($stock->hasPages())
+        <div class="mt-6">{{ $stock->withQueryString()->links() }}</div>
+    @endif
     @endif
 
     @can('inventory.stock.adjust')
