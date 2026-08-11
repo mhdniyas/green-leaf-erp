@@ -113,7 +113,7 @@
         <fieldset class="flex h-10 items-center gap-3 rounded-xl border border-slate-200 px-3">
             <legend class="sr-only">Stock visibility</legend>
             <label class="flex items-center gap-1.5 text-xs font-black text-slate-700"><input type="radio" name="show_empty" value="0" @checked(! $showEmptyStock)> In stock</label>
-            <label class="flex items-center gap-1.5 text-xs font-black text-slate-700"><input type="radio" name="show_empty" value="1" @checked($showEmptyStock)> Show zero stock</label>
+            <label class="flex items-center gap-1.5 text-xs font-black text-slate-700"><input type="radio" name="show_empty" value="1" @checked($showEmptyStock)> Show zero &amp; negative</label>
         </fieldset>
         <label class="block flex-1">
             <span class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Search products</span>

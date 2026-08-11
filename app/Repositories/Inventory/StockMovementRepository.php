@@ -82,7 +82,7 @@ class StockMovementRepository extends BaseRepository
                 });
             })
             ->groupBy('stock_movements.product_id', 'products.public_uuid', 'products.name', 'products.sku', 'products.unit', 'products.image', 'categories.name', 'products.buffer_qty', 'products.carryover_enabled', 'stock_movements.grade')
-            ->havingRaw('current_stock > 0.0001')
+            ->havingRaw('ABS(current_stock) > 0.0001')
             ->orderByRaw(Product::numericSkuPriorityExpression('products.sku', $driver))
             ->orderByRaw(Product::numericSkuValueExpression('products.sku', $driver))
             ->orderBy('products.sku')

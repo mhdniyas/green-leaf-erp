@@ -63,14 +63,16 @@ class StockController extends Controller
         $search = trim($request->string('search')->toString());
 
         $stockRows = $this->stockMovements->currentStockByProductAndGrade($date, $selectedWarehouseId, $categoryIds, $search);
-        $showEmptyStock = $request->boolean('show_empty');
-        $showEmptyWarehouseProducts = $showEmptyStock && $stockRows->isEmpty();
+        $showEmptyStock = ! $request->has('show_empty') || $request->boolean('show_empty');
+        $showEmptyWarehouseProducts = $showEmptyStock;
 
         if ($showEmptyWarehouseProducts) {
-            $stockRows = Product::query()
+            $stockProductIds = $stockRows->pluck('product_id')->unique();
+            $zeroStockRows = Product::query()
                 ->active()
                 ->with('category:id,name')
                 ->when($categoryIds !== null, fn ($query) => $query->whereIn('category_id', $categoryIds))
+                ->whereNotIn('id', $stockProductIds)
                 ->ordered()
                 ->get(['id', 'public_uuid', 'name', 'sku', 'unit', 'image', 'buffer_qty', 'carryover_enabled', 'category_id'])
                 ->map(fn (Product $product) => (object) [
@@ -86,6 +88,7 @@ class StockController extends Controller
                     'grade' => 'Unsorted',
                     'current_stock' => 0.0,
                 ]);
+            $stockRows = $stockRows->concat($zeroStockRows);
         }
         $stockByProduct = $stockRows->groupBy('product_id');
         $negativeProductCount = $stockByProduct
