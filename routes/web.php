@@ -10,6 +10,7 @@ use App\Http\Controllers\Web\Admin\DailyProgressController;
 use App\Http\Controllers\Web\Admin\DeliveryReviewController;
 use App\Http\Controllers\Web\Admin\DiscrepancyReportController;
 use App\Http\Controllers\Web\Admin\EnquiryController;
+use App\Http\Controllers\Web\Admin\EmptyInventoryController;
 use App\Http\Controllers\Web\Admin\FinanceV2Controller;
 use App\Http\Controllers\Web\Admin\FinanceV2PaymentsController;
 use App\Http\Controllers\Web\Admin\StaffManagementController;
@@ -584,6 +585,10 @@ Route::middleware('auth')->group(function () {
 
     // ── Admin ──────────────────────────────────────────────────────────────
     Route::prefix('admin')->name('admin.')->group(function () {
+        Route::get('inventory/empty', [EmptyInventoryController::class, 'index'])->name('inventory-empty.index');
+        Route::post('inventory/empty', [EmptyInventoryController::class, 'store'])->name('inventory-empty.store');
+        Route::get('inventory/empty/{process}/progress', [EmptyInventoryController::class, 'progress'])->name('inventory-empty.progress');
+        Route::post('inventory/empty/{process}/retry', [EmptyInventoryController::class, 'retry'])->name('inventory-empty.retry');
         Route::get('/', AdminOverviewController::class)->name('overview');
         Route::get('company-settings', [CompanySettingsController::class, 'edit'])->name('company-settings.edit');
         Route::patch('company-settings', [CompanySettingsController::class, 'update'])->name('company-settings.update');

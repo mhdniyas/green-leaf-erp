@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Web\Inventory;
 use App\Http\Controllers\Controller;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Models\Product;
 use App\Models\StockAdjustment;
 use App\Models\Warehouse;
 use App\Repositories\Inventory\CategoryRepository;
@@ -59,6 +60,30 @@ class StockController extends Controller
         $categoryIds = $selectedCategoryId ? [$selectedCategoryId] : $assignedCategoryIds;
 
         $stockRows = $this->stockMovements->currentStockByProductAndGrade($date, $selectedWarehouseId, $categoryIds);
+        $showEmptyWarehouseProducts = $selectedWarehouseId !== null
+            && $stockRows->isEmpty()
+            && $request->user()?->hasRole('admin');
+
+        if ($showEmptyWarehouseProducts) {
+            $stockRows = Product::query()
+                ->active()
+                ->with('category:id,name')
+                ->when($categoryIds !== null, fn ($query) => $query->whereIn('category_id', $categoryIds))
+                ->ordered()
+                ->get(['id', 'public_uuid', 'name', 'sku', 'image', 'buffer_qty', 'carryover_enabled', 'category_id'])
+                ->map(fn (Product $product) => (object) [
+                    'product_id' => $product->id,
+                    'product_route_key' => $product->getRouteKey(),
+                    'product_name' => $product->name,
+                    'product_sku' => $product->sku,
+                    'product_image' => $product->image,
+                    'category_name' => $product->category?->name ?? 'Other',
+                    'buffer_qty' => $product->buffer_qty,
+                    'carryover_enabled' => $product->carryover_enabled,
+                    'grade' => 'Unsorted',
+                    'current_stock' => 0.0,
+                ]);
+        }
         $stockByProduct = $stockRows->groupBy('product_id');
         $negativeProductCount = $stockByProduct
             ->filter(fn ($rows) => (float) $rows->sum('current_stock') < -0.001)
@@ -76,20 +101,21 @@ class StockController extends Controller
             ->count();
         $adjustmentTotals = StockAdjustment::query()
             ->whereDate('business_date', $date)
+            ->when($selectedWarehouseId, fn ($query) => $query->where('warehouse_id', $selectedWarehouseId))
             ->when($categoryIds !== null, fn ($query) => $query->whereHas('product', fn ($productQuery) => $productQuery->whereIn('category_id', $categoryIds)))
             ->selectRaw("COALESCE(SUM(CASE WHEN category = 'wastage' THEN ABS(variance_qty) ELSE 0 END), 0) as wastage_qty")
             ->selectRaw("COALESCE(SUM(CASE WHEN category = 'old_stock' THEN variance_qty ELSE 0 END), 0) as old_stock_qty")
             ->first();
-        $showAdjustmentTotals = ! $selectedWarehouseId;
+        $showAdjustmentTotals = true;
 
         $search = trim($request->string('search')->toString());
         $sort = $request->string('sort')->toString();
         $sort = in_array($sort, ['sku_asc', 'name_asc', 'name_desc', 'stock_high', 'stock_low', 'below_buffer'], true)
             ? $sort
             : 'sku_asc';
-        $perPage = in_array($request->integer('per_page'), [12, 24, 48], true)
+        $perPage = $showEmptyWarehouseProducts ? 10 : (in_array($request->integer('per_page'), [12, 24, 48], true)
             ? $request->integer('per_page')
-            : 24;
+            : 24);
 
         $productGroups = $stockByProduct
             ->filter(function (Collection $grades) use ($search): bool {
@@ -153,6 +179,7 @@ class StockController extends Controller
             'categories',
             'selectedCategoryId',
             'showAdjustmentTotals',
+            'showEmptyWarehouseProducts',
         ));
     }
 }

@@ -16,7 +16,9 @@ class StoreStockAdjustmentRequest extends FormRequest
             'counted_qty' => ['required', 'numeric', 'min:0'],
             'system_qty' => ['required', 'numeric', 'min:0'],
             'business_date' => ['required', 'date', 'before_or_equal:today'],
-            'notes' => ['required', 'string', 'max:1000'],
+            'preset_reason' => ['nullable', 'string', 'max:255'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+            'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
         ];
     }
 }

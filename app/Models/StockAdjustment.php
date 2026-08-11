@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class StockAdjustment extends Model
 {
-    protected $fillable = ['product_id', 'created_by', 'business_date', 'system_qty', 'counted_qty', 'variance_qty', 'category', 'notes'];
+    protected $fillable = ['product_id', 'warehouse_id', 'created_by', 'business_date', 'system_qty', 'counted_qty', 'variance_qty', 'category', 'notes'];
 
     protected function casts(): array
     {
@@ -22,5 +22,6 @@ class StockAdjustment extends Model
     }
 
     public function product(): BelongsTo { return $this->belongsTo(Product::class); }
+    public function warehouse(): BelongsTo { return $this->belongsTo(Warehouse::class); }
     public function createdBy(): BelongsTo { return $this->belongsTo(User::class, 'created_by'); }
 }

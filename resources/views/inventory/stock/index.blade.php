@@ -99,6 +99,13 @@
         </div>
     </div>
 
+    @if($showEmptyWarehouseProducts)
+        <div class="mb-6 rounded-2xl border border-cyan-200 bg-cyan-50 p-4 text-sm text-cyan-950 shadow-xs">
+            <p class="font-black">Empty warehouse old-stock entry</p>
+            <p class="mt-1 font-semibold">This warehouse has no recorded stock. Products are shown with 0.000 kg, 10 at a time, so an administrator can record the physical old stock. Every save remains in the stock history.</p>
+        </div>
+    @endif
+
     <form method="GET" action="{{ route('inventory.stock.index') }}" class="mb-6 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:flex-row sm:items-end">
         <input type="hidden" name="date" value="{{ $date }}">
         @if($selectedWarehouseId) <input type="hidden" name="warehouse_id" value="{{ $selectedWarehouseId }}"> @endif
@@ -118,6 +125,7 @@
                 <option value="below_buffer" @selected($sort === 'below_buffer')>Below buffer first</option>
             </select>
         </label>
+        @unless($showEmptyWarehouseProducts)
         <label class="block sm:w-28">
             <span class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Per page</span>
             <select name="per_page" class="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 focus:border-brand-500 focus:outline-none">
@@ -126,6 +134,7 @@
                 @endforeach
             </select>
         </label>
+        @endunless
         <button type="submit" class="h-10 rounded-xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800">Apply</button>
     </form>
 
@@ -230,15 +239,13 @@
                 </div>
 
                 @can('inventory.stock.adjust')
-                    @if(! $selectedWarehouseId)
                     <button
                         type="button"
-                        onclick="openStockAdjustmentModal('{{ $productRouteKey }}', @js($productName), {{ number_format($totalStock, 3, '.', '') }})"
+                        onclick="openStockAdjustmentModal('{{ $productRouteKey }}', @js($productName), {{ number_format($totalStock, 3, '.', '') }}, {{ $selectedWarehouseId ? $selectedWarehouseId : 'null' }})"
                         class="absolute bottom-2.5 left-2.5 rounded-xl bg-white/95 px-2.5 py-1 text-[10px] font-black text-slate-700 shadow-sm ring-1 ring-slate-900/10 backdrop-blur-sm transition hover:bg-brand-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
                     >
                         Update Qty
                     </button>
-                    @endif
                 @endcan
             </div>
 
@@ -348,15 +355,20 @@
                     @csrf
                     <input type="hidden" name="system_qty" id="stock-adjustment-system-qty">
                     <input type="hidden" name="business_date" value="{{ $date }}">
+                    <input type="hidden" name="warehouse_id" id="stock-adjustment-warehouse-id">
                     <div class="rounded-2xl bg-slate-50 p-4">
                         <div class="flex items-center justify-between text-xs font-bold text-slate-500"><span>System quantity</span><span id="stock-adjustment-system-label" class="font-mono text-base font-black text-slate-950"></span></div>
                         <label for="stock-adjustment-counted-qty" class="mt-4 block text-xs font-black text-slate-700">Physical quantity counted (kg)</label>
                         <input id="stock-adjustment-counted-qty" name="counted_qty" type="number" min="0" step="0.001" required oninput="updateStockAdjustmentPreview()" class="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-right text-sm font-black text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
                     </div>
                     <div id="stock-adjustment-preview" class="hidden rounded-2xl border p-3 text-xs font-bold"></div>
+                    <div id="stock-adjustment-reason-wrap" class="hidden">
+                        <label for="stock-adjustment-reason" class="block text-xs font-black text-slate-700">Predefined reason</label>
+                        <select id="stock-adjustment-reason" name="preset_reason" class="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"></select>
+                    </div>
                     <div>
                         <label for="stock-adjustment-notes" class="block text-xs font-black text-slate-700">Reason / note</label>
-                        <textarea id="stock-adjustment-notes" name="notes" rows="3" required maxlength="1000" placeholder="Explain the physical count difference" class="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"></textarea>
+                        <textarea id="stock-adjustment-notes" name="notes" rows="3" maxlength="1000" placeholder="Optional extra detail" class="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"></textarea>
                     </div>
                     <p class="text-[11px] font-semibold text-slate-500">More stock is recorded as <strong>Old Stock</strong>. Less stock is recorded as <strong>Wastage</strong>.</p>
                     <div class="flex gap-3 pt-1"><button type="button" onclick="closeStockAdjustmentModal()" class="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-black text-slate-700 hover:bg-slate-50">Cancel</button><button type="submit" class="flex-1 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800">Save adjustment</button></div>
@@ -365,12 +377,18 @@
         </div>
     <script>
             const stockAdjustmentRoute = @json(route('inventory.stock.adjustments.store', ['product' => 'PRODUCT_KEY']));
-            function openStockAdjustmentModal(productKey, productName, systemQty) {
+            const stockAdjustmentReasons = {
+                old_stock: ['Old stock found during count', 'Previous-day stock not recorded', 'Stock received before system entry', 'Other old stock'],
+                wastage: ['Damaged or spoiled stock', 'Expired / unsellable stock', 'Handling or sorting loss', 'Missing stock after count', 'Other wastage'],
+            };
+            function openStockAdjustmentModal(productKey, productName, systemQty, warehouseId) {
                 document.getElementById('stock-adjustment-title').textContent = productName;
                 document.getElementById('stock-adjustment-system-qty').value = systemQty.toFixed(3);
+                document.getElementById('stock-adjustment-warehouse-id').value = warehouseId ?? '';
                 document.getElementById('stock-adjustment-system-label').textContent = systemQty.toFixed(3) + ' kg';
                 document.getElementById('stock-adjustment-counted-qty').value = systemQty.toFixed(3);
-                document.getElementById('stock-adjustment-notes').value = '';
+                const notes = document.getElementById('stock-adjustment-notes');
+                notes.value = '';
                 document.getElementById('stock-adjustment-form').action = stockAdjustmentRoute.replace('PRODUCT_KEY', productKey);
                 updateStockAdjustmentPreview();
                 document.getElementById('stock-adjustment-modal').classList.remove('hidden');
@@ -384,10 +402,20 @@
                 const preview = document.getElementById('stock-adjustment-preview');
                 if (!Number.isFinite(countedQty)) { preview.classList.add('hidden'); return; }
                 const difference = countedQty - systemQty;
-                if (Math.abs(difference) < 0.001) { preview.classList.remove('hidden'); preview.className = 'rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-600'; preview.textContent = 'No adjustment needed — physical and system quantities match.'; return; }
+                const reasonWrap = document.getElementById('stock-adjustment-reason-wrap');
+                const notes = document.getElementById('stock-adjustment-notes');
+                if (Math.abs(difference) < 0.001) { reasonWrap.classList.add('hidden'); preview.classList.remove('hidden'); preview.className = 'rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-600'; preview.textContent = 'No adjustment needed — physical and system quantities match.'; return; }
                 const isExcess = difference > 0;
+                setStockAdjustmentReasons(isExcess ? 'old_stock' : 'wastage');
+                reasonWrap.classList.remove('hidden');
                 preview.classList.remove('hidden'); preview.className = 'rounded-2xl border p-3 text-xs font-bold ' + (isExcess ? 'border-cyan-200 bg-cyan-50 text-cyan-800' : 'border-rose-200 bg-rose-50 text-rose-800');
                 preview.textContent = (isExcess ? 'Old Stock: +' : 'Wastage: ') + difference.toFixed(3) + ' kg';
+            }
+            function setStockAdjustmentReasons(category) {
+                const select = document.getElementById('stock-adjustment-reason');
+                if (select.dataset.category === category && select.options.length > 0) return;
+                select.dataset.category = category;
+                select.innerHTML = stockAdjustmentReasons[category].map(reason => `<option value="${reason}">${reason}</option>`).join('');
             }
     </script>
 

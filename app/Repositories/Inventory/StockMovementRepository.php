@@ -48,6 +48,7 @@ class StockMovementRepository extends BaseRepository
             StockMovementType::Out->value,
             StockMovementType::Wastage->value,
             StockMovementType::Sale->value,
+            StockMovementType::Adjustment->value,
         ];
 
         $movementsStock = $this->query()
@@ -57,7 +58,7 @@ class StockMovementRepository extends BaseRepository
                 'stock_movements.product_id, products.public_uuid as product_route_key, products.name as product_name, products.sku as product_sku, products.image as product_image, categories.name as category_name, products.buffer_qty, products.carryover_enabled, stock_movements.grade, '.
                 'SUM(CASE '.
                 'WHEN stock_movements.type IN (?, ?) THEN stock_movements.quantity '.
-                'WHEN stock_movements.type IN (?, ?, ?) THEN -stock_movements.quantity '.
+                'WHEN stock_movements.type IN (?, ?, ?, ?) THEN -stock_movements.quantity '.
                 'ELSE 0 END) as current_stock',
                 [
                     $positiveMovementTypes[0],
@@ -65,6 +66,7 @@ class StockMovementRepository extends BaseRepository
                     $negativeMovementTypes[0],
                     $negativeMovementTypes[1],
                     $negativeMovementTypes[2],
+                    $negativeMovementTypes[3],
                 ]
             )
             ->when($date, fn ($q) => $q->whereDate('stock_movements.created_at', '<=', $date))
@@ -93,9 +95,18 @@ class StockMovementRepository extends BaseRepository
                 continue;
             }
 
-            // Unsorted quantity is the remaining quantity of the batch
-            $qty = (float) $batch->remaining_qty;
-            if ($qty <= 0) {
+            // Pending batches do not have a sorted stock ledger yet. Their remaining
+            // quantity is reduced by allocations and explicit physical write-offs.
+            $writeOffQty = (float) StockMovement::query()
+                ->where('batch_id', $batch->id)
+                ->where('grade', ProductGrade::Unsorted->value)
+                ->whereIn('type', [
+                    StockMovementType::Wastage->value,
+                    StockMovementType::Adjustment->value,
+                ])
+                ->sum('quantity');
+            $qty = max(0.0, (float) $batch->remaining_qty - $writeOffQty);
+            if ($qty <= 0.0001) {
                 continue;
             }
 
@@ -142,7 +153,7 @@ class StockMovementRepository extends BaseRepository
         $outQty = $this->query()
             ->where('product_id', $productId)
             ->where('grade', $grade->value)
-            ->whereIn('type', [StockMovementType::Out->value, StockMovementType::Wastage->value, StockMovementType::Sale->value])
+            ->whereIn('type', [StockMovementType::Out->value, StockMovementType::Wastage->value, StockMovementType::Sale->value, StockMovementType::Adjustment->value])
             ->sum('quantity');
 
         return max(0, (float) $inQty - (float) $outQty);

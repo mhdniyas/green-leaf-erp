@@ -148,6 +148,12 @@
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5 12 3l9 4.5M4.5 8.25v8.25A2.25 2.25 0 0 0 6.75 18.75h10.5A2.25 2.25 0 0 0 19.5 16.5V8.25M9 12h6" /></svg>',
         ];
         $adminItems[] = [
+            'label' => 'Empty Warehouse',
+            'href' => route('admin.inventory-empty.index'),
+            'active' => request()->routeIs('admin.inventory-empty.*'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 7.5h15m-13.5 0 .75 12h10.5l.75-12M9.75 7.5V5.25h4.5V7.5M10 11.25v4.5m4-4.5v4.5" /></svg>',
+        ];
+        $adminItems[] = [
             'label' => 'Company Settings',
             'href' => route('admin.company-settings.edit'),
             'active' => request()->routeIs('admin.company-settings.*'),
