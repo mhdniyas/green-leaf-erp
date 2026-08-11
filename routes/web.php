@@ -58,13 +58,139 @@ use App\Http\Controllers\Web\SortSheetController;
 use App\Http\Controllers\Web\Warehouse\WarehouseLoadoutController;
 use App\Http\Controllers\Web\Warehouse\WarehouseReceiverController;
 use App\Http\Controllers\Web\WebsiteEnquiryController;
+use App\Models\Category;
+use App\Models\DailyPriceApproval;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 // Public website
 Route::get('/', function () {
-    return auth()->check() ? redirect()->route('dashboard') : view('welcome');
+    if (auth()->check()) {
+        return redirect()->route('dashboard');
+    }
+
+    $priceDate = DailyPriceApproval::query()
+        ->where('status', 'approved')
+        ->whereDate('business_date', now()->toDateString())
+        ->exists()
+            ? now()->toDateString()
+            : DailyPriceApproval::query()
+                ->where('status', 'approved')
+                ->max('business_date');
+
+    $marketPrices = collect();
+
+    if ($priceDate !== null) {
+        $marketPrices = DailyPriceApproval::query()
+            ->with(['product.category'])
+            ->where('status', 'approved')
+            ->whereDate('business_date', $priceDate)
+            ->where(function ($query): void {
+                $query->where('price_a', '>', 0)
+                    ->orWhere('purchase_price', '>', 0);
+            })
+            ->whereHas('product', fn ($query) => $query->active())
+            ->orderByDesc('approved_at')
+            ->limit(12)
+            ->get()
+            ->map(function (DailyPriceApproval $approval): array {
+                $product = $approval->product;
+                $price = $approval->price_a !== null && (float) $approval->price_a > 0
+                    ? (float) $approval->price_a
+                    : (float) $approval->purchase_price;
+
+                return [
+                    'name' => $product?->name ?? 'Fresh produce',
+                    'category' => $product?->category?->name ?? 'Daily market',
+                    'unit' => strtoupper((string) ($approval->price_unit ?: $product?->unit ?: 'kg')),
+                    'price' => $price,
+                    'image' => $product?->getImageUrl() ?? asset('images/header.png'),
+                ];
+            });
+    }
+
+    return view('welcome', [
+        'marketPrices' => $marketPrices,
+        'marketPriceDate' => $priceDate,
+    ]);
 })->name('home');
+Route::get('/marketplace', function (Request $request) {
+    $filters = $request->validate([
+        'q' => ['nullable', 'string', 'max:80'],
+        'category' => ['nullable', 'integer', 'exists:categories,id'],
+        'sort' => ['nullable', 'string', 'in:featured,price_low,price_high,name'],
+    ]);
+
+    $priceDate = DailyPriceApproval::query()
+        ->where('status', 'approved')
+        ->whereDate('business_date', now()->toDateString())
+        ->exists()
+            ? now()->toDateString()
+            : DailyPriceApproval::query()
+                ->where('status', 'approved')
+                ->max('business_date');
+
+    $sort = $filters['sort'] ?? 'featured';
+    $search = trim((string) ($filters['q'] ?? ''));
+    $categoryId = isset($filters['category']) ? (int) $filters['category'] : null;
+
+    $marketProducts = collect();
+
+    if ($priceDate !== null) {
+        $marketProducts = DailyPriceApproval::query()
+            ->with(['product.category'])
+            ->where('status', 'approved')
+            ->whereDate('business_date', $priceDate)
+            ->where(function ($query): void {
+                $query->where('price_a', '>', 0)
+                    ->orWhere('purchase_price', '>', 0);
+            })
+            ->whereHas('product', function ($query) use ($categoryId, $search): void {
+                $query->active()
+                    ->when($categoryId !== null, fn ($query) => $query->where('category_id', $categoryId))
+                    ->when($search !== '', fn ($query) => $query->where('name', 'like', '%'.$search.'%'));
+            })
+            ->get()
+            ->map(function (DailyPriceApproval $approval): array {
+                $product = $approval->product;
+                $price = $approval->price_a !== null && (float) $approval->price_a > 0
+                    ? (float) $approval->price_a
+                    : (float) $approval->purchase_price;
+
+                return [
+                    'id' => (int) $approval->product_id,
+                    'name' => $product?->name ?? 'Fresh produce',
+                    'category_id' => (int) ($product?->category_id ?? 0),
+                    'category' => $product?->category?->name ?? 'Daily market',
+                    'unit' => strtoupper((string) ($approval->price_unit ?: $product?->unit ?: 'kg')),
+                    'price' => $price,
+                    'image' => $product?->getImageUrl() ?? asset('images/header.png'),
+                ];
+            })
+            ->when($sort === 'price_low', fn ($items) => $items->sortBy('price'))
+            ->when($sort === 'price_high', fn ($items) => $items->sortByDesc('price'))
+            ->when($sort === 'name', fn ($items) => $items->sortBy('name'))
+            ->when($sort === 'featured', fn ($items) => $items->sortBy('category')->sortByDesc('price'))
+            ->values();
+    }
+
+    $categories = Category::query()
+        ->active()
+        ->whereHas('products', fn ($query) => $query->active())
+        ->orderBy('name')
+        ->get(['id', 'name']);
+
+    return view('marketplace.index', [
+        'categories' => $categories,
+        'filters' => [
+            'q' => $search,
+            'category' => $categoryId,
+            'sort' => $sort,
+        ],
+        'marketProducts' => $marketProducts,
+        'marketPriceDate' => $priceDate,
+    ]);
+})->name('marketplace.index');
 Route::view('/products', 'products.index')->name('products.index');
 Route::post('/enquiries', [WebsiteEnquiryController::class, 'store'])->middleware('throttle:public-form')->name('website-enquiries.store');
 

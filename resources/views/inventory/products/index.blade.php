@@ -148,11 +148,15 @@
                         <td class="px-6 py-4">
                             <div class="flex items-center gap-3">
                                 @if($product->image)
-                                    <img src="{{ $product->getImageUrl() }}" class="w-8 h-8 rounded-lg object-cover shrink-0" alt="{{ $product->name }}">
+                                    <a href="{{ route('inventory.products.edit', $product) }}#product-image-upload" class="group relative shrink-0" title="Change {{ $product->name }} photo">
+                                        <img src="{{ $product->getImageUrl() }}" class="w-8 h-8 rounded-lg object-cover transition group-hover:ring-2 group-hover:ring-brand-300" alt="{{ $product->name }}">
+                                        <span class="sr-only">Change product photo</span>
+                                    </a>
                                 @else
-                                    <div class="w-8 h-8 rounded-lg bg-brand-100 flex items-center justify-center shrink-0">
+                                    <a href="{{ route('inventory.products.edit', $product) }}#product-image-upload" class="w-8 h-8 rounded-lg bg-brand-100 flex items-center justify-center shrink-0 transition hover:ring-2 hover:ring-brand-300" title="Add {{ $product->name }} photo">
                                         <span class="text-brand-700 text-xs font-bold">{{ strtoupper(substr($product->name, 0, 1)) }}</span>
-                                    </div>
+                                        <span class="sr-only">Add product photo</span>
+                                    </a>
                                 @endif
                                 <div>
                                     <p class="font-medium text-gray-900">{{ $product->name }}</p>
