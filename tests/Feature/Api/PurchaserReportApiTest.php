@@ -128,11 +128,13 @@ class PurchaserReportApiTest extends TestCase
                 'product_name' => 'Potato',
                 'unit' => 'BOX',
                 'billed_quantity' => '0.7500',
+                'outgoing_quantity' => '0.7500',
                 'line_sales_amount' => '75.00',
                 'invoice_line_count' => 2,
                 'invoice_count' => 2,
                 'shop_count' => 2,
             ])
+            ->assertJsonCount(2, 'data.items.1.delivered_shops')
             ->assertJsonFragment([
                 'product_name' => 'Herb',
                 'unit' => 'BUNCH',

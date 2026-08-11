@@ -57,6 +57,7 @@ class PurchaserReportService
 
         $rows = $this->sortedItemRows($aggregate, (string) ($filters['sort'] ?? 'sku'))
             ->paginate($filters['per_page'], ['*'], 'page', $filters['page']);
+        $pageItems = collect($rows->items());
 
         return [
             'summary' => [
@@ -64,7 +65,7 @@ class PurchaserReportService
                 'product_unit_rows' => (int) $distinctRows,
                 'invoice_lines' => (int) $invoiceLines,
             ],
-            'items' => collect($rows->items())->map(fn (object $row): array => $this->itemRow($row))->all(),
+            'items' => $this->enrichedItemRows($pageItems, $filters),
             'pagination' => $this->pagination($rows),
         ];
     }
@@ -308,6 +309,70 @@ class PurchaserReportService
             'invoice_count' => (int) $row->invoice_count,
             'shop_count' => (int) $row->shop_count,
         ];
+    }
+
+    /** @param \Illuminate\Support\Collection<int, object> $rows */
+    private function enrichedItemRows(\Illuminate\Support\Collection $rows, array $filters): array
+    {
+        if ($rows->isEmpty()) {
+            return [];
+        }
+
+        $productIds = $rows->pluck('product_id')->map(fn ($id): int => (int) $id)->unique()->values()->all();
+        $unitExpression = $this->itemUnitExpression();
+        $quantityExpression = $this->itemQuantityExpression();
+
+        $deliveries = $this->itemLinesQuery($filters)
+            ->whereIn('shop_invoice_items.product_id', $productIds)
+            ->select([
+                'shop_invoice_items.product_id',
+                'shop_invoices.shop_id',
+                'shops.name as shop_name',
+                'shops.code as shop_code',
+            ])
+            ->selectRaw("{$unitExpression} as unit")
+            ->selectRaw("SUM({$quantityExpression}) as delivered_quantity")
+            ->selectRaw('SUM(shop_invoice_items.final_line_total) as sales_amount')
+            ->selectRaw('COUNT(DISTINCT shop_invoices.id) as invoice_count')
+            ->groupBy('shop_invoice_items.product_id', 'shop_invoices.shop_id', 'shops.name', 'shops.code')
+            ->groupByRaw($unitExpression)
+            ->get()
+            ->groupBy(fn (object $row): string => $row->product_id.'|'.strtoupper((string) $row->unit));
+
+        $incoming = DB::table('goods_received_items')
+            ->join('goods_received', 'goods_received.id', '=', 'goods_received_items.goods_received_id')
+            ->whereNull('goods_received_items.deleted_at')
+            ->whereNull('goods_received.deleted_at')
+            ->whereIn('goods_received_items.product_id', $productIds)
+            ->whereDate('goods_received.received_at', '>=', $filters['date_from'])
+            ->whereDate('goods_received.received_at', '<=', $filters['date_to'])
+            ->select('goods_received_items.product_id')
+            ->selectRaw('SUM(goods_received_items.received_qty) as incoming_quantity')
+            ->groupBy('goods_received_items.product_id')
+            ->pluck('incoming_quantity', 'product_id');
+
+        return $rows->map(function (object $row) use ($deliveries, $incoming): array {
+            $item = $this->itemRow($row);
+            $incomingQuantity = (float) ($incoming[$row->product_id] ?? 0);
+            $outgoingQuantity = (float) $row->billed_quantity;
+            $key = $row->product_id.'|'.strtoupper((string) $row->unit);
+
+            $item['incoming_quantity'] = $this->quantity($incomingQuantity);
+            $item['outgoing_quantity'] = $this->quantity($outgoingQuantity);
+            $item['balance_quantity'] = $this->quantity($incomingQuantity - $outgoingQuantity);
+            $item['delivered_shops'] = collect($deliveries->get($key, collect()))
+                ->map(fn (object $shop): array => [
+                    'shop_id' => (int) $shop->shop_id,
+                    'shop_name' => (string) $shop->shop_name,
+                    'shop_code' => (string) $shop->shop_code,
+                    'delivered_quantity' => $this->quantity($shop->delivered_quantity),
+                    'unit' => strtoupper((string) $shop->unit),
+                    'sales_amount' => $this->money($shop->sales_amount),
+                    'invoice_count' => (int) $shop->invoice_count,
+                ])->values()->all();
+
+            return $item;
+        })->all();
     }
 
     private function itemQuantityExpression(): string
