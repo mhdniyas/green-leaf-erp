@@ -84,9 +84,9 @@ class StockController extends Controller
 
         $search = trim($request->string('search')->toString());
         $sort = $request->string('sort')->toString();
-        $sort = in_array($sort, ['name_asc', 'name_desc', 'stock_high', 'stock_low', 'below_buffer'], true)
+        $sort = in_array($sort, ['sku_asc', 'name_asc', 'name_desc', 'stock_high', 'stock_low', 'below_buffer'], true)
             ? $sort
-            : 'name_asc';
+            : 'sku_asc';
         $perPage = in_array($request->integer('per_page'), [12, 24, 48], true)
             ? $request->integer('per_page')
             : 24;
@@ -116,7 +116,7 @@ class StockController extends Controller
 
                 return (float) $first->buffer_qty > 0 && (float) $grades->sum('current_stock') < (float) $first->buffer_qty ? 1 : 0;
             }),
-            default => $productGroups->sortBy(fn (Collection $grades): string => (string) $grades->first()->product_name),
+            default => $productGroups,
         };
 
         $page = Paginator::resolveCurrentPage('page');

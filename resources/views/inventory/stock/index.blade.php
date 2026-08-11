@@ -108,6 +108,7 @@
         <label class="block sm:w-48">
             <span class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Sort by</span>
             <select name="sort" class="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 focus:border-brand-500 focus:outline-none">
+                <option value="sku_asc" @selected($sort === 'sku_asc')>SKU: low to high</option>
                 <option value="name_asc" @selected($sort === 'name_asc')>Product name: A–Z</option>
                 <option value="name_desc" @selected($sort === 'name_desc')>Product name: Z–A</option>
                 <option value="stock_high" @selected($sort === 'stock_high')>Stock: high to low</option>
@@ -332,7 +333,7 @@
     @endif
     @endif
 
-    @can('inventory.stock.adjust')
+    @if(auth()->user()?->can('inventory.stock.adjust'))
         <div id="stock-adjustment-modal" class="fixed inset-0 z-[70] hidden items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="stock-adjustment-title">
             <div class="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
                 <div class="flex items-start justify-between border-b border-slate-100 p-5">
@@ -388,6 +389,6 @@
                 preview.textContent = (isExcess ? 'Old Stock: +' : 'Wastage: ') + difference.toFixed(3) + ' kg';
             }
         </script>
-    @endcan
+    @endif
 
 </x-layouts.inventory>
