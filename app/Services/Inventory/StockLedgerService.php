@@ -86,13 +86,14 @@ class StockLedgerService
         StockMovementType $movementType,
         string $notes,
         ?int $shopOrderItemId = null,
+        ?int $warehouseId = null,
     ): float {
         if ($quantity <= 0.0) {
             return 0.0;
         }
 
-        return DB::transaction(function () use ($productId, $quantity, $userId, $movementType, $notes, $shopOrderItemId): float {
-            $this->lockStockBatchesForProduct($productId);
+        return DB::transaction(function () use ($productId, $quantity, $userId, $movementType, $notes, $shopOrderItemId, $warehouseId): float {
+            $this->lockStockBatchesForProduct($productId, $warehouseId);
 
             $remainingQuantity = $quantity;
             $consumedQuantity = 0.0;
@@ -105,6 +106,7 @@ class StockLedgerService
                 $movementType,
                 $notes,
                 $shopOrderItemId,
+                $warehouseId,
             );
 
             if ($remainingQuantity > 0.0) {
@@ -116,6 +118,7 @@ class StockLedgerService
                     $movementType,
                     $notes,
                     $shopOrderItemId,
+                    $warehouseId,
                 );
             }
 
@@ -123,7 +126,7 @@ class StockLedgerService
                 return round($consumedQuantity, 3);
             }
 
-            $batch = $this->negativeStockBatchForProduct($productId, $userId);
+            $batch = $this->negativeStockBatchForProduct($productId, $userId, $warehouseId);
 
             StockMovement::create([
                 'product_id' => $productId,
@@ -303,10 +306,11 @@ class StockLedgerService
         return round(max(0.0, (float) $batch->remaining_qty - $writeOffQuantity), 3);
     }
 
-    private function negativeStockBatchForProduct(int $productId, int $userId): StockBatch
+    private function negativeStockBatchForProduct(int $productId, int $userId, ?int $warehouseId = null): StockBatch
     {
         $latestBatch = StockBatch::query()
             ->where('product_id', $productId)
+            ->when($warehouseId !== null, fn ($query) => $query->where('warehouse_id', $warehouseId))
             ->lockForUpdate()
             ->latest('received_at')
             ->latest('id')
@@ -316,12 +320,13 @@ class StockLedgerService
             return $latestBatch;
         }
 
-        $reference = 'NEG-'.Carbon::today()->format('Ymd').'-'.$productId;
+        $reference = 'NEG-'.Carbon::today()->format('Ymd').'-'.$productId.($warehouseId !== null ? '-W'.$warehouseId : '');
 
         return StockBatch::query()->firstOrCreate(
             ['reference' => $reference],
             [
                 'product_id' => $productId,
+                'warehouse_id' => $warehouseId,
                 'created_by' => $userId,
                 'received_at' => Carbon::today()->toDateString(),
                 'total_kg' => 0,

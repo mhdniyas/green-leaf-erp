@@ -9,6 +9,7 @@ use App\Http\Requests\Api\Warehouse\SaveWarehouseLoadoutItemsRequest;
 use App\Http\Requests\Api\Warehouse\WarehouseLoadoutIndexRequest;
 use App\Models\ShopOrder;
 use App\Models\Warehouse;
+use App\Services\Warehouse\WarehouseLoadoutCompletionService;
 use App\Services\Warehouse\WarehouseScopedLoadoutService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,6 +18,7 @@ class WarehouseScopedLoadoutController extends Controller
 {
     public function __construct(
         private readonly WarehouseScopedLoadoutService $service,
+        private readonly WarehouseLoadoutCompletionService $completionService,
     ) {}
 
     public function index(WarehouseLoadoutIndexRequest $request, Warehouse $warehouse): JsonResponse
@@ -49,6 +51,15 @@ class WarehouseScopedLoadoutController extends Controller
                 $shopOrder,
                 $request->validated('items'),
             ),
+        ]);
+    }
+
+    public function complete(Request $request, Warehouse $warehouse, ShopOrder $shopOrder): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'message' => 'Warehouse loadout completed successfully.',
+            ...$this->completionService->complete($request->user(), $warehouse, $shopOrder),
         ]);
     }
 }

@@ -71,6 +71,7 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
             Route::get('/orders', [WarehouseScopedLoadoutController::class, 'index'])->name('orders.index');
             Route::get('/orders/{shopOrder}', [WarehouseScopedLoadoutController::class, 'show'])->name('orders.show');
             Route::patch('/orders/{shopOrder}/items', [WarehouseScopedLoadoutController::class, 'updateItems'])->name('orders.items.update');
+            Route::post('/orders/{shopOrder}/complete', [WarehouseScopedLoadoutController::class, 'complete'])->name('orders.complete');
         });
 
         // ── Inventory ─────────────────────────────────────────────────────────

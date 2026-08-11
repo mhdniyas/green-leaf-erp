@@ -65,7 +65,7 @@ class WarehouseScopedLoadoutService
                         });
                 });
             })
-            ->with('shop:id,name,code,warehouse_tag')
+            ->with(['shop:id,name,code,warehouse_tag', 'invoice:id,shop_order_id,invoice_number,status'])
             ->withCount([
                 'items as warehouse_item_count' => $warehouseItems,
                 'items as warehouse_loaded_count' => fn (Builder $query): Builder => $warehouseItems($query)->where('sorting_status', 'loaded'),
@@ -75,13 +75,16 @@ class WarehouseScopedLoadoutService
             ->orderBy('created_at')
             ->get();
 
+        $metadataByOrder = $this->completionMetadataForOrders($orders, $warehouse);
+
         return [
             'selected_date' => $date,
             'warehouse' => $this->warehouseData($warehouse),
-            'orders' => $orders->map(function (ShopOrder $order): array {
+            'orders' => $orders->map(function (ShopOrder $order) use ($metadataByOrder): array {
                 $total = (int) $order->warehouse_item_count;
                 $loaded = (int) $order->warehouse_loaded_count;
                 $notAvailable = (int) $order->warehouse_not_available_count;
+                $completion = $metadataByOrder->get($order->id);
 
                 return [
                     'id' => $order->id,
@@ -98,7 +101,13 @@ class WarehouseScopedLoadoutService
                     'warehouse_progress_percentage' => $total > 0
                         ? round((($loaded + $notAvailable) / $total) * 100)
                         : 0,
-                    'can_edit' => $this->canEdit($order),
+                    'warehouse_status' => $completion['selected_warehouse_status'],
+                    'overall_loadout_status' => $completion['overall_loadout_status'],
+                    'can_edit' => $this->canEdit($order) && $completion['selected_warehouse_status'] !== 'completed',
+                    'can_complete' => $this->canEdit($order)
+                        && $completion['selected_warehouse_status'] !== 'completed'
+                        && ($loaded + $notAvailable) === $total,
+                    'delivery_ready' => $completion['delivery_ready'],
                 ];
             })->values(),
         ];
@@ -137,6 +146,14 @@ class WarehouseScopedLoadoutService
         $itemIds = $submittedById->keys()->map(fn ($id): int => (int) $id)->sort()->values();
 
         DB::transaction(function () use ($user, $warehouse, $order, $submittedById, $itemIds): void {
+            ShopOrder::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $state = $this->lockOrCreateState($order->id, $warehouse->id);
+            if ($state->completed_at !== null) {
+                throw ValidationException::withMessages([
+                    'warehouse' => ['This warehouse loadout is already completed and cannot be edited.'],
+                ]);
+            }
+
             $items = ShopOrderItem::query()
                 ->whereIn('id', $itemIds)
                 ->with('product:id,default_warehouse_id')
@@ -178,10 +195,6 @@ class WarehouseScopedLoadoutService
                 $item->update($attributes);
             }
 
-            $state = ShopOrderLoadoutState::query()->firstOrCreate(
-                ['shop_order_id' => $order->id, 'warehouse_id' => $warehouse->id],
-                ['started_at' => now()]
-            );
             if ($state->started_at === null) {
                 $state->forceFill(['started_at' => now()])->save();
             }
@@ -229,6 +242,8 @@ class WarehouseScopedLoadoutService
         $loaded = $items->where('sorting_status', 'loaded')->count();
         $notAvailable = $items->where('sorting_status', 'not_available')->count();
         $total = $items->count();
+        $completion = $this->completionMetadata($order, $warehouse);
+        $canEdit = $this->canEdit($order) && $completion['selected_warehouse_status'] !== 'completed';
 
         return [
             'warehouse' => $this->warehouseData($warehouse),
@@ -247,7 +262,13 @@ class WarehouseScopedLoadoutService
                 'not_available' => $notAvailable,
                 'pending' => max(0, $total - $loaded - $notAvailable),
             ],
-            'can_edit' => $this->canEdit($order),
+            'warehouse_status' => $completion['selected_warehouse_status'],
+            'overall_loadout_status' => $completion['overall_loadout_status'],
+            'required_warehouses' => $completion['required_warehouses'],
+            'can_edit' => $canEdit,
+            'can_complete' => $canEdit && ($loaded + $notAvailable) === $total,
+            'delivery_ready' => $completion['delivery_ready'],
+            'invoice' => $completion['invoice'],
             'has_loadout_started' => $hasStarted,
             'loadout_started_at' => $state?->started_at?->toIso8601String(),
         ];
@@ -316,6 +337,125 @@ class WarehouseScopedLoadoutService
     private function canEdit(ShopOrder $order): bool
     {
         return in_array($order->delivery_status, ['pending_delivery', 'ready_for_dispatch'], true);
+    }
+
+    /**
+     * @return array{selected_warehouse_status:string, overall_loadout_status:string, required_warehouses:array<int, array<string, mixed>>, delivery_ready:bool, invoice:?array<string, mixed>}
+     */
+    public function completionMetadata(ShopOrder $order, Warehouse $selectedWarehouse): array
+    {
+        return $this->completionMetadataForOrders(collect([$order]), $selectedWarehouse)->get($order->id);
+    }
+
+    /**
+     * @param  Collection<int, ShopOrder>  $orders
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function completionMetadataForOrders(Collection $orders, Warehouse $selectedWarehouse): Collection
+    {
+        if ($orders->isEmpty()) {
+            return collect();
+        }
+
+        $orderIds = $orders->pluck('id');
+        $requiredWarehouses = DB::table('shop_order_items')
+            ->join('products', 'products.id', '=', 'shop_order_items.product_id')
+            ->join('warehouses', 'warehouses.id', '=', 'products.default_warehouse_id')
+            ->whereIn('shop_order_items.shop_order_id', $orderIds)
+            ->whereNull('shop_order_items.deleted_at')
+            ->whereNull('products.deleted_at')
+            ->where('products.is_active', true)
+            ->whereNull('warehouses.deleted_at')
+            ->where('warehouses.is_active', true)
+            ->select('shop_order_items.shop_order_id', 'warehouses.id', 'warehouses.name', 'warehouses.code')
+            ->distinct()
+            ->orderBy('shop_order_items.shop_order_id')
+            ->orderBy('warehouses.id')
+            ->get();
+        $states = ShopOrderLoadoutState::query()
+            ->whereIn('shop_order_id', $orderIds)
+            ->whereIn('warehouse_id', $requiredWarehouses->pluck('id'))
+            ->get()
+            ->keyBy(fn (ShopOrderLoadoutState $state): string => $state->shop_order_id.':'.$state->warehouse_id);
+        $activities = ShopOrderItem::query()
+            ->join('products', 'products.id', '=', 'shop_order_items.product_id')
+            ->whereIn('shop_order_items.shop_order_id', $orderIds)
+            ->where(function (Builder $query): void {
+                $query->whereNotIn('shop_order_items.sorting_status', ['allocated', 'pending'])
+                    ->orWhere('shop_order_items.loaded_qty', '>', 0)
+                    ->orWhereNotNull('shop_order_items.loadout_discrepancy_note');
+            })
+            ->select('shop_order_items.shop_order_id', 'products.default_warehouse_id')
+            ->distinct()
+            ->get()
+            ->mapWithKeys(fn (ShopOrderItem $item): array => [
+                $item->shop_order_id.':'.$item->default_warehouse_id => true,
+            ]);
+
+        return $orders->mapWithKeys(function (ShopOrder $order) use ($requiredWarehouses, $states, $activities, $selectedWarehouse): array {
+            $summaries = $requiredWarehouses
+                ->where('shop_order_id', $order->id)
+                ->map(function (object $warehouse) use ($states, $activities, $order): array {
+                    $key = $order->id.':'.$warehouse->id;
+                    $state = $states->get($key);
+                    $status = $state?->completed_at !== null
+                        ? 'completed'
+                        : ($state?->started_at !== null || $activities->get($key, false)
+                            ? 'in_progress'
+                            : 'not_started');
+
+                    return [
+                        'id' => (int) $warehouse->id,
+                        'name' => (string) $warehouse->name,
+                        'code' => (string) $warehouse->code,
+                        'status' => $status,
+                        'completed_at' => $state?->completed_at?->toIso8601String(),
+                    ];
+                })->values();
+            $completedCount = $summaries->where('status', 'completed')->count();
+            $requiredCount = $summaries->count();
+            $overallStatus = $requiredCount > 0 && $completedCount === $requiredCount
+                ? 'ready_for_delivery'
+                : ($completedCount > 0 ? 'partially_completed' : 'pending');
+            $selectedStatus = (string) ($summaries->firstWhere('id', $selectedWarehouse->id)['status'] ?? 'not_started');
+            $order->loadMissing('invoice:id,shop_order_id,invoice_number,status');
+
+            return [$order->id => [
+                'selected_warehouse_status' => $selectedStatus,
+                'overall_loadout_status' => $overallStatus,
+                'required_warehouses' => $summaries->all(),
+                'delivery_ready' => $overallStatus === 'ready_for_delivery'
+                    && in_array($order->delivery_status, ['ready_for_dispatch', 'in_transit', 'delivered'], true),
+                'invoice' => $order->invoice ? [
+                    'id' => $order->invoice->id,
+                    'invoice_number' => $order->invoice->invoice_number,
+                    'status' => $order->invoice->status,
+                ] : null,
+            ]];
+        });
+    }
+
+    private function lockOrCreateState(int $orderId, int $warehouseId): ShopOrderLoadoutState
+    {
+        $state = ShopOrderLoadoutState::query()
+            ->where('shop_order_id', $orderId)
+            ->where('warehouse_id', $warehouseId)
+            ->lockForUpdate()
+            ->first();
+        if ($state) {
+            return $state;
+        }
+
+        ShopOrderLoadoutState::query()->create([
+            'shop_order_id' => $orderId,
+            'warehouse_id' => $warehouseId,
+        ]);
+
+        return ShopOrderLoadoutState::query()
+            ->where('shop_order_id', $orderId)
+            ->where('warehouse_id', $warehouseId)
+            ->lockForUpdate()
+            ->firstOrFail();
     }
 
     /** @return array<int, string> */
