@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -60,6 +61,34 @@ class User extends Authenticatable implements AuditableContract
     public function shop(): BelongsTo
     {
         return $this->belongsTo(Shop::class);
+    }
+
+    /**
+     * Warehouses explicitly assigned to this user.
+     *
+     * @return BelongsToMany<Warehouse, $this>
+     */
+    public function warehouses(): BelongsToMany
+    {
+        return $this->belongsToMany(Warehouse::class, 'user_warehouse')
+            ->withPivot('is_default')
+            ->withTimestamps();
+    }
+
+    public function hasAllWarehouseAccess(): bool
+    {
+        return $this->can('warehouse.loadout.all');
+    }
+
+    public function canAccessWarehouse(Warehouse|int $warehouse): bool
+    {
+        if ($this->hasAllWarehouseAccess()) {
+            return true;
+        }
+
+        $warehouseId = $warehouse instanceof Warehouse ? $warehouse->getKey() : $warehouse;
+
+        return $this->warehouses()->whereKey($warehouseId)->exists();
     }
 
     public function isOnline(): bool

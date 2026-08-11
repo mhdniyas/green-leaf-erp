@@ -10,6 +10,7 @@ use App\Http\Requests\Web\Admin\StoreUserRequest;
 use App\Http\Requests\Web\Admin\UpdateUserRequest;
 use App\Models\Shop;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\Admin\UserService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -54,8 +55,9 @@ class UserController extends Controller
 
         $roles = Role::withCount('permissions')->orderBy('name')->get();
         $shops = Shop::orderBy('name')->get();
+        $warehouses = Warehouse::active()->orderBy('name')->get();
 
-        return view('admin.users.create', compact('roles', 'shops'));
+        return view('admin.users.create', compact('roles', 'shops', 'warehouses'));
     }
 
     public function store(StoreUserRequest $request): RedirectResponse
@@ -70,11 +72,12 @@ class UserController extends Controller
     {
         Gate::authorize('update', $user);
 
-        $user->load('roles');
+        $user->load(['roles', 'warehouses']);
         $roles = Role::withCount('permissions')->orderBy('name')->get();
         $shops = Shop::orderBy('name')->get();
+        $warehouses = Warehouse::active()->orderBy('name')->get();
 
-        return view('admin.users.edit', compact('user', 'roles', 'shops'));
+        return view('admin.users.edit', compact('user', 'roles', 'shops', 'warehouses'));
     }
 
     public function update(UpdateUserRequest $request, User $user): RedirectResponse

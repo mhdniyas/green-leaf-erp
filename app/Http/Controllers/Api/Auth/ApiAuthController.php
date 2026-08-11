@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Models\Warehouse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -39,14 +40,7 @@ class ApiAuthController extends Controller
             'success' => true,
             'message' => 'Login successful',
             'token' => $token,
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'roles' => $user->getRoleNames(),
-                'permissions' => $user->getAllPermissions()->pluck('name'),
-                'assigned_category_ids' => $user->assignedCategoryIds(),
-            ],
+            'user' => $this->userPayload($user),
         ]);
     }
 
@@ -60,14 +54,7 @@ class ApiAuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'roles' => $user->getRoleNames(),
-                'permissions' => $user->getAllPermissions()->pluck('name'),
-                'assigned_category_ids' => $user->assignedCategoryIds(),
-            ],
+            'user' => $this->userPayload($user),
         ]);
     }
 
@@ -82,5 +69,39 @@ class ApiAuthController extends Controller
             'success' => true,
             'message' => 'Logged out successfully',
         ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function userPayload(User $user): array
+    {
+        $assignedWarehouses = $user->warehouses()
+            ->active()
+            ->orderBy('name')
+            ->get();
+        $hasAllWarehouseAccess = $user->hasAllWarehouseAccess();
+        $availableWarehouses = $hasAllWarehouseAccess
+            ? Warehouse::active()->orderBy('name')->get()
+            : $assignedWarehouses;
+
+        $mapWarehouse = static fn (Warehouse $warehouse): array => [
+            'id' => $warehouse->id,
+            'name' => $warehouse->name,
+            'code' => $warehouse->code,
+            'is_default' => (bool) ($warehouse->pivot?->is_default ?? false),
+        ];
+
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'roles' => $user->getRoleNames(),
+            'permissions' => $user->getAllPermissions()->pluck('name'),
+            'assigned_category_ids' => $user->assignedCategoryIds(),
+            'assigned_warehouses' => $assignedWarehouses->map($mapWarehouse)->values(),
+            'available_warehouses' => $availableWarehouses->map($mapWarehouse)->values(),
+            'has_all_warehouse_access' => $hasAllWarehouseAccess,
+        ];
     }
 }

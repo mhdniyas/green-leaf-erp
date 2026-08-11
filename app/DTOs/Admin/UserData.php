@@ -14,6 +14,8 @@ final readonly class UserData
         public ?string $password,
         public ?int $shopId,
         public array $roles,
+        public array $warehouseIds,
+        public ?int $defaultWarehouseId,
     ) {}
 
     public static function fromRequest(Request $request): self
@@ -24,6 +26,10 @@ final readonly class UserData
             password: $request->filled('password') ? $request->string('password')->toString() : null,
             shopId: $request->filled('shop_id') ? (int) $request->integer('shop_id') : null,
             roles: $request->input('roles', []),
+            warehouseIds: array_values(array_map('intval', $request->input('warehouse_ids', []))),
+            defaultWarehouseId: $request->filled('default_warehouse_id')
+                ? (int) $request->integer('default_warehouse_id')
+                : null,
         );
     }
 

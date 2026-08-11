@@ -128,6 +128,7 @@ class RolePermissionSeeder extends Seeder
             // Warehouse receive
             'warehouse.receive.view',
             'warehouse.receive.confirm',
+            'warehouse.loadout.all',
 
             // Warehouse checklist
             'warehouse.checklist.view',

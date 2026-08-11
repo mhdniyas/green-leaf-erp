@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Web\Admin;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreUserRequest extends FormRequest
 {
@@ -22,6 +23,14 @@ class StoreUserRequest extends FormRequest
             'shop_id' => ['nullable', 'integer', 'exists:shops,id'],
             'roles' => ['nullable', 'array'],
             'roles.*' => ['string', 'exists:roles,name'],
+            'warehouse_ids' => ['nullable', 'array'],
+            'warehouse_ids.*' => ['integer', 'distinct', 'exists:warehouses,id'],
+            'default_warehouse_id' => [
+                'nullable',
+                'integer',
+                'exists:warehouses,id',
+                Rule::in(array_map('intval', $this->input('warehouse_ids', []))),
+            ],
             'permissions' => ['prohibited'],
         ];
     }

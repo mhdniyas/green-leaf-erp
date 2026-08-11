@@ -52,6 +52,7 @@ class UserService
 
             $user->syncRoles($data->roles);
             $user->syncPermissions([]);
+            $this->syncWarehouses($user, $data);
             $this->employeeSyncService->ensureForUser($user->fresh());
 
             return $user;
@@ -65,10 +66,28 @@ class UserService
 
             $user->syncRoles($data->roles);
             $user->syncPermissions([]);
+            $this->syncWarehouses($user, $data);
             $this->employeeSyncService->ensureForUser($user->fresh());
 
             return $user;
         });
+    }
+
+    private function syncWarehouses(User $user, UserData $data): void
+    {
+        $warehouseIds = array_values(array_unique($data->warehouseIds));
+        $defaultWarehouseId = in_array($data->defaultWarehouseId, $warehouseIds, true)
+            ? $data->defaultWarehouseId
+            : ($warehouseIds[0] ?? null);
+
+        $assignments = [];
+        foreach ($warehouseIds as $warehouseId) {
+            $assignments[$warehouseId] = [
+                'is_default' => $warehouseId === $defaultWarehouseId,
+            ];
+        }
+
+        $user->warehouses()->sync($assignments);
     }
 
     public function delete(User $user): void
