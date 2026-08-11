@@ -333,8 +333,7 @@
     @endif
     @endif
 
-    @if(auth()->user()?->can('inventory.stock.adjust'))
-        <div id="stock-adjustment-modal" class="fixed inset-0 z-[70] hidden items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="stock-adjustment-title">
+    <div id="stock-adjustment-modal" class="fixed inset-0 z-[70] hidden items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="stock-adjustment-title">
             <div class="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
                 <div class="flex items-start justify-between border-b border-slate-100 p-5">
                     <div>
@@ -362,7 +361,7 @@
                 </form>
             </div>
         </div>
-        <script>
+    <script>
             const stockAdjustmentRoute = @json(route('inventory.stock.adjustments.store', ['product' => 'PRODUCT_KEY']));
             function openStockAdjustmentModal(productKey, productName, systemQty) {
                 document.getElementById('stock-adjustment-title').textContent = productName;
@@ -388,7 +387,6 @@
                 preview.classList.remove('hidden'); preview.className = 'rounded-2xl border p-3 text-xs font-bold ' + (isExcess ? 'border-cyan-200 bg-cyan-50 text-cyan-800' : 'border-rose-200 bg-rose-50 text-rose-800');
                 preview.textContent = (isExcess ? 'Old Stock: +' : 'Wastage: ') + difference.toFixed(3) + ' kg';
             }
-        </script>
-    @endif
+    </script>
 
 </x-layouts.inventory>
