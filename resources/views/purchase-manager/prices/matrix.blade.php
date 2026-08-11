@@ -12,6 +12,13 @@
         $nextDayDate = $currentCarbonDate->copy()->addDay()->toDateString();
         $prevDayWeekStart = $currentCarbonDate->copy()->subDay()->startOfWeek(\Illuminate\Support\Carbon::MONDAY)->toDateString();
         $nextDayWeekStart = $currentCarbonDate->copy()->addDay()->startOfWeek(\Illuminate\Support\Carbon::MONDAY)->toDateString();
+        $matrixExportParams = [
+            'date' => $purchaseDate,
+            'search' => $search,
+            'category_id' => $categoryId,
+            'matrix_category' => $matrixCategory,
+            'week_start' => $weekStartDate,
+        ];
     @endphp
 
     <div class="space-y-4">
@@ -182,6 +189,32 @@
                     <span>Displaying matrix for selected week ({{ count($matrixProducts) }} products). Highlighted red values indicate modified prices.</span>
                 </div>
             </form>
+        </section>
+
+        <section class="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-xs space-y-2 w-full lg:w-2/3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                    <h2 class="text-xs font-black uppercase tracking-wider text-slate-700">Share & Export</h2>
+                    <p class="text-[10px] font-semibold text-slate-500">Today, full week, or today changed prices only.</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-1.5">
+                    @foreach ([
+                        'today' => 'Today',
+                        'week' => 'Week',
+                        'today_changed' => 'Today Changed',
+                    ] as $scope => $scopeLabel)
+                        <a href="{{ route('purchasing.prices.matrix.export.whatsapp', array_merge($matrixExportParams, ['scope' => $scope])) }}" target="_blank" rel="noopener" class="h-8 inline-flex items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 text-[10px] font-black text-emerald-700 hover:bg-emerald-100 transition">
+                            WhatsApp {{ $scopeLabel }}
+                        </a>
+                        <a href="{{ route('purchasing.prices.matrix.export.excel', array_merge($matrixExportParams, ['scope' => $scope])) }}" class="h-8 inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-2.5 text-[10px] font-black text-slate-700 hover:bg-slate-50 transition">
+                            Excel {{ $scopeLabel }}
+                        </a>
+                        <a href="{{ route('purchasing.prices.matrix.export.pdf', array_merge($matrixExportParams, ['scope' => $scope])) }}" target="_blank" rel="noopener" class="h-8 inline-flex items-center justify-center rounded-xl border border-cyan-200 bg-cyan-50 px-2.5 text-[10px] font-black text-cyan-700 hover:bg-cyan-100 transition">
+                            PDF {{ $scopeLabel }}
+                        </a>
+                    @endforeach
+                </div>
+            </div>
         </section>
 
         <!-- Flash Messages -->

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Purchasing;
 
+use App\Exports\DailyPriceMatrixExport;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\DailyPriceApproval;
@@ -22,6 +23,8 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
+use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class DailyPriceMatrixController extends Controller
 {
@@ -37,6 +40,54 @@ class DailyPriceMatrixController extends Controller
     {
         $this->authorizeBoardAccess();
 
+        return view('purchase-manager.prices.matrix', $this->buildMatrixViewData($request));
+    }
+
+    public function exportExcel(Request $request): BinaryFileResponse
+    {
+        $this->authorizeBoardAccess();
+
+        $data = $this->buildMatrixViewData($request);
+        $scope = $this->exportScope($request);
+        $scopeLabel = str_replace('_', '-', $scope);
+        $filename = "selling-price-matrix-{$scopeLabel}-{$data['targetBusinessDate']}.xlsx";
+        $data['exportRows'] = $this->matrixExportRows($data, $scope);
+
+        return Excel::download(new DailyPriceMatrixExport($data, $scope), $filename);
+    }
+
+    public function exportPdf(Request $request): View
+    {
+        $this->authorizeBoardAccess();
+
+        $data = $this->buildMatrixViewData($request);
+        $scope = $this->exportScope($request);
+
+        return view('purchase-manager.prices.matrix-pdf', [
+            ...$data,
+            'exportScope' => $scope,
+            'exportRows' => $this->matrixExportRows($data, $scope),
+            'generatedBy' => $request->user()?->name ?? 'System',
+            'generatedAt' => now()->format('d M Y, h:i A'),
+            'companyName' => 'Green Leaf Distribution',
+        ]);
+    }
+
+    public function exportWhatsApp(Request $request): RedirectResponse
+    {
+        $this->authorizeBoardAccess();
+
+        $data = $this->buildMatrixViewData($request);
+        $scope = $this->exportScope($request);
+
+        return redirect()->away('https://api.whatsapp.com/send?text='.rawurlencode($this->buildMatrixShareText($data, $scope)));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildMatrixViewData(Request $request): array
+    {
         $purchaseDate = $request->input('date', $this->businessDayService->operationalDate()->toDateString());
         $targetBusinessDate = Carbon::parse($purchaseDate)->toDateString();
         $selectedDate = Carbon::parse($purchaseDate);
@@ -193,7 +244,7 @@ class DailyPriceMatrixController extends Controller
             ];
         }
 
-        return view('purchase-manager.prices.matrix', [
+        return [
             'purchaseDate' => $purchaseDate,
             'targetBusinessDate' => $targetBusinessDate,
             'search' => $search,
@@ -207,7 +258,7 @@ class DailyPriceMatrixController extends Controller
             'previousWeekStartDate' => $weekStart->copy()->subWeek()->toDateString(),
             'nextWeekStartDate' => $weekStart->copy()->addWeek()->toDateString(),
             'previousDate' => $previousDate,
-        ]);
+        ];
     }
 
     public function updateCell(Request $request): mixed
@@ -832,5 +883,118 @@ class DailyPriceMatrixController extends Controller
         $this->updateActivePricesForGroup($product, $groupB, (float) $approval->price_b, $userId);
         $this->updateActivePricesForGroup($product, $groupC, (float) $approval->price_c, $userId);
         $this->vendorPriceService->syncPrice($product->id, (float) $approval->purchase_price);
+    }
+
+    private function exportScope(Request $request): string
+    {
+        $scope = strtolower((string) $request->input('scope', 'week'));
+
+        return in_array($scope, ['today', 'week', 'today_changed'], true) ? $scope : 'week';
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<int, array<string, mixed>>
+     */
+    private function matrixExportRows(array $data, string $scope): array
+    {
+        $matrixCategory = (string) $data['matrixCategory'];
+        $targetDate = (string) $data['targetBusinessDate'];
+        $dates = match ($scope) {
+            'today', 'today_changed' => [$targetDate => $data['matrixDates'][$targetDate] ?? ['label' => Carbon::parse($targetDate)->format('d-M')]],
+            default => (array) $data['matrixDates'],
+        };
+
+        $rows = [];
+
+        foreach ((array) $data['matrixProducts'] as $product) {
+            $prices = [];
+            $hasChanged = false;
+
+            foreach ($dates as $dateStr => $dateInfo) {
+                $cell = $product['prices'][$dateStr] ?? [];
+                $price = match ($matrixCategory) {
+                    'a' => $cell['price_a'] ?? null,
+                    'b' => $cell['price_b'] ?? null,
+                    'c' => $cell['price_c'] ?? null,
+                    default => null,
+                };
+                $changed = match ($matrixCategory) {
+                    'a' => (bool) ($cell['changed_a'] ?? false),
+                    'b' => (bool) ($cell['changed_b'] ?? false),
+                    'c' => (bool) ($cell['changed_c'] ?? false),
+                    default => false,
+                };
+
+                $prices[$dateStr] = [
+                    'label' => $dateInfo['label'] ?? Carbon::parse($dateStr)->format('d-M'),
+                    'price' => $price,
+                    'unit' => ProductUnit::normalizeUnit((string) ($cell['unit'] ?? $product['unit'] ?? 'kg')),
+                    'changed' => $changed,
+                ];
+                $hasChanged = $hasChanged || $changed;
+            }
+
+            if ($scope === 'today_changed' && ! $hasChanged) {
+                continue;
+            }
+
+            $rows[] = [
+                'sl_no' => $product['sl_no'],
+                'sku' => $product['sku'] ?: '',
+                'name' => $product['name'],
+                'unit' => ProductUnit::normalizeUnit((string) ($product['unit'] ?? 'kg')),
+                'prices' => $prices,
+                'has_changed' => $hasChanged,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function buildMatrixShareText(array $data, string $scope): string
+    {
+        $rows = $this->matrixExportRows($data, $scope);
+        $category = strtoupper((string) $data['matrixCategory']);
+        $title = match ($scope) {
+            'today' => 'Today Selling Price Matrix',
+            'today_changed' => 'Today Changed Selling Prices',
+            default => 'Weekly Selling Price Matrix',
+        };
+
+        $lines = [
+            '*'.$title.'*',
+            'Price '.$category,
+            Carbon::parse((string) $data['targetBusinessDate'])->format('d M Y'),
+        ];
+
+        if ($scope === 'week') {
+            $lines[] = Carbon::parse((string) $data['weekStartDate'])->format('d M').' - '.Carbon::parse((string) $data['weekEndDate'])->format('d M Y');
+        }
+
+        $lines[] = '---';
+
+        foreach ($rows as $row) {
+            $parts = [];
+
+            foreach ($row['prices'] as $priceInfo) {
+                $price = $priceInfo['price'] !== null ? number_format((float) $priceInfo['price'], 2, '.', '') : '-';
+                $changedMark = $priceInfo['changed'] ? ' *changed*' : '';
+                $parts[] = $priceInfo['label'].': '.$price.' '.strtoupper((string) $priceInfo['unit']).$changedMark;
+            }
+
+            $lines[] = trim(($row['sku'] !== '' ? $row['sku'].' - ' : '').$row['name']);
+            $lines[] = implode(' | ', $parts);
+            $lines[] = '';
+        }
+
+        if (empty($rows)) {
+            $lines[] = 'No changed prices found.';
+        }
+
+        return trim(implode("\n", $lines));
     }
 }
