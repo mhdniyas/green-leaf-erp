@@ -54,6 +54,14 @@
             word-break: break-word;
         }
         thead tr th.item-heading { text-align: left; }
+        thead tr th.print-title-cell {
+            border: 0;
+            border-bottom: 2px solid #000;
+            font-size: 14px;
+            font-weight: 900;
+            padding: 3px 0;
+            text-align: center;
+        }
         .shop-heading-name {
             display: -webkit-box;
             overflow: hidden;
@@ -187,11 +195,18 @@
                 max-width: 100%;
                 width: 100%;
             }
+            thead {
+                display: table-header-group;
+            }
             thead tr th {
                 font-size: 10px;
                 font-weight: 900;
                 overflow-wrap: anywhere;
                 padding: 3px 2px;
+            }
+            thead tr th.print-title-cell {
+                font-size: 14px;
+                padding: 2mm 0 1.5mm;
             }
             tbody tr { height: 29px; }
             tbody tr td {
@@ -289,9 +304,6 @@
     @endphp
 
     <div class="sort-sheet-page">
-    <div class="page-summary">
-        GREEN LEAF - {{ \Carbon\Carbon::parse($date)->format('d M Y') }}
-    </div>
     @foreach($categoryBlocks as $catName => $block)
     @php
         $catId = $block['id'];
@@ -320,6 +332,11 @@
                 <col style="width:{{ $totalWidth }}%">
             </colgroup>
             <thead>
+                <tr>
+                    <th class="print-title-cell" colspan="{{ $filteredShops->count() + 3 }}">
+                        GREEN LEAF - {{ \Carbon\Carbon::parse($date)->format('d M Y') }}
+                    </th>
+                </tr>
                 <tr>
                     <th>Code</th>
                     <th class="item-heading">Item</th>
