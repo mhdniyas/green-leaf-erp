@@ -85,6 +85,15 @@
         'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v17.25h16.5M7.5 15l3-3 2.25 2.25L16.5 9" /></svg>',
     ];
 
+    if ($currentUser?->hasRole('admin')) {
+        $sidebarItems[] = [
+            'label' => 'Settings',
+            'href' => route('inventory.settings.edit'),
+            'active' => request()->routeIs('inventory.settings.*'),
+            'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.592c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a6.759 6.759 0 010 .255c-.008.378.137.75.43.992l1.003.827c.424.35.534.954.26 1.43l-1.296 2.247a1.125 1.125 0 01-1.37.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.592c-.55 0-1.02-.397-1.11-.94l-.213-1.281c-.063-.374-.313-.686-.645-.87a6.52 6.52 0 01-.22-.127c-.324-.196-.72-.257-1.075-.124l-1.217.456a1.125 1.125 0 01-1.37-.49l-1.296-2.247a1.125 1.125 0 01.26-1.431l1.003-.827c.293-.242.438-.614.43-.992a6.759 6.759 0 010-.255c.008-.379-.137-.75-.43-.992l-1.003-.827a1.125 1.125 0 01-.26-1.43l1.296-2.247a1.125 1.125 0 011.37-.491l1.217.456c.355.133.75.072 1.076-.124.072-.044.145-.086.22-.128.331-.183.581-.495.644-.869l.213-1.281z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>',
+        ];
+    }
+
     $mobileItems = [
         ['label' => 'Home', 'href' => route('inventory.dashboard', ['date' => $navDate]), 'active' => request()->routeIs('inventory.dashboard') || request()->routeIs('inventory.deliveries.dashboard')],
         ['label' => 'Stock', 'href' => route('inventory.stock.index', ['date' => $navDate]), 'active' => request()->routeIs('inventory.stock.*')],

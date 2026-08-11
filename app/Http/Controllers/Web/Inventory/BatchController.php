@@ -14,6 +14,7 @@ use App\Http\Requests\Web\Inventory\SortBatchRequest;
 use App\Http\Requests\Web\Inventory\StoreStockBatchRequest;
 use App\Models\StockBatch;
 use App\Repositories\Inventory\ProductRepository;
+use App\Services\Inventory\InventorySortingSettingsService;
 use App\Services\Inventory\StockBatchService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -25,6 +26,7 @@ class BatchController extends Controller
         private readonly StockBatchService $service,
         private readonly ProductRepository $products,
         private readonly ProcessBatchSortingAction $sortingAction,
+        private readonly InventorySortingSettingsService $sortingSettings,
     ) {}
 
     public function index(Request $request): View
@@ -69,7 +71,10 @@ class BatchController extends Controller
 
         $batch->load(['product']);
 
-        return view('inventory.batches.sort', compact('batch'));
+        return view('inventory.batches.sort', [
+            'batch' => $batch,
+            'sortAllAsGradeA' => $this->sortingSettings->sortAllAsGradeA(),
+        ]);
     }
 
     public function processSort(SortBatchRequest $request, StockBatch $batch): RedirectResponse

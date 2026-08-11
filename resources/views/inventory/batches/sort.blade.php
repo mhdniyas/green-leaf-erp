@@ -71,7 +71,7 @@ $grades = [
                             name="grades[{{ $i }}][quantity]"
                             step="0.001"
                             min="0"
-                            value="{{ old("grades.{$i}.quantity", '0') }}"
+                            value="{{ old("grades.{$i}.quantity", $sortAllAsGradeA && $grade['value'] === 'A' ? (float) $batch->total_kg : '0') }}"
                             class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-right font-mono focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 bg-white"
                             oninput="updateTotal()"
                         >
@@ -141,6 +141,8 @@ $grades = [
                 display.classList.add('text-gray-900');
             }
         }
+
+        updateTotal();
     </script>
 
 </x-layouts.inventory>

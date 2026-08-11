@@ -9,8 +9,8 @@ use App\Http\Controllers\Web\Admin\CompanySettingsController;
 use App\Http\Controllers\Web\Admin\DailyProgressController;
 use App\Http\Controllers\Web\Admin\DeliveryReviewController;
 use App\Http\Controllers\Web\Admin\DiscrepancyReportController;
-use App\Http\Controllers\Web\Admin\EnquiryController;
 use App\Http\Controllers\Web\Admin\EmptyInventoryController;
+use App\Http\Controllers\Web\Admin\EnquiryController;
 use App\Http\Controllers\Web\Admin\FinanceV2Controller;
 use App\Http\Controllers\Web\Admin\FinanceV2PaymentsController;
 use App\Http\Controllers\Web\Admin\StaffManagementController;
@@ -28,10 +28,11 @@ use App\Http\Controllers\Web\Inventory\DailyInventoryCloseController;
 use App\Http\Controllers\Web\Inventory\DeliveryDashboardController;
 use App\Http\Controllers\Web\Inventory\DeliveryDashboardOperationController;
 use App\Http\Controllers\Web\Inventory\FulfillmentReportController;
+use App\Http\Controllers\Web\Inventory\InventorySettingsController;
 use App\Http\Controllers\Web\Inventory\ProductController;
 use App\Http\Controllers\Web\Inventory\ShopOrderQuantityCorrectionController;
-use App\Http\Controllers\Web\Inventory\StockController;
 use App\Http\Controllers\Web\Inventory\StockAdjustmentController;
+use App\Http\Controllers\Web\Inventory\StockController;
 use App\Http\Controllers\Web\Inventory\WarehouseSortingController;
 use App\Http\Controllers\Web\Inventory\WastageController;
 use App\Http\Controllers\Web\ProfileController;
@@ -300,6 +301,9 @@ Route::middleware('auth')->group(function () {
         Route::get('batches/{batch}/sort', [BatchController::class, 'sort'])->name('batches.sort');
         Route::post('batches/{batch}/sort', [BatchController::class, 'processSort'])->name('batches.sort.process');
         Route::delete('batches/{batch}', [BatchController::class, 'destroy'])->name('batches.destroy');
+
+        Route::get('settings', [InventorySettingsController::class, 'edit'])->name('settings.edit');
+        Route::patch('settings', [InventorySettingsController::class, 'update'])->name('settings.update');
 
         // Wastage
         Route::get('wastage', [WastageController::class, 'index'])->name('wastage.index');
