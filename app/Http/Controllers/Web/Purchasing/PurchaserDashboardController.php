@@ -194,20 +194,7 @@ class PurchaserDashboardController extends Controller
 
         $draftCarts = $this->draftCartsForDate((int) $user->id, $date);
 
-        $productCatalog = Product::query()
-            ->with('category')
-            ->active()
-            ->ordered()
-            ->get();
-
-        $quickFilters = self::QUICK_FILTERS;
-
-        if ($user->hasAssignedCategoryFilter()) {
-            $assignedCatIds = $user->assignedCategoryIds();
-            $productCatalog = $productCatalog->filter(fn (Product $p): bool => in_array((int) $p->category_id, $assignedCatIds, true))->values();
-            $assignedCatNames = Category::query()->whereIn('id', $assignedCatIds)->orderBy('name')->pluck('name')->all();
-            $quickFilters = array_values(array_unique(array_merge(['All', 'Frequent'], $assignedCatNames)));
-        }
+        $quickFilters = $this->quickFiltersForPurchaser($user);
 
         return view('purchasing.purchaser.daily', [
             'date' => $date->format('Y-m-d'),
@@ -216,8 +203,6 @@ class PurchaserDashboardController extends Controller
             'search' => $search,
             'dailySummary' => $filteredDailySummary,
             'draftCarts' => $draftCarts,
-            'buyOtherProducts' => $this->filterProductsForChip($productCatalog, $selectedChip, $search, $frequentProductIds),
-            'dailySummaryShareUrl' => 'https://api.whatsapp.com/send?text='.rawurlencode($this->buildDailySummaryShareText($dailySummary, $date)),
             'dailyFulfillment' => [
                 'products' => $dailySummary->count(),
                 'approved_qty' => (float) $dailySummary->sum('total_approved_qty'),
@@ -420,29 +405,31 @@ class PurchaserDashboardController extends Controller
 
         $user = $request->user();
         $frequentProductIds = $this->frequentProductIds((int) $user->id);
-        $dailySummary = $this->buildDailySummary($date, $frequentProductIds);
+        $dailySummary = $this->buildDailySummary($date, $frequentProductIds, includeDetails: false);
 
         $summaryProductIds = $dailySummary->pluck('product_id')->all();
         $addOnProducts = Product::query()
-            ->with(['category', 'orderUnits' => fn ($q) => $q->where('is_orderable', true)])
+            ->select(['id', 'category_id', 'name', 'sku', 'unit', 'status'])
+            ->with('category:id,name')
             ->active()
             ->ordered()
             ->whereNotIn('id', $summaryProductIds)
+            ->when(
+                $user->hasAssignedCategoryFilter(),
+                fn ($query) => $query->whereIn('category_id', $user->assignedCategoryIds()),
+            )
             ->get();
 
-        $quickFilters = self::QUICK_FILTERS;
-
-        if ($user->hasAssignedCategoryFilter()) {
-            $assignedIds = $user->assignedCategoryIds();
-            $addOnProducts = $addOnProducts->filter(fn (Product $product): bool => in_array((int) $product->category_id, $assignedIds, true))->values();
-            $assignedCatNames = Category::query()->whereIn('id', $assignedIds)->orderBy('name')->pluck('name')->all();
-            $quickFilters = array_values(array_unique(array_merge(['All', 'Frequent'], $assignedCatNames)));
-        }
+        $pendingSummary = $dailySummary->filter(fn (array $summary): bool => (float) $summary['remaining_qty'] > 0)->values();
+        $fulfilledSummary = $dailySummary->filter(fn (array $summary): bool => (float) $summary['remaining_qty'] <= 0)->values();
+        $quickFilters = $this->quickFiltersForPurchaser($user);
 
         return view('purchasing.purchaser.bulk_buy', [
             'date' => $date->format('Y-m-d'),
             'quickFilters' => $quickFilters,
             'dailySummary' => $dailySummary,
+            'pendingSummary' => $pendingSummary,
+            'fulfilledSummary' => $fulfilledSummary,
             'addOnProducts' => $addOnProducts,
             'deadlineAlert' => $this->buildDeadlineAlert((int) $user->id, $date),
         ]);
@@ -2379,7 +2366,7 @@ class PurchaserDashboardController extends Controller
     {
         return PurchaserCart::query()
             ->where('user_id', $userId)
-            ->whereDate('business_date', $date)
+            ->where('business_date', $date->toDateString())
             ->where('status', 'draft')
             ->with(['supplier', 'items.product.category', 'goodsReceived'])
             ->orderByDesc('updated_at')
@@ -2562,13 +2549,15 @@ class PurchaserDashboardController extends Controller
         };
     }
 
-    private function buildDailySummary(Carbon $date, array $frequentProductIds): Collection
+    private function buildDailySummary(Carbon $date, array $frequentProductIds, bool $includeDetails = true): Collection
     {
+        $dateString = $date->toDateString();
+
         $approvedItems = ShopOrderItem::query()
-            ->whereHas('order', function ($query) use ($date): void {
-                $query->whereDate('business_date', $date)->where('state', 'approved');
+            ->whereHas('order', function ($query) use ($dateString): void {
+                $query->where('business_date', $dateString)->where('state', 'approved');
             })
-            ->with(['product.category', 'product.orderUnits' => fn ($q) => $q->where('is_orderable', true), 'order.shop', 'order'])
+            ->with($this->dailySummaryRelations($includeDetails))
             ->get();
 
         $authUser = auth()->user();
@@ -2578,16 +2567,16 @@ class PurchaserDashboardController extends Controller
         }
 
         $draftCartItems = PurchaserCartItem::query()
-            ->whereHas('cart', function ($query) use ($date): void {
-                $query->whereDate('business_date', $date)->where('status', 'draft');
+            ->whereHas('cart', function ($query) use ($dateString): void {
+                $query->where('business_date', $dateString)->where('status', 'draft');
             })
             ->with('cart.user')
             ->get()
             ->groupBy(fn ($item) => $item->product_id.'_'.$item->cart->business_date->timezone(config('app.timezone'))->format('Y-m-d'));
 
         $submittedQuantities = PurchaserCartItem::query()
-            ->whereHas('cart', function ($query) use ($date): void {
-                $query->whereDate('business_date', $date)->where('status', 'submitted');
+            ->whereHas('cart', function ($query) use ($dateString): void {
+                $query->where('business_date', $dateString)->where('status', 'submitted');
             })
             ->with('cart')
             ->get()
@@ -2596,7 +2585,7 @@ class PurchaserDashboardController extends Controller
 
         return $approvedItems
             ->groupBy(fn (ShopOrderItem $item) => $item->product_id.'_'.$item->order->business_date->timezone(config('app.timezone'))->format('Y-m-d'))
-            ->map(function (Collection $items, string $key) use ($draftCartItems, $submittedQuantities, $frequentProductIds, $date): ?array {
+            ->map(function (Collection $items, string $key) use ($draftCartItems, $submittedQuantities, $frequentProductIds, $date, $includeDetails): ?array {
                 [$productId, $itemDateStr] = explode('_', $key);
                 $itemDate = Carbon::parse($itemDateStr);
 
@@ -2629,44 +2618,11 @@ class PurchaserDashboardController extends Controller
 
                 $categoryName = (string) ($product->category?->name ?? '');
 
-                $quantityBuckets = $items
-                    ->groupBy(fn (ShopOrderItem $item): string => $this->normalizeBucketKey((float) $item->approved_qty))
-                    ->map(function (Collection $bucketItems, string $bucketKey) use ($firstItem): array {
-                        $bucketQuantity = (float) $bucketItems->first()->approved_qty;
-
-                        return [
-                            'quantity' => $bucketQuantity,
-                            'formatted' => $this->formatBucketLabel($bucketQuantity, $firstItem->unit),
-                            'count' => $bucketItems->count(),
-                        ];
-                    })
-                    ->sortBy('quantity')
-                    ->values()
-                    ->all();
-
-                $measureBreakdown = $items
-                    ->groupBy(fn (ShopOrderItem $item): string => (string) ($item->requested_unit_label ?: $item->requested_unit ?: $item->unit))
-                    ->map(function (Collection $measureItems, string $label): array {
-                        $requestedQty = (float) $measureItems->sum('requested_unit_quantity');
-                        $approvedQty = (float) $measureItems->sum('approved_qty');
-
-                        return [
-                            'label' => $label,
-                            'requested_qty' => $requestedQty,
-                            'approved_qty' => $approvedQty,
-                            'count' => $measureItems->count(),
-                        ];
-                    })
-                    ->sortBy('label')
-                    ->values()
-                    ->all();
-
-                return [
+                $summary = [
                     'product_id' => (int) $productId,
                     'product_name' => $product->name,
                     'sku' => $product->sku,
                     'unit' => $product->unit,
-                    'orderable_units' => $this->orderableUnitOptions($product),
                     'category_name' => $categoryName,
                     'is_frequent' => in_array((int) $productId, $frequentProductIds, true),
                     'total_approved_qty' => $totalApprovedQty,
@@ -2674,29 +2630,96 @@ class PurchaserDashboardController extends Controller
                     'draft_qty' => $draftQty,
                     'draft_purchasers' => $draftPurchasers,
                     'remaining_qty' => $remainingQty,
-                    'quantity_buckets' => $quantityBuckets,
-                    'measure_breakdown' => $measureBreakdown,
                     'order_date' => $itemDate,
-                    'shop_details' => $items->map(fn (ShopOrderItem $item): array => [
-                        'shop_order_item_id' => $item->id,
-                        'shop_name' => $item->order->demandSourceLabel(),
-                        'is_direct_purchase' => $item->order->isAdminDirectPurchase(),
-                        'approved_qty' => (float) $item->approved_qty,
-                        'unit' => $item->unit,
-                        'requested_measure_label' => $item->requestedMeasureBreakdownLabel(),
-                        'order_number' => $item->order->order_number,
-                        'notes' => $item->notes,
-                    ])->sortBy('shop_name')->values()->all(),
                     'search_index' => strtolower(implode(' ', [
                         $product->name,
                         $product->sku,
                         $categoryName,
                     ])),
                 ];
+
+                if (! $includeDetails) {
+                    return $summary;
+                }
+
+                $summary['orderable_units'] = $this->orderableUnitOptions($product);
+                $summary['quantity_buckets'] = $this->dailySummaryQuantityBuckets($items, $firstItem);
+                $summary['measure_breakdown'] = $this->dailySummaryMeasureBreakdown($items);
+                $summary['shop_details'] = $items->map(fn (ShopOrderItem $item): array => [
+                    'shop_order_item_id' => $item->id,
+                    'shop_name' => $item->order->demandSourceLabel(),
+                    'is_direct_purchase' => $item->order->isAdminDirectPurchase(),
+                    'approved_qty' => (float) $item->approved_qty,
+                    'unit' => $item->unit,
+                    'requested_measure_label' => $item->requestedMeasureBreakdownLabel(),
+                    'order_number' => $item->order->order_number,
+                    'notes' => $item->notes,
+                ])->sortBy('shop_name')->values()->all();
+
+                return $summary;
             })
             ->filter()
             ->sortBy(fn (array $item): string => Product::sortableSku((string) $item['sku']).'_'.$item['order_date']->format('Y-m-d'))
             ->values();
+    }
+
+    /**
+     * @return array<int|string, mixed>
+     */
+    private function dailySummaryRelations(bool $includeDetails): array
+    {
+        $relations = ['product.category', 'order'];
+
+        if ($includeDetails) {
+            $relations['product.orderUnits'] = fn ($query) => $query->where('is_orderable', true);
+            $relations[] = 'order.shop';
+        }
+
+        return $relations;
+    }
+
+    /**
+     * @return array<int, array{quantity:float,formatted:string,count:int}>
+     */
+    private function dailySummaryQuantityBuckets(Collection $items, ShopOrderItem $firstItem): array
+    {
+        return $items
+            ->groupBy(fn (ShopOrderItem $item): string => $this->normalizeBucketKey((float) $item->approved_qty))
+            ->map(function (Collection $bucketItems) use ($firstItem): array {
+                $bucketQuantity = (float) $bucketItems->first()->approved_qty;
+
+                return [
+                    'quantity' => $bucketQuantity,
+                    'formatted' => $this->formatBucketLabel($bucketQuantity, $firstItem->unit),
+                    'count' => $bucketItems->count(),
+                ];
+            })
+            ->sortBy('quantity')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return array<int, array{label:string,requested_qty:float,approved_qty:float,count:int}>
+     */
+    private function dailySummaryMeasureBreakdown(Collection $items): array
+    {
+        return $items
+            ->groupBy(fn (ShopOrderItem $item): string => (string) ($item->requested_unit_label ?: $item->requested_unit ?: $item->unit))
+            ->map(function (Collection $measureItems, string $label): array {
+                $requestedQty = (float) $measureItems->sum('requested_unit_quantity');
+                $approvedQty = (float) $measureItems->sum('approved_qty');
+
+                return [
+                    'label' => $label,
+                    'requested_qty' => $requestedQty,
+                    'approved_qty' => $approvedQty,
+                    'count' => $measureItems->count(),
+                ];
+            })
+            ->sortBy('label')
+            ->values()
+            ->all();
     }
 
     /**
@@ -2790,6 +2813,21 @@ class PurchaserDashboardController extends Controller
 
             return str_contains($searchIndex, strtolower($search));
         })->values();
+    }
+
+    private function quickFiltersForPurchaser(User $user): array
+    {
+        if (! $user->hasAssignedCategoryFilter()) {
+            return self::QUICK_FILTERS;
+        }
+
+        $assignedCatNames = Category::query()
+            ->whereIn('id', $user->assignedCategoryIds())
+            ->orderBy('name')
+            ->pluck('name')
+            ->all();
+
+        return array_values(array_unique(array_merge(['All', 'Frequent'], $assignedCatNames)));
     }
 
     private function frequentProductIds(int $userId): array

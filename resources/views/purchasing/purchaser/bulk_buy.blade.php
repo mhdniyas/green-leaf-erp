@@ -71,10 +71,10 @@
             {{-- Professional Tabs switcher --}}
             <div class="mb-4 flex rounded-xl bg-slate-100 p-1 lg:rounded-2xl">
                 <button type="button" onclick="switchTab('pending')" id="tab-btn-pending" class="flex-1 rounded-lg py-2.5 text-center text-xs font-black uppercase tracking-wider transition-all bg-white text-slate-900 shadow-xs focus:outline-none">
-                    Pending ({{ $dailySummary->filter(fn($s) => $s['remaining_qty'] > 0)->count() }})
+                    Pending ({{ $pendingSummary->count() }})
                 </button>
                 <button type="button" onclick="switchTab('fulfilled')" id="tab-btn-fulfilled" class="flex-1 rounded-lg py-2.5 text-center text-xs font-black uppercase tracking-wider transition-all text-slate-600 hover:bg-white/50 focus:outline-none">
-                    Fulfilled ({{ $dailySummary->filter(fn($s) => $s['remaining_qty'] <= 0)->count() }})
+                    Fulfilled ({{ $fulfilledSummary->count() }})
                 </button>
                 <button type="button" onclick="switchTab('addons')" id="tab-btn-addons" class="flex-1 rounded-lg py-2.5 text-center text-xs font-black uppercase tracking-wider transition-all text-slate-600 hover:bg-white/50 focus:outline-none">
                     Add-ons ({{ $addOnProducts->count() }})
@@ -91,7 +91,7 @@
 
             <div class="space-y-3" id="product-list">
                 {{-- Pending Carts --}}
-                @foreach ($dailySummary->filter(fn($s) => $s['remaining_qty'] > 0) as $summary)
+                @foreach ($pendingSummary as $summary)
                     <label class="product-item block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:bg-slate-50 cursor-pointer"
                            data-tab="pending"
                            data-name="{{ $summary['product_name'] }}"
@@ -121,7 +121,7 @@
                 @endforeach
 
                 {{-- Fulfilled Carts --}}
-                @foreach ($dailySummary->filter(fn($s) => $s['remaining_qty'] <= 0) as $summary)
+                @foreach ($fulfilledSummary as $summary)
                     <label class="product-item block relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:bg-slate-50 cursor-pointer"
                            data-tab="fulfilled"
                            data-name="{{ $summary['product_name'] }}"
