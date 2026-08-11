@@ -30,6 +30,7 @@ use App\Http\Controllers\Web\Inventory\FulfillmentReportController;
 use App\Http\Controllers\Web\Inventory\ProductController;
 use App\Http\Controllers\Web\Inventory\ShopOrderQuantityCorrectionController;
 use App\Http\Controllers\Web\Inventory\StockController;
+use App\Http\Controllers\Web\Inventory\StockAdjustmentController;
 use App\Http\Controllers\Web\Inventory\WarehouseSortingController;
 use App\Http\Controllers\Web\Inventory\WastageController;
 use App\Http\Controllers\Web\ProfileController;
@@ -37,6 +38,7 @@ use App\Http\Controllers\Web\Purchasing\AdminShopOrderController;
 use App\Http\Controllers\Web\Purchasing\BillPriceApprovalController;
 use App\Http\Controllers\Web\Purchasing\DailyPriceBoardController;
 use App\Http\Controllers\Web\Purchasing\DailyPriceMatrixController;
+use App\Http\Controllers\Web\Purchasing\DirectSaleController;
 use App\Http\Controllers\Web\Purchasing\GoodsReceivedController;
 use App\Http\Controllers\Web\Purchasing\OtherExpenseController;
 use App\Http\Controllers\Web\Purchasing\ProcurementExpenseController;
@@ -276,6 +278,9 @@ Route::middleware('auth')->group(function () {
 
         // Stock levels
         Route::get('stock', [StockController::class, 'index'])->name('stock.index');
+        Route::post('stock/adjustments/{product}', [StockAdjustmentController::class, 'store'])
+            ->middleware('can:inventory.stock.adjust')
+            ->name('stock.adjustments.store');
         Route::get('daily-close', [DailyInventoryCloseController::class, 'index'])->name('daily-close.index');
         Route::post('daily-close', [DailyInventoryCloseController::class, 'store'])->name('daily-close.store');
 
@@ -319,6 +324,9 @@ Route::middleware('auth')->group(function () {
     // ── Purchasing ─────────────────────────────────────────────────────────
     Route::prefix('purchasing')->name('purchasing.')->middleware('can:purchasing.order.view')->group(function () {
         Route::get('dashboard', fn () => redirect()->route('purchasing.orders.index'))->name('dashboard');
+
+        Route::get('direct-sales/create', [DirectSaleController::class, 'create'])->name('direct-sales.create');
+        Route::post('direct-sales', [DirectSaleController::class, 'store'])->name('direct-sales.store');
 
         // Suppliers
         Route::resource('suppliers', SupplierController::class);

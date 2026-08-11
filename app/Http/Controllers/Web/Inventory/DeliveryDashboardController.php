@@ -157,7 +157,7 @@ class DeliveryDashboardController extends Controller
                     'id' => $order->id,
                     'route_key' => $order->getRouteKey(),
                     'order_number' => $order->order_number,
-                    'shop_name' => $order->shop?->name ?? 'Unknown Shop',
+                    'shop_name' => $order->loadoutDisplayName(),
                     'status_label' => $order->warehouseWorkflowLabel(),
                     'status_tone' => $order->warehouseWorkflowTone(),
                     'total_items' => $totalItems,
@@ -217,7 +217,7 @@ class DeliveryDashboardController extends Controller
                             $product = $item->product;
 
                             return [
-                                'shop_name' => $order->shop?->name ?? 'Unknown Shop',
+                                'shop_name' => $order->loadoutDisplayName(),
                                 'order_number' => $order->order_number,
                                 'invoice_number' => $invoice->invoice_number,
                                 'category_name' => $product?->category?->name ?? 'Uncategorized',
@@ -242,7 +242,7 @@ class DeliveryDashboardController extends Controller
                         $product = $item->product;
 
                         return [
-                            'shop_name' => $order->shop?->name ?? 'Unknown Shop',
+                            'shop_name' => $order->loadoutDisplayName(),
                             'order_number' => $order->order_number,
                             'invoice_number' => null,
                             'category_name' => $product?->category?->name ?? 'Uncategorized',

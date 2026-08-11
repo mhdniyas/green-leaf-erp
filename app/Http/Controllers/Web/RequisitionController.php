@@ -9,6 +9,7 @@ use App\Enums\Inventory\ProductGrade;
 use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\ReviewDeliveryDiscrepancyRequest;
+use App\Models\BusinessSetting;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
@@ -465,8 +466,9 @@ class RequisitionController extends Controller
 
         $businessDate = Carbon::parse($validated['business_date']);
         $user = $request->user();
+        $purchaserUser = $this->defaultDirectPurchasePurchaser() ?? $user;
 
-        $order = DB::transaction(function () use ($businessDate, $user, $items, $managerNote): ShopOrder {
+        $order = DB::transaction(function () use ($businessDate, $user, $purchaserUser, $items, $managerNote): ShopOrder {
             $shopOrder = ShopOrder::query()->create([
                 'shop_id' => null,
                 'business_date' => $businessDate,
@@ -476,7 +478,7 @@ class RequisitionController extends Controller
                 'submitted_at' => now(),
                 'reviewed_by' => $user->id,
                 'reviewed_at' => now(),
-                'created_by' => $user->id,
+                'created_by' => $purchaserUser->id,
                 'manager_note' => $managerNote,
             ]);
 
@@ -492,6 +494,27 @@ class RequisitionController extends Controller
 
         return redirect()->route($successRedirectRoute, ['date' => $businessDate->toDateString()])
             ->with('success', $successPrefix.' '.$order->order_number.' added to purchaser demand.');
+    }
+
+    private function defaultDirectPurchasePurchaser(): ?User
+    {
+        $setting = BusinessSetting::query()
+            ->where('key', 'default_purchaser_user_id')
+            ->first();
+
+        if (! $setting?->value) {
+            return null;
+        }
+
+        $user = User::query()->find((int) $setting->value);
+
+        if ($user) {
+            return $user;
+        }
+
+        $setting->delete();
+
+        return null;
     }
 
     /**

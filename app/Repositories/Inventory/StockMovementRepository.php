@@ -53,7 +53,7 @@ class StockMovementRepository extends BaseRepository
             ->join('products', 'stock_movements.product_id', '=', 'products.id')
             ->leftJoin('categories', 'products.category_id', '=', 'categories.id')
             ->selectRaw(
-                'stock_movements.product_id, products.name as product_name, products.sku as product_sku, products.image as product_image, categories.name as category_name, products.buffer_qty, products.carryover_enabled, stock_movements.grade, '.
+                'stock_movements.product_id, products.public_uuid as product_route_key, products.name as product_name, products.sku as product_sku, products.image as product_image, categories.name as category_name, products.buffer_qty, products.carryover_enabled, stock_movements.grade, '.
                 'SUM(CASE '.
                 'WHEN stock_movements.type IN (?, ?) THEN stock_movements.quantity '.
                 'WHEN stock_movements.type IN (?, ?, ?) THEN -stock_movements.quantity '.
@@ -68,7 +68,7 @@ class StockMovementRepository extends BaseRepository
             )
             ->when($date, fn ($q) => $q->whereDate('stock_movements.created_at', '<=', $date))
             ->when($warehouseId, fn ($q) => $q->where('stock_movements.warehouse_id', $warehouseId))
-            ->groupBy('stock_movements.product_id', 'products.name', 'products.sku', 'products.image', 'categories.name', 'products.buffer_qty', 'products.carryover_enabled', 'stock_movements.grade')
+            ->groupBy('stock_movements.product_id', 'products.public_uuid', 'products.name', 'products.sku', 'products.image', 'categories.name', 'products.buffer_qty', 'products.carryover_enabled', 'stock_movements.grade')
             ->havingRaw('current_stock > 0.0001')
             ->orderByRaw(Product::numericSkuPriorityExpression('products.sku', $driver))
             ->orderByRaw(Product::numericSkuValueExpression('products.sku', $driver))
@@ -101,6 +101,7 @@ class StockMovementRepository extends BaseRepository
             if (! isset($unsortedStock[$productId])) {
                 $unsortedStock[$productId] = [
                     'product_id' => $productId,
+                    'product_route_key' => $batch->product->getRouteKey(),
                     'product_name' => $batch->product->name,
                     'product_sku' => $batch->product->sku,
                     'product_image' => $batch->product->image,

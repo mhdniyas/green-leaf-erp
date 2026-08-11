@@ -44,6 +44,17 @@
         </a>
     </div>
 
+    <div class="mb-6 grid gap-4 sm:grid-cols-2">
+        <div class="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 shadow-sm">
+            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-rose-700">Counted wastage</p>
+            <p class="mt-1 text-2xl font-black text-rose-950">{{ number_format((float) $adjustmentTotals->wastage_qty, 3) }} <span class="text-sm">kg</span></p>
+        </div>
+        <div class="rounded-2xl border border-cyan-200 bg-cyan-50 px-5 py-4 shadow-sm">
+            <p class="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-700">Old stock added</p>
+            <p class="mt-1 text-2xl font-black text-cyan-950">{{ number_format((float) $adjustmentTotals->old_stock_qty, 3) }} <span class="text-sm">kg</span></p>
+        </div>
+    </div>
+
     {{-- Grade legend --}}
     <div class="flex flex-wrap gap-3 mb-6 bg-white border border-gray-200 rounded-2xl p-4 shadow-xs">
         @foreach([
@@ -90,6 +101,7 @@
             $firstEntry = $grades->first();
             $productName = $firstEntry->product_name;
             $productImage = $firstEntry->product_image;
+            $productRouteKey = $firstEntry->product_route_key;
             $totalStock  = $grades->sum(fn ($e) => (float) $e->current_stock);
             $bufferQty = (float) ($firstEntry->buffer_qty ?? 0);
             $isBelowBuffer = $bufferQty > 0 && $totalStock < $bufferQty;
@@ -110,6 +122,20 @@
                     </div>
                 @endif
 
+                @can('inventory.product.update')
+                    <a
+                        href="{{ route('inventory.products.edit', ['product' => $productRouteKey]) }}#product-image-upload"
+                        class="absolute top-2.5 right-2.5 inline-flex items-center gap-1.5 rounded-lg bg-white/95 px-2 py-1.5 text-[10px] font-black text-slate-700 shadow-sm ring-1 ring-slate-900/10 backdrop-blur-sm transition hover:bg-brand-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        title="Change {{ $productName }} image"
+                        aria-label="Change {{ $productName }} image"
+                    >
+                        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V12m0 0V7.5m0 4.5h4.5M12 12H7.5m12.75 0a8.25 8.25 0 1 1-16.5 0 8.25 8.25 0 0 1 16.5 0Z" />
+                        </svg>
+                        Image
+                    </a>
+                @endcan
+
                 {{-- Status Badges Overlay --}}
                 @if($isNegative)
                     <span class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-rose-600/90 text-white text-[10px] font-black uppercase tracking-wider backdrop-blur-xs shadow-xs">
@@ -128,6 +154,16 @@
                     </span>
                     <span class="text-[10px] font-bold text-slate-300">kg</span>
                 </div>
+
+                @can('inventory.stock.adjust')
+                    <button
+                        type="button"
+                        onclick="openStockAdjustmentModal('{{ $productRouteKey }}', @js($productName), {{ number_format($totalStock, 3, '.', '') }})"
+                        class="absolute bottom-2.5 left-2.5 rounded-xl bg-white/95 px-2.5 py-1 text-[10px] font-black text-slate-700 shadow-sm ring-1 ring-slate-900/10 backdrop-blur-sm transition hover:bg-brand-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    >
+                        Update Qty
+                    </button>
+                @endcan
             </div>
 
             {{-- Card Body --}}
@@ -219,5 +255,63 @@
         @endforeach
     </div>
     @endif
+
+    @can('inventory.stock.adjust')
+        <div id="stock-adjustment-modal" class="fixed inset-0 z-[70] hidden items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="stock-adjustment-title">
+            <div class="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
+                <div class="flex items-start justify-between border-b border-slate-100 p-5">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-brand-700">Physical stock count</p>
+                        <h2 id="stock-adjustment-title" class="mt-1 text-lg font-black text-slate-950"></h2>
+                    </div>
+                    <button type="button" onclick="closeStockAdjustmentModal()" class="grid h-9 w-9 place-items-center rounded-xl text-xl font-black text-slate-400 hover:bg-slate-100 hover:text-slate-900" aria-label="Close">×</button>
+                </div>
+                <form id="stock-adjustment-form" method="POST" action="" class="space-y-4 p-5">
+                    @csrf
+                    <input type="hidden" name="system_qty" id="stock-adjustment-system-qty">
+                    <input type="hidden" name="business_date" value="{{ $date }}">
+                    <div class="rounded-2xl bg-slate-50 p-4">
+                        <div class="flex items-center justify-between text-xs font-bold text-slate-500"><span>System quantity</span><span id="stock-adjustment-system-label" class="font-mono text-base font-black text-slate-950"></span></div>
+                        <label for="stock-adjustment-counted-qty" class="mt-4 block text-xs font-black text-slate-700">Physical quantity counted (kg)</label>
+                        <input id="stock-adjustment-counted-qty" name="counted_qty" type="number" min="0" step="0.001" required oninput="updateStockAdjustmentPreview()" class="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-right text-sm font-black text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
+                    </div>
+                    <div id="stock-adjustment-preview" class="hidden rounded-2xl border p-3 text-xs font-bold"></div>
+                    <div>
+                        <label for="stock-adjustment-notes" class="block text-xs font-black text-slate-700">Reason / note</label>
+                        <textarea id="stock-adjustment-notes" name="notes" rows="3" required maxlength="1000" placeholder="Explain the physical count difference" class="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"></textarea>
+                    </div>
+                    <p class="text-[11px] font-semibold text-slate-500">More stock is recorded as <strong>Old Stock</strong>. Less stock is recorded as <strong>Wastage</strong>.</p>
+                    <div class="flex gap-3 pt-1"><button type="button" onclick="closeStockAdjustmentModal()" class="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-black text-slate-700 hover:bg-slate-50">Cancel</button><button type="submit" class="flex-1 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800">Save adjustment</button></div>
+                </form>
+            </div>
+        </div>
+        <script>
+            const stockAdjustmentRoute = @json(route('inventory.stock.adjustments.store', ['product' => 'PRODUCT_KEY']));
+            function openStockAdjustmentModal(productKey, productName, systemQty) {
+                document.getElementById('stock-adjustment-title').textContent = productName;
+                document.getElementById('stock-adjustment-system-qty').value = systemQty.toFixed(3);
+                document.getElementById('stock-adjustment-system-label').textContent = systemQty.toFixed(3) + ' kg';
+                document.getElementById('stock-adjustment-counted-qty').value = systemQty.toFixed(3);
+                document.getElementById('stock-adjustment-notes').value = '';
+                document.getElementById('stock-adjustment-form').action = stockAdjustmentRoute.replace('PRODUCT_KEY', productKey);
+                updateStockAdjustmentPreview();
+                document.getElementById('stock-adjustment-modal').classList.remove('hidden');
+                document.getElementById('stock-adjustment-modal').classList.add('flex');
+                document.getElementById('stock-adjustment-counted-qty').focus();
+            }
+            function closeStockAdjustmentModal() { const modal = document.getElementById('stock-adjustment-modal'); modal.classList.add('hidden'); modal.classList.remove('flex'); }
+            function updateStockAdjustmentPreview() {
+                const systemQty = Number(document.getElementById('stock-adjustment-system-qty').value);
+                const countedQty = Number(document.getElementById('stock-adjustment-counted-qty').value);
+                const preview = document.getElementById('stock-adjustment-preview');
+                if (!Number.isFinite(countedQty)) { preview.classList.add('hidden'); return; }
+                const difference = countedQty - systemQty;
+                if (Math.abs(difference) < 0.001) { preview.classList.remove('hidden'); preview.className = 'rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-600'; preview.textContent = 'No adjustment needed — physical and system quantities match.'; return; }
+                const isExcess = difference > 0;
+                preview.classList.remove('hidden'); preview.className = 'rounded-2xl border p-3 text-xs font-bold ' + (isExcess ? 'border-cyan-200 bg-cyan-50 text-cyan-800' : 'border-rose-200 bg-rose-50 text-rose-800');
+                preview.textContent = (isExcess ? 'Old Stock: +' : 'Wastage: ') + difference.toFixed(3) + ' kg';
+            }
+        </script>
+    @endcan
 
 </x-layouts.inventory>

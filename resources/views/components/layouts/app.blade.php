@@ -395,6 +395,9 @@
                         <x-nav-item href="{{ route('admin.accounting.purchasers.direct-purchase.create', ['date' => $navDate]) }}" :active="request()->routeIs('admin.accounting.purchasers.direct-purchase.*')" :sub="true">
                             Direct Purchase
                         </x-nav-item>
+                        <x-nav-item href="{{ route('purchasing.direct-sales.create', ['date' => $navDate]) }}" :active="request()->routeIs('purchasing.direct-sales.*')" :sub="true">
+                            Direct Sale
+                        </x-nav-item>
                         <x-nav-item href="{{ route('requisitions.approved_board', ['date' => $navDate, 'settings' => 1]) }}" :active="request()->routeIs('requisitions.approved_board') && request()->boolean('settings')" :sub="true">
                             Purchase Settings
                         </x-nav-item>

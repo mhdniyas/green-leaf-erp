@@ -75,6 +75,22 @@
                         @enderror
                     </div>
 
+                    <div>
+                        <label for="default_direct_sale_shop_id" class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">Default Direct Sale Shop</label>
+                        <select id="default_direct_sale_shop_id" name="default_direct_sale_shop_id" class="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-900 focus:border-teal-500 focus:bg-white focus:outline-none">
+                            <option value="">Auto-create Green Leaf Direct Sales</option>
+                            @foreach($directSaleShops as $directSaleShop)
+                                <option value="{{ $directSaleShop->id }}" @selected((int) old('default_direct_sale_shop_id', $companyDetails['default_direct_sale_shop_id'] ?? 0) === (int) $directSaleShop->id)>
+                                    {{ $directSaleShop->name }} ({{ $directSaleShop->code }})
+                                </option>
+                            @endforeach
+                        </select>
+                        <p class="mt-1 text-xs font-semibold text-slate-500">Direct cash sale orders are created under this internal shop before warehouse loadout.</p>
+                        @error('default_direct_sale_shop_id')
+                            <p class="mt-1 text-xs font-bold text-rose-600">{{ $message }}</p>
+                        @enderror
+                    </div>
+
                     <div class="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
                         <label class="flex cursor-pointer items-start gap-3">
                             <input type="hidden" name="allow_historical_invoice_repricing" value="0">

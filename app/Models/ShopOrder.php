@@ -263,18 +263,27 @@ class ShopOrder extends Model
         return $this->order_source === 'admin_direct_purchase';
     }
 
+    public function isDirectSale(): bool
+    {
+        return $this->order_source === 'direct_sale';
+    }
+
     public function demandSourceLabel(): string
     {
-        return $this->isAdminDirectPurchase()
-            ? 'Green Leaf Direct Purchase'
-            : (string) ($this->shop?->name ?? 'Unknown Shop');
+        return match (true) {
+            $this->isAdminDirectPurchase() => 'Green Leaf Direct Purchase',
+            $this->isDirectSale() => 'Direct Sale',
+            default => (string) ($this->shop?->name ?? 'Unknown Shop'),
+        };
     }
 
     public function loadoutDisplayName(): string
     {
-        return $this->isAdminDirectPurchase()
-            ? 'Direct Purchase'
-            : (string) ($this->shop?->name ?? 'Unknown Shop');
+        return match (true) {
+            $this->isAdminDirectPurchase() => 'Direct Purchase',
+            $this->isDirectSale() => 'Direct Sale',
+            default => (string) ($this->shop?->name ?? 'Unknown Shop'),
+        };
     }
 
     public function hasLinkedPurchaseOrders(): bool

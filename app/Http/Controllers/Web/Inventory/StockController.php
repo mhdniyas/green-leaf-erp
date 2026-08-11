@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Web\Inventory;
 use App\Http\Controllers\Controller;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Models\StockAdjustment;
 use App\Repositories\Inventory\StockMovementRepository;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use Illuminate\Http\Request;
@@ -54,6 +55,11 @@ class StockController extends Controller
         $carryoverProductCount = $stockByProduct
             ->filter(fn ($rows): bool => (bool) ($rows->first()->carryover_enabled ?? false))
             ->count();
+        $adjustmentTotals = StockAdjustment::query()
+            ->whereDate('business_date', $date)
+            ->selectRaw("COALESCE(SUM(CASE WHEN category = 'wastage' THEN ABS(variance_qty) ELSE 0 END), 0) as wastage_qty")
+            ->selectRaw("COALESCE(SUM(CASE WHEN category = 'old_stock' THEN variance_qty ELSE 0 END), 0) as old_stock_qty")
+            ->first();
 
         // Fetch dispatches/allocations for the date
         $allocations = ShopOrderItem::whereHas('order', function ($query) use ($date) {
@@ -71,6 +77,7 @@ class StockController extends Controller
             'negativeProductCount',
             'belowBufferProductCount',
             'carryoverProductCount',
+            'adjustmentTotals',
         ));
     }
 }

@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Web\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\BusinessSetting;
+use App\Models\Shop;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -20,6 +21,7 @@ class CompanySettingsController extends Controller
         'company_email',
         'allow_historical_invoice_repricing',
         'default_purchaser_user_id',
+        'default_direct_sale_shop_id',
     ];
 
     public function edit(Request $request): View
@@ -39,6 +41,9 @@ class CompanySettingsController extends Controller
             'default_purchaser_user_id' => ($settings->get('default_purchaser_user_id') !== null && $settings->get('default_purchaser_user_id') !== '')
                 ? (int) $settings->get('default_purchaser_user_id')
                 : null,
+            'default_direct_sale_shop_id' => ($settings->get('default_direct_sale_shop_id') !== null && $settings->get('default_direct_sale_shop_id') !== '')
+                ? (int) $settings->get('default_direct_sale_shop_id')
+                : null,
         ];
 
         $purchaserUsers = User::query()
@@ -46,7 +51,12 @@ class CompanySettingsController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'email']);
 
-        return view('admin.company-settings.edit', compact('companyDetails', 'purchaserUsers'));
+        $directSaleShops = Shop::query()
+            ->active()
+            ->orderBy('name')
+            ->get(['id', 'name', 'code', 'warehouse_tag']);
+
+        return view('admin.company-settings.edit', compact('companyDetails', 'purchaserUsers', 'directSaleShops'));
     }
 
     public function update(Request $request): RedirectResponse
@@ -60,6 +70,7 @@ class CompanySettingsController extends Controller
             'company_email' => ['nullable', 'email', 'max:120'],
             'allow_historical_invoice_repricing' => ['nullable', 'boolean'],
             'default_purchaser_user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'default_direct_sale_shop_id' => ['nullable', 'integer', 'exists:shops,id'],
         ]);
 
         foreach (self::SETTING_KEYS as $key) {
