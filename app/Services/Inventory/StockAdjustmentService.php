@@ -12,20 +12,24 @@ use App\Models\StockAdjustment;
 use App\Models\StockBatch;
 use App\Models\StockMovement;
 use App\Models\Warehouse;
+use App\Repositories\Inventory\StockMovementRepository;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class StockAdjustmentService
 {
-    public function __construct(private readonly StockLedgerService $ledger) {}
+    public function __construct(
+        private readonly StockLedgerService $ledger,
+        private readonly StockMovementRepository $stockMovements,
+    ) {}
 
     public function reconcile(Product $product, float $submittedSystemQty, float $countedQty, string $businessDate, string $notes, int $userId, ?int $warehouseId = null): ?StockAdjustment
     {
         return DB::transaction(function () use ($product, $submittedSystemQty, $countedQty, $businessDate, $notes, $userId, $warehouseId): ?StockAdjustment {
             StockBatch::query()->where('product_id', $product->id)->when($warehouseId !== null, fn ($query) => $query->where('warehouse_id', $warehouseId))->lockForUpdate()->get(['id']);
 
-            $systemQty = $this->ledger->availableStockForProduct($product->id, $warehouseId);
+            $systemQty = $this->stockMovements->currentStockForProduct($product->id, $warehouseId);
             if (abs($systemQty - $submittedSystemQty) > 0.01) {
                 throw ValidationException::withMessages(['counted_qty' => 'Stock changed while you were counting. Refresh the page and try again.']);
             }

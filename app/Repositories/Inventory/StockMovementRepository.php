@@ -154,6 +154,13 @@ class StockMovementRepository extends BaseRepository
         );
     }
 
+    public function currentStockForProduct(int $productId, ?int $warehouseId = null): float
+    {
+        return round((float) $this->currentStockByProductAndGrade(null, $warehouseId)
+            ->where('product_id', $productId)
+            ->sum('current_stock'), 3);
+    }
+
     /**
      * Get stock for a specific product and grade.
      */
