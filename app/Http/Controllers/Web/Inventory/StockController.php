@@ -18,6 +18,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class StockController extends Controller
@@ -55,14 +56,14 @@ class StockController extends Controller
         $categories = $this->categories->findAllActive()
             ->when($assignedCategoryIds !== null, fn (Collection $items) => $items->whereIn('id', $assignedCategoryIds))
             ->values();
-        $selectedCategoryId = $request->integer('category_id');
-        $selectedCategoryId = $categories->contains('id', $selectedCategoryId) ? $selectedCategoryId : null;
+        $selectedCategorySlug = $request->string('category')->toString();
+        $selectedCategory = $categories->first(fn ($category) => Str::slug($category->name) === $selectedCategorySlug);
+        $selectedCategoryId = $selectedCategory?->id;
         $categoryIds = $selectedCategoryId ? [$selectedCategoryId] : $assignedCategoryIds;
 
         $stockRows = $this->stockMovements->currentStockByProductAndGrade($date, $selectedWarehouseId, $categoryIds);
-        $showEmptyWarehouseProducts = $selectedWarehouseId !== null
-            && $stockRows->isEmpty()
-            && $request->user()?->hasRole('admin');
+        $showEmptyStock = $request->boolean('show_empty');
+        $showEmptyWarehouseProducts = $showEmptyStock && $stockRows->isEmpty();
 
         if ($showEmptyWarehouseProducts) {
             $stockRows = Product::query()
@@ -113,9 +114,9 @@ class StockController extends Controller
         $sort = in_array($sort, ['sku_asc', 'name_asc', 'name_desc', 'stock_high', 'stock_low', 'below_buffer'], true)
             ? $sort
             : 'sku_asc';
-        $perPage = $showEmptyWarehouseProducts ? 10 : (in_array($request->integer('per_page'), [12, 24, 48], true)
+        $perPage = in_array($request->integer('per_page'), [12, 24, 48], true)
             ? $request->integer('per_page')
-            : 24);
+            : 24;
 
         $productGroups = $stockByProduct
             ->filter(function (Collection $grades) use ($search): bool {
@@ -178,6 +179,8 @@ class StockController extends Controller
             'selectedWarehouseId',
             'categories',
             'selectedCategoryId',
+            'selectedCategorySlug',
+            'showEmptyStock',
             'showAdjustmentTotals',
             'showEmptyWarehouseProducts',
         ));

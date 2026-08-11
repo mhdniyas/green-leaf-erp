@@ -61,18 +61,18 @@
     @endif
 
     @php
-        $stockTabQuery = request()->except(['page', 'warehouse_id', 'category_id']);
+        $stockTabQuery = request()->except(['page', 'warehouse_id', 'category']);
     @endphp
     <div class="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
         <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Warehouse</p>
         <div class="mt-2 flex gap-2 overflow-x-auto pb-1">
-            <a href="{{ route('inventory.stock.index', array_merge($stockTabQuery, ['warehouse_id' => null, 'category_id' => $selectedCategoryId])) }}" @class([
+            <a href="{{ route('inventory.stock.index', array_merge($stockTabQuery, ['warehouse_id' => null, 'category' => $selectedCategorySlug])) }}" @class([
                 'shrink-0 rounded-xl px-3 py-2 text-xs font-black transition',
                 'bg-slate-950 text-white' => ! $selectedWarehouseId,
                 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50' => $selectedWarehouseId,
             ])>All warehouses</a>
             @foreach($warehouses as $warehouse)
-                <a href="{{ route('inventory.stock.index', array_merge($stockTabQuery, ['warehouse_id' => $warehouse->id, 'category_id' => $selectedCategoryId])) }}" @class([
+                <a href="{{ route('inventory.stock.index', array_merge($stockTabQuery, ['warehouse_id' => $warehouse->id, 'category' => $selectedCategorySlug])) }}" @class([
                     'shrink-0 rounded-xl px-3 py-2 text-xs font-black transition',
                     'bg-brand-600 text-white shadow-sm' => $selectedWarehouseId === $warehouse->id,
                     'border border-slate-200 bg-white text-slate-600 hover:border-brand-200 hover:bg-brand-50' => $selectedWarehouseId !== $warehouse->id,
@@ -84,13 +84,13 @@
     <div class="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
         <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Product category</p>
         <div class="mt-2 flex gap-2 overflow-x-auto pb-1">
-            <a href="{{ route('inventory.stock.index', array_merge($stockTabQuery, ['warehouse_id' => $selectedWarehouseId, 'category_id' => null])) }}" @class([
+            <a href="{{ route('inventory.stock.index', array_merge($stockTabQuery, ['warehouse_id' => $selectedWarehouseId, 'category' => null])) }}" @class([
                 'shrink-0 rounded-xl px-3 py-2 text-xs font-black transition',
                 'bg-slate-950 text-white' => ! $selectedCategoryId,
                 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50' => $selectedCategoryId,
             ])>All categories</a>
             @foreach($categories as $category)
-                <a href="{{ route('inventory.stock.index', array_merge($stockTabQuery, ['warehouse_id' => $selectedWarehouseId, 'category_id' => $category->id])) }}" @class([
+                <a href="{{ route('inventory.stock.index', array_merge($stockTabQuery, ['warehouse_id' => $selectedWarehouseId, 'category' => \Illuminate\Support\Str::slug($category->name)])) }}" @class([
                     'shrink-0 rounded-xl px-3 py-2 text-xs font-black transition',
                     'bg-emerald-600 text-white shadow-sm' => $selectedCategoryId === $category->id,
                     'border border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50' => $selectedCategoryId !== $category->id,
@@ -101,15 +101,20 @@
 
     @if($showEmptyWarehouseProducts)
         <div class="mb-6 rounded-2xl border border-cyan-200 bg-cyan-50 p-4 text-sm text-cyan-950 shadow-xs">
-            <p class="font-black">Empty warehouse old-stock entry</p>
-            <p class="mt-1 font-semibold">This warehouse has no recorded stock. Products are shown with 0.000 kg, 10 at a time, so an administrator can record the physical old stock. Every save remains in the stock history.</p>
+            <p class="font-black">Zero-stock products</p>
+            <p class="mt-1 font-semibold">Products with no current stock are shown as 0.000 kg.</p>
         </div>
     @endif
 
     <form method="GET" action="{{ route('inventory.stock.index') }}" class="mb-6 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:flex-row sm:items-end">
         <input type="hidden" name="date" value="{{ $date }}">
         @if($selectedWarehouseId) <input type="hidden" name="warehouse_id" value="{{ $selectedWarehouseId }}"> @endif
-        @if($selectedCategoryId) <input type="hidden" name="category_id" value="{{ $selectedCategoryId }}"> @endif
+        @if($selectedCategorySlug) <input type="hidden" name="category" value="{{ $selectedCategorySlug }}"> @endif
+        <fieldset class="flex h-10 items-center gap-3 rounded-xl border border-slate-200 px-3">
+            <legend class="sr-only">Stock visibility</legend>
+            <label class="flex items-center gap-1.5 text-xs font-black text-slate-700"><input type="radio" name="show_empty" value="0" @checked(! $showEmptyStock)> In stock</label>
+            <label class="flex items-center gap-1.5 text-xs font-black text-slate-700"><input type="radio" name="show_empty" value="1" @checked($showEmptyStock)> Show zero stock</label>
+        </fieldset>
         <label class="block flex-1">
             <span class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Search products</span>
             <input type="search" name="search" value="{{ $search }}" placeholder="Name, SKU or category" class="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20">
@@ -125,7 +130,6 @@
                 <option value="below_buffer" @selected($sort === 'below_buffer')>Below buffer first</option>
             </select>
         </label>
-        @unless($showEmptyWarehouseProducts)
         <label class="block sm:w-28">
             <span class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Per page</span>
             <select name="per_page" class="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 focus:border-brand-500 focus:outline-none">
@@ -134,7 +138,6 @@
                 @endforeach
             </select>
         </label>
-        @endunless
         <button type="submit" class="h-10 rounded-xl bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800">Apply</button>
     </form>
 
