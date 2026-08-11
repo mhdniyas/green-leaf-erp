@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Api\Purchasing\PurchaseOrderController;
 use App\Http\Controllers\Api\Purchasing\SupplierController;
 use App\Http\Controllers\Api\Warehouse\ApiWarehouseLoadoutController;
+use App\Http\Controllers\Api\Warehouse\WarehouseScopedLoadoutController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
@@ -64,6 +65,12 @@ Route::prefix('v1')->middleware('api')->name('api.v1.')->group(function () {
             Route::post('/{shopOrder}/load-all', [ApiWarehouseLoadoutController::class, 'loadAll'])->name('load-all');
             Route::get('/{shopOrder}/addons', [ApiWarehouseLoadoutController::class, 'addonProducts'])->name('addons');
             Route::post('/{shopOrder}/addon', [ApiWarehouseLoadoutController::class, 'storeAddon'])->name('addon.store');
+        });
+
+        Route::prefix('warehouse-loadout/{warehouse}')->name('warehouse-scoped-loadout.')->group(function () {
+            Route::get('/orders', [WarehouseScopedLoadoutController::class, 'index'])->name('orders.index');
+            Route::get('/orders/{shopOrder}', [WarehouseScopedLoadoutController::class, 'show'])->name('orders.show');
+            Route::patch('/orders/{shopOrder}/items', [WarehouseScopedLoadoutController::class, 'updateItems'])->name('orders.items.update');
         });
 
         // ── Inventory ─────────────────────────────────────────────────────────
