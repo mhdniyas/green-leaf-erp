@@ -237,7 +237,7 @@
     </div>
 
     <div class="page-summary">
-        SORT SHEET - {{ \Carbon\Carbon::parse($date)->format('d M Y') }}
+        GREEN LEAF - {{ \Carbon\Carbon::parse($date)->format('d M Y') }}
     </div>
 
     @if($filteredShops->count() > 0 && count($matrix) > 0)
