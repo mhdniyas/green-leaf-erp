@@ -190,6 +190,8 @@
             $productRouteKey = $firstEntry->product_route_key;
             $productUnit = $firstEntry->product_unit ?: 'kg';
             $totalStock  = $grades->sum(fn ($e) => (float) $e->current_stock);
+            $sortedStock = (float) $grades->reject(fn ($e) => $e->grade === 'Unsorted')->sum('current_stock');
+            $unsortedStock = (float) $grades->where('grade', 'Unsorted')->sum('current_stock');
             $bufferQty = (float) ($firstEntry->buffer_qty ?? 0);
             $isBelowBuffer = $bufferQty > 0 && $totalStock < $bufferQty;
             $isNegative = $totalStock < -0.001;
@@ -270,6 +272,16 @@
 
                 {{-- Grade Breakdown --}}
                 <div class="pt-2.5 border-t border-gray-100">
+                    <div class="mb-2 grid grid-cols-2 gap-2">
+                        <div class="rounded-lg bg-emerald-50 px-2.5 py-2 text-center">
+                            <p class="text-[9px] font-black uppercase tracking-wider text-emerald-700">Sorted</p>
+                            <p class="mt-0.5 font-mono text-xs font-black text-emerald-950">{{ number_format($sortedStock, 2) }} <span class="text-[9px]">{{ $productUnit }}</span></p>
+                        </div>
+                        <div class="rounded-lg bg-slate-100 px-2.5 py-2 text-center">
+                            <p class="text-[9px] font-black uppercase tracking-wider text-slate-600">Unsorted</p>
+                            <p class="mt-0.5 font-mono text-xs font-black text-slate-900">{{ number_format($unsortedStock, 2) }} <span class="text-[9px]">{{ $productUnit }}</span></p>
+                        </div>
+                    </div>
                     <div class="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5">
                         <span>Grades</span>
                         <span>Stock Qty</span>
