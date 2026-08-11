@@ -29,7 +29,7 @@ class StockAdjustmentService
         return DB::transaction(function () use ($product, $submittedSystemQty, $countedQty, $businessDate, $notes, $userId, $warehouseId): ?StockAdjustment {
             StockBatch::query()->where('product_id', $product->id)->when($warehouseId !== null, fn ($query) => $query->where('warehouse_id', $warehouseId))->lockForUpdate()->get(['id']);
 
-            $systemQty = $this->stockMovements->currentStockForProduct($product->id, $warehouseId);
+            $systemQty = $this->stockMovements->currentStockForProduct($product->id, $warehouseId, $businessDate);
             if (abs($systemQty - $submittedSystemQty) > 0.01) {
                 throw ValidationException::withMessages(['counted_qty' => 'Stock changed while you were counting. Refresh the page and try again.']);
             }
