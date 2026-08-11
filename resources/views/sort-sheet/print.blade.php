@@ -97,6 +97,14 @@
             text-align: left;
             word-break: break-word;
         }
+        .item-sku {
+            display: block;
+            font-family: monospace;
+            font-size: 8px;
+            font-weight: 600;
+            line-height: 1.1;
+            margin-top: 2px;
+        }
         /* Qty cols */
         .qty-cell {
             text-align: center;
@@ -221,6 +229,9 @@
             .item-cell {
                 font-size: 12px;
                 font-weight: 700;
+            }
+            .item-sku {
+                font-size: 9px;
             }
             .qty-cell {
                 font-size: 13px;
@@ -359,7 +370,10 @@
                 @endphp
                 <tr>
                     <td>{{ $meta['sku'] }}</td>
-                    <td class="item-cell">{{ $meta['name'] }}</td>
+                    <td class="item-cell">
+                        {{ $meta['name'] }}
+                        <span class="item-sku">SKU: {{ $meta['sku'] }}</span>
+                    </td>
                     @foreach($filteredShops as $shop)
                     @php $qty = $shopQtys[$shop->id] ?? 0; @endphp
                     <td class="qty-cell {{ $qty <= 0 ? 'zero' : '' }}">
