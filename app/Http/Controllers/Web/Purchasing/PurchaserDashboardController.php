@@ -409,7 +409,7 @@ class PurchaserDashboardController extends Controller
 
         $summaryProductIds = $dailySummary->pluck('product_id')->all();
         $addOnProducts = Product::query()
-            ->select(['id', 'category_id', 'name', 'sku', 'unit', 'status'])
+            ->select(['id', 'category_id', 'name', 'sku', 'unit', 'is_active'])
             ->with('category:id,name')
             ->active()
             ->ordered()
