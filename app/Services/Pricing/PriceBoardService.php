@@ -311,14 +311,12 @@ class PriceBoardService
 
             if ($sourceType === 'grn') {
                 $this->createOrUpdatePendingApproval($product);
-            } else {
-                $this->refreshMarginSellingPrices($product);
             }
         }
     }
 
     /**
-     * Create or update a pending DailyPriceApproval for the active business date based on current GRN cost.
+     * Update the current purchase cost without deriving selling prices from it.
      */
     public function createOrUpdatePendingApproval(Product $product): void
     {
@@ -327,26 +325,19 @@ class PriceBoardService
             ->where('grade', ProductGrade::GradeA->value)
             ->value('wholesale_price') ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price));
 
-        $marginA = (float) (ShopPriceGroup::where('name', 'A')->value('default_margin_percent') ?? 10);
-        $marginB = (float) (ShopPriceGroup::where('name', 'B')->value('default_margin_percent') ?? 12);
-        $marginC = (float) (ShopPriceGroup::where('name', 'C')->value('default_margin_percent') ?? 15);
-
         $businessDate = app(PurchaserBusinessDayService::class)->currentCalendarDate();
 
-        DailyPriceApproval::updateOrCreate(
-            [
-                'product_id' => $product->id,
-                'business_date' => $businessDate,
-            ],
-            [
-                'purchase_price' => $gradeACost,
-                'price_unit' => $product->unit ?: 'kg',
-                'price_a' => round($gradeACost * (1 + $marginA / 100), 2),
-                'price_b' => round($gradeACost * (1 + $marginB / 100), 2),
-                'price_c' => round($gradeACost * (1 + $marginC / 100), 2),
-                'status' => 'pending',
-            ]
-        );
+        $approval = DailyPriceApproval::query()->firstOrNew([
+            'product_id' => $product->id,
+            'business_date' => $businessDate,
+        ]);
+
+        $approval->fill([
+            'purchase_price' => $gradeACost,
+            'price_unit' => $approval->price_unit ?: ($product->unit ?: 'kg'),
+            'status' => $approval->exists ? $approval->status : 'pending',
+        ]);
+        $approval->save();
     }
 
     /**
@@ -354,8 +345,6 @@ class PriceBoardService
      */
     public function ensurePendingApprovalsForPurchaseDate(string $purchaseDate, bool $includeAllProducts = false): Collection
     {
-        $priceGroups = $this->ensureDefaultPriceGroups()->whereIn('name', ['A', 'B', 'C'])->values();
-
         $grns = GoodsReceived::query()
             ->whereIn('status', ['pending_approval', 'approved'])
             ->whereDate('received_at', $purchaseDate)
@@ -418,9 +407,6 @@ class PriceBoardService
         }
 
         $businessDate = Carbon::parse($purchaseDate)->toDateString();
-        $marginA = (float) ($priceGroups->firstWhere('name', 'A')?->default_margin_percent ?? 10);
-        $marginB = (float) ($priceGroups->firstWhere('name', 'B')?->default_margin_percent ?? 12);
-        $marginC = (float) ($priceGroups->firstWhere('name', 'C')?->default_margin_percent ?? 15);
         $autoApproveSamePurchasePrice = $this->autoApproveSamePurchasePrice();
         $previousApprovals = DailyPriceApproval::query()
             ->whereIn('product_id', array_map('intval', array_keys($products)))
@@ -461,14 +447,14 @@ class PriceBoardService
                 ]);
             }
 
-            $samePriceAutoApproved = $movementStatus === 'same' && $autoApproveSamePurchasePrice && $previousApproval;
+            $samePriceAutoApproved = $movementStatus === 'same'
+                && $autoApproveSamePurchasePrice
+                && $previousApproval
+                && $this->hasValidApprovedSellingPrices($approval);
 
             $approval->fill([
                 'purchase_price' => $purchasePrice,
                 'price_unit' => $approval->price_unit ?: (string) ($previousApproval?->price_unit ?: ($product['unit'] ?? 'kg')),
-                'price_a' => $samePriceAutoApproved && $previousApproval ? $previousApproval->price_a : ((float) $approval->price_a > 0 ? $approval->price_a : round($purchasePrice * (1 + $marginA / 100), 2)),
-                'price_b' => $samePriceAutoApproved && $previousApproval ? $previousApproval->price_b : ((float) $approval->price_b > 0 ? $approval->price_b : round($purchasePrice * (1 + $marginB / 100), 2)),
-                'price_c' => $samePriceAutoApproved && $previousApproval ? $previousApproval->price_c : ((float) $approval->price_c > 0 ? $approval->price_c : round($purchasePrice * (1 + $marginC / 100), 2)),
                 'status' => $samePriceAutoApproved ? 'approved' : ($approval->exists ? $approval->status : 'pending'),
                 'approved_by' => $samePriceAutoApproved ? null : $approval->approved_by,
                 'approved_at' => $samePriceAutoApproved ? ($approval->approved_at ?? now()) : $approval->approved_at,
@@ -493,7 +479,6 @@ class PriceBoardService
 
     public function ensureProductApprovalForPurchaseDate(Product $product, string $purchaseDate): DailyPriceApproval
     {
-        $priceGroups = $this->ensureDefaultPriceGroups()->whereIn('name', ['A', 'B', 'C'])->values();
         $businessDate = Carbon::parse($purchaseDate)->toDateString();
         $previousApproval = DailyPriceApproval::query()
             ->where('product_id', $product->id)
@@ -504,10 +489,6 @@ class PriceBoardService
             ->first();
 
         $purchasePrice = round((float) ($previousApproval?->purchase_price ?? ($product->vendor_price > 0 ? $product->vendor_price : $product->base_price)), 4);
-        $marginA = (float) ($priceGroups->firstWhere('name', 'A')?->default_margin_percent ?? 10);
-        $marginB = (float) ($priceGroups->firstWhere('name', 'B')?->default_margin_percent ?? 12);
-        $marginC = (float) ($priceGroups->firstWhere('name', 'C')?->default_margin_percent ?? 15);
-
         $approval = DailyPriceApproval::query()
             ->where('product_id', $product->id)
             ->whereDate('business_date', $businessDate)
@@ -520,9 +501,6 @@ class PriceBoardService
             $approval->fill([
                 'purchase_price' => $purchasePrice,
                 'price_unit' => $approval->price_unit ?: (string) ($previousApproval?->price_unit ?: $product->unit ?: 'kg'),
-                'price_a' => (float) $approval->price_a > 0 ? $approval->price_a : round($purchasePrice * (1 + $marginA / 100), 2),
-                'price_b' => (float) $approval->price_b > 0 ? $approval->price_b : round($purchasePrice * (1 + $marginB / 100), 2),
-                'price_c' => (float) $approval->price_c > 0 ? $approval->price_c : round($purchasePrice * (1 + $marginC / 100), 2),
                 'status' => $approval->exists ? $approval->status : 'pending',
             ]);
             $approval->save();
@@ -706,12 +684,7 @@ class PriceBoardService
 
     private function calculateMarginSellingPrice(Product $product, ProductGrade $grade, float $marginPercent): float
     {
-        $wholesale = ProductWholesalePrice::query()
-            ->where('product_id', $product->id)
-            ->where('grade', $grade->value)
-            ->value('wholesale_price');
-
-        $base = $wholesale !== null ? (float) $wholesale : (float) $product->base_price;
+        $base = (float) $product->base_price;
         $gradeMultiplier = match ($grade) {
             ProductGrade::GradeA => 1.00,
             ProductGrade::GradeB => 0.90,

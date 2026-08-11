@@ -10,7 +10,6 @@ use App\Enums\Purchasing\POStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\Purchasing\StoreGoodsReceivedRequest;
 use App\Http\Requests\Web\Purchasing\UpdatePendingDailyPriceApprovalRequest;
-use App\Models\DailyPriceApproval;
 use App\Models\GoodsReceived;
 use App\Models\PurchaseOrder;
 use App\Services\Pricing\PriceBoardService;
@@ -213,25 +212,9 @@ class GoodsReceivedController extends Controller
     {
         $validated = $request->validated();
 
-        DB::transaction(function () use ($validated): void {
-            foreach ($validated['prices'] as $approvalId => $proposal) {
-                $approval = DailyPriceApproval::query()->findOrFail((int) $approvalId);
-
-                if ($approval->status !== 'pending') {
-                    continue;
-                }
-
-                $approval->update([
-                    'price_a' => round((float) $proposal['price_a'], 2),
-                    'price_b' => round((float) $proposal['price_b'], 2),
-                    'price_c' => round((float) $proposal['price_c'], 2),
-                ]);
-            }
-        });
-
         return redirect()
-            ->route('purchasing.grns.index', ['date' => $validated['date']])
-            ->with('success', 'Proposed category prices updated. Admin approval is required before invoices are generated.');
+            ->route('purchasing.prices.index', ['date' => $validated['date']])
+            ->with('warning', 'Selling prices can only be updated from the purchaser daily price board.');
     }
 
     public function markForRecheck(GoodsReceived $grn, Request $request): RedirectResponse
