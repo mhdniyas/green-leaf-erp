@@ -45,18 +45,22 @@
             break-after: auto;
             page-break-after: auto;
         }
-        .shop-title {
+        .shop-title-content {
             align-items: flex-end;
             display: flex;
             font-size: 21px;
             font-weight: 900;
             justify-content: space-between;
             line-height: 1.1;
-            margin: 5px 0 6px;
             min-height: 20px;
         }
-        .shop-title strong {
+        .shop-title-content strong {
             font-weight: 900;
+        }
+        .shop-title-cell {
+            border: 0;
+            border-bottom: 2px solid #000;
+            padding: 5px 0 6px;
         }
         table {
             border-collapse: collapse;
@@ -105,7 +109,10 @@
             page-break-inside: avoid;
         }
         @media print {
-            @page { size: A4 {{ $printOrientation }}; margin: 8mm; }
+            @page {
+                size: A4 {{ $printOrientation }};
+                margin: 8mm {{ $isPortraitPrint ? '21mm' : '8mm' }};
+            }
             html,
             body {
                 height: auto;
@@ -121,9 +128,8 @@
                 padding: 0;
                 width: 100%;
             }
-            .shop-title {
+            .shop-title-content {
                 font-size: 21px;
-                margin: 5px 0 6px;
             }
             th,
             td {
@@ -168,10 +174,6 @@
             @continue(count($shopRows) === 0)
 
             <div class="page">
-                <div class="shop-title">
-                    <strong>{{ $shop->warehouse_tag ? $shop->warehouse_tag.' - '.$shop->name : $shop->name }}</strong>
-                    <strong>{{ \Carbon\Carbon::parse($date)->format('d-M') }}</strong>
-                </div>
                 <table>
                     <colgroup>
                         @if($isPortraitPrint)
@@ -188,9 +190,17 @@
                     </colgroup>
                     <thead>
                         <tr>
+                            <th class="shop-title-cell" colspan="4">
+                                <div class="shop-title-content">
+                                    <strong>{{ $shop->warehouse_tag ? $shop->warehouse_tag.' - '.$shop->name : $shop->name }}</strong>
+                                    <strong>{{ \Carbon\Carbon::parse($date)->format('d-M') }}</strong>
+                                </div>
+                            </th>
+                        </tr>
+                        <tr>
                             <th>Code</th>
                             <th>Item</th>
-                            <th class="shop-head">{{ $shop->name }}</th>
+                            <th class="shop-head">Qty</th>
                             <th>Total</th>
                         </tr>
                     </thead>
