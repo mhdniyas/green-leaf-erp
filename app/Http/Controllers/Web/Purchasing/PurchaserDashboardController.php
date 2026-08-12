@@ -24,6 +24,7 @@ use App\Models\PurchaseOrder;
 use App\Models\PurchaserCart;
 use App\Models\PurchaserCartItem;
 use App\Models\PurchaserCorrectionRequest;
+use App\Models\PurchaserSharePreset;
 use App\Models\PurchaserCredit;
 use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
@@ -257,6 +258,15 @@ class PurchaserDashboardController extends Controller
             ->map(fn ($productId): int => (int) $productId)
             ->all();
 
+        $sharePresets = PurchaserSharePreset::query()
+            ->where('user_id', (int) $user->id)
+            ->where('purchase_grade', $purchaseGrade)
+            ->orderBy('name')
+            ->get(['id', 'name', 'product_ids']);
+
+        $selectedPresetId = $request->integer('preset_id');
+        $selectedPreset = $sharePresets->firstWhere('id', $selectedPresetId);
+
         $selectedTags = collect($request->input('tags', []))
             ->filter(fn ($tag): bool => is_string($tag) && $availableTags->contains($tag))
             ->values()
@@ -267,6 +277,16 @@ class PurchaserDashboardController extends Controller
             ->unique()
             ->values()
             ->all();
+
+        if ($selectedPreset instanceof PurchaserSharePreset) {
+            $selectedProductIds = collect($selectedPreset->product_ids ?? [])
+                ->map(fn ($productId): int => (int) $productId)
+                ->filter(fn (int $productId): bool => in_array($productId, $availableProductIds, true))
+                ->unique()
+                ->values()
+                ->all();
+            $shareMode = 'tag';
+        }
 
         $selectedProductId = $request->integer('product_id');
         if (! $dailySummary->contains(fn (array $summary): bool => (int) $summary['product_id'] === $selectedProductId)) {
@@ -293,6 +313,8 @@ class PurchaserDashboardController extends Controller
             'selectedTags' => $selectedTags,
             'selectedProductIds' => $selectedProductIds,
             'selectedProductId' => $selectedProductId,
+            'selectedPresetId' => $selectedPreset instanceof PurchaserSharePreset ? (int) $selectedPreset->id : 0,
+            'sharePresets' => $sharePresets,
             'availableTags' => $availableTags,
             'availableProducts' => $dailySummary
                 ->sortBy(fn (array $summary): string => Product::sortableSku((string) ($summary['sku'] ?? '')))
@@ -315,6 +337,125 @@ class PurchaserDashboardController extends Controller
             'shareUrl' => $shareUrl,
             'shareTotalUrl' => $shareTotalUrl,
         ]);
+    }
+
+    public function dailySharePresets(Request $request): View|RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $date = $this->resolveBusinessDate($request);
+
+        if ($date instanceof RedirectResponse) {
+            return $date;
+        }
+
+        $user = $request->user();
+        $purchaseGrade = $request->string('purchase_grade')->upper()->toString() === 'B' ? 'B' : 'A';
+        $availableProducts = $this->presetProductCatalogForUser($user);
+
+        $sharePresets = PurchaserSharePreset::query()
+            ->where('user_id', (int) $user->id)
+            ->where('purchase_grade', $purchaseGrade)
+            ->orderBy('name')
+            ->get();
+
+        return view('purchasing.purchaser.daily_share_presets', [
+            'date' => $date->format('Y-m-d'),
+            'purchaseGrade' => $purchaseGrade,
+            'availableProducts' => $availableProducts,
+            'sharePresets' => $sharePresets,
+        ]);
+    }
+
+    public function dailySharePresetStore(Request $request): RedirectResponse
+    {
+        $this->ensurePurchaser($request);
+
+        $validated = $request->validate([
+            'date' => ['required', 'date_format:Y-m-d'],
+            'purchase_grade' => ['nullable', 'string', 'in:A,B'],
+            'name' => ['required', 'string', 'max:80'],
+            'product_ids' => ['required', 'array', 'min:1'],
+            'product_ids.*' => ['required', 'integer', 'distinct'],
+        ]);
+
+        $user = $request->user();
+        $date = Carbon::createFromFormat('Y-m-d', (string) $validated['date']);
+        $purchaseGrade = ($validated['purchase_grade'] ?? 'A') === 'B' ? 'B' : 'A';
+        $availableProductIds = Product::query()
+            ->active()
+            ->when(
+                $user->hasAssignedCategoryFilter(),
+                fn ($query) => $query->whereIn('category_id', $user->assignedCategoryIds())
+            )
+            ->pluck('id')
+            ->map(fn ($productId): int => (int) $productId)
+            ->all();
+
+        $productIds = collect($validated['product_ids'])
+            ->map(fn ($productId): int => (int) $productId)
+            ->filter(fn (int $productId): bool => in_array($productId, $availableProductIds, true))
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($productIds === []) {
+            return redirect()
+                ->route('purchaser.daily.share.presets', [
+                    'date' => $date->format('Y-m-d'),
+                    'purchase_grade' => $purchaseGrade,
+                ])
+                ->withErrors(['Choose at least one valid product for preset.']);
+        }
+
+        $preset = PurchaserSharePreset::query()->updateOrCreate(
+            [
+                'user_id' => (int) $user->id,
+                'purchase_grade' => $purchaseGrade,
+                'name' => trim((string) $validated['name']),
+            ],
+            [
+                'product_ids' => $productIds,
+            ],
+        );
+
+        return redirect()
+            ->route('purchaser.daily.share', [
+                'date' => $date->format('Y-m-d'),
+                'purchase_grade' => $purchaseGrade,
+                'share_mode' => 'tag',
+                'preset_id' => $preset->id,
+            ])
+            ->with('success', 'Preset saved. Items loaded into Daily Share.');
+    }
+
+    /**
+     * @return Collection<int, array{product_id:int,product_name:string,category_name:string,remaining_qty:float,unit:string,search_index:string}>
+     */
+    private function presetProductCatalogForUser(User $user): Collection
+    {
+        return Product::query()
+            ->active()
+            ->with('category:id,name')
+            ->when(
+                $user->hasAssignedCategoryFilter(),
+                fn ($query) => $query->whereIn('category_id', $user->assignedCategoryIds())
+            )
+            ->ordered()
+            ->get(['id', 'name', 'category_id', 'unit', 'sku'])
+            ->map(fn (Product $product): array => [
+                'product_id' => (int) $product->id,
+                'product_name' => (string) $product->name,
+                'category_name' => (string) ($product->category?->name ?? ''),
+                'remaining_qty' => 0.0,
+                'unit' => (string) $product->unit,
+                'search_index' => strtolower(trim(implode(' ', [
+                    (string) $product->name,
+                    (string) ($product->category?->name ?? ''),
+                    (string) ($product->sku ?? ''),
+                ]))),
+            ])
+            ->values();
     }
 
     public function shopOrders(Request $request): View|RedirectResponse

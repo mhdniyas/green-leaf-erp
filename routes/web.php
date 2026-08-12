@@ -464,6 +464,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/purchaser/daily', [PurchaserDashboardController::class, 'daily'])->name('purchaser.daily');
     Route::get('/purchaser/b-grade', [PurchaserDashboardController::class, 'bGrade'])->name('purchaser.b-grade');
     Route::get('/purchaser/daily/share', [PurchaserDashboardController::class, 'dailyShare'])->name('purchaser.daily.share');
+    Route::get('/purchaser/daily/share/presets', [PurchaserDashboardController::class, 'dailySharePresets'])->name('purchaser.daily.share.presets');
+    Route::post('/purchaser/daily/share/presets', [PurchaserDashboardController::class, 'dailySharePresetStore'])->name('purchaser.daily.share.presets.store');
     Route::get('/purchaser/products', [PurchaserDashboardController::class, 'products'])->name('purchaser.products');
     Route::get('/purchaser/daily-prices', [PurchaserDashboardController::class, 'dailyPrices'])->name('purchaser.daily-prices');
     Route::post('/purchaser/daily-prices', [PurchaserDashboardController::class, 'updateDailyPrices'])->name('purchaser.daily-prices.update');

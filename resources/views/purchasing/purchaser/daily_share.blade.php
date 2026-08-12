@@ -12,6 +12,9 @@
                         <p class="mt-1 text-sm font-medium text-slate-300">Filter and send demand to WhatsApp.</p>
                     </div>
                     <div class="flex flex-wrap gap-2">
+                        <a href="{{ route('purchaser.daily.share.presets', ['date' => $date, 'purchase_grade' => $purchaseGrade]) }}" class="inline-flex min-h-9 items-center justify-center rounded-xl border border-white/15 bg-emerald-500/20 px-4 text-sm font-black text-emerald-100 hover:bg-emerald-500/30 transition-colors">
+                            Presets
+                        </a>
                         <a href="{{ $purchaseGrade === 'B' ? route('purchaser.b-grade', ['date' => $date]) : route('purchaser.daily', ['date' => $date]) }}" class="inline-flex min-h-9 items-center justify-center rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-black text-white hover:bg-white/20 transition-colors">
                             ← Daily
                         </a>
@@ -54,6 +57,27 @@
                             class="h-9 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
                     </div>
 
+                    @if (isset($sharePresets) && $sharePresets->isNotEmpty())
+                        <div class="border-b border-slate-100 px-4 py-3">
+                            <div class="mb-2 flex items-center justify-between gap-2">
+                                <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Quick Presets</p>
+                                <a href="{{ route('purchaser.daily.share.presets', ['date' => $date, 'purchase_grade' => $purchaseGrade]) }}" class="text-[10px] font-black text-emerald-700 hover:text-emerald-600">
+                                    Manage
+                                </a>
+                            </div>
+                            <div class="flex gap-2 overflow-x-auto pb-1">
+                                @foreach ($sharePresets as $preset)
+                                    <a
+                                        href="{{ route('purchaser.daily.share', ['date' => $date, 'purchase_grade' => $purchaseGrade, 'share_mode' => 'tag', 'preset_id' => $preset->id]) }}"
+                                        class="inline-flex h-8 shrink-0 items-center justify-center rounded-lg border px-3 text-[11px] font-black transition-colors {{ (int) $selectedPresetId === (int) $preset->id ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50' }}"
+                                    >
+                                        {{ $preset->name }}
+                                    </a>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
+
                     {{-- ===== ANY MODE ===== --}}
                     <div data-share-section="any" class="{{ $shareMode !== 'any' ? 'hidden' : '' }} px-4 py-4">
                         <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
@@ -70,6 +94,14 @@
 
                     {{-- ===== TAG / CATEGORY MODE ===== --}}
                     <div data-share-section="tag" class="{{ $shareMode !== 'tag' ? 'hidden' : '' }} px-4 py-4 space-y-4">
+                        @php
+                            $activePreset = isset($sharePresets) ? $sharePresets->firstWhere('id', $selectedPresetId) : null;
+                        @endphp
+                        @if ($activePreset)
+                            <div class="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs font-semibold text-sky-800">
+                                Loaded preset: <span class="font-black">{{ $activePreset->name }}</span>
+                            </div>
+                        @endif
 
                         {{-- Category pill multi-select --}}
                         <div>
