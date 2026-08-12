@@ -108,6 +108,7 @@
             'name' => $product->name,
             'category_id' => (string) $product->category_id,
             'category_name' => $product->category?->name ?? optional($categories->firstWhere('id', $product->category_id))->name ?? 'Uncategorized',
+            'default_warehouse_id' => $product->default_warehouse_id ? (string) $product->default_warehouse_id : '',
         ])->values();
         $warehousePickerOptions = $warehouses->map(fn ($warehouse) => [
             'id' => (string) $warehouse->id,
@@ -914,12 +915,20 @@ document.addEventListener('DOMContentLoaded', () => {
         return mark;
     };
 
+    const warehouseFilteredProducts = () => selectedWarehouseId === ''
+        ? products
+        : products.filter((product) => product.default_warehouse_id === selectedWarehouseId);
+
     const warehouseCategoryIds = () => {
         if (selectedWarehouseId === '') {
             return null;
         }
 
-        return warehouses.find((warehouse) => warehouse.id === selectedWarehouseId)?.category_ids || [];
+        return Array.from(new Set(
+            warehouseFilteredProducts()
+                .map((product) => product.category_id)
+                .filter(Boolean),
+        ));
     };
 
     const availableCategories = () => {
@@ -973,10 +982,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const visibleProducts = () => {
-        const warehouseLimitedCategoryIds = warehouseCategoryIds();
-        const warehouseLimited = warehouseLimitedCategoryIds === null
-            ? products
-            : products.filter((product) => warehouseLimitedCategoryIds.includes(product.category_id));
+        const warehouseLimited = warehouseFilteredProducts();
         const categoryLimited = selectedCategoryIds.size === 0
             ? warehouseLimited
             : warehouseLimited.filter((product) => selectedCategoryIds.has(product.category_id));
@@ -989,15 +995,13 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const pruneProductSelections = () => {
-        const warehouseLimitedCategoryIds = warehouseCategoryIds();
-
         selectedProductIds.forEach((productId) => {
             const product = products.find((item) => item.id === productId);
             if (! product) {
                 selectedProductIds.delete(productId);
                 return;
             }
-            if (warehouseLimitedCategoryIds !== null && ! warehouseLimitedCategoryIds.includes(product.category_id)) {
+            if (selectedWarehouseId !== '' && product.default_warehouse_id !== selectedWarehouseId) {
                 selectedProductIds.delete(productId);
                 return;
             }

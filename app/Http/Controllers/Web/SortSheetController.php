@@ -586,6 +586,7 @@ class SortSheetController extends Controller
         $shops = Shop::where('status', 'active')->orderBy('name')->get();
         $priceGroups = ShopPriceGroup::orderBy('name')->get();
         $warehouses = Warehouse::active()->with('categories:id')->orderBy('name')->get(['id', 'name', 'code']);
+        $selectedWarehouseId = $request->integer('warehouse_id') ?: null;
 
         if ($orderedOnly) {
             [$categories, $products] = $this->orderedProductOptions($request);
@@ -593,21 +594,22 @@ class SortSheetController extends Controller
             return [$shops, $categories, $priceGroups, $products, $warehouses];
         }
 
-        $warehouseCategoryIds = $this->warehouseCategoryIds($request);
         $categoryQuery = Category::where('is_active', true)->with('warehouses:id');
-        if ($warehouseCategoryIds !== null) {
-            $categoryQuery->whereIn('id', $warehouseCategoryIds);
+        if ($selectedWarehouseId !== null) {
+            $categoryQuery->whereHas('products', fn ($query) => $query
+                ->where('is_active', true)
+                ->where('default_warehouse_id', $selectedWarehouseId));
         }
         $productQuery = Product::active()->with('category.warehouses:id')->ordered();
-        if ($warehouseCategoryIds !== null) {
-            $productQuery->whereIn('category_id', $warehouseCategoryIds);
+        if ($selectedWarehouseId !== null) {
+            $productQuery->where('default_warehouse_id', $selectedWarehouseId);
         }
 
         return [
             $shops,
             $categoryQuery->orderBy('name')->get(),
             $priceGroups,
-            $productQuery->get(['id', 'name', 'sku', 'category_id']),
+            $productQuery->get(['id', 'name', 'sku', 'category_id', 'default_warehouse_id']),
             $warehouses,
         ];
     }
@@ -618,7 +620,7 @@ class SortSheetController extends Controller
     private function orderedProductOptions(Request $request): array
     {
         $filters = $this->filtersFromRequest($request);
-        $warehouseCategoryIds = $this->warehouseCategoryIds($request);
+        $selectedWarehouseId = $filters['warehouseId'];
 
         $shopQuery = Shop::where('status', 'active');
         if ($filters['shopId']) {
@@ -638,8 +640,8 @@ class SortSheetController extends Controller
             ->flatMap->items
             ->filter(fn ($item): bool => (float) $item->approved_qty > 0 && $item->product !== null)
             ->map(fn ($item): Product => $item->product)
-            ->when($warehouseCategoryIds !== null, fn ($products) => $products->filter(
-                fn (Product $product): bool => in_array((int) $product->category_id, $warehouseCategoryIds, true),
+            ->when($selectedWarehouseId !== null, fn ($products) => $products->filter(
+                fn (Product $product): bool => (int) $product->default_warehouse_id === $selectedWarehouseId,
             ))
             ->unique('id')
             ->sort(function (Product $a, Product $b): int {
@@ -671,7 +673,7 @@ class SortSheetController extends Controller
         $categoryIds = $filters['categoryIds'];
         $productIds = $filters['productIds'];
         $priceGroupId = $filters['priceGroupId'];
-        $warehouseCategoryIds = $this->warehouseCategoryIds($request);
+        $selectedWarehouseId = $filters['warehouseId'];
         $selectedWarehouse = $filters['warehouseId']
             ? Warehouse::find($filters['warehouseId'])
             : null;
@@ -703,7 +705,7 @@ class SortSheetController extends Controller
                 if (! empty($categoryIds) && ! in_array((int) $product->category_id, $categoryIds, true)) {
                     continue;
                 }
-                if ($warehouseCategoryIds !== null && ! in_array((int) $product->category_id, $warehouseCategoryIds, true)) {
+                if ($selectedWarehouseId !== null && (int) $product->default_warehouse_id !== $selectedWarehouseId) {
                     continue;
                 }
                 if (! empty($productIds) && ! in_array((int) $product->id, $productIds, true)) {
@@ -771,28 +773,6 @@ class SortSheetController extends Controller
                 ? (bool) $request->boolean('show_category_titles')
                 : (! $request->routeIs('*.grid*') && count($categoryIds) <= 1),
         ];
-    }
-
-    /**
-     * @return array<int, int>|null
-     */
-    private function warehouseCategoryIds(Request $request): ?array
-    {
-        $warehouseId = $request->integer('warehouse_id');
-        if (! $warehouseId) {
-            return null;
-        }
-
-        $warehouse = Warehouse::find($warehouseId);
-        if (! $warehouse) {
-            return [];
-        }
-
-        return $warehouse
-            ->categories()
-            ->pluck('categories.id')
-            ->map(fn ($id): int => (int) $id)
-            ->all();
     }
 
     /**
