@@ -32,8 +32,10 @@
                         {{-- Pill Tabs --}}
                         <div class="flex items-center gap-1 rounded-xl bg-slate-100 p-1" id="daily-share-mode-group">
                             @foreach ([
-                                'presets' => 'Presets',
-                                'custom'  => 'Custom',
+                                'changed' => 'Changed',
+                                'any'     => 'Any',
+                                'tag'     => 'By Category',
+                                'product' => 'Single Item',
                             ] as $modeValue => $modeLabel)
                                 <label class="cursor-pointer" data-share-mode-card="{{ $modeValue }}">
                                     <input type="radio" name="share_mode" value="{{ $modeValue }}" class="sr-only" {{ $shareMode === $modeValue ? 'checked' : '' }}>
@@ -52,77 +54,51 @@
                             class="h-9 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 focus:border-emerald-500 focus:outline-none">
                     </div>
 
-                    {{-- ===== PRESETS MODE ===== --}}
-                    <div data-share-section="presets" class="{{ $shareMode !== 'presets' ? 'hidden' : '' }} px-4 py-4 space-y-4">
-                        <div>
-                            <p class="mb-2 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Preset Type</p>
-                            <div class="flex flex-wrap items-center gap-1 rounded-xl bg-slate-100 p-1" id="daily-share-preset-group">
-                                @foreach ([
-                                    'changed' => 'Changed',
-                                    'any' => 'Any',
-                                    'tag' => 'By Category',
-                                ] as $presetValue => $presetLabel)
-                                    <label class="cursor-pointer" data-preset-mode-card="{{ $presetValue }}">
-                                        <input type="radio" name="preset_mode" value="{{ $presetValue }}" class="sr-only" {{ $selectedPresetMode === $presetValue ? 'checked' : '' }}>
-                                        <span class="inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-black transition-all
-                                            {{ $selectedPresetMode === $presetValue
-                                                ? 'bg-white text-slate-950 shadow-sm'
-                                                : 'text-slate-500 hover:text-slate-700' }}">
-                                            {{ $presetLabel }}
-                                        </span>
-                                    </label>
-                                @endforeach
-                            </div>
-                        </div>
-
-                        {{-- ===== PRESET ANY ===== --}}
-                        <div data-preset-section="any" class="{{ $selectedPresetMode !== 'any' ? 'hidden' : '' }}">
-                            <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
-                                Any product from today demand can be shared. {{ $availableProducts->count() }} products will be included.
-                            </div>
-                        </div>
-
-                        {{-- ===== PRESET CHANGED ===== --}}
-                        <div data-preset-section="changed" class="{{ $selectedPresetMode !== 'changed' ? 'hidden' : '' }}">
-                            <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-                                Only products still pending after cart quantities will be included.
-                            </div>
-                        </div>
-
-                        {{-- ===== PRESET TAG / CATEGORY ===== --}}
-                        <div data-preset-section="tag" class="{{ $selectedPresetMode !== 'tag' ? 'hidden' : '' }}">
-
-                            {{-- Category pill multi-select --}}
-                            <div>
-                                <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500 mb-2">Filter by Category <span class="font-semibold normal-case text-slate-400">(select multiple)</span></p>
-                                <div class="flex flex-wrap gap-1.5" data-multi-tag-filter-group>
-                                    @forelse ($availableTags as $tag)
-                                        <label class="cursor-pointer" data-tag-label="{{ strtolower($tag) }}">
-                                            <input type="checkbox" name="tags[]" value="{{ $tag }}" class="sr-only"
-                                                {{ in_array($tag, $selectedTags, true) ? 'checked' : '' }}>
-                                            <span class="tag-pill inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold transition-all
-                                                {{ in_array($tag, $selectedTags, true)
-                                                    ? 'border-emerald-500 bg-emerald-100 text-emerald-800'
-                                                    : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300' }}">
-                                                {{ $tag }}
-                                            </span>
-                                        </label>
-                                    @empty
-                                        <p class="text-sm font-semibold text-slate-400">No categories available for this date.</p>
-                                    @endforelse
-                                </div>
-                                @if ($availableTags->isNotEmpty())
-                                    <p class="mt-2 text-[10px] font-semibold text-slate-400">Leave all unchecked to share all categories.</p>
-                                @endif
-                            </div>
+                    {{-- ===== ANY MODE ===== --}}
+                    <div data-share-section="any" class="{{ $shareMode !== 'any' ? 'hidden' : '' }} px-4 py-4">
+                        <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+                            Any product from today demand can be shared. {{ $availableProducts->count() }} products will be included.
                         </div>
                     </div>
 
-                    {{-- ===== CUSTOM MODE ===== --}}
-                    <div data-share-section="custom" class="{{ $shareMode !== 'custom' ? 'hidden' : '' }} px-4 py-4">
+                    {{-- ===== CHANGED MODE ===== --}}
+                    <div data-share-section="changed" class="{{ $shareMode !== 'changed' ? 'hidden' : '' }} px-4 py-4">
+                        <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                            Only products still pending after cart quantities will be included.
+                        </div>
+                    </div>
+
+                    {{-- ===== TAG / CATEGORY MODE ===== --}}
+                    <div data-share-section="tag" class="{{ $shareMode !== 'tag' ? 'hidden' : '' }} px-4 py-4 space-y-4">
+
+                        {{-- Category pill multi-select --}}
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500 mb-2">Filter by Category <span class="font-semibold normal-case text-slate-400">(select multiple)</span></p>
+                            <div class="flex flex-wrap gap-1.5" data-multi-tag-filter-group>
+                                @forelse ($availableTags as $tag)
+                                    <label class="cursor-pointer" data-tag-label="{{ strtolower($tag) }}">
+                                        <input type="checkbox" name="tags[]" value="{{ $tag }}" class="sr-only"
+                                            {{ in_array($tag, $selectedTags, true) ? 'checked' : '' }}>
+                                        <span class="tag-pill inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold transition-all
+                                            {{ in_array($tag, $selectedTags, true)
+                                                ? 'border-emerald-500 bg-emerald-100 text-emerald-800'
+                                                : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300' }}">
+                                            {{ $tag }}
+                                        </span>
+                                    </label>
+                                @empty
+                                    <p class="text-sm font-semibold text-slate-400">No categories available for this date.</p>
+                                @endforelse
+                            </div>
+                            @if ($availableTags->isNotEmpty())
+                                <p class="mt-2 text-[10px] font-semibold text-slate-400">Leave all unchecked to share all categories.</p>
+                            @endif
+                        </div>
+
+                        {{-- Product search + checkboxes --}}
                         <div>
                             <div class="flex items-center justify-between mb-2">
-                                <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Pick Specific Products</p>
+                                <p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Or Pick Specific Products</p>
                                 <span class="text-[10px] font-semibold text-slate-400" id="selected-count">
                                     {{ count($selectedProductIds) > 0 ? count($selectedProductIds).' selected' : '' }}
                                 </span>
@@ -161,6 +137,52 @@
                         </div>
                     </div>
 
+                    {{-- ===== SINGLE PRODUCT MODE ===== --}}
+                    <div data-share-section="product" class="{{ $shareMode !== 'product' ? 'hidden' : '' }} px-4 py-4">
+                        <div data-single-product-picker>
+                            <input type="hidden" name="product_id" value="{{ $selectedProductId }}" id="share-product-id">
+                            <button type="button" data-single-product-trigger
+                                class="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-left transition hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30">
+                                <span class="min-w-0 flex-1" data-single-product-label>
+                                    @php $selectedSingleProduct = collect($availableProducts)->firstWhere('product_id', $selectedProductId); @endphp
+                                    @if ($selectedSingleProduct)
+                                        <span class="block truncate text-sm font-black text-slate-900" data-single-selected-name>{{ $selectedSingleProduct['product_name'] }}</span>
+                                        <span class="block truncate text-[10px] font-bold uppercase text-slate-400" data-single-selected-category>{{ $selectedSingleProduct['category_name'] ?: 'No Tag' }}</span>
+                                    @else
+                                        <span class="block truncate text-sm font-black text-slate-400" data-single-selected-name>Select one product...</span>
+                                        <span class="block hidden truncate text-[10px] font-bold uppercase text-slate-400" data-single-selected-category></span>
+                                    @endif
+                                </span>
+                                <svg class="h-4 w-4 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                            </button>
+
+                            <div data-single-product-panel class="mt-2 hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                                <div class="border-b border-slate-100 p-2">
+                                    <input type="search" data-single-product-search placeholder="Search product..."
+                                        class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none">
+                                </div>
+                                <div class="max-h-64 overflow-y-auto p-1.5">
+                                    @foreach ($availableProducts as $product)
+                                        <button type="button"
+                                            data-single-product-option
+                                            data-value="{{ $product['product_id'] }}"
+                                            data-search="{{ $product['search_index'] }}"
+                                            data-product-name="{{ $product['product_name'] }}"
+                                            data-category-name="{{ $product['category_name'] ?: 'No Tag' }}"
+                                            class="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left transition
+                                                {{ $selectedProductId === $product['product_id'] ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700 hover:bg-slate-50' }}">
+                                            <span class="min-w-0">
+                                                <span class="block truncate text-xs font-black">{{ $product['product_name'] }}</span>
+                                                <span class="block text-[10px] font-bold uppercase text-slate-400">{{ $product['category_name'] ?: 'No Tag' }}</span>
+                                            </span>
+                                            <span class="shrink-0 text-xs font-black text-emerald-700">{{ number_format($product['remaining_qty'], 2) }} {{ $product['unit'] }}</span>
+                                        </button>
+                                    @endforeach
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     {{-- Action buttons --}}
                     <div class="border-t border-slate-100 px-4 py-3 flex flex-wrap items-center gap-2">
                         <button type="submit" class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-950 px-5 text-xs font-black text-white hover:bg-slate-800 transition-colors">
@@ -183,7 +205,7 @@
                             <span>Selection</span>
                         </a>
 
-                        <a href="{{ route('purchaser.daily.share', ['date' => $date, 'purchase_grade' => $purchaseGrade, 'share_mode' => 'presets', 'preset_mode' => 'changed']) }}"
+                        <a href="{{ route('purchaser.daily.share', ['date' => $date, 'purchase_grade' => $purchaseGrade, 'share_mode' => 'changed']) }}"
                             class="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 px-4 text-xs font-black text-slate-700 hover:bg-slate-50 transition-colors">
                             Reset
                         </a>
@@ -279,106 +301,45 @@
     };
 
     document.addEventListener('DOMContentLoaded', () => {
+        // ── Mode pill tabs ──────────────────────────────────────────────
         const modeInputs = Array.from(document.querySelectorAll('input[name="share_mode"]'));
-        const modeCards = Array.from(document.querySelectorAll('[data-share-mode-card]'));
-        const shareSections = Array.from(document.querySelectorAll('[data-share-section]'));
-
-        const presetInputs = Array.from(document.querySelectorAll('input[name="preset_mode"]'));
-        const presetCards = Array.from(document.querySelectorAll('[data-preset-mode-card]'));
-        const presetSections = Array.from(document.querySelectorAll('[data-preset-section]'));
-
-        const customSearch = document.querySelector('[data-multi-product-search]');
-        const customItems = Array.from(document.querySelectorAll('[data-multi-product-item]'));
-
-        const updateSelectedCount = () => {
-            const count = document.querySelectorAll('input[name="product_ids[]"]:checked').length;
-            const el = document.getElementById('selected-count');
-            if (el) {
-                el.textContent = count > 0 ? count + ' selected' : '';
-            }
-        };
-
-        const filterCustomProducts = () => {
-            const search = (customSearch?.value ?? '').trim().toLowerCase();
-            customItems.forEach(item => {
-                const srch = item.dataset.search ?? '';
-                item.classList.toggle('hidden', search !== '' && !srch.includes(search));
-            });
-        };
-
-        const updatePresetUI = () => {
-            const selectedPreset = presetInputs.find(i => i.checked)?.value ?? 'changed';
-
-            presetCards.forEach(card => {
-                const span = card.querySelector('span');
-                const isActive = card.dataset.presetModeCard === selectedPreset;
-                span?.classList.toggle('bg-white', isActive);
-                span?.classList.toggle('shadow-sm', isActive);
-                span?.classList.toggle('text-slate-950', isActive);
-                span?.classList.toggle('text-slate-500', !isActive);
-            });
-
-            presetSections.forEach(section => {
-                section.classList.toggle('hidden', section.dataset.presetSection !== selectedPreset);
-            });
-        };
+        const modeCards  = Array.from(document.querySelectorAll('[data-share-mode-card]'));
+        const sections   = Array.from(document.querySelectorAll('[data-share-section]'));
 
         const updateModeUI = () => {
-            const selectedMode = modeInputs.find(i => i.checked)?.value ?? 'presets';
-            const selectedPreset = presetInputs.find(i => i.checked)?.value ?? 'changed';
-
+            const selected = modeInputs.find(i => i.checked)?.value ?? 'changed';
             modeCards.forEach(card => {
                 const span = card.querySelector('span');
-                const isActive = card.dataset.shareModeCard === selectedMode;
+                const isActive = card.dataset.shareModeCard === selected;
                 span?.classList.toggle('bg-white', isActive);
                 span?.classList.toggle('shadow-sm', isActive);
                 span?.classList.toggle('text-slate-950', isActive);
                 span?.classList.toggle('text-slate-500', !isActive);
             });
-
-            shareSections.forEach(section => {
-                section.classList.toggle('hidden', section.dataset.shareSection !== selectedMode);
+            sections.forEach(s => {
+                s.classList.toggle('hidden', s.dataset.shareSection !== selected);
             });
-
-            const enableTags = selectedMode === 'presets' && selectedPreset === 'tag';
-            document.querySelectorAll('input[name="tags[]"]').forEach(input => {
-                input.disabled = !enableTags;
-            });
-
-            const enableProducts = selectedMode === 'custom';
-            document.querySelectorAll('input[name="product_ids[]"]').forEach(input => {
-                input.disabled = !enableProducts;
-            });
+            // Enable/disable inputs
+            document.querySelectorAll('input[name="product_ids[]"]').forEach(i => { i.disabled = selected !== 'tag'; });
+            document.querySelectorAll('input[name="tags[]"]').forEach(i => { i.disabled = selected !== 'tag'; });
+            const pid = document.getElementById('share-product-id');
+            if (pid) pid.disabled = selected !== 'product';
         };
 
         modeCards.forEach(card => {
             card.addEventListener('click', () => {
                 const radio = card.querySelector('input[type="radio"]');
-                if (radio) {
-                    radio.checked = true;
-                    updateModeUI();
-                }
+                if (radio) { radio.checked = true; updateModeUI(); }
             });
         });
+        updateModeUI();
 
-        presetCards.forEach(card => {
-            card.addEventListener('click', () => {
-                const radio = card.querySelector('input[type="radio"]');
-                if (radio) {
-                    radio.checked = true;
-                    updatePresetUI();
-                    updateModeUI();
-                }
-            });
-        });
-
+        // ── Category tag pills multi-select ────────────────────────────
         document.querySelectorAll('[data-multi-tag-filter-group] label').forEach(label => {
             label.addEventListener('click', () => {
                 const cb = label.querySelector('input[type="checkbox"]');
-                if (!cb) {
-                    return;
-                }
-
+                if (!cb) return;
+                // toggle is handled by browser; update pill style after
                 requestAnimationFrame(() => {
                     const pill = label.querySelector('.tag-pill');
                     if (cb.checked) {
@@ -390,27 +351,92 @@
                         pill?.classList.replace('bg-emerald-100', 'bg-slate-50');
                         pill?.classList.replace('text-emerald-800', 'text-slate-600');
                     }
+                    filterProductsByActiveTags();
                 });
             });
         });
 
-        customSearch?.addEventListener('input', filterCustomProducts);
+        const filterProductsByActiveTags = () => {
+            const activeTags = Array.from(document.querySelectorAll('[data-multi-tag-filter-group] input:checked'))
+                .map(cb => cb.value.toLowerCase());
+            const search = (document.querySelector('[data-multi-product-search]')?.value ?? '').trim().toLowerCase();
 
-        customItems.forEach(item => {
+            document.querySelectorAll('[data-multi-product-item]').forEach(item => {
+                const cat  = item.dataset.category ?? '';
+                const srch = item.dataset.search ?? '';
+                const matchTag  = activeTags.length === 0 || activeTags.includes(cat);
+                const matchSrch = search === '' || srch.includes(search);
+                item.classList.toggle('hidden', !(matchTag && matchSrch));
+            });
+
+            const count = document.querySelectorAll('input[name="product_ids[]"]:checked').length;
+            const el = document.getElementById('selected-count');
+            if (el) el.textContent = count > 0 ? count + ' selected' : '';
+        };
+
+        // ── Product search in multi-mode ───────────────────────────────
+        document.querySelector('[data-multi-product-search]')?.addEventListener('input', filterProductsByActiveTags);
+
+        // Checkbox visual toggle
+        document.querySelectorAll('[data-multi-product-item]').forEach(item => {
             const cb = item.querySelector('input[type="checkbox"]');
             cb?.addEventListener('change', () => {
                 item.classList.toggle('border-emerald-500', cb.checked);
                 item.classList.toggle('bg-emerald-50', cb.checked);
                 item.classList.toggle('border-transparent', !cb.checked);
                 item.classList.toggle('bg-white', !cb.checked);
-                updateSelectedCount();
+                const count = document.querySelectorAll('input[name="product_ids[]"]:checked').length;
+                const el = document.getElementById('selected-count');
+                if (el) el.textContent = count > 0 ? count + ' selected' : '';
             });
         });
 
-        updatePresetUI();
-        updateModeUI();
-        updateSelectedCount();
-        filterCustomProducts();
+        // ── Single product picker ──────────────────────────────────────
+        const singleInput  = document.getElementById('share-product-id');
+        const singlePanel  = document.querySelector('[data-single-product-panel]');
+        const singleName   = document.querySelector('[data-single-selected-name]');
+        const singleCategory = document.querySelector('[data-single-selected-category]');
+        const singleSearch = document.querySelector('[data-single-product-search]');
+
+        document.querySelector('[data-single-product-trigger]')?.addEventListener('click', () => {
+            singlePanel?.classList.toggle('hidden');
+            if (!singlePanel?.classList.contains('hidden')) singleSearch?.focus();
+        });
+
+        singleSearch?.addEventListener('input', () => {
+            const val = singleSearch.value.trim().toLowerCase();
+            document.querySelectorAll('[data-single-product-option]').forEach(opt => {
+                opt.classList.toggle('hidden', val !== '' && !(opt.dataset.search ?? '').includes(val));
+            });
+        });
+
+        document.querySelectorAll('[data-single-product-option]').forEach(opt => {
+            opt.addEventListener('click', () => {
+                if (singleInput) singleInput.value = opt.dataset.value ?? '0';
+                if (singleName) {
+                    singleName.textContent = opt.dataset.productName ?? '';
+                    singleName.classList.remove('text-slate-400');
+                    singleName.classList.add('text-slate-900');
+                }
+                if (singleCategory) {
+                    singleCategory.textContent = opt.dataset.categoryName ?? '';
+                    singleCategory.classList.remove('hidden');
+                }
+                document.querySelectorAll('[data-single-product-option]').forEach(o => {
+                    o.classList.toggle('bg-emerald-50', o === opt);
+                    o.classList.toggle('text-emerald-700', o === opt);
+                    o.classList.toggle('text-slate-700', o !== opt);
+                });
+                singlePanel?.classList.add('hidden');
+            });
+        });
+
+        document.addEventListener('click', e => {
+            if (!e.target.closest('[data-single-product-picker]')) singlePanel?.classList.add('hidden');
+        });
+
+        // Run initial filter
+        filterProductsByActiveTags();
     });
     </script>
 </x-layouts.app>
