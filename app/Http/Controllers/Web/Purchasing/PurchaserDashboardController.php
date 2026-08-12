@@ -252,6 +252,13 @@ class PurchaserDashboardController extends Controller
             ->values();
 
         $shareMode = $this->resolveDailyShareMode($request->string('share_mode')->toString());
+        $selectedPresetMode = $this->resolveDailyPresetMode($request->string('preset_mode')->toString());
+
+        // Backward compatibility for old links that pass share_mode directly as changed/any/tag/product.
+        if (in_array($shareMode, ['changed', 'any', 'tag', 'product'], true)) {
+            $selectedPresetMode = $shareMode === 'product' ? 'changed' : $shareMode;
+            $shareMode = 'presets';
+        }
         $availableProductIds = $dailySummary
             ->pluck('product_id')
             ->map(fn ($productId): int => (int) $productId)
@@ -273,12 +280,16 @@ class PurchaserDashboardController extends Controller
             $selectedProductId = 0;
         }
 
+        if ($shareMode === 'custom' && $selectedProductId > 0 && ! in_array($selectedProductId, $selectedProductIds, true)) {
+            $selectedProductIds[] = $selectedProductId;
+        }
+
         $shareSummary = $this->filterDailySummaryForShare(
             dailySummary: $dailySummary,
             shareMode: $shareMode,
+            selectedPresetMode: $selectedPresetMode,
             selectedTags: $selectedTags,
             selectedProductIds: $selectedProductIds,
-            selectedProductId: $selectedProductId,
         );
 
         $sharePreviewText = $this->buildDailySummaryShareText($shareSummary, $date);
@@ -290,6 +301,7 @@ class PurchaserDashboardController extends Controller
             'date' => $date->format('Y-m-d'),
             'purchaseGrade' => $purchaseGrade,
             'shareMode' => $shareMode,
+            'selectedPresetMode' => $selectedPresetMode,
             'selectedTags' => $selectedTags,
             'selectedProductIds' => $selectedProductIds,
             'selectedProductId' => $selectedProductId,
@@ -3833,7 +3845,12 @@ class PurchaserDashboardController extends Controller
     {
         $shareMode = $shareMode === 'all' ? 'any' : $shareMode;
 
-        return in_array($shareMode, ['changed', 'any', 'tag', 'product'], true) ? $shareMode : 'changed';
+        return in_array($shareMode, ['presets', 'custom', 'changed', 'any', 'tag', 'product'], true) ? $shareMode : 'presets';
+    }
+
+    private function resolveDailyPresetMode(string $presetMode): string
+    {
+        return in_array($presetMode, ['changed', 'any', 'tag'], true) ? $presetMode : 'changed';
     }
 
     /**
@@ -3860,33 +3877,29 @@ class PurchaserDashboardController extends Controller
     private function filterDailySummaryForShare(
         Collection $dailySummary,
         string $shareMode,
+        string $selectedPresetMode,
         array $selectedTags,
         array $selectedProductIds,
-        int $selectedProductId,
     ): Collection {
         return match ($shareMode) {
-            'changed' => $dailySummary
-                ->filter(fn (array $summary): bool => ((float) $summary['remaining_qty'] - (float) $summary['draft_qty']) > 0)
+            'custom' => $dailySummary
+                ->filter(fn (array $summary): bool => in_array((int) $summary['product_id'], $selectedProductIds, true))
                 ->values(),
-            'any' => $dailySummary->values(),
-            'tag' => $dailySummary
-                ->filter(function (array $summary) use ($selectedProductIds, $selectedTags): bool {
-                    // If specific products are checked, use those
-                    if (! empty($selectedProductIds)) {
-                        return in_array((int) $summary['product_id'], $selectedProductIds, true);
-                    }
-                    // If tags are selected, filter by category
-                    if (! empty($selectedTags)) {
-                        return in_array((string) $summary['category_name'], $selectedTags, true);
-                    }
+            'presets' => match ($selectedPresetMode) {
+                'any' => $dailySummary->values(),
+                'tag' => $dailySummary
+                    ->filter(function (array $summary) use ($selectedTags): bool {
+                        if ($selectedTags === []) {
+                            return true;
+                        }
 
-                    // Nothing selected: show all
-                    return true;
-                })
-                ->values(),
-            'product' => $dailySummary
-                ->filter(fn (array $summary): bool => (int) $summary['product_id'] === $selectedProductId)
-                ->values(),
+                        return in_array((string) $summary['category_name'], $selectedTags, true);
+                    })
+                    ->values(),
+                default => $dailySummary
+                    ->filter(fn (array $summary): bool => ((float) $summary['remaining_qty'] - (float) $summary['draft_qty']) > 0)
+                    ->values(),
+            },
             default => $dailySummary
                 ->filter(fn (array $summary): bool => ((float) $summary['remaining_qty'] - (float) $summary['draft_qty']) > 0)
                 ->values(),
