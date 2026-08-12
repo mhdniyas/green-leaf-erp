@@ -15,18 +15,18 @@ use Illuminate\Support\Facades\DB;
 
 class StockLedgerService
 {
-    public function availableSortedStockForProduct(int $productId, ?int $warehouseId = null): float
+    public function availableSortedStockForProduct(int $productId, ?int $warehouseId = null, ?ProductGrade $grade = null): float
     {
-        $lots = $this->sortedLotsForProduct($productId, $warehouseId);
+        $lots = $this->sortedLotsForProduct($productId, $warehouseId, $grade);
 
         return (float) $lots->sum('available_quantity');
     }
 
-    public function availableStockForProduct(int $productId, ?int $warehouseId = null): float
+    public function availableStockForProduct(int $productId, ?int $warehouseId = null, ?ProductGrade $grade = null): float
     {
-        $sortedAvailable = $this->availableSortedStockForProduct($productId, $warehouseId);
+        $sortedAvailable = $this->availableSortedStockForProduct($productId, $warehouseId, $grade);
 
-        $unsortedAvailable = $this->pendingBatchesForProduct($productId, $warehouseId)
+        $unsortedAvailable = $this->pendingBatchesForProduct($productId, $warehouseId, $grade)
             ->sum(fn (StockBatch $batch): float => $this->pendingBatchAvailableQuantity($batch));
 
         return round($sortedAvailable + $unsortedAvailable, 3);
@@ -40,13 +40,14 @@ class StockLedgerService
         string $notes,
         ?int $shopOrderItemId = null,
         ?int $warehouseId = null,
+        ?ProductGrade $grade = null,
     ): float {
         if ($quantity <= 0.0) {
             return 0.0;
         }
 
-        return DB::transaction(function () use ($productId, $quantity, $userId, $movementType, $notes, $shopOrderItemId, $warehouseId): float {
-            $this->lockStockBatchesForProduct($productId, $warehouseId);
+        return DB::transaction(function () use ($productId, $quantity, $userId, $movementType, $notes, $shopOrderItemId, $warehouseId, $grade): float {
+            $this->lockStockBatchesForProduct($productId, $warehouseId, $grade);
 
             $remainingQuantity = $quantity;
             $consumedQuantity = 0.0;
@@ -60,6 +61,7 @@ class StockLedgerService
                 $notes,
                 $shopOrderItemId,
                 $warehouseId,
+                $grade,
             );
 
             if ($remainingQuantity > 0.0) {
@@ -72,6 +74,7 @@ class StockLedgerService
                     $notes,
                     $shopOrderItemId,
                     $warehouseId,
+                    $grade,
                 );
             }
 
@@ -87,13 +90,14 @@ class StockLedgerService
         string $notes,
         ?int $shopOrderItemId = null,
         ?int $warehouseId = null,
+        ?ProductGrade $grade = null,
     ): float {
         if ($quantity <= 0.0) {
             return 0.0;
         }
 
-        return DB::transaction(function () use ($productId, $quantity, $userId, $movementType, $notes, $shopOrderItemId, $warehouseId): float {
-            $this->lockStockBatchesForProduct($productId, $warehouseId);
+        return DB::transaction(function () use ($productId, $quantity, $userId, $movementType, $notes, $shopOrderItemId, $warehouseId, $grade): float {
+            $this->lockStockBatchesForProduct($productId, $warehouseId, $grade);
 
             $remainingQuantity = $quantity;
             $consumedQuantity = 0.0;
@@ -107,6 +111,7 @@ class StockLedgerService
                 $notes,
                 $shopOrderItemId,
                 $warehouseId,
+                $grade,
             );
 
             if ($remainingQuantity > 0.0) {
@@ -119,6 +124,7 @@ class StockLedgerService
                     $notes,
                     $shopOrderItemId,
                     $warehouseId,
+                    $grade,
                 );
             }
 
@@ -126,13 +132,13 @@ class StockLedgerService
                 return round($consumedQuantity, 3);
             }
 
-            $batch = $this->negativeStockBatchForProduct($productId, $userId, $warehouseId);
+            $batch = $this->negativeStockBatchForProduct($productId, $userId, $warehouseId, $grade);
 
             StockMovement::create([
                 'product_id' => $productId,
                 'batch_id' => $batch->id,
                 'created_by' => $userId,
-                'grade' => ProductGrade::GradeA->value,
+                'grade' => ($grade ?? ProductGrade::GradeA)->value,
                 'type' => $movementType->value,
                 'quantity' => $remainingQuantity,
                 'cost_per_unit' => (float) $batch->cost_per_kg,
@@ -148,7 +154,7 @@ class StockLedgerService
     /**
      * @return Collection<int, object>
      */
-    private function sortedLotsForProduct(int $productId, ?int $warehouseId = null): Collection
+    private function sortedLotsForProduct(int $productId, ?int $warehouseId = null, ?ProductGrade $grade = null): Collection
     {
         return StockMovement::query()
             ->join('stock_batches', 'stock_batches.id', '=', 'stock_movements.batch_id')
@@ -156,6 +162,7 @@ class StockLedgerService
             ->whereNull('stock_batches.deleted_at')
             ->where('stock_batches.status', BatchStatus::Sorted->value)
             ->when($warehouseId !== null, fn ($query) => $query->where('stock_batches.warehouse_id', $warehouseId))
+            ->when($grade !== null, fn ($query) => $query->where('stock_movements.grade', $grade->value))
             ->selectRaw(
                 'stock_movements.batch_id, stock_movements.grade, '.
                 'MAX(stock_movements.cost_per_unit) as cost_per_unit, '.
@@ -194,8 +201,9 @@ class StockLedgerService
         string $notes,
         ?int $shopOrderItemId = null,
         ?int $warehouseId = null,
+        ?ProductGrade $grade = null,
     ): array {
-        foreach ($this->sortedLotsForProduct($productId, $warehouseId) as $lot) {
+        foreach ($this->sortedLotsForProduct($productId, $warehouseId, $grade) as $lot) {
             if ($remainingQuantity <= 0.0) {
                 break;
             }
@@ -240,8 +248,9 @@ class StockLedgerService
         string $notes,
         ?int $shopOrderItemId = null,
         ?int $warehouseId = null,
+        ?ProductGrade $grade = null,
     ): array {
-        foreach ($this->pendingBatchesForProduct($productId, $warehouseId) as $batch) {
+        foreach ($this->pendingBatchesForProduct($productId, $warehouseId, $grade) as $batch) {
             if ($remainingQuantity <= 0.0) {
                 break;
             }
@@ -258,7 +267,7 @@ class StockLedgerService
                 'product_id' => $productId,
                 'batch_id' => $batch->id,
                 'created_by' => $userId,
-                'grade' => ProductGrade::Unsorted->value,
+                'grade' => $grade?->value ?? ProductGrade::Unsorted->value,
                 'type' => $movementType->value,
                 'quantity' => $deductionQuantity,
                 'cost_per_unit' => (float) $batch->cost_per_kg,
@@ -277,12 +286,13 @@ class StockLedgerService
     /**
      * @return Collection<int, StockBatch>
      */
-    private function pendingBatchesForProduct(int $productId, ?int $warehouseId = null): Collection
+    private function pendingBatchesForProduct(int $productId, ?int $warehouseId = null, ?ProductGrade $grade = null): Collection
     {
         return StockBatch::query()
             ->where('product_id', $productId)
             ->where('status', BatchStatus::Pending)
             ->where('warehouse_receive_pending', false)
+            ->when($grade !== null, fn ($query) => $query->where('purchase_grade', $grade->value))
             ->when($warehouseId !== null, fn ($query) => $query->where('warehouse_id', $warehouseId))
             ->orderBy('received_at')
             ->orderBy('id')
@@ -306,11 +316,12 @@ class StockLedgerService
         return round(max(0.0, (float) $batch->remaining_qty - $writeOffQuantity), 3);
     }
 
-    private function negativeStockBatchForProduct(int $productId, int $userId, ?int $warehouseId = null): StockBatch
+    private function negativeStockBatchForProduct(int $productId, int $userId, ?int $warehouseId = null, ?ProductGrade $grade = null): StockBatch
     {
         $latestBatch = StockBatch::query()
             ->where('product_id', $productId)
             ->when($warehouseId !== null, fn ($query) => $query->where('warehouse_id', $warehouseId))
+            ->when($grade !== null, fn ($query) => $query->where('purchase_grade', $grade->value))
             ->lockForUpdate()
             ->latest('received_at')
             ->latest('id')
@@ -320,7 +331,7 @@ class StockLedgerService
             return $latestBatch;
         }
 
-        $reference = 'NEG-'.Carbon::today()->format('Ymd').'-'.$productId.($warehouseId !== null ? '-W'.$warehouseId : '');
+        $reference = 'NEG-'.Carbon::today()->format('Ymd').'-'.$productId.'-'.($grade?->value ?? 'A').($warehouseId !== null ? '-W'.$warehouseId : '');
 
         return StockBatch::query()->firstOrCreate(
             ['reference' => $reference],
@@ -338,17 +349,20 @@ class StockLedgerService
                 'warehouse_confirmed_at' => now(),
                 'warehouse_confirmed_by' => $userId,
                 'notes' => 'System batch for negative stock adjustment.',
+                'purchase_grade' => $grade?->value ?? 'A',
+                'grading_mode' => 'fixed_purchase_grade',
                 'sorted_at' => now(),
             ],
         );
     }
 
-    private function lockStockBatchesForProduct(int $productId, ?int $warehouseId = null): void
+    private function lockStockBatchesForProduct(int $productId, ?int $warehouseId = null, ?ProductGrade $grade = null): void
     {
         StockBatch::query()
             ->where('product_id', $productId)
             ->whereNull('deleted_at')
             ->when($warehouseId !== null, fn ($query) => $query->where('warehouse_id', $warehouseId))
+            ->when($grade !== null, fn ($query) => $query->where('purchase_grade', $grade->value))
             ->orderBy('id')
             ->lockForUpdate()
             ->pluck('id');

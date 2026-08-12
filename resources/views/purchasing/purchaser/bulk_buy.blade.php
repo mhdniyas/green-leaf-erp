@@ -7,8 +7,8 @@
             <div class="bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.28),_transparent_36%),linear-gradient(135deg,_#0f172a_0%,_#111827_55%,_#134e4a_100%)] px-4 py-4 sm:px-5 lg:px-4 lg:py-5">
                 <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <div class="min-w-0">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-teal-200 sm:text-[11px] sm:tracking-[0.22em]">Purchaser Flow</p>
-                        <h1 class="mt-1 text-xl font-black tracking-tight sm:mt-2 sm:text-2xl">Bulk Purchase (Step 1)</h1>
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-teal-200 sm:text-[11px] sm:tracking-[0.22em]">Grade {{ $purchaseGrade }} Purchaser Flow</p>
+                        <h1 class="mt-1 text-xl font-black tracking-tight sm:mt-2 sm:text-2xl">{{ $purchaseGrade === 'B' ? 'B Grade ' : '' }}Bulk Purchase (Step 1)</h1>
                         <p class="mt-2 max-w-2xl text-sm font-medium text-slate-200">Select multiple products you want to buy, then proceed to enter quantities and prices.</p>
                     </div>
                     <div class="shrink-0">
@@ -67,6 +67,7 @@
 
         <form action="{{ route('purchaser.bulk-buy.details') }}" method="GET" id="bulk-buy-form" class="pb-24">
             <input type="hidden" name="date" value="{{ $date }}">
+            <input type="hidden" name="purchase_grade" value="{{ $purchaseGrade }}">
             
             {{-- Professional Tabs switcher --}}
             <div class="mb-4 flex rounded-xl bg-slate-100 p-1 lg:rounded-2xl">

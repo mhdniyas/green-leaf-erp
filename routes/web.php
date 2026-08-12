@@ -44,6 +44,7 @@ use App\Http\Controllers\Web\Purchasing\DirectSaleController;
 use App\Http\Controllers\Web\Purchasing\GoodsReceivedController;
 use App\Http\Controllers\Web\Purchasing\OtherExpenseController;
 use App\Http\Controllers\Web\Purchasing\ProcurementExpenseController;
+use App\Http\Controllers\Web\Purchasing\PurchaseGradePriceController;
 use App\Http\Controllers\Web\Purchasing\PurchaseInvoiceController;
 use App\Http\Controllers\Web\Purchasing\PurchaseOrderController;
 use App\Http\Controllers\Web\Purchasing\PurchaserDashboardController;
@@ -461,10 +462,14 @@ Route::middleware('auth')->group(function () {
     // ── Purchaser Dashboard ────────────────────────────────────────────────
     Route::get('/purchaser/dashboard', [PurchaserDashboardController::class, 'index'])->name('purchaser.dashboard');
     Route::get('/purchaser/daily', [PurchaserDashboardController::class, 'daily'])->name('purchaser.daily');
+    Route::get('/purchaser/b-grade', [PurchaserDashboardController::class, 'bGrade'])->name('purchaser.b-grade');
     Route::get('/purchaser/daily/share', [PurchaserDashboardController::class, 'dailyShare'])->name('purchaser.daily.share');
     Route::get('/purchaser/products', [PurchaserDashboardController::class, 'products'])->name('purchaser.products');
     Route::get('/purchaser/daily-prices', [PurchaserDashboardController::class, 'dailyPrices'])->name('purchaser.daily-prices');
     Route::post('/purchaser/daily-prices', [PurchaserDashboardController::class, 'updateDailyPrices'])->name('purchaser.daily-prices.update');
+    Route::get('/purchaser/purchase-grade-prices', [PurchaseGradePriceController::class, 'index'])->name('purchaser.purchase-grade-prices.index');
+    Route::post('/purchaser/purchase-grade-prices', [PurchaseGradePriceController::class, 'update'])->name('purchaser.purchase-grade-prices.update');
+    Route::post('/purchaser/purchase-grade-prices/copy-a-to-b', [PurchaseGradePriceController::class, 'copyGradeAToB'])->name('purchaser.purchase-grade-prices.copy-a-to-b');
     Route::get('/purchaser/shop-orders', [PurchaserDashboardController::class, 'shopOrders'])->name('purchaser.shop-orders.index');
     Route::get('/purchaser/shop-orders/{order_number}', [PurchaserDashboardController::class, 'shopOrderShow'])->name('purchaser.shop-orders.show');
     Route::get('/purchaser/add-ons/create', [RequisitionController::class, 'createPurchaserDirectPurchase'])->name('purchaser.add-ons.create');

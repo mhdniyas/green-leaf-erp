@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Warehouse;
 
+use App\Enums\Inventory\ProductGrade;
 use App\Enums\Inventory\StockMovementType;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
@@ -123,6 +124,7 @@ class WarehouseLoadoutCompletionService
                 "Warehouse loadout completion — Order: {$order->order_number}; Warehouse: {$warehouse->code}",
                 $item->id,
                 $warehouse->id,
+                ProductGrade::from($item->product_grade ?? 'A'),
             );
         }
     }

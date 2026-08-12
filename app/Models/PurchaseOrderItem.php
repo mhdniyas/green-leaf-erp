@@ -20,6 +20,7 @@ class PurchaseOrderItem extends Model
     protected $fillable = [
         'purchase_order_id',
         'product_id',
+        'grade',
         'purchase_unit',
         'packet_qty',
         'weight_per_packet',
@@ -27,6 +28,10 @@ class PurchaseOrderItem extends Model
         'quantity',
         'unit_price',
         'price_basis',
+    ];
+
+    protected $attributes = [
+        'grade' => 'A',
     ];
 
     protected $casts = [

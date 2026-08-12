@@ -21,11 +21,16 @@ class GoodsReceivedItem extends Model
         'goods_received_id',
         'purchase_order_item_id',
         'product_id',
+        'grade',
         'received_qty',
         'variance',
         'purchased_qty',
         'discrepancy_type',
         'discrepancy_note',
+    ];
+
+    protected $attributes = [
+        'grade' => 'A',
     ];
 
     protected $casts = [

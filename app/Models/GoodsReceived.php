@@ -40,6 +40,11 @@ class GoodsReceived extends Model
         'labour_cost',
         'notes',
         'is_extra',
+        'purchase_grade',
+    ];
+
+    protected $attributes = [
+        'purchase_grade' => 'A',
     ];
 
     protected $casts = [

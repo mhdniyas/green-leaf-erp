@@ -28,6 +28,7 @@ $statusColor = $statusColors[$batch->status->value] ?? 'bg-gray-100 text-gray-60
                         <p class="text-xs text-gray-500 mb-1">Batch Reference</p>
                         <h2 class="text-2xl font-bold font-mono text-gray-900">{{ $batch->reference }}</h2>
                         <p class="text-sm text-gray-600 mt-1">{{ $batch->product?->name }} · Received {{ $batch->received_at?->format('d M Y') }}</p>
+                        <span class="mt-2 inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase {{ ($batch->purchase_grade ?? 'A') === 'B' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700' }}">Grade {{ $batch->purchase_grade ?? 'A' }}</span>
                     </div>
                 </div>
                 <span class="inline-flex text-sm font-semibold px-3 py-1.5 rounded-xl {{ $statusColor }}">{{ $batch->status->label() }}</span>

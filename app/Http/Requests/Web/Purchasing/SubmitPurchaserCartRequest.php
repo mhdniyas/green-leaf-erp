@@ -27,6 +27,7 @@ class SubmitPurchaserCartRequest extends FormRequest
                 },
             ],
             'cart_id' => ['required', 'exists:purchaser_carts,id'],
+            'purchase_grade' => ['sometimes', 'string', 'in:A,B'],
             'supplier_id' => ['nullable', 'exists:suppliers,id'],
             'vendor_name' => ['nullable', 'string', 'max:255', 'required_without:supplier_id'],
             'vendor_type' => ['nullable', 'string', 'max:255'],

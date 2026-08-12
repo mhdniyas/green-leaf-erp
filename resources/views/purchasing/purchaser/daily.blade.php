@@ -8,9 +8,10 @@
                 <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                     <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                         <div class="min-w-0">
-                            <p class="text-[9px] font-black uppercase tracking-[0.16em] text-teal-200">Purchaser Flow</p>
-                            <h1 class="text-base font-black tracking-tight sm:text-lg">Daily demand</h1>
+                            <p class="text-[9px] font-black uppercase tracking-[0.16em] text-teal-200">{{ $purchaseGrade === 'B' ? 'Grade B Purchaser Flow' : 'Purchaser Flow' }}</p>
+                            <h1 class="text-base font-black tracking-tight sm:text-lg">{{ $purchaseGrade === 'B' ? 'B Grade Purchase' : 'Daily demand' }}</h1>
                         </div>
+                        @if ($purchaseGrade === 'A')
                         <div class="grid grid-cols-4 gap-1.5 text-center">
                             <div class="rounded-lg bg-white/10 px-2 py-1">
                                 <p class="text-[8px] font-black uppercase text-slate-300">Need</p>
@@ -29,8 +30,11 @@
                                 <p class="text-sm font-black text-cyan-200">{{ $dailyFulfillment['draft_carts'] }}</p>
                             </div>
                         </div>
+                        @else
+                            <span class="rounded-full bg-blue-400/15 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-blue-100">Direct add-on purchase</span>
+                        @endif
                     </div>
-                    <form action="{{ route('purchaser.daily') }}" method="GET" class="w-full lg:w-auto">
+                    <form action="{{ $purchaseGrade === 'B' ? route('purchaser.b-grade') : route('purchaser.daily') }}" method="GET" class="w-full lg:w-auto">
                         <input id="business-date" type="date" name="date" value="{{ $date }}" onchange="this.form.submit()" class="h-9 w-full rounded-lg border border-white/10 bg-white/10 px-3 text-xs font-bold text-white outline-none ring-0 lg:w-40">
                     </form>
                 </div>
@@ -46,7 +50,7 @@
 
             {{-- LEFT: product list --}}
             <div class="min-w-0 flex-1 space-y-4">
-                <form action="{{ route('purchaser.daily') }}" method="GET" id="purchaser-daily-filter-form" class="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm lg:p-3">
+                <form action="{{ $purchaseGrade === 'B' ? route('purchaser.b-grade') : route('purchaser.daily') }}" method="GET" id="purchaser-daily-filter-form" class="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm lg:p-3">
                     <input type="hidden" name="date" value="{{ $date }}">
                     <input type="hidden" name="chip" id="daily-chip-input" value="{{ $selectedChip }}">
                     <div class="flex min-w-0 gap-2">
@@ -75,25 +79,29 @@
                         <p class="text-xs font-semibold text-slate-600">{{ $dailySummary->count() }} products · {{ \Illuminate\Support\Carbon::parse($date)->format('d M Y') }}</p>
                     </div>
                     <div class="grid w-full shrink-0 grid-cols-3 gap-2 sm:w-auto">
-                        <a href="{{ route('purchaser.add-ons.create', ['date' => $date]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-950 px-3 text-xs font-black text-white sm:w-24">
+                        <a href="{{ $purchaseGrade === 'B' ? route('purchaser.b-grade', ['date' => $date]) : route('purchaser.add-ons.create', ['date' => $date]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-slate-950 px-3 text-xs font-black text-white sm:w-24">
                             Add-on
                         </a>
-                        <a href="{{ route('purchaser.bulk-buy', ['date' => $date]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-teal-600 px-3 text-xs font-black text-white sm:w-24">
+                        <a href="{{ route('purchaser.bulk-buy', ['date' => $date, 'purchase_grade' => $purchaseGrade]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-teal-600 px-3 text-xs font-black text-white sm:w-24">
                             Bulk
                         </a>
-                        <a href="{{ route('purchaser.daily.share', ['date' => $date]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-3 text-xs font-black text-white sm:w-24">
+                        <a href="{{ route('purchaser.daily.share', ['date' => $date, 'purchase_grade' => $purchaseGrade]) }}" class="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-3 text-xs font-black text-white sm:w-24">
                             Share
                         </a>
                     </div>
                 </div>
 
                 @php
-                    $pendingSummary = $dailySummary->filter(function($summary) {
-                        return ((float) $summary['remaining_qty'] - (float) $summary['draft_qty']) > 0;
-                    });
-                    $completedSummary = $dailySummary->filter(function($summary) {
-                        return ((float) $summary['remaining_qty'] - (float) $summary['draft_qty']) <= 0;
-                    });
+                    $pendingSummary = $purchaseGrade === 'B'
+                        ? $dailySummary
+                        : $dailySummary->filter(function($summary) {
+                            return ((float) $summary['remaining_qty'] - (float) $summary['draft_qty']) > 0;
+                        });
+                    $completedSummary = $purchaseGrade === 'B'
+                        ? collect()
+                        : $dailySummary->filter(function($summary) {
+                            return ((float) $summary['remaining_qty'] - (float) $summary['draft_qty']) <= 0;
+                        });
                 @endphp
 
                 <div class="flex gap-2 rounded-xl bg-slate-100 p-1">
@@ -142,7 +150,7 @@
                     <p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Active carts</p>
                     <div class="mt-3 space-y-3">
                         @forelse ($draftCarts as $cart)
-                            <a href="{{ route('purchaser.vendors', ['date' => $date]) }}" class="block rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 lg:rounded-2xl lg:px-4">
+                            <a href="{{ route('purchaser.vendors', ['date' => $date, 'purchase_grade' => $purchaseGrade]) }}" class="block rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 lg:rounded-2xl lg:px-4">
                                 <div class="flex items-center justify-between gap-3">
                                     <p class="text-sm font-black text-slate-900">{{ $cart->cart_number }}</p>
                                     <span class="rounded-full {{ $cart->whatsapp_sent_at ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-700' }} px-3 py-1 text-[11px] font-black uppercase tracking-[0.14em]">
@@ -162,6 +170,7 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            setDailyPurchaseGrade(@js($purchaseGrade));
             // Toggle dropdown on click of trigger
             document.addEventListener('click', (e) => {
                 const trigger = e.target.closest('.custom-select-trigger');
@@ -266,7 +275,11 @@
                 <input type="hidden" name="return_to" value="daily">
                 <input type="hidden" name="chip" value="{{ $selectedChip }}">
                 <input type="hidden" name="search" value="{{ $search }}">
-                
+
+                <div class="space-y-1">
+                    <input id="add-to-cart-purchase-grade" type="hidden" name="purchase_grade" value="{{ $purchaseGrade }}">
+                </div>
+
                 {{-- Cart Selector --}}
                 <div class="space-y-1">
                     <label class="block text-[9px] font-black uppercase tracking-wider text-slate-500">Select Cart</label>
@@ -284,8 +297,8 @@
                                 <span class="checkmark text-teal-600">✓</span>
                             </button>
                             @foreach ($draftCarts as $cart)
-                                <button type="button" data-value="{{ $cart->id }}" class="custom-select-option flex w-full items-center justify-between px-3 py-1.5 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                                    <span>{{ $cart->cart_number }}</span>
+                                <button type="button" data-value="{{ $cart->id }}" data-grade="{{ $cart->purchase_grade ?? 'A' }}" class="custom-select-option flex w-full items-center justify-between px-3 py-1.5 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                                    <span>{{ $cart->cart_number }} · Grade {{ $cart->purchase_grade ?? 'A' }}</span>
                                     <span class="checkmark hidden text-teal-600">✓</span>
                                 </button>
                             @endforeach
@@ -423,6 +436,7 @@
         });
 
         function openAddToCartModal(productId, productName, productUnit, remainingQty, draftQty, step, draftPurchasers, purchaseSource = 'shop_order') {
+            syncDailyGradeSelection();
             document.getElementById('add-to-cart-product-id').value = productId;
             document.getElementById('add-to-cart-purchase-source').value = purchaseSource;
             document.getElementById('add-to-cart-product-name').textContent = productName;
@@ -459,6 +473,15 @@
             document.getElementById('add-to-cart-modal').classList.remove('hidden');
             document.body.classList.add('overflow-hidden');
             setTimeout(() => qtyInput.focus(), 50);
+        }
+
+        function setDailyPurchaseGrade(grade) {
+            syncDailyGradeSelection();
+        }
+
+        function syncDailyGradeSelection() {
+            const modalGrade = document.getElementById('add-to-cart-purchase-grade');
+            if (modalGrade) modalGrade.value = @js($purchaseGrade);
         }
 
         function closeAddToCartModal() {

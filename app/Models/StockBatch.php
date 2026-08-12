@@ -24,6 +24,9 @@ class StockBatch extends Model
         'product_id',
         'warehouse_id',
         'goods_received_id',
+        'goods_received_item_id',
+        'purchase_grade',
+        'grading_mode',
         'created_by',
         'reference',
         'received_at',
@@ -39,9 +42,15 @@ class StockBatch extends Model
         'sorted_at',
     ];
 
+    protected $attributes = [
+        'purchase_grade' => 'A',
+        'grading_mode' => 'sort_required',
+    ];
+
     protected $casts = [
         'warehouse_id' => 'integer',
         'goods_received_id' => 'integer',
+        'goods_received_item_id' => 'integer',
         'received_at' => 'date',
         'total_kg' => 'decimal:3',
         'cost_per_kg' => 'decimal:4',
@@ -73,6 +82,11 @@ class StockBatch extends Model
     public function goodsReceived(): BelongsTo
     {
         return $this->belongsTo(GoodsReceived::class, 'goods_received_id');
+    }
+
+    public function goodsReceivedItem(): BelongsTo
+    {
+        return $this->belongsTo(GoodsReceivedItem::class);
     }
 
     public function warehouse(): BelongsTo
@@ -180,7 +194,7 @@ class StockBatch extends Model
 
     public function canBeSorted(): bool
     {
-        return $this->status->canBeSorted();
+        return $this->grading_mode !== 'fixed_purchase_grade' && $this->status->canBeSorted();
     }
 
     public function getRouteKeyName(): string

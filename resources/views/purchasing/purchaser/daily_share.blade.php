@@ -7,12 +7,12 @@
             <div class="bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.28),_transparent_36%),linear-gradient(135deg,_#0f172a_0%,_#111827_55%,_#14532d_100%)] px-4 py-5 lg:px-6">
                 <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                     <div>
-                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-200">WhatsApp Share</p>
-                        <h1 class="mt-1 text-xl font-black tracking-tight">Daily Share Summary</h1>
+                        <p class="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-200">Grade {{ $purchaseGrade }} WhatsApp Share</p>
+                        <h1 class="mt-1 text-xl font-black tracking-tight">{{ $purchaseGrade === 'B' ? 'B Grade ' : '' }}Daily Share Summary</h1>
                         <p class="mt-1 text-sm font-medium text-slate-300">Filter and send demand to WhatsApp.</p>
                     </div>
                     <div class="flex flex-wrap gap-2">
-                        <a href="{{ route('purchaser.daily', ['date' => $date]) }}" class="inline-flex min-h-9 items-center justify-center rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-black text-white hover:bg-white/20 transition-colors">
+                        <a href="{{ $purchaseGrade === 'B' ? route('purchaser.b-grade', ['date' => $date]) : route('purchaser.daily', ['date' => $date]) }}" class="inline-flex min-h-9 items-center justify-center rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-black text-white hover:bg-white/20 transition-colors">
                             ← Daily
                         </a>
                     </div>
@@ -25,6 +25,7 @@
             <section class="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
                 <form action="{{ route('purchaser.daily.share') }}" method="GET" id="share-form">
                     <input type="hidden" name="date" value="{{ $date }}">
+                    <input type="hidden" name="purchase_grade" value="{{ $purchaseGrade }}">
 
                     {{-- Mode + Date Header --}}
                     <div class="border-b border-slate-100 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
@@ -204,7 +205,7 @@
                             <span>Selection</span>
                         </a>
 
-                        <a href="{{ route('purchaser.daily.share', ['date' => $date, 'share_mode' => 'changed']) }}"
+                        <a href="{{ route('purchaser.daily.share', ['date' => $date, 'purchase_grade' => $purchaseGrade, 'share_mode' => 'changed']) }}"
                             class="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 px-4 text-xs font-black text-slate-700 hover:bg-slate-50 transition-colors">
                             Reset
                         </a>

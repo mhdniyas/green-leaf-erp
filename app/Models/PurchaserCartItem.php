@@ -15,11 +15,16 @@ class PurchaserCartItem extends Model
         'public_uuid',
         'purchaser_cart_id',
         'product_id',
+        'grade',
         'quantity',
         'unit_price',
         'line_total',
         'is_extra_purchase',
         'notes',
+    ];
+
+    protected $attributes = [
+        'grade' => 'A',
     ];
 
     public function getRouteKeyName(): string

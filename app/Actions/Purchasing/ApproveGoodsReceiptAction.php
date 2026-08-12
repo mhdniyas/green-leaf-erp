@@ -64,14 +64,17 @@ class ApproveGoodsReceiptAction
                 // Weighted average unit price across ALL approved GRN items for this product on this date
                 $costPerKg = $this->calculateWeightedAvgPrice($item->product_id, $date, $item);
 
-                    if ($costPerKg > 0) {
-                        $this->vendorPriceService->syncPrice($item->product_id, $costPerKg);
-                    }
+                if (($item->grade ?? 'A') === 'A' && $costPerKg > 0) {
+                    $this->vendorPriceService->syncPrice($item->product_id, $costPerKg);
+                }
 
                 // Create StockBatch in inventory — flagged as warehouse_receive_pending
                 $this->stockBatchRepository->create([
                     'product_id' => $item->product_id,
                     'goods_received_id' => $grn->id,
+                    'goods_received_item_id' => $item->id,
+                    'purchase_grade' => $item->grade ?? $grn->purchase_grade ?? 'A',
+                    'grading_mode' => ($item->grade ?? $grn->purchase_grade ?? 'A') === 'B' ? 'fixed_purchase_grade' : 'sort_required',
                     'created_by' => $userId,
                     'reference' => $this->stockBatchRepository->generateReference(),
                     'received_at' => $grn->received_at,
@@ -85,11 +88,14 @@ class ApproveGoodsReceiptAction
                 ]);
             }
 
-            $this->priceBoardService->refreshWholesalePricesForProducts(
-                $grn->items->pluck('product_id')->all(),
-                'grn',
-                $grn->grn_number
-            );
+            $gradeAProductIds = $grn->items
+                ->filter(fn (GoodsReceivedItem $item): bool => ($item->grade ?? 'A') === 'A')
+                ->pluck('product_id')
+                ->all();
+
+            if ($gradeAProductIds !== []) {
+                $this->priceBoardService->refreshWholesalePricesForProducts($gradeAProductIds, 'grn', $grn->grn_number);
+            }
 
             // Update Purchase Order status to Closed
             $po = $grn->purchaseOrder;
@@ -121,6 +127,7 @@ class ApproveGoodsReceiptAction
     {
         // Gather all approved GRN items for this product on this date.
         $allItems = GoodsReceivedItem::where('product_id', $productId)
+            ->where('grade', $currentItem->grade ?? 'A')
             ->whereHas('goodsReceived', function ($query) use ($date): void {
                 $query->where('status', 'approved')
                     ->whereDate('received_at', $date);

@@ -7,8 +7,8 @@
             <div class="bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.28),_transparent_36%),linear-gradient(135deg,_#0f172a_0%,_#111827_55%,_#134e4a_100%)] px-4 py-4 sm:px-5 lg:px-4 lg:py-5">
                 <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <div class="min-w-0">
-                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-teal-200 sm:text-[11px] sm:tracking-[0.22em]">Purchaser Flow</p>
-                        <h1 class="mt-1 text-xl font-black tracking-tight sm:mt-2 sm:text-2xl">Bulk Purchase (Step 2)</h1>
+                        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-teal-200 sm:text-[11px] sm:tracking-[0.22em]">Grade {{ $purchaseGrade }} Purchaser Flow</p>
+                        <h1 class="mt-1 text-xl font-black tracking-tight sm:mt-2 sm:text-2xl">{{ $purchaseGrade === 'B' ? 'B Grade ' : '' }}Bulk Purchase (Step 2)</h1>
                         <p class="mt-2 max-w-2xl text-sm font-medium text-slate-200">Enter draft quantities inline, review the selected rows, then add them to cart in one request.</p>
                     </div>
                     <div class="shrink-0">
@@ -23,6 +23,7 @@
         <form action="{{ route('purchaser.carts.bulk-store') }}" method="POST" id="bulk-buy-details-form" class="space-y-4 pb-24 sm:pb-28">
             @csrf
             <input type="hidden" name="business_date" value="{{ $date }}">
+            <input type="hidden" name="purchase_grade" value="{{ $purchaseGrade }}">
 
             {{-- Cart selector card --}}
             <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:rounded-[2rem] lg:p-5">

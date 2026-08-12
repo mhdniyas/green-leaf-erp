@@ -62,7 +62,7 @@
                 <article id="cart-card-{{ $cart->id }}" class="rounded-2xl border {{ $focusCartId === $cart->id ? 'border-teal-300 ring-2 ring-teal-100' : 'border-slate-200' }} bg-white p-3 shadow-sm">
                     <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
                         <div class="min-w-0">
-                            <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">{{ $cart->cart_number }}</p>
+                            <p class="text-[9px] font-black uppercase tracking-[0.14em] text-slate-400">{{ $cart->cart_number }} · Grade {{ $cart->purchase_grade ?? 'A' }}</p>
                             <div class="mt-1 flex items-center gap-2">
                                 <h3 class="truncate text-sm font-black text-slate-950">{{ $cart->supplier?->name ?: 'Supplier not selected' }}</h3>
                                 <button type="button" onclick="openChangeVendorModal(@js($cart->cart_number), 'draft', {{ $cart->id }})" class="text-slate-400 transition hover:text-slate-600" title="Assign Supplier">

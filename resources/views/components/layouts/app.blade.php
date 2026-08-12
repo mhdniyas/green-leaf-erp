@@ -468,6 +468,12 @@
                             <x-nav-item href="{{ route('purchaser.daily') }}" :active="request()->routeIs('purchaser.daily')" :sub="true">
                                 Daily
                             </x-nav-item>
+                            <x-nav-item href="{{ route('purchaser.b-grade', ['date' => $navDate]) }}" :active="request()->routeIs('purchaser.b-grade')" :sub="true">
+                                B Grade Purchase
+                            </x-nav-item>
+                            <x-nav-item href="{{ route('purchaser.purchase-grade-prices.index', ['date' => $navDate]) }}" :active="request()->routeIs('purchaser.purchase-grade-prices.*')" :sub="true">
+                                B Grade Prices
+                            </x-nav-item>
                             <x-nav-item href="{{ route('purchaser.daily-prices') }}" :active="request()->routeIs('purchaser.daily-prices')" :sub="true">
                                 Daily Prices
                             </x-nav-item>

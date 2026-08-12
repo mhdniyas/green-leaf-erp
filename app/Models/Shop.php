@@ -32,6 +32,7 @@ class Shop extends Model
         'address',
         'contact_name',
         'contact_phone',
+        'allow_grade_b_purchase',
     ];
 
     protected function casts(): array
@@ -39,6 +40,7 @@ class Shop extends Model
         return [
             'approved_at' => 'datetime',
             'accounting_enabled' => 'boolean',
+            'allow_grade_b_purchase' => 'boolean',
             'reserve_amount' => 'decimal:2',
             'default_petty_cash_amount' => 'decimal:2',
         ];

@@ -25,6 +25,7 @@
                     <p class="text-[9px] font-black uppercase tracking-[0.18em] text-slate-500">Stage 4</p>
                     <h1 class="mt-0.5 text-lg font-black text-slate-950">Bill invoice</h1>
                     <p class="mt-0.5 text-xs font-semibold text-slate-600">{{ $cart->cart_number }} • {{ $supplier?->name ?: 'Draft Cart' }} • {{ $billDate->format('d M Y') }}</p>
+                    <span class="mt-2 inline-flex rounded-full px-2.5 py-1 text-[10px] font-black uppercase {{ ($cart->purchase_grade ?? 'A') === 'B' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800' }}">Grade {{ $cart->purchase_grade ?? 'A' }}</span>
                 </div>
                 <div class="flex flex-wrap gap-1.5">
                     <a href="{{ route('purchaser.cart', ['date' => $date, 'cart' => $cart->id]) }}" class="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 px-3 text-xs font-black text-slate-700 hover:bg-slate-50">Back to Cart</a>
@@ -44,6 +45,7 @@
             @csrf
             <input type="hidden" name="business_date" value="{{ $date }}">
             <input type="hidden" name="cart_id" value="{{ $cart->id }}">
+            <input type="hidden" name="purchase_grade" value="{{ $cart->purchase_grade ?? 'A' }}">
             <input type="hidden" name="supplier_id" value="{{ $cart->supplier_id }}">
             <input type="hidden" name="return_to" value="vendors">
             <input type="hidden" id="bill_number_hidden" name="bill_number" value="{{ $defaultBillNumber }}">
@@ -83,6 +85,12 @@
                         @endif
                     </div>
 
+                    @if (($cart->purchase_grade ?? 'A') === 'B')
+                        <div class="mb-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-blue-700">
+                            Grade B Direct Purchase
+                        </div>
+                    @endif
+
                     <div class="overflow-x-auto border-b border-dashed border-slate-400 py-3">
                         <table class="w-full table-fixed text-left text-[11px]">
                             <thead class="border-b border-dashed border-slate-400 text-[10px] font-black uppercase text-slate-950">
@@ -103,7 +111,12 @@
                                         <td class="py-2 pr-1 font-bold">{{ $loop->iteration }}</td>
                                         <td class="py-2 pr-2">
                                             <p class="font-black text-slate-950">{{ $item->product->name }}</p>
-                                            <p class="mt-0.5 text-[10px] font-semibold text-slate-500">{{ $item->product->unit }}{{ $vendorPriceHint > 0 ? ' • Prev Rs. '.number_format((float) $vendorPriceHint, 2) : '' }}</p>
+                                            <p class="mt-0.5 text-[10px] font-semibold text-slate-500">
+                                                {{ $item->product->unit }}{{ $vendorPriceHint > 0 ? ' • Prev Rs. '.number_format((float) $vendorPriceHint, 2) : '' }}
+                                                @if (($item->grade ?? 'A') === 'B')
+                                                    <span class="ml-1 inline-flex items-center rounded px-1 py-0.5 bg-blue-100 text-blue-700 font-black uppercase tracking-wide text-[9px]">Grade B</span>
+                                                @endif
+                                            </p>
                                         </td>
                                         <td class="py-2 pr-1 text-right font-bold">{{ number_format((float) $item->quantity, 2) }}</td>
                                         <td class="py-2 pr-1 text-right">

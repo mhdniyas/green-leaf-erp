@@ -345,12 +345,14 @@
                                             'creditAmount' => '₹' . number_format($creditAmount, 2),
                                             'grnNumber' => $cart->goodsReceived?->grn_number ?: 'Pending',
                                             'pdfUrl' => $pdfUrl ?: '#',
+                                            'purchaseGrade' => $cart->purchase_grade ?? 'A',
                                             'items' => $cart->items->map(fn($item) => [
                                                 'name' => $item->product?->name ?: 'Item',
                                                 'quantity' => (float) $item->quantity,
                                                 'unit' => $item->product?->unit ?: '',
                                                 'price' => number_format((float) $item->unit_price, 2),
                                                 'total' => number_format((float) $item->line_total, 2),
+                                                'grade' => $item->grade ?? 'A',
                                             ])->values()->all(),
                                         ];
                                     @endphp
@@ -514,12 +516,14 @@
                                     'cashAmount' => '₹' . number_format($cashAmount, 2),
                                     'creditAmount' => '₹' . number_format($creditAmount, 2),
                                     'grnNumber' => $cart->goodsReceived?->grn_number ?: 'Pending',
+                                    'purchaseGrade' => $cart->purchase_grade ?? 'A',
                                     'items' => $cart->items->map(fn($item) => [
                                         'name' => $item->product?->name ?: 'Item',
                                         'quantity' => (float) $item->quantity,
                                         'unit' => $item->product?->unit ?: '',
                                         'price' => number_format((float) $item->unit_price, 2),
                                         'total' => number_format((float) $item->line_total, 2),
+                                        'grade' => $item->grade ?? 'A',
                                     ])->values()->all(),
                                 ];
                             @endphp
@@ -609,6 +613,11 @@
 
             <!-- Scrollable Body Content -->
             <div class="flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] p-4 space-y-3 text-xs font-semibold text-slate-700">
+                <!-- Grade B Notice -->
+                <div id="mb-grade-badge" class="hidden rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-blue-700">
+                    Grade B Direct Purchase
+                </div>
+
                 <!-- Vendor Info -->
                 <div class="border-b border-slate-100 pb-2">
                     <h4 id="mb-supplier-name" class="text-sm font-black text-slate-950"></h4>
@@ -911,6 +920,16 @@
             document.getElementById('mb-credit').textContent = data.creditAmount;
             document.getElementById('mb-grn').textContent = data.grnNumber;
 
+            // Grade B badge
+            const gradeBadge = document.getElementById('mb-grade-badge');
+            if (gradeBadge) {
+                if ((data.purchaseGrade ?? 'A') === 'B') {
+                    gradeBadge.classList.remove('hidden');
+                } else {
+                    gradeBadge.classList.add('hidden');
+                }
+            }
+
             const countNode = document.getElementById('mb-items-count');
             if (countNode) {
                 countNode.textContent = data.items.length;
@@ -919,15 +938,19 @@
             const itemsList = document.getElementById('mb-items-list');
             if (itemsList) {
                 if (data.items.length > 0) {
-                    itemsList.innerHTML = data.items.map(item => `
+                    itemsList.innerHTML = data.items.map(item => {
+                        const gradeBadge = (item.grade ?? 'A') === 'B'
+                            ? `<span style="display:inline-flex;align-items:center;margin-left:3px;border-radius:3px;padding:0 4px;background:#dbeafe;color:#1d4ed8;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;">Grade B</span>`
+                            : '';
+                        return `
                         <div class="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0 text-xs">
                             <div class="min-w-0 pr-2">
                                 <p class="font-black text-slate-950 truncate">${item.name}</p>
-                                <p class="text-[10px] font-semibold text-slate-500">${item.quantity} ${item.unit} × ₹${item.price}</p>
+                                <p class="text-[10px] font-semibold text-slate-500">${item.quantity} ${item.unit} × ₹${item.price}${gradeBadge}</p>
                             </div>
                             <span class="font-mono font-black text-slate-950 shrink-0">₹${item.total}</span>
                         </div>
-                    `).join('');
+                    `}).join('');
                     
                     // Calculate and display items total
                     const itemsTotal = data.items.reduce((sum, item) => {

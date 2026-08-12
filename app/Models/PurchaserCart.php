@@ -14,9 +14,11 @@ class PurchaserCart extends Model
     protected $fillable = [
         'user_id',
         'supplier_id',
+        'destination_shop_id',
         'business_date',
         'status',
         'purchase_source',
+        'purchase_grade',
         'cart_number',
         'bill_number',
         'discount_amount',
@@ -34,6 +36,10 @@ class PurchaserCart extends Model
         'goods_received_at',
         'bill_received_at',
         'payment_made_at',
+    ];
+
+    protected $attributes = [
+        'purchase_grade' => 'A',
     ];
 
     protected $casts = [
@@ -76,6 +82,11 @@ class PurchaserCart extends Model
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class);
+    }
+
+    public function destinationShop(): BelongsTo
+    {
+        return $this->belongsTo(Shop::class, 'destination_shop_id');
     }
 
     public function purchaseOrder(): BelongsTo

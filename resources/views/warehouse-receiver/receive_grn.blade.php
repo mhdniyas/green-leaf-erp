@@ -14,6 +14,7 @@
                         <div>
                             <p class="text-[9px] font-black uppercase tracking-[0.2em] text-indigo-300 leading-none mb-1">Vendor Sheet Receive</p>
                             <h1 class="text-base font-black tracking-tight text-white">{{ $grn->grn_number }}</h1>
+                            <span class="mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black uppercase {{ ($grn->purchase_grade ?? 'A') === 'B' ? 'bg-blue-400/25 text-blue-100' : 'bg-emerald-400/25 text-emerald-100' }}">Grade {{ $grn->purchase_grade ?? 'A' }}</span>
                         </div>
                     </div>
                     <span class="rounded-full bg-white/10 border border-white/10 px-2.5 py-1 text-[10px] font-black text-indigo-200">

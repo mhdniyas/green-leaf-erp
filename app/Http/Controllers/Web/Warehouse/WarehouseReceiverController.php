@@ -27,6 +27,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class WarehouseReceiverController extends Controller
@@ -367,7 +368,7 @@ class WarehouseReceiverController extends Controller
             foreach ($order->items as $item) {
                 $itemData = $validated['items'][$item->id] ?? null;
                 if (! is_array($itemData)) {
-                    throw \Illuminate\Validation\ValidationException::withMessages([
+                    throw ValidationException::withMessages([
                         "items.{$item->id}.warehouse_id" => 'Select a warehouse for every direct purchase item.',
                     ]);
                 }
@@ -997,7 +998,9 @@ class WarehouseReceiverController extends Controller
             StockBatch::where('goods_received_id', $approvedGrn->id)
                 ->get()
                 ->each(function (StockBatch $batch) use ($approvedGrn, $items, $fallbackWarehouseId, $userId): void {
-                    $grnItem = $approvedGrn->items->firstWhere('product_id', $batch->product_id);
+                    $grnItem = $batch->goods_received_item_id
+                        ? $approvedGrn->items->firstWhere('id', $batch->goods_received_item_id)
+                        : $approvedGrn->items->firstWhere('product_id', $batch->product_id);
                     $discrepancyType = $grnItem?->discrepancy_type ?? 'none';
                     $discrepancyNote = $grnItem?->discrepancy_note;
                     $itemWarehouseId = (int) ($items[$grnItem?->id]['warehouse_id'] ?? $fallbackWarehouseId);
@@ -1008,6 +1011,29 @@ class WarehouseReceiverController extends Controller
                         'warehouse_confirmed_at' => now(),
                         'warehouse_confirmed_by' => $userId,
                     ]);
+
+                    if ($batch->grading_mode === 'fixed_purchase_grade') {
+                        StockMovement::query()->firstOrCreate(
+                            [
+                                'batch_id' => $batch->id,
+                                'type' => StockMovementType::In->value,
+                                'grade' => $batch->purchase_grade,
+                            ],
+                            [
+                                'product_id' => $batch->product_id,
+                                'warehouse_id' => $itemWarehouseId,
+                                'created_by' => $userId,
+                                'quantity' => $batch->total_kg,
+                                'cost_per_unit' => $batch->cost_per_kg,
+                                'notes' => "Fixed Grade {$batch->purchase_grade} receipt from {$approvedGrn->grn_number}",
+                            ],
+                        );
+
+                        $batch->update([
+                            'status' => BatchStatus::Sorted,
+                            'sorted_at' => now(),
+                        ]);
+                    }
 
                     activity()
                         ->performedOn($batch)

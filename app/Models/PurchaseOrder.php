@@ -22,6 +22,7 @@ class PurchaseOrder extends Model
 
     protected $fillable = [
         'supplier_id',
+        'destination_shop_id',
         'purchaser_cart_id',
         'po_number',
         'status',
@@ -29,6 +30,11 @@ class PurchaseOrder extends Model
         'created_by',
         'notes',
         'fulfillment_type',
+        'purchase_grade',
+    ];
+
+    protected $attributes = [
+        'purchase_grade' => 'A',
     ];
 
     protected $casts = [
@@ -51,6 +57,11 @@ class PurchaseOrder extends Model
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class);
+    }
+
+    public function destinationShop(): BelongsTo
+    {
+        return $this->belongsTo(Shop::class, 'destination_shop_id');
     }
 
     public function createdBy(): BelongsTo
