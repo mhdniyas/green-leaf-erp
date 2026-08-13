@@ -45,7 +45,7 @@ class AdminCashbookAccessTest extends TestCase
             ->assertForbidden();
     }
 
-    public function test_cashbook_dynamically_lists_only_owned_accounting_shops(): void
+    public function test_cashbook_dynamically_lists_client_shops_and_direct_shops(): void
     {
         $mainAdmin = User::factory()->create(['email' => 'admin@greenleaf.com']);
         $mainAdmin->assignRole('admin');
@@ -65,13 +65,13 @@ class AdminCashbookAccessTest extends TestCase
             'accounting_enabled' => true,
             'accounting_mode' => 'standard',
         ]);
-        $nonOwnedShop = Shop::factory()->create([
-            'name' => 'Third Party Accounting Shop',
+        $directRegularShop = Shop::factory()->create([
+            'name' => 'Direct Regular Shop',
             'accounting_enabled' => true,
             'accounting_mode' => 'standard',
         ]);
-        $disabledOwnedShop = Shop::factory()->create([
-            'name' => 'Disabled Owned Shop',
+        $directDisabledShop = Shop::factory()->create([
+            'name' => 'Direct Disabled Shop',
             'accounting_enabled' => false,
             'accounting_mode' => 'owned',
         ]);
@@ -81,8 +81,8 @@ class AdminCashbookAccessTest extends TestCase
             ->assertOk()
             ->assertSee($ownedShop->name)
             ->assertSee($clientShop->name)
-            ->assertDontSee($nonOwnedShop->name)
-            ->assertDontSee($disabledOwnedShop->name);
+            ->assertSee($directRegularShop->name)
+            ->assertSee($directDisabledShop->name);
 
         $this->assertSame(
             'direct_buyer',
@@ -90,7 +90,7 @@ class AdminCashbookAccessTest extends TestCase
         );
     }
 
-    public function test_shop_sync_uses_erp_eligibility_reconciles_stale_profiles_and_maps_clients_stably(): void
+    public function test_shop_sync_reconciles_client_profiles_maps_clients_stably_and_includes_direct_shops(): void
     {
         $legacyLedgerClient = LedgerClient::query()->create([
             'name' => 'Future Client Legacy Record',
@@ -110,8 +110,10 @@ class AdminCashbookAccessTest extends TestCase
             'accounting_enabled' => true,
             'accounting_mode' => 'standard',
         ]);
-        $staleShop = Shop::factory()->create([
-            'accounting_enabled' => true,
+        $directShop = Shop::factory()->create([
+            'code' => 'DIRECT_SHOP',
+            'name' => 'Direct Shop',
+            'accounting_enabled' => false,
             'accounting_mode' => 'regular',
             'client_id' => null,
         ]);
@@ -124,12 +126,12 @@ class AdminCashbookAccessTest extends TestCase
             'client_id' => $legacyLedgerClient->id,
             'enabled' => true,
         ]);
-        $staleProfile = ShopLedgerProfile::query()->create([
-            'shop_id' => $staleShop->id,
+        $directProfile = ShopLedgerProfile::query()->create([
+            'shop_id' => $directShop->id,
             'uuid' => fake()->uuid(),
-            'slug' => 'stale-profile',
-            'code' => $staleShop->code,
-            'name' => $staleShop->name,
+            'slug' => 'direct-shop-stable-url',
+            'code' => $directShop->code,
+            'name' => $directShop->name,
             'enabled' => true,
         ]);
 
@@ -137,13 +139,16 @@ class AdminCashbookAccessTest extends TestCase
 
         $ledgerClient = LedgerClient::query()->where('erp_client_id', $erpClient->id)->firstOrFail();
         $syncedProfile = ShopLedgerProfile::query()->where('shop_id', $clientShop->id)->firstOrFail();
+        $syncedDirectProfile = ShopLedgerProfile::query()->where('shop_id', $directShop->id)->firstOrFail();
 
         $this->assertTrue($profiles->contains('shop_id', $clientShop->id));
-        $this->assertFalse($profiles->contains('shop_id', $staleShop->id));
+        $this->assertTrue($profiles->contains('shop_id', $directShop->id));
         $this->assertSame($ledgerClient->id, $syncedProfile->client_id);
         $this->assertSame($legacyLedgerClient->id, $ledgerClient->id);
         $this->assertSame('future-shop-stable-url', $syncedProfile->slug);
-        $this->assertFalse($staleProfile->fresh()->enabled);
+        $this->assertSame('direct_buyer', $syncedDirectProfile->profile_template);
+        $this->assertNull($syncedDirectProfile->client_id);
+        $this->assertTrue($directProfile->fresh()->enabled);
     }
 
     public function test_cashbook_uses_the_requested_date(): void
