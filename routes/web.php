@@ -6,6 +6,7 @@ use App\Http\Controllers\Web\Admin\ActivityLogController;
 use App\Http\Controllers\Web\Admin\AdminAccountingController;
 use App\Http\Controllers\Web\Admin\AdminOverviewController;
 use App\Http\Controllers\Web\Admin\CompanySettingsController;
+use App\Http\Controllers\Web\Admin\CashbookController;
 use App\Http\Controllers\Web\Admin\DailyProgressController;
 use App\Http\Controllers\Web\Admin\DeliveryReviewController;
 use App\Http\Controllers\Web\Admin\DiscrepancyReportController;
@@ -244,6 +245,14 @@ Route::middleware('auth')->group(function () {
         Route::get('/finance', [ShopOwnerController::class, 'financeIndex'])->name('finance.index');
         Route::get('/finance/{invoice}', [ShopOwnerController::class, 'financeShow'])->name('finance.show');
         Route::get('/finance/{invoice}/pdf', [ShopOwnerController::class, 'financePdf'])->name('finance.pdf');
+        Route::get('/cashbook', [ShopOwnerController::class, 'cashbookShow'])->name('cashbook.show');
+        Route::get('/cashbook/create', [ShopOwnerController::class, 'cashbookCreate'])->name('cashbook.create');
+        Route::get('/cashbook/settings', [ShopOwnerController::class, 'cashbookSettings'])->name('cashbook.settings');
+        Route::get('/cashbook/reports', [ShopOwnerController::class, 'cashbookReports'])->name('cashbook.reports');
+        Route::prefix('/cashbook/api')->name('cashbook.api.')->group(function () {
+            Route::get('/shop-data', [ShopOwnerController::class, 'cashbookData'])->name('shop-data');
+            Route::post('/record-entry', [ShopOwnerController::class, 'cashbookRecordEntry'])->name('record-entry');
+        });
         Route::get('/staff', [ShopOwnerStaffController::class, 'index'])->name('staff.index');
         Route::post('/staff/attendance', [ShopOwnerStaffController::class, 'storeAttendance'])->name('staff.attendance.store');
         Route::post('/staff/salary-payments', [ShopOwnerStaffController::class, 'storeSalaryPayment'])->name('staff.salary-payments.store');
@@ -604,6 +613,56 @@ Route::middleware('auth')->group(function () {
         Route::get('/', AdminOverviewController::class)->name('overview');
         Route::get('company-settings', [CompanySettingsController::class, 'edit'])->name('company-settings.edit');
         Route::patch('company-settings', [CompanySettingsController::class, 'update'])->name('company-settings.update');
+        // Cashbook admin dashboard — full port of the standalone ledger-app.
+        // Completely isolated from the ShopOwner accounting screens.
+        // All routes are guarded at controller level by ensureMainAdmin().
+        Route::prefix('cashbook')->name('cashbook.')->group(function () {
+            // ── Page routes ─────────────────────────────────────────────────
+            Route::get('/', [CashbookController::class, 'index'])->name('index');
+            Route::get('all-shops', [CashbookController::class, 'allShops'])->name('all-shops');
+            Route::get('reports', [CashbookController::class, 'reports'])->name('reports');
+            Route::get('payables', [CashbookController::class, 'payables'])->name('payables');
+            Route::get('accept-payment', [CashbookController::class, 'acceptPaymentPage'])->name('accept-payment');
+            Route::get('income-expenses', [CashbookController::class, 'incomeExpenses'])->name('income-expenses');
+            Route::get('post-entry', [CashbookController::class, 'postEntryPage'])->name('post-entry');
+            Route::get('post-entry/{shop}', [CashbookController::class, 'postEntryPageForShop'])->name('post-entry.shop');
+            Route::get('shops/{shop}', [CashbookController::class, 'showShop'])->name('shop.show');
+            Route::get('shops/{shop}/export', [CashbookController::class, 'exportShopData'])->name('shop.export');
+            Route::get('shops/{shop}/settlement', [CashbookController::class, 'shopSettlementPage'])->name('shop.settlement');
+            Route::get('shops/{shop}/accept-payment', [CashbookController::class, 'shopSettlementPage'])->name('shop.accept-payment');
+            Route::get('shops/{shop}/post-entry', [CashbookController::class, 'postEntryPageForShop'])->name('shop.post-entry');
+            Route::get('rules-config', [CashbookController::class, 'rulesPage'])->name('rules-config');
+            Route::get('settings', [CashbookController::class, 'settingsPage'])->name('settings');
+            Route::get('settings/presets', [CashbookController::class, 'presetsPage'])->name('settings.presets');
+            Route::get('bank-accounts/create', [CashbookController::class, 'createBankAccountPage'])->name('bank-accounts.create');
+            Route::post('bank-accounts', [CashbookController::class, 'storeBankAccount'])->name('bank-accounts.store');
+            Route::put('bank-accounts/{account}', [CashbookController::class, 'updateBankAccount'])->name('bank-accounts.update');
+            Route::delete('bank-accounts/{account}', [CashbookController::class, 'deleteBankAccount'])->name('bank-accounts.delete');
+
+            // ── JSON API routes (rate limited & throttled) ─────────────────────
+            Route::prefix('api')->middleware('throttle:60,1')->name('api.')->group(function () {
+                Route::get('shop-data', [CashbookController::class, 'getShopData'])->name('shop-data');
+                Route::get('all-shops-overview', [CashbookController::class, 'getAllShopsOverview'])->name('all-shops-overview');
+                Route::get('payables-pendings', [CashbookController::class, 'getPayablesAndPendings'])->name('payables-pendings');
+                Route::get('rules', [CashbookController::class, 'getRules'])->name('rules');
+                Route::get('company-accounts', [CashbookController::class, 'getCompanyAccounts'])->name('company-accounts');
+                Route::get('client-summary', [CashbookController::class, 'getClientSummary'])->name('client-summary');
+                Route::get('presets', [CashbookController::class, 'getPresets'])->name('presets');
+
+                Route::post('record-entry', [CashbookController::class, 'recordEntry'])->name('record-entry');
+                Route::post('update-entry', [CashbookController::class, 'updateEntry'])->name('update-entry');
+                Route::post('delete-entry', [CashbookController::class, 'deleteEntry'])->name('delete-entry');
+                Route::post('void-entry', [CashbookController::class, 'voidEntry'])->name('void-entry');
+                Route::post('accept-payment', [CashbookController::class, 'acceptPayment'])->name('accept-payment');
+                Route::post('pay-shop', [CashbookController::class, 'payShop'])->name('pay-shop');
+                Route::post('add-shop', [CashbookController::class, 'addShop'])->name('add-shop');
+                Route::post('update-rule', [CashbookController::class, 'updateRule'])->name('update-rule');
+                Route::post('toggle-day', [CashbookController::class, 'toggleDay'])->name('toggle-day');
+                Route::post('presets/create', [CashbookController::class, 'createPreset'])->name('presets.create');
+                Route::post('presets/update-setting', [CashbookController::class, 'updatePresetSetting'])->name('presets.update-setting');
+                Route::post('assign-preset', [CashbookController::class, 'assignShopPreset'])->name('assign-preset');
+            });
+        });
         Route::prefix('finance-v2')->name('finance-v2.')->group(function () {
             Route::get('/', [FinanceV2Controller::class, 'dashboard'])->name('dashboard');
             Route::get('green-leaf/{section}', [FinanceV2Controller::class, 'greenLeaf'])->name('green-leaf.section');

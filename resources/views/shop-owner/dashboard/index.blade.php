@@ -7,7 +7,7 @@
 
 @section('page_actions')
     <div class="flex flex-wrap gap-1.5 sm:gap-2">
-        @include('shop-owner.components.action-button', ['href' => route('shop-owner.accounting.index', ['tab' => $isOwnedAccountingShop ? 'cashbook' : 'bills']), 'label' => $isOwnedAccountingShop ? 'Open Cashbook' : 'Open Bills', 'classes' => 'border border-slate-200 bg-white text-slate-800'])
+        @include('shop-owner.components.action-button', ['href' => $isOwnedAccountingShop ? route('shop-owner.cashbook.show') : route('shop-owner.finance.index', ['tab' => 'invoices']), 'label' => $isOwnedAccountingShop ? 'Open Cashbook' : 'Open Bills', 'classes' => 'border border-slate-200 bg-white text-slate-800'])
         @include('shop-owner.components.action-button', ['href' => route('shop-owner.orders.create'), 'label' => 'Open Marketplace', 'classes' => 'bg-emerald-600 text-white'])
     </div>
 @endsection

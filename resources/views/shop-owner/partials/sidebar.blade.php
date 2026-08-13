@@ -2,43 +2,34 @@
     $activeShopResolver = app(\App\Support\ShopOwner\ActiveShopResolver::class);
     $authorizedShops = $activeShopResolver->authorizedShops(auth()->user());
     $activeShop = $authorizedShops->isNotEmpty() ? $activeShopResolver->resolve(request()) : auth()->user()?->shop;
+    $cashbookShopId = (int) ($activeShop?->id ?? ($authorizedShops->first()?->id ?? 1));
     $hasOwnedShopStaffAccess = auth()->user()?->ownedShopAssignments()->exists() ?? false;
     $hasOwnedAccountingAccess = $activeShop?->isOwnedAccountingEnabled() ?? false;
     $accountingChildren = [
         [
             'label' => 'Bills',
-            'href' => route('shop-owner.accounting.index', ['tab' => 'bills']),
-            'active' => request()->routeIs('shop-owner.accounting.index') && request()->query('tab', $hasOwnedAccountingAccess ? 'cashbook' : 'bills') === 'bills',
+            'href' => route('shop-owner.finance.index', ['tab' => 'invoices']),
+            'active' => request()->routeIs('shop-owner.finance.index') && request()->query('tab', 'invoices') === 'invoices',
         ],
     ];
 
     if ($hasOwnedAccountingAccess) {
         $accountingChildren[] = [
             'label' => 'Cashbook',
-            'href' => route('shop-owner.accounting.index', ['tab' => 'cashbook']),
-            'active' => request()->routeIs('shop-owner.accounting.index') && request()->query('tab', 'cashbook') === 'cashbook',
-        ];
-        $accountingChildren[] = [
-            'label' => 'Others',
-            'href' => route('shop-owner.accounting.index', ['tab' => 'loan']),
-            'active' => request()->routeIs('shop-owner.accounting.index') && in_array(request()->query('tab'), ['loan', 'others'], true),
+            'href' => route('shop-owner.cashbook.show'),
+            'active' => request()->routeIs('shop-owner.cashbook.show'),
         ];
         $accountingChildren[] = [
             'label' => 'Create',
-            'href' => route('shop-owner.accounting.index', ['tab' => 'create']),
-            'active' => request()->routeIs('shop-owner.accounting.index') && request()->query('tab') === 'create',
-        ];
-        $accountingChildren[] = [
-            'label' => 'Daily Report',
-            'href' => route('shop-owner.accounting.daily-report'),
-            'active' => request()->routeIs('shop-owner.accounting.daily-report'),
+            'href' => route('shop-owner.cashbook.create'),
+            'active' => request()->routeIs('shop-owner.cashbook.create') || (request()->routeIs('shop-owner.cashbook.show') && request()->query('open') === 'line'),
         ];
     }
 
     $accountingChildren[] = [
-        'label' => 'History',
-        'href' => route('shop-owner.accounting.history', ['tab' => 'bills']),
-        'active' => request()->routeIs('shop-owner.accounting.history'),
+        'label' => 'Reports',
+        'href' => route('shop-owner.cashbook.reports'),
+        'active' => request()->routeIs('shop-owner.cashbook.reports') || (request()->routeIs('shop-owner.cashbook.show') && request()->query('tab') === 'reports'),
     ];
     $financeChildren = [
         [
@@ -66,8 +57,8 @@
         ],
         [
             'label' => 'Accounting',
-            'route' => 'shop-owner.accounting.index',
-            'href' => route('shop-owner.accounting.index', ['tab' => $hasOwnedAccountingAccess ? 'cashbook' : 'bills']),
+            'route' => 'shop-owner.cashbook.show',
+            'href' => route($hasOwnedAccountingAccess ? 'shop-owner.cashbook.show' : 'shop-owner.finance.index', $hasOwnedAccountingAccess ? [] : ['tab' => 'invoices']),
             'icon' => '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m0 0c-2.21 0-4-1.343-4-3s1.79-3 4-3 4-1.343 4-3-1.79-3-4-3m0 12c2.21 0 4-1.343 4-3" /></svg>',
             'children' => $accountingChildren,
         ],
@@ -125,7 +116,7 @@
             @php
                 $isActive = request()->routeIs($item['route'])
                     || ($item['route'] === 'shop-owner.orders.index' && request()->routeIs('shop-owner.orders.create', 'shop-owner.orders.show'))
-                    || ($item['route'] === 'shop-owner.accounting.index' && request()->routeIs('shop-owner.accounting.*'));
+                    || ($item['route'] === 'shop-owner.cashbook.show' && request()->routeIs('shop-owner.cashbook.*'));
 
                 $sidebarItem = [
                     'label' => $item['label'],

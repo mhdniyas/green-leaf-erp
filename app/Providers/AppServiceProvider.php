@@ -50,6 +50,11 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(SalesInvoice::class, SalesInvoicePolicy::class);
         Gate::policy(User::class, UserPolicy::class);
 
+        // The new Cashbook is intentionally restricted to the configured main
+        // administrator while it is being introduced. It must never inherit the
+        // broader Shop Owner cashbook access rules.
+        Gate::define('cashbook.admin.access', fn (User $user): bool => $user->isMainAdmin());
+
         RateLimiter::for('login', function ($request) {
             $email = Str::lower((string) $request->input('email'));
 

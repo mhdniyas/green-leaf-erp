@@ -5,7 +5,7 @@
             <h2 class="mt-0.5 text-base font-black text-slate-950 sm:text-lg">{{ $isOwnedAccountingShop ? 'Owned Shop Money Flow' : 'Shop Bill Collection' }}</h2>
         </div>
         <div class="flex shrink-0 gap-1.5">
-            <a href="{{ route('shop-owner.accounting.index', ['tab' => 'bills', 'date' => $businessDate->toDateString()]) }}" class="inline-flex h-7 items-center justify-center rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-bold text-slate-800 hover:bg-slate-50 transition-colors">Bills</a>
+            <a href="{{ route('shop-owner.finance.index', ['tab' => 'invoices', 'date' => $businessDate->toDateString()]) }}" class="inline-flex h-7 items-center justify-center rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-bold text-slate-800 hover:bg-slate-50 transition-colors">Bills</a>
             <a href="{{ route('shop-owner.payments.index') }}" class="inline-flex h-7 items-center justify-center rounded-lg bg-slate-950 px-2.5 text-[10px] font-bold text-white hover:bg-slate-800 transition-colors">Payments</a>
         </div>
     </div>

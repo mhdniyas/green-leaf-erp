@@ -1,0 +1,141 @@
+<!-- Mobile Overlay Backdrop -->
+<div id="sidebar-backdrop" onclick="toggleMobileSidebar()" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-30 hidden md:hidden transition-opacity"></div>
+
+<!-- Sidebar Drawer -->
+<aside id="main-sidebar" class="w-64 bg-white text-slate-700 flex flex-col justify-between fixed inset-y-0 left-0 z-40 border-r border-slate-200/90 shadow-sm transition-transform duration-300 ease-in-out -translate-x-full md:translate-x-0">
+    <div class="p-4 sm:p-5 space-y-5 sm:space-y-6 overflow-y-auto custom-scrollbar">
+
+        <!-- Brand Header -->
+        <div class="pb-4 border-b border-slate-100">
+            <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-3">
+                    <div class="h-9 w-9 sm:h-10 sm:w-10 rounded-xl bg-emerald-600 flex items-center justify-center shadow-md text-white flex-shrink-0">
+                        <i data-lucide="leaf" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="font-extrabold text-sm sm:text-base tracking-tight text-slate-900">{{ config('greenleaf.name', 'Green Leaf') }}</span>
+                            <span class="px-1.5 py-0.5 text-[9px] font-extrabold tracking-wider uppercase rounded bg-emerald-50 text-emerald-800 border border-emerald-200">Cashbook</span>
+                        </div>
+                        <p class="text-[11px] text-slate-500 font-medium">Ledger &amp; Billing System</p>
+                    </div>
+                </div>
+                <!-- Mobile Close Button -->
+                <button onclick="toggleMobileSidebar()" class="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <!-- Hierarchy breadcrumb -->
+            <div class="flex items-center gap-1 text-[10px] text-slate-500 font-medium px-1 flex-wrap">
+                <span class="font-bold text-emerald-700">{{ config('greenleaf.name', 'Green Leaf') }}</span>
+                <i data-lucide="chevron-right" class="w-3 h-3 text-slate-300"></i>
+                <span class="text-slate-400">{{ $shops->count() }} shops</span>
+            </div>
+        </div>
+
+        <!-- Active Shop Context Selector -->
+        <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-1.5">
+            <span class="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider flex items-center gap-1">
+                <i data-lucide="store" class="w-3 h-3 text-slate-700"></i> Active Shop Context
+            </span>
+            <select
+                id="active-shop-selector"
+                onchange="window.location.href='/admin/cashbook/shops/' + this.options[this.selectedIndex].getAttribute('data-slug')"
+                class="w-full bg-white text-xs font-bold text-slate-900 px-2.5 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-600 cursor-pointer shadow-sm"
+            >
+                @foreach($shops as $s)
+                    <option value="{{ $s->shop_id }}" data-slug="{{ $s->slug ?: $s->shop_id }}"
+                        {{ isset($currentShop) && $currentShop->shop_id == $s->shop_id ? 'selected' : '' }}>
+                        {{ $s->name ? $s->name . ' (' . $s->code . ')' : 'Shop #' . $s->shop_id }}
+                    </option>
+                @endforeach
+            </select>
+        </div>
+
+        <!-- Navigation Sections -->
+        <nav class="space-y-5">
+
+            <!-- ← Back to main ERP admin -->
+            <a href="{{ route('admin.overview') }}" class="sidebar-link text-slate-400 hover:text-slate-700">
+                <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                <span>Back to Admin</span>
+            </a>
+
+            <!-- SHOP -->
+            <div class="space-y-1">
+                <span class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">SHOP</span>
+                <a href="{{ route('admin.cashbook.all-shops') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.all-shops') || request()->routeIs('admin.cashbook.index') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="layout-grid" class="w-4 h-4"></i>
+                    <span>All Shops Overview</span>
+                </a>
+                <a href="{{ route('admin.cashbook.shop.show', isset($currentShop) ? ($currentShop->slug ?: $currentShop->shop_id) : ($shops->first()?->slug ?? 1)) }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.shop.show') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="store" class="w-4 h-4"></i>
+                    <span>Single Shop Ledger</span>
+                </a>
+                <a href="{{ route('admin.cashbook.income-expenses') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.income-expenses') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="receipt" class="w-4 h-4"></i>
+                    <span>Income &amp; Expenses</span>
+                </a>
+                <a href="{{ route('admin.cashbook.post-entry') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.post-entry') || request()->routeIs('admin.cashbook.post-entry.shop') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                    <span>Post Entry Simulator</span>
+                </a>
+            </div>
+
+            <!-- REPORTS -->
+            <div class="space-y-1">
+                <span class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">REPORTS</span>
+                <a href="{{ route('admin.cashbook.reports') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.reports') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
+                    <span>Main Financial Reports</span>
+                </a>
+                <a href="{{ route('admin.cashbook.payables') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.payables') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="arrow-down-left" class="w-4 h-4"></i>
+                    <span>Payables &amp; Pendings</span>
+                </a>
+            </div>
+
+            <!-- FINANCE -->
+            <div class="space-y-1">
+                <span class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">FINANCE</span>
+                <a href="{{ route('admin.cashbook.accept-payment') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.accept-payment') || request()->routeIs('admin.cashbook.shop.settlement') || request()->routeIs('admin.cashbook.shop.accept-payment') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="wallet" class="w-4 h-4"></i>
+                    <span>Accept Payment &amp; Settlement</span>
+                </a>
+                <a href="{{ route('admin.cashbook.bank-accounts.create') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.bank-accounts.create') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="landmark" class="w-4 h-4"></i>
+                    <span>Create Bank Account</span>
+                </a>
+            </div>
+
+            <!-- SETTINGS -->
+            <div class="space-y-1">
+                <span class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">SETTINGS</span>
+                <a href="{{ route('admin.cashbook.settings') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.settings') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="settings" class="w-4 h-4"></i>
+                    <span>Settings</span>
+                </a>
+                <a href="{{ route('admin.cashbook.settings.presets') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.settings.presets') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="layers" class="w-4 h-4"></i>
+                    <span>Preset Configurations</span>
+                </a>
+            </div>
+
+        </nav>
+
+    </div>
+
+    <!-- Sidebar Footer -->
+    <div class="p-4 border-t border-slate-100 bg-slate-50/80 space-y-2">
+        <div class="flex items-center justify-between text-xs text-slate-500">
+            <span class="flex items-center gap-1.5 font-bold text-slate-700">
+                <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span> Engine Active
+            </span>
+            <span class="font-mono text-[10px] text-slate-400">v1.0.0</span>
+        </div>
+        <div class="flex items-center gap-1.5 text-[10px] text-slate-400 font-medium">
+            <i data-lucide="leaf" class="w-3 h-3 text-emerald-500"></i>
+            {{ config('greenleaf.name', 'Green Leaf') }} · Cashbook
+        </div>
+    </div>
+</aside>
