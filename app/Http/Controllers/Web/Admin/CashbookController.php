@@ -552,8 +552,7 @@ final class CashbookController extends Controller
             $netReceivable = $glBills + $compPend - $receivedToday;
 
             $isDirect = $shop->client_id === null
-                && $shop->profile_template === 'direct_buyer'
-                && (optional($shop->shop)->accounting_mode === 'owned');
+                && $shop->profile_template === 'direct_buyer';
 
             $overview[] = [
                 'shop' => $shop,

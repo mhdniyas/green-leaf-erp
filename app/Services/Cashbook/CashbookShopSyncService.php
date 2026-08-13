@@ -33,8 +33,22 @@ class CashbookShopSyncService
      */
     public function syncAndGetProfiles(): Collection
     {
+        $legacyDirectShopIds = ShopLedgerProfile::query()
+            ->where('enabled', true)
+            ->where('profile_template', 'direct_buyer')
+            ->whereNull('client_id')
+            ->pluck('shop_id');
+
         $erpShops = Shop::query()
-            ->cashbookEligible()
+            ->where('accounting_enabled', true)
+            ->where(function ($query) use ($legacyDirectShopIds): void {
+                $query->whereNotNull('client_id')
+                    ->orWhere('accounting_mode', 'owned');
+
+                if ($legacyDirectShopIds->isNotEmpty()) {
+                    $query->orWhereIn('id', $legacyDirectShopIds);
+                }
+            })
             ->with('client')
             ->orderBy('id')
             ->get();

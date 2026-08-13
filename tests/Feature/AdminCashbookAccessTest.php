@@ -157,4 +157,40 @@ class AdminCashbookAccessTest extends TestCase
             ->assertSee('13 Aug 2026')
             ->assertSee('let currentDate = "2026-08-13";', false);
     }
+
+    public function test_direct_shops_are_preserved_and_grouped_from_cashbook_profile_state(): void
+    {
+        $mainAdmin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $mainAdmin->assignRole('admin');
+
+        $shop = Shop::factory()->create([
+            'name' => 'Legacy Direct Shop',
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+
+        ShopLedgerProfile::query()->create([
+            'shop_id' => $shop->id,
+            'uuid' => fake()->uuid(),
+            'slug' => 'legacy-direct-shop',
+            'code' => $shop->code,
+            'name' => $shop->name,
+            'profile_template' => 'direct_buyer',
+            'enabled' => true,
+        ]);
+
+        $shop->forceFill(['accounting_mode' => 'regular'])->save();
+
+        $response = $this->actingAs($mainAdmin)
+            ->getJson(route('admin.cashbook.api.all-shops-overview', ['business_date' => '2026-08-13']));
+
+        $response->assertOk();
+        $this->assertSame(
+            [$shop->id],
+            collect($response->json('direct_owned_shops'))->pluck('shop.shop_id')->all()
+        );
+        $this->assertTrue(
+            (bool) ShopLedgerProfile::query()->where('shop_id', $shop->id)->value('enabled')
+        );
+    }
 }
