@@ -264,13 +264,13 @@
                         Custom
                     </button>
                     {{-- Hidden date picker (shown on Custom) --}}
-                    <input type="date" id="all-shops-date-input" value="{{ today()->subDay()->toDateString() }}"
+                    <input type="date" id="all-shops-date-input" value="{{ $selectedDate }}"
                         onchange="onCustomDateChange(this.value)"
                         class="hidden text-xs font-mono font-bold text-slate-800 px-2.5 py-1 rounded-lg border border-brand-300 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20" />
 
                     {{-- Active date label --}}
                     <span id="active-date-label" class="sm:ml-auto text-[10px] sm:text-[11px] font-mono font-bold text-slate-500 bg-slate-100 px-2 sm:px-2.5 py-1 rounded-lg border border-slate-200">
-                        {{ today()->subDay()->format('d M Y') }}
+                        {{ \Illuminate\Support\Carbon::parse($selectedDate)->format('d M Y') }}
                     </span>
                 </div>
             </header>
@@ -994,9 +994,9 @@
 
         let currentTab = initialTab;
         let currentShopId = parseInt(initialShopIdVal);
-        let currentDate = '{{ today()->subDay()->toDateString() }}'; // default: yesterday (matches date filter default)
-        let globalStartDate = '{{ today()->subDay()->toDateString() }}';
-        let globalEndDate = '{{ today()->subDay()->toDateString() }}';
+        let currentDate = @json($selectedDate);
+        let globalStartDate = @json($selectedDate);
+        let globalEndDate = @json($selectedDate);
         let loadedTransactions = [];
         let sessionTransactions = [];
         let activeCrudFilter = 'all';
@@ -1313,9 +1313,9 @@
                 if (summaryReceived)    summaryReceived.innerText     = `₹${(totals.total_received_today || 0).toFixed(2)}`;
                 if (summaryPayable)     summaryPayable.innerText      = `₹${(totals.closing_shop_position || 0).toFixed(2)}`;
 
-                // Split shops dynamically by client_id (Client-linked vs Direct)
-                const clientShops = overview.filter(item => item.shop && item.shop.client_id !== null);
-                const directShops = overview.filter(item => !item.shop || item.shop.client_id === null);
+                const clientGroups = data.client_groups || [];
+                const clientShops = clientGroups.flatMap(group => group.shops || []);
+                const directShops = data.direct_owned_shops || [];
 
                 // ──────────────────────────────────────────────────────────────
                 // CLIENT-OWNED SHOPS TABLE (GL Bills-centric view)
@@ -1326,9 +1326,9 @@
                 const clientGroupTotals = document.getElementById('client-group-totals');
 
                 if (clientShops.length > 0) {
-                    // Group label from first client name
-                    const firstClientName = clientShops[0].shop.client ? clientShops[0].shop.client.name : 'Client-Owned Shops';
-                    if (clientTitle) clientTitle.innerText = `${firstClientName} (${clientShops.length} Shops)`;
+                    if (clientTitle) clientTitle.innerText = clientGroups.length === 1
+                        ? `${clientGroups[0].client.name} (${clientShops.length} Shops)`
+                        : `Client Shops — ${clientGroups.length} Clients (${clientShops.length} Shops)`;
 
                     let cGlBills = 0, cReceived = 0, cNetRec = 0, cShopPos = 0, cCompPend = 0;
 
@@ -1358,7 +1358,7 @@
                                         </div>
                                         <div>
                                             <div class="font-extrabold text-slate-900 text-xs">${shop.name || 'Shop #' + shop.shop_id}</div>
-                                            <div class="font-mono text-[10px] text-slate-500">${shop.code || ''}</div>
+                                            <div class="font-mono text-[10px] text-slate-500">${shop.client ? shop.client.name + ' · ' : ''}${shop.code || ''}</div>
                                         </div>
                                     </div>
                                 </td>

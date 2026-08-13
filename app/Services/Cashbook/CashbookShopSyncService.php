@@ -5,11 +5,16 @@ declare(strict_types=1);
 namespace App\Services\Cashbook;
 
 use App\Models\Cashbook\LedgerClient;
+use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopConfigPreset;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerProfile;
+use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\Client;
 use App\Models\Shop;
+use App\Models\ShopInvoice;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
@@ -28,50 +33,88 @@ class CashbookShopSyncService
      */
     public function syncAndGetProfiles(): Collection
     {
-        // Fetch all participating ERP shops dynamically from database
         $erpShops = Shop::query()
-            ->where('accounting_enabled', true)
-            ->where(function ($query): void {
-                $query->where('accounting_mode', 'owned')
-                    ->orWhere('accounting_mode', 'regular')
-                    ->orWhereNotNull('client_id');
-            })
+            ->cashbookEligible()
+            ->with('client')
             ->orderBy('id')
             ->get();
 
-        $standardPreset  = ShopConfigPreset::where('slug', 'standard-veg-shop')->first()
+        $standardPreset = ShopConfigPreset::where('slug', 'standard-veg-shop')->first()
             ?? ShopConfigPreset::where('is_default', true)->first();
         $grandcityPreset = ShopConfigPreset::where('slug', 'grandcity-extended')->first();
 
-        foreach ($erpShops as $erpShop) {
-            $isGrandcity = Str::contains(strtoupper($erpShop->code), 'GRANDCITY')
-                || Str::contains(strtoupper($erpShop->name), 'GRANDCITY');
+        DB::transaction(function () use ($erpShops, $standardPreset, $grandcityPreset): void {
+            $eligibleShopIds = $erpShops->modelKeys();
 
-            $preset = $isGrandcity ? ($grandcityPreset ?? $standardPreset) : $standardPreset;
+            ShopLedgerProfile::query()
+                ->when($eligibleShopIds !== [], fn ($query) => $query->whereNotIn('shop_id', $eligibleShopIds))
+                ->when($eligibleShopIds === [], fn ($query) => $query)
+                ->update(['enabled' => false]);
 
-            $isClientAccounting = $erpShop->client_id !== null || (string) $erpShop->accounting_mode === 'owned';
+            foreach ($erpShops as $erpShop) {
+                $isGrandcity = Str::contains(strtoupper($erpShop->code), 'GRANDCITY')
+                    || Str::contains(strtoupper($erpShop->name), 'GRANDCITY');
+                $preset = $isGrandcity ? ($grandcityPreset ?? $standardPreset) : $standardPreset;
+                $ledgerClient = $erpShop->client instanceof Client
+                    ? $this->syncClient($erpShop->client)
+                    : null;
 
-            $profile = ShopLedgerProfile::updateOrCreate(
-                ['shop_id' => $erpShop->id],
-                [
-                    'uuid'             => ShopLedgerProfile::where('shop_id', $erpShop->id)->value('uuid') ?? (string) Str::uuid(),
-                    'slug'             => Str::slug($erpShop->code . '-' . $erpShop->name),
-                    'code'             => $erpShop->code,
-                    'name'             => $erpShop->name,
-                    'profile_template' => $isClientAccounting ? 'owned_standard' : 'direct_buyer',
-                    'enabled'          => (bool) $erpShop->accounting_enabled,
-                    'closing_mode'     => 'manual',
-                    'preset_id'        => $preset?->id,
-                    'client_id'        => ($erpShop->client_id && LedgerClient::where('id', $erpShop->client_id)->exists()) ? $erpShop->client_id : null,
-                ]
-            );
+                $profile = ShopLedgerProfile::firstOrNew(['shop_id' => $erpShop->id]);
+                $profile->fill([
+                    'code' => $erpShop->code,
+                    'name' => $erpShop->name,
+                    'profile_template' => $ledgerClient ? 'owned_standard' : 'direct_buyer',
+                    'enabled' => true,
+                    'client_id' => $ledgerClient?->id,
+                ]);
+                $profile->uuid ??= (string) Str::uuid();
+                $profile->slug ??= Str::slug($erpShop->code.'-'.$erpShop->name);
+                $profile->closing_mode ??= 'manual';
+                $profile->preset_id ??= $preset?->id;
+                $profile->save();
 
-            $this->ensureShopSettingsExist($profile, $preset);
-        }
+                $this->ensureShopSettingsExist($profile, $preset);
+            }
+        });
 
-        $this->syncInvoicesToCashbook();
+        return ShopLedgerProfile::query()
+            ->where('enabled', true)
+            ->whereIn('shop_id', $erpShops->modelKeys())
+            ->with(['shop.client', 'client', 'preset'])
+            ->orderBy('shop_id')
+            ->get();
+    }
 
-        return ShopLedgerProfile::with(['client', 'preset'])->orderBy('shop_id')->get();
+    private function syncClient(Client $client): LedgerClient
+    {
+        $existingProfileClientIds = ShopLedgerProfile::query()
+            ->whereIn('shop_id', $client->shops()->select('id'))
+            ->whereNotNull('client_id')
+            ->distinct()
+            ->pluck('client_id');
+
+        $legacyLedgerClient = $existingProfileClientIds->count() === 1
+            ? LedgerClient::query()
+                ->whereKey($existingProfileClientIds->first())
+                ->whereNull('erp_client_id')
+                ->first()
+            : null;
+
+        $ledgerClient = LedgerClient::query()
+            ->where('erp_client_id', $client->id)
+            ->orWhere(function ($query) use ($client): void {
+                $query->whereNull('erp_client_id')->where('slug', Str::slug($client->code));
+            })
+            ->first() ?? $legacyLedgerClient ?? new LedgerClient;
+
+        $ledgerClient->fill([
+            'erp_client_id' => $client->id,
+            'name' => $client->name,
+            'slug' => Str::slug($client->code),
+            'enabled' => $client->status === 'active',
+        ])->save();
+
+        return $ledgerClient;
     }
 
     /**
@@ -80,20 +123,20 @@ class CashbookShopSyncService
      */
     public function syncInvoicesToCashbook(): void
     {
-        $purchaseBillType = \App\Models\Cashbook\LedgerEntryType::where('code', 'purchase_bill')->first();
+        $purchaseBillType = LedgerEntryType::where('code', 'purchase_bill')->first();
         if (! $purchaseBillType) {
             return;
         }
 
-        $alreadySynced = \App\Models\Cashbook\ShopLedgerTransaction::where('entry_type_id', $purchaseBillType->id)
-            ->where('reference_type', \App\Models\ShopInvoice::class)
+        $alreadySynced = ShopLedgerTransaction::where('entry_type_id', $purchaseBillType->id)
+            ->where('reference_type', ShopInvoice::class)
             ->pluck('reference_id')
             ->map(fn ($id): int => (int) $id)
             ->all();
 
         $syncedMap = array_flip($alreadySynced);
 
-        $invoices = \App\Models\ShopInvoice::where('final_total', '>', 0)
+        $invoices = ShopInvoice::where('final_total', '>', 0)
             ->where('status', '!=', 'cancelled')
             ->get(['id', 'shop_id', 'business_date', 'invoice_number', 'final_total']);
 
@@ -104,15 +147,15 @@ class CashbookShopSyncService
 
             try {
                 app(TransactionGenerator::class)->record([
-                    'shop_id'          => (int) $inv->shop_id,
-                    'business_date'    => $inv->business_date?->toDateString() ?? today()->toDateString(),
-                    'entry_type_code'  => 'purchase_bill',
-                    'amount'          => (float) $inv->final_total,
-                    'funding_source'  => 'company',
-                    'reference_type'  => \App\Models\ShopInvoice::class,
-                    'reference_id'    => (int) $inv->id,
-                    'notes'           => 'Auto from invoice ' . $inv->invoice_number,
-                    'entered_by'      => 1,
+                    'shop_id' => (int) $inv->shop_id,
+                    'business_date' => $inv->business_date?->toDateString() ?? today()->toDateString(),
+                    'entry_type_code' => 'purchase_bill',
+                    'amount' => (float) $inv->final_total,
+                    'funding_source' => 'company',
+                    'reference_type' => ShopInvoice::class,
+                    'reference_id' => (int) $inv->id,
+                    'notes' => 'Auto from invoice '.$inv->invoice_number,
+                    'entered_by' => 1,
                 ]);
             } catch (\Throwable) {
             }
@@ -132,25 +175,25 @@ class CashbookShopSyncService
 
         foreach ($preset->entrySettings as $presetSetting) {
             ShopLedgerEntrySetting::create([
-                'shop_id'                   => $profile->shop_id,
-                'entry_type_id'             => $presetSetting->entry_type_id,
-                'version'                   => 1,
-                'effective_from'            => '2026-01-01',
-                'effective_to'              => null,
-                'enabled'                   => $presetSetting->enabled,
-                'default_funding_source'    => $presetSetting->default_funding_source,
-                'allowed_funding_sources'   => $presetSetting->allowed_funding_sources,
-                'include_in_sales'          => $presetSetting->include_in_sales,
-                'include_in_income'         => $presetSetting->include_in_income,
-                'include_in_expense'        => $presetSetting->include_in_expense,
-                'include_in_pl'             => $presetSetting->include_in_pl,
+                'shop_id' => $profile->shop_id,
+                'entry_type_id' => $presetSetting->entry_type_id,
+                'version' => 1,
+                'effective_from' => '2026-01-01',
+                'effective_to' => null,
+                'enabled' => $presetSetting->enabled,
+                'default_funding_source' => $presetSetting->default_funding_source,
+                'allowed_funding_sources' => $presetSetting->allowed_funding_sources,
+                'include_in_sales' => $presetSetting->include_in_sales,
+                'include_in_income' => $presetSetting->include_in_income,
+                'include_in_expense' => $presetSetting->include_in_expense,
+                'include_in_pl' => $presetSetting->include_in_pl,
                 'generates_secondary_entry' => $presetSetting->generates_secondary_entry,
-                'secondary_entry_type_id'   => $presetSetting->secondary_entry_type_id,
-                'secondary_amount_mode'     => $presetSetting->secondary_amount_mode,
-                'secondary_amount_value'    => $presetSetting->secondary_amount_value,
-                'petty_behavior'            => $presetSetting->petty_behavior,
-                'settlement_behavior'       => $presetSetting->settlement_behavior,
-                'company_pending_behavior'  => $presetSetting->company_pending_behavior,
+                'secondary_entry_type_id' => $presetSetting->secondary_entry_type_id,
+                'secondary_amount_mode' => $presetSetting->secondary_amount_mode,
+                'secondary_amount_value' => $presetSetting->secondary_amount_value,
+                'petty_behavior' => $presetSetting->petty_behavior,
+                'settlement_behavior' => $presetSetting->settlement_behavior,
+                'company_pending_behavior' => $presetSetting->company_pending_behavior,
             ]);
         }
     }

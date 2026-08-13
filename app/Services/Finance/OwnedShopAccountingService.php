@@ -28,11 +28,7 @@ class OwnedShopAccountingService
     public function eligibleShops(): Collection
     {
         return Shop::query()
-            ->where('accounting_enabled', true)
-            ->where(function (Builder $query): void {
-                $query->whereNotNull('client_id')
-                    ->orWhere('accounting_mode', 'owned');
-            })
+            ->cashbookEligible()
             ->with('client')
             ->orderBy('name')
             ->get();

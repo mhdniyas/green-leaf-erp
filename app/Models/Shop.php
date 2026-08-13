@@ -195,13 +195,32 @@ class Shop extends Model
     #[Scope]
     protected function ownedForStaff(Builder $query): void
     {
+        $query->active()->cashbookEligible();
+    }
+
+    #[Scope]
+    protected function cashbookEligible(Builder $query): void
+    {
         $query
-            ->active()
             ->where('accounting_enabled', true)
             ->where(function (Builder $query): void {
                 $query->whereNotNull('client_id')
                     ->orWhere('accounting_mode', 'owned');
             });
+    }
+
+    #[Scope]
+    protected function clientAccounting(Builder $query): void
+    {
+        $query->cashbookEligible()->whereNotNull('client_id');
+    }
+
+    #[Scope]
+    protected function directOwned(Builder $query): void
+    {
+        $query->cashbookEligible()
+            ->whereNull('client_id')
+            ->where('accounting_mode', 'owned');
     }
 
     public function isOwnedAccountingEnabled(): bool
