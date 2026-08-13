@@ -9,6 +9,7 @@ enum TransactionStatus: string
     case Draft = 'draft';
     case Submitted = 'submitted';
     case Posted = 'posted';
+    case Approved = 'approved';
     case Closed = 'closed';
     case Void = 'void';
 }

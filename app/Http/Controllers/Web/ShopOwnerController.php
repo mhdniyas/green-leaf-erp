@@ -798,6 +798,130 @@ class ShopOwnerController extends Controller
         }
     }
 
+    public function cashbookUpdateEntry(Request $request): JsonResponse
+    {
+        $shop = $this->ownedAccountingShop($request);
+        $validated = $request->validate([
+            'transaction_id' => ['required', 'integer', 'exists:shop_ledger_transactions,id'],
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'notes' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        try {
+            $transaction = ShopLedgerTransaction::query()
+                ->where('shop_id', (int) $shop->id)
+                ->with('entryType')
+                ->findOrFail((int) $validated['transaction_id']);
+
+            if (! $transaction->canBeEditedByShopOwner()) {
+                throw ValidationException::withMessages([
+                    'transaction_id' => 'Approved entries can only be changed from admin cashbook.',
+                ]);
+            }
+
+            $result = $this->dailyLedgerService->updateEntryAmount(
+                (int) $transaction->id,
+                (float) $validated['amount'],
+                (int) ($request->user()?->id ?? 1)
+            );
+
+            if (array_key_exists('notes', $validated)) {
+                $result['transaction']->update(['notes' => $validated['notes'] ?: null]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Entry updated successfully.',
+                'transaction' => $result['transaction']->load('entryType'),
+                'snapshot' => $result['snapshot'],
+            ]);
+        } catch (Throwable $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+    }
+
+    public function cashbookDeleteEntry(Request $request): JsonResponse
+    {
+        $shop = $this->ownedAccountingShop($request);
+        $validated = $request->validate([
+            'transaction_id' => ['required', 'integer', 'exists:shop_ledger_transactions,id'],
+        ]);
+
+        try {
+            $transaction = ShopLedgerTransaction::query()
+                ->where('shop_id', (int) $shop->id)
+                ->findOrFail((int) $validated['transaction_id']);
+
+            if (! $transaction->canBeEditedByShopOwner()) {
+                throw ValidationException::withMessages([
+                    'transaction_id' => 'Approved entries can only be changed from admin cashbook.',
+                ]);
+            }
+
+            $result = $this->dailyLedgerService->deleteEntry((int) $transaction->id);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Entry deleted successfully.',
+                'snapshot' => $result['snapshot'],
+            ]);
+        } catch (Throwable $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+    }
+
+    public function cashbookApproveEntry(Request $request): JsonResponse
+    {
+        $shop = $this->ownedAccountingShop($request);
+        $validated = $request->validate([
+            'transaction_id' => ['required', 'integer', 'exists:shop_ledger_transactions,id'],
+        ]);
+
+        try {
+            $transaction = ShopLedgerTransaction::query()
+                ->where('shop_id', (int) $shop->id)
+                ->with('entryType')
+                ->findOrFail((int) $validated['transaction_id']);
+
+            if ($transaction->status === 'approved') {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Entry is already approved.',
+                    'transaction' => $transaction,
+                ]);
+            }
+
+            if ($transaction->status === 'void') {
+                throw ValidationException::withMessages([
+                    'transaction_id' => 'Voided entries cannot be approved.',
+                ]);
+            }
+
+            $transaction->update([
+                'status' => 'approved',
+                'approved_by' => (int) ($request->user()?->id ?? 1),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Entry approved successfully.',
+                'transaction' => $transaction->fresh()->load('entryType'),
+                'snapshot' => $this->dailyLedgerService->dailySummary((int) $shop->id, $transaction->business_date->toDateString()),
+            ]);
+        } catch (Throwable $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+    }
+
     /**
      * @return Collection<int, array{date: Carbon, opening_balance: float, closing_balance: float, net_difference: float}>
      */

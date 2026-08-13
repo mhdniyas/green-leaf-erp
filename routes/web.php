@@ -249,10 +249,13 @@ Route::middleware('auth')->group(function () {
         Route::get('/cashbook/create', [ShopOwnerController::class, 'cashbookCreate'])->name('cashbook.create');
         Route::get('/cashbook/settings', [ShopOwnerController::class, 'cashbookSettings'])->name('cashbook.settings');
         Route::get('/cashbook/reports', [ShopOwnerController::class, 'cashbookReports'])->name('cashbook.reports');
-        Route::prefix('/cashbook/api')->name('cashbook.api.')->group(function () {
-            Route::get('/shop-data', [ShopOwnerController::class, 'cashbookData'])->name('shop-data');
-            Route::post('/record-entry', [ShopOwnerController::class, 'cashbookRecordEntry'])->name('record-entry');
-        });
+            Route::prefix('/cashbook/api')->name('cashbook.api.')->group(function () {
+                Route::get('/shop-data', [ShopOwnerController::class, 'cashbookData'])->name('shop-data');
+                Route::post('/record-entry', [ShopOwnerController::class, 'cashbookRecordEntry'])->name('record-entry');
+                Route::post('/update-entry', [ShopOwnerController::class, 'cashbookUpdateEntry'])->name('update-entry');
+                Route::post('/delete-entry', [ShopOwnerController::class, 'cashbookDeleteEntry'])->name('delete-entry');
+                Route::post('/approve-entry', [ShopOwnerController::class, 'cashbookApproveEntry'])->name('approve-entry');
+            });
         Route::get('/staff', [ShopOwnerStaffController::class, 'index'])->name('staff.index');
         Route::post('/staff/attendance', [ShopOwnerStaffController::class, 'storeAttendance'])->name('staff.attendance.store');
         Route::post('/staff/salary-payments', [ShopOwnerStaffController::class, 'storeSalaryPayment'])->name('staff.salary-payments.store');

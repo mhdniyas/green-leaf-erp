@@ -57,4 +57,32 @@ class ShopLedgerTransaction extends Model
     {
         return $this->hasMany(self::class, 'parent_transaction_id');
     }
+
+    public function statusLabel(): string
+    {
+        return match ($this->status) {
+            'draft' => 'Draft',
+            'submitted' => 'Pending Approval',
+            'posted' => 'Posted',
+            'approved' => 'Approved',
+            'closed' => 'Closed',
+            'void' => 'Voided',
+            default => str((string) $this->status)->replace('_', ' ')->title()->toString(),
+        };
+    }
+
+    public function statusTone(): string
+    {
+        return match ($this->status) {
+            'approved' => 'success',
+            'submitted' => 'warning',
+            'closed', 'void' => 'neutral',
+            default => 'neutral',
+        };
+    }
+
+    public function canBeEditedByShopOwner(): bool
+    {
+        return in_array($this->status, ['draft', 'submitted', 'posted'], true);
+    }
 }

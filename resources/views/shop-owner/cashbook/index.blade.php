@@ -225,7 +225,7 @@
                 <div class="flex items-center justify-between bg-slate-950 px-4 py-2.5 text-white">
                     <div>
                         <p class="text-[10px] font-black uppercase tracking-wider text-emerald-400">Shop Cashbook</p>
-                        <h3 class="text-sm font-black text-white">Create Cashbook Entry</h3>
+                        <h3 class="text-sm font-black text-white" x-text="editingTxId ? 'Edit Cashbook Entry' : 'Create Cashbook Entry'"></h3>
                     </div>
                     <button type="button" @click="openCreate = false" class="rounded-lg border border-slate-700 bg-slate-900 p-1 text-slate-400 transition hover:bg-slate-800 hover:text-white" aria-label="Close">
                         <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -385,7 +385,7 @@
                     <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
                         <button type="button" @click="openCreate = false" class="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50">Cancel</button>
                         <button type="submit" class="h-8 rounded-lg bg-emerald-600 px-4 text-xs font-bold text-white transition hover:bg-emerald-500" :disabled="submitting">
-                            <span x-show="!submitting">Save Entry</span>
+                            <span x-show="!submitting" x-text="editingTxId ? 'Update Entry' : 'Save Entry'"></span>
                             <span x-show="submitting">Saving...</span>
                         </button>
                     </div>
@@ -441,7 +441,31 @@
                     </div>
                 </div>
 
-                <div class="flex justify-end p-3 border-t border-slate-100 bg-slate-50">
+                <div class="flex flex-wrap justify-end gap-2 p-3 border-t border-slate-100 bg-slate-50">
+                    <button
+                        type="button"
+                        x-show="selectedTx && canMutate(selectedTx)"
+                        @click="openEdit(selectedTx)"
+                        class="h-8 px-4 text-xs font-bold rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition"
+                    >
+                        Edit
+                    </button>
+                    <button
+                        type="button"
+                        x-show="selectedTx && canMutate(selectedTx)"
+                        @click="deleteEntry(selectedTx)"
+                        class="h-8 px-4 text-xs font-bold rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition"
+                    >
+                        Delete
+                    </button>
+                    <button
+                        type="button"
+                        x-show="selectedTx && canMutate(selectedTx)"
+                        @click="approveEntry(selectedTx)"
+                        class="h-8 px-4 text-xs font-bold rounded-lg border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 transition"
+                    >
+                        Approve
+                    </button>
                     <button type="button" @click="openDetailsModal = false" class="h-8 px-4 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 transition">
                         Close
                     </button>
@@ -516,6 +540,7 @@
                 openDetailsModal: false,
                 openCardModal: false,
                 selectedTx: null,
+                editingTxId: null,
                 cardModalData: {
                     title: '',
                     subtitle: '',
@@ -529,6 +554,8 @@
                 transactions: [],
                 snapshot: @json($snapshot),
                 entryTypes: @json($entryTypes),
+                defaultEntryCategory: @json($entryTypes->first()?->category ?? 'income'),
+                defaultEntryTypeCode: @json($entryTypes->first()?->code ?? ''),
                 form: {
                     business_date: '{{ $selectedDate->toDateString() }}',
                     entry_category: '{{ $entryTypes->first()?->category ?? 'income' }}',
@@ -598,6 +625,39 @@
                 openDetails(tx) {
                     this.selectedTx = tx;
                     this.openDetailsModal = true;
+                },
+
+                openEdit(tx) {
+                    this.editingTxId = tx.id;
+                    this.form = {
+                        business_date: tx.business_date,
+                        entry_category: tx.entry_type?.category || this.form.entry_category,
+                        entry_type_code: tx.entry_type?.code || tx.entry_type_code || '',
+                        amount: tx.amount,
+                        funding_source: tx.funding_source || 'none',
+                        notes: tx.notes || '',
+                    };
+                    this.onEntryTypeChange();
+                    this.openCreate = true;
+                    this.openDetailsModal = false;
+                },
+
+                closeCreateModal() {
+                    this.openCreate = false;
+                    this.editingTxId = null;
+                    this.form = {
+                        business_date: this.selectedDate,
+                        entry_category: this.defaultEntryCategory,
+                        entry_type_code: this.defaultEntryTypeCode,
+                        amount: '',
+                        funding_source: 'none',
+                        notes: '',
+                    };
+                    this.onEntryTypeChange();
+                },
+
+                canMutate(tx) {
+                    return tx && tx.status !== 'approved' && tx.status !== 'void';
                 },
 
                 showCardDetails(cardType) {
@@ -760,13 +820,19 @@
                     this.submitting = true;
 
                     try {
-                        const response = await fetch('{{ route('shop-owner.cashbook.api.record-entry') }}', {
+                        const url = this.editingTxId
+                            ? '{{ route('shop-owner.cashbook.api.update-entry') }}'
+                            : '{{ route('shop-owner.cashbook.api.record-entry') }}';
+                        const body = this.editingTxId
+                            ? { transaction_id: this.editingTxId, amount: this.form.amount, notes: this.form.notes }
+                            : this.form;
+                        const response = await fetch(url, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
                                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
                             },
-                            body: JSON.stringify(this.form),
+                            body: JSON.stringify(body),
                         });
 
                         const payload = await response.json();
@@ -775,7 +841,7 @@
                             return;
                         }
 
-                        this.openCreate = false;
+                        this.closeCreateModal();
                         this.form.amount = '';
                         this.form.notes = '';
                         this.selectedDate = this.form.business_date;
@@ -783,6 +849,50 @@
                     } finally {
                         this.submitting = false;
                     }
+                },
+
+                async deleteEntry(tx) {
+                    if (!confirm('Delete this entry?')) {
+                        return;
+                    }
+
+                    const response = await fetch('{{ route('shop-owner.cashbook.api.delete-entry') }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        },
+                        body: JSON.stringify({ transaction_id: tx.id }),
+                    });
+
+                    const payload = await response.json();
+                    if (!payload.success) {
+                        alert(payload.message || 'Unable to delete entry.');
+                        return;
+                    }
+
+                    this.openDetailsModal = false;
+                    await this.loadData();
+                },
+
+                async approveEntry(tx) {
+                    const response = await fetch('{{ route('shop-owner.cashbook.api.approve-entry') }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        },
+                        body: JSON.stringify({ transaction_id: tx.id }),
+                    });
+
+                    const payload = await response.json();
+                    if (!payload.success) {
+                        alert(payload.message || 'Unable to approve entry.');
+                        return;
+                    }
+
+                    this.openDetailsModal = false;
+                    await this.loadData();
                 },
 
                 currency(value) {
