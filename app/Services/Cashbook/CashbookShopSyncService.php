@@ -52,6 +52,8 @@ class CashbookShopSyncService
 
             $preset = $isGrandcity ? ($grandcityPreset ?? $standardPreset) : $standardPreset;
 
+            $isDirectShop = (string) $erpShop->accounting_mode === 'regular' && $erpShop->client_id === null;
+
             $profile = ShopLedgerProfile::updateOrCreate(
                 ['shop_id' => $erpShop->id],
                 [
@@ -59,7 +61,7 @@ class CashbookShopSyncService
                     'slug'             => Str::slug($erpShop->code . '-' . $erpShop->name),
                     'code'             => $erpShop->code,
                     'name'             => $erpShop->name,
-                    'profile_template' => $erpShop->accounting_mode === 'regular' ? 'direct_buyer' : 'owned_standard',
+                    'profile_template' => $isDirectShop ? 'direct_buyer' : 'owned_standard',
                     'enabled'          => (bool) $erpShop->accounting_enabled,
                     'closing_mode'     => 'manual',
                     'preset_id'        => $preset?->id,
