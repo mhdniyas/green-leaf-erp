@@ -32,6 +32,12 @@ class CashbookShopSyncService
         //   - accounting_mode = 'owned' (Aiswarya Veg style managed shops)
         //   - client_id IS NOT NULL (explicitly client-linked)
         //   - accounting_mode = 'regular' with accounting_enabled (direct buyer shops: Fortune, Quick Mart, etc.)
+        // Auto-enable accounting for direct non-owned shops if disabled in database
+        Shop::query()
+            ->whereNull('client_id')
+            ->where('accounting_enabled', false)
+            ->update(['accounting_enabled' => true, 'accounting_mode' => 'regular']);
+
         $erpShops = Shop::query()
             ->where('accounting_enabled', true)
             ->where(function ($query): void {
@@ -47,12 +53,16 @@ class CashbookShopSyncService
         $grandcityPreset = ShopConfigPreset::where('slug', 'grandcity-extended')->first();
 
         foreach ($erpShops as $erpShop) {
+            if (! $erpShop->accounting_enabled) {
+                $erpShop->update(['accounting_enabled' => true]);
+            }
+
             $isGrandcity = Str::contains(strtoupper($erpShop->code), 'GRANDCITY')
                 || Str::contains(strtoupper($erpShop->name), 'GRANDCITY');
 
             $preset = $isGrandcity ? ($grandcityPreset ?? $standardPreset) : $standardPreset;
 
-            $isDirectShop = (string) $erpShop->accounting_mode === 'regular' && $erpShop->client_id === null;
+            $isDirectShop = $erpShop->client_id === null || (string) $erpShop->accounting_mode === 'regular';
 
             $profile = ShopLedgerProfile::updateOrCreate(
                 ['shop_id' => $erpShop->id],
@@ -62,7 +72,7 @@ class CashbookShopSyncService
                     'code'             => $erpShop->code,
                     'name'             => $erpShop->name,
                     'profile_template' => $isDirectShop ? 'direct_buyer' : 'owned_standard',
-                    'enabled'          => (bool) $erpShop->accounting_enabled,
+                    'enabled'          => true,
                     'closing_mode'     => 'manual',
                     'preset_id'        => $preset?->id,
                     'client_id'        => ($erpShop->client_id && LedgerClient::where('id', $erpShop->client_id)->exists()) ? $erpShop->client_id : null,
