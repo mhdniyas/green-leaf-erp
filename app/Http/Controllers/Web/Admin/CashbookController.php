@@ -1053,6 +1053,84 @@ final class CashbookController extends Controller
     }
 
     /**
+     * API: Mark a single transaction as approved for the current shop.
+     */
+    public function approveEntry(Request $request): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'transaction_id' => ['required', 'integer', 'exists:shop_ledger_transactions,id'],
+        ]);
+
+        try {
+            $transaction = ShopLedgerTransaction::query()
+                ->with('entryType')
+                ->findOrFail((int) $validated['transaction_id']);
+
+            if ($transaction->status === 'approved') {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Entry already approved.',
+                    'transaction' => $transaction,
+                ]);
+            }
+
+            if ($transaction->status === 'void') {
+                return response()->json(['success' => false, 'message' => 'Voided entries cannot be approved.'], 422);
+            }
+
+            $transaction->update([
+                'status' => 'approved',
+                'approved_by' => $request->user()?->id,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Entry approved.',
+                'transaction' => $transaction->fresh()->load('entryType'),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
+     * API: Approve every non-approved income/expense transaction for a day.
+     */
+    public function approveDay(Request $request): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'shop_id' => ['required', 'integer'],
+            'business_date' => ['required', 'date_format:Y-m-d'],
+        ]);
+
+        try {
+            $updated = ShopLedgerTransaction::query()
+                ->where('shop_id', (int) $validated['shop_id'])
+                ->whereDate('business_date', $validated['business_date'])
+                ->where('status', '!=', 'approved')
+                ->where('status', '!=', 'void')
+                ->update([
+                    'status' => 'approved',
+                    'approved_by' => $request->user()?->id,
+                ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => $updated > 0
+                    ? "Approved {$updated} entries for {$validated['business_date']}."
+                    : "No pending entries found for {$validated['business_date']}.",
+                'approved_count' => $updated,
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
      * API: Toggle day status (close or reopen).
      */
     public function toggleDay(Request $request): JsonResponse

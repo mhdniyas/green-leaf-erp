@@ -318,6 +318,130 @@
         </div>
     </div>
 
+    <!-- Daily Approval Queue -->
+    <div class="white-card rounded-3xl p-6 space-y-4 shadow-xl">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 border-b border-slate-200 pb-4">
+            <div>
+                <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <i data-lucide="badge-check" class="w-5 h-5 text-emerald-600"></i> Approval Queue
+                </h3>
+                <p class="text-xs text-slate-500 mt-0.5">Approve income and expense transactions day by day. Approved entries become locked for shop-side changes.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="px-3 py-1.5 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold" x-text="pendingApprovalCount() + ' pending entries'"></span>
+                <button type="button" @click="approvePendingForDay(selectedApprovalDay())" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm">
+                    Approve All for Selected Day
+                </button>
+            </div>
+        </div>
+
+        <div class="rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-3">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <p class="text-[10px] font-black uppercase tracking-wider text-emerald-700">Approval Notification</p>
+                    <p class="mt-0.5 text-sm font-bold text-slate-900" x-text="approvalNoticeText()"></p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="rounded-full bg-white px-3 py-1 text-[11px] font-black uppercase tracking-wider text-emerald-700 border border-emerald-200" x-text="selectedApprovalDate ? selectedApprovalDate.slice(8, 10) + '-' + selectedApprovalDate.slice(5, 7) : '00-00'"></span>
+                    <span class="rounded-full bg-white px-3 py-1 text-[11px] font-black uppercase tracking-wider text-amber-700 border border-amber-200" x-text="pendingApprovalCount() + ' pending'"></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            <div class="xl:col-span-1 space-y-3 max-h-[34rem] overflow-y-auto pr-1 custom-scrollbar">
+                <template x-for="day in approvalDays()" :key="day.date">
+                    <button
+                        type="button"
+                        @click="selectedApprovalDate = day.date"
+                        class="w-full text-left rounded-2xl border p-4 transition"
+                        :class="selectedApprovalDate === day.date ? 'border-emerald-300 bg-emerald-50 shadow-sm' : 'border-slate-200 bg-white hover:bg-slate-50'"
+                    >
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <p class="text-sm font-extrabold text-slate-900" x-text="day.label"></p>
+                                <p class="text-[11px] font-semibold text-slate-500" x-text="day.count + ' pending entries'"></p>
+                            </div>
+                            <span class="rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wider" :class="day.count > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'" x-text="day.count > 0 ? 'Pending' : 'Approved'"></span>
+                        </div>
+                    </button>
+                </template>
+            </div>
+
+            <div class="xl:col-span-2 rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+                <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-wider text-slate-500">Selected Day</p>
+                        <h4 class="text-sm font-bold text-slate-900" x-text="selectedApprovalDayLabel()"></h4>
+                    </div>
+                    <button type="button" @click="approvePendingForDay(selectedApprovalDate)" class="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs">
+                        Approve Day
+                    </button>
+                </div>
+
+                <div class="mt-3 flex flex-wrap items-center gap-2">
+                    <button type="button" @click="selectedApprovalDate = currentDate; loadData()" class="rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition" :class="selectedApprovalDate === currentDate ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'">
+                        Today
+                    </button>
+                    <button type="button" @click="selectedApprovalDate = shiftApprovalDate(-1); loadData()" class="rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition" :class="selectedApprovalDate === shiftApprovalDate(-1) ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'">
+                        Yesterday
+                    </button>
+                    <div class="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5">
+                        <span class="text-[11px] font-black uppercase tracking-wider text-slate-500">Date</span>
+                        <input type="date" x-model="selectedApprovalDate" @change="loadData()" class="h-6 border-0 bg-transparent p-0 text-xs font-bold text-slate-800 focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="mt-3 flex flex-wrap gap-2">
+                    <template x-for="day in approvalDays()" :key="'pill-' + day.date">
+                        <button
+                            type="button"
+                            @click="selectedApprovalDate = day.date; loadData()"
+                            class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition"
+                            :class="selectedApprovalDate === day.date ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'"
+                        >
+                            <span x-text="day.date.slice(8, 10) + '-' + day.date.slice(5, 7)"></span>
+                            <span class="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-black text-amber-700" x-text="day.count"></span>
+                        </button>
+                    </template>
+                    <span x-show="approvalDays().length === 0" class="text-xs font-semibold text-slate-400">No pending approval days.</span>
+                </div>
+
+                <div class="mt-4 space-y-3 max-h-[28rem] overflow-y-auto custom-scrollbar">
+                    <template x-for="tx in pendingTransactionsForSelectedDay()" :key="tx.id">
+                        <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <div>
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <p class="text-sm font-extrabold text-slate-900" x-text="tx.entry_type ? tx.entry_type.name : tx.entry_type_id"></p>
+                                        <span class="rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-wider" :class="tx.direction === 'income' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'" x-text="tx.direction"></span>
+                                    </div>
+                                    <p class="text-[11px] font-semibold text-slate-500">#<span x-text="tx.id"></span> · <span x-text="tx.funding_source || 'default'"></span> · <span x-text="tx.business_date"></span></p>
+                                </div>
+                                <div class="text-right">
+                                    <p class="text-sm font-black text-slate-900" x-text="'₹' + parseFloat(tx.amount).toFixed(2)"></p>
+                                    <p class="text-[11px] font-bold text-amber-700 capitalize" x-text="tx.status_label || tx.status"></p>
+                                </div>
+                            </div>
+
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                <button type="button" @click="approveSingle(tx)" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold">
+                                    Approve
+                                </button>
+                                <button type="button" @click="openModal(tx)" class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-[11px] font-bold hover:bg-slate-50">
+                                    Details
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                    <div x-show="pendingTransactionsForSelectedDay().length === 0" class="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center text-xs font-semibold text-slate-400">
+                        No pending transactions for this day.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Snapshot Metrics Cards -->
     <div class="grid grid-cols-2 lg:grid-cols-6 gap-4">
         <div class="white-card p-4 rounded-2xl space-y-1 cursor-pointer hover:border-emerald-400 hover:shadow-md transition-all" @click="openBreakdownModal('sales')">
@@ -676,7 +800,7 @@
 @push('scripts')
 <script>
     const currentShopId = {{ $currentShop->shop_id }};
-    let currentDate = '2026-08-12';
+    let currentDate = @json(today()->toDateString());
     const shopEntryTypes = @json($entryTypes);
 
     function shopDetailApp() {
@@ -692,6 +816,7 @@
             openExportModal: false,
             showBreakdownModal: false,
             breakdownType: 'sales',
+            selectedApprovalDate: currentDate,
             modalTx: null,
             editingTx: null,
             deletingTx: null,
@@ -836,6 +961,7 @@
                 this.createForm.business_date = d;
                 this.exportForm.start_date = d;
                 this.exportForm.end_date = d;
+                this.selectedApprovalDate = d;
                 this.loadData();
             },
 
@@ -858,6 +984,103 @@
             openDeleteModal(tx) {
                 this.deletingTx = tx;
                 this.showDeleteModal = true;
+            },
+
+            approvalDays() {
+                const grouped = {};
+                (this.transactions || []).forEach((tx) => {
+                    if (!tx || tx.status === 'approved' || tx.status === 'void') {
+                        return;
+                    }
+
+                    const key = tx.business_date || currentDate;
+                    grouped[key] = grouped[key] || { date: key, label: key, count: 0 };
+                    grouped[key].count += 1;
+                });
+
+                return Object.values(grouped).sort((a, b) => b.date.localeCompare(a.date));
+            },
+
+            pendingTransactionsForSelectedDay() {
+                return (this.transactions || []).filter((tx) => {
+                    if (!tx || tx.status === 'approved' || tx.status === 'void') {
+                        return false;
+                    }
+
+                    return (tx.business_date || currentDate) === this.selectedApprovalDate;
+                });
+            },
+
+            selectedApprovalDay() {
+                return this.selectedApprovalDate;
+            },
+
+            selectedApprovalDayLabel() {
+                return this.selectedApprovalDate || 'No day selected';
+            },
+
+            pendingApprovalCount() {
+                return this.approvalDays().reduce((sum, day) => sum + day.count, 0);
+            },
+
+            approvalNoticeText() {
+                if (!this.selectedApprovalDate) {
+                    return 'Select a date to review pending approvals.';
+                }
+
+                const match = this.approvalDays().find((day) => day.date === this.selectedApprovalDate);
+                const shortDate = this.selectedApprovalDate.slice(8, 10) + '-' + this.selectedApprovalDate.slice(5, 7) + '-' + this.selectedApprovalDate.slice(0, 4);
+
+                if (!match) {
+                    return `No pending transactions for ${shortDate}.`;
+                }
+
+                return `${match.count} pending transaction${match.count === 1 ? '' : 's'} for ${shortDate}.`;
+            },
+
+            shiftApprovalDate(offsetDays) {
+                const base = new Date(`${this.selectedApprovalDate || currentDate}T00:00:00`);
+                base.setDate(base.getDate() + offsetDays);
+                const year = base.getFullYear();
+                const month = String(base.getMonth() + 1).padStart(2, '0');
+                const day = String(base.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            },
+
+            async approveSingle(tx) {
+                await this.approveRequest('/admin/cashbook/api/approve-entry', { transaction_id: tx.id });
+            },
+
+            async approvePendingForDay(day) {
+                if (!day) return;
+                const selected = day;
+                await this.approveRequest('/admin/cashbook/api/approve-day', {
+                    shop_id: currentShopId,
+                    business_date: selected,
+                });
+            },
+
+            async approveRequest(url, payload) {
+                try {
+                    const res = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const data = await res.json();
+                    if (data.success) {
+                        showToast(data.message || 'Approved successfully', 'success');
+                        this.loadData();
+                    } else {
+                        showToast(data.message || 'Approval failed', 'error');
+                    }
+                } catch (err) {
+                    showToast('Server error while approving entry', 'error');
+                }
             },
 
             async createEntry() {
@@ -984,6 +1207,10 @@
                         this.pettyEntries = data.petty_entries || [];
                         this.companyPendingEntries = data.company_pending_entries || [];
                         this.settings = data.settings || [];
+                        const approvalDays = this.approvalDays();
+                        if (!approvalDays.some((day) => day.date === this.selectedApprovalDate)) {
+                            this.selectedApprovalDate = approvalDays[0]?.date || currentDate;
+                        }
 
                         // Compute Payment Breakdown
                         const breakdown = {};
@@ -1010,6 +1237,7 @@
         if (window.Alpine) {
             const app = document.querySelector('[x-data]')?._x_dataStack[0];
             if (app && app.createForm) app.createForm.business_date = newDate;
+            if (app && app.selectedApprovalDate !== undefined) app.selectedApprovalDate = newDate;
             if (app && app.loadData) app.loadData();
         }
     }

@@ -254,7 +254,6 @@ Route::middleware('auth')->group(function () {
                 Route::post('/record-entry', [ShopOwnerController::class, 'cashbookRecordEntry'])->name('record-entry');
                 Route::post('/update-entry', [ShopOwnerController::class, 'cashbookUpdateEntry'])->name('update-entry');
                 Route::post('/delete-entry', [ShopOwnerController::class, 'cashbookDeleteEntry'])->name('delete-entry');
-                Route::post('/approve-entry', [ShopOwnerController::class, 'cashbookApproveEntry'])->name('approve-entry');
             });
         Route::get('/staff', [ShopOwnerStaffController::class, 'index'])->name('staff.index');
         Route::post('/staff/attendance', [ShopOwnerStaffController::class, 'storeAttendance'])->name('staff.attendance.store');
@@ -659,6 +658,8 @@ Route::middleware('auth')->group(function () {
                 Route::post('update-entry', [CashbookController::class, 'updateEntry'])->name('update-entry');
                 Route::post('delete-entry', [CashbookController::class, 'deleteEntry'])->name('delete-entry');
                 Route::post('void-entry', [CashbookController::class, 'voidEntry'])->name('void-entry');
+                Route::post('approve-entry', [CashbookController::class, 'approveEntry'])->name('approve-entry');
+                Route::post('approve-day', [CashbookController::class, 'approveDay'])->name('approve-day');
                 Route::post('accept-payment', [CashbookController::class, 'acceptPayment'])->name('accept-payment');
                 Route::post('pay-shop', [CashbookController::class, 'payShop'])->name('pay-shop');
                 Route::post('add-shop', [CashbookController::class, 'addShop'])->name('add-shop');

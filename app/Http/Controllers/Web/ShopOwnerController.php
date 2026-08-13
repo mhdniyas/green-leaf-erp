@@ -876,52 +876,6 @@ class ShopOwnerController extends Controller
         }
     }
 
-    public function cashbookApproveEntry(Request $request): JsonResponse
-    {
-        $shop = $this->ownedAccountingShop($request);
-        $validated = $request->validate([
-            'transaction_id' => ['required', 'integer', 'exists:shop_ledger_transactions,id'],
-        ]);
-
-        try {
-            $transaction = ShopLedgerTransaction::query()
-                ->where('shop_id', (int) $shop->id)
-                ->with('entryType')
-                ->findOrFail((int) $validated['transaction_id']);
-
-            if ($transaction->status === 'approved') {
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Entry is already approved.',
-                    'transaction' => $transaction,
-                ]);
-            }
-
-            if ($transaction->status === 'void') {
-                throw ValidationException::withMessages([
-                    'transaction_id' => 'Voided entries cannot be approved.',
-                ]);
-            }
-
-            $transaction->update([
-                'status' => 'approved',
-                'approved_by' => (int) ($request->user()?->id ?? 1),
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Entry approved successfully.',
-                'transaction' => $transaction->fresh()->load('entryType'),
-                'snapshot' => $this->dailyLedgerService->dailySummary((int) $shop->id, $transaction->business_date->toDateString()),
-            ]);
-        } catch (Throwable $exception) {
-            return response()->json([
-                'success' => false,
-                'message' => $exception->getMessage(),
-            ], 422);
-        }
-    }
-
     /**
      * @return Collection<int, array{date: Carbon, opening_balance: float, closing_balance: float, net_difference: float}>
      */

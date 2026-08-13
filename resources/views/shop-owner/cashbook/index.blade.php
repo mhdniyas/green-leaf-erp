@@ -114,19 +114,45 @@
                 <table class="w-full text-left text-xs">
                     <thead class="bg-slate-50 text-[10px] font-black uppercase text-slate-500">
                         <tr>
-                            <th class="px-4 py-2">Date</th>
-                            <th class="px-3 py-2">Entry Type</th>
-                            <th class="px-3 py-2">Funding</th>
-                            <th class="px-4 py-2 text-right">Amount</th>
+                            <th class="px-3 py-2">Date</th>
+                            <th class="px-2 py-2 text-center">Status</th>
+                            <th class="px-2 py-2">Funding</th>
+                            <th class="px-3 py-2 text-right">Amount</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
                         <template x-for="tx in transactions" :key="tx.id">
-                            <tr class="cursor-pointer transition hover:bg-slate-100/70" @click="openDetails(tx)">
-                                <td class="px-4 py-1.5 font-black text-slate-800" x-text="formatDayNumber(tx.business_date)"></td>
-                                <td class="px-3 py-1.5 font-bold text-slate-900" x-text="tx.entry_type ? tx.entry_type.name : tx.entry_type_code"></td>
-                                <td class="px-3 py-1.5 text-slate-500 capitalize" x-text="fundingSourceLabel(tx.funding_source)"></td>
-                                <td class="px-4 py-1.5 text-right font-bold text-xs text-slate-950" x-text="currency(tx.amount)"></td>
+                            <tr class="cursor-pointer transition hover:bg-slate-100/70" :class="tx.status === 'approved' ? 'bg-emerald-50/40' : ''" @click="openDetails(tx)">
+                                <td class="px-3 py-1.5 font-black text-slate-800">
+                                    <div class="flex items-center gap-2">
+                                        <span x-text="tx.business_date ? tx.business_date.slice(8, 10) + '-' + tx.business_date.slice(5, 7) : formatDayNumber(tx.business_date)"></span>
+                                    </div>
+                                </td>
+                                <td class="px-2 py-1.5 text-center">
+                                    <span class="inline-flex h-5.5 w-5.5 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700" x-show="tx.status === 'approved'" title="Approved">
+                                        <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="m4.2 10.4 3.2 3.2 8-8" />
+                                        </svg>
+                                    </span>
+                                    <span class="inline-flex h-5.5 w-5.5 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-700" x-show="tx.status !== 'approved'" title="Pending">
+                                        <svg class="h-3 w-3" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M10 4v8" />
+                                            <path d="M10 14h.01" />
+                                        </svg>
+                                    </span>
+                                </td>
+                                <td class="px-2 py-1.5 text-slate-500">
+                                    <span class="inline-flex items-center gap-1 capitalize">
+                                        <svg class="h-3.5 w-3.5" :class="tx.funding_source === 'sales' ? 'text-emerald-500' : (tx.funding_source === 'company' ? 'text-amber-500' : (tx.funding_source === 'bank' || tx.funding_source === 'external' ? 'text-sky-500' : 'text-slate-400'))" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path x-show="tx.funding_source === 'sales'" d="M4 14.5h12M5.5 10.5h9M7 6.5h6" />
+                                            <path x-show="tx.funding_source === 'company'" d="M4 15h12M6 15V6l4-2 4 2v9" />
+                                            <path x-show="tx.funding_source === 'bank' || tx.funding_source === 'external'" d="M3.5 8.5h13M5 8.5v6m4-6v6m4-6v6m4-6v6M3 15.5h14" />
+                                            <path x-show="!['sales','company','bank','external'].includes(tx.funding_source)" d="M5 10h10M4 7h12M4 13h12" />
+                                        </svg>
+                                        <span x-text="fundingSourceLabel(tx.funding_source)"></span>
+                                    </span>
+                                </td>
+                                <td class="px-3 py-1.5 text-right font-bold text-xs text-slate-950 whitespace-nowrap" x-text="currency(tx.amount)"></td>
                             </tr>
                         </template>
                         <tr x-show="transactions.length === 0">
@@ -432,6 +458,16 @@
                         <span class="font-bold text-slate-800 capitalize" x-text="fundingSourceLabel(selectedTx?.funding_source)"></span>
                     </div>
                     <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+                        <span class="text-[10px] font-black uppercase text-slate-400">Approval Status</span>
+                        <span
+                            class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider"
+                            :class="selectedTx?.status === 'approved'
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                : (selectedTx?.status === 'void' ? 'border-slate-200 bg-slate-100 text-slate-500' : 'border-amber-200 bg-amber-50 text-amber-700')"
+                            x-text="selectedTx?.status === 'approved' ? 'Approved' : (selectedTx?.status_label || selectedTx?.status || 'Posted')"
+                        ></span>
+                    </div>
+                    <div class="flex justify-between items-center border-b border-slate-100 pb-2">
                         <span class="text-[10px] font-black uppercase text-slate-400">Amount</span>
                         <span class="font-black text-sm text-slate-950" x-text="currency(selectedTx?.amount)"></span>
                     </div>
@@ -457,14 +493,6 @@
                         class="h-8 px-4 text-xs font-bold rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition"
                     >
                         Delete
-                    </button>
-                    <button
-                        type="button"
-                        x-show="selectedTx && canMutate(selectedTx)"
-                        @click="approveEntry(selectedTx)"
-                        class="h-8 px-4 text-xs font-bold rounded-lg border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 transition"
-                    >
-                        Approve
                     </button>
                     <button type="button" @click="openDetailsModal = false" class="h-8 px-4 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 transition">
                         Close
@@ -526,6 +554,41 @@
                 </div>
             </div>
         </div>
+
+        <div
+            x-cloak
+            x-show="openDeleteModal"
+            class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 sm:p-4 backdrop-blur-xs"
+            @keydown.escape.window="openDeleteModal = false"
+        >
+            <div class="w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl" @click.away="openDeleteModal = false">
+                <div class="flex items-center justify-between bg-slate-950 px-4 py-2.5 text-white">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-wider text-rose-400">Delete Entry</p>
+                        <h3 class="text-sm font-black text-white">Confirm removal</h3>
+                    </div>
+                    <button type="button" @click="openDeleteModal = false" class="rounded-lg border border-slate-700 bg-slate-900 p-1 text-slate-400 transition hover:bg-slate-800 hover:text-white" aria-label="Close">
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M18 6 6 18" />
+                            <path d="m6 6 12 12" />
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="p-4 space-y-3">
+                    <p class="text-sm font-semibold text-slate-700">Delete this entry?</p>
+                    <p class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600" x-text="deletingTx ? (deletingTx.entry_type ? deletingTx.entry_type.name : deletingTx.entry_type_code) + ' · ₹' + parseFloat(deletingTx.amount || 0).toFixed(2) : ''"></p>
+                    <div class="flex justify-end gap-2 pt-2">
+                        <button type="button" @click="openDeleteModal = false" class="h-8 px-4 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 transition">
+                            Cancel
+                        </button>
+                        <button type="button" @click="submitDelete()" class="h-8 px-4 text-xs font-bold rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition">
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 @endsection
 
@@ -538,8 +601,10 @@
                 activeTab: '{{ $activeTab }}',
                 openCreate: {{ $openModal ? 'true' : 'false' }},
                 openDetailsModal: false,
+                openDeleteModal: false,
                 openCardModal: false,
                 selectedTx: null,
+                deletingTx: null,
                 editingTxId: null,
                 cardModalData: {
                     title: '',
@@ -639,6 +704,12 @@
                     };
                     this.onEntryTypeChange();
                     this.openCreate = true;
+                    this.openDetailsModal = false;
+                },
+
+                openDelete(tx) {
+                    this.deletingTx = tx;
+                    this.openDeleteModal = true;
                     this.openDetailsModal = false;
                 },
 
@@ -852,7 +923,11 @@
                 },
 
                 async deleteEntry(tx) {
-                    if (!confirm('Delete this entry?')) {
+                    this.openDelete(tx);
+                },
+
+                async submitDelete() {
+                    if (!this.deletingTx) {
                         return;
                     }
 
@@ -862,7 +937,7 @@
                             'Content-Type': 'application/json',
                             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
                         },
-                        body: JSON.stringify({ transaction_id: tx.id }),
+                        body: JSON.stringify({ transaction_id: this.deletingTx.id }),
                     });
 
                     const payload = await response.json();
@@ -872,26 +947,8 @@
                     }
 
                     this.openDetailsModal = false;
-                    await this.loadData();
-                },
-
-                async approveEntry(tx) {
-                    const response = await fetch('{{ route('shop-owner.cashbook.api.approve-entry') }}', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-                        },
-                        body: JSON.stringify({ transaction_id: tx.id }),
-                    });
-
-                    const payload = await response.json();
-                    if (!payload.success) {
-                        alert(payload.message || 'Unable to approve entry.');
-                        return;
-                    }
-
-                    this.openDetailsModal = false;
+                    this.openDeleteModal = false;
+                    this.deletingTx = null;
                     await this.loadData();
                 },
 
