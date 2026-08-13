@@ -66,7 +66,7 @@
                 <div x-show="activePreset" class="mt-4 space-y-4">
                     <div>
                         <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Collection Name</label>
-                        <input type="text" x-model="form.name" placeholder="S/M Delivery Collection" class="mt-1 h-10 w-full max-w-md rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-950 focus:border-cyan-400 focus:outline-none">
+                        <input type="text" x-model="form.name" placeholder="Collection" class="mt-1 h-10 w-full max-w-md rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-950 focus:border-cyan-400 focus:outline-none">
                     </div>
 
                     <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -190,7 +190,7 @@ function collectionSettingsApp(initialShops, initialPresets, initialEntryTypes) 
         activeShopId: initialShops && initialShops.length > 0 ? initialShops[0].shop_id : null,
         shopSearch: '',
         form: {
-            name: 'S/M Delivery Collection',
+            name: 'Collection',
             income_entry_type_ids: [],
             expense_entry_type_ids: [],
         },
@@ -217,7 +217,7 @@ function collectionSettingsApp(initialShops, initialPresets, initialEntryTypes) 
         selectShop(shopId) {
             this.activeShopId = Number(shopId);
             this.form = {
-                name: 'S/M Delivery Collection',
+                name: 'Collection',
                 income_entry_type_ids: [],
                 expense_entry_type_ids: [],
             };
