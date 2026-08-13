@@ -997,6 +997,7 @@
         let currentDate = @json($selectedDate);
         let globalStartDate = @json($selectedDate);
         let globalEndDate = @json($selectedDate);
+        let globalTimeframe = 'daily';
         let loadedTransactions = [];
         let sessionTransactions = [];
         let activeCrudFilter = 'all';
@@ -1033,6 +1034,7 @@
             if (payShop) payShop.value = currentShopId;
             const payShop2 = document.getElementById('pay-shop-id');
             if (payShop2) payShop2.value = currentShopId;
+            setActiveDateFilterButton(activeDateFilter);
             selectEntryCategory('income');
             switchTab(initialTab, false);
         });
@@ -1081,10 +1083,11 @@
             return tabUrlMap[tabId] || '/admin/cashbook/all-shops';
         }
 
-        function syncGlobalDate(endDate, startDate = null) {
+        function syncGlobalDate(endDate, startDate = null, timeframe = 'daily') {
             currentDate = endDate;
             globalStartDate = startDate || endDate;
             globalEndDate   = endDate;
+            globalTimeframe = timeframe;
             document.getElementById('dashboard-date-input') && (document.getElementById('dashboard-date-input').value = endDate);
             if (currentTab === 'all-shops') loadAllShopsOverview();
             if (currentTab === 'payables') loadPayablesAndPendings();
@@ -1092,11 +1095,18 @@
         }
 
         // ── Date Filter Bar ─────────────────────────────────────────────────
-        let activeDateFilter = 'yesterday';
+        const todayForFilter = new Date();
+        const yesterdayForFilter = new Date(todayForFilter);
+        yesterdayForFilter.setDate(todayForFilter.getDate() - 1);
+        const dateFilterFmt = d => {
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+        let activeDateFilter = currentDate === dateFilterFmt(yesterdayForFilter) ? 'yesterday' : (currentDate === dateFilterFmt(todayForFilter) ? 'today' : 'custom');
 
-        function setDateFilter(filter) {
-            activeDateFilter = filter;
-
+        function setActiveDateFilterButton(filter) {
             document.querySelectorAll('.date-filter-btn').forEach(btn => {
                 btn.className = 'date-filter-btn px-3 py-1.5 rounded-lg text-xs font-bold border transition-all border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center gap-1';
             });
@@ -1104,6 +1114,11 @@
             if (activeBtn) {
                 activeBtn.className = 'date-filter-btn px-3 py-1.5 rounded-lg text-xs font-bold border transition-all border-brand-300 bg-brand-50 text-brand-700 flex items-center gap-1';
             }
+        }
+
+        function setDateFilter(filter) {
+            activeDateFilter = filter;
+            setActiveDateFilterButton(filter);
 
             const pickerEl = document.getElementById('all-shops-date-input');
             const labelEl  = document.getElementById('active-date-label');
@@ -1126,6 +1141,7 @@
             }
 
             let sDate, eDate, labelText;
+            let timeframe = 'daily';
             if (filter === 'today') {
                 sDate = today;
                 eDate = today;
@@ -1140,10 +1156,12 @@
                 const diff = (day === 0) ? 6 : day - 1; // Monday
                 sDate = new Date(today); sDate.setDate(today.getDate() - diff);
                 eDate = today;
+                timeframe = 'weekly';
                 labelText = `${fmtLabel(sDate)} – ${fmtLabel(eDate)}`;
             } else if (filter === 'month') {
                 sDate = new Date(today.getFullYear(), today.getMonth(), 1); // 1st of month
-                eDate = new Date(today.getFullYear(), today.getMonth() + 1, 0); // last day of month
+                eDate = today;
+                timeframe = 'monthly';
                 labelText = `${fmtLabel(sDate)} – ${fmtLabel(eDate)}`;
             }
 
@@ -1151,7 +1169,7 @@
             const eStr = fmt(eDate);
             pickerEl.value = eStr;
             if (labelEl) labelEl.innerText = labelText;
-            syncGlobalDate(eStr, sStr);
+            syncGlobalDate(eStr, sStr, timeframe);
         }
 
         function onCustomDateChange(val) {
@@ -1160,7 +1178,7 @@
                 const d = new Date(val + 'T00:00:00');
                 labelEl.innerText = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
             }
-            syncGlobalDate(val, val);
+            syncGlobalDate(val, val, 'custom');
         }
         // ─────────────────────────────────────────────────────────────────────
 
@@ -1294,7 +1312,13 @@
         // Load All Shops Overview — Grouped by Client vs Direct
         async function loadAllShopsOverview() {
             try {
-                const res = await fetch(`/admin/cashbook/api/all-shops-overview?start_date=${globalStartDate}&end_date=${globalEndDate}&business_date=${currentDate}`);
+                const params = new URLSearchParams({
+                    start_date: globalStartDate,
+                    end_date: globalEndDate,
+                    business_date: currentDate,
+                    timeframe: globalTimeframe,
+                });
+                const res = await fetch(`/admin/cashbook/api/all-shops-overview?${params.toString()}`);
                 const data = await res.json();
 
                 if (!data.success) return;
@@ -1738,7 +1762,14 @@
 
         async function loadDashboardData() {
             try {
-                const res = await fetch(`/admin/cashbook/api/shop-data?shop_id=${currentShopId}&business_date=${currentDate}`);
+                const params = new URLSearchParams({
+                    shop_id: currentShopId,
+                    business_date: currentDate,
+                    timeframe: globalTimeframe,
+                    start_date: globalStartDate,
+                    end_date: globalEndDate,
+                });
+                const res = await fetch(`/admin/cashbook/api/shop-data?${params.toString()}`);
                 const data = await res.json();
 
                 if (data.success) {

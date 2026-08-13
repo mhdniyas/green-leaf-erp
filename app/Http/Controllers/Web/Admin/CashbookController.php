@@ -398,27 +398,31 @@ final class CashbookController extends Controller
     {
         $this->ensureMainAdmin($request);
 
-        $shopId = (int) $request->input('shop_id', 1);
-        $date = $request->input('business_date', today()->toDateString());
-        $timeframe = $request->input('timeframe', 'daily');
-        $perPage = (int) $request->input('per_page', 50);
+        $validated = $request->validate([
+            'shop_id' => ['nullable', 'integer'],
+            'business_date' => ['nullable', 'date_format:Y-m-d'],
+            'timeframe' => ['nullable', 'in:daily,weekly,monthly,custom'],
+            'start_date' => ['nullable', 'date_format:Y-m-d'],
+            'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:start_date'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:200'],
+            'page' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $shopId = (int) ($validated['shop_id'] ?? 1);
+        $date = $validated['business_date'] ?? today()->toDateString();
+        $timeframe = $validated['timeframe'] ?? 'daily';
+        $perPage = (int) ($validated['per_page'] ?? 50);
         $month = substr($date, 0, 7);
 
-        $carbon = Carbon::parse($date);
-        $startOfWeek = $carbon->copy()->startOfWeek()->format('Y-m-d');
-        $endOfWeek = $carbon->copy()->endOfWeek()->format('Y-m-d');
-        $startOfMonth = $carbon->copy()->startOfMonth()->format('Y-m-d');
-        $endOfMonth = $carbon->copy()->endOfMonth()->format('Y-m-d');
-
-        [$finalStart, $finalEnd] = match ($timeframe) {
-            'weekly' => [$startOfWeek, $endOfWeek],
-            'monthly' => [$startOfMonth, $endOfMonth],
-            'custom' => [
-                (string) $request->input('start_date', $date),
-                (string) $request->input('end_date', $date),
-            ],
-            default => [$date, $date],
-        };
+        [$finalStart, $finalEnd] = $this->cashbookRange(
+            $date,
+            $timeframe,
+            $validated['start_date'] ?? null,
+            $validated['end_date'] ?? null
+        );
+        $rangeEnd = Carbon::parse($finalEnd);
+        $startOfWeek = $rangeEnd->copy()->startOfWeek()->format('Y-m-d');
+        $endOfWeek = $rangeEnd->copy()->endOfWeek()->min(today())->format('Y-m-d');
 
         $rangeTransactions = ShopLedgerTransaction::with('entryType')
             ->where('shop_id', $shopId)
@@ -437,7 +441,7 @@ final class CashbookController extends Controller
 
         $netPl = $totalSales - $totalExpense;
 
-        $dailySnapshot = $this->ledgerService->dailySummary($shopId, $date);
+        $dailySnapshot = $this->ledgerService->dailySummary($shopId, $finalEnd);
 
         $snapshotData = [
             'total_sales' => $totalSales,
@@ -486,6 +490,8 @@ final class CashbookController extends Controller
         return response()->json([
             'success' => true,
             'timeframe' => $timeframe,
+            'start_date' => $finalStart,
+            'end_date' => $finalEnd,
             'start_of_week' => $startOfWeek,
             'end_of_week' => $endOfWeek,
             'snapshot' => $snapshotData,
@@ -506,12 +512,19 @@ final class CashbookController extends Controller
 
         $validated = $request->validate([
             'business_date' => ['nullable', 'date_format:Y-m-d'],
+            'timeframe' => ['nullable', 'in:daily,weekly,monthly,custom'],
             'start_date' => ['nullable', 'date_format:Y-m-d'],
             'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:start_date'],
         ]);
-        $defaultDate = today()->subDay()->toDateString();
-        $startDate = $validated['start_date'] ?? $validated['business_date'] ?? $defaultDate;
-        $endDate = $validated['end_date'] ?? $validated['business_date'] ?? $defaultDate;
+        $defaultDate = today()->toDateString();
+        $businessDate = $validated['business_date'] ?? $defaultDate;
+        $timeframe = $validated['timeframe'] ?? 'daily';
+        [$startDate, $endDate] = $this->cashbookRange(
+            $businessDate,
+            $timeframe,
+            $validated['start_date'] ?? null,
+            $validated['end_date'] ?? null
+        );
 
         $shops = $this->shopSyncService->syncAndGetProfiles();
         $shops->load('client');
@@ -610,6 +623,7 @@ final class CashbookController extends Controller
         return response()->json([
             'success' => true,
             'company_name' => config('greenleaf.name', 'Green Leaf'),
+            'timeframe' => $timeframe,
             'start_date' => $startDate,
             'end_date' => $endDate,
             'overview' => $overview,
@@ -1285,7 +1299,7 @@ final class CashbookController extends Controller
 
         $initialShopId = (int) ($initialShopId ?: 1);
 
-        $selectedDate ??= today()->subDay()->toDateString();
+        $selectedDate ??= today()->toDateString();
 
         return view('admin.cashbook.index', compact(
             'shops', 'clients', 'entryTypes', 'companyAccounts', 'company', 'initialTab', 'initialShopId', 'selectedDate'
@@ -1296,6 +1310,30 @@ final class CashbookController extends Controller
     {
         $validated = $request->validate(['date' => ['nullable', 'date_format:Y-m-d']]);
 
-        return $validated['date'] ?? today()->subDay()->toDateString();
+        return $validated['date'] ?? today()->toDateString();
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function cashbookRange(string $businessDate, string $timeframe, ?string $startDate = null, ?string $endDate = null): array
+    {
+        $selectedDate = Carbon::parse($businessDate)->min(today());
+
+        [$rangeStart, $rangeEnd] = match ($timeframe) {
+            'weekly' => [$selectedDate->copy()->startOfWeek(), $selectedDate->copy()],
+            'monthly' => [$selectedDate->copy()->startOfMonth(), $selectedDate->copy()],
+            'custom' => [
+                Carbon::parse($startDate ?? $businessDate),
+                Carbon::parse($endDate ?? $businessDate)->min(today()),
+            ],
+            default => [$selectedDate->copy(), $selectedDate->copy()],
+        };
+
+        if ($rangeStart->greaterThan($rangeEnd)) {
+            $rangeStart = $rangeEnd->copy();
+        }
+
+        return [$rangeStart->toDateString(), $rangeEnd->toDateString()];
     }
 }

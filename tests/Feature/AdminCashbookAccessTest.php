@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\Cashbook\LedgerClient;
+use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerProfile;
+use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Client;
 use App\Models\Shop;
 use App\Models\ShopInvoice;
@@ -163,6 +165,75 @@ class AdminCashbookAccessTest extends TestCase
             ->assertOk()
             ->assertSee('13 Aug 2026')
             ->assertSee('let currentDate = "2026-08-13";', false);
+    }
+
+    public function test_cashbook_defaults_to_today(): void
+    {
+        $this->travelTo('2026-08-13 10:00:00');
+
+        $mainAdmin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $mainAdmin->assignRole('admin');
+
+        $this->actingAs($mainAdmin)
+            ->get(route('admin.cashbook.index'))
+            ->assertOk()
+            ->assertSee('13 Aug 2026')
+            ->assertSee('let currentDate = "2026-08-13";', false);
+    }
+
+    public function test_cashbook_monthly_shop_data_clamps_future_month_end_to_today(): void
+    {
+        $this->travelTo('2026-08-13 10:00:00');
+
+        $mainAdmin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $mainAdmin->assignRole('admin');
+
+        $entryType = LedgerEntryType::query()->create([
+            'code' => 'test_sales',
+            'name' => 'Test Sales',
+            'category' => 'income',
+            'system_type' => 'manual',
+            'active' => true,
+        ]);
+        $shop = Shop::factory()->create([
+            'client_id' => null,
+            'accounting_enabled' => false,
+            'accounting_mode' => 'regular',
+        ]);
+
+        ShopLedgerTransaction::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-13',
+            'entry_type_id' => $entryType->id,
+            'amount' => 100,
+            'direction' => 'income',
+            'funding_source' => 'sales',
+            'affects_income' => true,
+            'affects_pl' => true,
+            'pl_delta' => 100,
+        ]);
+        ShopLedgerTransaction::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-31',
+            'entry_type_id' => $entryType->id,
+            'amount' => 900,
+            'direction' => 'income',
+            'funding_source' => 'sales',
+            'affects_income' => true,
+            'affects_pl' => true,
+            'pl_delta' => 900,
+        ]);
+
+        $response = $this->actingAs($mainAdmin)
+            ->getJson(route('admin.cashbook.api.shop-data', [
+                'shop_id' => $shop->id,
+                'business_date' => '2026-08-31',
+                'timeframe' => 'monthly',
+            ]));
+
+        $response->assertOk();
+        $this->assertEquals(100.0, $response->json('snapshot.total_sales'));
+        $this->assertEquals(100.0, $response->json('snapshot.net_pl'));
     }
 
     public function test_direct_shops_are_preserved_and_grouped_from_cashbook_profile_state(): void
