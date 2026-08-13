@@ -28,16 +28,7 @@ class CashbookShopSyncService
      */
     public function syncAndGetProfiles(): Collection
     {
-        // Sync all shops that participate in cashbook accounting:
-        //   - accounting_mode = 'owned' (Aiswarya Veg style managed shops)
-        //   - client_id IS NOT NULL (explicitly client-linked)
-        //   - accounting_mode = 'regular' with accounting_enabled (direct buyer shops: Fortune, Quick Mart, etc.)
-        // Auto-enable accounting for direct non-owned shops if disabled in database
-        Shop::query()
-            ->whereNull('client_id')
-            ->where('accounting_enabled', false)
-            ->update(['accounting_enabled' => true, 'accounting_mode' => 'regular']);
-
+        // Fetch all participating ERP shops dynamically from database
         $erpShops = Shop::query()
             ->where('accounting_enabled', true)
             ->where(function ($query): void {
@@ -53,16 +44,12 @@ class CashbookShopSyncService
         $grandcityPreset = ShopConfigPreset::where('slug', 'grandcity-extended')->first();
 
         foreach ($erpShops as $erpShop) {
-            if (! $erpShop->accounting_enabled) {
-                $erpShop->update(['accounting_enabled' => true]);
-            }
-
             $isGrandcity = Str::contains(strtoupper($erpShop->code), 'GRANDCITY')
                 || Str::contains(strtoupper($erpShop->name), 'GRANDCITY');
 
             $preset = $isGrandcity ? ($grandcityPreset ?? $standardPreset) : $standardPreset;
 
-            $isDirectShop = $erpShop->client_id === null || (string) $erpShop->accounting_mode === 'regular';
+            $isClientAccounting = $erpShop->client_id !== null || (string) $erpShop->accounting_mode === 'owned';
 
             $profile = ShopLedgerProfile::updateOrCreate(
                 ['shop_id' => $erpShop->id],
@@ -71,8 +58,8 @@ class CashbookShopSyncService
                     'slug'             => Str::slug($erpShop->code . '-' . $erpShop->name),
                     'code'             => $erpShop->code,
                     'name'             => $erpShop->name,
-                    'profile_template' => $isDirectShop ? 'direct_buyer' : 'owned_standard',
-                    'enabled'          => true,
+                    'profile_template' => $isClientAccounting ? 'owned_standard' : 'direct_buyer',
+                    'enabled'          => (bool) $erpShop->accounting_enabled,
                     'closing_mode'     => 'manual',
                     'preset_id'        => $preset?->id,
                     'client_id'        => ($erpShop->client_id && LedgerClient::where('id', $erpShop->client_id)->exists()) ? $erpShop->client_id : null,

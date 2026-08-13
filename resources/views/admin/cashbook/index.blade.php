@@ -1313,9 +1313,9 @@
                 if (summaryReceived)    summaryReceived.innerText     = `₹${(totals.total_received_today || 0).toFixed(2)}`;
                 if (summaryPayable)     summaryPayable.innerText      = `₹${(totals.closing_shop_position || 0).toFixed(2)}`;
 
-                // Split shops by ownership (client-owned vs direct/non-owned)
-                const clientShops = overview.filter(item => !item.is_direct && item.shop && item.shop.client_id !== null);
-                const directShops = overview.filter(item => item.is_direct || !item.shop || item.shop.client_id === null);
+                // Split shops dynamically by client_id (Client-linked vs Direct)
+                const clientShops = overview.filter(item => item.shop && item.shop.client_id !== null);
+                const directShops = overview.filter(item => !item.shop || item.shop.client_id === null);
 
                 // ──────────────────────────────────────────────────────────────
                 // CLIENT-OWNED SHOPS TABLE (GL Bills-centric view)
