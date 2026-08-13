@@ -90,9 +90,9 @@
                     <label class="text-xs font-extrabold text-slate-700 uppercase tracking-wide mb-1.5 block">Initial Entry Rules Setup</label>
                     <select x-model="newPreset.copy_from_preset_id"
                             class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-600 text-slate-700 bg-white">
-                        <option value="">✨ Start empty (Customize all entry types one by one)</option>
+                        <option value="">Start empty (Customize all entry types one by one)</option>
                         <template x-for="p in presets" :key="p.id">
-                            <option :value="p.id" x-text="'📋 Copy rules from: ' + p.name"></option>
+                            <option :value="p.id" x-text="'Copy rules from: ' + p.name"></option>
                         </template>
                     </select>
                 </div>
@@ -102,6 +102,111 @@
                         Create Custom Preset
                     </button>
                     <button @click="showNewPreset = false"
+                            class="py-3 px-5 text-xs font-extrabold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200 transition">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- NEW ENTRY RULE OPTION MODAL --}}
+    <div x-show="showNewRuleModal" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
+         @click.self="showNewRuleModal = false">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-7 border border-slate-100 animate-in fade-in zoom-in-95 duration-150 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div>
+                    <h3 class="text-lg font-extrabold text-slate-900">Add New Entry Rule Card</h3>
+                    <p class="text-xs text-slate-500 mt-0.5">Create a new entry rule option (e.g. Card, UPI, Discount) with custom accounting math.</p>
+                </div>
+                <button @click="showNewRuleModal = false" class="text-slate-400 hover:text-slate-700 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="space-y-4 text-xs">
+                <div>
+                    <label class="font-extrabold text-slate-700 uppercase tracking-wide mb-1 block">Entry Rule Name <span class="text-rose-500">*</span></label>
+                    <input type="text" x-model="newRule.name" placeholder="e.g. Card, UPI Payment, Customer Discount"
+                           class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-600 text-slate-900">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="font-extrabold text-slate-700 uppercase tracking-wide mb-1 block">Entry Code (Optional)</label>
+                        <input type="text" x-model="newRule.code" placeholder="e.g. CARD"
+                               class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-indigo-600 text-slate-900 uppercase">
+                    </div>
+                    <div>
+                        <label class="font-extrabold text-slate-700 uppercase tracking-wide mb-1 block">Category <span class="text-rose-500">*</span></label>
+                        <select x-model="newRule.category"
+                                class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-600 text-slate-800 bg-white">
+                            <option value="income">Sales & Income</option>
+                            <option value="expense">Operating Expenses</option>
+                            <option value="transfer">Settlements & Debt</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="font-extrabold text-slate-700 uppercase tracking-wide mb-1 block">Description</label>
+                    <input type="text" x-model="newRule.description" placeholder="e.g. Card transaction entry rule."
+                           class="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-600 text-slate-900">
+                </div>
+
+                <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                    <span class="text-[10px] font-extrabold uppercase tracking-wider text-indigo-700 block">Accounting Math & Impact Rule Setup</span>
+                    
+                    <div class="grid grid-cols-3 gap-2">
+                        <label class="flex items-center gap-1.5 p-2 rounded-lg border border-slate-200 bg-white cursor-pointer font-bold text-slate-700">
+                            <input type="checkbox" x-model="newRule.include_in_sales" class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4">
+                            <span>In Sales</span>
+                        </label>
+                        <label class="flex items-center gap-1.5 p-2 rounded-lg border border-slate-200 bg-white cursor-pointer font-bold text-slate-700">
+                            <input type="checkbox" x-model="newRule.include_in_expense" class="rounded text-rose-600 focus:ring-rose-500 h-4 w-4">
+                            <span>In Expense</span>
+                        </label>
+                        <label class="flex items-center gap-1.5 p-2 rounded-lg border border-slate-200 bg-white cursor-pointer font-bold text-slate-700">
+                            <input type="checkbox" x-model="newRule.include_in_pl" class="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4">
+                            <span>In P&L</span>
+                        </label>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div>
+                            <label class="text-[10px] font-extrabold uppercase text-slate-500 mb-1 block">Settlement Impact</label>
+                            <select x-model="newRule.settlement_behavior" class="w-full border border-slate-200 rounded-lg px-2 py-1.5 font-semibold text-slate-800 bg-white">
+                                <option value="none">None (0.00)</option>
+                                <option value="decrease">- Decrease Settlement</option>
+                                <option value="increase">+ Increase Settlement</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-extrabold uppercase text-slate-500 mb-1 block">Petty Impact</label>
+                            <select x-model="newRule.petty_behavior" class="w-full border border-slate-200 rounded-lg px-2 py-1.5 font-semibold text-slate-800 bg-white">
+                                <option value="none">None (0.00)</option>
+                                <option value="decrease">- Decrease Petty</option>
+                                <option value="increase">+ Increase Petty</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-extrabold uppercase text-slate-500 mb-1 block">Company Pending</label>
+                            <select x-model="newRule.company_pending_behavior" class="w-full border border-slate-200 rounded-lg px-2 py-1.5 font-semibold text-slate-800 bg-white">
+                                <option value="none">None (0.00)</option>
+                                <option value="increase">+ Company Owes Shop</option>
+                                <option value="decrease">- Shop Owes Company</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-3 pt-2">
+                    <button @click="createEntryRule()"
+                            class="flex-1 py-3 text-xs font-extrabold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition shadow-md shadow-indigo-600/20">
+                        Create Entry Rule Card
+                    </button>
+                    <button @click="showNewRuleModal = false"
                             class="py-3 px-5 text-xs font-extrabold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200 transition">
                         Cancel
                     </button>
@@ -177,25 +282,32 @@
         {{-- ENTRY RULES CONFIGURATOR CARDS --}}
         <div class="p-6 md:p-8 space-y-6">
 
-            {{-- Category Filter Tabs --}}
-            <div class="flex items-center justify-between border-b border-slate-200 pb-4">
+            {{-- Category Filter Tabs & Add Rule Button --}}
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-4 gap-3">
                 <div class="text-sm font-extrabold text-slate-900 flex items-center gap-2">
                     <i data-lucide="list-checks" class="w-4 h-4 text-indigo-600"></i>
                     Entry Type Rules Configuration
                 </div>
-                <div class="flex gap-1.5">
-                    <button @click="categoryFilter = 'all'"
-                            :class="categoryFilter === 'all' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
-                            class="px-3 py-1.5 rounded-lg text-xs font-bold transition">All Rules</button>
-                    <button @click="categoryFilter = 'income'"
-                            :class="categoryFilter === 'income' ? 'bg-emerald-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
-                            class="px-3 py-1.5 rounded-lg text-xs font-bold transition">Sales & Income</button>
-                    <button @click="categoryFilter = 'expense'"
-                            :class="categoryFilter === 'expense' ? 'bg-rose-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
-                            class="px-3 py-1.5 rounded-lg text-xs font-bold transition">Operating Expenses</button>
-                    <button @click="categoryFilter = 'transfer'"
-                            :class="categoryFilter === 'transfer' ? 'bg-indigo-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
-                            class="px-3 py-1.5 rounded-lg text-xs font-bold transition">Settlements & Debt</button>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button @click="showNewRuleModal = true"
+                            class="px-3 py-1.5 rounded-lg text-xs font-extrabold text-white bg-indigo-600 hover:bg-indigo-700 transition flex items-center gap-1.5 shadow-sm">
+                        <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
+                        Add New Entry Rule Card
+                    </button>
+                    <div class="flex gap-1">
+                        <button @click="categoryFilter = 'all'"
+                                :class="categoryFilter === 'all' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
+                                class="px-3 py-1.5 rounded-lg text-xs font-bold transition">All Rules</button>
+                        <button @click="categoryFilter = 'income'"
+                                :class="categoryFilter === 'income' ? 'bg-emerald-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
+                                class="px-3 py-1.5 rounded-lg text-xs font-bold transition">Sales & Income</button>
+                        <button @click="categoryFilter = 'expense'"
+                                :class="categoryFilter === 'expense' ? 'bg-rose-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
+                                class="px-3 py-1.5 rounded-lg text-xs font-bold transition">Operating Expenses</button>
+                        <button @click="categoryFilter = 'transfer'"
+                                :class="categoryFilter === 'transfer' ? 'bg-indigo-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
+                                class="px-3 py-1.5 rounded-lg text-xs font-bold transition">Settlements & Debt</button>
+                    </div>
                 </div>
             </div>
 
@@ -255,11 +367,11 @@
                             {{-- Math breakdown badges --}}
                             <div class="grid grid-cols-2 gap-2 text-[11px]">
                                 <div class="bg-white rounded-lg p-2.5 border border-slate-200 shadow-xs">
-                                    <div class="text-[9px] font-extrabold uppercase tracking-wider text-slate-500 mb-0.5">➕ Adds To</div>
+                                    <div class="text-[9px] font-extrabold uppercase tracking-wider text-slate-500 mb-0.5 flex items-center gap-1"><i data-lucide="plus-circle" class="w-3 h-3 text-emerald-600"></i> Adds To</div>
                                     <div class="font-extrabold text-emerald-700" x-text="getAddsToText(setting)"></div>
                                 </div>
                                 <div class="bg-white rounded-lg p-2.5 border border-slate-200 shadow-xs">
-                                    <div class="text-[9px] font-extrabold uppercase tracking-wider text-slate-500 mb-0.5">➖ Subtracts / Reduces</div>
+                                    <div class="text-[9px] font-extrabold uppercase tracking-wider text-slate-500 mb-0.5 flex items-center gap-1"><i data-lucide="minus-circle" class="w-3 h-3 text-rose-600"></i> Subtracts / Reduces</div>
                                     <div class="font-extrabold text-rose-700" x-text="getSubtractsFromText(setting)"></div>
                                 </div>
                             </div>
@@ -306,8 +418,8 @@
                                             @change="updateSettingField(setting.id, 'settlement_behavior', $event.target.value)"
                                             class="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 bg-white focus:ring-2 focus:ring-indigo-600">
                                         <option value="none">None (0.00)</option>
-                                        <option value="decrease">➖ Decrease Settlement</option>
-                                        <option value="increase">➕ Increase Settlement</option>
+                                        <option value="decrease">- Decrease Settlement</option>
+                                        <option value="increase">+ Increase Settlement</option>
                                     </select>
                                 </div>
                                 <div>
@@ -316,8 +428,8 @@
                                             @change="updateSettingField(setting.id, 'petty_behavior', $event.target.value)"
                                             class="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 bg-white focus:ring-2 focus:ring-indigo-600">
                                         <option value="none">None (0.00)</option>
-                                        <option value="decrease">➖ Decrease Petty</option>
-                                        <option value="increase">➕ Increase Petty</option>
+                                        <option value="decrease">- Decrease Petty</option>
+                                        <option value="increase">+ Increase Petty</option>
                                     </select>
                                 </div>
                                 <div>
@@ -326,8 +438,8 @@
                                             @change="updateSettingField(setting.id, 'company_pending_behavior', $event.target.value)"
                                             class="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 bg-white focus:ring-2 focus:ring-indigo-600">
                                         <option value="none">None (0.00)</option>
-                                        <option value="increase">➕ Company Owes Shop</option>
-                                        <option value="decrease">➖ Shop Owes Company</option>
+                                        <option value="increase">+ Company Owes Shop</option>
+                                        <option value="decrease">- Shop Owes Company</option>
                                     </select>
                                 </div>
                             </div>
@@ -457,9 +569,22 @@ function presetsApp(initialPresets, initialShops) {
         shops: initialShops || [],
         activePresetId: (initialPresets && initialPresets.length > 0) ? initialPresets[0].id : null,
         showNewPreset: false,
+        showNewRuleModal: false,
         categoryFilter: 'all',
         searchShop: '',
         newPreset: { name: '', description: '', copy_from_preset_id: '' },
+        newRule: {
+            name: '',
+            code: '',
+            category: 'income',
+            description: '',
+            include_in_sales: true,
+            include_in_expense: false,
+            include_in_pl: true,
+            settlement_behavior: 'none',
+            petty_behavior: 'none',
+            company_pending_behavior: 'none'
+        },
 
         get activePreset() {
             return this.presets.find(p => p.id == this.activePresetId) || null;
@@ -527,11 +652,11 @@ function presetsApp(initialPresets, initialShops) {
         },
 
         getMathBadgeText(setting) {
-            if (setting.include_in_sales) return '➕ SALES & SETTLEMENT';
-            if (setting.include_in_expense && setting.settlement_behavior === 'decrease') return '➖ SUBTRACTS FROM CASH HANDOVER';
-            if (setting.settlement_behavior === 'decrease') return '➖ DECREASES SETTLEMENT DEBT';
-            if (setting.include_in_expense) return '➖ OPERATING EXPENSE';
-            return 'ℹ️ INTERNAL ENTRY';
+            if (setting.include_in_sales) return '+ SALES & SETTLEMENT';
+            if (setting.include_in_expense && setting.settlement_behavior === 'decrease') return '- SUBTRACTS FROM CASH HANDOVER';
+            if (setting.settlement_behavior === 'decrease') return '- DECREASES SETTLEMENT DEBT';
+            if (setting.include_in_expense) return '- OPERATING EXPENSE';
+            return 'INTERNAL ENTRY';
         },
 
         getAddsToText(setting) {
@@ -592,6 +717,47 @@ function presetsApp(initialPresets, initialShops) {
                 }
             } catch (e) {
                 showToast('Failed to create preset', 'error');
+            }
+        },
+
+        async createEntryRule() {
+            if (!this.newRule.name.trim()) {
+                showToast('Please enter an entry rule name', 'error');
+                return;
+            }
+            try {
+                const res = await fetch('/admin/cashbook/api/presets/create-entry-rule', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify(this.newRule),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    this.showNewRuleModal = false;
+                    if (data.created_settings && this.presets) {
+                        data.created_settings.forEach(s => {
+                            const p = this.presets.find(p => p.id == s.preset_id);
+                            if (p) {
+                                if (!p.entry_settings) p.entry_settings = [];
+                                p.entry_settings.push(s);
+                            }
+                        });
+                    }
+                    this.newRule = {
+                        name: '', code: '', category: 'income', description: '',
+                        include_in_sales: true, include_in_expense: false, include_in_pl: true,
+                        settlement_behavior: 'none', petty_behavior: 'none', company_pending_behavior: 'none'
+                    };
+                    this.$nextTick(() => { if (window.lucide) lucide.createIcons(); });
+                } else {
+                    showToast(data.message || 'Failed to create entry rule', 'error');
+                }
+            } catch (e) {
+                showToast('Failed to create entry rule', 'error');
             }
         },
 

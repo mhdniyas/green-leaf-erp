@@ -1512,6 +1512,77 @@ final class CashbookController extends Controller
         }
     }
 
+    /**
+     * API: Create a new custom entry type rule and add it to preset configurations.
+     */
+    public function createEntryRule(Request $request): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:100',
+            'code' => 'nullable|string|max:50',
+            'category' => 'required|string|in:income,expense,transfer',
+            'description' => 'nullable|string|max:255',
+            'include_in_sales' => 'nullable|boolean',
+            'include_in_expense' => 'nullable|boolean',
+            'include_in_pl' => 'nullable|boolean',
+            'settlement_behavior' => 'nullable|string|in:none,decrease,increase',
+            'petty_behavior' => 'nullable|string|in:none,decrease,increase',
+            'company_pending_behavior' => 'nullable|string|in:none,increase,decrease',
+        ]);
+
+        try {
+            $name = trim($validated['name']);
+            $code = !empty($validated['code'])
+                ? strtoupper(preg_replace('/[^A-Za-z0-9_]/', '', str_replace(' ', '_', $validated['code'])))
+                : strtoupper(preg_replace('/[^A-Za-z0-9_]/', '', str_replace(' ', '_', $name)));
+
+            $entryType = LedgerEntryType::firstOrCreate(
+                ['code' => $code],
+                [
+                    'name' => $name,
+                    'category' => $validated['category'],
+                    'system_type' => 'custom',
+                    'active' => true,
+                    'display_order' => (LedgerEntryType::max('display_order') ?? 0) + 1,
+                ]
+            );
+
+            $presets = ShopConfigPreset::all();
+            $createdSettings = [];
+            foreach ($presets as $preset) {
+                $setting = PresetEntrySetting::firstOrCreate(
+                    [
+                        'preset_id' => $preset->id,
+                        'entry_type_id' => $entryType->id,
+                    ],
+                    [
+                        'enabled' => true,
+                        'include_in_sales' => (bool)($validated['include_in_sales'] ?? false),
+                        'include_in_income' => (bool)($validated['include_in_sales'] ?? false),
+                        'include_in_expense' => (bool)($validated['include_in_expense'] ?? false),
+                        'include_in_pl' => (bool)($validated['include_in_pl'] ?? true),
+                        'settlement_behavior' => $validated['settlement_behavior'] ?? 'none',
+                        'petty_behavior' => $validated['petty_behavior'] ?? 'none',
+                        'company_pending_behavior' => $validated['company_pending_behavior'] ?? 'none',
+                        'display_order' => $entryType->display_order ?? 0,
+                    ]
+                );
+                $createdSettings[] = $setting->load('entryType');
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => "Entry rule '{$name}' created and added to preset configuration.",
+                'entry_type' => $entryType,
+                'created_settings' => $createdSettings,
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
     // ─── Private helpers ─────────────────────────────────────────────────────
 
     private function ensureMainAdmin(Request $request): void

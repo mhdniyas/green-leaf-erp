@@ -666,6 +666,7 @@ Route::middleware('auth')->group(function () {
                 Route::post('update-rule', [CashbookController::class, 'updateRule'])->name('update-rule');
                 Route::post('toggle-day', [CashbookController::class, 'toggleDay'])->name('toggle-day');
                 Route::post('presets/create', [CashbookController::class, 'createPreset'])->name('presets.create');
+                Route::post('presets/create-entry-rule', [CashbookController::class, 'createEntryRule'])->name('presets.create-entry-rule');
                 Route::post('presets/update-setting', [CashbookController::class, 'updatePresetSetting'])->name('presets.update-setting');
                 Route::post('assign-preset', [CashbookController::class, 'assignShopPreset'])->name('assign-preset');
             });

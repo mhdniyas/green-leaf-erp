@@ -3,10 +3,10 @@
 @section('title', 'Settings — Green Leaf Ledger System')
 
 @section('content')
-<div class="space-y-8">
+<div class="space-y-8" x-data="settingsIndexApp()">
 
     {{-- PAGE HEADER with hierarchy context --}}
-    <div class="flex items-start justify-between">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
             <div class="flex items-center gap-2 text-xs font-medium mb-2">
                 <span class="flex items-center gap-1 font-bold text-emerald-700">
@@ -20,13 +20,113 @@
                 @endforeach
             </div>
             <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight">Settings</h1>
-            <p class="mt-1 text-sm text-slate-500">Manage system-wide configurations, presets, and shop assignments.</p>
+            <p class="mt-1 text-sm text-slate-500">Manage system-wide configurations, rule presets, and shop assignments.</p>
         </div>
-        <a href="{{ route('admin.cashbook.settings.presets') }}"
-           class="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-slate-900 rounded-xl hover:bg-slate-800 transition shadow-sm">
-            <i data-lucide="layers" class="w-3.5 h-3.5"></i>
-            Manage Presets
+        <div class="flex flex-wrap items-center gap-2.5">
+            <button @click="showNewPresetModal = true"
+                    class="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition shadow-md shadow-indigo-600/20">
+                <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                Add New Setting Option
+            </button>
+            <a href="{{ route('admin.cashbook.settings.presets') }}"
+               class="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition shadow-xs">
+                <i data-lucide="layers" class="w-4 h-4 text-indigo-600"></i>
+                Manage Presets
+            </a>
+        </div>
+    </div>
+
+    {{-- QUICK SETTINGS & CONFIGURATION ACTIONS --}}
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <button @click="showNewPresetModal = true" class="white-card rounded-2xl p-4 border border-slate-200 shadow-xs hover:border-indigo-300 hover:shadow-sm transition text-left flex items-center gap-3">
+            <div class="h-10 w-10 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center flex-shrink-0 font-bold">
+                <i data-lucide="plus-circle" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <div class="text-xs font-extrabold text-slate-900">Add Setting Option</div>
+                <div class="text-[10px] text-slate-500 font-medium">Create rule preset</div>
+            </div>
+        </button>
+
+        <a href="{{ route('admin.cashbook.bank-accounts.create') }}" class="white-card rounded-2xl p-4 border border-slate-200 shadow-xs hover:border-emerald-300 hover:shadow-sm transition text-left flex items-center gap-3">
+            <div class="h-10 w-10 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0 font-bold">
+                <i data-lucide="building-2" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <div class="text-xs font-extrabold text-slate-900">Add Bank Account</div>
+                <div class="text-[10px] text-slate-500 font-medium">Create company account</div>
+            </div>
         </a>
+
+        <a href="{{ route('admin.cashbook.rules-config') }}" class="white-card rounded-2xl p-4 border border-slate-200 shadow-xs hover:border-purple-300 hover:shadow-sm transition text-left flex items-center gap-3">
+            <div class="h-10 w-10 rounded-xl bg-purple-50 border border-purple-100 text-purple-600 flex items-center justify-center flex-shrink-0 font-bold">
+                <i data-lucide="git-merge" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <div class="text-xs font-extrabold text-slate-900">Rule Pairing Engine</div>
+                <div class="text-[10px] text-slate-500 font-medium">Auto-pairing rules</div>
+            </div>
+        </a>
+
+        <a href="{{ route('admin.cashbook.settings.presets') }}" class="white-card rounded-2xl p-4 border border-slate-200 shadow-xs hover:border-amber-300 hover:shadow-sm transition text-left flex items-center gap-3">
+            <div class="h-10 w-10 rounded-xl bg-amber-50 border border-amber-100 text-amber-600 flex items-center justify-center flex-shrink-0 font-bold">
+                <i data-lucide="sliders" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <div class="text-xs font-extrabold text-slate-900">Presets Configurator</div>
+                <div class="text-[10px] text-slate-500 font-medium">Inspect all presets</div>
+            </div>
+        </a>
+    </div>
+
+    {{-- NEW SETTING OPTION / PRESET MODAL --}}
+    <div x-show="showNewPresetModal" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
+         @click.self="showNewPresetModal = false">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-7 border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
+            <div class="flex items-center justify-between mb-5 pb-4 border-b border-slate-100">
+                <div>
+                    <h3 class="text-lg font-extrabold text-slate-900">Add New Setting Option</h3>
+                    <p class="text-xs text-slate-500 mt-0.5">Create a new rule preset option for shops.</p>
+                </div>
+                <button @click="showNewPresetModal = false" class="text-slate-400 hover:text-slate-700 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label class="text-xs font-extrabold text-slate-700 uppercase tracking-wide mb-1.5 block">Setting Option Name <span class="text-rose-500">*</span></label>
+                    <input type="text" x-model="newPreset.name" placeholder="e.g. Express Outlet Setting Option"
+                           class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-600 text-slate-900">
+                </div>
+                <div>
+                    <label class="text-xs font-extrabold text-slate-700 uppercase tracking-wide mb-1.5 block">Description</label>
+                    <textarea x-model="newPreset.description" rows="2"
+                              placeholder="Brief description of when to assign this setting option..."
+                              class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-600 text-slate-900 resize-none"></textarea>
+                </div>
+                <div>
+                    <label class="text-xs font-extrabold text-slate-700 uppercase tracking-wide mb-1.5 block">Initial Rule Configuration</label>
+                    <select x-model="newPreset.copy_from_preset_id"
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-600 text-slate-700 bg-white">
+                        <option value="">Start empty (Customize all entry types manually)</option>
+                        @foreach($presets as $p)
+                            <option value="{{ $p->id }}">Copy rules from: {{ $p->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="flex items-center gap-3 pt-3">
+                    <button @click="createPreset()"
+                            class="flex-1 py-3 text-xs font-extrabold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition shadow-md shadow-indigo-600/20">
+                        Create Setting Option
+                    </button>
+                    <button @click="showNewPresetModal = false"
+                            class="py-3 px-5 text-xs font-extrabold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200 transition">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 
     {{-- SECTION: CLIENTS (Green Leaf's client list) --}}
@@ -72,7 +172,12 @@
 
     {{-- SECTION: PRESET OVERVIEW CARDS --}}
     <div>
-        <h2 class="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-4">Preset Configurations</h2>
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xs font-extrabold uppercase tracking-wider text-slate-400">Preset Configurations</h2>
+            <button @click="showNewPresetModal = true" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+                <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add New Preset Option
+            </button>
+        </div>
         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             @foreach($presets as $preset)
             <div class="white-card rounded-2xl p-5 white-card-hover transition-all">
@@ -197,6 +302,39 @@
 
 @push('scripts')
 <script>
+function settingsIndexApp() {
+    return {
+        showNewPresetModal: false,
+        newPreset: { name: '', description: '', copy_from_preset_id: '' },
+        async createPreset() {
+            if (!this.newPreset.name.trim()) {
+                showToast('Please enter a setting option name', 'error');
+                return;
+            }
+            try {
+                const res = await fetch('/admin/cashbook/api/presets/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify(this.newPreset),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    this.showNewPresetModal = false;
+                    setTimeout(() => window.location.reload(), 500);
+                } else {
+                    showToast(data.message || 'Failed to create setting option', 'error');
+                }
+            } catch (e) {
+                showToast('Failed to create setting option', 'error');
+            }
+        }
+    };
+}
+
 async function assignPreset(shopId) {
     const select = document.getElementById('preset-select-' + shopId);
     const presetId = select.value || null;
