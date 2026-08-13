@@ -1422,6 +1422,7 @@ final class CashbookController extends Controller
             $shop = ShopLedgerProfile::where('shop_id', $validated['shop_id'])->firstOrFail();
             $shop->update(['preset_id' => $validated['preset_id'] ?? null]);
             $shop->load('preset');
+            $this->shopSyncService->syncPresetSettingsToShop($shop, $shop->preset);
 
             return response()->json([
                 'success' => true,
@@ -1511,12 +1512,19 @@ final class CashbookController extends Controller
             ?? $validated['business_date']
             ?? today()->toDateString();
         $timeframe = $validated['timeframe'] ?? 'daily';
+        $reqStart = $validated['start_date'] ?? null;
+        $reqEnd = $validated['end_date'] ?? null;
+
         [$startDate, $endDate] = $this->cashbookRange(
             $selectedDate,
             $timeframe,
-            $validated['start_date'] ?? null,
-            $validated['end_date'] ?? null
+            $reqStart,
+            $reqEnd
         );
+
+        if ($reqStart && $reqEnd && ($reqStart !== $reqEnd || $timeframe === 'custom')) {
+            $timeframe = 'custom';
+        }
 
         return [
             'selected_date' => $selectedDate,
@@ -1650,6 +1658,18 @@ final class CashbookController extends Controller
     private function cashbookRange(string $businessDate, string $timeframe, ?string $startDate = null, ?string $endDate = null): array
     {
         $selectedDate = Carbon::parse($businessDate)->min(today());
+
+        if ($startDate && $endDate) {
+            $parsedStart = Carbon::parse($startDate);
+            $parsedEnd = Carbon::parse($endDate)->min(today());
+            if ($timeframe === 'custom' || $parsedStart->toDateString() !== $parsedEnd->toDateString()) {
+                if ($parsedStart->greaterThan($parsedEnd)) {
+                    $parsedStart = $parsedEnd->copy();
+                }
+
+                return [$parsedStart->toDateString(), $parsedEnd->toDateString()];
+            }
+        }
 
         [$rangeStart, $rangeEnd] = match ($timeframe) {
             'weekly' => [$selectedDate->copy()->startOfWeek(), $selectedDate->copy()],

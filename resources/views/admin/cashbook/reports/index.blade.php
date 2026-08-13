@@ -15,16 +15,37 @@
         @include('admin.cashbook.reports.partials.mobile-header')
         @include('admin.cashbook.reports.partials.filters')
         @include('admin.cashbook.reports.partials.section-tabs')
-        @include('admin.cashbook.reports.partials.summary-cards')
-        @include('admin.cashbook.reports.partials.client-summary')
-        @include('admin.cashbook.reports.partials.attention-required')
-        @include('admin.cashbook.reports.partials.receivable-ageing')
-        @include('admin.cashbook.reports.partials.client-groups')
-        @include('admin.cashbook.reports.partials.direct-shops')
-        @include('admin.cashbook.reports.partials.bill-details')
-        @include('admin.cashbook.reports.partials.bank-accounts')
-        @include('admin.cashbook.reports.partials.report-matrix')
-        @include('admin.cashbook.reports.partials.export-actions')
+
+        <div data-report-tab="summary all">
+            @include('admin.cashbook.reports.partials.summary-cards')
+        </div>
+        <div data-report-tab="clients all">
+            @include('admin.cashbook.reports.partials.client-summary')
+        </div>
+        <div data-report-tab="summary bills all">
+            @include('admin.cashbook.reports.partials.attention-required')
+        </div>
+        <div data-report-tab="bills all">
+            @include('admin.cashbook.reports.partials.receivable-ageing')
+        </div>
+        <div data-report-tab="clients all">
+            @include('admin.cashbook.reports.partials.client-groups')
+        </div>
+        <div data-report-tab="clients all">
+            @include('admin.cashbook.reports.partials.direct-shops')
+        </div>
+        <div data-report-tab="bills all">
+            @include('admin.cashbook.reports.partials.bill-details')
+        </div>
+        <div data-report-tab="accounts all">
+            @include('admin.cashbook.reports.partials.bank-accounts')
+        </div>
+        <div data-report-tab="shops all">
+            @include('admin.cashbook.reports.partials.report-matrix')
+        </div>
+        <div data-report-tab="summary all">
+            @include('admin.cashbook.reports.partials.export-actions')
+        </div>
     </div>
 @endsection
 
@@ -34,22 +55,74 @@
     let currentTimeframe = @json($timeframe);
     let currentStartDate = @json($startDate);
     let currentEndDate = @json($endDate);
+    let currentTab = new URLSearchParams(window.location.search).get('tab') || 'summary';
 
     document.addEventListener('DOMContentLoaded', () => {
         loadReportData();
+
+        const hash = window.location.hash;
+        const hashMap = {
+            '#executive-summary': 'summary',
+            '#client-summary': 'clients',
+            '#attention-required': 'summary',
+            '#receivable-ageing': 'bills',
+            '#client-groups': 'clients',
+            '#direct-shops': 'clients',
+            '#bill-details': 'bills',
+            '#bank-accounts': 'accounts',
+            '#report-matrix': 'shops',
+            '#report-export': 'summary',
+        };
+
+        if (hash && hashMap[hash]) {
+            switchReportTab(hashMap[hash], false);
+            const el = document.querySelector(hash);
+            if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth' }), 200);
+        } else {
+            switchReportTab(currentTab, false);
+        }
     });
+
+    function switchReportTab(tabKey, updateUrl = true) {
+        currentTab = tabKey;
+
+        const filterTabInput = document.getElementById('filter-tab-input');
+        if (filterTabInput) {
+            filterTabInput.value = tabKey;
+        }
+
+        document.querySelectorAll('[data-tab-button]').forEach(btn => {
+            const key = btn.getAttribute('data-tab-button');
+            if (key === tabKey) {
+                btn.className = "inline-flex min-h-11 items-center gap-2 rounded-2xl bg-slate-900 px-4 text-xs font-black uppercase tracking-[0.12em] text-white shadow-md transition-all";
+            } else {
+                btn.className = "inline-flex min-h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-[0.12em] text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50";
+            }
+        });
+
+        document.querySelectorAll('[data-report-tab]').forEach(sec => {
+            const allowed = sec.getAttribute('data-report-tab').split(' ');
+            if (allowed.includes(tabKey) || tabKey === 'all') {
+                sec.classList.remove('hidden');
+            } else {
+                sec.classList.add('hidden');
+            }
+        });
+
+        if (updateUrl) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('tab', tabKey);
+            window.history.replaceState({}, '', url.toString());
+        }
+    }
 
     function syncGlobalDate(newDate) {
         const url = new URL(window.location.href);
         url.searchParams.set('date', newDate);
         url.searchParams.set('timeframe', currentTimeframe || 'daily');
-        if (currentTimeframe === 'custom') {
-            url.searchParams.set('start_date', currentStartDate);
-            url.searchParams.set('end_date', currentEndDate);
-        } else {
-            url.searchParams.delete('start_date');
-            url.searchParams.delete('end_date');
-        }
+        url.searchParams.set('start_date', currentStartDate);
+        url.searchParams.set('end_date', currentEndDate);
+        url.searchParams.set('tab', currentTab || 'summary');
         window.location.href = url.toString();
     }
 
@@ -57,12 +130,9 @@
         const params = new URLSearchParams({
             business_date: currentDate,
             timeframe: currentTimeframe || 'daily',
+            start_date: currentStartDate,
+            end_date: currentEndDate,
         });
-
-        if (currentTimeframe === 'custom') {
-            params.set('start_date', currentStartDate);
-            params.set('end_date', currentEndDate);
-        }
 
         return params.toString();
     }

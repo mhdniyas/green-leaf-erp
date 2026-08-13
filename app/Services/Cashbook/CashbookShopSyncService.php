@@ -24,6 +24,8 @@ use Illuminate\Support\Str;
  */
 class CashbookShopSyncService
 {
+    private const DEFAULT_EFFECTIVE_FROM = '2026-01-01';
+
     public function __construct(
         private readonly InvoiceCashbookProjectionService $invoiceProjectionService,
     ) {}
@@ -84,7 +86,7 @@ class CashbookShopSyncService
                 $profile->preset_id ??= $preset?->id;
                 $profile->save();
 
-                $this->ensureShopSettingsExist($profile, $preset);
+                $this->syncPresetSettingsToShop($profile, $preset);
             }
         });
 
@@ -144,23 +146,37 @@ class CashbookShopSyncService
         }
     }
 
-    /**
-     * Ensures default entry settings are created for a shop profile if none exist yet.
-     */
-    private function ensureShopSettingsExist(ShopLedgerProfile $profile, ?ShopConfigPreset $preset): void
+    public function syncPresetSettingsToShop(ShopLedgerProfile $profile, ?ShopConfigPreset $preset): void
     {
-        $existingCount = ShopLedgerEntrySetting::where('shop_id', $profile->shop_id)->count();
-
-        if ($existingCount > 0 || ! $preset) {
+        if (! $preset) {
             return;
         }
 
         foreach ($preset->entrySettings as $presetSetting) {
+            $effectiveFrom = $presetSetting->effective_from?->toDateString() ?? self::DEFAULT_EFFECTIVE_FROM;
+
+            $shopSetting = ShopLedgerEntrySetting::query()
+                ->where('shop_id', $profile->shop_id)
+                ->where('entry_type_id', $presetSetting->entry_type_id)
+                ->first();
+
+            if ($shopSetting) {
+                if ($shopSetting->effective_from?->toDateString() === $effectiveFrom) {
+                    continue;
+                }
+
+                $shopSetting->update([
+                    'effective_from' => min($shopSetting->effective_from?->toDateString() ?? $effectiveFrom, $effectiveFrom),
+                ]);
+
+                continue;
+            }
+
             ShopLedgerEntrySetting::create([
                 'shop_id' => $profile->shop_id,
                 'entry_type_id' => $presetSetting->entry_type_id,
                 'version' => 1,
-                'effective_from' => '2026-01-01',
+                'effective_from' => min($effectiveFrom, self::DEFAULT_EFFECTIVE_FROM),
                 'effective_to' => null,
                 'enabled' => $presetSetting->enabled,
                 'default_funding_source' => $presetSetting->default_funding_source,

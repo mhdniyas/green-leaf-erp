@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\Cashbook\LedgerEntryType;
+use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopConfigPreset;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Shop;
@@ -103,6 +104,24 @@ class CashbookPresetManagementTest extends TestCase
         ]);
 
         $preset = ShopConfigPreset::create(['name' => 'Assigned Preset', 'slug' => 'assigned-preset']);
+        $preset->entrySettings()->create([
+            'entry_type_id' => LedgerEntryType::firstOrFail()->id,
+            'version' => 1,
+            'effective_from' => '2026-08-13',
+            'enabled' => true,
+            'default_funding_source' => 'none',
+            'allowed_funding_sources' => ['none'],
+            'include_in_sales' => true,
+            'include_in_income' => true,
+            'include_in_expense' => false,
+            'include_in_pl' => true,
+            'settlement_behavior' => 'increase',
+            'petty_behavior' => 'none',
+            'company_pending_behavior' => 'none',
+            'generates_secondary_entry' => false,
+            'secondary_amount_mode' => 'same_amount',
+            'display_order' => 1,
+        ]);
 
         $response = $this->actingAs($this->admin)->postJson('/admin/cashbook/api/assign-preset', [
             'shop_id'   => $shop->id,
@@ -114,5 +133,19 @@ class CashbookPresetManagementTest extends TestCase
             'shop_id'   => $shop->id,
             'preset_id' => $preset->id,
         ]);
+
+        $this->assertDatabaseHas('shop_ledger_entry_settings', [
+            'shop_id' => $shop->id,
+            'entry_type_id' => LedgerEntryType::firstOrFail()->id,
+            'effective_from' => '2026-01-01 00:00:00',
+        ]);
+
+        $setting = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $shop->id)
+            ->where('entry_type_id', LedgerEntryType::firstOrFail()->id)
+            ->first();
+
+        $this->assertNotNull($setting);
+        $this->assertTrue($setting->enabled);
     }
 }
