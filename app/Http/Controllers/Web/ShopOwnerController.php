@@ -23,6 +23,7 @@ use App\Models\ShopOrderItem;
 use App\Models\ShopPreset;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
+use App\Services\Cashbook\CollectionGroupPostingService;
 use App\Services\Cashbook\DailyLedgerService;
 use App\Services\Cashbook\InvoiceCashbookProjectionService;
 use App\Services\Finance\CompanyPayableService;
@@ -60,6 +61,7 @@ class ShopOwnerController extends Controller
         private readonly DeliveryVerificationEligibility $deliveryVerificationEligibility,
         private readonly DailyLedgerService $dailyLedgerService,
         private readonly CashbookShopSyncService $cashbookShopSyncService,
+        private readonly CollectionGroupPostingService $collectionGroupPostingService,
         private readonly InvoiceCashbookProjectionService $invoiceCashbookProjectionService,
     ) {}
 
@@ -610,6 +612,7 @@ class ShopOwnerController extends Controller
             ->where('enabled', true)
             ->orderBy('display_order')
             ->get();
+        $collectionGroups = $this->collectionGroupPostingService->groupsForShop((int) $shop->id);
 
         // Ensure approved invoice bills are reflected in cashbook as default daily expenses.
         $this->syncApprovedInvoiceBillsToCashbook(
@@ -626,6 +629,7 @@ class ShopOwnerController extends Controller
             'selectedDate' => Carbon::parse($date),
             'entryTypes' => $entryTypes,
             'settings' => $settings,
+            'collectionGroups' => $collectionGroups,
             'snapshot' => $snapshot,
             'activeTab' => in_array($tab, ['cashbook', 'settings', 'reports'], true) ? $tab : 'cashbook',
             'openModal' => $open === 'line',
@@ -713,6 +717,8 @@ class ShopOwnerController extends Controller
             ->where('enabled', true)
             ->orderBy('display_order')
             ->get();
+        $collectionGroups = $this->collectionGroupPostingService->groupsForShop((int) $shop->id);
+        $collectionSummaries = $this->collectionGroupPostingService->summaries($transactions);
 
         $totalSales = (float) $transactions
             ->filter(fn ($t) => $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income'))
@@ -738,6 +744,8 @@ class ShopOwnerController extends Controller
             'transactions' => $transactions,
             'month_transactions' => $monthTransactions,
             'settings' => $settings,
+            'collection_groups' => $collectionGroups,
+            'collection_summaries' => $collectionSummaries,
             'timeframe' => $timeframe,
         ]);
     }
@@ -762,13 +770,37 @@ class ShopOwnerController extends Controller
         $shop = $this->ownedAccountingShop($request);
         $validated = $request->validate([
             'business_date' => ['required', 'date_format:Y-m-d'],
-            'entry_type_code' => ['required', 'string', 'exists:ledger_entry_types,code'],
-            'amount' => ['required', 'numeric', 'min:0.01'],
+            'entry_type_code' => ['required_without:collection_group_id', 'string', 'exists:ledger_entry_types,code'],
+            'amount' => ['required_without:collection_group_id', 'numeric', 'min:0.01'],
             'funding_source' => ['nullable', 'in:sales,petty,company,bank,external,company_later,none'],
             'notes' => ['nullable', 'string', 'max:255'],
+            'collection_group_id' => ['nullable', 'integer', 'exists:cashbook_preset_collection_groups,id'],
+            'collection_lines' => ['nullable', 'array'],
+            'collection_lines.*.entry_type_id' => ['required_with:collection_lines', 'integer', 'exists:ledger_entry_types,id'],
+            'collection_lines.*.amount' => ['required_with:collection_lines', 'numeric', 'min:0'],
         ]);
 
         try {
+            if (! empty($validated['collection_group_id'])) {
+                $result = $this->collectionGroupPostingService->record(
+                    (int) $shop->id,
+                    $validated['business_date'],
+                    (int) $validated['collection_group_id'],
+                    collect($validated['collection_lines'] ?? [])->mapWithKeys(
+                        fn (array $line): array => [(int) $line['entry_type_id'] => (float) $line['amount']]
+                    )->all(),
+                    (int) ($request->user()?->id ?? 1),
+                    $validated['notes'] ?? null,
+                );
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Collection created successfully.',
+                    'transactions' => $result['transactions'],
+                    'snapshot' => $result['snapshot'],
+                ]);
+            }
+
             $payload = [
                 'shop_id' => (int) $shop->id,
                 'business_date' => $validated['business_date'],

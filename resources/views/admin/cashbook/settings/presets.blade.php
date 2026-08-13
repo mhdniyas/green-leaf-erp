@@ -3,7 +3,7 @@
 @section('title', 'Preset Configurations & Shop Rules — Daily Ledger Engine')
 
 @section('content')
-<div class="space-y-8" x-data="presetsApp({{ json_encode($presets) }}, {{ json_encode($shops) }})">
+<div class="space-y-8" x-data="presetsApp({{ json_encode($presets) }}, {{ json_encode($shops) }}, {{ json_encode($entryTypes) }})">
 
     {{-- BREADCRUMBS & PAGE HEADER --}}
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -273,8 +273,40 @@
                         <strong class="text-indigo-600" x-text="activePreset.entry_settings ? activePreset.entry_settings.filter(s => s.enabled).length : 0"></strong> Active Rules
                     </span>
                     <span class="bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-xs">
+                        <strong class="text-cyan-600" x-text="activePreset.collection_groups ? activePreset.collection_groups.length : 0"></strong> Collection Groups
+                    </span>
+                    <span class="bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-xs">
                         <strong class="text-emerald-600" x-text="activePreset.shops ? activePreset.shops.length : 0"></strong> Assigned Shops
                     </span>
+                    <button type="button" x-show="!activePreset.is_default && (!activePreset.shops || activePreset.shops.length === 0)" @click="deletePreset(activePreset.id)" class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-black text-rose-700 hover:bg-rose-100">
+                        Delete Preset
+                    </button>
+                </div>
+            </div>
+        </template>
+
+        <template x-if="activePreset">
+            <div class="border-b border-slate-200 bg-cyan-50/60 px-6 py-4">
+                <div class="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1fr_1fr_auto]">
+                    <input type="text" x-model="newCollection.name" placeholder="Collection name, e.g. S/M Delivery" class="rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs font-bold text-slate-900">
+                    <select x-model="newCollection.income_entry_type_ids" multiple class="min-h-20 rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs font-bold text-slate-900">
+                        <template x-for="entry in incomeEntryTypes()" :key="entry.id">
+                            <option :value="entry.id" x-text="entry.name"></option>
+                        </template>
+                    </select>
+                    <select x-model="newCollection.expense_entry_type_ids" multiple class="min-h-20 rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs font-bold text-slate-900">
+                        <template x-for="entry in expenseEntryTypes()" :key="entry.id">
+                            <option :value="entry.id" x-text="entry.name"></option>
+                        </template>
+                    </select>
+                    <button type="button" @click="saveCollectionGroup()" class="rounded-lg bg-cyan-700 px-4 py-2 text-xs font-black text-white hover:bg-cyan-800">
+                        Save Collection
+                    </button>
+                </div>
+                <div class="mt-3 flex flex-wrap gap-2">
+                    <template x-for="group in (activePreset.collection_groups || [])" :key="group.id">
+                        <span class="rounded-full border border-cyan-200 bg-white px-3 py-1 text-[11px] font-black text-cyan-800" x-text="group.name"></span>
+                    </template>
                 </div>
             </div>
         </template>
@@ -563,16 +595,18 @@
 
 @push('scripts')
 <script>
-function presetsApp(initialPresets, initialShops) {
+function presetsApp(initialPresets, initialShops, initialEntryTypes) {
     return {
         presets: initialPresets || [],
         shops: initialShops || [],
+        entryTypes: initialEntryTypes || [],
         activePresetId: (initialPresets && initialPresets.length > 0) ? initialPresets[0].id : null,
         showNewPreset: false,
         showNewRuleModal: false,
         categoryFilter: 'all',
         searchShop: '',
         newPreset: { name: '', description: '', copy_from_preset_id: '' },
+        newCollection: { name: '', income_entry_type_ids: [], expense_entry_type_ids: [] },
         newRule: {
             name: '',
             code: '',
@@ -611,6 +645,14 @@ function presetsApp(initialPresets, initialShops) {
                 (s.name && s.name.toLowerCase().includes(q)) ||
                 (s.code && s.code.toLowerCase().includes(q))
             );
+        },
+
+        incomeEntryTypes() {
+            return this.entryTypes.filter((entry) => entry.category === 'income');
+        },
+
+        expenseEntryTypes() {
+            return this.entryTypes.filter((entry) => entry.category === 'expense');
         },
 
         getCategoryIcon(setting) {
@@ -717,6 +759,70 @@ function presetsApp(initialPresets, initialShops) {
                 }
             } catch (e) {
                 showToast('Failed to create preset', 'error');
+            }
+        },
+
+        async deletePreset(presetId) {
+            if (!confirm('Delete this preset?')) return;
+
+            try {
+                const res = await fetch('/admin/cashbook/api/presets/delete', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify({ preset_id: presetId }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    this.presets = this.presets.filter((preset) => preset.id !== presetId);
+                    this.activePresetId = this.presets[0]?.id || null;
+                    showToast(data.message || 'Preset deleted', 'success');
+                } else {
+                    showToast(data.message || 'Failed to delete preset', 'error');
+                }
+            } catch (e) {
+                showToast('Failed to delete preset', 'error');
+            }
+        },
+
+        async saveCollectionGroup() {
+            if (!this.activePreset || !this.newCollection.name.trim() || this.newCollection.income_entry_type_ids.length === 0) {
+                showToast('Collection name and income entry are required', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch('/admin/cashbook/api/presets/collection-group', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify({
+                        preset_id: this.activePreset.id,
+                        name: this.newCollection.name,
+                        income_entry_type_ids: this.newCollection.income_entry_type_ids.map(Number),
+                        expense_entry_type_ids: this.newCollection.expense_entry_type_ids.map(Number),
+                    }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (!this.activePreset.collection_groups) this.activePreset.collection_groups = [];
+                    const idx = this.activePreset.collection_groups.findIndex((group) => group.id === data.group.id);
+                    if (idx === -1) {
+                        this.activePreset.collection_groups.push(data.group);
+                    } else {
+                        this.activePreset.collection_groups[idx] = data.group;
+                    }
+                    this.newCollection = { name: '', income_entry_type_ids: [], expense_entry_type_ids: [] };
+                    showToast(data.message || 'Collection group saved', 'success');
+                } else {
+                    showToast(data.message || 'Failed to save collection group', 'error');
+                }
+            } catch (e) {
+                showToast('Failed to save collection group', 'error');
             }
         },
 

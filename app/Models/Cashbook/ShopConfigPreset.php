@@ -26,6 +26,11 @@ class ShopConfigPreset extends Model
         return $this->hasMany(PresetEntrySetting::class, 'preset_id');
     }
 
+    public function collectionGroups(): HasMany
+    {
+        return $this->hasMany(PresetCollectionGroup::class, 'preset_id');
+    }
+
     /** Shops that are currently assigned to this preset. */
     public function shops(): HasMany
     {

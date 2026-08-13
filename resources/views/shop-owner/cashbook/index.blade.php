@@ -110,6 +110,17 @@
                 </button>
             </div>
 
+            <div x-show="collectionSummaries.length > 0" class="border-b border-slate-100 bg-cyan-50/60 px-4 py-2 sm:px-5">
+                <template x-for="group in collectionSummaries" :key="group.reference_id">
+                    <button type="button" @click="showCollectionDetails(group)" class="mb-1 mr-1 inline-flex items-center gap-2 rounded-lg border border-cyan-200 bg-white px-2.5 py-1 text-[11px] font-black text-cyan-800 shadow-sm">
+                        <span x-text="group.name"></span>
+                        <span class="text-emerald-700" x-text="'+' + currency(group.income)"></span>
+                        <span class="text-rose-700" x-text="'-' + currency(group.expense)"></span>
+                        <span class="rounded bg-cyan-100 px-1.5 py-0.5 text-cyan-900" x-text="currency(group.net)"></span>
+                    </button>
+                </template>
+            </div>
+
             <div class="overflow-x-auto">
                 <table class="w-full text-left text-xs">
                     <thead class="bg-slate-50 text-[10px] font-black uppercase text-slate-500">
@@ -258,6 +269,11 @@
                 </div>
 
                 <form class="p-4 space-y-3" @submit.prevent="submitEntry()">
+                    <div x-show="collectionGroups.length > 0 && !editingTxId" class="grid grid-cols-2 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1">
+                        <button type="button" @click="entryMode = 'normal'" class="h-8 rounded-md text-xs font-black" :class="entryMode === 'normal' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500'">Normal Entry</button>
+                        <button type="button" @click="entryMode = 'collection'; selectDefaultCollectionGroup()" class="h-8 rounded-md text-xs font-black" :class="entryMode === 'collection' ? 'bg-white text-cyan-800 shadow-sm' : 'text-slate-500'">Collection</button>
+                    </div>
+
                     <div class="grid grid-cols-2 gap-2.5">
                         <div>
                             <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Business Date</label>
@@ -394,9 +410,30 @@
                         </div>
                     </div>
 
-                    <div>
+                    <div x-show="entryMode === 'normal'">
                         <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Amount (₹)</label>
-                        <input type="number" step="0.01" min="0.01" x-model="form.amount" placeholder="0.00" class="mt-1 h-8.5 w-full rounded-lg border border-emerald-300 bg-white px-3 text-sm font-black text-slate-950 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" required>
+                        <input type="number" step="0.01" min="0.01" x-model="form.amount" placeholder="0.00" class="mt-1 h-8.5 w-full rounded-lg border border-emerald-300 bg-white px-3 text-sm font-black text-slate-950 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" :required="entryMode === 'normal'">
+                    </div>
+
+                    <div x-show="entryMode === 'collection'" class="space-y-2 rounded-lg border border-cyan-200 bg-cyan-50/70 p-3">
+                        <div>
+                            <label class="block text-[10px] font-black uppercase tracking-wider text-cyan-700">Collection Type</label>
+                            <select x-model="form.collection_group_id" @change="resetCollectionAmounts()" class="mt-1 h-8 w-full rounded-lg border border-cyan-200 bg-white px-2 text-xs font-bold text-slate-900">
+                                <template x-for="group in collectionGroups" :key="group.id">
+                                    <option :value="group.id" x-text="group.name"></option>
+                                </template>
+                            </select>
+                        </div>
+                        <template x-for="line in selectedCollectionLines()" :key="line.entry_type_id">
+                            <div class="grid grid-cols-[1fr_8rem] items-center gap-2">
+                                <label class="text-xs font-bold" :class="line.role === 'income' ? 'text-emerald-700' : 'text-rose-700'" x-text="line.entry_type.name"></label>
+                                <input type="number" step="0.01" min="0" x-model="form.collection_amounts[line.entry_type_id]" class="h-8 rounded-lg border border-cyan-200 bg-white px-2 text-right text-xs font-black text-slate-950">
+                            </div>
+                        </template>
+                        <div class="flex items-center justify-between border-t border-cyan-200 pt-2">
+                            <span class="text-[10px] font-black uppercase tracking-wider text-cyan-700">Net Collection</span>
+                            <strong class="text-sm font-black text-cyan-900" x-text="currency(collectionNet())"></strong>
+                        </div>
                     </div>
 
                     <div>
@@ -613,6 +650,8 @@
                 submitting: false,
                 timeframe: 'daily',
                 transactions: [],
+                collectionGroups: @json($collectionGroups ?? []),
+                collectionSummaries: [],
                 snapshot: @json($snapshot),
                 entryTypes: @json($entryTypes),
                 defaultEntryCategory: @json($entryTypes->first()?->category ?? 'income'),
@@ -624,7 +663,10 @@
                     amount: '',
                     funding_source: 'none',
                     notes: '',
+                    collection_group_id: '',
+                    collection_amounts: {},
                 },
+                entryMode: 'normal',
                 fundingOptions: [
                     { value: 'none', label: 'Default' },
                     { value: 'sales', label: 'Sales' },
@@ -712,6 +754,7 @@
                 closeCreateModal() {
                     this.openCreate = false;
                     this.editingTxId = null;
+                    this.entryMode = 'normal';
                     this.form = {
                         business_date: this.selectedDate,
                         entry_category: this.defaultEntryCategory,
@@ -719,6 +762,8 @@
                         amount: '',
                         funding_source: 'none',
                         notes: '',
+                        collection_group_id: '',
+                        collection_amounts: {},
                     };
                     this.onEntryTypeChange();
                 },
@@ -857,6 +902,54 @@
                     }
                 },
 
+                selectDefaultCollectionGroup() {
+                    if (!this.form.collection_group_id && this.collectionGroups.length > 0) {
+                        this.form.collection_group_id = this.collectionGroups[0].id;
+                    }
+                    this.resetCollectionAmounts();
+                },
+
+                selectedCollectionGroup() {
+                    return this.collectionGroups.find((group) => Number(group.id) === Number(this.form.collection_group_id)) || null;
+                },
+
+                selectedCollectionLines() {
+                    return this.selectedCollectionGroup()?.entry_types || [];
+                },
+
+                resetCollectionAmounts() {
+                    const amounts = {};
+                    this.selectedCollectionLines().forEach((line) => {
+                        amounts[line.entry_type_id] = this.form.collection_amounts[line.entry_type_id] || '';
+                    });
+                    this.form.collection_amounts = amounts;
+                },
+
+                collectionNet() {
+                    return this.selectedCollectionLines().reduce((sum, line) => {
+                        const amount = parseFloat(this.form.collection_amounts[line.entry_type_id] || 0);
+                        return line.role === 'income' ? sum + amount : sum - amount;
+                    }, 0);
+                },
+
+                showCollectionDetails(group) {
+                    this.cardModalData = {
+                        title: group.name,
+                        subtitle: 'Collection income, debit lines, and net amount.',
+                        value: this.currency(group.net),
+                        tone: group.net >= 0 ? 'emerald' : 'rose',
+                        description: `Income ${this.currency(group.income)} - expense ${this.currency(group.expense)}`,
+                        breakdown: (group.lines || []).map((tx) => ({
+                            date: tx.business_date,
+                            name: tx.entry_type ? tx.entry_type.name : tx.entry_type_id,
+                            source: tx.direction,
+                            amount: tx.direction === 'expense' ? -Math.abs(parseFloat(tx.amount || 0)) : tx.amount,
+                            notes: tx.notes || '-',
+                        })),
+                    };
+                    this.openCardModal = true;
+                },
+
                 async loadData() {
                     const params = new URLSearchParams({
                         business_date: this.selectedDate,
@@ -871,6 +964,8 @@
                     }
 
                     this.transactions = payload.transactions || [];
+                    this.collectionGroups = payload.collection_groups || this.collectionGroups;
+                    this.collectionSummaries = payload.collection_summaries || [];
                     this.snapshot = payload.snapshot || this.snapshot;
 
                     const monthRows = payload.month_transactions || [];
@@ -892,7 +987,17 @@
                             : '{{ route('shop-owner.cashbook.api.record-entry') }}';
                         const body = this.editingTxId
                             ? { transaction_id: this.editingTxId, amount: this.form.amount, notes: this.form.notes }
-                            : this.form;
+                            : this.entryMode === 'collection'
+                                ? {
+                                    business_date: this.form.business_date,
+                                    collection_group_id: this.form.collection_group_id,
+                                    collection_lines: this.selectedCollectionLines().map((line) => ({
+                                        entry_type_id: line.entry_type_id,
+                                        amount: this.form.collection_amounts[line.entry_type_id] || 0,
+                                    })),
+                                    notes: this.form.notes,
+                                }
+                                : this.form;
                         const response = await fetch(url, {
                             method: 'POST',
                             headers: {

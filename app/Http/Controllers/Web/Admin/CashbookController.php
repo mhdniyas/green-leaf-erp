@@ -20,6 +20,8 @@ use App\Http\Requests\Cashbook\VoidEntryRequest;
 use App\Models\Cashbook\CompanyAccount;
 use App\Models\Cashbook\LedgerClient;
 use App\Models\Cashbook\LedgerEntryType;
+use App\Models\Cashbook\PresetCollectionGroup;
+use App\Models\Cashbook\PresetCollectionGroupEntryType;
 use App\Models\Cashbook\PresetEntrySetting;
 use App\Models\Cashbook\ShopConfigPreset;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
@@ -29,6 +31,7 @@ use App\Models\Shop;
 use App\Models\ShopInvoice;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
+use App\Services\Cashbook\CollectionGroupPostingService;
 use App\Services\Cashbook\DailyLedgerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -52,7 +55,8 @@ final class CashbookController extends Controller
 {
     public function __construct(
         private readonly DailyLedgerService $ledgerService,
-        private readonly CashbookShopSyncService $shopSyncService
+        private readonly CashbookShopSyncService $shopSyncService,
+        private readonly CollectionGroupPostingService $collectionGroupPostingService
     ) {}
 
     // ─── Page methods ────────────────────────────────────────────────────────
@@ -324,7 +328,7 @@ final class CashbookController extends Controller
 
         $shops = $this->shopSyncService->syncAndGetProfiles();
         $clients = LedgerClient::with('shops')->where('enabled', true)->get();
-        $presets = ShopConfigPreset::with(['entrySettings.entryType', 'shops'])->where('enabled', true)->get();
+        $presets = ShopConfigPreset::with(['entrySettings.entryType', 'shops', 'collectionGroups.entryTypes.entryType'])->where('enabled', true)->get();
         $entryTypes = LedgerEntryType::where('active', true)->orderBy('display_order')->get();
         $companyAccounts = CompanyAccount::where('enabled', true)->get();
         $company = config('greenleaf');
@@ -341,7 +345,7 @@ final class CashbookController extends Controller
 
         $shops = $this->shopSyncService->syncAndGetProfiles();
         $clients = LedgerClient::with('shops')->where('enabled', true)->get();
-        $presets = ShopConfigPreset::with(['entrySettings.entryType', 'shops'])->where('enabled', true)->get();
+        $presets = ShopConfigPreset::with(['entrySettings.entryType', 'shops', 'collectionGroups.entryTypes.entryType'])->where('enabled', true)->get();
         $entryTypes = LedgerEntryType::where('active', true)->orderBy('display_order')->get();
         $companyAccounts = CompanyAccount::where('enabled', true)->get();
         $company = config('greenleaf');
@@ -513,10 +517,13 @@ final class CashbookController extends Controller
 
         $dailySnapshot = $this->ledgerService->dailySummary($shopId, $finalEnd);
 
+        $collectionSummaries = $this->collectionGroupPostingService->summaries($rangeTransactions);
+
         $snapshotData = [
             'total_sales' => $totalSales,
             'total_expense' => $totalExpense,
             'net_pl' => $netPl,
+            'collection_net' => round((float) collect($collectionSummaries)->sum('net'), 2),
             'closing_petty' => (float) $dailySnapshot->closing_petty,
             'closing_shop_position' => (float) $dailySnapshot->closing_shop_position,
             'closing_company_pending' => (float) $dailySnapshot->closing_company_pending,
@@ -557,6 +564,8 @@ final class CashbookController extends Controller
             ->where('enabled', true)
             ->get();
 
+        $collectionGroups = $this->collectionGroupPostingService->groupsForShop($shopId);
+
         return response()->json([
             'success' => true,
             'timeframe' => $timeframe,
@@ -570,6 +579,8 @@ final class CashbookController extends Controller
             'petty_entries' => $pettyEntries,
             'company_pending_entries' => $companyPendingEntries,
             'settings' => $settings,
+            'collection_groups' => $collectionGroups,
+            'collection_summaries' => $collectionSummaries,
         ]);
     }
 
@@ -767,6 +778,26 @@ final class CashbookController extends Controller
         $validated = $request->validated();
 
         try {
+            if (! empty($validated['collection_group_id'])) {
+                $result = $this->collectionGroupPostingService->record(
+                    (int) $validated['shop_id'],
+                    $validated['business_date'],
+                    (int) $validated['collection_group_id'],
+                    collect($validated['collection_lines'] ?? [])->mapWithKeys(
+                        fn (array $line): array => [(int) $line['entry_type_id'] => (float) $line['amount']]
+                    )->all(),
+                    (int) ($request->user()?->id ?? 1),
+                    $validated['notes'] ?? null,
+                );
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Collection recorded successfully.',
+                    'transactions' => $result['transactions'],
+                    'snapshot' => $result['snapshot'],
+                ]);
+            }
+
             $input = [
                 'shop_id' => (int) $validated['shop_id'],
                 'business_date' => $validated['business_date'],
@@ -1412,7 +1443,7 @@ final class CashbookController extends Controller
     {
         $this->ensureMainAdmin($request);
 
-        $presets = ShopConfigPreset::with(['entrySettings.entryType', 'shops'])
+        $presets = ShopConfigPreset::with(['entrySettings.entryType', 'shops', 'collectionGroups.entryTypes.entryType'])
             ->where('enabled', true)
             ->get();
 
@@ -1503,6 +1534,91 @@ final class CashbookController extends Controller
                 'success' => true,
                 'message' => "Preset '{$preset->name}' created successfully.",
                 'preset' => $preset->load(['entrySettings.entryType', 'shops']),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    public function deletePreset(Request $request): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'preset_id' => ['required', 'integer', 'exists:cashbook_config_presets,id'],
+        ]);
+
+        try {
+            $preset = ShopConfigPreset::withCount('shops')->findOrFail((int) $validated['preset_id']);
+
+            if ($preset->is_default) {
+                return response()->json(['success' => false, 'message' => 'Default preset cannot be deleted.'], 422);
+            }
+
+            if ($preset->shops_count > 0) {
+                return response()->json(['success' => false, 'message' => 'Remove this preset from assigned shops before deleting it.'], 422);
+            }
+
+            $preset->delete();
+
+            return response()->json(['success' => true, 'message' => 'Preset deleted successfully.']);
+        } catch (Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    public function saveCollectionGroup(Request $request): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'preset_id' => ['required', 'integer', 'exists:cashbook_config_presets,id'],
+            'name' => ['required', 'string', 'max:100'],
+            'income_entry_type_ids' => ['required', 'array', 'min:1'],
+            'income_entry_type_ids.*' => ['integer', 'exists:ledger_entry_types,id'],
+            'expense_entry_type_ids' => ['nullable', 'array'],
+            'expense_entry_type_ids.*' => ['integer', 'exists:ledger_entry_types,id'],
+        ]);
+
+        try {
+            $group = PresetCollectionGroup::updateOrCreate(
+                [
+                    'preset_id' => (int) $validated['preset_id'],
+                    'code' => Str::slug($validated['name'], '_'),
+                ],
+                [
+                    'name' => $validated['name'],
+                    'enabled' => true,
+                    'display_order' => (PresetCollectionGroup::where('preset_id', $validated['preset_id'])->max('display_order') ?? 0) + 1,
+                ]
+            );
+
+            $group->entryTypes()->delete();
+            $order = 1;
+            foreach ($validated['income_entry_type_ids'] as $entryTypeId) {
+                PresetCollectionGroupEntryType::create([
+                    'collection_group_id' => $group->id,
+                    'entry_type_id' => $entryTypeId,
+                    'role' => 'income',
+                    'required' => true,
+                    'display_order' => $order++,
+                ]);
+            }
+
+            foreach ($validated['expense_entry_type_ids'] ?? [] as $entryTypeId) {
+                PresetCollectionGroupEntryType::create([
+                    'collection_group_id' => $group->id,
+                    'entry_type_id' => $entryTypeId,
+                    'role' => 'expense',
+                    'required' => false,
+                    'display_order' => $order++,
+                ]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Collection group saved.',
+                'group' => $group->load('entryTypes.entryType'),
             ]);
         } catch (Throwable $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
@@ -1842,6 +1958,46 @@ final class CashbookController extends Controller
     private function reportFilename(string $prefix, string $startDate, string $endDate, string $extension): string
     {
         return "{$prefix}-{$startDate}_{$endDate}.{$extension}";
+    }
+
+    private function collectionGroupsForShop(int $shopId)
+    {
+        $profile = ShopLedgerProfile::query()
+            ->where('shop_id', $shopId)
+            ->with('preset.collectionGroups.entryTypes.entryType')
+            ->first();
+
+        return $profile?->preset?->collectionGroups
+            ?->where('enabled', true)
+            ->values() ?? collect();
+    }
+
+    private function collectionSummaries($transactions): array
+    {
+        return $transactions
+            ->filter(fn (ShopLedgerTransaction $transaction): bool => $transaction->reference_type === 'collection_group' && $transaction->reference_id !== null)
+            ->groupBy('reference_id')
+            ->map(function ($rows, $referenceId): array {
+                $income = (float) $rows
+                    ->filter(fn (ShopLedgerTransaction $transaction): bool => $transaction->direction === 'income' || $transaction->entryType?->category === 'income')
+                    ->sum('amount');
+                $expense = (float) $rows
+                    ->filter(fn (ShopLedgerTransaction $transaction): bool => $transaction->direction === 'expense' || $transaction->entryType?->category === 'expense')
+                    ->sum('amount');
+                $first = $rows->sortBy('id')->first();
+
+                return [
+                    'reference_id' => (int) $referenceId,
+                    'business_date' => $first?->business_date?->toDateString(),
+                    'name' => str((string) ($first?->notes ?: 'Collection'))->before(' collection')->title()->toString(),
+                    'income' => round($income, 2),
+                    'expense' => round($expense, 2),
+                    'net' => round($income - $expense, 2),
+                    'lines' => $rows->values(),
+                ];
+            })
+            ->values()
+            ->all();
     }
 
     /**

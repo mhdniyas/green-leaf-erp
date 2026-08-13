@@ -535,6 +535,40 @@
     <!-- TAB 1: ALL DAILY ENTRIES TABLE WITH FULL DETAILS BUTTON -->
     <!-- ========================================================================= -->
     <div x-show="activeTab === 'daily_entries'" class="white-card rounded-3xl p-6 space-y-4 shadow-xl">
+        <div x-show="collectionSummaries.length > 0" class="rounded-2xl border border-cyan-200 bg-cyan-50/70 p-4">
+            <div class="mb-3 flex items-center justify-between gap-3">
+                <div>
+                    <h3 class="text-sm font-black text-slate-900">Collection Details</h3>
+                    <p class="text-xs font-semibold text-slate-500">Configured income minus debit entries for this shop.</p>
+                </div>
+                <span class="rounded-full bg-white px-3 py-1 text-xs font-black text-cyan-800" x-text="'Net ' + money(collectionNetTotal())"></span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                    <thead class="text-[10px] font-black uppercase text-cyan-800">
+                        <tr>
+                            <th class="py-2 pr-3">Date</th>
+                            <th class="py-2 pr-3">Collection</th>
+                            <th class="py-2 pr-3 text-right">Income</th>
+                            <th class="py-2 pr-3 text-right">Debit</th>
+                            <th class="py-2 text-right">Net</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-cyan-100">
+                        <template x-for="group in collectionSummaries" :key="group.reference_id">
+                            <tr class="cursor-pointer hover:bg-white/70" @click="openCollectionBreakdown(group)">
+                                <td class="py-2 pr-3 font-mono font-bold text-slate-800" x-text="group.business_date"></td>
+                                <td class="py-2 pr-3 font-bold text-slate-900" x-text="group.name"></td>
+                                <td class="py-2 pr-3 text-right font-mono font-black text-emerald-700" x-text="money(group.income)"></td>
+                                <td class="py-2 pr-3 text-right font-mono font-black text-rose-700" x-text="money(group.expense)"></td>
+                                <td class="py-2 text-right font-mono font-black text-cyan-900" x-text="money(group.net)"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div>
                 <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
@@ -878,6 +912,8 @@
             monthTransactions: [],
             pettyEntries: [],
             companyPendingEntries: [],
+            collectionSummaries: [],
+            collectionBreakdownRows: [],
             paymentBreakdown: {},
             settings: [],
             entryTypes: shopEntryTypes,
@@ -891,6 +927,9 @@
 
             getBreakdownItems() {
                 if (!this.transactions || !Array.isArray(this.transactions)) return [];
+                if (this.breakdownType === 'collection') {
+                    return this.collectionBreakdownRows || [];
+                }
                 if (this.breakdownType === 'sales') {
                     return this.transactions.filter(t => t.direction === 'income' || (t.entry_type && t.entry_type.category === 'income'));
                 }
@@ -963,6 +1002,20 @@
 
             get totalPlDelta() {
                 return (this.transactions || []).reduce((sum, t) => sum + (parseFloat(t.pl_delta) || 0), 0);
+            },
+
+            collectionNetTotal() {
+                return (this.collectionSummaries || []).reduce((sum, group) => sum + (parseFloat(group.net) || 0), 0);
+            },
+
+            money(value) {
+                return '₹' + parseFloat(value || 0).toFixed(2);
+            },
+
+            openCollectionBreakdown(group) {
+                this.breakdownType = 'collection';
+                this.collectionBreakdownRows = group.lines || [];
+                this.showBreakdownModal = true;
             },
 
             init() {
@@ -1257,6 +1310,7 @@
 
                         this.pettyEntries = data.petty_entries || [];
                         this.companyPendingEntries = data.company_pending_entries || [];
+                        this.collectionSummaries = data.collection_summaries || [];
                         this.settings = data.settings || [];
                         if (!this.selectedApprovalDate) {
                             this.selectedApprovalDate = currentDate;
