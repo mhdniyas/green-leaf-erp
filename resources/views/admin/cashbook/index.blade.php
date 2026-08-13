@@ -204,6 +204,72 @@
         </div>
     </div>
 
+    <!-- Create Rule Config Modal -->
+    <div id="create-config-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm hidden">
+        <div class="white-card max-w-md w-full p-6 rounded-3xl space-y-5 shadow-2xl mx-4">
+            <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+                <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <i data-lucide="sliders" class="w-4 h-4 text-indigo-600"></i> Create Rule Configuration
+                </h3>
+                <button onclick="closeCreateConfigModal()" class="text-slate-400 hover:text-slate-600 font-bold">✕</button>
+            </div>
+            <form onsubmit="submitCreateConfig(event)" class="space-y-4 text-xs">
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Select Shop <span class="text-rose-500">*</span></label>
+                    <select id="config-shop-id-input" required class="w-full bg-white text-xs font-semibold text-slate-900 px-3 py-2 rounded-xl border border-slate-300">
+                        @foreach($shops as $shop)
+                            <option value="{{ $shop->shop_id }}">{{ $shop->name }} ({{ $shop->code }})</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Select Entry Type <span class="text-rose-500">*</span></label>
+                    <select id="config-entry-type-id-input" required class="w-full bg-white text-xs font-semibold text-slate-900 px-3 py-2 rounded-xl border border-slate-300">
+                        @foreach($entryTypes as $et)
+                            <option value="{{ $et->id }}">{{ $et->name }} [{{ $et->code }}] ({{ ucfirst($et->category) }})</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-700 mb-1">Default Funding Source</label>
+                    <select id="config-funding-source-input" class="w-full bg-white text-xs font-semibold text-slate-900 px-3 py-2 rounded-xl border border-slate-300">
+                        <option value="sales_cash">Sales Cash (Counter Cash)</option>
+                        <option value="petty_cash">Petty Cash Box</option>
+                        <option value="bank">Bank Deposit</option>
+                        <option value="company_pending">Company Pending Debt</option>
+                    </select>
+                </div>
+
+                <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
+                    <span class="text-[10px] font-extrabold uppercase text-slate-500 block mb-1">Rule Flags & Behavior</span>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="flex items-center gap-2 font-semibold text-slate-700 cursor-pointer">
+                            <input type="checkbox" id="config-in-sales-input" class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4">
+                            <span>In Sales</span>
+                        </label>
+                        <label class="flex items-center gap-2 font-semibold text-slate-700 cursor-pointer">
+                            <input type="checkbox" id="config-in-expense-input" class="rounded text-rose-600 focus:ring-rose-500 h-4 w-4">
+                            <span>In Expense</span>
+                        </label>
+                        <label class="flex items-center gap-2 font-semibold text-slate-700 cursor-pointer">
+                            <input type="checkbox" id="config-in-pl-input" checked class="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4">
+                            <span>In P&L</span>
+                        </label>
+                        <label class="flex items-center gap-2 font-semibold text-slate-700 cursor-pointer">
+                            <input type="checkbox" id="config-secondary-input" class="rounded text-purple-600 focus:ring-purple-500 h-4 w-4">
+                            <span>Secondary Entry</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeCreateConfigModal()" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs">Cancel</button>
+                    <button type="submit" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-sm">Save Configuration</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
 
     <!-- ========================================================================= -->
     <!-- MAIN DASHBOARD LAYOUT WITH PROPER FINTECH SIDEBAR -->
@@ -904,8 +970,8 @@
                         </div>
 
                         <div class="flex items-center gap-3">
-                            <button onclick="openAddShopModal()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5">
-                                <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add New Shop
+                            <button onclick="openCreateConfigModal()" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5">
+                                <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i> Create Config
                             </button>
                             <button onclick="loadRulesData()" class="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-700 border border-slate-300 flex items-center gap-1.5">
                                 <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh Rules
@@ -1707,6 +1773,53 @@
         }
         function closeAddShopModal() {
             document.getElementById('add-shop-modal').classList.add('hidden');
+        }
+
+        function openCreateConfigModal() {
+            document.getElementById('create-config-modal').classList.remove('hidden');
+        }
+        function closeCreateConfigModal() {
+            document.getElementById('create-config-modal').classList.add('hidden');
+        }
+
+        async function submitCreateConfig(e) {
+            e.preventDefault();
+            const shopId = document.getElementById('config-shop-id-input').value;
+            const entryTypeId = document.getElementById('config-entry-type-id-input').value;
+            const fundingSource = document.getElementById('config-funding-source-input').value;
+            const inSales = document.getElementById('config-in-sales-input').checked;
+            const inExpense = document.getElementById('config-in-expense-input').checked;
+            const inPl = document.getElementById('config-in-pl-input').checked;
+            const secondary = document.getElementById('config-secondary-input').checked;
+
+            try {
+                const res = await fetch('/admin/cashbook/api/create-rule-config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                    },
+                    body: JSON.stringify({
+                        shop_id: shopId,
+                        entry_type_id: entryTypeId,
+                        default_funding_source: fundingSource,
+                        include_in_sales: inSales,
+                        include_in_expense: inExpense,
+                        include_in_pl: inPl,
+                        generates_secondary: secondary
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    closeCreateConfigModal();
+                    loadRulesData();
+                } else {
+                    showToast(data.message || 'Failed to create config', 'error');
+                }
+            } catch (err) {
+                showToast('Server error while creating config', 'error');
+            }
         }
 
         async function submitAddShop(e) {

@@ -982,6 +982,49 @@ final class CashbookController extends Controller
     }
 
     /**
+     * API: Create a new shop rule configuration.
+     */
+    public function createRuleConfig(Request $request): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'shop_id'                => 'required|integer',
+            'entry_type_id'          => 'required|integer|exists:ledger_entry_types,id',
+            'default_funding_source' => 'required|string',
+            'include_in_sales'       => 'nullable|boolean',
+            'include_in_expense'     => 'nullable|boolean',
+            'include_in_pl'          => 'nullable|boolean',
+            'generates_secondary'    => 'nullable|boolean',
+        ]);
+
+        try {
+            $setting = ShopLedgerEntrySetting::updateOrCreate(
+                [
+                    'shop_id'       => $validated['shop_id'],
+                    'entry_type_id' => $validated['entry_type_id'],
+                ],
+                [
+                    'enabled'                   => true,
+                    'default_funding_source'    => $validated['default_funding_source'],
+                    'include_in_sales'          => (bool) ($validated['include_in_sales'] ?? false),
+                    'include_in_expense'        => (bool) ($validated['include_in_expense'] ?? false),
+                    'include_in_pl'             => (bool) ($validated['include_in_pl'] ?? true),
+                    'generates_secondary_entry' => (bool) ($validated['generates_secondary'] ?? false),
+                ]
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Rule configuration created successfully.',
+                'setting' => $setting->load('entryType'),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
      * API: Update a transaction entry's amount (validated via UpdateEntryRequest).
      */
     public function updateEntry(UpdateEntryRequest $request): JsonResponse

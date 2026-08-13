@@ -664,6 +664,7 @@ Route::middleware('auth')->group(function () {
                 Route::post('pay-shop', [CashbookController::class, 'payShop'])->name('pay-shop');
                 Route::post('add-shop', [CashbookController::class, 'addShop'])->name('add-shop');
                 Route::post('update-rule', [CashbookController::class, 'updateRule'])->name('update-rule');
+                Route::post('create-rule-config', [CashbookController::class, 'createRuleConfig'])->name('create-rule-config');
                 Route::post('toggle-day', [CashbookController::class, 'toggleDay'])->name('toggle-day');
                 Route::post('presets/create', [CashbookController::class, 'createPreset'])->name('presets.create');
                 Route::post('presets/create-entry-rule', [CashbookController::class, 'createEntryRule'])->name('presets.create-entry-rule');
