@@ -3,6 +3,8 @@
         @foreach([
             ['href' => '#executive-summary', 'label' => 'Summary'],
             ['href' => '#client-summary', 'label' => 'Clients'],
+            ['href' => '#attention-required', 'label' => 'Attention'],
+            ['href' => '#receivable-ageing', 'label' => 'Ageing'],
             ['href' => '#client-groups', 'label' => 'Client Shops'],
             ['href' => '#direct-shops', 'label' => 'Direct'],
             ['href' => '#bill-details', 'label' => 'Bills'],

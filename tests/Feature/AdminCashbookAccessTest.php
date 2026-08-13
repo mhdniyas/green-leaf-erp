@@ -204,7 +204,9 @@ class AdminCashbookAccessTest extends TestCase
             ->assertSee('name="start_date"', false)
             ->assertSee('name="end_date"', false)
             ->assertSee('min-[390px]:grid-cols-2', false)
-            ->assertSee('let currentTimeframe = "custom";', false);
+            ->assertSee('let currentTimeframe = "custom";', false)
+            ->assertSee('Attention Required')
+            ->assertSee('Receivable Ageing');
     }
 
     public function test_cashbook_report_bills_api_returns_client_and_direct_invoice_rows_for_selected_range(): void

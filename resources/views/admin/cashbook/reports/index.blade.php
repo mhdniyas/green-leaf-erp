@@ -17,6 +17,8 @@
         @include('admin.cashbook.reports.partials.section-tabs')
         @include('admin.cashbook.reports.partials.summary-cards')
         @include('admin.cashbook.reports.partials.client-summary')
+        @include('admin.cashbook.reports.partials.attention-required')
+        @include('admin.cashbook.reports.partials.receivable-ageing')
         @include('admin.cashbook.reports.partials.client-groups')
         @include('admin.cashbook.reports.partials.direct-shops')
         @include('admin.cashbook.reports.partials.bill-details')
@@ -231,6 +233,59 @@
         `).join('');
     }
 
+    function renderAttentionAndAgeing(rows) {
+        const openRows = rows.filter(row => Number(row.balance_amount || 0) > 0);
+        const unpaidRows = openRows.filter(row => Number(row.paid_amount || 0) <= 0);
+        const partialRows = openRows.filter(row => Number(row.paid_amount || 0) > 0);
+        const directOpenRows = openRows.filter(row => row.scope === 'direct');
+        const today = new Date(`${currentEndDate}T00:00:00`);
+
+        const ageBuckets = {
+            '0_7': { count: 0, value: 0 },
+            '8_14': { count: 0, value: 0 },
+            '15_30': { count: 0, value: 0 },
+            '31_60': { count: 0, value: 0 },
+            'above_60': { count: 0, value: 0 },
+        };
+
+        openRows.forEach(row => {
+            const balance = Number(row.balance_amount || 0);
+            const invoiceDate = row.business_date ? new Date(`${row.business_date}T00:00:00`) : today;
+            const diffDays = Math.max(0, Math.floor((today - invoiceDate) / 86400000));
+
+            const bucket = diffDays <= 7
+                ? '0_7'
+                : (diffDays <= 14
+                    ? '8_14'
+                    : (diffDays <= 30
+                        ? '15_30'
+                        : (diffDays <= 60 ? '31_60' : 'above_60')));
+
+            ageBuckets[bucket].count += 1;
+            ageBuckets[bucket].value += balance;
+        });
+
+        const sumBalance = (items) => items.reduce((carry, row) => carry + Number(row.balance_amount || 0), 0);
+        const over7Count = ageBuckets['8_14'].count + ageBuckets['15_30'].count + ageBuckets['31_60'].count + ageBuckets['above_60'].count;
+        const over7Value = ageBuckets['8_14'].value + ageBuckets['15_30'].value + ageBuckets['31_60'].value + ageBuckets['above_60'].value;
+
+        setText('attention-total-open', `${openRows.length} open bills`);
+        setText('attention-unpaid-count', unpaidRows.length);
+        setText('attention-unpaid-value', money(sumBalance(unpaidRows)));
+        setText('attention-partial-count', partialRows.length);
+        setText('attention-partial-value', money(sumBalance(partialRows)));
+        setText('attention-over7-count', over7Count);
+        setText('attention-over7-value', money(over7Value));
+        setText('attention-direct-open-count', directOpenRows.length);
+        setText('attention-direct-open-value', money(sumBalance(directOpenRows)));
+        setText('ageing-total-balance', `${money(sumBalance(openRows))} open balance`);
+
+        Object.entries(ageBuckets).forEach(([key, value]) => {
+            setText(`ageing-${key}-value`, money(value.value));
+            setText(`ageing-${key}-count`, `${value.count} bills`);
+        });
+    }
+
     async function loadReportData() {
         try {
             const query = reportQueryParams();
@@ -342,6 +397,7 @@
 
             if (billData.success) {
                 renderBillDetails(billData.rows || [], billData.totals || {});
+                renderAttentionAndAgeing(billData.rows || []);
             }
         } catch (err) {
             showToast('Failed to load reports', 'error');
