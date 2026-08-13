@@ -25,6 +25,7 @@ use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Shop;
+use App\Models\ShopInvoice;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
 use App\Services\Cashbook\DailyLedgerService;
@@ -530,10 +531,21 @@ final class CashbookController extends Controller
         foreach ($shops as $shop) {
             $snapshot = $this->ledgerService->dailySummary($shop->shop_id, $endDate);
 
-            $glBills = (float) ShopLedgerTransaction::where('shop_id', $shop->shop_id)
-                ->whereBetween('business_date', [$startDate, $endDate])
-                ->where('entry_type_id', fn ($q) => $q->select('id')->from('ledger_entry_types')->where('code', 'purchase_bill'))
-                ->sum('amount');
+            $isDirect = $shop->client_id === null
+                && $shop->profile_template === 'direct_buyer';
+
+            $glBills = $isDirect
+                ? (float) ShopInvoice::query()
+                    ->where('shop_id', $shop->shop_id)
+                    ->where('final_total', '>', 0)
+                    ->where('status', '!=', 'cancelled')
+                    ->whereDate('business_date', '>=', $startDate)
+                    ->whereDate('business_date', '<=', $endDate)
+                    ->sum('final_total')
+                : (float) ShopLedgerTransaction::where('shop_id', $shop->shop_id)
+                    ->whereBetween('business_date', [$startDate, $endDate])
+                    ->where('entry_type_id', fn ($q) => $q->select('id')->from('ledger_entry_types')->where('code', 'purchase_bill'))
+                    ->sum('amount');
 
             $compExpenses = (float) ShopLedgerTransaction::where('shop_id', $shop->shop_id)
                 ->whereBetween('business_date', [$startDate, $endDate])
@@ -550,9 +562,6 @@ final class CashbookController extends Controller
             $compPend = (float) $snapshot->closing_company_pending;
 
             $netReceivable = $glBills + $compPend - $receivedToday;
-
-            $isDirect = $shop->client_id === null
-                && $shop->profile_template === 'direct_buyer';
 
             $overview[] = [
                 'shop' => $shop,
