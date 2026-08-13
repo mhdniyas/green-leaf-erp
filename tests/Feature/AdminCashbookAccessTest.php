@@ -14,6 +14,9 @@ use App\Models\ShopInvoice;
 use App\Models\ShopOrder;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
+use App\Services\Cashbook\InvoiceCashbookProjectionService;
+use Database\Seeders\Cashbook\LedgerEntryTypeSeeder;
+use Database\Seeders\Cashbook\ShopConfigPresetSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -311,5 +314,115 @@ class AdminCashbookAccessTest extends TestCase
         $this->assertNotNull($directRow);
         $this->assertSame(6315.50, $directRow['green_leaf_bill']);
         $this->assertSame(6315.50, $directRow['net_receivable']);
+    }
+
+    public function test_invoice_cashbook_projection_updates_stale_purchase_bill_without_duplicate(): void
+    {
+        $this->seed([LedgerEntryTypeSeeder::class, ShopConfigPresetSeeder::class]);
+
+        $shop = Shop::factory()->create([
+            'client_id' => Client::query()->create([
+                'code' => 'BAZARO',
+                'name' => 'Bazaro Client',
+                'status' => 'active',
+            ])->id,
+            'accounting_enabled' => true,
+            'accounting_mode' => 'standard',
+        ]);
+
+        app(CashbookShopSyncService::class)->syncAndGetProfiles();
+
+        $order = ShopOrder::query()->create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => '2026-08-02',
+            'created_by' => User::factory()->create()->id,
+        ]);
+
+        $invoice = ShopInvoice::factory()->create([
+            'shop_id' => $shop->id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'SINV-20260802-AV_BAZARO',
+            'business_date' => '2026-08-02',
+            'status' => 'generated',
+            'final_total' => 50064.80,
+            'paid_amount' => 0,
+            'balance_amount' => 50064.80,
+        ]);
+
+        $purchaseBillType = LedgerEntryType::query()->where('code', 'purchase_bill')->firstOrFail();
+        ShopLedgerTransaction::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-02',
+            'entry_type_id' => $purchaseBillType->id,
+            'amount' => 83584.80,
+            'direction' => 'expense',
+            'funding_source' => 'company',
+            'affects_expense' => true,
+            'affects_pl' => true,
+            'pl_delta' => -83584.80,
+            'reference_type' => ShopInvoice::class,
+            'reference_id' => $invoice->id,
+            'status' => 'posted',
+        ]);
+
+        app(InvoiceCashbookProjectionService::class)->syncInvoice($invoice);
+
+        $transactions = ShopLedgerTransaction::query()
+            ->where('reference_type', ShopInvoice::class)
+            ->where('reference_id', $invoice->id)
+            ->get();
+
+        $this->assertCount(1, $transactions);
+        $this->assertSame(50064.80, (float) $transactions->first()->amount);
+        $this->assertSame(-50064.80, (float) $transactions->first()->pl_delta);
+    }
+
+    public function test_invoice_reconciliation_reports_stale_rows_before_apply(): void
+    {
+        $this->seed([LedgerEntryTypeSeeder::class, ShopConfigPresetSeeder::class]);
+
+        $shop = Shop::factory()->create([
+            'client_id' => Client::query()->create([
+                'code' => 'CLIENT-RECON',
+                'name' => 'Recon Client',
+                'status' => 'active',
+            ])->id,
+            'accounting_enabled' => true,
+            'accounting_mode' => 'standard',
+        ]);
+        app(CashbookShopSyncService::class)->syncAndGetProfiles();
+
+        $invoice = ShopInvoice::factory()->create([
+            'shop_id' => $shop->id,
+            'invoice_number' => 'SINV-RECON',
+            'business_date' => '2026-08-02',
+            'status' => 'generated',
+            'final_total' => 1234.50,
+            'paid_amount' => 0,
+            'balance_amount' => 1234.50,
+        ]);
+
+        $purchaseBillType = LedgerEntryType::query()->where('code', 'purchase_bill')->firstOrFail();
+        ShopLedgerTransaction::query()->create([
+            'shop_id' => $shop->id,
+            'business_date' => '2026-08-02',
+            'entry_type_id' => $purchaseBillType->id,
+            'amount' => 999.00,
+            'direction' => 'expense',
+            'funding_source' => 'company',
+            'affects_expense' => true,
+            'affects_pl' => true,
+            'pl_delta' => -999.00,
+            'reference_type' => ShopInvoice::class,
+            'reference_id' => $invoice->id,
+            'status' => 'posted',
+        ]);
+
+        $summary = app(InvoiceCashbookProjectionService::class)->reconcile('2026-08-01', '2026-08-13');
+
+        $this->assertSame(1, $summary['checked']);
+        $this->assertCount(1, $summary['mismatches']);
+        $this->assertSame(999.00, (float) ShopLedgerTransaction::query()->firstOrFail()->amount);
     }
 }

@@ -426,12 +426,6 @@
                                 <span x-show="sortColumn === 'business_date'" x-text="sortAsc ? '▲' : '▼'" class="text-[10px] text-slate-900 font-black"></span>
                             </div>
                         </th>
-                        <th @click="sortBy('id')" class="py-3 px-3 cursor-pointer hover:bg-slate-200/70 transition-all">
-                            <div class="flex items-center gap-1">
-                                <span>ID</span>
-                                <span x-show="sortColumn === 'id'" x-text="sortAsc ? '▲' : '▼'" class="text-[10px] text-slate-900 font-black"></span>
-                            </div>
-                        </th>
                         <th @click="sortBy('entry_type')" class="py-3 px-3 cursor-pointer hover:bg-slate-200/70 transition-all">
                             <div class="flex items-center gap-1">
                                 <span>Entry Type</span>
@@ -469,7 +463,6 @@
                     <template x-for="t in getPaginatedTransactions()" :key="t.id">
                         <tr class="hover:bg-slate-50 transition-all">
                             <td class="py-3 px-3 font-mono font-bold text-slate-900" x-text="t.business_date"></td>
-                            <td class="py-3 px-3 font-mono text-slate-500" x-text="'#' + t.id"></td>
                             <td class="py-3 px-3 font-sans font-semibold text-slate-900">
                                 <span x-text="t.entry_type ? t.entry_type.name : t.entry_type_id"></span>
                                 <span x-show="t.generated_by_rule" class="ml-1 px-1.5 py-0.5 text-[9px] bg-purple-100 text-purple-700 border border-purple-200 rounded font-semibold">Auto-Paired</span>
@@ -496,12 +489,12 @@
                         </tr>
                     </template>
                     <tr x-show="!transactions || transactions.length === 0">
-                        <td colspan="8" class="py-8 text-center text-slate-400 font-sans">No transactions posted for this timeframe.</td>
+                        <td colspan="7" class="py-8 text-center text-slate-400 font-sans">No transactions posted for this timeframe.</td>
                     </tr>
                 </tbody>
                 <tfoot x-show="transactions && transactions.length > 0" class="bg-slate-900 text-white font-bold border-t-2 border-slate-900">
                     <tr>
-                        <td colspan="4" class="py-3.5 px-3 font-extrabold uppercase text-[11px] tracking-wider text-slate-200">
+                        <td colspan="3" class="py-3.5 px-3 font-extrabold uppercase text-[11px] tracking-wider text-slate-200">
                             Total (<span x-text="transactions.length"></span> Entries)
                         </td>
                         <td class="py-3.5 px-3 text-right font-mono font-black text-sm text-emerald-400" x-text="'₹' + totalAmount.toFixed(2)"></td>

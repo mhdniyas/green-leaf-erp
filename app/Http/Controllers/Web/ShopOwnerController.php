@@ -8,14 +8,13 @@ use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\ShopOwner\StoreShopInvoicePaymentRequest;
 use App\Http\Requests\Web\ShopOwner\StoreShopOwnerAccountingEntryRequest;
+use App\Models\BusinessSetting;
 use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Category;
-use App\Models\BusinessSetting;
 use App\Models\Shop;
 use App\Models\ShopAccountingEntry;
-use App\Models\ShopAccountingEntryLine;
 use App\Models\ShopCredit;
 use App\Models\ShopInvoice;
 use App\Models\ShopInvoicePaymentRequest;
@@ -23,11 +22,12 @@ use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
 use App\Models\ShopPreset;
 use App\Models\User;
+use App\Services\Cashbook\CashbookShopSyncService;
+use App\Services\Cashbook\DailyLedgerService;
+use App\Services\Cashbook\InvoiceCashbookProjectionService;
 use App\Services\Finance\CompanyPayableService;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Finance\ShopLoanService;
-use App\Services\Cashbook\CashbookShopSyncService;
-use App\Services\Cashbook\DailyLedgerService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\ShopInvoices\ShopInvoiceService;
@@ -41,6 +41,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Throwable;
@@ -59,6 +60,7 @@ class ShopOwnerController extends Controller
         private readonly DeliveryVerificationEligibility $deliveryVerificationEligibility,
         private readonly DailyLedgerService $dailyLedgerService,
         private readonly CashbookShopSyncService $cashbookShopSyncService,
+        private readonly InvoiceCashbookProjectionService $invoiceCashbookProjectionService,
     ) {}
 
     public function dashboard(Request $request): View
@@ -742,57 +744,16 @@ class ShopOwnerController extends Controller
 
     private function syncApprovedInvoiceBillsToCashbook(Shop $shop, string $startDate, string $endDate, int $userId): void
     {
-        $purchaseBillType = LedgerEntryType::query()
-            ->where('code', 'purchase_bill')
-            ->where('active', true)
-            ->first();
-
-        if (! $purchaseBillType instanceof LedgerEntryType) {
-            return;
-        }
-
-        $alreadySyncedInvoiceIds = ShopLedgerTransaction::query()
-            ->where('shop_id', (int) $shop->id)
-            ->where('entry_type_id', (int) $purchaseBillType->id)
-            ->where('reference_type', ShopInvoice::class)
-            ->whereDate('business_date', '>=', $startDate)
-            ->whereDate('business_date', '<=', $endDate)
-            ->pluck('reference_id')
-            ->map(fn ($id): int => (int) $id)
-            ->all();
-
-        $syncedMap = array_flip($alreadySyncedInvoiceIds);
-
         $invoices = ShopInvoice::query()
             ->where('shop_id', (int) $shop->id)
-            ->where('final_total', '>', 0)
             ->whereDate('business_date', '>=', $startDate)
             ->whereDate('business_date', '<=', $endDate)
-            ->where('status', '!=', 'cancelled')
             ->orderBy('business_date')
             ->orderBy('id')
-            ->get(['id', 'business_date', 'invoice_number', 'final_total']);
+            ->get();
 
         foreach ($invoices as $invoice) {
-            if (isset($syncedMap[(int) $invoice->id])) {
-                continue;
-            }
-
-            try {
-                app(\App\Services\Cashbook\TransactionGenerator::class)->record([
-                    'shop_id' => (int) $shop->id,
-                    'business_date' => $invoice->business_date?->toDateString() ?? $startDate,
-                    'entry_type_code' => 'purchase_bill',
-                    'amount' => (float) $invoice->final_total,
-                    'funding_source' => 'company',
-                    'reference_type' => ShopInvoice::class,
-                    'reference_id' => (int) $invoice->id,
-                    'notes' => 'Auto from invoice '.$invoice->invoice_number,
-                    'entered_by' => $userId,
-                ]);
-            } catch (Throwable) {
-                // Ignore sync failures for individual rows so the page can still load.
-            }
+            $this->invoiceCashbookProjectionService->syncInvoice($invoice, $userId);
         }
     }
 
@@ -902,11 +863,11 @@ class ShopOwnerController extends Controller
             ->unique();
         $rows = collect();
         $runningCash = 0.0;
- 
+
         for ($date = $startDate->copy(); $date->lte($endDate); $date->addDay()) {
             $dateKey = $date->toDateString();
             $dayEntries = $entriesByDate->get($dateKey, collect());
- 
+
             $dailyIncome = 0.0;
             $dailyExpenses = 0.0;
             $loanTotal = 0.0;
@@ -923,7 +884,7 @@ class ShopOwnerController extends Controller
                     ->where('is_loan_entry', true)
                     ->sum('amount');
             }
- 
+
             $openingBalance = $runningCash;
             $closingBalance = $openingBalance + $dailyIncome - $dailyExpenses;
             $runningCash = $closingBalance;
@@ -938,7 +899,7 @@ class ShopOwnerController extends Controller
                 'loan_total' => $loanTotal,
             ]);
         }
- 
+
         return $rows;
     }
 
@@ -995,7 +956,7 @@ class ShopOwnerController extends Controller
             ->orderByDesc('business_date')
             ->orderByDesc('id')
             ->get()
-            ->reject(fn (ShopCredit $credit): bool => \Illuminate\Support\Str::contains(
+            ->reject(fn (ShopCredit $credit): bool => Str::contains(
                 strtolower((string) $credit->description),
                 ['carry_over', 'carry-over', 'carryover', 'carry over']
             ));
@@ -1141,26 +1102,26 @@ class ShopOwnerController extends Controller
             $paymentMethod = $validated['payment_method'] ?? 'cash';
             $fundingSource = 'sales';
             $date = $validated['payment_date'] ?? today()->toDateString();
-            
+
             $notesArr = [];
-            $notesArr[] = "Bill payment via " . strtoupper($paymentMethod);
+            $notesArr[] = 'Bill payment via '.strtoupper($paymentMethod);
             if (! empty($validated['payment_reference'])) {
-                $notesArr[] = "Ref: " . trim((string) $validated['payment_reference']);
+                $notesArr[] = 'Ref: '.trim((string) $validated['payment_reference']);
             }
             if (! empty($validated['shop_note'])) {
-                $notesArr[] = "Note: " . trim((string) $validated['shop_note']);
+                $notesArr[] = 'Note: '.trim((string) $validated['shop_note']);
             }
             $notes = implode(' | ', $notesArr);
 
             // 1. Record directly into Cashbook ledger (ShopLedgerTransaction)
             $this->dailyLedgerService->recordEntry([
-                'shop_id'          => (int) $shop->id,
-                'business_date'    => $date,
-                'entry_type_code'  => 'shop_paid_company',
-                'amount'          => $amount,
-                'funding_source'  => $fundingSource,
-                'notes'           => $notes,
-                'entered_by'      => (int) $user->id,
+                'shop_id' => (int) $shop->id,
+                'business_date' => $date,
+                'entry_type_code' => 'shop_paid_company',
+                'amount' => $amount,
+                'funding_source' => $fundingSource,
+                'notes' => $notes,
+                'entered_by' => (int) $user->id,
             ]);
 
             // 2. Record invoice payment request and mark approved
@@ -1172,10 +1133,10 @@ class ShopOwnerController extends Controller
 
             if ($paymentRequest instanceof ShopInvoicePaymentRequest) {
                 $paymentRequest->update([
-                    'status'      => 'approved',
+                    'status' => 'approved',
                     'reviewed_by' => (int) $user->id,
                     'reviewed_at' => now(),
-                    'admin_note'  => 'Recorded in Cashbook.',
+                    'admin_note' => 'Recorded in Cashbook.',
                 ]);
             }
         } catch (ValidationException $exception) {
@@ -1192,7 +1153,7 @@ class ShopOwnerController extends Controller
         }
 
         return redirect()->to($redirectUrl)
-            ->with('success', 'Payment of ₹' . number_format($amount, 2) . ' recorded in Cashbook successfully.');
+            ->with('success', 'Payment of ₹'.number_format($amount, 2).' recorded in Cashbook successfully.');
     }
 
     /**

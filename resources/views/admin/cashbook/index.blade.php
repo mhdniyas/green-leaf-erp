@@ -645,8 +645,8 @@
                             <table class="w-full text-left text-xs">
                                 <thead>
                                     <tr class="text-slate-600 bg-slate-100/80 border-b border-slate-200 uppercase tracking-wider font-bold">
-                                        <th class="py-3 px-3">ID</th>
                                         <th class="py-3 px-3">Entry Type</th>
+                                        <th class="py-3 px-3">Reference</th>
                                         <th class="py-3 px-3">Category</th>
                                         <th class="py-3 px-3">Direction</th>
                                         <th class="py-3 px-3 text-right">Amount</th>
@@ -742,7 +742,6 @@
                             <table class="w-full text-left text-xs">
                                 <thead>
                                     <tr class="text-slate-600 bg-slate-100/70 border-b border-slate-200 uppercase tracking-wider font-bold">
-                                        <th class="py-3 px-3">ID</th>
                                         <th class="py-3 px-3">Entry Type</th>
                                         <th class="py-3 px-3">Direction</th>
                                         <th class="py-3 px-3 text-right">Amount</th>
@@ -755,7 +754,7 @@
                                 </thead>
                                 <tbody id="transactions-tbody" class="divide-y divide-slate-100 font-mono text-slate-800">
                                     <tr>
-                                        <td colspan="9" class="py-8 text-center text-slate-400 font-sans">Loading transaction data...</td>
+                                        <td colspan="8" class="py-8 text-center text-slate-400 font-sans">Loading transaction data...</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -775,7 +774,7 @@
                             <span class="font-extrabold text-xs flex items-center gap-1.5 text-emerald-800">
                                 <i data-lucide="check-circle" class="w-4 h-4 text-emerald-600"></i> Entry Successfully Posted!
                             </span>
-                            <span id="just-posted-id" class="text-xs font-mono font-bold bg-white px-2 py-0.5 rounded border border-emerald-200">#0</span>
+                            <span id="just-posted-id" class="text-xs font-mono font-bold bg-white px-2 py-0.5 rounded border border-emerald-200">Manual Entry</span>
                         </div>
                         <div class="grid grid-cols-4 gap-2 font-mono text-xs pt-1">
                             <div><span class="text-[10px] text-slate-500 block uppercase font-sans">Entry Type</span><strong id="just-posted-type" class="text-slate-900 font-sans">-</strong></div>
@@ -871,7 +870,7 @@
                             <table class="w-full text-left text-xs">
                                 <thead>
                                     <tr class="text-slate-600 bg-slate-100/80 border-b border-slate-200 uppercase tracking-wider font-bold">
-                                        <th class="py-2.5 px-3">ID</th>
+                                        <th class="py-2.5 px-3">Reference</th>
                                         <th class="py-2.5 px-3">Entry Type</th>
                                         <th class="py-2.5 px-3 text-right">Amount</th>
                                         <th class="py-2.5 px-3">Source</th>
@@ -1013,6 +1012,29 @@
             'rules': { title: 'Shop Configuration & Rule Editor', subtitle: 'Database-driven rule settings per shop without touching code.', icon: 'sliders' },
             'prd-spec': { title: 'PRD Acceptance Criteria Runner', subtitle: 'Verify exact Section 5 mathematical worked examples.', icon: 'check-circle-2' }
         };
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function transactionReferenceLabel(transaction) {
+            const notes = String(transaction?.notes || '').trim();
+
+            if (notes) {
+                return notes.replace(/^Auto from invoice\s+/i, '');
+            }
+
+            if (transaction?.reference_type) {
+                return 'Linked source';
+            }
+
+            return 'Manual entry';
+        }
 
         const tabUrlMap = {
             'all-shops': '/admin/cashbook/all-shops',
@@ -1831,7 +1853,7 @@
             document.getElementById('transaction-count').innerText = `${transactions.length} entries`;
 
             if (transactions.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="9" class="py-8 text-center text-slate-400 font-sans">No transactions recorded for this day.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="8" class="py-8 text-center text-slate-400 font-sans">No transactions recorded for this day.</td></tr>`;
                 return;
             }
 
@@ -1840,7 +1862,6 @@
                 const isGenerated = t.generated_by_rule;
                 return `
                     <tr class="hover:bg-indigo-50/40 transition-all">
-                        <td class="py-3 px-3 font-mono text-slate-500">#${t.id}</td>
                         <td class="py-3 px-3 font-sans font-semibold text-slate-900">
                             ${entryName}
                             ${isGenerated ? '<span class="ml-1 px-1.5 py-0.5 text-[9px] bg-purple-100 text-purple-700 border border-purple-200 rounded font-semibold">Auto-Paired</span>' : ''}
@@ -1880,17 +1901,18 @@
 
             tbody.innerHTML = filtered.map(t => {
                 const entryName = t.entry_type ? t.entry_type.name : t.entry_type_id;
+                const referenceLabel = escapeHtml(transactionReferenceLabel(t));
                 const isIncome = t.direction === 'income';
                 const isExpense = t.direction === 'expense';
                 const isVoid = t.status === 'void';
 
                 return `
                     <tr class="hover:bg-indigo-50/40 transition-all ${isVoid ? 'opacity-50 line-through bg-slate-50' : ''}">
-                        <td class="py-3 px-3 font-mono text-slate-500">#${t.id}</td>
                         <td class="py-3 px-3 font-sans font-semibold text-slate-900">
                             ${entryName}
                             ${t.generated_by_rule ? '<span class="ml-1 px-1.5 py-0.5 text-[9px] bg-purple-100 text-purple-700 border border-purple-200 rounded font-semibold">Auto-Paired</span>' : ''}
                         </td>
+                        <td class="py-3 px-3 font-sans text-slate-600 max-w-[220px] truncate" title="${referenceLabel}">${referenceLabel}</td>
                         <td class="py-3 px-3">
                             <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded-full ${
                                 isIncome ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
@@ -2040,7 +2062,7 @@
                     // 1. Show Just Posted Highlight Card
                     const card = document.getElementById('just-posted-card');
                     card.classList.remove('hidden');
-                    document.getElementById('just-posted-id').innerText = `#${t.id}`;
+                    document.getElementById('just-posted-id').innerText = transactionReferenceLabel(t);
                     document.getElementById('just-posted-type').innerText = t.entry_type ? t.entry_type.name : t.entry_type_id;
                     document.getElementById('just-posted-amount').innerText = `₹${parseFloat(t.amount).toFixed(2)}`;
                     document.getElementById('just-posted-source').innerText = t.funding_source || 'default';
@@ -2079,11 +2101,12 @@
 
             tbody.innerHTML = sessionTransactions.map((t, idx) => {
                 const entryName = t.entry_type ? t.entry_type.name : t.entry_type_id;
+                const referenceLabel = escapeHtml(transactionReferenceLabel(t));
                 const isFirst = idx === 0;
 
                 return `
                     <tr class="transition-all ${isFirst ? 'bg-emerald-50/70 font-bold border-l-4 border-l-emerald-500' : 'hover:bg-slate-50'}">
-                        <td class="py-2.5 px-3 font-mono text-slate-500">#${t.id}</td>
+                        <td class="py-2.5 px-3 font-sans text-slate-600 max-w-[180px] truncate" title="${referenceLabel}">${referenceLabel}</td>
                         <td class="py-2.5 px-3 font-sans font-semibold text-slate-900">
                             ${entryName}
                             ${isFirst ? '<span class="ml-1.5 px-1.5 py-0.5 text-[9px] bg-emerald-600 text-white rounded font-bold uppercase tracking-wider">Just Entered</span>' : ''}
@@ -2112,7 +2135,7 @@
 
             sessionTransactions.splice(idx, 1);
             renderSessionEntriesFeed();
-            showToast(`Removed entry #${transactionId} from session feed`, 'success');
+            showToast('Removed entry from session feed', 'success');
         }
 
         async function handleToggleDay() {

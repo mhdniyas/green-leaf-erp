@@ -5,11 +5,9 @@ declare(strict_types=1);
 namespace App\Services\Cashbook;
 
 use App\Models\Cashbook\LedgerClient;
-use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopConfigPreset;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerProfile;
-use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Client;
 use App\Models\Shop;
 use App\Models\ShopInvoice;
@@ -26,6 +24,10 @@ use Illuminate\Support\Str;
  */
 class CashbookShopSyncService
 {
+    public function __construct(
+        private readonly InvoiceCashbookProjectionService $invoiceProjectionService,
+    ) {}
+
     /**
      * Synchronizes Green Leaf ERP's owned shops into ShopLedgerProfile and returns the updated collection.
      *
@@ -132,42 +134,13 @@ class CashbookShopSyncService
      */
     public function syncInvoicesToCashbook(): void
     {
-        $purchaseBillType = LedgerEntryType::where('code', 'purchase_bill')->first();
-        if (! $purchaseBillType) {
-            return;
-        }
-
-        $alreadySynced = ShopLedgerTransaction::where('entry_type_id', $purchaseBillType->id)
-            ->where('reference_type', ShopInvoice::class)
-            ->pluck('reference_id')
-            ->map(fn ($id): int => (int) $id)
-            ->all();
-
-        $syncedMap = array_flip($alreadySynced);
-
         $invoices = ShopInvoice::where('final_total', '>', 0)
             ->where('status', '!=', 'cancelled')
-            ->get(['id', 'shop_id', 'business_date', 'invoice_number', 'final_total']);
+            ->orderBy('id')
+            ->get();
 
         foreach ($invoices as $inv) {
-            if (isset($syncedMap[(int) $inv->id])) {
-                continue;
-            }
-
-            try {
-                app(TransactionGenerator::class)->record([
-                    'shop_id' => (int) $inv->shop_id,
-                    'business_date' => $inv->business_date?->toDateString() ?? today()->toDateString(),
-                    'entry_type_code' => 'purchase_bill',
-                    'amount' => (float) $inv->final_total,
-                    'funding_source' => 'company',
-                    'reference_type' => ShopInvoice::class,
-                    'reference_id' => (int) $inv->id,
-                    'notes' => 'Auto from invoice '.$inv->invoice_number,
-                    'entered_by' => 1,
-                ]);
-            } catch (\Throwable) {
-            }
+            $this->invoiceProjectionService->syncInvoice($inv, 1);
         }
     }
 

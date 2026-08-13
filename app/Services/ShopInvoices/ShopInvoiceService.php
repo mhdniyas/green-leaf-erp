@@ -15,6 +15,7 @@ use App\Models\ShopInvoicePaymentAllocation;
 use App\Models\ShopInvoicePaymentRequest;
 use App\Models\ShopOrder;
 use App\Models\ShopOrderItem;
+use App\Services\Cashbook\InvoiceCashbookProjectionService;
 use App\Services\Finance\JournalService;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Pricing\ApprovedDailyPriceResolver;
@@ -33,6 +34,7 @@ class ShopInvoiceService
         private readonly JournalService $journalService,
         private readonly OwnedShopAccountingService $ownedShopAccountingService,
         private readonly PurchaserBusinessDayService $businessDayService,
+        private readonly InvoiceCashbookProjectionService $invoiceCashbookProjectionService,
     ) {}
 
     /**
@@ -1123,7 +1125,10 @@ class ShopInvoiceService
             'status' => $status,
         ]);
 
-        return $invoice->fresh('items');
+        $invoice = $invoice->fresh('items');
+        $this->invoiceCashbookProjectionService->syncInvoice($invoice);
+
+        return $invoice;
     }
 
     /**
