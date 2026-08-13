@@ -621,6 +621,8 @@ Route::middleware('auth')->group(function () {
             Route::get('/', [CashbookController::class, 'index'])->name('index');
             Route::get('all-shops', [CashbookController::class, 'allShops'])->name('all-shops');
             Route::get('reports', [CashbookController::class, 'reports'])->name('reports');
+            Route::get('reports/export/csv', [CashbookController::class, 'exportReportsCsv'])->name('reports.export.csv');
+            Route::get('reports/export/excel', [CashbookController::class, 'exportReportsExcel'])->name('reports.export.excel');
             Route::get('payables', [CashbookController::class, 'payables'])->name('payables');
             Route::get('accept-payment', [CashbookController::class, 'acceptPaymentPage'])->name('accept-payment');
             Route::get('income-expenses', [CashbookController::class, 'incomeExpenses'])->name('income-expenses');

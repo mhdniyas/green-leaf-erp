@@ -278,6 +278,56 @@ class AdminCashbookAccessTest extends TestCase
         $response->assertJsonMissing(['invoice_number' => 'SINV-OUTSIDE-RANGE']);
     }
 
+    public function test_cashbook_reports_csv_export_respects_selected_date_range(): void
+    {
+        $mainAdmin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $mainAdmin->assignRole('admin');
+
+        $directShop = Shop::factory()->create([
+            'name' => 'CSV Direct Shop',
+            'client_id' => null,
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+
+        ShopInvoice::factory()->create([
+            'shop_id' => $directShop->id,
+            'invoice_number' => 'SINV-CSV-IN',
+            'business_date' => '2026-08-13',
+            'status' => 'generated',
+            'payment_status' => 'unpaid',
+            'final_total' => 2100.00,
+            'paid_amount' => 100.00,
+            'balance_amount' => 2000.00,
+        ]);
+        ShopInvoice::factory()->create([
+            'shop_id' => $directShop->id,
+            'invoice_number' => 'SINV-CSV-OUT',
+            'business_date' => '2026-08-01',
+            'status' => 'generated',
+            'payment_status' => 'unpaid',
+            'final_total' => 999.00,
+            'paid_amount' => 0,
+            'balance_amount' => 999.00,
+        ]);
+
+        $response = $this->actingAs($mainAdmin)->get(route('admin.cashbook.reports.export.csv', [
+            'date' => '2026-08-13',
+            'timeframe' => 'custom',
+            'start_date' => '2026-08-13',
+            'end_date' => '2026-08-13',
+        ]));
+
+        $response->assertOk();
+        $response->assertHeader('content-type', 'text/csv; charset=UTF-8');
+        $response->assertHeader('content-disposition', 'attachment; filename=cashbook-report-2026-08-13_2026-08-13.csv');
+        $streamed = $response->streamedContent();
+
+        $this->assertStringContainsString('Cashbook CEO Report', $streamed);
+        $this->assertStringContainsString('SINV-CSV-IN', $streamed);
+        $this->assertStringNotContainsString('SINV-CSV-OUT', $streamed);
+    }
+
     public function test_cashbook_monthly_shop_data_clamps_future_month_end_to_today(): void
     {
         $this->travelTo('2026-08-13 10:00:00');

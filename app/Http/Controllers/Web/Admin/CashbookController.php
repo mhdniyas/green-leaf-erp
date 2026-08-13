@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Web\Admin;
 
+use App\Exports\PurchaserReportArrayExport;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Cashbook\AcceptPaymentRequest;
 use App\Http\Requests\Cashbook\AddShopRequest;
@@ -36,6 +37,9 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
+use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
 /**
@@ -71,23 +75,11 @@ final class CashbookController extends Controller
     {
         $this->ensureMainAdmin($request);
 
-        $validated = $request->validate([
-            'date' => ['nullable', 'date_format:Y-m-d'],
-            'business_date' => ['nullable', 'date_format:Y-m-d'],
-            'timeframe' => ['nullable', 'in:daily,weekly,monthly,custom'],
-            'start_date' => ['nullable', 'date_format:Y-m-d'],
-            'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:start_date'],
-        ]);
-        $selectedDate = $validated['date']
-            ?? $validated['business_date']
-            ?? today()->toDateString();
-        $timeframe = $validated['timeframe'] ?? 'daily';
-        [$startDate, $endDate] = $this->cashbookRange(
-            $selectedDate,
-            $timeframe,
-            $validated['start_date'] ?? null,
-            $validated['end_date'] ?? null
-        );
+        $filters = $this->reportFilters($request);
+        $selectedDate = $filters['selected_date'];
+        $timeframe = $filters['timeframe'];
+        $startDate = $filters['start_date'];
+        $endDate = $filters['end_date'];
 
         $shops = $this->shopSyncService->syncAndGetProfiles();
         $clients = LedgerClient::with('shops')->where('enabled', true)->get();
@@ -106,6 +98,55 @@ final class CashbookController extends Controller
             'endDate',
             'reportRangeLabel',
         ));
+    }
+
+    public function exportReportsCsv(Request $request): StreamedResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $this->reportFilters($request);
+        $rows = $this->cashbookReportExportRows(
+            $filters['selected_date'],
+            $filters['timeframe'],
+            $filters['start_date'],
+            $filters['end_date']
+        );
+
+        return response()->streamDownload(function () use ($rows): void {
+            $file = fopen('php://output', 'w');
+
+            if ($file === false) {
+                return;
+            }
+
+            foreach ($rows as $row) {
+                fputcsv($file, $row);
+            }
+
+            fclose($file);
+        }, $this->reportFilename('cashbook-report', $filters['start_date'], $filters['end_date'], 'csv'), [
+            'Content-Type' => 'text/csv',
+        ]);
+    }
+
+    public function exportReportsExcel(Request $request): BinaryFileResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $filters = $this->reportFilters($request);
+
+        return Excel::download(
+            new PurchaserReportArrayExport(
+                $this->cashbookReportExportRows(
+                    $filters['selected_date'],
+                    $filters['timeframe'],
+                    $filters['start_date'],
+                    $filters['end_date']
+                ),
+                'Cashbook Report'
+            ),
+            $this->reportFilename('cashbook-report', $filters['start_date'], $filters['end_date'], 'xlsx'),
+        );
     }
 
     public function payables(Request $request): View
@@ -1451,6 +1492,156 @@ final class CashbookController extends Controller
         $validated = $request->validate(['date' => ['nullable', 'date_format:Y-m-d']]);
 
         return $validated['date'] ?? today()->toDateString();
+    }
+
+    /**
+     * @return array{selected_date:string,timeframe:string,start_date:string,end_date:string}
+     */
+    private function reportFilters(Request $request): array
+    {
+        $validated = $request->validate([
+            'date' => ['nullable', 'date_format:Y-m-d'],
+            'business_date' => ['nullable', 'date_format:Y-m-d'],
+            'timeframe' => ['nullable', 'in:daily,weekly,monthly,custom'],
+            'start_date' => ['nullable', 'date_format:Y-m-d'],
+            'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:start_date'],
+        ]);
+
+        $selectedDate = $validated['date']
+            ?? $validated['business_date']
+            ?? today()->toDateString();
+        $timeframe = $validated['timeframe'] ?? 'daily';
+        [$startDate, $endDate] = $this->cashbookRange(
+            $selectedDate,
+            $timeframe,
+            $validated['start_date'] ?? null,
+            $validated['end_date'] ?? null
+        );
+
+        return [
+            'selected_date' => $selectedDate,
+            'timeframe' => $timeframe,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+        ];
+    }
+
+    /**
+     * @return array<int, array<int, mixed>>
+     */
+    private function cashbookReportExportRows(string $selectedDate, string $timeframe, string $startDate, string $endDate): array
+    {
+        $overviewRequest = Request::create('/admin/cashbook/api/all-shops-overview', 'GET', [
+            'business_date' => $selectedDate,
+            'timeframe' => $timeframe,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+        ]);
+        $clientRequest = Request::create('/admin/cashbook/api/client-summary', 'GET', [
+            'business_date' => $selectedDate,
+            'timeframe' => $timeframe,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+        ]);
+        $billRequest = Request::create('/admin/cashbook/api/report-bills', 'GET', [
+            'business_date' => $selectedDate,
+            'timeframe' => $timeframe,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+        ]);
+
+        $userResolver = fn () => auth()->user();
+        $overviewRequest->setUserResolver($userResolver);
+        $clientRequest->setUserResolver($userResolver);
+        $billRequest->setUserResolver($userResolver);
+
+        $overview = $this->getAllShopsOverview($overviewRequest)->getData(true);
+        $clients = $this->getClientSummary($clientRequest)->getData(true);
+        $bills = $this->getReportBills($billRequest)->getData(true);
+
+        $rows = [
+            ['Cashbook CEO Report'],
+            ['Selected Date', $selectedDate, 'Timeframe', $timeframe, 'From', $startDate, 'To', $endDate],
+            [],
+            ['Executive Summary'],
+            ['Metric', 'Amount'],
+            ['Total Sales', $overview['totals']['total_sales'] ?? 0],
+            ['Total Expense', $overview['totals']['total_expense'] ?? 0],
+            ['Net P/L', $overview['totals']['net_pl'] ?? 0],
+            ['Closing Shop Position', $overview['totals']['closing_shop_position'] ?? 0],
+            ['Company Pending', $overview['totals']['closing_company_pending'] ?? 0],
+            ['Green Leaf Bills', $overview['totals']['total_green_leaf_bills'] ?? 0],
+            ['Received', $overview['totals']['total_received_today'] ?? 0],
+            ['Net Receivable', $clients['grand_totals']['net_receivable'] ?? 0],
+            [],
+            ['Client Groups'],
+            ['Client', 'Shop Count', 'GL Bills', 'Received', 'Company Pending', 'Shop Position'],
+        ];
+
+        foreach ($overview['client_groups'] ?? [] as $group) {
+            $groupTotals = [
+                'gl_bills' => 0.0,
+                'received' => 0.0,
+                'company_pending' => 0.0,
+                'shop_position' => 0.0,
+            ];
+
+            foreach ($group['shops'] ?? [] as $shopRow) {
+                $groupTotals['gl_bills'] += (float) ($shopRow['green_leaf_bill'] ?? 0);
+                $groupTotals['received'] += (float) ($shopRow['received_today'] ?? 0);
+                $groupTotals['company_pending'] += (float) ($shopRow['snapshot']['closing_company_pending'] ?? 0);
+                $groupTotals['shop_position'] += (float) ($shopRow['snapshot']['closing_shop_position'] ?? 0);
+            }
+
+            $rows[] = [
+                $group['client']['name'] ?? 'Client',
+                count($group['shops'] ?? []),
+                round($groupTotals['gl_bills'], 2),
+                round($groupTotals['received'], 2),
+                round($groupTotals['company_pending'], 2),
+                round($groupTotals['shop_position'], 2),
+            ];
+        }
+
+        $rows[] = [];
+        $rows[] = ['Direct Shops'];
+        $rows[] = ['Shop', 'Code', 'GL Bill', 'Received', 'Company Pending', 'Shop Position'];
+
+        foreach ($overview['direct_owned_shops'] ?? [] as $shopRow) {
+            $rows[] = [
+                $shopRow['shop']['name'] ?? 'Shop',
+                $shopRow['shop']['code'] ?? '',
+                round((float) ($shopRow['green_leaf_bill'] ?? 0), 2),
+                round((float) ($shopRow['received_today'] ?? 0), 2),
+                round((float) ($shopRow['snapshot']['closing_company_pending'] ?? 0), 2),
+                round((float) ($shopRow['snapshot']['closing_shop_position'] ?? 0), 2),
+            ];
+        }
+
+        $rows[] = [];
+        $rows[] = ['Bill Details'];
+        $rows[] = ['Date', 'Invoice', 'Scope', 'Client', 'Shop', 'Bill', 'Paid', 'Balance', 'Payment Status'];
+
+        foreach ($bills['rows'] ?? [] as $bill) {
+            $rows[] = [
+                $bill['business_date'] ?? '',
+                $bill['invoice_number'] ?? '',
+                $bill['scope'] ?? '',
+                $bill['client']['name'] ?? '',
+                $bill['shop']['name'] ?? '',
+                round((float) ($bill['final_total'] ?? 0), 2),
+                round((float) ($bill['paid_amount'] ?? 0), 2),
+                round((float) ($bill['balance_amount'] ?? 0), 2),
+                $bill['payment_status'] ?? $bill['status'] ?? '',
+            ];
+        }
+
+        return $rows;
+    }
+
+    private function reportFilename(string $prefix, string $startDate, string $endDate, string $extension): string
+    {
+        return "{$prefix}-{$startDate}_{$endDate}.{$extension}";
     }
 
     /**
