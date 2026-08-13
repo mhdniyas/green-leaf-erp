@@ -380,7 +380,7 @@
                 </div>
 
                 <div class="mt-3 flex flex-wrap items-center gap-2">
-                    <button type="button" @click="selectedApprovalDate = currentDate; loadData()" class="rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition" :class="selectedApprovalDate === currentDate ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'">
+                    <button type="button" @click="selectedApprovalDate = todayDate; loadData()" class="rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition" :class="selectedApprovalDate === todayDate ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'">
                         Today
                     </button>
                     <button type="button" @click="selectedApprovalDate = shiftApprovalDate(-1); loadData()" class="rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition" :class="selectedApprovalDate === shiftApprovalDate(-1) ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'">
@@ -800,7 +800,8 @@
 @push('scripts')
 <script>
     const currentShopId = {{ $currentShop->shop_id }};
-    let currentDate = @json(today()->toDateString());
+    const todayDate = @json(today()->toDateString());
+    let currentDate = todayDate;
     const shopEntryTypes = @json($entryTypes);
 
     function shopDetailApp() {
@@ -816,7 +817,7 @@
             openExportModal: false,
             showBreakdownModal: false,
             breakdownType: 'sales',
-            selectedApprovalDate: currentDate,
+            selectedApprovalDate: todayDate,
             modalTx: null,
             editingTx: null,
             deletingTx: null,
