@@ -8,6 +8,9 @@ use App\Enums\Inventory\ProductGrade;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\ShopOwner\StoreShopInvoicePaymentRequest;
 use App\Http\Requests\Web\ShopOwner\StoreShopOwnerAccountingEntryRequest;
+use App\Models\Cashbook\LedgerEntryType;
+use App\Models\Cashbook\ShopLedgerEntrySetting;
+use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Category;
 use App\Models\BusinessSetting;
 use App\Models\Shop;
@@ -23,6 +26,8 @@ use App\Models\User;
 use App\Services\Finance\CompanyPayableService;
 use App\Services\Finance\OwnedShopAccountingService;
 use App\Services\Finance\ShopLoanService;
+use App\Services\Cashbook\CashbookShopSyncService;
+use App\Services\Cashbook\DailyLedgerService;
 use App\Services\Pricing\PriceBoardService;
 use App\Services\Purchasing\PurchaserBusinessDayService;
 use App\Services\ShopInvoices\ShopInvoiceService;
@@ -38,6 +43,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Throwable;
 
 class ShopOwnerController extends Controller
 {
@@ -51,6 +57,8 @@ class ShopOwnerController extends Controller
         private readonly ActiveShopResolver $activeShopResolver,
         private readonly DeliveryPriceReadinessService $deliveryPriceReadinessService,
         private readonly DeliveryVerificationEligibility $deliveryVerificationEligibility,
+        private readonly DailyLedgerService $dailyLedgerService,
+        private readonly CashbookShopSyncService $cashbookShopSyncService,
     ) {}
 
     public function dashboard(Request $request): View
@@ -520,361 +528,313 @@ class ShopOwnerController extends Controller
         ]);
     }
 
-    public function accountingCashbookPdf(Request $request): View
+    public function accountingCashbookPdf(Request $request): RedirectResponse
     {
         $shop = $this->currentShop($request);
-        abort_unless($shop->isOwnedAccountingEnabled(), 404);
 
-        $selectedDate = Carbon::parse($request->input('date', today()->toDateString()));
-        $entry = $this->ownedShopAccountingService->entryForDate($shop, $selectedDate);
-
-        return view('shop-owner.accounting.cashbook-pdf', [
-            'shop' => $shop,
-            'selectedDate' => $selectedDate,
-            'entry' => $entry?->load(['lines.category', 'submittedBy', 'reviewedBy']),
-            'receiptSummary' => $this->ownedShopAccountingService->receiptSummaryForDate($shop, $selectedDate),
-        ]);
+        return $this->redirectToNewCashbook(
+            $shop,
+            'show',
+            ['date' => Carbon::parse($request->input('date', today()->toDateString()))->toDateString()]
+        )->with('warning', 'Cashbook PDF moved to the new cashbook dashboard.');
     }
 
-    public function accountingIndex(Request $request): View
+    public function accountingIndex(Request $request): RedirectResponse
     {
         $shop = $this->currentShop($request);
-        $defaultTab = $shop->isOwnedAccountingEnabled() ? 'cashbook' : 'bills';
-        $tab = $this->normalizeAccountingTab($shop, (string) $request->input('tab', $defaultTab));
-        $selectedDate = Carbon::parse($request->input('date', today()->toDateString()));
-        $ledgerDateFilterActive = $request->filled('start_date') || $request->filled('end_date');
-        $ledgerSourceFilter = in_array($request->input('ledger_source'), ['greenleaf_direct'], true)
-            ? (string) $request->input('ledger_source')
-            : 'all';
-        $ledgerStatusTab = in_array((string) $request->input('ledger_status', 'draft'), ['draft', 'submitted', 'approved', 'recheck'], true)
-            ? (string) $request->input('ledger_status', 'draft')
-            : 'draft';
-        $ledgerStatuses = [
-            'draft' => 'draft',
-            'submitted' => 'submitted',
-            'approved' => 'approved',
-            'recheck' => 'recheck_required',
-        ];
-        [$startDate, $endDate] = $this->dateRangeFromRequest($request, $selectedDate);
-        $invoices = ShopInvoice::query()
-            ->where('shop_id', $shop->id)
-            ->with(['order', 'items.product', 'paymentRequests' => fn ($query) => $query->latest('id')])
-            ->latest('business_date')
-            ->latest('id')
-            ->paginate(10, ['*'], 'bills_page')
-            ->withQueryString();
-        $selectedBillInvoices = ShopInvoice::query()
-            ->where('shop_id', $shop->id)
-            ->whereDate('business_date', $selectedDate->toDateString())
-            ->with(['order', 'items.product', 'paymentRequests' => fn ($query) => $query->latest('id')])
-            ->latest('id')
-            ->get();
-        $paymentRequests = ShopInvoicePaymentRequest::query()
-            ->where('shop_id', $shop->id)
-            ->with(['invoice', 'requestedBy', 'reviewedBy'])
-            ->latest('id')
-            ->paginate(8, ['*'], 'requests_page')
-            ->withQueryString();
-        $billingSummary = $this->billingSummary(
-            ShopInvoice::query()->where('shop_id', $shop->id)->get()
-        );
-        $dailyBillingSummary = $this->billingSummary($selectedBillInvoices);
+        $tab = (string) $request->input('tab', $shop->isOwnedAccountingEnabled() ? 'cashbook' : 'bills');
+        $date = Carbon::parse($request->input('date', today()->toDateString()))->toDateString();
 
-        $entry = null;
-        $availableCategories = collect();
-        $recentEntries = collect();
-        $ledgerEntriesByStatus = collect();
-        $deliveryExpenseByDate = collect();
-        $shopCreditByDate = collect();
-        $cashGivenToShopByDate = collect();
-        $paymentToCompanyByDate = collect();
-        $greenLeafDirectLedgerDates = collect();
-        $selectedDeliveryExpense = 0.0;
-        $selectedShopCredit = 0.0;
-        $incomeTotal = 0.0;
-        $expenseTotal = 0.0;
-        $netAmount = 0.0;
-        $suggestedOpeningBalance = 0.0;
-        $receiptSummary = $this->ownedShopAccountingService->receiptSummary(null);
-        $loanRows = collect();
-        $loanBalance = 0.0;
-        $loanCategoryIds = collect();
-        $loanCategorySettings = collect();
-        $othersSubtab = $this->normalizeOthersSubtab($request);
-        $companyPayableLines = collect();
-
-        if ($shop->isOwnedAccountingEnabled()) {
-            $entry = $this->ownedShopAccountingService->entryForDate($shop, $selectedDate);
-            $suggestedOpeningBalance = $this->ownedShopAccountingService->previousClosingBalance($shop, $selectedDate);
-            $availableCategories = $this->ownedShopAccountingService->availableCategoriesForShop($shop);
-            $loanRows = $this->shopLoanService->ledgerRows($shop);
-            $loanBalance = $this->shopLoanService->approvedBalance($shop);
-            if ($tab === 'loan' && $othersSubtab === 'company') {
-                $companyPayableLines = $this->companyPayableService->linesForShop($shop);
-            }
-            $loanCategorySettings = $this->shopLoanService->settingsForShop($shop);
-            $loanCategoryIds = $loanCategorySettings
-                ->pluck('shop_accounting_category_id')
-                ->map(fn ($categoryId): int => (int) $categoryId)
-                ->values();
-            $recentEntries = ShopAccountingEntry::query()
-                ->where('shop_id', $shop->id)
-                ->with(['lines.category', 'submittedBy', 'reviewedBy'])
-                ->latest('business_date')
-                ->limit(8)
-                ->get();
-            $greenLeafDirectLedgerDates = ShopInvoice::query()
-                ->where('shop_id', $shop->id)
-                ->when($ledgerDateFilterActive, fn ($query) => $query
-                    ->whereDate('business_date', '>=', $startDate)
-                    ->whereDate('business_date', '<=', $endDate))
-                ->pluck('business_date')
-                ->map(fn ($businessDate): string => Carbon::parse($businessDate)->toDateString())
-                ->unique()
-                ->values();
-            $ledgerEntriesByStatus = collect($ledgerStatuses)
-                ->mapWithKeys(fn (string $status, string $statusKey): array => [
-                    $statusKey => ShopAccountingEntry::query()
-                        ->where('shop_id', $shop->id)
-                        ->with(['lines.category', 'submittedBy', 'reviewedBy'])
-                        ->where('status', $status)
-                        ->when($ledgerDateFilterActive, fn ($query) => $query
-                            ->whereDate('business_date', '>=', $startDate)
-                            ->whereDate('business_date', '<=', $endDate))
-                        ->when($ledgerSourceFilter === 'greenleaf_direct', function ($query) use ($greenLeafDirectLedgerDates): void {
-                            if ($greenLeafDirectLedgerDates->isEmpty()) {
-                                $query->whereRaw('0 = 1');
-
-                                return;
-                            }
-
-                            $query->where(function ($dateQuery) use ($greenLeafDirectLedgerDates): void {
-                                $greenLeafDirectLedgerDates->each(
-                                    fn (string $ledgerDate) => $dateQuery->orWhereDate('business_date', $ledgerDate)
-                                );
-                            });
-                        })
-                        ->latest('business_date')
-                        ->latest('id')
-                        ->get(),
-                ]);
-            $deliveryExpenseByDate = ShopInvoice::query()
-                ->where('shop_id', $shop->id)
-                ->where('final_total', '>', 0)
-                ->where(function ($query): void {
-                    $query
-                        ->whereIn('delivery_status', ['received_full', 'approved_after_discrepancy'])
-                        ->orWhereIn('status', ['finalized', 'payment_pending', 'paid'])
-                        ->orWhereIn('payment_status', ['partially_paid', 'paid']);
-                })
-                ->when($ledgerDateFilterActive, fn ($query) => $query
-                    ->whereDate('business_date', '>=', $startDate)
-                    ->whereDate('business_date', '<=', $endDate))
-                ->selectRaw('DATE(business_date) as ledger_date, SUM(final_total) as total')
-                ->groupByRaw('DATE(business_date)')
-                ->pluck('total', 'ledger_date')
-                ->map(fn ($total): float => round((float) $total, 2));
-            $shopCreditByDate = ShopCredit::query()
-                ->approved()
-                ->where('shop_id', $shop->id)
-                ->when($ledgerDateFilterActive, fn ($query) => $query
-                    ->whereDate('business_date', '>=', $startDate)
-                    ->whereDate('business_date', '<=', $endDate))
-                ->selectRaw("DATE(business_date) as ledger_date, SUM(CASE WHEN type = 'in' THEN amount ELSE -amount END) as total")
-                ->groupByRaw('DATE(business_date)')
-                ->pluck('total', 'ledger_date')
-                ->map(fn ($total): float => round((float) $total, 2));
-            $cashGivenToShopByDate = ShopCredit::query()
-                ->approved()
-                ->where('shop_id', $shop->id)
-                ->where('type', 'in')
-                ->when($ledgerDateFilterActive, fn ($query) => $query
-                    ->whereDate('business_date', '>=', $startDate)
-                    ->whereDate('business_date', '<=', $endDate))
-                ->selectRaw('DATE(business_date) as ledger_date, SUM(amount) as total')
-                ->groupByRaw('DATE(business_date)')
-                ->pluck('total', 'ledger_date')
-                ->map(fn ($total): float => round((float) $total, 2));
-            $paymentToCompanyByDate = ShopCredit::query()
-                ->approved()
-                ->where('shop_id', $shop->id)
-                ->where('type', 'out')
-                ->when($ledgerDateFilterActive, fn ($query) => $query
-                    ->whereDate('business_date', '>=', $startDate)
-                    ->whereDate('business_date', '<=', $endDate))
-                ->selectRaw('DATE(business_date) as ledger_date, SUM(amount) as total')
-                ->groupByRaw('DATE(business_date)')
-                ->pluck('total', 'ledger_date')
-                ->map(fn ($total): float => round((float) $total, 2));
-            $selectedDeliveryExpense = (float) ($deliveryExpenseByDate->get($selectedDate->toDateString()) ?? 0);
-            $selectedShopCredit = (float) ($shopCreditByDate->get($selectedDate->toDateString()) ?? 0);
-            $receiptSummary = $this->ownedShopAccountingService->receiptSummaryForDate($shop, $selectedDate);
-            $ledgerEntriesByStatus = $ledgerEntriesByStatus->map(
-                fn (Collection $statusEntries, string $statusKey): LengthAwarePaginator => $this->paginateCollection(
-                    $statusEntries
-                        ->groupBy(fn (ShopAccountingEntry $ledgerEntry): string => $ledgerEntry->business_date->toDateString())
-                        ->map(function (Collection $dayEntries, string $ledgerDate) use ($cashGivenToShopByDate, $deliveryExpenseByDate, $paymentToCompanyByDate, $shop): array {
-                            $firstEntry = $dayEntries->first();
-                            $income = round((float) $dayEntries->sum(
-                                fn (ShopAccountingEntry $ledgerEntry): float => (float) $ledgerEntry->lines->where('type', 'income')->sum('amount')
-                            ), 2);
-                            $manualExpense = round((float) $dayEntries->sum(
-                                fn (ShopAccountingEntry $ledgerEntry): float => (float) $ledgerEntry->lines->where('type', 'expense')->sum('amount')
-                            ), 2);
-                            $warehouseExpense = (float) ($deliveryExpenseByDate->get($ledgerDate) ?? 0.0);
-                            $cashGivenToShop = (float) ($cashGivenToShopByDate->get($ledgerDate) ?? 0.0);
-                            $paymentToCompany = (float) ($paymentToCompanyByDate->get($ledgerDate) ?? 0.0);
-
-                            return [
-                                'date' => $ledgerDate,
-                                'status_label' => $firstEntry?->statusLabel() ?? 'No Entry',
-                                'status_tone' => $firstEntry?->statusTone() ?? 'neutral',
-                                'income' => $income,
-                                'cash_given_to_shop' => $cashGivenToShop,
-                                'payment_to_company' => $paymentToCompany,
-                                'manual_expense' => $manualExpense,
-                                'warehouse_expense' => $warehouseExpense,
-                                'closing' => $this->ownedShopAccountingService->closingBalanceForDate($shop, Carbon::parse($ledgerDate)),
-                                'items' => $dayEntries->sum(fn (ShopAccountingEntry $ledgerEntry): int => $ledgerEntry->lines->count()),
-                            ];
-                        })
-                        ->values(),
-                    $request,
-                    'ledger_'.$statusKey.'_page',
-                    12,
-                )
-            );
-
-            $incomeTotal = (float) $receiptSummary['total_income'];
-            $expenseTotal = (float) $receiptSummary['total_debit'];
-            $netAmount = round((float) $receiptSummary['expected_closing'] - (float) $receiptSummary['opening_balance'], 2);
+        if ($tab === 'bills') {
+            return redirect()->route('shop-owner.finance.index', [
+                'tab' => 'invoices',
+                'date' => $date,
+            ]);
         }
 
-        return view('shop-owner.accounting.index', [
-            'shop' => $shop,
-            'tab' => $tab,
-            'selectedDate' => $selectedDate,
-            'startDate' => $startDate,
-            'endDate' => $endDate,
-            'billingSummary' => $billingSummary,
-            'dailyBillingSummary' => $dailyBillingSummary,
-            'invoices' => $invoices,
-            'selectedBillInvoices' => $selectedBillInvoices,
-            'paymentRequests' => $paymentRequests,
-            'entry' => $entry,
-            'availableCategories' => $availableCategories,
-            'recentEntries' => $recentEntries,
-            'ledgerEntriesByStatus' => $ledgerEntriesByStatus,
-            'deliveryExpenseByDate' => $deliveryExpenseByDate,
-            'shopCreditByDate' => $shopCreditByDate,
-            'cashGivenToShopByDate' => $cashGivenToShopByDate,
-            'paymentToCompanyByDate' => $paymentToCompanyByDate,
-            'greenLeafDirectLedgerDates' => $greenLeafDirectLedgerDates,
-            'selectedDeliveryExpense' => $selectedDeliveryExpense,
-            'selectedShopCredit' => $selectedShopCredit,
-            'incomeTotal' => $incomeTotal,
-            'expenseTotal' => $expenseTotal,
-            'netAmount' => $netAmount,
-            'suggestedOpeningBalance' => $suggestedOpeningBalance,
-            'receiptSummary' => $receiptSummary,
-            'loanRows' => $loanRows,
-            'loanBalance' => $loanBalance,
-            'loanCategoryIds' => $loanCategoryIds,
-            'loanCategorySettings' => $loanCategorySettings,
-            'othersSubtab' => $othersSubtab,
-            'companyPayableLines' => $companyPayableLines,
-            'reserveAmount' => round((float) ($shop->reserve_amount ?? 0), 2),
-            'ledgerDateFilterActive' => $ledgerDateFilterActive,
-            'ledgerSourceFilter' => $ledgerSourceFilter,
-            'ledgerStatusTab' => $ledgerStatusTab,
-        ]);
+        if ($tab === 'create') {
+            return $this->redirectToNewCashbook($shop, 'post-entry', ['date' => $date, 'open' => 'line'])
+                ->with('success', 'Cashbook create moved to the new dashboard.');
+        }
+
+        if (in_array($tab, ['loan', 'others'], true)) {
+            return $this->redirectToNewCashbook($shop, 'settings', ['date' => $date])
+                ->with('success', 'Cashbook settings moved to the new dashboard.');
+        }
+
+        return $this->redirectToNewCashbook($shop, 'show', ['date' => $date])
+            ->with('success', 'Cashbook moved to the new dashboard.');
     }
 
-    public function accountingHistory(Request $request): View
+    public function accountingHistory(Request $request): RedirectResponse
     {
         $shop = $this->currentShop($request);
-        $tab = $this->normalizeAccountingTab($shop, (string) $request->input('tab', 'bills'));
-        [$filterStartDate, $filterEndDate] = $this->nullableDateRangeFromRequest($request);
 
-        if (! $filterStartDate && ! $filterEndDate) {
-            $filterStartDate = now()->startOfMonth();
-            $filterEndDate = now()->endOfMonth();
-        }
-
-        $entries = collect();
-        $invoiceHistory = ShopInvoice::query()
-            ->where('shop_id', $shop->id)
-            ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))
-            ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate))
-            ->with(['order', 'paymentRequests' => fn ($query) => $query->latest('id')])
-            ->latest('business_date')
-            ->latest('id')
-            ->paginate(12, ['*'], 'bill_history_page')
-            ->withQueryString();
-        $paymentRequestHistory = ShopInvoicePaymentRequest::query()
-            ->where('shop_id', $shop->id)
-            ->when($filterStartDate, fn ($query) => $query->whereDate('created_at', '>=', $filterStartDate))
-            ->when($filterEndDate, fn ($query) => $query->whereDate('created_at', '<=', $filterEndDate))
-            ->with(['invoice', 'requestedBy', 'reviewedBy'])
-            ->latest('id')
-            ->paginate(12, ['*'], 'payment_history_page')
-            ->withQueryString();
-        $moneyReport = $this->shopAccountingMoneyReport($shop, $request, $filterStartDate, $filterEndDate);
-
-        if ($shop->isOwnedAccountingEnabled()) {
-            $entries = ShopAccountingEntry::query()
-                ->where('shop_id', $shop->id)
-                ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))
-                ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate))
-                ->with(['lines.category', 'submittedBy', 'reviewedBy'])
-                ->latest('business_date')
-                ->paginate(12, ['*'], 'entries_page')
-                ->withQueryString();
-        }
-
-        return view('shop-owner.accounting.history', [
-            'shop' => $shop,
-            'tab' => $tab,
-            'entries' => $entries,
-            'invoiceHistory' => $invoiceHistory,
-            'paymentRequestHistory' => $paymentRequestHistory,
-            'moneyReport' => $moneyReport,
-            'filterStartDate' => $filterStartDate,
-            'filterEndDate' => $filterEndDate,
-        ]);
+        return $this->redirectToNewCashbook(
+            $shop,
+            'show',
+            ['date' => Carbon::parse($request->input('date', today()->toDateString()))->toDateString()]
+        )->with('success', 'Cashbook history moved to the new dashboard.');
     }
 
-    public function accountingDailyReport(Request $request): View
+    public function accountingDailyReport(Request $request): RedirectResponse
+    {
+        $shop = $this->currentShop($request);
+        $date = $request->filled('month')
+            ? Carbon::createFromFormat('Y-m', (string) $request->input('month'))->startOfMonth()->toDateString()
+            : today()->toDateString();
+
+        return $this->redirectToNewCashbook($shop, 'show', ['date' => $date])
+            ->with('success', 'Daily cashbook report moved to the new dashboard.');
+    }
+
+    public function cashbookShow(Request $request): View
     {
         $shop = $this->ownedAccountingShop($request);
-        $tab = $this->normalizeAccountingTab($shop, 'cashbook');
-        $month = $request->filled('month')
-            ? Carbon::createFromFormat('Y-m', (string) $request->input('month'))->startOfMonth()
-            : today()->startOfMonth();
-        $rows = $this->shopDailyBalanceRows($shop, $month);
-        $perPage = 12;
-        $defaultPage = $month->isSameMonth(today())
-            ? (int) ceil(today()->day / $perPage)
-            : 1;
-        $page = max(1, $request->integer('daily_page', $defaultPage));
-        $dailyRows = new LengthAwarePaginator(
-            $rows->forPage($page, $perPage)->values(),
-            $rows->count(),
-            $perPage,
-            $page,
-            [
-                'path' => $request->url(),
-                'pageName' => 'daily_page',
-                'query' => $request->query(),
-            ],
+        $date = Carbon::parse((string) $request->input('date', today()->toDateString()))->toDateString();
+        $tab = (string) $request->input('tab', 'cashbook');
+        $open = (string) $request->input('open', '');
+
+        $this->cashbookShopSyncService->syncAndGetProfiles();
+
+        $entryTypes = LedgerEntryType::query()
+            ->where('active', true)
+            ->orderBy('display_order')
+            ->get(['id', 'name', 'code', 'category']);
+
+        $settings = ShopLedgerEntrySetting::query()
+            ->with('entryType:id,name,code,category')
+            ->where('shop_id', (int) $shop->id)
+            ->where('enabled', true)
+            ->orderBy('display_order')
+            ->get();
+
+        // Ensure approved invoice bills are reflected in cashbook as default daily expenses.
+        $this->syncApprovedInvoiceBillsToCashbook(
+            $shop,
+            $date,
+            $date,
+            (int) ($request->user()?->id ?? 1),
         );
 
-        return view('shop-owner.accounting.daily-report', [
+        $snapshot = $this->dailyLedgerService->dailySummary((int) $shop->id, $date);
+
+        return view('shop-owner.cashbook.index', [
             'shop' => $shop,
-            'tab' => $tab,
-            'month' => $month,
-            'dailyRows' => $dailyRows,
+            'selectedDate' => Carbon::parse($date),
+            'entryTypes' => $entryTypes,
+            'settings' => $settings,
+            'snapshot' => $snapshot,
+            'activeTab' => in_array($tab, ['cashbook', 'settings', 'reports'], true) ? $tab : 'cashbook',
+            'openModal' => $open === 'line',
         ]);
+    }
+
+    public function cashbookCreate(Request $request): RedirectResponse
+    {
+        return redirect()->route('shop-owner.cashbook.show', [
+            'date' => (string) $request->input('date', today()->toDateString()),
+            'open' => 'line',
+        ]);
+    }
+
+    public function cashbookSettings(Request $request): RedirectResponse
+    {
+        return redirect()->route('shop-owner.cashbook.show', [
+            'date' => (string) $request->input('date', today()->toDateString()),
+            'tab' => 'settings',
+        ]);
+    }
+
+    public function cashbookReports(Request $request): RedirectResponse
+    {
+        return redirect()->route('shop-owner.cashbook.show', [
+            'date' => (string) $request->input('date', today()->toDateString()),
+            'tab' => 'reports',
+        ]);
+    }
+
+    public function cashbookData(Request $request): JsonResponse
+    {
+        $shop = $this->ownedAccountingShop($request);
+        $date = Carbon::parse((string) $request->input('business_date', today()->toDateString()))->toDateString();
+        $timeframe = (string) $request->input('timeframe', 'daily');
+        $month = substr($date, 0, 7);
+
+        $this->cashbookShopSyncService->syncAndGetProfiles();
+
+        $carbon = Carbon::parse($date);
+        $startOfWeek = $carbon->copy()->startOfWeek()->toDateString();
+        $endOfWeek = $carbon->copy()->endOfWeek()->toDateString();
+
+        [$syncStartDate, $syncEndDate] = match ($timeframe) {
+            'weekly' => [$startOfWeek, $endOfWeek],
+            'monthly' => [$carbon->copy()->startOfMonth()->toDateString(), $carbon->copy()->endOfMonth()->toDateString()],
+            default => [$date, $date],
+        };
+
+        $this->syncApprovedInvoiceBillsToCashbook(
+            $shop,
+            $syncStartDate,
+            $syncEndDate,
+            (int) ($request->user()?->id ?? 1),
+        );
+
+        $query = ShopLedgerTransaction::query()
+            ->with('entryType')
+            ->where('shop_id', (int) $shop->id);
+
+        if ($timeframe === 'weekly') {
+            $query->whereBetween('business_date', [$startOfWeek, $endOfWeek]);
+        } elseif ($timeframe === 'monthly') {
+            $query->where('business_date', 'like', $month.'%');
+        } else {
+            $query->where('business_date', $date);
+        }
+
+        $transactions = $query
+            ->orderBy('business_date', 'desc')
+            ->orderBy('id', 'desc')
+            ->get();
+
+        $monthTransactions = ShopLedgerTransaction::query()
+            ->with('entryType')
+            ->where('shop_id', (int) $shop->id)
+            ->where('business_date', 'like', $month.'%')
+            ->orderBy('business_date', 'desc')
+            ->orderBy('id', 'desc')
+            ->get();
+
+        $settings = ShopLedgerEntrySetting::query()
+            ->with('entryType:id,name,code,category')
+            ->where('shop_id', (int) $shop->id)
+            ->where('enabled', true)
+            ->orderBy('display_order')
+            ->get();
+
+        $totalSales = (float) $transactions
+            ->filter(fn ($t) => $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income'))
+            ->sum('amount');
+
+        $totalExpense = (float) $transactions
+            ->filter(fn ($t) => $t->direction === 'expense' || ($t->entryType && $t->entryType->category === 'expense'))
+            ->sum('amount');
+
+        $dailySnapshot = $this->dailyLedgerService->dailySummary((int) $shop->id, $date);
+
+        $snapshot = [
+            'total_sales' => $totalSales,
+            'total_expense' => $totalExpense,
+            'closing_shop_position' => $timeframe === 'daily'
+                ? ($dailySnapshot['closing_shop_position'] ?? ($totalSales - $totalExpense))
+                : ($totalSales - $totalExpense),
+        ];
+
+        return response()->json([
+            'success' => true,
+            'snapshot' => $snapshot,
+            'transactions' => $transactions,
+            'month_transactions' => $monthTransactions,
+            'settings' => $settings,
+            'timeframe' => $timeframe,
+        ]);
+    }
+
+    private function syncApprovedInvoiceBillsToCashbook(Shop $shop, string $startDate, string $endDate, int $userId): void
+    {
+        $purchaseBillType = LedgerEntryType::query()
+            ->where('code', 'purchase_bill')
+            ->where('active', true)
+            ->first();
+
+        if (! $purchaseBillType instanceof LedgerEntryType) {
+            return;
+        }
+
+        $alreadySyncedInvoiceIds = ShopLedgerTransaction::query()
+            ->where('shop_id', (int) $shop->id)
+            ->where('entry_type_id', (int) $purchaseBillType->id)
+            ->where('reference_type', ShopInvoice::class)
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
+            ->pluck('reference_id')
+            ->map(fn ($id): int => (int) $id)
+            ->all();
+
+        $syncedMap = array_flip($alreadySyncedInvoiceIds);
+
+        $invoices = ShopInvoice::query()
+            ->where('shop_id', (int) $shop->id)
+            ->where('final_total', '>', 0)
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
+            ->where('status', '!=', 'cancelled')
+            ->orderBy('business_date')
+            ->orderBy('id')
+            ->get(['id', 'business_date', 'invoice_number', 'final_total']);
+
+        foreach ($invoices as $invoice) {
+            if (isset($syncedMap[(int) $invoice->id])) {
+                continue;
+            }
+
+            try {
+                app(\App\Services\Cashbook\TransactionGenerator::class)->record([
+                    'shop_id' => (int) $shop->id,
+                    'business_date' => $invoice->business_date?->toDateString() ?? $startDate,
+                    'entry_type_code' => 'purchase_bill',
+                    'amount' => (float) $invoice->final_total,
+                    'funding_source' => 'company',
+                    'reference_type' => ShopInvoice::class,
+                    'reference_id' => (int) $invoice->id,
+                    'notes' => 'Auto from invoice '.$invoice->invoice_number,
+                    'entered_by' => $userId,
+                ]);
+            } catch (Throwable) {
+                // Ignore sync failures for individual rows so the page can still load.
+            }
+        }
+    }
+
+    public function cashbookRecordEntry(Request $request): JsonResponse
+    {
+        $shop = $this->ownedAccountingShop($request);
+        $validated = $request->validate([
+            'business_date' => ['required', 'date_format:Y-m-d'],
+            'entry_type_code' => ['required', 'string', 'exists:ledger_entry_types,code'],
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'funding_source' => ['nullable', 'in:sales,petty,company,bank,external,company_later,none'],
+            'notes' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        try {
+            $payload = [
+                'shop_id' => (int) $shop->id,
+                'business_date' => $validated['business_date'],
+                'entry_type_code' => $validated['entry_type_code'],
+                'amount' => (float) $validated['amount'],
+                'entered_by' => (int) ($request->user()?->id ?? 1),
+                'notes' => $validated['notes'] ?? null,
+            ];
+
+            if (! empty($validated['funding_source']) && $validated['funding_source'] !== 'none') {
+                $payload['funding_source'] = $validated['funding_source'];
+            }
+
+            $result = $this->dailyLedgerService->recordEntry($payload);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Entry created successfully.',
+                'transaction' => $result['transaction']->load('entryType'),
+                'snapshot' => $result['snapshot'],
+            ]);
+        } catch (Throwable $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
     }
 
     /**
@@ -1128,52 +1088,11 @@ class ShopOwnerController extends Controller
 
     public function storeAccountingEntry(StoreShopOwnerAccountingEntryRequest $request): RedirectResponse
     {
-        $user = $this->shopUser($request);
-        $shop = $this->ownedAccountingShop($request);
-        $validated = $request->validated();
-        $businessDate = Carbon::parse($validated['business_date']);
-        $isAdjustment = $request->boolean('create_adjustment');
-        $entry = $isAdjustment
-            ? null
-            : $this->ownedShopAccountingService->entryForDate($shop, $businessDate);
+        $shop = $this->currentShop($request);
+        $date = Carbon::parse((string) $request->input('business_date', today()->toDateString()))->toDateString();
 
-        if ($isAdjustment) {
-            $hasApprovedEntry = ShopAccountingEntry::query()
-                ->where('shop_id', $shop->id)
-                ->whereDate('business_date', $businessDate)
-                ->where('entry_type', ShopAccountingEntry::TypeDaily)
-                ->where('status', 'approved')
-                ->exists();
-
-            if (! $hasApprovedEntry) {
-                return back()->withErrors([
-                    'business_date' => 'Additional entries can only be added after the day is approved.',
-                ])->withInput();
-            }
-
-            if ($this->ownedShopAccountingService->hasSimilarAdjustment($shop, $businessDate, $validated['lines'] ?? [])) {
-                return back()->withErrors([
-                    'lines' => 'A similar adjustment already exists for this date. Change the note or amount if this is a separate transaction.',
-                ])->withInput();
-            }
-        }
-
-        try {
-            $entry = $this->ownedShopAccountingService->saveShopOwnerEntry($shop, $validated, (int) $user->id, $entry);
-        } catch (ValidationException $exception) {
-            return back()->withErrors($exception->errors())->withInput();
-        }
-
-        $message = $validated['submission_action'] === 'submit'
-            ? ($isAdjustment ? 'Additional entry sent to admin for approval.' : 'Daily accounting sent to admin for approval.')
-            : 'Daily accounting draft saved.';
-
-        return redirect()->route('shop-owner.accounting.index', [
-            'tab' => 'cashbook',
-            'ledger_status' => $validated['submission_action'] === 'submit' ? 'submitted' : 'draft',
-            'date' => $entry->business_date?->toDateString(),
-        ])
-            ->with('success', $message);
+        return $this->redirectToNewCashbook($shop, 'post-entry', ['date' => $date, 'open' => 'line'])
+            ->with('warning', 'Legacy cashbook form was removed. Use the new cashbook create flow.');
     }
 
     public function storePaymentRequest(StoreShopInvoicePaymentRequest $request): RedirectResponse
@@ -1460,6 +1379,7 @@ class ShopOwnerController extends Controller
         }
 
         return collect($productStats)
+            ->filter(fn (array $product): bool => (bool) ($product['product']->is_active ?? false))
             ->sortByDesc(fn (array $product): array => [$product['order_count'], $product['total_quantity']])
             ->take(12)
             ->values();
@@ -1517,6 +1437,23 @@ class ShopOwnerController extends Controller
         $subtab = (string) $request->input('others', 'petty');
 
         return in_array($subtab, ['petty', 'company'], true) ? $subtab : 'petty';
+    }
+
+    private function redirectToNewCashbook(Shop $shop, string $target, array $query = []): RedirectResponse
+    {
+        if ($target === 'post-entry') {
+            return redirect()->route('shop-owner.cashbook.create', $query);
+        }
+
+        if ($target === 'settings') {
+            return redirect()->route('shop-owner.cashbook.settings', $query);
+        }
+
+        if ($target === 'reports') {
+            return redirect()->route('shop-owner.cashbook.reports', $query);
+        }
+
+        return redirect()->route('shop-owner.cashbook.show', $query);
     }
 
     private function latestShopBalanceDate(Shop $shop): Carbon

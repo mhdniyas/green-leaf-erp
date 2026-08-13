@@ -45,10 +45,6 @@ class ShopInvoiceIntegrityValidator
             ]);
         }
 
-        if (! $item->product->is_active) {
-            return;
-        }
-
         $approvedPrice = $this->approvedDailyPriceResolver->resolve(
             $item->product,
             $invoice->shop,

@@ -303,6 +303,7 @@ class AdminShopOrderController extends Controller
         }
 
         return collect($productStats)
+            ->filter(fn (array $product): bool => (bool) ($product['product']->is_active ?? false))
             ->sortByDesc(fn (array $product): array => [$product['order_count'], $product['total_quantity']])
             ->take(12)
             ->values();

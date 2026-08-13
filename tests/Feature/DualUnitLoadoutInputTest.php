@@ -620,6 +620,40 @@ class DualUnitLoadoutInputTest extends TestCase
         $this->assertEquals(60.0, (float) $invoice->final_total);
     }
 
+    public function test_invoice_sync_keeps_line_items_when_product_is_deactivated(): void
+    {
+        [$user, $order, $product] = $this->createBasicLoadoutOrder(4.0);
+
+        $item = ShopOrderItem::where('shop_order_id', $order->id)
+            ->where('product_id', $product->id)
+            ->firstOrFail();
+
+        $item->update([
+            'sorting_status' => 'loaded',
+            'loaded_qty' => 4.0,
+            'actual_weight' => 4.0,
+            'approved_qty' => 4.0,
+        ]);
+
+        $firstInvoice = app(ShopInvoiceService::class)->synchronizeOrderInvoice($order->fresh(['items.product', 'shop']), $user->id);
+        $firstInvoiceItem = $firstInvoice->items()->where('product_id', $product->id)->firstOrFail();
+
+        $this->assertEquals(80.0, (float) $firstInvoiceItem->line_subtotal);
+        $this->assertEquals(80.0, (float) $firstInvoiceItem->final_line_total);
+
+        $product->update(['is_active' => false]);
+
+        $secondInvoice = app(ShopInvoiceService::class)->synchronizeOrderInvoice($order->fresh(['items.product', 'shop']), $user->id);
+        $secondInvoiceItem = $secondInvoice->items()->where('product_id', $product->id)->firstOrFail();
+
+        $this->assertSame($firstInvoice->id, $secondInvoice->id);
+        $this->assertEquals(4.0, (float) $secondInvoiceItem->approved_qty);
+        $this->assertEquals(4.0, (float) $secondInvoiceItem->delivered_qty);
+        $this->assertEquals(20.0, (float) $secondInvoiceItem->unit_price);
+        $this->assertEquals(80.0, (float) $secondInvoiceItem->line_subtotal);
+        $this->assertEquals(80.0, (float) $secondInvoiceItem->final_line_total);
+    }
+
     private function createBasicLoadoutOrder(float $approvedQty): array
     {
         $this->seed(\Database\Seeders\RolePermissionSeeder::class);

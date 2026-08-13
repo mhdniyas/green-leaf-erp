@@ -110,13 +110,12 @@ class ShopInvoiceService
             $this->normalizeDuplicateInvoiceItems($invoice);
 
             $existingItems = $invoice->items()->get()->keyBy('product_id');
-            $activeProductIds = [];
+            $billableProductIds = [];
 
             $order->items
                 ->filter(fn (ShopOrderItem $orderItem): bool => $this->shouldIncludeOrderItemInInvoice($orderItem))
-                ->filter(fn (ShopOrderItem $orderItem): bool => (bool) ($orderItem->product?->is_active ?? true))
                 ->groupBy('product_id')
-                ->each(function (Collection $orderItems, int|string $productId) use ($order, $invoice, $existingItems, &$activeProductIds): void {
+                ->each(function (Collection $orderItems, int|string $productId) use ($order, $invoice, $existingItems, &$billableProductIds): void {
                     /** @var ShopOrderItem $firstOrderItem */
                     $firstOrderItem = $orderItems->first();
 
@@ -189,13 +188,13 @@ class ShopInvoiceService
                         'final_line_total' => round($lineSubtotal - $shortageAmount + $excessAmount, 2),
                     ]);
                     $invoiceItem->save();
-                    $activeProductIds[] = (int) $productId;
+                    $billableProductIds[] = (int) $productId;
                 });
 
             $invoice->items()
                 ->when(
-                    $activeProductIds !== [],
-                    fn ($query) => $query->whereNotIn('product_id', $activeProductIds),
+                    $billableProductIds !== [],
+                    fn ($query) => $query->whereNotIn('product_id', $billableProductIds),
                     fn ($query) => $query,
                 )
                 ->delete();
@@ -220,7 +219,6 @@ class ShopInvoiceService
 
             $order->items
                 ->filter(fn (ShopOrderItem $orderItem): bool => $this->shouldIncludeOrderItemInInvoice($orderItem))
-                ->filter(fn (ShopOrderItem $orderItem): bool => (bool) ($orderItem->product?->is_active ?? true))
                 ->groupBy('product_id')
                 ->each(function (Collection $orderItems, int|string $productId) use ($invoiceItems, $deliveredQtys, &$hasDiscrepancy): void {
                     /** @var ShopOrderItem $firstOrderItem */
@@ -1309,7 +1307,6 @@ class ShopInvoiceService
 
         return $order->items
             ->filter(fn (ShopOrderItem $item): bool => $this->shouldIncludeOrderItemInInvoice($item))
-            ->filter(fn (ShopOrderItem $item): bool => (bool) ($item->product?->is_active ?? true))
             ->filter(function (ShopOrderItem $item) use ($order): bool {
                 if (! $item->product || ! $order->shop) {
                     return true;
@@ -1338,7 +1335,6 @@ class ShopInvoiceService
 
         return $invoice->items
             ->filter(fn (ShopInvoiceItem $item): bool => (float) ($item->approved_qty ?? 0) > 0 || (float) ($item->delivered_qty ?? 0) > 0)
-            ->filter(fn (ShopInvoiceItem $item): bool => (bool) ($item->product?->is_active ?? true))
             ->filter(function (ShopInvoiceItem $item) use ($invoice): bool {
                 if (! $item->product || ! $invoice->shop) {
                     return true;
