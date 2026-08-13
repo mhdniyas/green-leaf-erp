@@ -5,8 +5,8 @@ declare(strict_types=1);
 use App\Http\Controllers\Web\Admin\ActivityLogController;
 use App\Http\Controllers\Web\Admin\AdminAccountingController;
 use App\Http\Controllers\Web\Admin\AdminOverviewController;
-use App\Http\Controllers\Web\Admin\CompanySettingsController;
 use App\Http\Controllers\Web\Admin\CashbookController;
+use App\Http\Controllers\Web\Admin\CompanySettingsController;
 use App\Http\Controllers\Web\Admin\DailyProgressController;
 use App\Http\Controllers\Web\Admin\DeliveryReviewController;
 use App\Http\Controllers\Web\Admin\DiscrepancyReportController;
@@ -647,6 +647,7 @@ Route::middleware('auth')->group(function () {
                 Route::get('rules', [CashbookController::class, 'getRules'])->name('rules');
                 Route::get('company-accounts', [CashbookController::class, 'getCompanyAccounts'])->name('company-accounts');
                 Route::get('client-summary', [CashbookController::class, 'getClientSummary'])->name('client-summary');
+                Route::get('report-bills', [CashbookController::class, 'getReportBills'])->name('report-bills');
                 Route::get('presets', [CashbookController::class, 'getPresets'])->name('presets');
 
                 Route::post('record-entry', [CashbookController::class, 'recordEntry'])->name('record-entry');

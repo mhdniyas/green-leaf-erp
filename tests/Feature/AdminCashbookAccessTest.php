@@ -207,6 +207,77 @@ class AdminCashbookAccessTest extends TestCase
             ->assertSee('let currentTimeframe = "custom";', false);
     }
 
+    public function test_cashbook_report_bills_api_returns_client_and_direct_invoice_rows_for_selected_range(): void
+    {
+        $mainAdmin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $mainAdmin->assignRole('admin');
+
+        $client = Client::query()->create([
+            'code' => 'CLIENT-API',
+            'name' => 'Client API',
+            'status' => 'active',
+        ]);
+
+        $clientShop = Shop::factory()->create([
+            'name' => 'Client Range Shop',
+            'client_id' => $client->id,
+            'accounting_enabled' => true,
+            'accounting_mode' => 'standard',
+        ]);
+        $directShop = Shop::factory()->create([
+            'name' => 'Direct Range Shop',
+            'client_id' => null,
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+
+        ShopInvoice::factory()->create([
+            'shop_id' => $clientShop->id,
+            'invoice_number' => 'SINV-CLIENT-RANGE',
+            'business_date' => '2026-08-12',
+            'status' => 'generated',
+            'payment_status' => 'partially_paid',
+            'final_total' => 3200.50,
+            'paid_amount' => 1200.50,
+            'balance_amount' => 2000.00,
+        ]);
+        ShopInvoice::factory()->create([
+            'shop_id' => $directShop->id,
+            'invoice_number' => 'SINV-DIRECT-RANGE',
+            'business_date' => '2026-08-13',
+            'status' => 'generated',
+            'payment_status' => 'unpaid',
+            'final_total' => 4500.00,
+            'paid_amount' => 0,
+            'balance_amount' => 4500.00,
+        ]);
+        ShopInvoice::factory()->create([
+            'shop_id' => $directShop->id,
+            'invoice_number' => 'SINV-OUTSIDE-RANGE',
+            'business_date' => '2026-07-31',
+            'status' => 'generated',
+            'payment_status' => 'unpaid',
+            'final_total' => 999.00,
+            'paid_amount' => 0,
+            'balance_amount' => 999.00,
+        ]);
+
+        $response = $this->actingAs($mainAdmin)->getJson(route('admin.cashbook.api.report-bills', [
+            'business_date' => '2026-08-13',
+            'timeframe' => 'custom',
+            'start_date' => '2026-08-12',
+            'end_date' => '2026-08-13',
+        ]));
+
+        $response->assertOk();
+        $response->assertJsonPath('totals.count', 2);
+        $response->assertJsonPath('totals.total_billed', 7700.5);
+        $this->assertEquals(6500.0, (float) $response->json('totals.total_balance'));
+        $response->assertJsonFragment(['invoice_number' => 'SINV-CLIENT-RANGE', 'scope' => 'client']);
+        $response->assertJsonFragment(['invoice_number' => 'SINV-DIRECT-RANGE', 'scope' => 'direct']);
+        $response->assertJsonMissing(['invoice_number' => 'SINV-OUTSIDE-RANGE']);
+    }
+
     public function test_cashbook_monthly_shop_data_clamps_future_month_end_to_today(): void
     {
         $this->travelTo('2026-08-13 10:00:00');

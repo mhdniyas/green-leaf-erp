@@ -1167,6 +1167,83 @@ final class CashbookController extends Controller
     }
 
     /**
+     * API: Invoice bill rows for the selected reporting period.
+     */
+    public function getReportBills(Request $request): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'business_date' => ['nullable', 'date_format:Y-m-d'],
+            'timeframe' => ['nullable', 'in:daily,weekly,monthly,custom'],
+            'start_date' => ['nullable', 'date_format:Y-m-d'],
+            'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:start_date'],
+        ]);
+        $date = $validated['business_date'] ?? today()->toDateString();
+        $timeframe = $validated['timeframe'] ?? 'daily';
+        [$startDate, $endDate] = $this->cashbookRange(
+            $date,
+            $timeframe,
+            $validated['start_date'] ?? null,
+            $validated['end_date'] ?? null
+        );
+
+        $rows = ShopInvoice::query()
+            ->with(['shop.client'])
+            ->where('final_total', '>', 0)
+            ->where('status', '!=', 'cancelled')
+            ->whereDate('business_date', '>=', $startDate)
+            ->whereDate('business_date', '<=', $endDate)
+            ->orderByDesc('business_date')
+            ->orderByDesc('id')
+            ->get()
+            ->map(function (ShopInvoice $invoice): array {
+                $shop = $invoice->shop;
+                $isDirect = $shop?->client_id === null;
+
+                return [
+                    'id' => $invoice->id,
+                    'invoice_number' => $invoice->invoice_number,
+                    'business_date' => $invoice->business_date?->toDateString(),
+                    'final_total' => round((float) $invoice->final_total, 2),
+                    'paid_amount' => round((float) $invoice->paid_amount, 2),
+                    'balance_amount' => round((float) $invoice->balance_amount, 2),
+                    'status' => $invoice->status,
+                    'payment_status' => $invoice->payment_status,
+                    'scope' => $isDirect ? 'direct' : 'client',
+                    'shop' => [
+                        'id' => $shop?->id,
+                        'name' => $shop?->name,
+                        'code' => $shop?->code,
+                        'slug' => $shop?->slug,
+                    ],
+                    'client' => $shop?->client ? [
+                        'id' => $shop->client->id,
+                        'name' => $shop->client->name,
+                    ] : null,
+                    'invoice_url' => route('purchasing.shop-invoices.show', $invoice),
+                    'shop_url' => $shop ? route('admin.cashbook.shop.show', ['shop' => $shop->slug ?: $shop->id, 'date' => $invoice->business_date?->toDateString() ?? today()->toDateString()]) : null,
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'business_date' => $date,
+            'timeframe' => $timeframe,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'rows' => $rows,
+            'totals' => [
+                'count' => $rows->count(),
+                'total_billed' => round((float) $rows->sum('final_total'), 2),
+                'total_paid' => round((float) $rows->sum('paid_amount'), 2),
+                'total_balance' => round((float) $rows->sum('balance_amount'), 2),
+            ],
+        ]);
+    }
+
+    /**
      * API: All preset configurations with entry settings.
      */
     public function getPresets(Request $request): JsonResponse
