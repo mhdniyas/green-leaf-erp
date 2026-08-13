@@ -18,7 +18,7 @@
             <input
                 type="date"
                 id="global-date-input"
-                value="{{ request('business_date', today()->toDateString()) }}"
+                value="{{ request('business_date', request('date', today()->toDateString())) }}"
                 onchange="if(typeof syncGlobalDate === 'function') syncGlobalDate(this.value);"
                 class="bg-transparent text-xs font-mono font-bold text-slate-800 border-none focus:outline-none cursor-pointer"
             >

@@ -71,12 +71,41 @@ final class CashbookController extends Controller
     {
         $this->ensureMainAdmin($request);
 
+        $validated = $request->validate([
+            'date' => ['nullable', 'date_format:Y-m-d'],
+            'business_date' => ['nullable', 'date_format:Y-m-d'],
+            'timeframe' => ['nullable', 'in:daily,weekly,monthly,custom'],
+            'start_date' => ['nullable', 'date_format:Y-m-d'],
+            'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:start_date'],
+        ]);
+        $selectedDate = $validated['date']
+            ?? $validated['business_date']
+            ?? today()->toDateString();
+        $timeframe = $validated['timeframe'] ?? 'daily';
+        [$startDate, $endDate] = $this->cashbookRange(
+            $selectedDate,
+            $timeframe,
+            $validated['start_date'] ?? null,
+            $validated['end_date'] ?? null
+        );
+
         $shops = $this->shopSyncService->syncAndGetProfiles();
         $clients = LedgerClient::with('shops')->where('enabled', true)->get();
         $companyAccounts = CompanyAccount::where('enabled', true)->get();
         $company = config('greenleaf');
+        $reportRangeLabel = Carbon::parse($startDate)->format('d M Y').' – '.Carbon::parse($endDate)->format('d M Y');
 
-        return view('admin.cashbook.reports.index', compact('shops', 'clients', 'companyAccounts', 'company'));
+        return view('admin.cashbook.reports.index', compact(
+            'shops',
+            'clients',
+            'companyAccounts',
+            'company',
+            'selectedDate',
+            'timeframe',
+            'startDate',
+            'endDate',
+            'reportRangeLabel',
+        ));
     }
 
     public function payables(Request $request): View
@@ -542,6 +571,16 @@ final class CashbookController extends Controller
             ->selectRaw('shop_id, COALESCE(SUM(final_total), 0) as invoice_total')
             ->groupBy('shop_id')
             ->pluck('invoice_total', 'shop_id');
+        $periodTotals = ShopLedgerTransaction::query()
+            ->whereBetween('business_date', [$startDate, $endDate])
+            ->selectRaw("
+                shop_id,
+                COALESCE(SUM(CASE WHEN direction = 'income' THEN amount ELSE 0 END), 0) as total_sales,
+                COALESCE(SUM(CASE WHEN direction = 'expense' THEN amount ELSE 0 END), 0) as total_expense
+            ")
+            ->groupBy('shop_id')
+            ->get()
+            ->keyBy('shop_id');
 
         $overview = [];
         $totals = [
@@ -557,6 +596,14 @@ final class CashbookController extends Controller
 
         foreach ($shops as $shop) {
             $snapshot = $this->ledgerService->dailySummary($shop->shop_id, $endDate);
+            $periodTotal = $periodTotals->get($shop->shop_id);
+            $periodSales = (float) ($periodTotal->total_sales ?? 0);
+            $periodExpense = (float) ($periodTotal->total_expense ?? 0);
+            $periodNetPl = $periodSales - $periodExpense;
+
+            $snapshot->total_sales = $periodSales;
+            $snapshot->total_expense = $periodExpense;
+            $snapshot->net_pl = $periodNetPl;
 
             $isDirect = $shop->client_id === null
                 && $shop->profile_template === 'direct_buyer';
@@ -594,9 +641,9 @@ final class CashbookController extends Controller
                 'net_receivable' => $netReceivable,
             ];
 
-            $totals['total_sales'] += (float) $snapshot->total_sales;
-            $totals['total_expense'] += (float) $snapshot->total_expense;
-            $totals['net_pl'] += (float) $snapshot->net_pl;
+            $totals['total_sales'] += $periodSales;
+            $totals['total_expense'] += $periodExpense;
+            $totals['net_pl'] += $periodNetPl;
             $totals['closing_petty'] += (float) $snapshot->closing_petty;
             $totals['closing_shop_position'] += (float) $shopPos;
             $totals['closing_company_pending'] += (float) $compPend;
@@ -1025,7 +1072,20 @@ final class CashbookController extends Controller
     {
         $this->ensureMainAdmin($request);
 
-        $date = $request->input('business_date', today()->toDateString());
+        $validated = $request->validate([
+            'business_date' => ['nullable', 'date_format:Y-m-d'],
+            'timeframe' => ['nullable', 'in:daily,weekly,monthly,custom'],
+            'start_date' => ['nullable', 'date_format:Y-m-d'],
+            'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:start_date'],
+        ]);
+        $date = $validated['business_date'] ?? today()->toDateString();
+        $timeframe = $validated['timeframe'] ?? 'daily';
+        [$startDate, $endDate] = $this->cashbookRange(
+            $date,
+            $timeframe,
+            $validated['start_date'] ?? null,
+            $validated['end_date'] ?? null
+        );
         $clients = LedgerClient::with('shops')->where('enabled', true)->get();
 
         $summary = [];
@@ -1042,15 +1102,15 @@ final class CashbookController extends Controller
             $shopRows = [];
 
             foreach ($client->shops as $shop) {
-                $snapshot = $this->ledgerService->dailySummary($shop->shop_id, $date);
+                $snapshot = $this->ledgerService->dailySummary($shop->shop_id, $endDate);
 
                 $glBills = (float) ShopLedgerTransaction::where('shop_id', $shop->shop_id)
-                    ->where('business_date', $date)
+                    ->whereBetween('business_date', [$startDate, $endDate])
                     ->where('entry_type_id', fn ($q) => $q->select('id')->from('ledger_entry_types')->where('code', 'purchase_bill'))
                     ->sum('amount');
 
                 $received = (float) ShopLedgerTransaction::where('shop_id', $shop->shop_id)
-                    ->where('business_date', $date)
+                    ->whereBetween('business_date', [$startDate, $endDate])
                     ->where('entry_type_id', fn ($q) => $q->select('id')->from('ledger_entry_types')->where('code', 'shop_paid_company'))
                     ->sum('amount');
 
@@ -1092,6 +1152,9 @@ final class CashbookController extends Controller
             'success' => true,
             'company' => config('greenleaf'),
             'business_date' => $date,
+            'timeframe' => $timeframe,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
             'clients' => $summary,
             'grand_totals' => [
                 'total_gl_bills_issued' => $grandTotalGlBills,

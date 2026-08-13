@@ -184,6 +184,29 @@ class AdminCashbookAccessTest extends TestCase
             ->assertSee('let currentDate = "2026-08-13";', false);
     }
 
+    public function test_cashbook_reports_use_mobile_first_partials_and_date_range_filters(): void
+    {
+        $this->travelTo('2026-08-13 10:00:00');
+
+        $mainAdmin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $mainAdmin->assignRole('admin');
+
+        $this->actingAs($mainAdmin)
+            ->get(route('admin.cashbook.reports', [
+                'date' => '2026-08-13',
+                'timeframe' => 'custom',
+                'start_date' => '2026-08-01',
+                'end_date' => '2026-08-13',
+            ]))
+            ->assertOk()
+            ->assertSee('CEO cashbook report')
+            ->assertSee('01 Aug 2026 – 13 Aug 2026')
+            ->assertSee('name="start_date"', false)
+            ->assertSee('name="end_date"', false)
+            ->assertSee('min-[390px]:grid-cols-2', false)
+            ->assertSee('let currentTimeframe = "custom";', false);
+    }
+
     public function test_cashbook_monthly_shop_data_clamps_future_month_end_to_today(): void
     {
         $this->travelTo('2026-08-13 10:00:00');
@@ -237,6 +260,63 @@ class AdminCashbookAccessTest extends TestCase
         $response->assertOk();
         $this->assertEquals(100.0, $response->json('snapshot.total_sales'));
         $this->assertEquals(100.0, $response->json('snapshot.net_pl'));
+    }
+
+    public function test_cashbook_reports_page_uses_selected_range_and_period_totals(): void
+    {
+        $this->travelTo('2026-08-13 10:00:00');
+
+        $mainAdmin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $mainAdmin->assignRole('admin');
+
+        $entryType = LedgerEntryType::query()->create([
+            'code' => 'period_sales',
+            'name' => 'Period Sales',
+            'category' => 'income',
+            'system_type' => 'manual',
+            'active' => true,
+        ]);
+        $shop = Shop::factory()->create([
+            'client_id' => null,
+            'accounting_enabled' => false,
+            'accounting_mode' => 'regular',
+        ]);
+
+        foreach ([
+            ['business_date' => '2026-08-02', 'amount' => 900],
+            ['business_date' => '2026-08-13', 'amount' => 100],
+        ] as $row) {
+            ShopLedgerTransaction::query()->create([
+                'shop_id' => $shop->id,
+                'business_date' => $row['business_date'],
+                'entry_type_id' => $entryType->id,
+                'amount' => $row['amount'],
+                'direction' => 'income',
+                'funding_source' => 'sales',
+                'affects_income' => true,
+                'affects_pl' => true,
+                'pl_delta' => $row['amount'],
+            ]);
+        }
+
+        $this->actingAs($mainAdmin)
+            ->get(route('admin.cashbook.reports', [
+                'date' => '2026-08-13',
+                'timeframe' => 'monthly',
+            ]))
+            ->assertOk()
+            ->assertSee('01 Aug 2026 – 13 Aug 2026')
+            ->assertSee('let currentTimeframe = "monthly";', false);
+
+        $response = $this->actingAs($mainAdmin)
+            ->getJson(route('admin.cashbook.api.all-shops-overview', [
+                'business_date' => '2026-08-13',
+                'timeframe' => 'monthly',
+            ]));
+
+        $response->assertOk();
+        $this->assertEquals(1000.0, $response->json('totals.total_sales'));
+        $this->assertEquals(1000.0, $response->json('totals.net_pl'));
     }
 
     public function test_direct_shops_are_preserved_and_grouped_from_cashbook_profile_state(): void
