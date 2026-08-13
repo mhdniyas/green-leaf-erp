@@ -353,7 +353,7 @@
                 <template x-for="day in approvalDays()" :key="day.date">
                     <button
                         type="button"
-                        @click="selectedApprovalDate = day.date"
+                        @click="changeDate(day.date)"
                         class="w-full text-left rounded-2xl border p-4 transition"
                         :class="selectedApprovalDate === day.date ? 'border-emerald-300 bg-emerald-50 shadow-sm' : 'border-slate-200 bg-white hover:bg-slate-50'"
                     >
@@ -380,15 +380,15 @@
                 </div>
 
                 <div class="mt-3 flex flex-wrap items-center gap-2">
-                    <button type="button" @click="selectedApprovalDate = todayDate; loadData()" class="rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition" :class="selectedApprovalDate === todayDate ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'">
+                    <button type="button" @click="changeDate(todayDate)" class="rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition" :class="selectedApprovalDate === todayDate ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'">
                         Today
                     </button>
-                    <button type="button" @click="selectedApprovalDate = shiftApprovalDate(-1); loadData()" class="rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition" :class="selectedApprovalDate === shiftApprovalDate(-1) ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'">
+                    <button type="button" @click="changeDate(shiftApprovalDate(-1))" class="rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition" :class="selectedApprovalDate === shiftApprovalDate(-1) ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'">
                         Yesterday
                     </button>
                     <div class="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5">
                         <span class="text-[11px] font-black uppercase tracking-wider text-slate-500">Date</span>
-                        <input type="date" x-model="selectedApprovalDate" @change="loadData()" class="h-6 border-0 bg-transparent p-0 text-xs font-bold text-slate-800 focus:outline-none">
+                        <input type="date" x-model="selectedApprovalDate" @change="changeDate(selectedApprovalDate)" class="h-6 border-0 bg-transparent p-0 text-xs font-bold text-slate-800 focus:outline-none">
                     </div>
                 </div>
 
@@ -396,7 +396,7 @@
                     <template x-for="day in approvalDays()" :key="'pill-' + day.date">
                         <button
                             type="button"
-                            @click="selectedApprovalDate = day.date; loadData()"
+                            @click="changeDate(day.date)"
                             class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition"
                             :class="selectedApprovalDate === day.date ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'"
                         >
@@ -801,7 +801,7 @@
 <script>
     const currentShopId = {{ $currentShop->shop_id }};
     const todayDate = @json(today()->toDateString());
-    let currentDate = todayDate;
+    let currentDate = @json(request('date', request('business_date', today()->toDateString())));
     const shopEntryTypes = @json($entryTypes);
 
     function shopDetailApp() {
@@ -817,7 +817,7 @@
             openExportModal: false,
             showBreakdownModal: false,
             breakdownType: 'sales',
-            selectedApprovalDate: todayDate,
+            selectedApprovalDate: currentDate,
             modalTx: null,
             editingTx: null,
             deletingTx: null,
@@ -963,6 +963,14 @@
                 this.exportForm.start_date = d;
                 this.exportForm.end_date = d;
                 this.selectedApprovalDate = d;
+
+                const globalInput = document.getElementById('global-date-input');
+                if (globalInput) globalInput.value = d;
+
+                const url = new URL(window.location.href);
+                url.searchParams.set('date', d);
+                window.history.replaceState({}, '', url.toString());
+
                 this.loadData();
             },
 
@@ -1208,9 +1216,8 @@
                         this.pettyEntries = data.petty_entries || [];
                         this.companyPendingEntries = data.company_pending_entries || [];
                         this.settings = data.settings || [];
-                        const approvalDays = this.approvalDays();
-                        if (!approvalDays.some((day) => day.date === this.selectedApprovalDate)) {
-                            this.selectedApprovalDate = approvalDays[0]?.date || currentDate;
+                        if (!this.selectedApprovalDate) {
+                            this.selectedApprovalDate = currentDate;
                         }
 
                         // Compute Payment Breakdown
@@ -1234,12 +1241,13 @@
     }
 
     function syncGlobalDate(newDate) {
+        if (!newDate) return;
         currentDate = newDate;
         if (window.Alpine) {
             const app = document.querySelector('[x-data]')?._x_dataStack[0];
-            if (app && app.createForm) app.createForm.business_date = newDate;
-            if (app && app.selectedApprovalDate !== undefined) app.selectedApprovalDate = newDate;
-            if (app && app.loadData) app.loadData();
+            if (app && typeof app.changeDate === 'function') {
+                app.changeDate(newDate);
+            }
         }
     }
 
