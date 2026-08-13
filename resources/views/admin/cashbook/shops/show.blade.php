@@ -320,33 +320,47 @@
 
     <!-- Daily Approval Queue -->
     <div class="white-card rounded-3xl p-6 space-y-4 shadow-xl">
-        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 border-b border-slate-200 pb-4">
-            <div>
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3" :class="approvalQueueOpen ? 'border-b border-slate-200 pb-4' : ''">
+            <div class="cursor-pointer flex-1" @click="approvalQueueOpen = !approvalQueueOpen">
                 <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
                     <i data-lucide="badge-check" class="w-5 h-5 text-emerald-600"></i> Approval Queue
                 </h3>
                 <p class="text-xs text-slate-500 mt-0.5">Approve income and expense transactions day by day. Approved entries become locked for shop-side changes.</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <span class="px-3 py-1.5 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold" x-text="pendingApprovalCount() + ' pending entries'"></span>
-                <button type="button" @click="approvePendingForDay(selectedApprovalDay())" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm">
+                <span class="px-3 py-1.5 rounded-xl border text-xs font-bold transition-all"
+                      :class="pendingApprovalCount() > 0 ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'"
+                      x-text="pendingApprovalCount() + ' total pending entries'"></span>
+
+                <button type="button"
+                        x-show="approvalQueueOpen && pendingApprovalCount() > 0"
+                        @click="approvePendingForDay(selectedApprovalDay())"
+                        class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm">
                     Approve All for Selected Day
+                </button>
+
+                <button type="button"
+                        @click="approvalQueueOpen = !approvalQueueOpen"
+                        class="px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold shadow-sm transition-all flex items-center gap-1.5">
+                    <span x-text="approvalQueueOpen ? 'Collapse Queue' : 'Expand Queue'"></span>
+                    <i data-lucide="chevron-down" class="w-4 h-4 transition-transform duration-200" :class="approvalQueueOpen ? 'rotate-180' : ''"></i>
                 </button>
             </div>
         </div>
 
-        <div class="rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-3">
-            <div class="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                    <p class="text-[10px] font-black uppercase tracking-wider text-emerald-700">Approval Notification</p>
-                    <p class="mt-0.5 text-sm font-bold text-slate-900" x-text="approvalNoticeText()"></p>
-                </div>
-                <div class="flex items-center gap-2">
-                    <span class="rounded-full bg-white px-3 py-1 text-[11px] font-black uppercase tracking-wider text-emerald-700 border border-emerald-200" x-text="selectedApprovalDate ? selectedApprovalDate.slice(8, 10) + '-' + selectedApprovalDate.slice(5, 7) : '00-00'"></span>
-                    <span class="rounded-full bg-white px-3 py-1 text-[11px] font-black uppercase tracking-wider text-amber-700 border border-amber-200" x-text="pendingApprovalCount() + ' pending'"></span>
+        <div x-show="approvalQueueOpen" class="space-y-4">
+            <div class="rounded-2xl border px-4 py-3 transition-all" :class="pendingApprovalCount() > 0 ? 'border-amber-200 bg-amber-50/70' : 'border-emerald-200 bg-emerald-50/70'">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <p class="text-[10px] font-black uppercase tracking-wider" :class="pendingApprovalCount() > 0 ? 'text-amber-700' : 'text-emerald-700'">Approval Notification</p>
+                        <p class="mt-0.5 text-sm font-bold text-slate-900" x-text="approvalNoticeText()"></p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="rounded-full bg-white px-3 py-1 text-[11px] font-black uppercase tracking-wider text-slate-700 border border-slate-200" x-text="'Selected: ' + (selectedApprovalDate ? selectedApprovalDate.slice(8, 10) + '-' + selectedApprovalDate.slice(5, 7) : 'None')"></span>
+                        <span class="rounded-full bg-white px-3 py-1 text-[11px] font-black uppercase tracking-wider border" :class="pendingApprovalCount() > 0 ? 'text-amber-700 border-amber-200' : 'text-emerald-700 border-emerald-200'" x-text="pendingApprovalCount() + ' TOTAL PENDING'"></span>
+                    </div>
                 </div>
             </div>
-        </div>
 
         <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
             <div class="xl:col-span-1 space-y-3 max-h-[34rem] overflow-y-auto pr-1 custom-scrollbar">
@@ -811,6 +825,7 @@
             headerDate: currentDate,
             customStartDate: currentDate,
             customEndDate: currentDate,
+            approvalQueueOpen: false,
             showModal: false,
             showEditModal: false,
             showDeleteModal: false,
@@ -1033,18 +1048,26 @@
             },
 
             approvalNoticeText() {
-                if (!this.selectedApprovalDate) {
-                    return 'Select a date to review pending approvals.';
+                const totalPending = this.pendingApprovalCount();
+                if (totalPending === 0) {
+                    return 'All transactions approved. No pending items requiring attention.';
                 }
 
-                const match = this.approvalDays().find((day) => day.date === this.selectedApprovalDate);
-                const shortDate = this.selectedApprovalDate.slice(8, 10) + '-' + this.selectedApprovalDate.slice(5, 7) + '-' + this.selectedApprovalDate.slice(0, 4);
+                const daysCount = this.approvalDays().length;
+                const selectedMatch = this.approvalDays().find((day) => day.date === this.selectedApprovalDate);
+                const selectedCount = selectedMatch ? selectedMatch.count : 0;
 
-                if (!match) {
-                    return `No pending transactions for ${shortDate}.`;
+                let text = `${totalPending} total pending transaction${totalPending === 1 ? '' : 's'} requiring approval across ${daysCount} day${daysCount === 1 ? '' : 's'}.`;
+                if (this.selectedApprovalDate) {
+                    const shortDate = this.selectedApprovalDate.slice(8, 10) + '-' + this.selectedApprovalDate.slice(5, 7) + '-' + this.selectedApprovalDate.slice(0, 4);
+                    if (selectedCount > 0) {
+                        text += ` (${selectedCount} pending for ${shortDate})`;
+                    } else {
+                        text += ` (0 pending for ${shortDate})`;
+                    }
                 }
 
-                return `${match.count} pending transaction${match.count === 1 ? '' : 's'} for ${shortDate}.`;
+                return text;
             },
 
             shiftApprovalDate(offsetDays) {
