@@ -638,6 +638,7 @@ Route::middleware('auth')->group(function () {
             Route::get('rules-config', [CashbookController::class, 'rulesPage'])->name('rules-config');
             Route::get('settings', [CashbookController::class, 'settingsPage'])->name('settings');
             Route::get('settings/presets', [CashbookController::class, 'presetsPage'])->name('settings.presets');
+            Route::get('settings/collections', [CashbookController::class, 'collectionGroupsPage'])->name('settings.collections');
             Route::get('bank-accounts/create', [CashbookController::class, 'createBankAccountPage'])->name('bank-accounts.create');
             Route::post('bank-accounts', [CashbookController::class, 'storeBankAccount'])->name('bank-accounts.store');
             Route::put('bank-accounts/{account}', [CashbookController::class, 'updateBankAccount'])->name('bank-accounts.update');

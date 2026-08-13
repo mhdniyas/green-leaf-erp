@@ -119,6 +119,10 @@
                     <i data-lucide="layers" class="w-4 h-4"></i>
                     <span>Preset Configurations</span>
                 </a>
+                <a href="{{ route('admin.cashbook.settings.collections') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.settings.collections') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="group" class="w-4 h-4"></i>
+                    <span>Collection Groups</span>
+                </a>
             </div>
 
         </nav>

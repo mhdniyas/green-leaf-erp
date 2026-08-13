@@ -356,6 +356,26 @@ final class CashbookController extends Controller
         ));
     }
 
+    public function collectionGroupsPage(Request $request): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $clients = LedgerClient::with('shops')->where('enabled', true)->get();
+        $presets = ShopConfigPreset::with(['shops', 'collectionGroups.entryTypes.entryType'])
+            ->where('enabled', true)
+            ->orderBy('name')
+            ->get();
+        $entryTypes = LedgerEntryType::where('active', true)->orderBy('display_order')->get();
+        $companyAccounts = CompanyAccount::where('enabled', true)->get();
+        $company = config('greenleaf');
+        $currentShop = $shops->first();
+
+        return view('admin.cashbook.settings.collections', compact(
+            'shops', 'clients', 'presets', 'entryTypes', 'companyAccounts', 'company', 'currentShop'
+        ));
+    }
+
     public function createBankAccountPage(Request $request): View
     {
         $this->ensureMainAdmin($request);

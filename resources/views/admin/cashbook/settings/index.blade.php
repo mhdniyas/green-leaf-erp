@@ -37,7 +37,7 @@
     </div>
 
     {{-- QUICK SETTINGS & CONFIGURATION ACTIONS --}}
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <button @click="showNewPresetModal = true" class="white-card rounded-2xl p-4 border border-slate-200 shadow-xs hover:border-indigo-300 hover:shadow-sm transition text-left flex items-center gap-3">
             <div class="h-10 w-10 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center flex-shrink-0 font-bold">
                 <i data-lucide="plus-circle" class="w-5 h-5"></i>
@@ -75,6 +75,16 @@
             <div>
                 <div class="text-xs font-extrabold text-slate-900">Presets Configurator</div>
                 <div class="text-[10px] text-slate-500 font-medium">Inspect all presets</div>
+            </div>
+        </a>
+
+        <a href="{{ route('admin.cashbook.settings.collections') }}" class="white-card rounded-2xl p-4 border border-slate-200 shadow-xs hover:border-cyan-300 hover:shadow-sm transition text-left flex items-center gap-3">
+            <div class="h-10 w-10 rounded-xl bg-cyan-50 border border-cyan-100 text-cyan-700 flex items-center justify-center flex-shrink-0 font-bold">
+                <i data-lucide="group" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <div class="text-xs font-extrabold text-slate-900">Collection Groups</div>
+                <div class="text-[10px] text-slate-500 font-medium">Net income and debits</div>
             </div>
         </a>
     </div>

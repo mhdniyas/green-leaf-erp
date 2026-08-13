@@ -229,6 +229,11 @@
                     </p>
                 </div>
                 <div class="flex items-center gap-2">
+                    <a href="{{ route('admin.cashbook.settings.collections') }}"
+                       class="px-3.5 py-2 text-xs font-bold text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-xl hover:bg-cyan-100 transition flex items-center gap-1.5 shadow-xs">
+                        <i data-lucide="group" class="w-3.5 h-3.5"></i>
+                        Manage Collections
+                    </a>
                     <button @click="showNewPreset = true"
                             class="px-3.5 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition flex items-center gap-1.5 shadow-xs">
                         <i data-lucide="plus" class="w-3.5 h-3.5"></i>
@@ -285,28 +290,16 @@
             </div>
         </template>
 
-        <template x-if="activePreset">
-            <div class="border-b border-slate-200 bg-cyan-50/60 px-6 py-4">
-                <div class="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1fr_1fr_auto]">
-                    <input type="text" x-model="newCollection.name" placeholder="Collection name, e.g. S/M Delivery" class="rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs font-bold text-slate-900">
-                    <select x-model="newCollection.income_entry_type_ids" multiple class="min-h-20 rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs font-bold text-slate-900">
-                        <template x-for="entry in incomeEntryTypes()" :key="entry.id">
-                            <option :value="entry.id" x-text="entry.name"></option>
-                        </template>
-                    </select>
-                    <select x-model="newCollection.expense_entry_type_ids" multiple class="min-h-20 rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs font-bold text-slate-900">
-                        <template x-for="entry in expenseEntryTypes()" :key="entry.id">
-                            <option :value="entry.id" x-text="entry.name"></option>
-                        </template>
-                    </select>
-                    <button type="button" @click="saveCollectionGroup()" class="rounded-lg bg-cyan-700 px-4 py-2 text-xs font-black text-white hover:bg-cyan-800">
-                        Save Collection
-                    </button>
-                </div>
-                <div class="mt-3 flex flex-wrap gap-2">
-                    <template x-for="group in (activePreset.collection_groups || [])" :key="group.id">
+        <template x-if="activePreset && activePreset.collection_groups && activePreset.collection_groups.length > 0">
+            <div class="border-b border-slate-200 bg-cyan-50/60 px-6 py-3">
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="text-[10px] font-black uppercase tracking-wider text-cyan-700">Collections</span>
+                    <template x-for="group in activePreset.collection_groups" :key="group.id">
                         <span class="rounded-full border border-cyan-200 bg-white px-3 py-1 text-[11px] font-black text-cyan-800" x-text="group.name"></span>
                     </template>
+                    <a href="{{ route('admin.cashbook.settings.collections') }}" class="rounded-full border border-cyan-200 bg-cyan-700 px-3 py-1 text-[11px] font-black text-white hover:bg-cyan-800">
+                        Edit Collections
+                    </a>
                 </div>
             </div>
         </template>
