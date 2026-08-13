@@ -1615,6 +1615,7 @@ final class CashbookController extends Controller
 
             $group->entryTypes()->delete();
             $order = 1;
+            $collectionEntryTypes = [];
             foreach ($validated['income_entry_type_ids'] as $entryTypeId) {
                 PresetCollectionGroupEntryType::create([
                     'collection_group_id' => $group->id,
@@ -1623,6 +1624,7 @@ final class CashbookController extends Controller
                     'required' => true,
                     'display_order' => $order++,
                 ]);
+                $collectionEntryTypes[(int) $entryTypeId] = 'income';
             }
 
             foreach ($validated['expense_entry_type_ids'] ?? [] as $entryTypeId) {
@@ -1633,7 +1635,10 @@ final class CashbookController extends Controller
                     'required' => false,
                     'display_order' => $order++,
                 ]);
+                $collectionEntryTypes[(int) $entryTypeId] = 'expense';
             }
+
+            $this->ensureCollectionEntrySettings((int) $validated['preset_id'], $collectionEntryTypes);
 
             return response()->json([
                 'success' => true,
@@ -1643,6 +1648,62 @@ final class CashbookController extends Controller
         } catch (Throwable $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
         }
+    }
+
+    /**
+     * Collection rows are posted as real ledger transactions, so every selected
+     * row also needs a normal preset/shop ledger setting for the rule resolver.
+     *
+     * @param array<int, string> $entryTypeRoles
+     */
+    private function ensureCollectionEntrySettings(int $presetId, array $entryTypeRoles): void
+    {
+        $entryTypes = LedgerEntryType::query()
+            ->whereIn('id', array_keys($entryTypeRoles))
+            ->get()
+            ->keyBy('id');
+
+        $nextOrder = (int) (PresetEntrySetting::where('preset_id', $presetId)->max('display_order') ?? 0);
+
+        foreach ($entryTypeRoles as $entryTypeId => $role) {
+            $entryType = $entryTypes->get($entryTypeId);
+            if (! $entryType instanceof LedgerEntryType) {
+                continue;
+            }
+
+            PresetEntrySetting::firstOrCreate(
+                [
+                    'preset_id' => $presetId,
+                    'entry_type_id' => $entryTypeId,
+                ],
+                [
+                    'version' => 1,
+                    'effective_from' => '2026-01-01',
+                    'effective_to' => null,
+                    'enabled' => true,
+                    'default_funding_source' => 'none',
+                    'allowed_funding_sources' => ['none'],
+                    'include_in_sales' => $role === 'income',
+                    'include_in_income' => $role === 'income',
+                    'include_in_expense' => $role === 'expense',
+                    'include_in_pl' => true,
+                    'settlement_behavior' => 'none',
+                    'petty_behavior' => 'none',
+                    'company_pending_behavior' => 'none',
+                    'generates_secondary_entry' => false,
+                    'secondary_entry_type_id' => null,
+                    'secondary_amount_mode' => 'same_amount',
+                    'secondary_amount_value' => null,
+                    'display_order' => ++$nextOrder,
+                ]
+            );
+        }
+
+        ShopLedgerProfile::query()
+            ->where('preset_id', $presetId)
+            ->with('preset.entrySettings')
+            ->get()
+            ->each(fn (ShopLedgerProfile $profile) => $this->shopSyncService->syncPresetSettingsToShop($profile, $profile->preset));
     }
 
     /**

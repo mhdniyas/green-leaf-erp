@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Cashbook;
 
 use App\Models\Cashbook\PresetCollectionGroup;
+use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use Illuminate\Support\Collection;
@@ -66,6 +67,8 @@ class CollectionGroupPostingService
             ]);
         }
 
+        $this->ensureShopLedgerSettings($shopId, $group);
+
         $lines = $group->entryTypes
             ->sortBy('display_order')
             ->map(function ($line) use ($amounts): ?array {
@@ -122,5 +125,42 @@ class CollectionGroupPostingService
                 'snapshot' => $this->dailyLedgerService->dailySummary($shopId, $businessDate),
             ];
         });
+    }
+
+    private function ensureShopLedgerSettings(int $shopId, PresetCollectionGroup $group): void
+    {
+        foreach ($group->entryTypes as $line) {
+            $entryType = $line->entryType;
+            if (! $entryType) {
+                continue;
+            }
+
+            ShopLedgerEntrySetting::firstOrCreate(
+                [
+                    'shop_id' => $shopId,
+                    'entry_type_id' => $entryType->id,
+                ],
+                [
+                    'version' => 1,
+                    'effective_from' => '2026-01-01',
+                    'effective_to' => null,
+                    'enabled' => true,
+                    'default_funding_source' => 'none',
+                    'allowed_funding_sources' => ['none'],
+                    'include_in_sales' => $line->role === 'income',
+                    'include_in_income' => $line->role === 'income',
+                    'include_in_expense' => $line->role === 'expense',
+                    'include_in_pl' => true,
+                    'settlement_behavior' => 'none',
+                    'petty_behavior' => 'none',
+                    'company_pending_behavior' => 'none',
+                    'generates_secondary_entry' => false,
+                    'secondary_entry_type_id' => null,
+                    'secondary_amount_mode' => 'same_amount',
+                    'secondary_amount_value' => null,
+                    'display_order' => (int) $line->display_order,
+                ]
+            );
+        }
     }
 }
