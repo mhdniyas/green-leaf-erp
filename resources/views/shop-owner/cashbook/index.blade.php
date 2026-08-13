@@ -123,26 +123,22 @@
                     <tbody class="divide-y divide-slate-100">
                         <template x-for="tx in transactions" :key="tx.id">
                             <tr class="cursor-pointer transition hover:bg-slate-100/70" :class="tx.status === 'approved' ? 'bg-emerald-50/40' : ''" @click="openDetails(tx)">
-                                <td class="px-3 py-1.5 font-black text-slate-800">
+                                <td class="px-3 py-1.5 font-black" :class="tx.direction === 'income' ? 'text-emerald-700' : 'text-rose-700'">
                                     <div class="flex items-center gap-2">
                                         <span x-text="tx.business_date ? tx.business_date.slice(8, 10) + '-' + tx.business_date.slice(5, 7) : formatDayNumber(tx.business_date)"></span>
                                     </div>
                                 </td>
                                 <td class="px-2 py-1.5 text-center">
-                                    <span class="inline-flex h-5.5 w-5.5 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700" x-show="tx.status === 'approved'" title="Approved">
+                                    <span class="inline-flex h-5.5 w-5.5 items-center justify-center rounded-full border" :class="tx.status === 'approved' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'" title="Approval Status">
                                         <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
-                                            <path d="m4.2 10.4 3.2 3.2 8-8" />
-                                        </svg>
-                                    </span>
-                                    <span class="inline-flex h-5.5 w-5.5 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-700" x-show="tx.status !== 'approved'" title="Pending">
-                                        <svg class="h-3 w-3" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                                            <path d="M10 4v8" />
-                                            <path d="M10 14h.01" />
+                                            <path x-show="tx.status === 'approved'" d="m4.2 10.4 3.2 3.2 8-8" />
+                                            <path x-show="tx.status !== 'approved'" d="M10 4v8" />
+                                            <path x-show="tx.status !== 'approved'" d="M10 14h.01" />
                                         </svg>
                                     </span>
                                 </td>
-                                <td class="px-2 py-1.5 text-slate-500">
-                                    <span class="inline-flex items-center gap-1 capitalize">
+                                <td class="px-2 py-1.5" :class="tx.direction === 'income' ? 'text-emerald-700' : 'text-rose-700'">
+                                    <span class="inline-flex items-center gap-1 capitalize font-semibold">
                                         <svg class="h-3.5 w-3.5" :class="tx.funding_source === 'sales' ? 'text-emerald-500' : (tx.funding_source === 'company' ? 'text-amber-500' : (tx.funding_source === 'bank' || tx.funding_source === 'external' ? 'text-sky-500' : 'text-slate-400'))" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                             <path x-show="tx.funding_source === 'sales'" d="M4 14.5h12M5.5 10.5h9M7 6.5h6" />
                                             <path x-show="tx.funding_source === 'company'" d="M4 15h12M6 15V6l4-2 4 2v9" />
@@ -152,7 +148,7 @@
                                         <span x-text="fundingSourceLabel(tx.funding_source)"></span>
                                     </span>
                                 </td>
-                                <td class="px-3 py-1.5 text-right font-bold text-xs text-slate-950 whitespace-nowrap" x-text="currency(tx.amount)"></td>
+                                <td class="px-3 py-1.5 text-right font-bold text-xs whitespace-nowrap" :class="tx.direction === 'income' ? 'text-emerald-700' : 'text-rose-700'" x-text="currency(tx.amount)"></td>
                             </tr>
                         </template>
                         <tr x-show="transactions.length === 0">
