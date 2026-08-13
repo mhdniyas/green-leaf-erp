@@ -880,7 +880,13 @@
                 },
 
                 filteredEntryTypes() {
-                    return this.entryTypes.filter((entryType) => entryType.category === this.form.entry_category);
+                    return this.entryTypes.filter((entryType) => {
+                        if (entryType.code === 'income_s_m_delivery') {
+                            return false;
+                        }
+
+                        return entryType.category === this.form.entry_category;
+                    });
                 },
 
                 onEntryCategoryChange() {
