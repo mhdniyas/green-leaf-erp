@@ -8,6 +8,8 @@ use App\Models\Cashbook\LedgerClient;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Client;
 use App\Models\Shop;
+use App\Models\ShopInvoice;
+use App\Models\ShopOrder;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -197,5 +199,46 @@ class AdminCashbookAccessTest extends TestCase
         $this->assertTrue(
             (bool) ShopLedgerProfile::query()->where('shop_id', $shop->id)->value('enabled')
         );
+    }
+
+    public function test_direct_shop_overview_uses_shop_invoice_totals_for_gl_bills(): void
+    {
+        $mainAdmin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $mainAdmin->assignRole('admin');
+
+        $shop = Shop::factory()->create([
+            'name' => 'Direct Invoice Shop',
+            'client_id' => null,
+            'accounting_enabled' => false,
+            'accounting_mode' => 'regular',
+        ]);
+        $order = ShopOrder::query()->create([
+            'shop_id' => $shop->id,
+            'state' => 'approved',
+            'business_date' => '2026-08-13',
+            'created_by' => $mainAdmin->id,
+        ]);
+
+        ShopInvoice::factory()->create([
+            'shop_id' => $shop->id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'SINV-20260813-DIRECT',
+            'business_date' => '2026-08-13',
+            'status' => 'generated',
+            'final_total' => 6315.50,
+            'paid_amount' => 0,
+            'balance_amount' => 6315.50,
+        ]);
+
+        $response = $this->actingAs($mainAdmin)
+            ->getJson(route('admin.cashbook.api.all-shops-overview', ['business_date' => '2026-08-13']));
+
+        $response->assertOk();
+
+        $directRow = collect($response->json('direct_owned_shops'))->firstWhere('shop.shop_id', $shop->id);
+
+        $this->assertNotNull($directRow);
+        $this->assertSame(6315.50, $directRow['green_leaf_bill']);
+        $this->assertSame(6315.50, $directRow['net_receivable']);
     }
 }
