@@ -24,6 +24,7 @@ class LedgerEntryTypeSeeder extends Seeder
             ['code' => 'card',         'name' => 'Card',          'category' => 'income'],
             ['code' => 'paytm',        'name' => 'Paytm',         'category' => 'income'],
             ['code' => 'upi',          'name' => 'UPI',           'category' => 'income'],
+            ['code' => 'income_s_m_delivery', 'name' => 'S/M Delivery', 'category' => 'income'],
             ['code' => 'income_rent',  'name' => 'Rent',          'category' => 'income'],
             ['code' => 'income_cp',    'name' => 'CP',            'category' => 'income'],
             ['code' => 'other_income', 'name' => 'Other Income',  'category' => 'income'],

@@ -101,6 +101,18 @@
                         <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Funding Source</span>
                         <span class="font-bold text-slate-800 uppercase px-2 py-0.5 bg-white border border-slate-200 rounded-md inline-block mt-0.5" x-text="modalTx?.funding_source || 'default'"></span>
                     </div>
+                    <div>
+                        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Payable to Shop</span>
+                        <strong class="text-base font-mono font-extrabold text-emerald-700">
+                            ₹<span x-text="parseFloat(snapshot?.closing_shop_position || 0).toFixed(2)"></span>
+                        </strong>
+                    </div>
+                    <div>
+                        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Collection Balance</span>
+                        <strong class="text-base font-mono font-extrabold text-cyan-700">
+                            ₹<span x-text="parseFloat((snapshot?.total_sales || 0) - (snapshot?.total_expense || 0)).toFixed(2)"></span>
+                        </strong>
+                    </div>
                 </div>
 
                 <!-- Ledger Impact Vectors Matrix -->
@@ -493,6 +505,12 @@
             <div id="stat-company-pending" class="text-xl font-bold font-mono text-slate-900">₹0.00</div>
             <span class="text-[10px] text-purple-600 font-semibold block flex items-center gap-1">Reimbursements <i data-lucide="chevron-right" class="w-3 h-3"></i></span>
         </div>
+
+        <div class="white-card p-4 rounded-2xl space-y-1 cursor-pointer hover:border-cyan-400 hover:shadow-md transition-all" @click="activeTab = 'company_payables'">
+            <span class="text-[11px] font-bold uppercase text-slate-500 tracking-wider">Collection Balance</span>
+            <div id="stat-collection-balance" class="text-xl font-bold font-mono text-slate-900">₹0.00</div>
+            <span class="text-[10px] text-cyan-600 font-semibold block flex items-center gap-1">Sales - Expense <i data-lucide="chevron-right" class="w-3 h-3"></i></span>
+        </div>
     </div>
 
 
@@ -863,6 +881,7 @@
             paymentBreakdown: {},
             settings: [],
             entryTypes: shopEntryTypes,
+            snapshot: {},
 
             openBreakdownModal(type) {
                 this.breakdownType = type;
@@ -1253,6 +1272,7 @@
                         });
                         this.paymentBreakdown = breakdown;
                         this.createForm.business_date = currentDate;
+                        this.snapshot = data.snapshot || {};
 
                         renderSnapshot(data.snapshot);
                     }
@@ -1291,6 +1311,11 @@
 
         document.getElementById('stat-settlement').innerText = `₹${parseFloat(snapshot.closing_shop_position).toFixed(2)}`;
         document.getElementById('stat-company-pending').innerText = `₹${parseFloat(snapshot.closing_company_pending).toFixed(2)}`;
+        const collectionBalance = (parseFloat(snapshot.total_sales) || 0) - (parseFloat(snapshot.total_expense) || 0);
+        const collectionBalanceEl = document.getElementById('stat-collection-balance');
+        if (collectionBalanceEl) {
+            collectionBalanceEl.innerText = `₹${collectionBalance.toFixed(2)}`;
+        }
 
         const isClosed = snapshot.closed_at !== null;
         const statusBadge = document.getElementById('dashboard-day-status');

@@ -50,6 +50,21 @@ class ShopConfigPresetSeeder extends Seeder
         );
 
         $this->seedPresetRules($grandcity, $base, $type, includeIncomeCpRent: true);
+
+        // ──────────────────────────────────────────────────────────────────────
+        // Preset 3: S/M Delivery Shops
+        // ──────────────────────────────────────────────────────────────────────
+        $smDelivery = ShopConfigPreset::updateOrCreate(
+            ['slug' => 'sm-delivery-shops'],
+            [
+                'name'        => 'S/M Delivery Shops',
+                'description' => 'Configuration for shops that record S/M delivery income and keep delivery deductions plus rent expense visible in cashbook.',
+                'is_default'  => false,
+                'enabled'     => true,
+            ]
+        );
+
+        $this->seedSmDeliveryRules($smDelivery, $base, $type);
     }
 
     private function seedPresetRules(
@@ -177,6 +192,51 @@ class ShopConfigPresetSeeder extends Seeder
             ['preset_id' => $preset->id, 'entry_type_id' => $type('rent_expense')->id],
             $base + [
                 'default_funding_source'  => 'sales',
+                'allowed_funding_sources' => ['sales', 'petty', 'company'],
+                'include_in_expense'      => true,
+                'include_in_pl'           => true,
+                'display_order'           => $order,
+            ]
+        );
+    }
+
+    private function seedSmDeliveryRules(
+        ShopConfigPreset $preset,
+        array $base,
+        \Closure $type
+    ): void {
+        $order = 1;
+
+        PresetEntrySetting::updateOrCreate(
+            ['preset_id' => $preset->id, 'entry_type_id' => $type('income_s_m_delivery')->id],
+            $base + [
+                'default_funding_source'    => 'none',
+                'allowed_funding_sources'   => ['none'],
+                'include_in_sales'          => true,
+                'include_in_income'         => true,
+                'include_in_pl'             => true,
+                'generates_secondary_entry' => true,
+                'secondary_entry_type_id'   => $type('shop_deduct')->id,
+                'secondary_amount_mode'     => 'same_amount',
+                'display_order'             => $order++,
+            ]
+        );
+
+        PresetEntrySetting::updateOrCreate(
+            ['preset_id' => $preset->id, 'entry_type_id' => $type('shop_deduct')->id],
+            $base + [
+                'default_funding_source'  => 'none',
+                'allowed_funding_sources' => ['none'],
+                'include_in_expense'      => true,
+                'include_in_pl'           => true,
+                'display_order'           => $order++,
+            ]
+        );
+
+        PresetEntrySetting::updateOrCreate(
+            ['preset_id' => $preset->id, 'entry_type_id' => $type('rent_expense')->id],
+            $base + [
+                'default_funding_source'  => 'company',
                 'allowed_funding_sources' => ['sales', 'petty', 'company'],
                 'include_in_expense'      => true,
                 'include_in_pl'           => true,
