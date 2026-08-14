@@ -27,7 +27,14 @@ class FundingSourceEffectResolver
         float $amount,
         ShopLedgerEntrySetting $setting
     ): LedgerEffect {
-        $hasOverride = $setting->settlement_behavior || $setting->petty_behavior || $setting->company_pending_behavior;
+        // Only treat a behavior as an active override when it is explicitly set
+        // to a non-'none' value. The default stored value of 'none' is truthy
+        // but must NOT bypass the funding-source logic — otherwise an expense
+        // paid from petty cash would never produce petty_delta = -amount.
+        $isActive = static fn (?string $v): bool => filled($v) && $v !== 'none';
+        $hasOverride = $isActive($setting->settlement_behavior)
+            || $isActive($setting->petty_behavior)
+            || $isActive($setting->company_pending_behavior);
 
         if ($hasOverride) {
             return $this->resolveFromOverrides($direction, $amount, $setting);

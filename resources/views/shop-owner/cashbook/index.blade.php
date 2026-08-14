@@ -200,10 +200,14 @@
                         <span class="text-[9px] text-slate-500 font-medium block truncate">Income - Expense</span>
                     </div>
 
-                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-2 space-y-0.5 cursor-pointer hover:border-sky-400 transition-all" @click="showCardDetails('petty')" title="Click for details">
-                        <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider block truncate">Closing Petty</span>
-                        <div class="text-xs font-black text-sky-700 truncate whitespace-nowrap" x-text="currency(snapshot.closing_petty || 0)"></div>
-                        <span class="text-[9px] text-sky-600 font-bold block truncate">Petty Float</span>
+                    <div
+                        class="rounded-lg border p-2 space-y-0.5 cursor-pointer transition-all"
+                        :class="(snapshot.closing_petty || 0) < 0 ? 'border-rose-300 bg-rose-50 hover:border-rose-400' : 'border-slate-200 bg-slate-50 hover:border-sky-400'"
+                        @click="showCardDetails('petty')" title="Click for details"
+                    >
+                        <span class="text-[9px] font-black uppercase tracking-wider block truncate" :class="(snapshot.closing_petty || 0) < 0 ? 'text-rose-500' : 'text-slate-400'">Petty Float</span>
+                        <div class="text-xs font-black truncate whitespace-nowrap" :class="(snapshot.closing_petty || 0) < 0 ? 'text-rose-700' : 'text-sky-700'" x-text="currency(snapshot.closing_petty ?? 0)"></div>
+                        <span class="text-[9px] font-bold block truncate" :class="(snapshot.closing_petty || 0) < 0 ? 'text-rose-500' : 'text-sky-600'" x-text="(snapshot.closing_petty || 0) < 0 ? '⚠ Deficit — top-up needed' : 'Petty Float'"></span>
                     </div>
 
                     <div class="rounded-lg border border-slate-200 bg-slate-50 p-2 space-y-0.5 cursor-pointer hover:border-amber-400 transition-all" @click="showCardDetails('shop_position')" title="Click for details">
@@ -746,7 +750,10 @@
                 },
 
                 payableTotal() {
-                    return this.payableTransactions().reduce((sum, tx) => sum + parseFloat(tx.amount || 0), 0);
+                    return this.payableTransactions().reduce((sum, tx) => {
+                        const dir = tx.direction || tx.entry_type?.category || 'income';
+                        return sum + (dir === 'expense' ? -parseFloat(tx.amount || 0) : parseFloat(tx.amount || 0));
+                    }, 0);
                 },
 
                 toneClass(tone) {

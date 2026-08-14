@@ -496,10 +496,10 @@
             <span id="stat-net-pl-sub" class="text-[10px] text-slate-500 font-medium block flex items-center gap-1">Income - Expense <i data-lucide="chevron-right" class="w-3 h-3"></i></span>
         </div>
 
-        <div class="white-card p-4 rounded-2xl space-y-1 cursor-pointer hover:border-sky-400 hover:shadow-md transition-all" @click="activeTab = 'petty_ledger'">
-            <span class="text-[11px] font-bold uppercase text-slate-500 tracking-wider">Closing Petty</span>
+        <div class="white-card p-4 rounded-2xl space-y-1 cursor-pointer transition-all" id="card-petty" @click="activeTab = 'petty_ledger'">
+            <span class="text-[11px] font-bold uppercase text-slate-500 tracking-wider">Petty Float</span>
             <div id="stat-petty" class="text-xl font-bold font-mono text-slate-900">₹0.00</div>
-            <span class="text-[10px] text-sky-600 font-semibold block flex items-center gap-1">Petty Float <i data-lucide="chevron-right" class="w-3 h-3"></i></span>
+            <span id="stat-petty-sub" class="text-[10px] text-sky-600 font-semibold block flex items-center gap-1">Running Balance <i data-lucide="chevron-right" class="w-3 h-3"></i></span>
         </div>
 
         <div class="white-card p-4 rounded-2xl space-y-1 cursor-pointer hover:border-amber-400 hover:shadow-md transition-all" @click="openBreakdownModal('payable')">
@@ -1420,9 +1420,22 @@
         netPlEl.innerText = `₹${netPl.toFixed(2)}`;
         netPlEl.className = `text-xl font-bold font-mono ${netPl < 0 ? 'text-rose-600' : 'text-emerald-600'}`;
 
-        document.getElementById('stat-petty').innerText = `₹${parseFloat(snapshot.closing_petty).toFixed(2)}`;
+        const closingPetty = parseFloat(snapshot.closing_petty ?? 0);
+        const pettyEl = document.getElementById('stat-petty');
+        const pettySub = document.getElementById('stat-petty-sub');
+        const pettyCard = document.getElementById('card-petty');
+        pettyEl.innerText = `₹${closingPetty.toFixed(2)}`;
+        if (closingPetty < 0) {
+            pettyEl.className = 'text-xl font-bold font-mono text-rose-600';
+            if (pettySub) { pettySub.innerHTML = '⚠ Deficit — top-up from company cash <i data-lucide="chevron-right" class="w-3 h-3"></i>'; pettySub.className = 'text-[10px] text-rose-600 font-semibold block flex items-center gap-1'; }
+            if (pettyCard) pettyCard.className = 'white-card p-4 rounded-2xl space-y-1 cursor-pointer hover:border-rose-400 hover:shadow-md transition-all border-rose-200 bg-rose-50/30';
+        } else {
+            pettyEl.className = 'text-xl font-bold font-mono text-slate-900';
+            if (pettySub) { pettySub.innerHTML = 'Running Balance <i data-lucide="chevron-right" class="w-3 h-3"></i>'; pettySub.className = 'text-[10px] text-sky-600 font-semibold block flex items-center gap-1'; }
+            if (pettyCard) pettyCard.className = 'white-card p-4 rounded-2xl space-y-1 cursor-pointer hover:border-sky-400 hover:shadow-md transition-all';
+        }
         const pettyTabFloat = document.getElementById('petty-tab-float');
-        if (pettyTabFloat) pettyTabFloat.innerText = `₹${parseFloat(snapshot.closing_petty).toFixed(2)}`;
+        if (pettyTabFloat) pettyTabFloat.innerText = `₹${closingPetty.toFixed(2)}`;
 
         document.getElementById('stat-settlement').innerText = `₹${parseFloat(payableTotal || 0).toFixed(2)}`;
         document.getElementById('stat-company-pending').innerText = `₹${parseFloat(snapshot.closing_company_pending).toFixed(2)}`;
