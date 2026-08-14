@@ -829,8 +829,11 @@ class ShopOwnerController extends Controller
                 || $transaction->reference_type === 'collection_group';
         });
         $payableTotal = round((float) $payableTransactions->sum(function ($tx) {
-            $direction = $tx->direction ?? ($tx->entryType?->category ?? 'income');
-            return $direction === 'expense' ? -(float) $tx->amount : (float) $tx->amount;
+            $code = (string) ($tx->entryType?->code ?: $tx->entry_type_code);
+            $direction = (string) ($tx->direction ?: ($tx->entryType?->category ?: 'income'));
+            $category = (string) ($tx->entryType?->category ?: $direction);
+            $isDeduction = $direction === 'expense' || $category === 'expense' || in_array($code, ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'], true);
+            return $isDeduction ? -(float) $tx->amount : (float) $tx->amount;
         }), 2);
 
         $totalSales = (float) $transactions

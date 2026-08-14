@@ -638,8 +638,11 @@ final class CashbookController extends Controller
                 $first = $group->first();
                 $code = (string) ($first->entryType?->code ?: $first->entry_type_code);
                 $recordedAmount = round((float) $group->sum(function ($tx) {
-                    $direction = $tx->direction ?? ($tx->entryType?->category ?? 'income');
-                    return $direction === 'expense' ? -(float) $tx->amount : (float) $tx->amount;
+                    $code = (string) ($tx->entryType?->code ?: $tx->entry_type_code);
+                    $direction = (string) ($tx->direction ?: ($tx->entryType?->category ?: 'income'));
+                    $category = (string) ($tx->entryType?->category ?: $direction);
+                    $isDeduction = $direction === 'expense' || $category === 'expense' || in_array($code, ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'], true);
+                    return $isDeduction ? -(float) $tx->amount : (float) $tx->amount;
                 }), 2);
 
                 $categoryReceived = (float) $settlementTransactions->filter(function ($st) use ($name, $code) {
@@ -694,8 +697,11 @@ final class CashbookController extends Controller
         }
 
         $payableTotal = round((float) $payableRows->sum(function ($tx) {
-            $direction = $tx->direction ?? ($tx->entryType?->category ?? 'income');
-            return $direction === 'expense' ? -(float) $tx->amount : (float) $tx->amount;
+            $code = (string) ($tx->entryType?->code ?: $tx->entry_type_code);
+            $direction = (string) ($tx->direction ?: ($tx->entryType?->category ?: 'income'));
+            $category = (string) ($tx->entryType?->category ?: $direction);
+            $isDeduction = $direction === 'expense' || $category === 'expense' || in_array($code, ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'], true);
+            return $isDeduction ? -(float) $tx->amount : (float) $tx->amount;
         }), 2);
         $totalReceivedAllocated = (float) $payableByCategory->sum('received_amount');
         $effectiveReceived = max($payableReceivedTotal, $totalReceivedAllocated);

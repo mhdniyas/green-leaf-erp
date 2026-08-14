@@ -780,8 +780,10 @@
 
                 payableTotal() {
                     return this.payableTransactions().reduce((sum, tx) => {
+                        const code = tx.entry_type?.code || tx.entry_type_code;
                         const dir = tx.direction || tx.entry_type?.category || 'income';
-                        return sum + (dir === 'expense' ? -parseFloat(tx.amount || 0) : parseFloat(tx.amount || 0));
+                        const isDeduction = dir === 'expense' || ['company_to_petty', 'company_paid_shop', 'company_paid_vendor'].includes(code);
+                        return sum + (isDeduction ? -parseFloat(tx.amount || 0) : parseFloat(tx.amount || 0));
                     }, 0);
                 },
 
