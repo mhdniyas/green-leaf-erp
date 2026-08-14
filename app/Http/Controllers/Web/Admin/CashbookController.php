@@ -634,7 +634,10 @@ final class CashbookController extends Controller
             ->map(function ($group, $name) use ($settlementTransactions) {
                 $first = $group->first();
                 $code = (string) ($first->entryType?->code ?: $first->entry_type_code);
-                $recordedAmount = round((float) $group->sum('amount'), 2);
+                $recordedAmount = round((float) $group->sum(function ($tx) {
+                    $direction = $tx->direction ?? ($tx->entryType?->category ?? 'income');
+                    return $direction === 'expense' ? -(float) $tx->amount : (float) $tx->amount;
+                }), 2);
 
                 $categoryReceived = (float) $settlementTransactions->filter(function ($st) use ($name, $code) {
                     $notes = strtolower((string) ($st->notes ?? ''));
@@ -687,7 +690,10 @@ final class CashbookController extends Controller
             });
         }
 
-        $payableTotal = round((float) $payableRows->sum('amount'), 2);
+        $payableTotal = round((float) $payableRows->sum(function ($tx) {
+            $direction = $tx->direction ?? ($tx->entryType?->category ?? 'income');
+            return $direction === 'expense' ? -(float) $tx->amount : (float) $tx->amount;
+        }), 2);
         $totalReceivedAllocated = (float) $payableByCategory->sum('received_amount');
         $effectiveReceived = max($payableReceivedTotal, $totalReceivedAllocated);
         $payableBalance = max(0, round($payableTotal - $effectiveReceived, 2));
