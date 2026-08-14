@@ -16,6 +16,9 @@
             'isOwnedAccountingShop' => $isOwnedAccountingShop,
             'latestClosingBalance' => $latestClosingBalance ?? 0,
             'carryOver' => $carryOver,
+            'payableTotal' => $payableTotal ?? 0,
+            'payableReceivedTotal' => $payableReceivedTotal ?? 0,
+            'payableBalance' => $payableBalance ?? 0,
         ])
 
         <section class="rounded-2xl border border-slate-200 bg-white p-2.5 shadow-xs sm:p-3">
@@ -40,6 +43,8 @@
         @if ($activeTab === 'payments')
             @include('shop-owner.finance.partials.invoice-payments-tab', [
                 'invoices' => $invoices,
+                'payableInvoices' => $payableInvoices,
+                'payableInvoiceTotal' => $payableInvoiceTotal,
                 'invoicePaymentRequests' => $invoicePaymentRequests,
                 'outstandingBalance' => $outstandingBalance,
                 'pendingPaymentAmount' => $pendingPaymentAmount,
@@ -48,6 +53,10 @@
                 'latestBalanceDate' => $latestBalanceDate,
                 'latestClosingBalance' => $latestClosingBalance,
                 'pendingBillApprovalSummary' => $pendingBillApprovalSummary,
+                'payableCategories' => $payableCategories ?? collect(),
+                'payableTotal' => $payableTotal ?? 0,
+                'payableReceivedTotal' => $payableReceivedTotal ?? 0,
+                'payableBalance' => $payableBalance ?? 0,
             ])
         @else
             <section class="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs sm:p-4">

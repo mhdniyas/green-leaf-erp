@@ -637,6 +637,7 @@ Route::middleware('auth')->group(function () {
             Route::get('shops/{shop}/post-entry', [CashbookController::class, 'postEntryPageForShop'])->name('shop.post-entry');
             Route::get('rules-config', [CashbookController::class, 'rulesPage'])->name('rules-config');
             Route::get('settings', [CashbookController::class, 'settingsPage'])->name('settings');
+            Route::get('settings/shops/{shop}', [CashbookController::class, 'shopSettingsPage'])->name('settings.shop');
             Route::get('settings/presets', [CashbookController::class, 'presetsPage'])->name('settings.presets');
             Route::get('settings/collections', [CashbookController::class, 'collectionGroupsPage'])->name('settings.collections');
             Route::get('bank-accounts/create', [CashbookController::class, 'createBankAccountPage'])->name('bank-accounts.create');
@@ -672,6 +673,9 @@ Route::middleware('auth')->group(function () {
                 Route::post('presets/create-entry-rule', [CashbookController::class, 'createEntryRule'])->name('presets.create-entry-rule');
                 Route::post('presets/collection-group', [CashbookController::class, 'saveCollectionGroup'])->name('presets.collection-group');
                 Route::post('presets/update-setting', [CashbookController::class, 'updatePresetSetting'])->name('presets.update-setting');
+                Route::post('shop-settings/update', [CashbookController::class, 'updateShopSetting'])->name('shop-settings.update');
+                Route::post('shop-settings/custom-row', [CashbookController::class, 'createShopCustomRow'])->name('shop-settings.custom-row');
+                Route::post('shop-settings/collection', [CashbookController::class, 'saveShopCollectionSettings'])->name('shop-settings.collection');
                 Route::post('assign-preset', [CashbookController::class, 'assignShopPreset'])->name('assign-preset');
             });
         });

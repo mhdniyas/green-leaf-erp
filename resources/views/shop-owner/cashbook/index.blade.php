@@ -181,7 +181,7 @@
                 </div>
 
                 <!-- 6 Metric Cards from Admin Cashbook -->
-                <div class="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                <div class="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-7">
                     <div class="rounded-lg border border-slate-200 bg-slate-50 p-2 space-y-0.5 cursor-pointer hover:border-emerald-400 transition-all" @click="showCardDetails('sales')" title="Click for details">
                         <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider block truncate">Total Sales</span>
                         <div class="text-xs font-black text-emerald-700 truncate whitespace-nowrap" x-text="currency(displaySales())"></div>
@@ -210,6 +210,12 @@
                         <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider block truncate">Shop Position</span>
                         <div class="text-xs font-black text-amber-700 truncate whitespace-nowrap" x-text="currency(displayClosingBalance())"></div>
                         <span class="text-[9px] text-amber-600 font-bold block truncate">Company Payable</span>
+                    </div>
+
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-2 space-y-0.5 cursor-pointer hover:border-cyan-400 transition-all" @click="showCardDetails('company_payable')" title="Click for details">
+                        <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider block truncate">Payable</span>
+                        <div class="text-xs font-black text-cyan-700 truncate whitespace-nowrap" x-text="currency(payableTotal())"></div>
+                        <span class="text-[9px] text-cyan-600 font-bold block truncate">Configured Income Rows</span>
                     </div>
 
                     <div class="rounded-lg border border-slate-200 bg-slate-50 p-2 space-y-0.5 cursor-pointer hover:border-purple-400 transition-all" @click="showCardDetails('company_pending')" title="Click for details">
@@ -304,7 +310,7 @@
                                     x-transition:leave-end="opacity-0 scale-95"
                                     class="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg shadow-slate-900/10"
                                 >
-                                    <template x-for="cat in ['income', 'expense', 'transfer', 'settlement']" :key="cat">
+                                    <template x-for="cat in availableCategories()" :key="cat">
                                         <button
                                             type="button"
                                             @click="form.entry_category = cat; onEntryCategoryChange(); open = false"
@@ -362,7 +368,7 @@
                                         </button>
                                     </template>
                                     <div x-show="filteredEntryTypes().length === 0" class="px-2.5 py-2 text-xs font-semibold text-slate-400">
-                                        No entry types available
+                                        No rows enabled. Contact admin.
                                     </div>
                                 </div>
                             </div>
@@ -558,7 +564,7 @@
                 <div class="p-4 space-y-3 text-xs">
                     <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-center">
                         <p class="text-[10px] font-black uppercase text-slate-400" x-text="cardModalData.subtitle"></p>
-                        <p class="mt-1 text-lg font-black" :class="cardModalData.tone === 'rose' ? 'text-rose-700' : 'text-emerald-700'" x-text="cardModalData.value"></p>
+                        <p class="mt-1 text-lg font-black" :class="toneClass(cardModalData.tone)" x-text="cardModalData.value"></p>
                         <p class="mt-1 text-[11px] font-semibold text-slate-500" x-text="cardModalData.description"></p>
                     </div>
 
@@ -654,11 +660,12 @@
                 collectionSummaries: [],
                 snapshot: @json($snapshot),
                 entryTypes: @json($entryTypes),
-                defaultEntryCategory: @json($entryTypes->first()?->category ?? 'income'),
+                settings: @json($settings),
+                defaultEntryCategory: @json($entryTypes->first()?->category ?? ''),
                 defaultEntryTypeCode: @json($entryTypes->first()?->code ?? ''),
                 form: {
                     business_date: '{{ $selectedDate->toDateString() }}',
-                    entry_category: '{{ $entryTypes->first()?->category ?? 'income' }}',
+                    entry_category: '{{ $entryTypes->first()?->category ?? '' }}',
                     entry_type_code: '{{ $entryTypes->first()?->code ?? '' }}',
                     amount: '',
                     funding_source: 'none',
@@ -683,6 +690,7 @@
                 },
 
                 init() {
+                    this.ensureValidEntrySelection();
                     this.onEntryTypeChange();
                     this.loadData();
                 },
@@ -717,6 +725,29 @@
                         return parseFloat(this.snapshot.closing_shop_position);
                     }
                     return sales - expense;
+                },
+
+                payableRowCodes() {
+                    return this.settings
+                        .filter((setting) => setting.include_in_payable && setting.entry_type)
+                        .map((setting) => setting.entry_type.code);
+                },
+
+                payableTransactions() {
+                    const codes = new Set(this.payableRowCodes());
+                    return this.transactions.filter((tx) => codes.has(tx.entry_type?.code || tx.entry_type_code));
+                },
+
+                payableTotal() {
+                    return this.payableTransactions().reduce((sum, tx) => sum + parseFloat(tx.amount || 0), 0);
+                },
+
+                toneClass(tone) {
+                    return {
+                        rose: 'text-rose-700',
+                        emerald: 'text-emerald-700',
+                        cyan: 'text-cyan-700',
+                    }[tone] || 'text-slate-900';
                 },
 
                 formatDayNumber(dateStr) {
@@ -837,6 +868,23 @@
                             description: `Net balance generated by shop sales and expenses.`,
                             breakdown: []
                         };
+                    } else if (cardType === 'company_payable') {
+                        const rows = this.payableTransactions();
+                        const total = this.payableTotal();
+                        this.cardModalData = {
+                            title: 'Payable to Company',
+                            subtitle: 'Only the rows enabled in shop settings are counted.',
+                            value: this.currency(total),
+                            tone: 'cyan',
+                            description: `Configured payable rows for ${this.selectedDate}.`,
+                            breakdown: rows.map((tx) => ({
+                                date: tx.business_date,
+                                name: tx.entry_type ? tx.entry_type.name : tx.entry_type_code,
+                                source: tx.funding_source || 'none',
+                                amount: tx.amount,
+                                notes: tx.notes || 'Included in payable'
+                            }))
+                        };
                     } else if (cardType === 'company_pending') {
                         this.cardModalData = {
                             title: 'Company Pending Reimbursements',
@@ -880,13 +928,26 @@
                 },
 
                 filteredEntryTypes() {
-                    return this.entryTypes.filter((entryType) => {
-                        if (entryType.code === 'income_s_m_delivery') {
-                            return false;
-                        }
+                    return this.entryTypes.filter((entryType) => entryType.category === this.form.entry_category);
+                },
 
-                        return entryType.category === this.form.entry_category;
-                    });
+                availableCategories() {
+                    return [...new Set(this.entryTypes.map((entryType) => entryType.category).filter(Boolean))];
+                },
+
+                ensureValidEntrySelection() {
+                    const categories = this.availableCategories();
+                    if (!categories.length) {
+                        this.form.entry_category = '';
+                        this.form.entry_type_code = '';
+                        return;
+                    }
+
+                    if (!categories.includes(this.form.entry_category)) {
+                        this.form.entry_category = categories[0];
+                    }
+
+                    this.onEntryCategoryChange();
                 },
 
                 onEntryCategoryChange() {
@@ -970,6 +1031,10 @@
                     }
 
                     this.transactions = payload.transactions || [];
+                    this.entryTypes = (payload.settings || [])
+                        .map((setting) => setting.entry_type)
+                        .filter(Boolean);
+                    this.ensureValidEntrySelection();
                     this.collectionGroups = payload.collection_groups || this.collectionGroups;
                     this.collectionSummaries = payload.collection_summaries || [];
                     this.snapshot = payload.snapshot || this.snapshot;
@@ -985,6 +1050,11 @@
                 },
 
                 async submitEntry() {
+                    if (this.entryMode === 'normal' && !this.form.entry_type_code) {
+                        alert('No rows enabled. Contact admin.');
+                        return;
+                    }
+
                     this.submitting = true;
 
                     try {

@@ -76,10 +76,10 @@
     <!-- Toast Notification Container -->
     <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-3 max-w-md w-full pointer-events-none"></div>
 
-    <div class="min-h-screen flex">
+    <div id="cashbook-layout-shell" class="min-h-screen flex" data-sidebar-state="expanded">
         @include('admin.cashbook.layouts.partials.sidebar')
 
-        <div class="flex-1 md:pl-64 flex flex-col min-h-screen">
+        <div id="cashbook-main" class="flex-1 md:pl-64 flex flex-col min-h-screen transition-[padding] duration-300">
             @include('admin.cashbook.layouts.partials.header')
 
             <main class="flex-1 p-3 sm:p-6 md:p-8 space-y-6 sm:space-y-8">
@@ -106,6 +106,53 @@
                 }
             }
         }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const shell = document.getElementById('cashbook-layout-shell');
+            const sidebar = document.getElementById('main-sidebar');
+            const main = document.getElementById('cashbook-main');
+            const collapseButton = document.getElementById('cashbook-sidebar-collapse');
+            const labels = document.querySelectorAll('[data-cashbook-sidebar-label]');
+
+            if (!shell || !sidebar || !main || !collapseButton) {
+                return;
+            }
+
+            const syncState = (state) => {
+                const isCollapsed = state === 'collapsed';
+                shell.dataset.sidebarState = state;
+
+                if (window.innerWidth >= 1024) {
+                    sidebar.classList.toggle('lg:w-64', !isCollapsed);
+                    sidebar.classList.toggle('lg:w-24', isCollapsed);
+                    main.classList.toggle('lg:pl-64', !isCollapsed);
+                    main.classList.toggle('lg:pl-24', isCollapsed);
+                    labels.forEach((label) => label.classList.toggle('hidden', isCollapsed));
+                    collapseButton.innerHTML = isCollapsed
+                        ? '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5 15.75 12l-7.5 7.5" /></svg>'
+                        : '<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>';
+                } else {
+                    sidebar.classList.remove('lg:w-24');
+                    sidebar.classList.add('lg:w-64');
+                    main.classList.remove('lg:pl-24');
+                    main.classList.add('lg:pl-64');
+                    labels.forEach((label) => label.classList.remove('hidden'));
+                }
+            };
+
+            const currentState = localStorage.getItem('cashbook-sidebar-state') === 'collapsed' ? 'collapsed' : 'expanded';
+            syncState(currentState);
+
+            collapseButton.addEventListener('click', () => {
+                const nextState = shell.dataset.sidebarState === 'collapsed' ? 'expanded' : 'collapsed';
+                localStorage.setItem('cashbook-sidebar-state', nextState);
+                syncState(nextState);
+            });
+
+            window.addEventListener('resize', () => {
+                syncState(localStorage.getItem('cashbook-sidebar-state') === 'collapsed' ? 'collapsed' : 'expanded');
+            });
+        });
 
         function showToast(message, type = 'info') {
             const container = document.getElementById('toast-container');

@@ -185,6 +185,7 @@ class CashbookShopSyncService
                 'include_in_income' => $presetSetting->include_in_income,
                 'include_in_expense' => $presetSetting->include_in_expense,
                 'include_in_pl' => $presetSetting->include_in_pl,
+                'include_in_payable' => $presetSetting->include_in_payable ?? false,
                 'generates_secondary_entry' => $presetSetting->generates_secondary_entry,
                 'secondary_entry_type_id' => $presetSetting->secondary_entry_type_id,
                 'secondary_amount_mode' => $presetSetting->secondary_amount_mode,

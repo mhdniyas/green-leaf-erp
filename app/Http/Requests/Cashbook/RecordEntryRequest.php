@@ -24,7 +24,7 @@ class RecordEntryRequest extends FormRequest
             'amount'          => 'required_without:collection_group_id|numeric|min:0.01',
             'funding_source'  => 'nullable|string',
             'notes'           => 'nullable|string|max:255',
-            'collection_group_id' => 'nullable|integer|exists:cashbook_preset_collection_groups,id',
+            'collection_group_id' => 'nullable|integer|exists:shop_ledger_collection_groups,id',
             'collection_lines' => 'nullable|array',
             'collection_lines.*.entry_type_id' => 'required_with:collection_lines|integer|exists:ledger_entry_types,id',
             'collection_lines.*.amount' => 'required_with:collection_lines|numeric|min:0',

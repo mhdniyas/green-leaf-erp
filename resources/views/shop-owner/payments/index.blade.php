@@ -20,6 +20,9 @@
             'isOwnedAccountingShop' => $isOwnedAccountingShop,
             'latestClosingBalance' => $latestClosingBalance,
             'carryOver' => $carryOver,
+            'payableTotal' => $payableTotal ?? 0,
+            'payableReceivedTotal' => $payableReceivedTotal ?? 0,
+            'payableBalance' => $payableBalance ?? 0,
         ])
 
         @include('shop-owner.partials.date-range-filter', [
@@ -32,6 +35,8 @@
 
         @include('shop-owner.finance.partials.invoice-payments-tab', [
             'invoices' => $invoices,
+            'payableInvoices' => $payableInvoices,
+            'payableInvoiceTotal' => $payableInvoiceTotal,
             'invoicePaymentRequests' => $invoicePaymentRequests,
             'outstandingBalance' => $outstandingBalance,
             'pendingPaymentAmount' => $pendingPaymentAmount,
@@ -40,6 +45,10 @@
             'latestBalanceDate' => $latestBalanceDate,
             'latestClosingBalance' => $latestClosingBalance,
             'pendingBillApprovalSummary' => $pendingBillApprovalSummary,
+            'payableCategories' => $payableCategories ?? collect(),
+            'payableTotal' => $payableTotal ?? 0,
+            'payableReceivedTotal' => $payableReceivedTotal ?? 0,
+            'payableBalance' => $payableBalance ?? 0,
         ])
     </div>
 @endsection

@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Cashbook;
 
-use App\Models\Cashbook\PresetCollectionGroup;
+use App\Models\Cashbook\ShopLedgerCollectionGroup;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
-use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -20,14 +19,12 @@ class CollectionGroupPostingService
 
     public function groupsForShop(int $shopId): Collection
     {
-        $profile = ShopLedgerProfile::query()
+        return ShopLedgerCollectionGroup::query()
             ->where('shop_id', $shopId)
-            ->with('preset.collectionGroups.entryTypes.entryType')
-            ->first();
-
-        return $profile?->preset?->collectionGroups
-            ?->where('enabled', true)
-            ->values() ?? collect();
+            ->where('enabled', true)
+            ->with('entryTypes.entryType')
+            ->orderBy('display_order')
+            ->get();
     }
 
     public function summaries(Collection $transactions): array
@@ -61,7 +58,7 @@ class CollectionGroupPostingService
     public function record(int $shopId, string $businessDate, int $groupId, array $amounts, int $userId, ?string $notes = null): array
     {
         $group = $this->groupsForShop($shopId)->firstWhere('id', $groupId);
-        if (! $group instanceof PresetCollectionGroup) {
+        if (! $group instanceof ShopLedgerCollectionGroup) {
             throw ValidationException::withMessages([
                 'collection_group_id' => 'Collection group is not configured for this shop.',
             ]);
@@ -127,7 +124,7 @@ class CollectionGroupPostingService
         });
     }
 
-    private function ensureShopLedgerSettings(int $shopId, PresetCollectionGroup $group): void
+    private function ensureShopLedgerSettings(int $shopId, ShopLedgerCollectionGroup $group): void
     {
         foreach ($group->entryTypes as $line) {
             $entryType = $line->entryType;

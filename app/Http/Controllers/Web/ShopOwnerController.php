@@ -490,6 +490,99 @@ class ShopOwnerController extends Controller
             ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate))
             ->sum('amount');
 
+        $payableCategories = collect();
+        $payableTotal = 0.0;
+        $payableReceivedTotal = 0.0;
+        $payableBalance = 0.0;
+
+        if ($isOwnedAccountingShop) {
+            $settings = ShopLedgerEntrySetting::query()
+                ->with('entryType:id,name,code,category')
+                ->where('shop_id', (int) $activeShop->id)
+                ->where('enabled', true)
+                ->where('include_in_payable', true)
+                ->get();
+
+            $payableEntryTypeIds = $settings->pluck('entry_type_id')->filter()->all();
+
+            $txQuery = ShopLedgerTransaction::query()
+                ->with('entryType')
+                ->where('shop_id', (int) $activeShop->id)
+                ->when($filterStartDate, fn ($query) => $query->whereDate('business_date', '>=', $filterStartDate))
+                ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate));
+
+            $allTx = (clone $txQuery)->get();
+            $payableRows = $allTx->whereIn('entry_type_id', $payableEntryTypeIds)->values();
+            $settlementTransactions = $allTx->filter(function ($tx) {
+                return ($tx->entryType && $tx->entryType->category === 'settlement')
+                    || $tx->entry_type_code === 'shop_paid_company';
+            });
+
+            $payableReceivedTotal = round((float) $settlementTransactions->sum('amount'), 2);
+
+            $payableCategories = $payableRows
+                ->groupBy(fn ($tx) => $tx->entryType?->name ?: $tx->entry_type_code)
+                ->map(function ($group, $name) use ($settlementTransactions) {
+                    $first = $group->first();
+                    $code = (string) ($first->entryType?->code ?: $first->entry_type_code);
+                    $recordedAmount = round((float) $group->sum('amount'), 2);
+
+                    $categoryReceived = (float) $settlementTransactions->filter(function ($st) use ($name, $code) {
+                        $notes = strtolower((string) ($st->notes ?? ''));
+                        return str_contains($notes, strtolower($name)) || str_contains($notes, strtolower($code));
+                    })->sum('amount');
+
+                    $receivedAmount = round($categoryReceived, 2);
+                    $balance = max(0, round($recordedAmount - $receivedAmount, 2));
+
+                    $status = 'pending';
+                    if ($receivedAmount >= $recordedAmount && $recordedAmount > 0) {
+                        $status = 'received';
+                    } elseif ($receivedAmount > 0) {
+                        $status = 'partial';
+                    }
+
+                    return [
+                        'name' => $name,
+                        'code' => $code,
+                        'recorded_amount' => $recordedAmount,
+                        'received_amount' => $receivedAmount,
+                        'balance' => $balance,
+                        'status' => $status,
+                        'count' => $group->count(),
+                    ];
+                })
+                ->values();
+
+            $unallocatedReceived = max(0, $payableReceivedTotal - (float) $payableCategories->sum('received_amount'));
+            if ($unallocatedReceived > 0) {
+                $remainingToAllocate = $unallocatedReceived;
+                $payableCategories = $payableCategories->map(function ($cat) use (&$remainingToAllocate) {
+                    if ($remainingToAllocate <= 0) {
+                        return $cat;
+                    }
+                    $needed = $cat['balance'];
+                    $alloc = min($remainingToAllocate, $needed);
+                    $cat['received_amount'] = round($cat['received_amount'] + $alloc, 2);
+                    $cat['balance'] = max(0, round($cat['recorded_amount'] - $cat['received_amount'], 2));
+                    $remainingToAllocate -= $alloc;
+
+                    if ($cat['received_amount'] >= $cat['recorded_amount'] && $cat['recorded_amount'] > 0) {
+                        $cat['status'] = 'received';
+                    } elseif ($cat['received_amount'] > 0) {
+                        $cat['status'] = 'partial';
+                    }
+
+                    return $cat;
+                });
+            }
+
+            $payableTotal = round((float) $payableRows->sum('amount'), 2);
+            $totalReceivedAllocated = (float) $payableCategories->sum('received_amount');
+            $effectiveReceived = max($payableReceivedTotal, $totalReceivedAllocated);
+            $payableBalance = max(0, round($payableTotal - $effectiveReceived, 2));
+        }
+
         return [
             'invoices' => $invoices,
             'payableInvoices' => $payableInvoices,
@@ -509,6 +602,10 @@ class ShopOwnerController extends Controller
             'filterStartDate' => $filterStartDate,
             'filterEndDate' => $filterEndDate,
             'carryOver' => $carryOver,
+            'payableCategories' => $payableCategories,
+            'payableTotal' => $payableTotal,
+            'payableReceivedTotal' => $payableReceivedTotal,
+            'payableBalance' => $payableBalance,
         ];
     }
 
@@ -601,17 +698,17 @@ class ShopOwnerController extends Controller
 
         $this->cashbookShopSyncService->syncAndGetProfiles();
 
-        $entryTypes = LedgerEntryType::query()
-            ->where('active', true)
-            ->orderBy('display_order')
-            ->get(['id', 'name', 'code', 'category']);
-
         $settings = ShopLedgerEntrySetting::query()
             ->with('entryType:id,name,code,category')
             ->where('shop_id', (int) $shop->id)
             ->where('enabled', true)
             ->orderBy('display_order')
             ->get();
+        $entryTypes = $settings
+            ->pluck('entryType')
+            ->filter()
+            ->unique('id')
+            ->values();
         $collectionGroups = $this->collectionGroupPostingService->groupsForShop((int) $shop->id);
 
         // Ensure approved invoice bills are reflected in cashbook as default daily expenses.
@@ -719,6 +816,13 @@ class ShopOwnerController extends Controller
             ->get();
         $collectionGroups = $this->collectionGroupPostingService->groupsForShop((int) $shop->id);
         $collectionSummaries = $this->collectionGroupPostingService->summaries($transactions);
+        $payableRowCodes = $settings
+            ->filter(fn (ShopLedgerEntrySetting $setting): bool => (bool) $setting->include_in_payable && (bool) $setting->entryType)
+            ->pluck('entryType.code')
+            ->filter()
+            ->values();
+        $payableTransactions = $transactions->filter(fn (ShopLedgerTransaction $transaction): bool => in_array($transaction->entryType?->code, $payableRowCodes->all(), true));
+        $payableTotal = round((float) $payableTransactions->sum('amount'), 2);
 
         $totalSales = (float) $transactions
             ->filter(fn ($t) => $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income'))
@@ -738,6 +842,73 @@ class ShopOwnerController extends Controller
                 : ($totalSales - $totalExpense),
         ];
 
+        $settlementTransactions = $transactions->filter(function ($tx) {
+            return ($tx->entryType && $tx->entryType->category === 'settlement')
+                || $tx->entry_type_code === 'shop_paid_company';
+        });
+        $payableReceivedTotal = round((float) $settlementTransactions->sum('amount'), 2);
+
+        $payableByCategory = $payableTransactions
+            ->groupBy(fn ($tx) => $tx->entryType?->name ?: $tx->entry_type_code)
+            ->map(function ($group, $name) use ($settlementTransactions) {
+                $first = $group->first();
+                $code = (string) ($first->entryType?->code ?: $first->entry_type_code);
+                $recordedAmount = round((float) $group->sum('amount'), 2);
+
+                $categoryReceived = (float) $settlementTransactions->filter(function ($st) use ($name, $code) {
+                    $notes = strtolower((string) ($st->notes ?? ''));
+                    return str_contains($notes, strtolower($name)) || str_contains($notes, strtolower($code));
+                })->sum('amount');
+
+                $receivedAmount = round($categoryReceived, 2);
+                $balance = max(0, round($recordedAmount - $receivedAmount, 2));
+
+                $status = 'pending';
+                if ($receivedAmount >= $recordedAmount && $recordedAmount > 0) {
+                    $status = 'received';
+                } elseif ($receivedAmount > 0) {
+                    $status = 'partial';
+                }
+
+                return [
+                    'name' => $name,
+                    'code' => $code,
+                    'recorded_amount' => $recordedAmount,
+                    'received_amount' => $receivedAmount,
+                    'balance' => $balance,
+                    'status' => $status,
+                    'count' => $group->count(),
+                ];
+            })
+            ->values();
+
+        $unallocatedReceived = max(0, $payableReceivedTotal - (float) $payableByCategory->sum('received_amount'));
+        if ($unallocatedReceived > 0) {
+            $remainingToAllocate = $unallocatedReceived;
+            $payableByCategory = $payableByCategory->map(function ($cat) use (&$remainingToAllocate) {
+                if ($remainingToAllocate <= 0) {
+                    return $cat;
+                }
+                $needed = $cat['balance'];
+                $alloc = min($remainingToAllocate, $needed);
+                $cat['received_amount'] = round($cat['received_amount'] + $alloc, 2);
+                $cat['balance'] = max(0, round($cat['recorded_amount'] - $cat['received_amount'], 2));
+                $remainingToAllocate -= $alloc;
+
+                if ($cat['received_amount'] >= $cat['recorded_amount'] && $cat['recorded_amount'] > 0) {
+                    $cat['status'] = 'received';
+                } elseif ($cat['received_amount'] > 0) {
+                    $cat['status'] = 'partial';
+                }
+
+                return $cat;
+            });
+        }
+
+        $totalReceivedAllocated = (float) $payableByCategory->sum('received_amount');
+        $effectiveReceived = max($payableReceivedTotal, $totalReceivedAllocated);
+        $payableBalance = max(0, round($payableTotal - $effectiveReceived, 2));
+
         return response()->json([
             'success' => true,
             'snapshot' => $snapshot,
@@ -746,6 +917,18 @@ class ShopOwnerController extends Controller
             'settings' => $settings,
             'collection_groups' => $collectionGroups,
             'collection_summaries' => $collectionSummaries,
+            'payable_rows' => $payableTransactions->map(fn (ShopLedgerTransaction $transaction): array => [
+                'date' => $transaction->business_date->toDateString(),
+                'entry_type_code' => $transaction->entryType?->code,
+                'entry_type_name' => $transaction->entryType?->name,
+                'funding_source' => $transaction->funding_source,
+                'amount' => (float) $transaction->amount,
+                'notes' => $transaction->notes,
+            ])->values(),
+            'payable_total' => $payableTotal,
+            'payable_received_total' => $effectiveReceived,
+            'payable_balance' => $payableBalance,
+            'payable_by_category' => $payableByCategory,
             'timeframe' => $timeframe,
         ]);
     }
@@ -774,7 +957,7 @@ class ShopOwnerController extends Controller
             'amount' => ['required_without:collection_group_id', 'numeric', 'min:0.01'],
             'funding_source' => ['nullable', 'in:sales,petty,company,bank,external,company_later,none'],
             'notes' => ['nullable', 'string', 'max:255'],
-            'collection_group_id' => ['nullable', 'integer', 'exists:cashbook_preset_collection_groups,id'],
+            'collection_group_id' => ['nullable', 'integer', 'exists:shop_ledger_collection_groups,id'],
             'collection_lines' => ['nullable', 'array'],
             'collection_lines.*.entry_type_id' => ['required_with:collection_lines', 'integer', 'exists:ledger_entry_types,id'],
             'collection_lines.*.amount' => ['required_with:collection_lines', 'numeric', 'min:0'],

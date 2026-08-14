@@ -18,11 +18,13 @@ class AcceptPaymentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'shop_id'       => 'required|integer',
-            'business_date' => 'required|date_format:Y-m-d',
-            'settle_amount' => 'nullable|numeric|min:0',
-            'petty_amount'  => 'nullable|numeric|min:0',
-            'notes'         => 'nullable|string|max:255',
+            'shop_id'            => 'required|integer',
+            'business_date'      => 'required|date_format:Y-m-d',
+            'company_account_id' => 'nullable|integer',
+            'category_code'      => 'nullable|string|max:100',
+            'settle_amount'      => 'nullable|numeric|min:0',
+            'petty_amount'       => 'nullable|numeric|min:0',
+            'notes'              => 'nullable|string|max:255',
         ];
     }
 }

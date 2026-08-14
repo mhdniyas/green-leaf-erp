@@ -24,6 +24,8 @@ use App\Models\Cashbook\PresetCollectionGroup;
 use App\Models\Cashbook\PresetCollectionGroupEntryType;
 use App\Models\Cashbook\PresetEntrySetting;
 use App\Models\Cashbook\ShopConfigPreset;
+use App\Models\Cashbook\ShopLedgerCollectionGroup;
+use App\Models\Cashbook\ShopLedgerCollectionGroupEntryType;
 use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
@@ -328,14 +330,44 @@ final class CashbookController extends Controller
 
         $shops = $this->shopSyncService->syncAndGetProfiles();
         $clients = LedgerClient::with('shops')->where('enabled', true)->get();
-        $presets = ShopConfigPreset::with(['entrySettings.entryType', 'shops', 'collectionGroups.entryTypes.entryType'])->where('enabled', true)->get();
         $entryTypes = LedgerEntryType::where('active', true)->orderBy('display_order')->get();
         $companyAccounts = CompanyAccount::where('enabled', true)->get();
         $company = config('greenleaf');
         $currentShop = $shops->first();
 
         return view('admin.cashbook.settings.index', compact(
-            'shops', 'clients', 'presets', 'entryTypes', 'companyAccounts', 'company', 'currentShop'
+            'shops', 'clients', 'entryTypes', 'companyAccounts', 'company', 'currentShop'
+        ));
+    }
+
+    public function shopSettingsPage(Request $request, int|string $shop): View
+    {
+        $this->ensureMainAdmin($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $clients = LedgerClient::with('shops')->where('enabled', true)->get();
+        $companyAccounts = CompanyAccount::where('enabled', true)->get();
+        $company = config('greenleaf');
+        $currentShop = $this->resolveShop($shop);
+        $currentShop->load('client');
+        $this->ensureShopSettings($currentShop);
+
+        $settings = ShopLedgerEntrySetting::query()
+            ->with('entryType')
+            ->where('shop_id', $currentShop->shop_id)
+            ->get()
+            ->sortBy(fn (ShopLedgerEntrySetting $setting): int => (int) ($setting->entryType?->display_order ?? $setting->display_order))
+            ->values();
+
+        $settingsByCategory = $settings->groupBy(fn (ShopLedgerEntrySetting $setting): string => (string) ($setting->entryType?->category ?? 'other'));
+        $collectionGroup = ShopLedgerCollectionGroup::query()
+            ->where('shop_id', $currentShop->shop_id)
+            ->where('code', 'collection')
+            ->with('entryTypes.entryType')
+            ->first();
+
+        return view('admin.cashbook.settings.shop', compact(
+            'shops', 'clients', 'companyAccounts', 'company', 'currentShop', 'settingsByCategory', 'collectionGroup'
         ));
     }
 
@@ -584,6 +616,82 @@ final class CashbookController extends Controller
             ->where('enabled', true)
             ->get();
 
+        $payableEntryTypeIds = $settings
+            ->where('include_in_payable', true)
+            ->pluck('entry_type_id');
+        $payableRows = $rangeTransactions
+            ->whereIn('entry_type_id', $payableEntryTypeIds)
+            ->values();
+
+        $settlementTransactions = $rangeTransactions->filter(function ($tx) {
+            return ($tx->entryType && $tx->entryType->category === 'settlement')
+                || $tx->entry_type_code === 'shop_paid_company';
+        });
+        $payableReceivedTotal = round((float) $settlementTransactions->sum('amount'), 2);
+
+        $payableByCategory = $payableRows
+            ->groupBy(fn ($tx) => $tx->entryType?->name ?: $tx->entry_type_code)
+            ->map(function ($group, $name) use ($settlementTransactions) {
+                $first = $group->first();
+                $code = (string) ($first->entryType?->code ?: $first->entry_type_code);
+                $recordedAmount = round((float) $group->sum('amount'), 2);
+
+                $categoryReceived = (float) $settlementTransactions->filter(function ($st) use ($name, $code) {
+                    $notes = strtolower((string) ($st->notes ?? ''));
+                    return str_contains($notes, strtolower($name)) || str_contains($notes, strtolower($code));
+                })->sum('amount');
+
+                $receivedAmount = round($categoryReceived, 2);
+                $balance = max(0, round($recordedAmount - $receivedAmount, 2));
+
+                $status = 'pending';
+                if ($receivedAmount >= $recordedAmount && $recordedAmount > 0) {
+                    $status = 'received';
+                } elseif ($receivedAmount > 0) {
+                    $status = 'partial';
+                }
+
+                return [
+                    'name' => $name,
+                    'code' => $code,
+                    'recorded_amount' => $recordedAmount,
+                    'amount' => $recordedAmount,
+                    'received_amount' => $receivedAmount,
+                    'balance' => $balance,
+                    'status' => $status,
+                    'count' => $group->count(),
+                ];
+            })
+            ->values();
+
+        $unallocatedReceived = max(0, $payableReceivedTotal - (float) $payableByCategory->sum('received_amount'));
+        if ($unallocatedReceived > 0) {
+            $remainingToAllocate = $unallocatedReceived;
+            $payableByCategory = $payableByCategory->map(function ($cat) use (&$remainingToAllocate) {
+                if ($remainingToAllocate <= 0) {
+                    return $cat;
+                }
+                $needed = $cat['balance'];
+                $alloc = min($remainingToAllocate, $needed);
+                $cat['received_amount'] = round($cat['received_amount'] + $alloc, 2);
+                $cat['balance'] = max(0, round($cat['recorded_amount'] - $cat['received_amount'], 2));
+                $remainingToAllocate -= $alloc;
+
+                if ($cat['received_amount'] >= $cat['recorded_amount'] && $cat['recorded_amount'] > 0) {
+                    $cat['status'] = 'received';
+                } elseif ($cat['received_amount'] > 0) {
+                    $cat['status'] = 'partial';
+                }
+
+                return $cat;
+            });
+        }
+
+        $payableTotal = round((float) $payableRows->sum('amount'), 2);
+        $totalReceivedAllocated = (float) $payableByCategory->sum('received_amount');
+        $effectiveReceived = max($payableReceivedTotal, $totalReceivedAllocated);
+        $payableBalance = max(0, round($payableTotal - $effectiveReceived, 2));
+
         $collectionGroups = $this->collectionGroupPostingService->groupsForShop($shopId);
 
         return response()->json([
@@ -598,6 +706,11 @@ final class CashbookController extends Controller
             'month_transactions' => $monthTransactions,
             'petty_entries' => $pettyEntries,
             'company_pending_entries' => $companyPendingEntries,
+            'payable_rows' => $payableRows,
+            'payable_total' => $payableTotal,
+            'payable_received_total' => $effectiveReceived,
+            'payable_balance' => $payableBalance,
+            'payable_by_category' => $payableByCategory,
             'settings' => $settings,
             'collection_groups' => $collectionGroups,
             'collection_summaries' => $collectionSummaries,
@@ -856,7 +969,18 @@ final class CashbookController extends Controller
         $date = $validated['business_date'];
         $settle = (float) ($validated['settle_amount'] ?? 0);
         $petty = (float) ($validated['petty_amount'] ?? 0);
+        $categoryCode = $validated['category_code'] ?? null;
+        $companyAccountId = isset($validated['company_account_id']) ? (int) $validated['company_account_id'] : null;
         $notes = $validated['notes'] ?? 'Payment received by admin';
+
+        if ($categoryCode && $categoryCode !== 'all') {
+            $entryType = LedgerEntryType::where('code', $categoryCode)->first();
+            $categoryLabel = $entryType ? $entryType->name : $categoryCode;
+            if (! str_contains(strtolower($notes), strtolower($categoryLabel))) {
+                $notes = "[{$categoryLabel}] " . $notes;
+            }
+        }
+
         $userId = $request->user()?->id ?? 1;
 
         try {
@@ -871,6 +995,7 @@ final class CashbookController extends Controller
                     'funding_source' => 'sales',
                     'entered_by' => $userId,
                     'notes' => $notes,
+                    'company_account_id' => $companyAccountId,
                 ]);
                 $posted[] = $res['transaction'];
             }
@@ -884,8 +1009,16 @@ final class CashbookController extends Controller
                     'funding_source' => 'company',
                     'entered_by' => $userId,
                     'notes' => $notes.' (Petty Top-up)',
+                    'company_account_id' => $companyAccountId,
                 ]);
                 $posted[] = $res['transaction'];
+            }
+
+            if ($companyAccountId && ($settle + $petty) > 0) {
+                $companyAccount = CompanyAccount::find($companyAccountId);
+                if ($companyAccount) {
+                    $companyAccount->increment('current_balance', $settle + $petty);
+                }
             }
 
             $snapshot = $this->ledgerService->dailySummary($shopId, $date);
@@ -1026,6 +1159,205 @@ final class CashbookController extends Controller
                 'success' => true,
                 'message' => 'Shop rule configuration updated.',
                 'setting' => $setting->load('entryType'),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    public function updateShopSetting(Request $request): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'setting_id' => ['required', 'integer', 'exists:shop_ledger_entry_settings,id'],
+            'enabled' => ['required', 'boolean'],
+            'default_funding_source' => ['required', 'string', 'in:none,sales,petty,company,company_later,bank'],
+            'include_in_sales' => ['required', 'boolean'],
+            'include_in_income' => ['required', 'boolean'],
+            'include_in_expense' => ['required', 'boolean'],
+            'include_in_pl' => ['required', 'boolean'],
+            'include_in_payable' => ['required', 'boolean'],
+            'settlement_behavior' => ['nullable', 'string', 'in:none,increase,decrease'],
+            'petty_behavior' => ['nullable', 'string', 'in:none,increase,decrease'],
+            'company_pending_behavior' => ['nullable', 'string', 'in:none,increase,decrease'],
+            'generates_secondary_entry' => ['required', 'boolean'],
+            'secondary_entry_type_id' => ['nullable', 'integer', 'exists:ledger_entry_types,id'],
+            'secondary_amount_mode' => ['required', 'string', 'in:same_amount,percentage'],
+            'secondary_amount_value' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        try {
+            $setting = ShopLedgerEntrySetting::query()->findOrFail((int) $validated['setting_id']);
+            $createsChild = (bool) $validated['generates_secondary_entry'];
+            $setting->update([
+                'enabled' => (bool) $validated['enabled'],
+                'default_funding_source' => $validated['default_funding_source'],
+                'include_in_sales' => (bool) $validated['include_in_sales'],
+                'include_in_income' => (bool) $validated['include_in_income'],
+                'include_in_expense' => (bool) $validated['include_in_expense'],
+                'include_in_pl' => (bool) $validated['include_in_pl'],
+                'include_in_payable' => (bool) $validated['include_in_payable'],
+                'settlement_behavior' => $validated['settlement_behavior'] ?: 'none',
+                'petty_behavior' => $validated['petty_behavior'] ?: 'none',
+                'company_pending_behavior' => $validated['company_pending_behavior'] ?: 'none',
+                'generates_secondary_entry' => $createsChild,
+                'secondary_entry_type_id' => $createsChild ? ($validated['secondary_entry_type_id'] ?? null) : null,
+                'secondary_amount_mode' => $validated['secondary_amount_mode'],
+                'secondary_amount_value' => $validated['secondary_amount_mode'] === 'percentage'
+                    ? ($validated['secondary_amount_value'] ?? null)
+                    : null,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Shop setting saved.',
+                'setting' => $setting->fresh('entryType'),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    public function createShopCustomRow(Request $request): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'shop_id' => ['required', 'integer', 'exists:shop_ledger_profiles,shop_id'],
+            'name' => ['required', 'string', 'max:80'],
+            'category' => ['required', 'string', 'in:income,expense,transfer'],
+        ]);
+
+        try {
+            $shop = ShopLedgerProfile::query()
+                ->where('shop_id', (int) $validated['shop_id'])
+                ->firstOrFail();
+
+            $name = trim($validated['name']);
+            $baseCode = Str::slug($name, '_') ?: 'custom_row';
+            $code = $baseCode;
+            $suffix = 2;
+
+            while (LedgerEntryType::query()->where('code', $code)->exists()) {
+                $code = $baseCode.'_'.$suffix++;
+            }
+
+            $displayOrder = ((int) LedgerEntryType::query()
+                ->where('category', $validated['category'])
+                ->max('display_order')) + 1;
+
+            $entryType = LedgerEntryType::query()->create([
+                'code' => $code,
+                'name' => $name,
+                'category' => $validated['category'],
+                'system_type' => 'custom',
+                'active' => true,
+                'display_order' => $displayOrder,
+            ]);
+
+            $isIncome = $entryType->category === 'income';
+            $isExpense = $entryType->category === 'expense';
+
+            $setting = ShopLedgerEntrySetting::query()->create([
+                'shop_id' => $shop->shop_id,
+                'entry_type_id' => $entryType->id,
+                'version' => 1,
+                'effective_from' => '2026-01-01',
+                'effective_to' => null,
+                'enabled' => true,
+                'default_funding_source' => $isExpense ? 'sales' : 'none',
+                'allowed_funding_sources' => $isExpense ? ['sales', 'petty', 'company', 'company_later'] : ['none', 'sales', 'bank'],
+                'include_in_sales' => $isIncome,
+                'include_in_income' => $isIncome,
+                'include_in_expense' => $isExpense,
+                'include_in_pl' => $entryType->category !== 'transfer',
+                'include_in_payable' => false,
+                'settlement_behavior' => 'none',
+                'petty_behavior' => 'none',
+                'company_pending_behavior' => 'none',
+                'generates_secondary_entry' => false,
+                'secondary_entry_type_id' => null,
+                'secondary_amount_mode' => 'same_amount',
+                'secondary_amount_value' => null,
+                'display_order' => $displayOrder,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => "{$entryType->name} row added for {$shop->name}.",
+                'setting' => $setting->load('entryType'),
+            ]);
+        } catch (Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    public function saveShopCollectionSettings(Request $request): JsonResponse
+    {
+        $this->ensureMainAdmin($request);
+
+        $validated = $request->validate([
+            'shop_id' => ['required', 'integer', 'exists:shop_ledger_profiles,shop_id'],
+            'enabled' => ['required', 'boolean'],
+            'income_entry_type_ids' => ['nullable', 'array'],
+            'income_entry_type_ids.*' => ['integer', 'exists:ledger_entry_types,id'],
+            'expense_entry_type_ids' => ['nullable', 'array'],
+            'expense_entry_type_ids.*' => ['integer', 'exists:ledger_entry_types,id'],
+        ]);
+
+        $incomeIds = array_map('intval', $validated['income_entry_type_ids'] ?? []);
+        $expenseIds = array_map('intval', $validated['expense_entry_type_ids'] ?? []);
+
+        if ((bool) $validated['enabled'] && empty($incomeIds)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Select at least one income row for collection.',
+            ], 422);
+        }
+
+        try {
+            $group = ShopLedgerCollectionGroup::query()->updateOrCreate(
+                [
+                    'shop_id' => (int) $validated['shop_id'],
+                    'code' => 'collection',
+                ],
+                [
+                    'name' => 'Collection',
+                    'enabled' => (bool) $validated['enabled'],
+                    'display_order' => 1,
+                ]
+            );
+
+            $group->entryTypes()->delete();
+
+            if ($group->enabled) {
+                $order = 1;
+                foreach ($incomeIds as $entryTypeId) {
+                    ShopLedgerCollectionGroupEntryType::query()->create([
+                        'collection_group_id' => $group->id,
+                        'entry_type_id' => $entryTypeId,
+                        'role' => 'income',
+                        'required' => true,
+                        'display_order' => $order++,
+                    ]);
+                }
+
+                foreach ($expenseIds as $entryTypeId) {
+                    ShopLedgerCollectionGroupEntryType::query()->create([
+                        'collection_group_id' => $group->id,
+                        'entry_type_id' => $entryTypeId,
+                        'role' => 'expense',
+                        'required' => false,
+                        'display_order' => $order++,
+                    ]);
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Collection settings saved.',
+                'group' => $group->fresh('entryTypes.entryType'),
             ]);
         } catch (Throwable $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
@@ -2079,6 +2411,91 @@ final class CashbookController extends Controller
             })
             ->values()
             ->all();
+    }
+
+    private function ensureShopSettings(ShopLedgerProfile $profile): void
+    {
+        if ($profile->preset) {
+            $profile->loadMissing('preset.entrySettings');
+            $this->shopSyncService->syncPresetSettingsToShop($profile, $profile->preset);
+        }
+
+        $existingEntryTypeIds = ShopLedgerEntrySetting::query()
+            ->where('shop_id', $profile->shop_id)
+            ->pluck('entry_type_id')
+            ->all();
+
+        $nextOrder = (int) (ShopLedgerEntrySetting::query()
+            ->where('shop_id', $profile->shop_id)
+            ->max('display_order') ?? 0);
+
+        LedgerEntryType::query()
+            ->where('active', true)
+            ->whereNotIn('id', $existingEntryTypeIds)
+            ->orderBy('display_order')
+            ->get()
+            ->each(function (LedgerEntryType $entryType) use ($profile, &$nextOrder): void {
+                $isIncome = $entryType->category === 'income';
+                $isExpense = $entryType->category === 'expense';
+                $isSettlement = $entryType->category === 'settlement';
+                $isTransfer = $entryType->category === 'transfer';
+
+                $settlementBehavior = match ($entryType->code) {
+                    'shop_paid_company', 'sales_to_company', 'sales_to_petty' => 'decrease',
+                    default => 'none',
+                };
+
+                $pettyBehavior = match ($entryType->code) {
+                    'company_to_petty', 'sales_to_petty', 'bank_to_petty', 'petty_reimbursement' => 'increase',
+                    'petty_to_company' => 'decrease',
+                    default => 'none',
+                };
+
+                $companyPendingBehavior = match ($entryType->code) {
+                    'company_paid_shop', 'petty_reimbursement' => 'decrease',
+                    default => 'none',
+                };
+
+                $defaultFunding = match ($entryType->code) {
+                    'company_to_petty', 'company_paid_shop', 'company_paid_vendor', 'petty_reimbursement' => 'company',
+                    'bank_to_petty' => 'bank',
+                    'petty_to_company' => 'petty',
+                    default => $isExpense ? 'sales' : 'none',
+                };
+
+                $allowedFunding = match ($entryType->code) {
+                    'shop_paid_company' => ['sales', 'company'],
+                    'company_to_petty', 'company_paid_shop', 'company_paid_vendor', 'petty_reimbursement' => ['company'],
+                    'bank_to_petty' => ['bank'],
+                    'petty_to_company' => ['petty'],
+                    default => $isExpense
+                        ? ['sales', 'petty', 'company', 'company_later']
+                        : ['none', 'sales', 'bank'],
+                };
+
+                ShopLedgerEntrySetting::query()->create([
+                    'shop_id' => $profile->shop_id,
+                    'entry_type_id' => $entryType->id,
+                    'version' => 1,
+                    'effective_from' => '2026-01-01',
+                    'effective_to' => null,
+                    'enabled' => $isSettlement || $isTransfer,
+                    'default_funding_source' => $defaultFunding,
+                    'allowed_funding_sources' => $allowedFunding,
+                    'include_in_sales' => $isIncome,
+                    'include_in_income' => $isIncome,
+                    'include_in_expense' => $isExpense,
+                    'include_in_pl' => ! $isSettlement && ! $isTransfer,
+                    'settlement_behavior' => $settlementBehavior,
+                    'petty_behavior' => $pettyBehavior,
+                    'company_pending_behavior' => $companyPendingBehavior,
+                    'generates_secondary_entry' => false,
+                    'secondary_entry_type_id' => null,
+                    'secondary_amount_mode' => 'same_amount',
+                    'secondary_amount_value' => null,
+                    'display_order' => $entryType->display_order ?? ++$nextOrder,
+                ]);
+            });
     }
 
     /**

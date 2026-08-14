@@ -24,7 +24,7 @@
         <div class="white-card max-w-2xl w-full p-6 rounded-3xl space-y-4 shadow-2xl mx-4 max-h-[85vh] flex flex-col" @click.away="showBreakdownModal = false">
             <div class="flex items-center justify-between border-b border-slate-200 pb-3">
                 <div>
-                    <h3 class="text-base font-extrabold text-slate-900 capitalize" x-text="breakdownType === 'sales' ? 'Total Sales Breakdown' : (breakdownType === 'expense' ? 'Total Expense Breakdown' : 'Net P/L Transactions Breakdown')"></h3>
+                    <h3 class="text-base font-extrabold text-slate-900 capitalize" x-text="breakdownTitle()"></h3>
                     <p class="text-xs text-slate-500 font-medium">Itemized entries for selected timeframe (<span class="capitalize font-bold text-slate-800" x-text="timeframe"></span>).</p>
                 </div>
                 <button @click="showBreakdownModal = false" class="h-8 w-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center font-bold">✕</button>
@@ -494,10 +494,10 @@
             <span class="text-[10px] text-sky-600 font-semibold block flex items-center gap-1">Petty Float <i data-lucide="chevron-right" class="w-3 h-3"></i></span>
         </div>
 
-        <div class="white-card p-4 rounded-2xl space-y-1 cursor-pointer hover:border-amber-400 hover:shadow-md transition-all" @click="activeTab = 'company_payables'">
-            <span class="text-[11px] font-bold uppercase text-slate-500 tracking-wider">Shop Position</span>
+        <div class="white-card p-4 rounded-2xl space-y-1 cursor-pointer hover:border-amber-400 hover:shadow-md transition-all" @click="openBreakdownModal('payable')">
+            <span class="text-[11px] font-bold uppercase text-slate-500 tracking-wider">Payable to Company</span>
             <div id="stat-settlement" class="text-xl font-bold font-mono text-slate-900">₹0.00</div>
-            <span id="stat-settlement-sub" class="text-[10px] text-amber-600 font-semibold block flex items-center gap-1">Payable to Company <i data-lucide="chevron-right" class="w-3 h-3"></i></span>
+            <span id="stat-settlement-sub" class="text-[10px] text-amber-600 font-semibold block flex items-center gap-1">Configured categories <i data-lucide="chevron-right" class="w-3 h-3"></i></span>
         </div>
 
         <div class="white-card p-4 rounded-2xl space-y-1 cursor-pointer hover:border-purple-400 hover:shadow-md transition-all" @click="activeTab = 'company_payables'">
@@ -912,6 +912,7 @@
             monthTransactions: [],
             pettyEntries: [],
             companyPendingEntries: [],
+            payableRows: [],
             collectionSummaries: [],
             collectionBreakdownRows: [],
             paymentBreakdown: {},
@@ -925,10 +926,21 @@
                 this.showBreakdownModal = true;
             },
 
+            breakdownTitle() {
+                if (this.breakdownType === 'sales') return 'Total Sales Breakdown';
+                if (this.breakdownType === 'expense') return 'Total Expense Breakdown';
+                if (this.breakdownType === 'payable') return 'Payable to Company Breakdown';
+                if (this.breakdownType === 'collection') return 'Collection Breakdown';
+                return 'Net P/L Transactions Breakdown';
+            },
+
             getBreakdownItems() {
                 if (!this.transactions || !Array.isArray(this.transactions)) return [];
                 if (this.breakdownType === 'collection') {
                     return this.collectionBreakdownRows || [];
+                }
+                if (this.breakdownType === 'payable') {
+                    return this.payableRows || [];
                 }
                 if (this.breakdownType === 'sales') {
                     return this.transactions.filter(t => t.direction === 'income' || (t.entry_type && t.entry_type.category === 'income'));
@@ -1310,6 +1322,7 @@
 
                         this.pettyEntries = data.petty_entries || [];
                         this.companyPendingEntries = data.company_pending_entries || [];
+                        this.payableRows = data.payable_rows || [];
                         this.collectionSummaries = data.collection_summaries || [];
                         this.settings = data.settings || [];
                         if (!this.selectedApprovalDate) {
@@ -1328,7 +1341,7 @@
                         this.createForm.business_date = currentDate;
                         this.snapshot = data.snapshot || {};
 
-                        renderSnapshot(data.snapshot);
+                        renderSnapshot(data.snapshot, data.payable_total);
                     }
                 } catch (err) {
                     showToast('Failed to load shop details', 'error');
@@ -1348,7 +1361,7 @@
         }
     }
 
-    function renderSnapshot(snapshot) {
+    function renderSnapshot(snapshot, payableTotal = 0) {
         if (!snapshot) return;
 
         document.getElementById('stat-sales').innerText = `₹${parseFloat(snapshot.total_sales).toFixed(2)}`;
@@ -1363,7 +1376,7 @@
         const pettyTabFloat = document.getElementById('petty-tab-float');
         if (pettyTabFloat) pettyTabFloat.innerText = `₹${parseFloat(snapshot.closing_petty).toFixed(2)}`;
 
-        document.getElementById('stat-settlement').innerText = `₹${parseFloat(snapshot.closing_shop_position).toFixed(2)}`;
+        document.getElementById('stat-settlement').innerText = `₹${parseFloat(payableTotal || 0).toFixed(2)}`;
         document.getElementById('stat-company-pending').innerText = `₹${parseFloat(snapshot.closing_company_pending).toFixed(2)}`;
         const collectionBalance = (parseFloat(snapshot.total_sales) || 0) - (parseFloat(snapshot.total_expense) || 0);
         const collectionBalanceEl = document.getElementById('stat-collection-balance');
