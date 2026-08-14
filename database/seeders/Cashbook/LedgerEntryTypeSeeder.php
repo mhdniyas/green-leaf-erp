@@ -30,7 +30,7 @@ class LedgerEntryTypeSeeder extends Seeder
             ['code' => 'other_income', 'name' => 'Other Income',  'category' => 'income'],
 
             // Expense
-            ['code' => 'purchase_bill',   'name' => 'Daily Expense', 'category' => 'expense'],
+            ['code' => 'purchase_bill',   'name' => 'GL Bill', 'category' => 'expense'],
             ['code' => 'cash_purchase',   'name' => 'Cash Purchase',   'category' => 'expense'],
             ['code' => 'rent_expense',    'name' => 'Rent',             'category' => 'expense'],
             ['code' => 'vehicle',         'name' => 'Vehicle',          'category' => 'expense'],

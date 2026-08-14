@@ -30,6 +30,14 @@
                 <button @click="showBreakdownModal = false" class="h-8 w-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center font-bold">✕</button>
             </div>
 
+            <!-- Grouping Control Toggle -->
+            <div class="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-xs" x-show="breakdownType === 'sales' || breakdownType === 'expense' || breakdownType === 'net_pl'">
+                <label class="flex items-center gap-2 font-semibold text-slate-700 cursor-pointer">
+                    <input type="checkbox" x-model="showTotalsOnly" @change="modalCurrentPage = 1" class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4">
+                    <span>Group by entry type (Show totals only)</span>
+                </label>
+            </div>
+
             <div class="overflow-y-auto flex-1 custom-scrollbar">
                 <table class="w-full text-left text-xs">
                     <thead>
@@ -919,10 +927,12 @@
             settings: [],
             entryTypes: shopEntryTypes,
             snapshot: {},
+            showTotalsOnly: false,
 
             openBreakdownModal(type) {
                 this.breakdownType = type;
                 this.modalCurrentPage = 1;
+                this.showTotalsOnly = (this.timeframe !== 'daily');
                 this.showBreakdownModal = true;
             },
 
@@ -942,13 +952,51 @@
                 if (this.breakdownType === 'payable') {
                     return this.payableRows || [];
                 }
+                let list = [];
                 if (this.breakdownType === 'sales') {
-                    return this.transactions.filter(t => t.direction === 'income' || (t.entry_type && t.entry_type.category === 'income'));
+                    list = this.transactions.filter(t => t.direction === 'income' || (t.entry_type && t.entry_type.category === 'income'));
+                } else if (this.breakdownType === 'expense') {
+                    list = this.transactions.filter(t => t.direction === 'expense' || (t.entry_type && t.entry_type.category === 'expense'));
+                } else {
+                    list = this.transactions;
                 }
-                if (this.breakdownType === 'expense') {
-                    return this.transactions.filter(t => t.direction === 'expense' || (t.entry_type && t.entry_type.category === 'expense'));
+
+                if (this.showTotalsOnly) {
+                    const grouped = {};
+                    list.forEach(t => {
+                        const entryTypeName = t.entry_type ? t.entry_type.name : (t.entry_type_code || 'Other');
+                        const source = t.funding_source || 'default';
+                        const key = entryTypeName + '||' + source + '||' + t.direction;
+                        
+                        if (!grouped[key]) {
+                            grouped[key] = {
+                                id: key,
+                                min_date: t.business_date,
+                                max_date: t.business_date,
+                                entry_type: t.entry_type,
+                                entry_type_code: t.entry_type_code,
+                                funding_source: t.funding_source,
+                                direction: t.direction,
+                                amount: 0
+                            };
+                        }
+                        grouped[key].amount += parseFloat(t.amount) || 0;
+                        if (t.business_date < grouped[key].min_date) grouped[key].min_date = t.business_date;
+                        if (t.business_date > grouped[key].max_date) grouped[key].max_date = t.business_date;
+                    });
+                    
+                    return Object.values(grouped).map(g => {
+                        let dateStr = g.min_date;
+                        if (g.min_date !== g.max_date) {
+                            dateStr = `${g.min_date} to ${g.max_date}`;
+                        }
+                        return {
+                            ...g,
+                            business_date: dateStr
+                        };
+                    });
                 }
-                return this.transactions;
+                return list;
             },
 
             getPaginatedBreakdownItems() {

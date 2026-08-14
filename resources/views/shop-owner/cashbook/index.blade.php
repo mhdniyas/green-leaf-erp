@@ -568,11 +568,17 @@
                         <p class="mt-1 text-[11px] font-semibold text-slate-500" x-text="cardModalData.description"></p>
                     </div>
 
-                    <template x-if="cardModalData.breakdown && cardModalData.breakdown.length > 0">
+                    <template x-if="getModalBreakdown() && getModalBreakdown().length > 0">
                         <div>
-                            <h4 class="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1.5">Itemized Transactions</h4>
+                            <div class="flex items-center justify-between mb-1.5" x-show="cardModalData.rawBreakdown && cardModalData.rawBreakdown.length > 0">
+                                <h4 class="text-[10px] font-black uppercase tracking-wider text-slate-500">Itemized Transactions</h4>
+                                <label class="flex items-center gap-1.5 text-[10px] font-bold text-slate-600 cursor-pointer">
+                                    <input type="checkbox" x-model="showTotalsOnly" class="rounded text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5">
+                                    <span>Totals only</span>
+                                </label>
+                            </div>
                             <div class="max-h-48 overflow-y-auto rounded-lg border border-slate-200 divide-y divide-slate-100">
-                                <template x-for="(item, idx) in cardModalData.breakdown" :key="idx">
+                                <template x-for="(item, idx) in getModalBreakdown()" :key="idx">
                                     <div class="flex items-center justify-between p-2 hover:bg-slate-50">
                                         <div>
                                             <p class="font-bold text-slate-900" x-text="item.name"></p>
@@ -654,6 +660,7 @@
                     breakdown: []
                 },
                 submitting: false,
+                showTotalsOnly: false,
                 timeframe: 'daily',
                 transactions: [],
                 collectionGroups: @json($collectionGroups ?? []),
@@ -804,6 +811,18 @@
                 },
 
                 showCardDetails(cardType) {
+                    this.showTotalsOnly = (this.timeframe !== 'daily');
+                    this.cardModalData = {
+                        title: '',
+                        subtitle: '',
+                        value: '',
+                        tone: 'emerald',
+                        description: '',
+                        rawBreakdown: [],
+                        staticBreakdown: null,
+                        breakdown: []
+                    };
+
                     if (cardType === 'sales') {
                         const items = this.transactions.filter(tx => tx.direction === 'income' || (tx.entry_type && tx.entry_type.category === 'income'));
                         this.cardModalData = {
@@ -812,13 +831,8 @@
                             value: this.currency(this.displaySales()),
                             tone: 'emerald',
                             description: `Total sales for ${this.timeframe} view as of ${this.selectedDate}.`,
-                            breakdown: items.map(tx => ({
-                                date: tx.business_date,
-                                name: tx.entry_type ? tx.entry_type.name : tx.entry_type_code,
-                                source: tx.funding_source || 'default',
-                                amount: tx.amount,
-                                notes: tx.notes || '-'
-                            }))
+                            rawBreakdown: items,
+                            breakdown: items
                         };
                     } else if (cardType === 'expense') {
                         const items = this.transactions.filter(tx => tx.direction === 'expense' || (tx.entry_type && tx.entry_type.category === 'expense'));
@@ -828,26 +842,23 @@
                             value: this.currency(this.displayExpense()),
                             tone: 'rose',
                             description: `Total expenses for ${this.timeframe} view as of ${this.selectedDate}.`,
-                            breakdown: items.map(tx => ({
-                                date: tx.business_date,
-                                name: tx.entry_type ? tx.entry_type.name : tx.entry_type_code,
-                                source: tx.funding_source || 'default',
-                                amount: tx.amount,
-                                notes: tx.notes || '-'
-                            }))
+                            rawBreakdown: items,
+                            breakdown: items
                         };
                     } else if (cardType === 'closing_balance' || cardType === 'net') {
                         const net = this.displayClosingBalance();
+                        const staticItems = [
+                            { date: this.selectedDate, name: 'Gross Sales / Income', source: 'Total Inflow', amount: this.displaySales(), notes: 'Sales and income entries' },
+                            { date: this.selectedDate, name: 'Total Expense / Debit', source: 'Total Outflow', amount: this.displayExpense(), notes: 'Operating & bill expenses' },
+                        ];
                         this.cardModalData = {
                             title: 'Closing Balance / Net Position',
                             subtitle: 'Net position calculated as (Total Sales − Total Expenses).',
                             value: this.currency(net),
                             tone: net >= 0 ? 'emerald' : 'rose',
                             description: `Net summary position for ${this.timeframe} view.`,
-                            breakdown: [
-                                { date: this.selectedDate, name: 'Gross Sales / Income', source: 'Total Inflow', amount: this.displaySales(), notes: 'Sales and income entries' },
-                                { date: this.selectedDate, name: 'Total Expense / Debit', source: 'Total Outflow', amount: this.displayExpense(), notes: 'Operating & bill expenses' },
-                            ]
+                            staticBreakdown: staticItems,
+                            breakdown: staticItems
                         };
                     } else if (cardType === 'petty') {
                         this.cardModalData = {
@@ -877,13 +888,8 @@
                             value: this.currency(total),
                             tone: 'cyan',
                             description: `Configured payable rows for ${this.selectedDate}.`,
-                            breakdown: rows.map((tx) => ({
-                                date: tx.business_date,
-                                name: tx.entry_type ? tx.entry_type.name : tx.entry_type_code,
-                                source: tx.funding_source || 'none',
-                                amount: tx.amount,
-                                notes: tx.notes || 'Included in payable'
-                            }))
+                            rawBreakdown: rows,
+                            breakdown: rows
                         };
                     } else if (cardType === 'company_pending') {
                         this.cardModalData = {
@@ -915,6 +921,54 @@
                     }
 
                     this.openCardModal = true;
+                },
+
+                getModalBreakdown() {
+                    if (this.cardModalData.staticBreakdown) {
+                        return this.cardModalData.staticBreakdown;
+                    }
+                    const list = this.cardModalData.rawBreakdown || [];
+                    if (this.showTotalsOnly) {
+                        const grouped = {};
+                        list.forEach(tx => {
+                            const entryTypeName = tx.entry_type ? tx.entry_type.name : (tx.entry_type_code || 'Other');
+                            const source = tx.funding_source || 'default';
+                            const key = entryTypeName + '||' + source + '||' + (tx.direction || 'expense');
+                            if (!grouped[key]) {
+                                grouped[key] = {
+                                    min_date: tx.business_date,
+                                    max_date: tx.business_date,
+                                    name: entryTypeName,
+                                    source: source,
+                                    amount: 0,
+                                    notes: 'Grouped totals'
+                                };
+                            }
+                            grouped[key].amount += parseFloat(tx.amount) || 0;
+                            if (tx.business_date < grouped[key].min_date) grouped[key].min_date = tx.business_date;
+                            if (tx.business_date > grouped[key].max_date) grouped[key].max_date = tx.business_date;
+                        });
+                        return Object.values(grouped).map(g => {
+                            let dateStr = g.min_date;
+                            if (g.min_date !== g.max_date) {
+                                dateStr = `${g.min_date} to ${g.max_date}`;
+                            }
+                            return {
+                                date: dateStr,
+                                name: g.name,
+                                source: g.source,
+                                amount: g.amount,
+                                notes: g.notes
+                            };
+                        });
+                    }
+                    return list.map(tx => ({
+                        date: tx.business_date,
+                        name: tx.entry_type ? tx.entry_type.name : tx.entry_type_code,
+                        source: tx.funding_source || 'default',
+                        amount: tx.amount,
+                        notes: tx.notes || '-'
+                    }));
                 },
 
                 selectedEntryTypeName() {
