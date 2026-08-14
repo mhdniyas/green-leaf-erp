@@ -579,11 +579,11 @@ class ApiWarehouseLoadoutController extends Controller
                         $excessQty = max(0.0, round($submittedQty - $totalApproved, 3));
                         $excessValue = round($excessQty * $unitSellingPrice, 2);
 
-                        $remaining = round($totalApproved - $submittedQty, 3);
+                        $remaining = max(0.0, round($totalApproved - $submittedQty, 3));
 
                         if ($submittedQty > 0) {
                             $anyItemLoaded = true;
-                            $loadedQtyToRecord = $remaining > 0.001 ? min($submittedQty, $totalApproved) : $totalApproved;
+                            $loadedQtyToRecord = round($submittedQty, 3);
                             $loadedReqUnitQty = $hasRequestedUnit && $conversionToBase > 0
                                 ? round($loadedQtyToRecord / $conversionToBase, 2)
                                 : $loadedQtyToRecord;

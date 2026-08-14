@@ -182,6 +182,14 @@ class ShopOrderQuantityCorrectionController extends Controller
             $conv = (float) ($item->requested_unit_conversion_to_base ?? 1.0);
             $recalculatedBaseQty = round($unitQty * $conv, 3);
 
+            if (
+                $recalculatedBaseQty <= 0.0001
+                && $item->sorting_status === 'loaded'
+                && ((float) ($item->loaded_qty ?? 0.0) > 0.0001 || (float) ($item->actual_weight ?? 0.0) > 0.0001)
+            ) {
+                $recalculatedBaseQty = round((float) ($item->actual_weight ?: $item->loaded_qty), 3);
+            }
+
             $sellingPrice = (float) ($item->locked_selling_price ?? 0.0);
             $newLineTotal = round($recalculatedBaseQty * $sellingPrice, 2);
 

@@ -428,6 +428,65 @@ class DualUnitLoadoutInputTest extends TestCase
         $this->assertEquals(5.0, (float) $items->first()->loaded_qty);
     }
 
+    public function test_loadout_save_uses_changed_loaded_quantity_as_approved_quantity_when_original_approved_is_zero(): void
+    {
+        [$user, $order, $product] = $this->createBasicLoadoutOrder(0.0);
+
+        $this->actingAs($user)->post(route('warehouse.loadout.save', $order), [
+            'items' => [
+                $product->id => '2.50',
+            ],
+        ])->assertRedirect(route('warehouse.loadout.show', $order));
+
+        $item = ShopOrderItem::where('shop_order_id', $order->id)
+            ->where('product_id', $product->id)
+            ->firstOrFail();
+
+        $this->assertEquals('loaded', $item->sorting_status);
+        $this->assertEquals(2.5, (float) $item->requested_qty);
+        $this->assertEquals(2.5, (float) $item->approved_qty);
+        $this->assertEquals(2.5, (float) $item->loaded_qty);
+        $this->assertEquals(50.0, (float) $item->line_total);
+
+        $invoiceItem = ShopInvoiceItem::whereHas('invoice', fn ($query) => $query->where('shop_order_id', $order->id))
+            ->where('product_id', $product->id)
+            ->firstOrFail();
+
+        $this->assertEquals(2.5, (float) $invoiceItem->approved_qty);
+        $this->assertEquals(2.5, (float) $invoiceItem->delivered_qty);
+        $this->assertEquals(50.0, (float) $invoiceItem->final_line_total);
+    }
+
+    public function test_quantity_correction_recalculate_keeps_loaded_quantity_when_unit_quantity_is_missing(): void
+    {
+        [$user, $order, $product] = $this->createBasicLoadoutOrder(2.5);
+
+        $item = ShopOrderItem::where('shop_order_id', $order->id)
+            ->where('product_id', $product->id)
+            ->firstOrFail();
+
+        $item->update([
+            'requested_unit_quantity' => null,
+            'requested_unit_conversion_to_base' => null,
+            'requested_qty' => 2.5,
+            'approved_qty' => 2.5,
+            'loaded_qty' => 2.5,
+            'actual_weight' => 2.5,
+            'sorting_status' => 'loaded',
+            'line_total' => 50.0,
+        ]);
+
+        $this->actingAs($user)
+            ->post(route('inventory.quantity-corrections.recalculate', $item))
+            ->assertRedirect();
+
+        $item->refresh();
+
+        $this->assertEquals(2.5, (float) $item->requested_qty);
+        $this->assertEquals(2.5, (float) $item->approved_qty);
+        $this->assertEquals(50.0, (float) $item->line_total);
+    }
+
     public function test_clear_all_loadout_restores_pending_quantity(): void
     {
         [$user, $order, $product] = $this->createBasicLoadoutOrder(10.0);
