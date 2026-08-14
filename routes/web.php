@@ -254,6 +254,7 @@ Route::middleware('auth')->group(function () {
                 Route::post('/record-entry', [ShopOwnerController::class, 'cashbookRecordEntry'])->name('record-entry');
                 Route::post('/update-entry', [ShopOwnerController::class, 'cashbookUpdateEntry'])->name('update-entry');
                 Route::post('/delete-entry', [ShopOwnerController::class, 'cashbookDeleteEntry'])->name('delete-entry');
+                Route::post('/delete-collection', [ShopOwnerController::class, 'cashbookDeleteCollection'])->name('delete-collection');
             });
         Route::get('/staff', [ShopOwnerStaffController::class, 'index'])->name('staff.index');
         Route::post('/staff/attendance', [ShopOwnerStaffController::class, 'storeAttendance'])->name('staff.attendance.store');

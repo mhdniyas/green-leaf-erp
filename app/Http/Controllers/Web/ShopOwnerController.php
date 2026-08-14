@@ -1099,6 +1099,33 @@ class ShopOwnerController extends Controller
         }
     }
 
+    public function cashbookDeleteCollection(Request $request): JsonResponse
+    {
+        $shop = $this->ownedAccountingShop($request);
+        $validated = $request->validate([
+            'reference_id' => ['required', 'integer'],
+        ]);
+
+        try {
+            $result = $this->collectionGroupPostingService->deleteCollectionGroup(
+                (int) $shop->id,
+                (int) $validated['reference_id']
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Collection deleted successfully.',
+                'snapshot' => $result['snapshot'],
+            ]);
+        } catch (Throwable $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+    }
+
+
     /**
      * @return Collection<int, array{date: Carbon, opening_balance: float, closing_balance: float, net_difference: float}>
      */

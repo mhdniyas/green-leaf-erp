@@ -124,6 +124,44 @@ class CollectionGroupPostingService
         });
     }
 
+    public function deleteCollectionGroup(int $shopId, int $referenceId): array
+    {
+        $rows = ShopLedgerTransaction::query()
+            ->where('shop_id', $shopId)
+            ->where('reference_type', 'collection_group')
+            ->where('reference_id', $referenceId)
+            ->get();
+
+        if ($rows->isEmpty()) {
+            throw ValidationException::withMessages([
+                'reference_id' => 'Collection group entries not found.',
+            ]);
+        }
+
+        foreach ($rows as $row) {
+            if (! $row->canBeEditedByShopOwner()) {
+                throw ValidationException::withMessages([
+                    'reference_id' => 'Approved collection entries can only be changed from admin cashbook.',
+                ]);
+            }
+        }
+
+        $firstDate = $rows->first()->business_date->toDateString();
+        $this->dailyLedgerService->assertDayOpen($shopId, $firstDate);
+
+        DB::transaction(function () use ($rows) {
+            foreach ($rows as $tx) {
+                $tx->children()->delete();
+                $tx->delete();
+            }
+        });
+
+        return [
+            'snapshot' => $this->dailyLedgerService->dailySummary($shopId, $firstDate),
+        ];
+    }
+
+
     private function ensureShopLedgerSettings(int $shopId, ShopLedgerCollectionGroup $group): void
     {
         foreach ($group->entryTypes as $line) {

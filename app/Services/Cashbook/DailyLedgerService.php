@@ -109,7 +109,7 @@ class DailyLedgerService
         return $snapshot->fresh();
     }
 
-    private function assertDayOpen(int $shopId, string $businessDate): void
+    public function assertDayOpen(int $shopId, string $businessDate): void
     {
         $snapshot = ShopDailyLedgerSnapshot::where('shop_id', $shopId)
             ->where('business_date', $businessDate)

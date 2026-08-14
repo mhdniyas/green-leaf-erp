@@ -521,6 +521,15 @@
                 </div>
 
                 <div class="flex flex-wrap justify-end gap-2 p-3 border-t border-slate-100 bg-slate-50">
+                    <template x-if="selectedTx && selectedTx.reference_type === 'collection_group' && selectedTx.reference_id && canMutate(selectedTx)">
+                        <button
+                            type="button"
+                            @click="submitDeleteCollection(selectedTx.reference_id)"
+                            class="h-8 px-3 text-xs font-bold rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition"
+                        >
+                            Delete Collection
+                        </button>
+                    </template>
                     <button
                         type="button"
                         x-show="selectedTx && canMutate(selectedTx)"
@@ -588,7 +597,15 @@
                                             <p class="font-bold text-slate-900" x-text="item.name"></p>
                                             <p class="text-[10px] font-semibold text-slate-400"><span x-text="formatDayNumber(item.date)"></span> · <span class="capitalize" x-text="item.source"></span></p>
                                         </div>
-                                        <span class="font-black text-xs text-slate-950" x-text="currency(item.amount)"></span>
+                                        <div class="flex items-center gap-2">
+                                            <span class="font-black text-xs text-slate-950" x-text="currency(item.amount)"></span>
+                                            <template x-if="item.tx && canMutate(item.tx)">
+                                                <div class="flex items-center gap-1">
+                                                    <button type="button" @click="openEdit(item.tx); openCardModal = false" class="px-2 py-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100">Edit</button>
+                                                    <button type="button" @click="openDelete(item.tx); openCardModal = false" class="px-2 py-0.5 text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded hover:bg-rose-100">Delete</button>
+                                                </div>
+                                            </template>
+                                        </div>
                                     </div>
                                 </template>
                             </div>
@@ -596,8 +613,13 @@
                     </template>
                 </div>
 
-                <div class="flex justify-end p-3 border-t border-slate-100 bg-slate-50">
-                    <button type="button" @click="openCardModal = false" class="h-8 px-4 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 transition">
+                <div class="flex justify-between items-center p-3 border-t border-slate-100 bg-slate-50">
+                    <template x-if="cardModalData.isCollection && cardModalData.reference_id">
+                        <button type="button" @click="submitDeleteCollection(cardModalData.reference_id)" class="h-8 px-3 text-xs font-bold rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition">
+                            Delete Collection
+                        </button>
+                    </template>
+                    <button type="button" @click="openCardModal = false" class="h-8 px-4 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 transition ml-auto">
                         Close
                     </button>
                 </div>
@@ -1067,12 +1089,15 @@
                         value: this.currency(group.net),
                         tone: group.net >= 0 ? 'emerald' : 'rose',
                         description: `Income ${this.currency(group.income)} - expense ${this.currency(group.expense)}`,
+                        isCollection: true,
+                        reference_id: group.reference_id,
                         breakdown: (group.lines || []).map((tx) => ({
                             date: tx.business_date,
                             name: tx.entry_type ? tx.entry_type.name : tx.entry_type_id,
                             source: tx.direction,
                             amount: tx.direction === 'expense' ? -Math.abs(parseFloat(tx.amount || 0)) : tx.amount,
                             notes: tx.notes || '-',
+                            tx: tx,
                         })),
                     };
                     this.openCardModal = true;
@@ -1187,6 +1212,31 @@
                     this.openDetailsModal = false;
                     this.openDeleteModal = false;
                     this.deletingTx = null;
+                    await this.loadData();
+                },
+
+                async submitDeleteCollection(referenceId) {
+                    if (!confirm('Are you sure you want to remove this collection and all its lines?')) {
+                        return;
+                    }
+
+                    const response = await fetch('{{ route('shop-owner.cashbook.api.delete-collection') }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        },
+                        body: JSON.stringify({ reference_id: referenceId }),
+                    });
+
+                    const payload = await response.json();
+                    if (!payload.success) {
+                        alert(payload.message || 'Unable to delete collection.');
+                        return;
+                    }
+
+                    this.openDetailsModal = false;
+                    this.openCardModal = false;
                     await this.loadData();
                 },
 
