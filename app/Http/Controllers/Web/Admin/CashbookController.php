@@ -620,7 +620,10 @@ final class CashbookController extends Controller
             ->where('include_in_payable', true)
             ->pluck('entry_type_id');
         $payableRows = $rangeTransactions
-            ->whereIn('entry_type_id', $payableEntryTypeIds)
+            ->filter(function ($tx) use ($payableEntryTypeIds) {
+                return $payableEntryTypeIds->contains($tx->entry_type_id)
+                    || $tx->reference_type === 'collection_group';
+            })
             ->values();
 
         $settlementTransactions = $rangeTransactions->filter(function ($tx) {

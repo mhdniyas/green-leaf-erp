@@ -502,13 +502,20 @@
                     </div>
                     <div class="flex justify-between items-center border-b border-slate-100 pb-2">
                         <span class="text-[10px] font-black uppercase text-slate-400">Approval Status</span>
-                        <span
-                            class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider"
-                            :class="selectedTx?.status === 'approved'
-                                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                : (selectedTx?.status === 'void' ? 'border-slate-200 bg-slate-100 text-slate-500' : 'border-amber-200 bg-amber-50 text-amber-700')"
-                            x-text="selectedTx?.status === 'approved' ? 'Approved' : (selectedTx?.status_label || selectedTx?.status || 'Posted')"
-                        ></span>
+                        <template x-if="selectedTx && (selectedTx.reference_type === 'App\\Models\\ShopInvoice' || selectedTx.reference_type === 'ShopInvoice' || selectedTx.entry_type_code === 'purchase_bill' || selectedTx?.entry_type?.code === 'purchase_bill')">
+                            <span class="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-600">
+                                Read-Only (Auto Invoice Bill)
+                            </span>
+                        </template>
+                        <template x-if="!selectedTx || !(selectedTx.reference_type === 'App\\Models\\ShopInvoice' || selectedTx.reference_type === 'ShopInvoice' || selectedTx.entry_type_code === 'purchase_bill' || selectedTx?.entry_type?.code === 'purchase_bill')">
+                            <span
+                                class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider"
+                                :class="selectedTx?.status === 'approved'
+                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                    : (selectedTx?.status === 'void' ? 'border-slate-200 bg-slate-100 text-slate-500' : 'border-amber-200 bg-amber-50 text-amber-700')"
+                                x-text="selectedTx?.status === 'approved' ? 'Approved' : (selectedTx?.status_label || selectedTx?.status || 'Posted')"
+                            ></span>
+                        </template>
                     </div>
                     <div class="flex justify-between items-center border-b border-slate-100 pb-2">
                         <span class="text-[10px] font-black uppercase text-slate-400">Amount</span>
@@ -768,7 +775,7 @@
 
                 payableTransactions() {
                     const codes = new Set(this.payableRowCodes());
-                    return this.transactions.filter((tx) => codes.has(tx.entry_type?.code || tx.entry_type_code));
+                    return this.transactions.filter((tx) => codes.has(tx.entry_type?.code || tx.entry_type_code) || tx.reference_type === 'collection_group');
                 },
 
                 payableTotal() {
@@ -836,7 +843,16 @@
                 },
 
                 canMutate(tx) {
-                    return tx && tx.status !== 'approved' && tx.status !== 'void';
+                    if (!tx) return false;
+                    if (
+                        tx.reference_type === 'App\\Models\\ShopInvoice' ||
+                        tx.reference_type === 'ShopInvoice' ||
+                        tx.entry_type_code === 'purchase_bill' ||
+                        (tx.entry_type && tx.entry_type.code === 'purchase_bill')
+                    ) {
+                        return false;
+                    }
+                    return tx.status !== 'approved' && tx.status !== 'void';
                 },
 
                 showCardDetails(cardType) {

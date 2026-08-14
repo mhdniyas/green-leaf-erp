@@ -186,6 +186,7 @@ class CollectionGroupPostingService
                     'include_in_income' => $line->role === 'income',
                     'include_in_expense' => $line->role === 'expense',
                     'include_in_pl' => true,
+                    'include_in_payable' => true,
                     'settlement_behavior' => 'none',
                     'petty_behavior' => 'none',
                     'company_pending_behavior' => 'none',

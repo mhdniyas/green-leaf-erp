@@ -512,7 +512,10 @@ class ShopOwnerController extends Controller
                 ->when($filterEndDate, fn ($query) => $query->whereDate('business_date', '<=', $filterEndDate));
 
             $allTx = (clone $txQuery)->get();
-            $payableRows = $allTx->whereIn('entry_type_id', $payableEntryTypeIds)->values();
+            $payableRows = $allTx->filter(function ($tx) use ($payableEntryTypeIds) {
+                return in_array($tx->entry_type_id, $payableEntryTypeIds, true)
+                    || $tx->reference_type === 'collection_group';
+            })->values();
             $settlementTransactions = $allTx->filter(function ($tx) {
                 return ($tx->entryType && $tx->entryType->category === 'settlement')
                     || $tx->entry_type_code === 'shop_paid_company';
@@ -821,7 +824,10 @@ class ShopOwnerController extends Controller
             ->pluck('entryType.code')
             ->filter()
             ->values();
-        $payableTransactions = $transactions->filter(fn (ShopLedgerTransaction $transaction): bool => in_array($transaction->entryType?->code, $payableRowCodes->all(), true));
+        $payableTransactions = $transactions->filter(function (ShopLedgerTransaction $transaction) use ($payableRowCodes): bool {
+            return in_array($transaction->entryType?->code, $payableRowCodes->all(), true)
+                || $transaction->reference_type === 'collection_group';
+        });
         $payableTotal = round((float) $payableTransactions->sum(function ($tx) {
             $direction = $tx->direction ?? ($tx->entryType?->category ?? 'income');
             return $direction === 'expense' ? -(float) $tx->amount : (float) $tx->amount;
