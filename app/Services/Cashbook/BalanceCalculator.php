@@ -4,19 +4,31 @@ declare(strict_types=1);
 
 namespace App\Services\Cashbook;
 
+use App\Enums\Cashbook\FundingSource;
+use App\Enums\Cashbook\LedgerDirection;
 use App\Enums\Cashbook\TransactionStatus;
 use App\Models\Cashbook\ShopDailyLedgerSnapshot;
+use App\Models\Cashbook\ShopLedgerEntrySetting;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class BalanceCalculator
 {
+    public function __construct(
+        private readonly FundingSourceEffectResolver $effectResolver,
+    ) {
+    }
+
     /**
      * Recalculate and persist the snapshot for one shop/day, carrying
      * forward the previous day's closing balances as today's opening.
-     * Totals are always derived from source transactions, never stored
-     * as the sole record. Uses DB transaction and lockForUpdate for concurrency safety.
+     *
+     * Before summing, each transaction's stored deltas are re-derived from
+     * the current active ShopLedgerEntrySetting so that retroactive config
+     * changes (e.g. adding petty_behavior = 'decrease') apply automatically.
+     *
+     * Uses DB transaction and lockForUpdate for concurrency safety.
      */
     public function recalculate(int $shopId, string $businessDate): ShopDailyLedgerSnapshot
     {
@@ -37,6 +49,60 @@ class BalanceCalculator
                 ->where('status', '!=', TransactionStatus::Void->value)
                 ->lockForUpdate()
                 ->get();
+
+            // Pre-load all active settings for this shop keyed by entry_type_id
+            $settings = ShopLedgerEntrySetting::query()
+                ->where('shop_id', $shopId)
+                ->where('enabled', true)
+                ->get()
+                ->keyBy('entry_type_id');
+
+            // Re-derive deltas for every transaction from current settings.
+            // Generated children (generated_by_rule = true) keep their stored
+            // values because they are fully derived from the parent.
+            foreach ($transactions as $tx) {
+                if ($tx->generated_by_rule) {
+                    continue;
+                }
+
+                /** @var ShopLedgerEntrySetting|null $setting */
+                $setting = $settings->get($tx->entry_type_id);
+                if (! $setting) {
+                    continue;
+                }
+
+                $direction = LedgerDirection::tryFrom((string) $tx->direction) ?? LedgerDirection::Expense;
+                $source    = FundingSource::tryFrom((string) $tx->funding_source) ?? FundingSource::None;
+                $amount    = (float) $tx->amount;
+
+                $effect = $this->effectResolver->resolve($direction, $source, $amount, $setting);
+
+                // Only write back when values differ to avoid unnecessary UPDATE churn
+                $changes = [];
+                if ((float) $tx->pl_delta !== $effect->plDelta) {
+                    $changes['pl_delta'] = $effect->plDelta;
+                }
+                if ((float) $tx->settlement_delta !== $effect->settlementDelta) {
+                    $changes['settlement_delta']     = $effect->settlementDelta;
+                    $changes['settlement_direction'] = $effect->settlementDirection->value;
+                }
+                if ((float) $tx->petty_delta !== $effect->pettyDelta) {
+                    $changes['petty_delta']     = $effect->pettyDelta;
+                    $changes['petty_direction'] = $effect->pettyDirection->value;
+                }
+                if ((float) $tx->company_pending_delta !== $effect->companyPendingDelta) {
+                    $changes['company_pending_delta']     = $effect->companyPendingDelta;
+                    $changes['company_pending_direction'] = $effect->companyPendingDirection->value;
+                }
+
+                if (! empty($changes)) {
+                    $tx->update($changes);
+                    // Reflect changes on in-memory object so the sums below are correct
+                    foreach ($changes as $k => $v) {
+                        $tx->$k = $v;
+                    }
+                }
+            }
 
             $totalSales   = (float) $transactions->where('affects_sales', true)->sum('amount');
             $totalIncome  = (float) $transactions->where('affects_income', true)->sum('amount');

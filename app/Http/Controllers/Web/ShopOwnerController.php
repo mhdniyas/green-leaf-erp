@@ -822,7 +822,10 @@ class ShopOwnerController extends Controller
             ->filter()
             ->values();
         $payableTransactions = $transactions->filter(fn (ShopLedgerTransaction $transaction): bool => in_array($transaction->entryType?->code, $payableRowCodes->all(), true));
-        $payableTotal = round((float) $payableTransactions->sum('amount'), 2);
+        $payableTotal = round((float) $payableTransactions->sum(function ($tx) {
+            $direction = $tx->direction ?? ($tx->entryType?->category ?? 'income');
+            return $direction === 'expense' ? -(float) $tx->amount : (float) $tx->amount;
+        }), 2);
 
         $totalSales = (float) $transactions
             ->filter(fn ($t) => $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income'))
@@ -835,11 +838,16 @@ class ShopOwnerController extends Controller
         $dailySnapshot = $this->dailyLedgerService->dailySummary((int) $shop->id, $date);
 
         $snapshot = [
-            'total_sales' => $totalSales,
-            'total_expense' => $totalExpense,
-            'closing_shop_position' => $timeframe === 'daily'
-                ? ($dailySnapshot['closing_shop_position'] ?? ($totalSales - $totalExpense))
+            'total_sales'            => $totalSales,
+            'total_expense'          => $totalExpense,
+            'closing_shop_position'  => $timeframe === 'daily'
+                ? ((float) ($dailySnapshot->closing_shop_position ?? ($totalSales - $totalExpense)))
                 : ($totalSales - $totalExpense),
+            'closing_petty'          => (float) ($dailySnapshot->closing_petty ?? 0),
+            'opening_petty'          => (float) ($dailySnapshot->opening_petty ?? 0),
+            'petty_in'               => (float) ($dailySnapshot->petty_in ?? 0),
+            'petty_out'              => (float) ($dailySnapshot->petty_out ?? 0),
+            'closing_company_pending'=> (float) ($dailySnapshot->closing_company_pending ?? 0),
         ];
 
         $settlementTransactions = $transactions->filter(function ($tx) {
