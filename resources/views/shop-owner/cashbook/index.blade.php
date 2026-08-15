@@ -35,7 +35,7 @@
                 <p class="mt-0.5 text-xs font-semibold text-slate-400">Date: {{ $selectedDate->format('d M Y') }}</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <button type="button" @click="openCreate = true" class="rounded-lg border border-emerald-500/60 bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-400">
+                <button type="button" @click="openCreateModal()" class="rounded-lg border border-emerald-500/60 bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-400">
                     + Create Entry
                 </button>
                 <button
@@ -122,7 +122,7 @@
                         <input
                             type="date"
                             x-model="selectedDate"
-                            @change="startDate = selectedDate; endDate = selectedDate; activePreset = ''; loadData()"
+                            @change="startDate = selectedDate; endDate = selectedDate; activePreset = ''; form.business_date = selectedDate; loadData()"
                             class="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:outline-none"
                         >
                     </div>
@@ -185,7 +185,7 @@
         <div x-show="activeTab === 'cashbook'">
             <div class="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-2 sm:px-5">
                 <h2 class="text-xs font-black uppercase tracking-wider text-slate-700">Daily Ledger Entries</h2>
-                <button type="button" @click="openCreate = true" class="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white transition hover:bg-emerald-500">
+                <button type="button" @click="openCreateModal()" class="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white transition hover:bg-emerald-500">
                     + Add Entry
                 </button>
             </div>
@@ -882,6 +882,27 @@
                     this.openDetailsModal = true;
                 },
 
+                openCreateModal(category = null) {
+                    this.editingTxId = null;
+                    this.entryMode = 'normal';
+                    this.form = {
+                        business_date: this.selectedDate || '{{ $selectedDate->toDateString() }}',
+                        entry_category: category || this.form.entry_category || this.defaultEntryCategory,
+                        entry_type_code: this.form.entry_type_code || this.defaultEntryTypeCode,
+                        amount: '',
+                        funding_source: 'none',
+                        notes: '',
+                        collection_group_id: '',
+                        collection_amounts: {},
+                    };
+                    if (category) {
+                        this.form.entry_category = category;
+                    }
+                    this.ensureValidEntrySelection();
+                    this.onEntryTypeChange();
+                    this.openCreate = true;
+                },
+
                 openEdit(tx) {
                     this.editingTxId = tx.id;
                     this.form = {
@@ -1233,22 +1254,27 @@
                         this.selectedDate = todayStr;
                         this.startDate = todayStr;
                         this.endDate = todayStr;
+                        this.form.business_date = todayStr;
                         this.timeframe = 'daily';
                     } else if (preset === 'yesterday') {
                         this.selectedDate = yesterdayStr;
                         this.startDate = yesterdayStr;
                         this.endDate = yesterdayStr;
+                        this.form.business_date = yesterdayStr;
                         this.timeframe = 'daily';
                     } else if (preset === 'weekly') {
                         this.selectedDate = todayStr;
+                        this.form.business_date = todayStr;
                         this.timeframe = 'weekly';
                     } else if (preset === 'monthly') {
                         this.selectedDate = todayStr;
+                        this.form.business_date = todayStr;
                         this.timeframe = 'monthly';
                     } else if (preset === 'custom') {
                         this.timeframe = 'custom';
                         if (!this.startDate) this.startDate = todayStr;
                         if (!this.endDate) this.endDate = todayStr;
+                        this.form.business_date = this.startDate;
                         return;
                     }
                     this.loadData();
@@ -1379,8 +1405,12 @@
                             return;
                         }
 
+                        const targetDate = this.form.business_date || this.selectedDate;
                         this.closeCreateModal();
-                        this.selectedDate = this.form.business_date;
+                        this.selectedDate = targetDate;
+                        this.startDate = targetDate;
+                        this.endDate = targetDate;
+                        this.form.business_date = targetDate;
                         await this.loadData();
                     } catch (err) {
                         alert('Network or system error occurred: ' + (err.message || 'Please try again.'));
