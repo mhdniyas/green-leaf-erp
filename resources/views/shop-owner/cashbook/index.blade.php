@@ -11,25 +11,12 @@
         <a href="{{ route('shop-owner.cashbook.create', ['date' => $selectedDate->toDateString()]) }}" class="inline-flex h-10 items-center rounded-xl bg-emerald-600 px-4 text-xs font-black uppercase tracking-[0.14em] text-white transition hover:bg-emerald-500">
             Create Entry
         </a>
+        <a href="{{ route('shop-owner.cashbook.show', ['date' => $selectedDate->toDateString()]) }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-[0.14em] text-slate-700 transition hover:bg-slate-50">
+            Cashbook
+        </a>
         <a href="{{ route('shop-owner.cashbook.reports', ['date' => $selectedDate->toDateString()]) }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-[0.14em] text-slate-700 transition hover:bg-slate-50">
             Reports
         </a>
-        @if (session()->has('admin_impersonator_id'))
-            <form method="POST" action="{{ route('admin.user-access.stop') }}" class="inline-flex">
-                @csrf
-                <button type="submit" class="inline-flex h-10 items-center rounded-xl border border-amber-300 bg-amber-50 px-4 text-xs font-black uppercase tracking-[0.14em] text-amber-800 transition hover:bg-amber-100">
-                    Return to Admin
-                </button>
-            </form>
-        @elseif (auth()->user()?->hasRole('admin'))
-            <a href="{{ route('admin.cashbook.index') }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-[0.14em] text-slate-700 transition hover:bg-slate-50">
-                Return to Admin
-            </a>
-        @else
-            <a href="{{ route('shop-owner.dashboard') }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-[0.14em] text-slate-700 transition hover:bg-slate-50">
-                Return
-            </a>
-        @endif
     </div>
 @endsection
 
@@ -38,32 +25,29 @@
         <header class="flex flex-wrap items-center justify-between gap-3 bg-slate-950 px-4 py-3 text-white sm:px-5">
             <div>
                 <p class="text-[10px] font-black uppercase tracking-wider text-emerald-400">Shop Cashbook — {{ $shop->name }}</p>
-                <h1 class="text-lg font-black text-white sm:text-xl">Cashbook Dashboard</h1>
+                <h1 class="text-lg font-black text-white sm:text-xl" x-text="activeTab === 'reports' ? 'Cashbook Reports' : 'Cashbook Dashboard'"></h1>
                 <p class="mt-0.5 text-xs font-semibold text-slate-400">Date: {{ $selectedDate->format('d M Y') }}</p>
             </div>
-            <div class="flex flex-wrap gap-2">
+            <div class="flex flex-wrap items-center gap-2">
                 <button type="button" @click="openCreate = true" class="rounded-lg border border-emerald-500/60 bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-400">
                     + Create Entry
                 </button>
-                <a href="{{ route('shop-owner.cashbook.reports', ['date' => $selectedDate->toDateString()]) }}" class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-bold text-slate-200 transition hover:bg-slate-800">
+                <button
+                    type="button"
+                    @click="activeTab = 'cashbook'"
+                    class="rounded-lg border px-3 py-1.5 text-xs font-bold transition"
+                    :class="activeTab === 'cashbook' ? 'border-emerald-500 bg-emerald-600 text-white' : 'border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800'"
+                >
+                    Cashbook
+                </button>
+                <button
+                    type="button"
+                    @click="activeTab = 'reports'"
+                    class="rounded-lg border px-3 py-1.5 text-xs font-bold transition"
+                    :class="activeTab === 'reports' ? 'border-emerald-500 bg-emerald-600 text-white' : 'border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800'"
+                >
                     Reports
-                </a>
-                @if (session()->has('admin_impersonator_id'))
-                    <form method="POST" action="{{ route('admin.user-access.stop') }}" class="inline-flex">
-                        @csrf
-                        <button type="submit" class="rounded-lg border border-amber-500/60 bg-amber-500 px-3 py-1.5 text-xs font-bold text-slate-950 transition hover:bg-amber-400">
-                            Return to Admin
-                        </button>
-                    </form>
-                @elseif (auth()->user()?->hasRole('admin'))
-                    <a href="{{ route('admin.cashbook.index') }}" class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-bold text-slate-200 transition hover:bg-slate-800">
-                        Return to Admin
-                    </a>
-                @else
-                    <a href="{{ route('shop-owner.dashboard') }}" class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-bold text-slate-200 transition hover:bg-slate-800">
-                        Return
-                    </a>
-                @endif
+                </button>
             </div>
         </header>
 
