@@ -267,7 +267,10 @@ class AdminCashbookReportsTest extends TestCase
         $this->actingAs($accountUser)
             ->get(route('admin.cashbook.reports.mobile-ledger', 'shp-mega'))
             ->assertOk()
-            ->assertSee('Mobile Shop Ledger');
+            ->assertSee('Mobile Shop Ledger')
+            ->assertSee('GL Bill')
+            ->assertSee('View Bills')
+            ->assertSee('Category Summaries');
     }
 
     public function test_gl_bills_report_page_renders_correctly(): void
@@ -358,5 +361,19 @@ class AdminCashbookReportsTest extends TestCase
         $response->assertOk()
             ->assertSee('Pending Entry Shop')
             ->assertSee('Pending Entry');
+    }
+
+    public function test_overview_cards_renders_dynamic_sparkline_svg(): void
+    {
+        $admin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $admin->assignRole('admin');
+
+        $response = $this->actingAs($admin)
+            ->get(route('admin.cashbook.reports.hub'));
+
+        $response->assertOk()
+            ->assertSee('getSparklinePath()')
+            ->assertSee('getSparklineAreaPath()')
+            ->assertSee('selectedShopForGraph');
     }
 }

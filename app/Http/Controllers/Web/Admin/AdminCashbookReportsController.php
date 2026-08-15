@@ -447,28 +447,51 @@ class AdminCashbookReportsController extends Controller
 
         $net = round($sales - $expense, 2);
 
-        $glBills = (float) $activeTransactions
-            ->filter(fn ($t) => in_array($t->entryType?->code ?: $t->entry_type_code, ['purchase_bill', 'gl_bill'], true) || $t->reference_type === 'App\Models\ShopInvoice')
+        // Total GL bills for the period (including invoices on days pending sales submission)
+        $glBills = (float) $transactions
+            ->filter(fn ($t) => in_array($t->entryType?->code ?: $t->entry_type_code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true) || $t->reference_type === 'App\Models\ShopInvoice' || $t->reference_type === \App\Models\ShopInvoice::class)
             ->sum('amount');
 
         $petty = (float) $activeTransactions
             ->filter(fn ($t) => $t->funding_source === 'petty')
             ->sum('amount');
 
-        // Category breakdown
-        $categoryBreakdown = $activeTransactions
+        // Detailed category breakdown with itemized list for each category
+        $categoryBreakdown = $transactions
             ->groupBy(fn ($t) => $t->entryType?->name ?: ($t->entry_type_code ?: 'General Entry'))
             ->map(function ($group, $categoryName) {
                 $first = $group->first();
                 $direction = $first->direction ?: ($first->entryType?->category ?: 'expense');
                 $total = round((float) $group->sum('amount'), 2);
                 $count = $group->count();
+                $isGlBill = in_array($first->entryType?->code ?: $first->entry_type_code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true)
+                    || $first->reference_type === 'App\Models\ShopInvoice'
+                    || $first->reference_type === \App\Models\ShopInvoice::class;
 
                 return [
                     'category' => $categoryName,
                     'direction' => $direction,
                     'amount' => $total,
                     'count' => $count,
+                    'is_gl_bill' => $isGlBill,
+                    'items' => $group->map(function ($t) {
+                        return [
+                            'id' => $t->id,
+                            'amount' => (float) $t->amount,
+                            'direction' => $t->direction ?: ($t->entryType?->category ?: 'expense'),
+                            'business_date' => Carbon::parse($t->business_date)->toDateString(),
+                            'formatted_date' => Carbon::parse($t->business_date)->format('d M Y'),
+                            'category_name' => $t->entryType?->name ?: ($t->entry_type_code ?: 'General Entry'),
+                            'notes' => $t->notes,
+                            'status' => $t->status,
+                            'funding_source' => $t->funding_source,
+                            'reference_type' => $t->reference_type,
+                            'reference_id' => $t->reference_id,
+                            'is_gl_bill' => in_array($t->entryType?->code ?: $t->entry_type_code, ['purchase_bill', 'gl_bill', 'invoice_bill'], true)
+                                || $t->reference_type === 'App\Models\ShopInvoice'
+                                || $t->reference_type === \App\Models\ShopInvoice::class,
+                        ];
+                    })->values()->all(),
                 ];
             })
             ->sortByDesc('amount')
@@ -482,8 +505,8 @@ class AdminCashbookReportsController extends Controller
             'petty' => round($petty, 2),
             'margin_pct' => $sales > 0 ? round(($net / $sales) * 100, 1) : 0,
             'categories' => $categoryBreakdown,
-            'transactions' => $activeTransactions,
-            'total_entries' => $activeTransactions->count(),
+            'transactions' => $transactions,
+            'total_entries' => $transactions->count(),
             'pending_days_count' => count($pendingGlOnlyDates),
             'pending_dates' => $pendingGlOnlyDates,
         ];

@@ -22,6 +22,9 @@
                 loading: false,
                 totals: @json($totals),
                 shopMetrics: @json($shopMetrics->values()),
+                selectedShopForGraph: null,
+                activeGraphPoint: null,
+                chartType: 'column',
 
                 init() {
                     this.syncUrl();
@@ -153,6 +156,88 @@
                     }
                 },
 
+                getSparklinePoints() {
+                    const list = this.filteredShops();
+                    if (!list || list.length === 0) return [];
+                    
+                    const nets = list.map(s => parseFloat(s.net) || 0);
+                    const absNets = nets.map(n => Math.abs(n));
+                    const maxAbs = Math.max(...absNets, 1);
+
+                    const minNet = Math.min(...nets, 0);
+                    const maxNet = Math.max(...nets, 0);
+                    const rangeNet = (maxNet - minNet) || 1;
+                    
+                    return list.map((shop, i) => {
+                        const net = parseFloat(shop.net) || 0;
+                        const sales = parseFloat(shop.sales) || 0;
+                        const expense = parseFloat(shop.expense) || 0;
+                        
+                        const x = list.length > 1 ? (i / (list.length - 1)) * 360 + 20 : 200;
+                        const y = 50 - ((net - minNet) / rangeNet) * 40;
+                        
+                        const colHeight = Math.max(3, (Math.abs(net) / maxAbs) * 24);
+                        const colY = net >= 0 ? 30 - colHeight : 30;
+                        const barColor = net >= 0 ? '#10b981' : '#f43f5e';
+                        
+                        const tooltipY = net >= 0 ? colY - 15 : colY + colHeight + 3;
+                        const textY = net >= 0 ? colY - 6 : colY + colHeight + 12;
+                        const labelPrefix = net >= 0 ? 'Max ' : 'Min ';
+
+                        return {
+                            x: Math.round(x * 10) / 10,
+                            y: Math.round(y * 10) / 10,
+                            colY: Math.round(colY * 10) / 10,
+                            colHeight: Math.round(colHeight * 10) / 10,
+                            tooltipY: Math.round(tooltipY * 10) / 10,
+                            textY: Math.round(textY * 10) / 10,
+                            labelPrefix,
+                            barColor,
+                            shop_name: shop.shop_name,
+                            shop_code: shop.shop_code,
+                            net,
+                            sales,
+                            expense,
+                            margin_pct: shop.margin_pct,
+                            status: shop.status
+                        };
+                    });
+                },
+
+                getSparklinePath() {
+                    const points = this.getSparklinePoints();
+                    if (points.length === 0) return '';
+                    if (points.length === 1) return 'M 0,30 L 400,30';
+                    return 'M ' + points.map(p => `${p.x},${p.y}`).join(' L ');
+                },
+
+                getSparklineAreaPath() {
+                    const points = this.getSparklinePoints();
+                    if (points.length === 0) return '';
+                    if (points.length === 1) return 'M 0,30 L 400,30 L 400,60 L 0,60 Z';
+                    return `M ${points[0].x},60 L ` + points.map(p => `${p.x},${p.y}`).join(' L ') + ` L ${points[points.length-1].x},60 Z`;
+                },
+                getColumnBarsPath(direction) {
+                    const points = this.getSparklinePoints();
+                    if (!points || points.length === 0) return '';
+                    
+                    const filtered = points.filter(p => direction === 'positive' ? p.net >= 0 : p.net < 0);
+                    if (filtered.length === 0) return '';
+
+                    return filtered.map(p => {
+                        return `M ${p.x - 3.5},30 L ${p.x - 3.5},${p.colY} L ${p.x + 3.5},${p.colY} L ${p.x + 3.5},30 Z`;
+                    }).join(' ');
+                },
+
+                getHighlightStripPath() {
+                    const target = this.activeGraphPoint || this.selectedShopForGraph;
+                    if (!target) return '';
+                    const points = this.getSparklinePoints();
+                    const match = points.find(p => p.shop_code === target.shop_code);
+                    if (!match) return '';
+                    return `M ${match.x - 12},3 L ${match.x + 12},3 L ${match.x + 12},57 L ${match.x - 12},57 Z`;
+                },
+
                 currency(value) {
                     const num = parseFloat(value || 0);
                     return '₹' + num.toLocaleString('en-IN', {
@@ -200,7 +285,9 @@
 
                 <!-- Refresh Control -->
                 <button type="button" @click="loadData()" class="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-xs transition hover:bg-slate-50 shrink-0" title="Refresh Live Data">
-                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5 sm:w-4 sm:h-4" :class="{ 'animate-spin': loading }"></i>
+                    <span :class="loading ? 'animate-spin' : ''" class="inline-flex items-center justify-center">
+                        <i data-lucide="refresh-cw" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
+                    </span>
                 </button>
             </div>
         </div>
@@ -286,39 +373,107 @@
             </span>
         </div>
 
-        <!-- Hero Financial Spend Card (Screenshot Match) -->
+        <!-- Hero Financial Spend Card (Dynamic Fintech Dashboard) -->
         <div class="rounded-[28px] border border-slate-100 bg-white p-4 sm:p-5 shadow-[0_8px_30px_rgba(0,0,0,0.04)]">
             <div class="flex items-center justify-between">
                 <div>
-                    <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Consolidated Outlets</span>
-                    <h2 class="mt-0.5 text-2xl sm:text-3xl font-black text-slate-900 tracking-tight" x-text="currency(activeTotals().sales)">{{ number_format($totals['sales'], 2) }}</h2>
+                    <span class="text-[10px] font-black uppercase tracking-wider text-slate-400" x-text="selectedShopForGraph ? selectedShopForGraph.shop_name : 'Consolidated Outlets'">Consolidated Outlets</span>
+                    <h2 class="mt-0.5 text-2xl sm:text-3xl font-black text-slate-900 tracking-tight" x-text="selectedShopForGraph ? currency(selectedShopForGraph.sales) : currency(activeTotals().sales)">{{ number_format($totals['sales'], 2) }}</h2>
                 </div>
-                <div class="text-right">
-                    <span class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wider" :class="activeTotals().net >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'">
-                        <span class="h-1.5 w-1.5 rounded-full" :class="activeTotals().net >= 0 ? 'bg-emerald-500' : 'bg-rose-500'"></span>
-                        <span x-text="activeTotals().net >= 0 ? 'Net Profit' : 'Net Loss'"></span>
+                <div class="text-right flex flex-col items-end">
+                    <span class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wider" :class="(selectedShopForGraph ? selectedShopForGraph.net : activeTotals().net) >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'">
+                        <span class="h-1.5 w-1.5 rounded-full" :class="(selectedShopForGraph ? selectedShopForGraph.net : activeTotals().net) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'"></span>
+                        <span x-text="(selectedShopForGraph ? selectedShopForGraph.net : activeTotals().net) >= 0 ? 'Net Profit' : 'Net Loss'"></span>
                     </span>
-                    <p class="mt-1 text-xs font-black" :class="activeTotals().net >= 0 ? 'text-emerald-700' : 'text-rose-700'" x-text="currency(activeTotals().net)">{{ number_format($totals['net'], 2) }}</p>
+                    <p class="mt-1 text-xs font-black" :class="(selectedShopForGraph ? selectedShopForGraph.net : activeTotals().net) >= 0 ? 'text-emerald-700' : 'text-rose-700'" x-text="selectedShopForGraph ? currency(selectedShopForGraph.net) : currency(activeTotals().net)">{{ number_format($totals['net'], 2) }}</p>
+                    <template x-if="selectedShopForGraph">
+                        <button type="button" @click="selectedShopForGraph = null" class="mt-1 text-[9px] font-black text-indigo-600 hover:text-indigo-800 underline">Show Total</button>
+                    </template>
                 </div>
             </div>
 
-            <!-- Stylized Minimal Line Sparkline -->
-            <div class="mt-4 h-24 w-full rounded-2xl bg-slate-50/70 p-2 border border-slate-100/80 relative flex items-center justify-center overflow-hidden">
-                <svg viewBox="0 0 400 60" class="h-full w-full overflow-visible">
+            <!-- Modern Premium Chart Type Switcher -->
+            <div class="flex items-center gap-1.5 mt-3 pb-2 border-b border-slate-100">
+                <button 
+                    type="button" 
+                    @click="chartType = 'line'; if (window.lucide) { $nextTick(() => lucide.createIcons()); }" 
+                    class="rounded-xl px-3 py-1.5 text-[10px] font-black transition flex items-center gap-1"
+                    :class="chartType === 'line' ? 'bg-slate-900 text-white shadow-xs' : 'bg-slate-50 text-slate-600 border border-slate-200/60 hover:bg-slate-100'"
+                >
+                    <i data-lucide="line-chart" class="w-3.5 h-3.5"></i> Line
+                </button>
+                <button 
+                    type="button" 
+                    @click="chartType = 'column'; if (window.lucide) { $nextTick(() => lucide.createIcons()); }" 
+                    class="rounded-xl px-3 py-1.5 text-[10px] font-black transition flex items-center gap-1"
+                    :class="chartType === 'column' ? 'bg-slate-900 text-white shadow-xs' : 'bg-slate-50 text-slate-600 border border-slate-200/60 hover:bg-slate-100'"
+                >
+                    <i data-lucide="bar-chart-3" class="w-3.5 h-3.5"></i> Column
+                </button>
+            </div>
+
+            <!-- Stylized Minimal Dynamic Interactive Chart -->
+            <div class="mt-4 h-32 w-full rounded-2xl bg-slate-50/70 p-3.5 border border-slate-100/80 relative flex items-center justify-center overflow-hidden">
+                <!-- SVG Canvas for Crisp Vector Graphics -->
+                <svg viewBox="0 0 400 60" class="h-full w-full overflow-visible pointer-events-none">
                     <defs>
                         <linearGradient id="fintechHeroGrad" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stop-color="#6366f1" stop-opacity="0.2"/>
                             <stop offset="100%" stop-color="#6366f1" stop-opacity="0"/>
                         </linearGradient>
                     </defs>
-                    <path d="M 0,45 Q 60,15 120,35 T 240,20 T 360,30 L 400,25" fill="none" stroke="#6366f1" stroke-width="2.5" stroke-linecap="round"/>
-                    <path d="M 0,45 Q 60,15 120,35 T 240,20 T 360,30 L 400,25 L 400,60 L 0,60 Z" fill="url(#fintechHeroGrad)"/>
-                    <!-- Interactive Dot Marker -->
-                    <circle cx="240" cy="20" r="4.5" fill="#4f46e5" stroke="#ffffff" stroke-width="2"/>
-                    <line x1="240" y1="20" x2="240" y2="60" stroke="#c7d2fe" stroke-width="1.5" stroke-dasharray="2,2"/>
+                    
+                    <!-- LINE CHART MODE -->
+                    <g x-show="chartType === 'line'">
+                        <path :d="getSparklinePath()" fill="none" stroke="#6366f1" stroke-width="2.5" stroke-linecap="round"/>
+                        <path :d="getSparklineAreaPath()" fill="url(#fintechHeroGrad)"/>
+                    </g>
+                    
+                    <!-- COLUMN CHART MODE -->
+                    <g x-show="chartType === 'column'">
+                        <!-- Center Baseline average line -->
+                        <line x1="0" y1="30" x2="400" y2="30" stroke="#94a3b8" stroke-width="1" stroke-dasharray="3,3" />
+                        
+                        <!-- Soft Highlight Backdrop Strip for Active/Selected Shop -->
+                        <path :d="getHighlightStripPath()" fill="#e0f2fe" opacity="0.6" />
+                        
+                        <!-- Positive Green Columns -->
+                        <path :d="getColumnBarsPath('positive')" fill="#10b981" class="transition-all duration-300" />
+                        
+                        <!-- Negative Red Columns -->
+                        <path :d="getColumnBarsPath('negative')" fill="#f43f5e" class="transition-all duration-300" />
+                    </g>
                 </svg>
-                <div class="absolute right-3 top-2 rounded-lg bg-indigo-600 px-2 py-0.5 text-[9px] font-black text-white shadow-xs">
-                    Live Velocity
+                
+                <!-- Transparent HTML Interaction Layer + Floating Tooltip Pills -->
+                <div class="absolute inset-0 flex items-stretch justify-between px-3 pointer-events-auto">
+                    <template x-for="pt in getSparklinePoints()" :key="pt.shop_code">
+                        <div class="flex-1 flex flex-col items-center justify-center cursor-pointer group relative"
+                             @click="selectedShopForGraph = pt"
+                             @mouseenter="activeGraphPoint = pt"
+                             @mouseleave="activeGraphPoint = null"
+                        >
+                            <!-- Hover / Active Guide Line in Line Mode -->
+                            <div x-show="chartType === 'line' && ((selectedShopForGraph && selectedShopForGraph.shop_code === pt.shop_code) || (activeGraphPoint && activeGraphPoint.shop_code === pt.shop_code))"
+                                 class="absolute inset-y-2 w-0.5 bg-indigo-300 border-dashed border-l border-indigo-400 pointer-events-none"
+                                 x-cloak
+                            ></div>
+
+                            <!-- Floating Dark Tooltip Pill -->
+                            <div x-show="(selectedShopForGraph && selectedShopForGraph.shop_code === pt.shop_code) || (activeGraphPoint && activeGraphPoint.shop_code === pt.shop_code)"
+                                 class="absolute z-20 rounded-md bg-slate-900 px-2 py-0.5 text-[9px] font-black text-white shadow-lg pointer-events-none whitespace-nowrap transition-all"
+                                 :class="pt.net >= 0 ? 'top-1' : 'bottom-1'"
+                                 x-cloak
+                            >
+                                <span x-text="pt.labelPrefix + currency(pt.net).replace('.00', '')"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+                
+                <!-- Corner Title Tag -->
+                <div class="absolute right-3 top-2 rounded-lg bg-indigo-600 px-2 py-0.5 text-[9px] font-black text-white shadow-xs pointer-events-none z-10">
+                    <span x-text="activeGraphPoint ? activeGraphPoint.shop_name : (selectedShopForGraph ? selectedShopForGraph.shop_name : 'Consolidated Outlets')"></span>
                 </div>
             </div>
         </div>
@@ -348,12 +503,13 @@
                         <i data-lucide="arrow-down-right" class="w-3.5 h-3.5"></i>
                     </div>
                 </div>
-                <p class="mt-2 text-sm sm:text-lg font-black text-slate-900 truncate" x-text="currency(activeTotals().expense)">{{ number_format($totals['expense'], 2) }}</p>
+                <div class="mt-2 text-sm sm:text-lg font-black text-slate-900 truncate" x-text="currency(activeTotals().expense)">{{ number_format($totals['expense'], 2) }}</div>
                 <div class="mt-1 flex items-center justify-between gap-1 text-[8px] sm:text-[9px] font-bold">
                     <span class="text-rose-600 truncate">Total outflow</span>
-                    <span class="text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200/90 shrink-0 font-black" title="GL Bill portion of total expenses">
+                    <a :href="'{{ url('/admin/cashbook/reports/gl-bills') }}?timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate" class="text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200/90 shrink-0 font-black hover:bg-amber-100 transition inline-flex items-center gap-0.5" title="View Synced GL Invoices & Bills">
                         GL Bill: <span x-text="currency(activeTotals().gl_bills)">{{ number_format($totals['gl_bills'], 2) }}</span>
-                    </span>
+                        <i data-lucide="arrow-right" class="w-2.5 h-2.5"></i>
+                    </a>
                 </div>
             </div>
         </div>
@@ -407,10 +563,10 @@
                                     <span class="text-[7px] font-black uppercase text-rose-500 block tracking-tight">Expenses</span>
                                     <span class="text-[11px] font-black text-rose-600 truncate block" x-text="currency(item.expense)"></span>
                                 </div>
-                                <div class="bg-slate-50/80 rounded-lg px-2 py-1 border border-slate-100">
-                                    <span class="text-[7px] font-black uppercase text-amber-600 block tracking-tight">GL Bill</span>
+                                <a :href="'{{ url('/admin/cashbook/reports/gl-bills') }}?shop_id=' + item.shop_id + '&timeframe=' + timeframe + '&start_date=' + startDate + '&end_date=' + endDate" @click.stop class="bg-slate-50/80 hover:bg-amber-50 rounded-lg px-2 py-1 border border-slate-100 block transition cursor-pointer">
+                                    <span class="text-[7px] font-black uppercase text-amber-600 block tracking-tight hover:underline">GL Bill</span>
                                     <span class="text-[11px] font-black text-amber-700 truncate block" x-text="currency(item.gl_bills)"></span>
-                                </div>
+                                </a>
                                 <div class="rounded-lg px-2 py-1 border" :class="item.net >= 0 ? 'bg-emerald-50/60 border-emerald-100' : 'bg-rose-50/60 border-rose-100'">
                                     <span class="text-[7px] font-black uppercase block tracking-tight" :class="item.net >= 0 ? 'text-emerald-600' : 'text-rose-600'">Net P/L</span>
                                     <span class="text-[11px] font-black truncate block" :class="item.net >= 0 ? 'text-emerald-700' : 'text-rose-700'" x-text="currency(item.net)"></span>
