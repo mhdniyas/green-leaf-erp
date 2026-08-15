@@ -87,6 +87,7 @@
                                    request()->routeIs('admin.cashbook.reports.shop') ||
                                    request()->routeIs('admin.cashbook.reports.charts') ||
                                    request()->routeIs('admin.cashbook.reports.analytics') ||
+                                   request()->routeIs('admin.cashbook.reports.gl-bills') ||
                                    request()->routeIs('admin.cashbook.reports.mobile-ledger');
             @endphp
 
@@ -99,7 +100,9 @@
 
     <!-- Base Scripts -->
     <script>
-        lucide.createIcons();
+        document.addEventListener('DOMContentLoaded', () => {
+            if (window.lucide) { lucide.createIcons(); }
+        });
 
         function toggleMobileSidebar() {
             const sidebar = document.getElementById('main-sidebar');
@@ -189,29 +192,41 @@
     @stack('scripts')
 
     @if($isMobileSection)
-        <!-- Mobile Bottom Navigation Bar (Screenshot Style) -->
-        <div class="fixed bottom-0 left-0 right-0 z-40 block md:hidden bg-white/95 backdrop-blur-md border-t border-slate-100 shadow-[0_-8px_25px_rgba(0,0,0,0.04)] px-4 py-2.5">
-            <div class="flex items-center justify-around max-w-md mx-auto">
-                <a href="{{ route('admin.cashbook.reports.hub', request()->query()) }}" data-nav-hub class="flex flex-col items-center justify-center text-[10px] font-extrabold transition-all {{ request()->routeIs('admin.cashbook.reports.hub') || request()->routeIs('admin.cashbook.reports.shop') || request()->routeIs('admin.cashbook.reports.mobile-ledger') ? 'text-slate-900' : 'text-slate-400 hover:text-slate-700' }}">
-                    <div class="p-1 rounded-xl {{ request()->routeIs('admin.cashbook.reports.hub') || request()->routeIs('admin.cashbook.reports.shop') || request()->routeIs('admin.cashbook.reports.mobile-ledger') ? 'bg-slate-100 text-slate-900' : 'text-slate-400' }}">
-                        <i data-lucide="layout-grid" class="w-5 h-5"></i>
-                    </div>
-                    <span class="mt-0.5">Finance</span>
+        <!-- Sleek Floating Capsule Pill Bottom Navigation Bar (Matching Reference Image) -->
+        <div class="fixed bottom-3 left-3 right-3 z-40 block md:hidden max-w-md mx-auto">
+            <div class="bg-white/95 backdrop-blur-md rounded-full border border-slate-200/80 shadow-[0_12px_35px_rgba(0,0,0,0.12)] p-1.5 flex items-center justify-around">
+                <a href="{{ route('admin.cashbook.reports.hub', request()->query()) }}" data-nav-hub class="flex items-center gap-1.5 transition-all duration-200 {{ request()->routeIs('admin.cashbook.reports.hub') || request()->routeIs('admin.cashbook.reports.shop') || request()->routeIs('admin.cashbook.reports.mobile-ledger') ? 'bg-slate-900 text-white rounded-full px-3.5 py-1.5 text-xs font-black shadow-xs' : 'text-slate-400 hover:text-slate-700 p-2 text-xs font-bold' }}">
+                    <i data-lucide="layout-grid" class="w-4 h-4"></i>
+                    @if(request()->routeIs('admin.cashbook.reports.hub') || request()->routeIs('admin.cashbook.reports.shop') || request()->routeIs('admin.cashbook.reports.mobile-ledger'))
+                        <span>Finance</span>
+                    @endif
                 </a>
-                <a href="{{ route('admin.cashbook.reports.charts', request()->query()) }}" data-nav-charts class="flex flex-col items-center justify-center text-[10px] font-extrabold transition-all {{ request()->routeIs('admin.cashbook.reports.charts') ? 'text-slate-900' : 'text-slate-400 hover:text-slate-700' }}">
-                    <div class="p-1 rounded-xl {{ request()->routeIs('admin.cashbook.reports.charts') ? 'bg-slate-100 text-slate-900' : 'text-slate-400' }}">
-                        <i data-lucide="line-chart" class="w-5 h-5"></i>
-                    </div>
-                    <span class="mt-0.5">Analytics</span>
+
+                <a href="{{ route('admin.cashbook.reports.charts', request()->query()) }}" data-nav-charts class="flex items-center gap-1.5 transition-all duration-200 {{ request()->routeIs('admin.cashbook.reports.charts') ? 'bg-slate-900 text-white rounded-full px-3.5 py-1.5 text-xs font-black shadow-xs' : 'text-slate-400 hover:text-slate-700 p-2 text-xs font-bold' }}">
+                    <i data-lucide="line-chart" class="w-4 h-4"></i>
+                    @if(request()->routeIs('admin.cashbook.reports.charts'))
+                        <span>Analytics</span>
+                    @endif
                 </a>
-                <a href="{{ route('admin.cashbook.reports.analytics', request()->query()) }}" data-nav-analytics class="flex flex-col items-center justify-center text-[10px] font-extrabold transition-all {{ request()->routeIs('admin.cashbook.reports.analytics') ? 'text-slate-900' : 'text-slate-400 hover:text-slate-700' }}">
-                    <div class="p-1 rounded-xl {{ request()->routeIs('admin.cashbook.reports.analytics') ? 'bg-slate-100 text-slate-900' : 'text-slate-400' }}">
-                        <i data-lucide="target" class="w-5 h-5"></i>
-                    </div>
-                    <span class="mt-0.5">Target</span>
+
+                <a href="{{ route('admin.cashbook.reports.analytics', request()->query()) }}" data-nav-analytics class="flex items-center gap-1.5 transition-all duration-200 {{ request()->routeIs('admin.cashbook.reports.analytics') ? 'bg-slate-900 text-white rounded-full px-3.5 py-1.5 text-xs font-black shadow-xs' : 'text-slate-400 hover:text-slate-700 p-2 text-xs font-bold' }}">
+                    <i data-lucide="target" class="w-4 h-4"></i>
+                    @if(request()->routeIs('admin.cashbook.reports.analytics'))
+                        <span>Target</span>
+                    @endif
+                </a>
+
+                <a href="{{ route('admin.cashbook.reports.gl-bills', request()->query()) }}" data-nav-glbills class="flex items-center gap-1.5 transition-all duration-200 {{ request()->routeIs('admin.cashbook.reports.gl-bills') ? 'bg-slate-900 text-white rounded-full px-3.5 py-1.5 text-xs font-black shadow-xs' : 'text-slate-400 hover:text-slate-700 p-2 text-xs font-bold' }}">
+                    <i data-lucide="receipt" class="w-4 h-4"></i>
+                    @if(request()->routeIs('admin.cashbook.reports.gl-bills'))
+                        <span>GL Bills</span>
+                    @endif
                 </a>
             </div>
         </div>
+        <script>
+            if (window.lucide) { lucide.createIcons(); }
+        </script>
     @endif
 </body>
 </html>

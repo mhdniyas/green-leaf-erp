@@ -7,7 +7,7 @@
 @endsection
 
 @section('header_subtitle')
-    60-day historical weekday profitability and optimization patterns.
+    30-day historical weekday profitability and optimization patterns.
 @endsection
 
 @section('content')
@@ -19,9 +19,9 @@
                 <p class="text-xs font-bold text-slate-500 mt-0.5">Shop Profitability Intelligence <span class="text-slate-400 font-medium">&amp; Optimization Models</span></p>
             </div>
 
-            <!-- Shop Selector -->
+            <!-- Shop Selector (Tailwind Styled) -->
             <form method="GET" action="{{ route('admin.cashbook.reports.analytics') }}" class="flex items-center gap-2">
-                <select name="shop_id" onchange="this.form.submit()" class="h-9 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 shadow-xs outline-none focus:border-slate-400">
+                <select name="shop_id" onchange="this.form.submit()" class="h-9 rounded-2xl border border-slate-200 bg-slate-50/80 px-3 text-xs font-black text-slate-800 shadow-xs outline-none focus:border-indigo-500 focus:bg-white cursor-pointer transition">
                     @foreach ($shops as $s)
                         <option value="{{ $s->shop_id }}" @selected($selectedShop?->shop_id === $s->shop_id)>
                             {{ $s->name ?: ('Shop #' . $s->shop_id) }}
@@ -39,7 +39,7 @@
                     <h2 class="mt-0.5 text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
                         {{ $selectedShop?->name ?: 'Consolidated Outlets' }}
                     </h2>
-                    <p class="text-xs font-bold text-slate-400 mt-0.5">60-Day Algorithmic Day-of-Week Trend</p>
+                    <p class="text-xs font-bold text-slate-400 mt-0.5">30-Day Algorithmic Day-of-Week Trend</p>
                 </div>
                 <div class="text-right">
                     @if ($analytics['best_profit_day'])
@@ -122,7 +122,7 @@
                     </div>
                     <div class="mt-3">
                         <span class="text-[10px] font-black uppercase text-slate-400 block">Consistency</span>
-                        <h4 class="text-sm font-black text-slate-900 mt-0.5">60 Days</h4>
+                        <h4 class="text-sm font-black text-slate-900 mt-0.5">30 Days</h4>
                         <p class="text-[10px] font-bold text-blue-600 mt-0.5">Reliable dataset</p>
                     </div>
                 </div>
@@ -144,72 +144,145 @@
             </div>
         </div>
 
-        <!-- Overpurchase Warnings -->
-        @if (!empty($analytics['overpurchase_warnings']))
-            <div class="space-y-2">
-                @foreach ($analytics['overpurchase_warnings'] as $warning)
-                    <div class="flex items-start gap-3 rounded-2xl border border-rose-100 bg-rose-50/70 p-4 text-rose-900 shadow-xs">
-                        <i data-lucide="alert-circle" class="w-5 h-5 shrink-0 text-rose-600 mt-0.5"></i>
-                        <div>
-                            <h4 class="text-xs font-black uppercase tracking-wider text-rose-800">{{ $warning['title'] }}</h4>
-                            <p class="mt-1 text-xs font-medium text-rose-700 leading-relaxed">{{ $warning['message'] }}</p>
-                        </div>
-                    </div>
-                @endforeach
-            </div>
-        @endif
+        <!-- Interactive Procurement & Profitability Calendar Grid -->
+        <script>
+            function targetCalendarAnalytics() {
+                return {
+                    selectedDay: null,
+                    weekdayData: @json($analytics['weekday_analysis']),
+                    warnings: @json($analytics['overpurchase_warnings']),
 
-        <!-- Weekday Pattern Tiles (Matching Mobile Cards) -->
-        <div class="space-y-2.5">
+                    init() {
+                        const initialDay = '{{ $analytics["slowest_profit_day"]["day"] ?? "Monday" }}';
+                        this.selectDay(initialDay);
+                    },
+
+                    selectDay(dayName) {
+                        this.selectedDay = this.weekdayData[dayName] || null;
+                        this.$nextTick(() => {
+                            if (window.lucide) window.lucide.createIcons();
+                        });
+                    },
+
+                    getWarning(dayName) {
+                        if (!this.warnings) return null;
+                        return this.warnings.find(w => w.day === dayName);
+                    }
+                };
+            }
+        </script>
+
+        <div class="space-y-3" x-data="targetCalendarAnalytics()" x-init="init()">
             <div class="flex items-center justify-between px-1">
-                <h3 class="text-sm font-black text-slate-900">Day-of-Week Profitability Matrix</h3>
-                <span class="text-[10px] font-bold text-slate-400">7-Day Aggregation</span>
+                <div>
+                    <h3 class="text-sm font-black text-slate-900">Procurement &amp; Profitability Calendar</h3>
+                    <p class="text-[11px] font-semibold text-slate-400">Click any day to inspect details &amp; optimization warnings</p>
+                </div>
+                <span class="text-[10px] font-black uppercase text-rose-600 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-200/80 shrink-0">
+                    <span class="inline-block h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse mr-1"></span>
+                    Red = Overpurchase Risk
+                </span>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <!-- 7-Day Interactive Calendar Grid -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
                 @foreach ($analytics['weekday_analysis'] as $day => $row)
-                    <div class="rounded-2xl border border-slate-150 bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.02)] transition hover:border-slate-300">
-                        <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-                            <span class="text-xs font-black text-slate-900">{{ $day }}</span>
-                            <span class="rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-wider {{ $row['margin_pct'] >= 15 ? 'bg-emerald-50 text-emerald-700' : ($row['margin_pct'] >= 0 ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700') }}">
-                                {{ $row['margin_pct'] }}% Margin
-                            </span>
+                    @php
+                        $isHighRisk = ($row['avg_sales'] > 500 && $row['purchase_ratio'] > 65);
+                    @endphp
+                    <div
+                        @click="selectDay('{{ $day }}')"
+                        class="relative flex flex-col justify-between rounded-2xl border p-3 cursor-pointer transition-all duration-150 select-none shadow-xs"
+                        :class="{
+                            'ring-2 ring-indigo-600 shadow-md': selectedDay && selectedDay.day === '{{ $day }}',
+                            'bg-rose-50/90 border-rose-200 hover:border-rose-400': {{ $isHighRisk ? 'true' : 'false' }},
+                            'bg-emerald-50/80 border-emerald-200 hover:border-emerald-400': {{ !$isHighRisk && $row['margin_pct'] >= 15 ? 'true' : 'false' }},
+                            'bg-white border-slate-200 hover:border-slate-300': {{ !$isHighRisk && $row['margin_pct'] < 15 ? 'true' : 'false' }}
+                        }"
+                    >
+                        <div>
+                            <div class="flex items-center justify-between gap-1">
+                                <span class="text-xs font-black" :class="{{ $isHighRisk ? "'text-rose-900'" : "'text-slate-900'" }}">{{ substr($day, 0, 3) }}</span>
+                                @if ($isHighRisk)
+                                    <span class="h-2 w-2 rounded-full bg-rose-500 animate-pulse" title="High Overpurchase Risk"></span>
+                                @elseif ($row['margin_pct'] >= 15)
+                                    <span class="h-2 w-2 rounded-full bg-emerald-500" title="Healthy Margin"></span>
+                                @endif
+                            </div>
+                            <p class="text-[9px] font-bold text-slate-400 mt-0.5">{{ $day }}</p>
                         </div>
 
-                        <div class="mt-3 grid grid-cols-2 gap-2 text-[11px] font-semibold">
-                            <div class="rounded-xl bg-slate-50 p-2">
-                                <span class="text-[8px] uppercase text-slate-400 block font-bold">Avg Sales</span>
-                                <span class="font-black text-slate-900">₹{{ number_format($row['avg_sales'], 0) }}</span>
-                            </div>
-                            <div class="rounded-xl bg-slate-50 p-2">
-                                <span class="text-[8px] uppercase text-slate-400 block font-bold">Avg Expense</span>
-                                <span class="font-black text-rose-600">₹{{ number_format($row['avg_expense'], 0) }}</span>
-                            </div>
-                            <div class="rounded-xl bg-slate-50 p-2">
-                                <span class="text-[8px] uppercase text-slate-400 block font-bold">GL Bill</span>
-                                <span class="font-black text-amber-700">₹{{ number_format($row['avg_gl_bills'], 0) }}</span>
-                            </div>
-                            <div class="rounded-xl p-2 {{ $row['avg_net'] >= 0 ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800' }}">
-                                <span class="text-[8px] uppercase block font-bold {{ $row['avg_net'] >= 0 ? 'text-emerald-600' : 'text-rose-600' }}">Avg Net</span>
-                                <span class="font-black">
-                                    {{ $row['avg_net'] >= 0 ? '+' : '' }}₹{{ number_format($row['avg_net'], 0) }}
+                        <div class="mt-3 pt-2 border-t border-slate-200/60">
+                            @if ($isHighRisk)
+                                <span class="block text-[9px] font-black uppercase text-rose-700 bg-rose-100/80 px-1.5 py-0.5 rounded text-center truncate">
+                                    GL: {{ $row['purchase_ratio'] }}%
                                 </span>
-                            </div>
-                        </div>
-
-                        <!-- Mini score bar -->
-                        <div class="mt-3 flex items-center justify-between text-[9px] font-black text-slate-400 uppercase pt-2 border-t border-slate-100">
-                            <span>Score</span>
-                            <div class="h-1.5 w-20 rounded-full bg-slate-100 overflow-hidden">
-                                <div class="h-full rounded-full {{ $row['margin_pct'] >= 15 ? 'bg-emerald-500' : ($row['margin_pct'] >= 0 ? 'bg-amber-500' : 'bg-rose-500') }}" style="width: {{ max(5, min(100, $row['profit_score'])) }}%"></div>
-                            </div>
+                            @else
+                                <span class="block text-[9px] font-black text-slate-700 text-center truncate">
+                                    ₹{{ number_format($row['avg_net'], 0) }}
+                                </span>
+                            @endif
                         </div>
                     </div>
                 @endforeach
             </div>
+
+            <!-- Selected Day Detail View Drawer -->
+            <template x-if="selectedDay">
+                <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs space-y-3 transition-all" x-cloak>
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                        <div class="flex items-center gap-2">
+                            <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 font-black text-xs">
+                                <i data-lucide="calendar" class="w-4 h-4"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-sm font-black text-slate-900" x-text="selectedDay.day + ' Analytics &amp; Details'"></h4>
+                                <p class="text-[10px] font-bold text-slate-400">30-day historical weekday performance</p>
+                            </div>
+                        </div>
+
+                        <span
+                            class="rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wider"
+                            :class="selectedDay.purchase_ratio > 65 ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'"
+                            x-text="selectedDay.purchase_ratio > 65 ? 'High Risk Day' : 'Healthy Day'"
+                        ></span>
+                    </div>
+
+                    <!-- 4 Metric Cards for Selected Day -->
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                        <div class="rounded-xl bg-slate-50 p-2.5 border border-slate-100">
+                            <span class="text-[8px] font-black uppercase text-slate-400 block">Avg Sales</span>
+                            <span class="text-xs font-black text-slate-900" x-text="'₹' + Number(selectedDay.avg_sales).toLocaleString('en-IN')"></span>
+                        </div>
+                        <div class="rounded-xl bg-slate-50 p-2.5 border border-slate-100">
+                            <span class="text-[8px] font-black uppercase text-rose-500 block">Avg Expense</span>
+                            <span class="text-xs font-black text-rose-600" x-text="'₹' + Number(selectedDay.avg_expense).toLocaleString('en-IN')"></span>
+                        </div>
+                        <div class="rounded-xl bg-slate-50 p-2.5 border border-slate-100">
+                            <span class="text-[8px] font-black uppercase text-amber-600 block">GL Bill</span>
+                            <span class="text-xs font-black text-amber-700" x-text="'₹' + Number(selectedDay.avg_gl_bills).toLocaleString('en-IN') + ' (' + selectedDay.purchase_ratio + '%)'"></span>
+                        </div>
+                        <div class="rounded-xl p-2.5 border" :class="selectedDay.avg_net >= 0 ? 'bg-emerald-50/70 border-emerald-100 text-emerald-900' : 'bg-rose-50/70 border-rose-100 text-rose-900'">
+                            <span class="text-[8px] font-black uppercase block" :class="selectedDay.avg_net >= 0 ? 'text-emerald-600' : 'text-rose-600'">Avg Net</span>
+                            <span class="text-xs font-black" x-text="'₹' + Number(selectedDay.avg_net).toLocaleString('en-IN') + ' (' + selectedDay.margin_pct + '%)'"></span>
+                        </div>
+                    </div>
+
+                    <!-- Actionable Warning Message for Selected Day -->
+                    <template x-if="getWarning(selectedDay.day)">
+                        <div class="flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50/90 p-3 text-rose-900 text-xs">
+                            <i data-lucide="alert-circle" class="w-4 h-4 shrink-0 text-rose-600 mt-0.5"></i>
+                            <div>
+                                <span class="font-black uppercase text-rose-800 block" x-text="getWarning(selectedDay.day).title"></span>
+                                <p class="mt-0.5 text-xs font-medium text-rose-700 leading-relaxed" x-text="getWarning(selectedDay.day).message"></p>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </template>
         </div>
 
-        <!-- Actionable Recommendations (Matching Screenshot Cards) -->
+        <!-- Actionable Recommendations -->
         <div class="space-y-2.5">
             <h3 class="text-sm font-black text-slate-900 px-1">Optimization Recommendations</h3>
 

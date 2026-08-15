@@ -10,6 +10,7 @@ use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Shop;
+use App\Models\ShopInvoice;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
 use Carbon\Carbon;
@@ -38,18 +39,16 @@ class AdminCashbookReportsController extends Controller
         $shopMetrics = $this->calculateMultiShopMetrics($shops, $dateRange['start'], $dateRange['end']);
 
         $totals = [
-            'sales' => round($shopMetrics->sum('sales'), 2),
-            'expense' => round($shopMetrics->sum('expense'), 2),
-            'net' => round($shopMetrics->sum('net'), 2),
-            'gl_bills' => round($shopMetrics->sum('gl_bills'), 2),
-            'shops_count' => $shopMetrics->count(),
-            'profitable_count' => $shopMetrics->where('net', '>', 0)->count(),
+            'sales' => round((float) $shopMetrics->sum('sales'), 2),
+            'expense' => round((float) $shopMetrics->sum('expense'), 2),
+            'net' => round((float) $shopMetrics->sum('net'), 2),
+            'gl_bills' => round((float) $shopMetrics->sum('gl_bills'), 2),
         ];
 
         return view('admin.cashbook.reports.hub', [
             'shops' => $shops,
-            'shopMetrics' => $shopMetrics,
             'totals' => $totals,
+            'shopMetrics' => $shopMetrics,
             'timeframe' => $timeframe,
             'startDate' => $dateRange['start'],
             'endDate' => $dateRange['end'],
@@ -58,7 +57,7 @@ class AdminCashbookReportsController extends Controller
     }
 
     /**
-     * Detailed Single Shop Report Drill-down (Purchaser layout style).
+     * Detailed Single Shop Report Drill-down.
      */
     public function detail(Request $request, string $shopParam): View
     {
@@ -132,6 +131,57 @@ class AdminCashbookReportsController extends Controller
             'selectedShop' => $selectedShop,
             'analytics' => $analyticsResult,
             'activeTab' => 'analytics',
+        ]);
+    }
+
+    /**
+     * Daily GL Bills & Shop Invoice Deliveries Report Page.
+     */
+    public function glBills(Request $request): View
+    {
+        $this->ensureAuthorized($request);
+
+        $shops = $this->shopSyncService->syncAndGetProfiles();
+        $ownedShops = $shops->filter(fn ($s) => $s->client_id !== null)->values();
+        $shops = $ownedShops->isNotEmpty() ? $ownedShops : $shops;
+
+        $selectedShopId = $request->filled('shop_id') ? (int) $request->input('shop_id') : null;
+        $timeframe = (string) $request->input('timeframe', 'monthly');
+        $dateRange = $this->resolveDateRange($timeframe, $request);
+
+        $query = ShopInvoice::query()
+            ->with(['shop', 'order', 'items.product']);
+
+        if ($selectedShopId) {
+            $query->where('shop_id', $selectedShopId);
+        } else {
+            $query->whereIn('shop_id', $shops->pluck('shop_id'));
+        }
+
+        $query->whereBetween('business_date', [$dateRange['start'], $dateRange['end']]);
+
+        $totalsQuery = clone $query;
+        $totals = [
+            'total_billed' => round((float) $totalsQuery->sum('final_total'), 2),
+            'total_paid' => round((float) $totalsQuery->sum('paid_amount'), 2),
+            'total_balance' => round((float) $totalsQuery->sum('balance_amount'), 2),
+            'count' => $totalsQuery->count(),
+        ];
+
+        $invoices = $query->orderByDesc('business_date')
+            ->orderByDesc('id')
+            ->paginate(15)
+            ->withQueryString();
+
+        return view('admin.cashbook.reports.gl_bills', [
+            'shops' => $shops,
+            'selectedShopId' => $selectedShopId,
+            'invoices' => $invoices,
+            'totals' => $totals,
+            'timeframe' => $timeframe,
+            'startDate' => $dateRange['start'],
+            'endDate' => $dateRange['end'],
+            'activeTab' => 'gl-bills',
         ]);
     }
 
@@ -433,10 +483,28 @@ class AdminCashbookReportsController extends Controller
             $current->addDay();
         }
 
+        $totalExp = max(1, (float) $expenseCategories->sum());
+        $expenseCategoriesDetailed = $transactions
+            ->filter(fn ($t) => $t->direction === 'expense' || ($t->entryType && $t->entryType->category === 'expense'))
+            ->groupBy(fn ($t) => $t->entryType?->name ?: 'Other Expense')
+            ->map(function ($group, $name) use ($totalExp) {
+                $amount = (float) $group->sum('amount');
+                return [
+                    'name' => $name,
+                    'amount' => round($amount, 2),
+                    'pct' => round(($amount / $totalExp) * 100, 1),
+                    'count' => $group->count(),
+                    'avg' => $group->count() > 0 ? round($amount / $group->count(), 2) : 0,
+                ];
+            })
+            ->sortByDesc('amount')
+            ->values();
+
         return [
             'expense_categories' => [
                 'labels' => $expenseCategories->keys()->values(),
                 'data' => $expenseCategories->values(),
+                'detailed' => $expenseCategoriesDetailed,
             ],
             'income_categories' => [
                 'labels' => $incomeCategories->keys()->values(),
@@ -464,7 +532,7 @@ class AdminCashbookReportsController extends Controller
             ];
         }
 
-        $historicalStart = today()->subDays(60)->toDateString();
+        $historicalStart = today()->subDays(30)->toDateString();
         $historicalEnd = today()->toDateString();
 
         $transactions = ShopLedgerTransaction::query()
@@ -528,7 +596,7 @@ class AdminCashbookReportsController extends Controller
                 $warning = [
                     'day' => $day,
                     'title' => "Reduce Purchases on {$day}s",
-                    'message' => "On {$day}s, GL Bill procurement consumes {$metrics['purchase_ratio']}% of total revenue with only {$metrics['margin_pct']}% net margin. Lower order stock by 15-20% on this day to eliminate overstock wastage.",
+                    'message' => "GL procurement takes {$metrics['purchase_ratio']}% revenue ({$metrics['margin_pct']}% margin). Trim stock orders by 15-20%.",
                     'severity' => $metrics['purchase_ratio'] > 80 ? 'danger' : 'warning',
                 ];
                 $overpurchaseWarnings[] = $warning;
@@ -537,7 +605,7 @@ class AdminCashbookReportsController extends Controller
                     'badge' => 'High Impact',
                     'badge_color' => 'rose',
                     'title' => "Trim Procurement on {$day}s",
-                    'description' => "Shift bulk replenishments away from {$day} toward higher sales days like {$bestProfitDay['day']}.",
+                    'description' => "Shift bulk replenishments away from {$day}s to peak days like {$bestProfitDay['day']}.",
                 ];
             }
 

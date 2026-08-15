@@ -107,7 +107,7 @@
                         url.searchParams.set('end_date', this.endDate);
                         window.history.replaceState({}, '', url);
 
-                        document.querySelectorAll('[data-nav-hub], [data-nav-charts], [data-nav-analytics]').forEach(el => {
+                        document.querySelectorAll('[data-nav-hub], [data-nav-charts], [data-nav-analytics], [data-nav-glbills]').forEach(el => {
                             const navUrl = new URL(el.href);
                             navUrl.searchParams.set('timeframe', this.timeframe);
                             navUrl.searchParams.set('start_date', this.startDate);

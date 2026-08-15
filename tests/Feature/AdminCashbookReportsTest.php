@@ -8,6 +8,7 @@ use App\Models\Cashbook\LedgerEntryType;
 use App\Models\Cashbook\ShopLedgerProfile;
 use App\Models\Cashbook\ShopLedgerTransaction;
 use App\Models\Shop;
+use App\Models\ShopInvoice;
 use App\Models\User;
 use Database\Seeders\Cashbook\LedgerEntryTypeSeeder;
 use Database\Seeders\Cashbook\ShopConfigPresetSeeder;
@@ -177,7 +178,7 @@ class AdminCashbookReportsTest extends TestCase
             ->get(route('admin.cashbook.reports.analytics'))
             ->assertOk()
             ->assertSee('Shop Profitability')
-            ->assertSee('Day-of-Week Profitability Matrix');
+            ->assertSee('Procurement & Profitability Calendar');
     }
 
     public function test_mobile_ledger_renders_correctly(): void
@@ -254,12 +255,63 @@ class AdminCashbookReportsTest extends TestCase
             ->get(route('admin.cashbook.reports.analytics'))
             ->assertOk()
             ->assertSee('Shop Profitability')
-            ->assertSee('Day-of-Week Profitability Matrix');
+            ->assertSee('Procurement & Profitability Calendar');
 
-        // 5. Can access Mobile Ledger
+        // 5. Can access GL Bills
+        $this->actingAs($accountUser)
+            ->get(route('admin.cashbook.reports.gl-bills'))
+            ->assertOk()
+            ->assertSee('GL Bills');
+
+        // 6. Can access Mobile Ledger
         $this->actingAs($accountUser)
             ->get(route('admin.cashbook.reports.mobile-ledger', 'shp-mega'))
             ->assertOk()
             ->assertSee('Mobile Shop Ledger');
+    }
+
+    public function test_gl_bills_report_page_renders_correctly(): void
+    {
+        $admin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $admin->assignRole('admin');
+
+        $shop = Shop::factory()->create([
+            'name' => 'Bills Outlet',
+            'code' => 'SHP-BLL',
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+
+        ShopLedgerProfile::create([
+            'shop_id' => $shop->id,
+            'name' => $shop->name,
+            'code' => $shop->code,
+            'slug' => 'shp-bll',
+            'enabled' => true,
+        ]);
+
+        $order = \App\Models\ShopOrder::factory()->create([
+            'shop_id' => $shop->id,
+        ]);
+
+        ShopInvoice::create([
+            'shop_id' => $shop->id,
+            'shop_order_id' => $order->id,
+            'invoice_number' => 'INV-TEST-001',
+            'business_date' => today()->toDateString(),
+            'status' => 'finalized',
+            'subtotal' => 5000.00,
+            'final_total' => 5000.00,
+            'paid_amount' => 2000.00,
+            'balance_amount' => 3000.00,
+            'delivery_note' => 'Daily produce delivery',
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.cashbook.reports.gl-bills'))
+            ->assertOk()
+            ->assertSee('GL Bills')
+            ->assertSee('INV-TEST-001')
+            ->assertSee('Bills Outlet');
     }
 }

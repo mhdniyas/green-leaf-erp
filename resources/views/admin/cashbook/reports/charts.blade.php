@@ -200,19 +200,159 @@
             </div>
         </div>
 
-        <!-- Category Breakdown Grid (Matching "Your Stats" 2x2 Screen) -->
-        <div class="space-y-2.5">
+        <!-- Animated Cake Donut Graph & Category Outflow Section -->
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script>
+            function categoryCakeAnalytics() {
+                return {
+                    selectedCategory: null,
+                    showModal: false,
+                    detailedCategories: @json($chartData['expense_categories']['detailed'] ?? []),
+                    chartLabels: @json($chartData['expense_categories']['labels'] ?? []),
+                    chartData: @json($chartData['expense_categories']['data'] ?? []),
+                    chartInstance: null,
+
+                    initChart() {
+                        const ctx = document.getElementById('cakeChartCanvas');
+                        if (!ctx || this.chartLabels.length === 0) return;
+
+                        const colors = [
+                            '#6366f1', '#f43f5e', '#f59e0b', '#10b981', '#06b6d4',
+                            '#8b5cf6', '#ec4899', '#3b82f6', '#14b8a6', '#f97316'
+                        ];
+
+                        this.chartInstance = new Chart(ctx, {
+                            type: 'doughnut',
+                            data: {
+                                labels: this.chartLabels,
+                                datasets: [{
+                                    data: this.chartData,
+                                    backgroundColor: colors.slice(0, this.chartLabels.length),
+                                    borderWidth: 3,
+                                    borderColor: '#ffffff',
+                                    hoverOffset: 10
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                cutout: '68%',
+                                animation: {
+                                    animateRotate: true,
+                                    animateScale: true,
+                                    duration: 1200,
+                                    easing: 'easeOutQuart'
+                                },
+                                plugins: {
+                                    legend: {
+                                        display: false
+                                    },
+                                    tooltip: {
+                                        callbacks: {
+                                            label: (context) => {
+                                                const label = context.label || '';
+                                                const value = context.parsed || 0;
+                                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                                const pct = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                                                return ` ${label}: ₹${value.toLocaleString('en-IN')} (${pct}%)`;
+                                            }
+                                        }
+                                    }
+                                },
+                                onClick: (evt, elements) => {
+                                    if (elements.length > 0) {
+                                        const index = elements[0].index;
+                                        const label = this.chartLabels[index];
+                                        this.openCategoryDetail(label);
+                                    }
+                                }
+                            }
+                        });
+                    },
+
+                    openCategoryDetail(categoryName) {
+                        let item = Array.isArray(this.detailedCategories) 
+                            ? this.detailedCategories.find(c => c.name === categoryName) 
+                            : null;
+
+                        if (!item) {
+                            const idx = this.chartLabels.indexOf(categoryName);
+                            const amt = this.chartData[idx] || 0;
+                            const tot = this.chartData.reduce((a, b) => a + b, 0);
+                            item = {
+                                name: categoryName,
+                                amount: amt,
+                                pct: tot > 0 ? ((amt / tot) * 100).toFixed(1) : 0,
+                                count: 1,
+                                avg: amt
+                            };
+                        }
+                        this.selectedCategory = item;
+                        this.showModal = true;
+                    }
+                };
+            }
+        </script>
+
+        <div class="space-y-3" x-data="categoryCakeAnalytics()" x-init="initChart()">
             <div class="flex items-center justify-between px-1">
-                <h3 class="text-sm font-black text-slate-900">Your Stats &amp; Category Outflow</h3>
-                <span class="text-[10px] font-bold text-slate-400">Where outflow money is spent</span>
+                <div>
+                    <h3 class="text-sm font-black text-slate-900">Your Stats &amp; Category Outflow</h3>
+                    <p class="text-[11px] font-semibold text-slate-400">Click any cake slice or card to inspect category details</p>
+                </div>
+                <span class="text-[10px] font-black uppercase text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100 shrink-0">
+                    Cake Donut Chart
+                </span>
             </div>
 
+            <!-- Cake Chart Hero Banner -->
+            <div class="rounded-[28px] border border-slate-100 bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.04)] grid grid-cols-1 sm:grid-cols-12 gap-4 items-center">
+                <!-- Donut Cake Canvas -->
+                <div class="sm:col-span-5 flex justify-center relative h-52">
+                    <canvas id="cakeChartCanvas"></canvas>
+                    <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                        <span class="text-[9px] font-black uppercase text-slate-400">Total Outflow</span>
+                        <span class="text-sm font-black text-slate-900">₹{{ number_format($chartData['total_expense'], 0) }}</span>
+                    </div>
+                </div>
+
+                <!-- Cake Graph Legend & Top Categories -->
+                <div class="sm:col-span-7 space-y-2">
+                    <h4 class="text-xs font-black uppercase tracking-wider text-slate-400">Outflow Share Breakdown</h4>
+                    <div class="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                        @foreach ($chartData['expense_categories']['labels'] as $idx => $lbl)
+                            @if ($idx < 5)
+                                @php($amt = $chartData['expense_categories']['data'][$idx] ?? 0)
+                                @php($pct = round(($amt / max(1, $chartData['total_expense'])) * 100, 1))
+                                <div
+                                    @click="openCategoryDetail('{{ $lbl }}')"
+                                    class="flex items-center justify-between p-2 rounded-xl bg-slate-50 hover:bg-slate-100 transition cursor-pointer text-xs"
+                                >
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        <span class="h-2.5 w-2.5 rounded-full shrink-0" style="background-color: {{ ['#6366f1', '#f43f5e', '#f59e0b', '#10b981', '#06b6d4', '#8b5cf6'][$idx % 6] }}"></span>
+                                        <span class="font-black text-slate-900 truncate">{{ $lbl }}</span>
+                                    </div>
+                                    <div class="text-right shrink-0">
+                                        <span class="font-black text-slate-900">₹{{ number_format($amt, 0) }}</span>
+                                        <span class="text-[10px] font-bold text-slate-400 ml-1">({{ $pct }}%)</span>
+                                    </div>
+                                </div>
+                            @endif
+                        @endforeach
+                    </div>
+                </div>
+            </div>
+
+            <!-- Outflow Category Cards Grid (Matching User Screenshot) -->
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 @php($totalExp = max(1, $chartData['total_expense']))
                 @forelse ($chartData['expense_categories']['labels'] as $index => $label)
                     @php($amount = $chartData['expense_categories']['data'][$index] ?? 0)
                     @php($pct = round(($amount / $totalExp) * 100, 1))
-                    <div class="rounded-2xl border border-slate-150 bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.02)] flex flex-col justify-between">
+                    <div
+                        @click="openCategoryDetail('{{ $label }}')"
+                        class="rounded-2xl border border-slate-150 bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.02)] flex flex-col justify-between cursor-pointer transition hover:border-indigo-400 hover:shadow-md"
+                    >
                         <div class="flex items-start justify-between">
                             <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-indigo-600">
                                 <i data-lucide="tag" class="w-4 h-4"></i>
@@ -229,6 +369,71 @@
                         No category records in this timeframe.
                     </p>
                 @endforelse
+            </div>
+
+            <!-- Category Detail Modal Overlay -->
+            <div
+                x-show="showModal"
+                class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs"
+                x-transition:enter="transition ease-out duration-200"
+                x-transition:enter-start="opacity-0"
+                x-transition:enter-end="opacity-100"
+                x-transition:leave="transition ease-in duration-150"
+                x-transition:leave-start="opacity-100"
+                x-transition:leave-end="opacity-0"
+                x-cloak
+            >
+                <div
+                    @click.away="showModal = false"
+                    class="w-full max-w-md rounded-3xl bg-white p-5 shadow-2xl space-y-4 relative border border-slate-100"
+                >
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <div class="flex items-center gap-2.5">
+                            <div class="flex h-9 w-9 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 font-black">
+                                <i data-lucide="pie-chart" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-base font-black text-slate-900" x-text="selectedCategory?.name"></h3>
+                                <p class="text-[10px] font-bold text-slate-400">Category Outflow Inspection</p>
+                            </div>
+                        </div>
+
+                        <button @click="showModal = false" class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 text-sm font-bold">
+                            ✕
+                        </button>
+                    </div>
+
+                    <template x-if="selectedCategory">
+                        <div class="space-y-3">
+                            <!-- Outflow Share Bar -->
+                            <div>
+                                <div class="flex justify-between text-xs font-black mb-1">
+                                    <span class="text-slate-400 uppercase text-[9px]">Outflow Share</span>
+                                    <span class="text-rose-600" x-text="selectedCategory.pct + '% of total expenses'"></span>
+                                </div>
+                                <div class="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                                    <div class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-rose-500 transition-all duration-500" :style="'width: ' + Math.max(5, selectedCategory.pct) + '%'"></div>
+                                </div>
+                            </div>
+
+                            <!-- 3 Stats Grid -->
+                            <div class="grid grid-cols-3 gap-2 text-center pt-2">
+                                <div class="rounded-2xl bg-slate-50 p-2.5 border border-slate-100">
+                                    <span class="text-[8px] font-black uppercase text-slate-400 block">Total Spent</span>
+                                    <span class="text-xs font-black text-slate-900" x-text="'₹' + Number(selectedCategory.amount).toLocaleString('en-IN')"></span>
+                                </div>
+                                <div class="rounded-2xl bg-slate-50 p-2.5 border border-slate-100">
+                                    <span class="text-[8px] font-black uppercase text-slate-400 block">Entries</span>
+                                    <span class="text-xs font-black text-indigo-600" x-text="selectedCategory.count || 1"></span>
+                                </div>
+                                <div class="rounded-2xl bg-slate-50 p-2.5 border border-slate-100">
+                                    <span class="text-[8px] font-black uppercase text-slate-400 block">Avg Size</span>
+                                    <span class="text-xs font-black text-slate-900" x-text="'₹' + Number(selectedCategory.avg || selectedCategory.amount).toLocaleString('en-IN')"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
             </div>
         </div>
     </div>
