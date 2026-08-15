@@ -60,21 +60,48 @@
                 <p class="text-xs font-bold text-slate-500 mt-0.5">Category Distribution <span class="text-slate-400 font-medium">&amp; Cashflow Charts</span></p>
             </div>
 
-            <!-- Shop Dropdown Selector (Tailwind Styled) -->
-            <form method="GET" action="{{ route('admin.cashbook.reports.charts') }}" class="flex items-center gap-2">
-                <input type="hidden" name="timeframe" value="{{ $timeframe }}">
-                <input type="hidden" name="start_date" value="{{ $startDate }}">
-                <input type="hidden" name="end_date" value="{{ $endDate }}">
+            <!-- Custom Tailwind Shop Selector Dropdown -->
+            <div x-data="{ open: false }" class="relative inline-block text-left">
+                <button @click="open = !open" type="button" class="inline-flex items-center justify-between gap-2 h-10 px-3.5 rounded-2xl bg-white border border-slate-200/90 text-xs font-black text-slate-800 shadow-xs hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all cursor-pointer">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="store" class="w-4 h-4 text-emerald-600"></i>
+                        <span>{{ $selectedShop ? ($selectedShop->name ?: 'Shop #'.$selectedShop->shop_id) : 'All Owned Outlets' }}</span>
+                    </div>
+                    <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 transition-transform duration-200" :class="{ 'rotate-180': open }"></i>
+                </button>
 
-                <select name="shop_id" onchange="this.form.submit()" class="h-9 rounded-2xl border border-slate-200 bg-slate-50/80 px-3 text-xs font-black text-slate-800 shadow-xs outline-none focus:border-indigo-500 focus:bg-white cursor-pointer transition">
-                    <option value="">All Owned Outlets</option>
-                    @foreach ($shops as $s)
-                        <option value="{{ $s->shop_id }}" @selected($selectedShopId === $s->shop_id)>
-                            {{ $s->name ?: ('Shop #' . $s->shop_id) }}
-                        </option>
-                    @endforeach
-                </select>
-            </form>
+                <div x-show="open"
+                     @click.away="open = false"
+                     x-cloak
+                     x-transition:enter="transition ease-out duration-100"
+                     x-transition:enter-start="transform opacity-0 scale-95"
+                     x-transition:enter-end="transform opacity-100 scale-100"
+                     x-transition:leave="transition ease-in duration-75"
+                     x-transition:leave-start="transform opacity-100 scale-100"
+                     x-transition:leave-end="transform opacity-0 scale-95"
+                     class="absolute right-0 mt-2 w-64 origin-top-right rounded-2xl bg-white p-1.5 shadow-xl ring-1 ring-black/5 z-50 divide-y divide-slate-100 max-h-72 overflow-y-auto custom-scrollbar">
+
+                    <!-- Default option: All Owned Outlets -->
+                    <a href="{{ route('admin.cashbook.reports.charts', ['timeframe' => $timeframe, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
+                       class="group flex items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition-all {{ !$selectedShopId ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100' }}">
+                        <span>All Owned Outlets</span>
+                        <span class="text-[9px] opacity-70">Clear</span>
+                    </a>
+
+                    <!-- Shop Options -->
+                    <div class="py-1 space-y-0.5">
+                        @foreach ($shops as $s)
+                            <a href="{{ route('admin.cashbook.reports.charts', ['timeframe' => $timeframe, 'shop_id' => $s->shop_id, 'start_date' => $startDate, 'end_date' => $endDate]) }}"
+                               class="group flex items-center justify-between rounded-xl px-3 py-2 text-xs font-bold transition-all {{ $selectedShopId === $s->shop_id ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100' }}">
+                                <span class="truncate">{{ $s->name ?: ('Shop #' . $s->shop_id) }}</span>
+                                <span class="ml-2 rounded-md px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide {{ $selectedShopId === $s->shop_id ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500' }}">
+                                    {{ $s->code }}
+                                </span>
+                            </a>
+                        @endforeach
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Segmented iOS Timeframe Bar (Today, Week, Month + Calendar Jump) -->

@@ -96,11 +96,13 @@ class AdminCashbookReportsController extends Controller
         $timeframe = (string) $request->input('timeframe', 'monthly');
         $dateRange = $this->resolveDateRange($timeframe, $request);
         $selectedShopId = $request->filled('shop_id') ? (int) $request->input('shop_id') : null;
+        $selectedShop = $selectedShopId ? $shops->firstWhere('shop_id', $selectedShopId) : null;
 
         $chartData = $this->generateCategoryChartData($shops, $dateRange['start'], $dateRange['end'], $selectedShopId);
 
         return view('admin.cashbook.reports.charts', [
             'shops' => $shops,
+            'selectedShop' => $selectedShop,
             'selectedShopId' => $selectedShopId,
             'chartData' => $chartData,
             'timeframe' => $timeframe,
