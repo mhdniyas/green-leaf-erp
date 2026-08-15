@@ -653,9 +653,11 @@ class ApiWarehouseLoadoutController extends Controller
             });
             $probe?->checkpoint('transaction_save_and_invoice_sync');
         } catch (ValidationException $e) {
+            $firstError = collect($e->errors())->flatten()->first() ?? 'Validation error';
+
             return response()->json([
                 'success' => false,
-                'message' => 'Validation error',
+                'message' => $firstError,
                 'errors' => $e->errors(),
             ], 422);
         } catch (Throwable $e) {

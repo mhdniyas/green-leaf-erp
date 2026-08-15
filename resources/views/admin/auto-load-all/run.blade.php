@@ -382,9 +382,14 @@
                     const balance = parseFloat(pg.total_balance ?? 0);
                     if (balance <= 0.001) continue;  // already fully loaded
                     const pid = pg.product_id;
-                    items[pid] = parseFloat(pg.total_approved);
+                    const approved = parseFloat(pg.total_approved ?? 0);
+                    if (isNaN(approved) || approved <= 0) continue;
+                    items[pid] = approved;
                     if (pg.has_secondary_unit && pg.default_loaded_order_unit_qty != null) {
-                        itemUnitQtys[pid] = parseFloat(pg.default_loaded_order_unit_qty);
+                        const unitQty = parseFloat(pg.default_loaded_order_unit_qty ?? 0);
+                        if (!isNaN(unitQty) && unitQty > 0) {
+                            itemUnitQtys[pid] = unitQty;
+                        }
                     }
                     hasAnything = true;
                 }
@@ -414,12 +419,17 @@
 
                 if (cancelled) break;
 
-                if (saveResult.success) {
+                if (saveResult && saveResult.success) {
                     loaded++;
                     logLoaded(displayName, orderNum);
                 } else {
                     failed++;
-                    logFailed(displayName, saveResult.message ?? 'Save failed.', orderNum);
+                    let errReason = saveResult?.message || 'Save failed.';
+                    if (saveResult?.errors && typeof saveResult.errors === 'object') {
+                        const firstErr = Object.values(saveResult.errors).flat()[0];
+                        if (firstErr) errReason = firstErr;
+                    }
+                    logFailed(displayName, errReason, orderNum);
                 }
 
                 updateChips();
