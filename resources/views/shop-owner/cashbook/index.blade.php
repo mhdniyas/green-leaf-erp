@@ -14,6 +14,22 @@
         <a href="{{ route('shop-owner.cashbook.reports', ['date' => $selectedDate->toDateString()]) }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-[0.14em] text-slate-700 transition hover:bg-slate-50">
             Reports
         </a>
+        @if (session()->has('admin_impersonator_id'))
+            <form method="POST" action="{{ route('admin.user-access.stop') }}" class="inline-flex">
+                @csrf
+                <button type="submit" class="inline-flex h-10 items-center rounded-xl border border-amber-300 bg-amber-50 px-4 text-xs font-black uppercase tracking-[0.14em] text-amber-800 transition hover:bg-amber-100">
+                    Return to Admin
+                </button>
+            </form>
+        @elseif (auth()->user()?->hasRole('admin'))
+            <a href="{{ route('admin.cashbook.index') }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-[0.14em] text-slate-700 transition hover:bg-slate-50">
+                Return to Admin
+            </a>
+        @else
+            <a href="{{ route('shop-owner.dashboard') }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-black uppercase tracking-[0.14em] text-slate-700 transition hover:bg-slate-50">
+                Return
+            </a>
+        @endif
     </div>
 @endsection
 
@@ -32,60 +48,110 @@
                 <a href="{{ route('shop-owner.cashbook.reports', ['date' => $selectedDate->toDateString()]) }}" class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-bold text-slate-200 transition hover:bg-slate-800">
                     Reports
                 </a>
+                @if (session()->has('admin_impersonator_id'))
+                    <form method="POST" action="{{ route('admin.user-access.stop') }}" class="inline-flex">
+                        @csrf
+                        <button type="submit" class="rounded-lg border border-amber-500/60 bg-amber-500 px-3 py-1.5 text-xs font-bold text-slate-950 transition hover:bg-amber-400">
+                            Return to Admin
+                        </button>
+                    </form>
+                @elseif (auth()->user()?->hasRole('admin'))
+                    <a href="{{ route('admin.cashbook.index') }}" class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-bold text-slate-200 transition hover:bg-slate-800">
+                        Return to Admin
+                    </a>
+                @else
+                    <a href="{{ route('shop-owner.dashboard') }}" class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-bold text-slate-200 transition hover:bg-slate-800">
+                        Return
+                    </a>
+                @endif
             </div>
         </header>
 
-        <form method="GET" action="{{ route('shop-owner.cashbook.show') }}" class="flex flex-wrap items-center justify-between gap-2.5 border-b border-slate-200 bg-slate-50 px-4 py-2 sm:px-5">
-            <div class="flex items-center gap-2">
-                <span class="text-[10px] font-black uppercase text-slate-500">Business Date</span>
-                <input type="hidden" name="tab" value="{{ $activeTab }}">
-                <input type="date" name="date" value="{{ $selectedDate->toDateString() }}" class="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:outline-none">
-                <button type="submit" class="h-8 rounded-lg bg-slate-900 px-3 text-xs font-bold text-white transition hover:bg-slate-800">
-                    Load
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5 sm:px-5">
+            <!-- Quick Access Timeframe Presets: Today | Yesterday | Week | Month | Custom Range -->
+            <div class="flex flex-wrap items-center gap-1.5">
+                <span class="text-[10px] font-black uppercase text-slate-500 mr-1">Timeframe:</span>
+                <button
+                    type="button"
+                    @click="setPreset('today')"
+                    class="rounded-lg px-2.5 py-1 text-xs font-extrabold transition"
+                    :class="activePreset === 'today' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'"
+                >
+                    Today
+                </button>
+                <button
+                    type="button"
+                    @click="setPreset('yesterday')"
+                    class="rounded-lg px-2.5 py-1 text-xs font-extrabold transition"
+                    :class="activePreset === 'yesterday' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'"
+                >
+                    Yesterday
+                </button>
+                <button
+                    type="button"
+                    @click="setPreset('weekly')"
+                    class="rounded-lg px-2.5 py-1 text-xs font-extrabold transition"
+                    :class="activePreset === 'weekly' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'"
+                >
+                    Week
+                </button>
+                <button
+                    type="button"
+                    @click="setPreset('monthly')"
+                    class="rounded-lg px-2.5 py-1 text-xs font-extrabold transition"
+                    :class="activePreset === 'monthly' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'"
+                >
+                    Month
+                </button>
+                <button
+                    type="button"
+                    @click="setPreset('custom')"
+                    class="rounded-lg px-2.5 py-1 text-xs font-extrabold transition"
+                    :class="activePreset === 'custom' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'"
+                >
+                    Custom Range
                 </button>
             </div>
-            <div class="flex items-center gap-2" x-show="activeTab === 'cashbook'">
-                <span class="text-[10px] font-black uppercase text-slate-500">Timeframe</span>
-                <div class="relative" x-data="{ open: false }">
-                    <button
-                        type="button"
-                        @click="open = !open"
-                        @click.away="open = false"
-                        class="flex h-8 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-800 transition focus:border-emerald-500 focus:outline-none"
-                    >
-                        <span class="capitalize" x-text="timeframe"></span>
-                        <svg class="h-3.5 w-3.5 text-slate-500 transition-transform duration-200" :class="{ 'rotate-180': open }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
-                        </svg>
-                    </button>
-                    <div
-                        x-show="open"
-                        x-cloak
-                        x-transition:enter="transition ease-out duration-100"
-                        x-transition:enter-start="opacity-0 scale-95"
-                        x-transition:enter-end="opacity-100 scale-100"
-                        x-transition:leave="transition ease-in duration-75"
-                        x-transition:leave-start="opacity-100 scale-100"
-                        x-transition:leave-end="opacity-0 scale-95"
-                        class="absolute right-0 top-full z-30 mt-1 min-w-[7rem] rounded-lg border border-slate-200 bg-white p-1 shadow-lg shadow-slate-900/10"
-                    >
-                        <template x-for="tf in ['daily', 'weekly', 'monthly']" :key="tf">
-                            <button
-                                type="button"
-                                @click="timeframe = tf; loadData(); open = false"
-                                class="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-xs font-bold capitalize transition"
-                                :class="timeframe === tf ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'"
-                            >
-                                <span x-text="tf"></span>
-                                <svg x-show="timeframe === tf" class="h-3.5 w-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                                </svg>
-                            </button>
-                        </template>
+
+            <!-- Date Pickers -->
+            <div class="flex items-center gap-2">
+                <template x-if="timeframe !== 'custom'">
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-black uppercase text-slate-500">Business Date</span>
+                        <input
+                            type="date"
+                            x-model="selectedDate"
+                            @change="startDate = selectedDate; endDate = selectedDate; activePreset = ''; loadData()"
+                            class="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:outline-none"
+                        >
                     </div>
-                </div>
+                </template>
+
+                <template x-if="timeframe === 'custom'">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="text-[10px] font-black uppercase text-slate-500">From</span>
+                        <input
+                            type="date"
+                            x-model="startDate"
+                            class="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:outline-none"
+                        >
+                        <span class="text-[10px] font-black uppercase text-slate-500">To</span>
+                        <input
+                            type="date"
+                            x-model="endDate"
+                            class="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-800 focus:border-emerald-500 focus:outline-none"
+                        >
+                        <button
+                            type="button"
+                            @click="selectedDate = startDate; loadData()"
+                            class="h-8 rounded-lg bg-slate-900 px-3 text-xs font-bold text-white transition hover:bg-slate-800"
+                        >
+                            Apply Range
+                        </button>
+                    </div>
+                </template>
             </div>
-        </form>
+        </div>
 
         <section class="grid grid-cols-3 border-b border-slate-200">
             <div class="border-r border-slate-200 px-1 py-2 text-center sm:px-3 cursor-pointer hover:bg-slate-100/70 transition-colors" @click="showCardDetails('sales')" title="Click for details">
@@ -169,7 +235,7 @@
                         <p class="text-[10px] font-black uppercase tracking-wider text-emerald-600">Admin Cashbook Metrics</p>
                         <h3 class="text-sm font-black text-slate-950">Shop Snapshot Overview</h3>
                     </div>
-                    <span class="rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold uppercase text-emerald-700 border border-emerald-200" x-text="timeframe + ' View'"></span>
+                    <span class="rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold uppercase text-emerald-700 border border-emerald-200" x-text="timeframeLabel() + ' View'"></span>
                 </div>
 
                 <!-- 6 Metric Cards from Admin Cashbook -->
@@ -687,6 +753,9 @@
                 submitting: false,
                 showTotalsOnly: false,
                 timeframe: 'daily',
+                activePreset: 'today',
+                startDate: '{{ $selectedDate->toDateString() }}',
+                endDate: '{{ $selectedDate->toDateString() }}',
                 transactions: [],
                 collectionGroups: @json($collectionGroups ?? []),
                 collectionSummaries: [],
@@ -1129,10 +1198,49 @@
                     this.openCardModal = true;
                 },
 
+                setPreset(preset) {
+                    this.activePreset = preset;
+                    const todayStr = '{{ today()->toDateString() }}';
+                    const yesterdayStr = '{{ today()->subDay()->toDateString() }}';
+
+                    if (preset === 'today') {
+                        this.selectedDate = todayStr;
+                        this.startDate = todayStr;
+                        this.endDate = todayStr;
+                        this.timeframe = 'daily';
+                    } else if (preset === 'yesterday') {
+                        this.selectedDate = yesterdayStr;
+                        this.startDate = yesterdayStr;
+                        this.endDate = yesterdayStr;
+                        this.timeframe = 'daily';
+                    } else if (preset === 'weekly') {
+                        this.selectedDate = todayStr;
+                        this.timeframe = 'weekly';
+                    } else if (preset === 'monthly') {
+                        this.selectedDate = todayStr;
+                        this.timeframe = 'monthly';
+                    } else if (preset === 'custom') {
+                        this.timeframe = 'custom';
+                        if (!this.startDate) this.startDate = todayStr;
+                        if (!this.endDate) this.endDate = todayStr;
+                        return;
+                    }
+                    this.loadData();
+                },
+
+                timeframeLabel() {
+                    if (this.timeframe === 'custom') {
+                        return (this.startDate || '') + ' to ' + (this.endDate || '');
+                    }
+                    return this.timeframe;
+                },
+
                 async loadData() {
                     const params = new URLSearchParams({
                         business_date: this.selectedDate,
                         timeframe: this.timeframe,
+                        start_date: this.startDate || '',
+                        end_date: this.endDate || '',
                     });
 
                     const response = await fetch(`{{ route('shop-owner.cashbook.api.shop-data') }}?${params.toString()}`);

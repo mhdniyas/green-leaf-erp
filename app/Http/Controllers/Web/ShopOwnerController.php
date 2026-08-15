@@ -765,6 +765,8 @@ class ShopOwnerController extends Controller
         $shop = $this->ownedAccountingShop($request);
         $date = Carbon::parse((string) $request->input('business_date', today()->toDateString()))->toDateString();
         $timeframe = (string) $request->input('timeframe', 'daily');
+        $startDateParam = $request->input('start_date');
+        $endDateParam = $request->input('end_date');
         $month = substr($date, 0, 7);
 
         $this->cashbookShopSyncService->syncAndGetProfiles();
@@ -773,9 +775,13 @@ class ShopOwnerController extends Controller
         $startOfWeek = $carbon->copy()->startOfWeek()->toDateString();
         $endOfWeek = $carbon->copy()->endOfWeek()->toDateString();
 
+        $customStart = $startDateParam ? Carbon::parse((string) $startDateParam)->toDateString() : $date;
+        $customEnd = $endDateParam ? Carbon::parse((string) $endDateParam)->toDateString() : $date;
+
         [$syncStartDate, $syncEndDate] = match ($timeframe) {
             'weekly' => [$startOfWeek, $endOfWeek],
             'monthly' => [$carbon->copy()->startOfMonth()->toDateString(), $carbon->copy()->endOfMonth()->toDateString()],
+            'custom' => [$customStart, $customEnd],
             default => [$date, $date],
         };
 
@@ -794,6 +800,8 @@ class ShopOwnerController extends Controller
             $query->whereBetween('business_date', [$startOfWeek, $endOfWeek]);
         } elseif ($timeframe === 'monthly') {
             $query->where('business_date', 'like', $month.'%');
+        } elseif ($timeframe === 'custom') {
+            $query->whereBetween('business_date', [$syncStartDate, $syncEndDate]);
         } else {
             $query->where('business_date', $date);
         }
@@ -803,10 +811,17 @@ class ShopOwnerController extends Controller
             ->orderBy('id', 'desc')
             ->get();
 
-        $monthTransactions = ShopLedgerTransaction::query()
+        $monthTransactionsQuery = ShopLedgerTransaction::query()
             ->with('entryType')
-            ->where('shop_id', (int) $shop->id)
-            ->where('business_date', 'like', $month.'%')
+            ->where('shop_id', (int) $shop->id);
+
+        if (in_array($timeframe, ['weekly', 'monthly', 'custom'], true)) {
+            $monthTransactionsQuery->whereBetween('business_date', [$syncStartDate, $syncEndDate]);
+        } else {
+            $monthTransactionsQuery->where('business_date', 'like', $month.'%');
+        }
+
+        $monthTransactions = $monthTransactionsQuery
             ->orderBy('business_date', 'desc')
             ->orderBy('id', 'desc')
             ->get();
