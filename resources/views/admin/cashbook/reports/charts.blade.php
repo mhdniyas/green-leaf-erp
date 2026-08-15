@@ -132,6 +132,22 @@
             </form>
         </div>
 
+        @if (($chartData['pending_days_count'] ?? 0) > 0)
+            <div class="rounded-2xl bg-amber-500/10 border border-amber-500/20 p-3 flex items-center justify-between gap-3 text-xs font-bold text-amber-900">
+                <div class="flex items-center gap-2">
+                    <span class="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-white shrink-0">
+                        <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+                    </span>
+                    <span>
+                        {{ $chartData['pending_days_count'] }} {{ Str::plural('day', $chartData['pending_days_count']) }} with GL bills pending shop entries are excluded from charts.
+                    </span>
+                </div>
+                <span class="text-[10px] font-black uppercase text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                    {{ $chartData['pending_days_count'] }} Pending
+                </span>
+            </div>
+        @endif
+
         <!-- Target / Health Status Card (Screenshot Target Match) -->
         <div class="rounded-[28px] border border-slate-100 bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.04)]">
             <div class="flex items-center justify-between">

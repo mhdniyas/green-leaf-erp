@@ -986,6 +986,57 @@ class ShopOwnerController extends Controller
         }
     }
 
+    public function cashbookBulkRecordEntries(Request $request): JsonResponse
+    {
+        $shop = $this->ownedAccountingShop($request);
+        $validated = $request->validate([
+            'business_date' => ['required', 'date_format:Y-m-d'],
+            'entries' => ['required', 'array', 'min:1'],
+            'entries.*.entry_type_code' => ['required', 'string', 'exists:ledger_entry_types,code'],
+            'entries.*.amount' => ['required', 'numeric', 'min:0.01'],
+            'entries.*.funding_source' => ['nullable', 'string', 'in:sales,petty,company,bank,external,company_later,none'],
+            'entries.*.notes' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $created = [];
+        $userId = (int) ($request->user()?->id ?? 1);
+
+        foreach ($validated['entries'] as $item) {
+            $code = (string) $item['entry_type_code'];
+            // Skip automated invoice bill entry codes if any
+            if (in_array($code, ['gl_bill', 'purchase_bill'], true)) {
+                continue;
+            }
+
+            $payload = [
+                'shop_id' => (int) $shop->id,
+                'business_date' => $validated['business_date'],
+                'entry_type_code' => $code,
+                'amount' => (float) $item['amount'],
+                'entered_by' => $userId,
+                'notes' => $item['notes'] ?? null,
+            ];
+
+            if (!empty($item['funding_source']) && $item['funding_source'] !== 'none') {
+                $payload['funding_source'] = $item['funding_source'];
+            }
+
+            $result = $this->dailyLedgerService->recordEntry($payload);
+            if (!empty($result['transaction'])) {
+                $created[] = $result['transaction'];
+            }
+        }
+
+        $snapshot = $this->dailyLedgerService->dailySummary((int) $shop->id, $validated['business_date']);
+
+        return response()->json([
+            'success' => true,
+            'message' => count($created) . ' entries created successfully.',
+            'count' => count($created),
+            'snapshot' => $snapshot,
+        ]);
+    }
+
     public function cashbookRecordEntry(Request $request): JsonResponse
     {
         $shop = $this->ownedAccountingShop($request);

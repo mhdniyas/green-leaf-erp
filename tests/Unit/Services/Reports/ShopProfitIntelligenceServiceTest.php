@@ -170,12 +170,15 @@ class ShopProfitIntelligenceServiceTest extends TestCase
         $ref    = new ReflectionClass($this->service);
         $method = $ref->getMethod('emptyResult');
         $method->setAccessible(true);
-        $result = $method->invoke($this->service);
+        $result = $method->invoke($this->service, ['2026-08-14', '2026-08-15'], 25000.0);
 
         $this->assertFalse($result['has_data']);
         $this->assertEquals(0.0, $result['captured_profit']);
         $this->assertEquals(0.0, $result['total_leakage']);
         $this->assertEquals('No Data', $result['health_badge']);
+        $this->assertEquals(2, $result['pending_days_count']);
+        $this->assertEquals(['2026-08-14', '2026-08-15'], $result['pending_dates']);
+        $this->assertEquals(25000.0, $result['excluded_gl_bill_total']);
     }
 
     // ─── Fixture builder ─────────────────────────────────────────────────────

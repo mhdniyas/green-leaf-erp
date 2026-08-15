@@ -451,15 +451,36 @@ class AdminCashbookReportsController extends Controller
 
         $transactions = $query->get();
 
+        // Identify dates that have ONLY GL bills (pending shop daily entries)
+        $transactionsByDate = $transactions->groupBy(
+            fn ($tx) => Carbon::parse($tx->business_date)->toDateString()
+        );
+
+        $pendingGlOnlyDates = [];
+        $activeTransactions = collect();
+
+        foreach ($transactionsByDate as $dateStr => $dayTxs) {
+            $hasNonGlBill = $dayTxs->contains(function ($tx) {
+                return $tx->reference_type !== 'App\Models\ShopInvoice'
+                    && $tx->reference_type !== \App\Models\ShopInvoice::class;
+            });
+
+            if (! $hasNonGlBill) {
+                $pendingGlOnlyDates[] = $dateStr;
+            } else {
+                $activeTransactions = $activeTransactions->concat($dayTxs);
+            }
+        }
+
         // Expense categories
-        $expenseCategories = $transactions
+        $expenseCategories = $activeTransactions
             ->filter(fn ($t) => $t->direction === 'expense' || ($t->entryType && $t->entryType->category === 'expense'))
             ->groupBy(fn ($t) => $t->entryType?->name ?: 'Other Expense')
             ->map(fn ($g) => round((float) $g->sum('amount'), 2))
             ->sortDesc();
 
         // Income categories
-        $incomeCategories = $transactions
+        $incomeCategories = $activeTransactions
             ->filter(fn ($t) => $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income'))
             ->groupBy(fn ($t) => $t->entryType?->name ?: 'Sales & Inflow')
             ->map(fn ($g) => round((float) $g->sum('amount'), 2))
@@ -478,7 +499,13 @@ class AdminCashbookReportsController extends Controller
 
         while ($current->lte($periodEnd)) {
             $dateStr = $current->toDateString();
-            $dayTx = $transactions->filter(fn ($t) => Carbon::parse($t->business_date)->toDateString() === $dateStr);
+            // Skip days with only GL bills from continuous trend curve
+            if (in_array($dateStr, $pendingGlOnlyDates, true)) {
+                $current->addDay();
+                continue;
+            }
+
+            $dayTx = $activeTransactions->filter(fn ($t) => Carbon::parse($t->business_date)->toDateString() === $dateStr);
 
             $daySales = (float) $dayTx
                 ->filter(fn ($t) => $t->direction === 'income' || ($t->entryType && $t->entryType->category === 'income'))
@@ -499,7 +526,7 @@ class AdminCashbookReportsController extends Controller
         }
 
         $totalExp = max(1, (float) $expenseCategories->sum());
-        $expenseCategoriesDetailed = $transactions
+        $expenseCategoriesDetailed = $activeTransactions
             ->filter(fn ($t) => $t->direction === 'expense' || ($t->entryType && $t->entryType->category === 'expense'))
             ->groupBy(fn ($t) => $t->entryType?->name ?: 'Other Expense')
             ->map(function ($group, $name) use ($totalExp) {
@@ -529,6 +556,8 @@ class AdminCashbookReportsController extends Controller
             'total_sales' => round($incomeCategories->sum(), 2),
             'total_expense' => round($expenseCategories->sum(), 2),
             'net_profit' => round($incomeCategories->sum() - $expenseCategories->sum(), 2),
+            'pending_days_count' => count($pendingGlOnlyDates),
+            'pending_dates' => $pendingGlOnlyDates,
         ];
     }
 

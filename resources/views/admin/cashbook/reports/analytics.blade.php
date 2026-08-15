@@ -39,7 +39,15 @@
         {{-- ── HEADER ROW: title + shop picker ── --}}
         <div class="flex items-center justify-between pt-1">
             <div>
-                <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-400">30-Day Overview</p>
+                <div class="flex items-center gap-2">
+                    <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-400">30-Day Overview</p>
+                    @if (($intel['pending_days_count'] ?? 0) > 0)
+                        <span class="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black text-amber-800">
+                            <i data-lucide="clock" class="w-3 h-3 text-amber-600"></i>
+                            {{ $intel['pending_days_count'] }} {{ Str::plural('Day', $intel['pending_days_count']) }} Pending
+                        </span>
+                    @endif
+                </div>
                 <h1 class="text-xl font-black tracking-tight text-slate-900 leading-tight">
                     {{ $shop ? ($shop->name ?: 'Shop #'.$shop->shop_id) : 'Select Shop' }}
                 </h1>
@@ -70,6 +78,23 @@
                 </div>
             </div>
         </div>
+
+        {{-- Pending Days Alert Banner (when shop owner has not entered sales for delivered GL bills) --}}
+        @if (($intel['pending_days_count'] ?? 0) > 0)
+            <div class="rounded-[20px] bg-amber-500/10 border border-amber-500/20 p-3.5 flex items-start gap-3">
+                <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white mt-0.5">
+                    <i data-lucide="clock" class="w-4 h-4"></i>
+                </div>
+                <div class="space-y-0.5">
+                    <p class="text-xs font-black text-amber-900 leading-tight">
+                        {{ $intel['pending_days_count'] }} {{ Str::plural('day', $intel['pending_days_count']) }} with GL bills pending daily sales entry
+                    </p>
+                    <p class="text-[10px] font-medium text-amber-800/80 leading-relaxed">
+                        These dates have stock bills recorded without shop sales/cashbook entries. They are excluded from profit calculations to keep margins and leakage metrics accurate.
+                    </p>
+                </div>
+            </div>
+        @endif
 
         @if (!$intel['has_data'])
             {{-- ── EMPTY STATE ── --}}

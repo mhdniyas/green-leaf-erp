@@ -54,6 +54,9 @@ final class ShopProfitIntelligenceService
      *     risk_day: array|null,
      *     high_sales_day: array|null,
      *     leak_warnings: array,
+     *     pending_days_count: int,
+     *     pending_dates: array<string>,
+     *     excluded_gl_bill_total: float,
      *     has_data: bool,
      * }
      */
@@ -73,13 +76,36 @@ final class ShopProfitIntelligenceService
             return $this->emptyResult();
         }
 
-        // --- Period-level totals (uses the purpose-built columns) ---
-        $periodSales   = (float) $transactions->where('affects_income', true)->sum('amount');
-        $periodExpense = (float) $transactions->where('affects_expense', true)->sum('amount');
-        $periodNet     = (float) $transactions->where('affects_pl', true)->sum('pl_delta');
+        // --- Filter out days that ONLY have GL Bills (pending shop owner sales & expenses) ---
+        $transactionsByDate = $transactions->groupBy(
+            fn ($tx) => Carbon::parse($tx->business_date)->toDateString()
+        );
+
+        $pendingGlOnlyDates = [];
+        $excludedGlBillTotal = 0.0;
+        $activeTransactions = collect();
+
+        foreach ($transactionsByDate as $dateStr => $dayTxs) {
+            $hasNonGlBill = $dayTxs->contains(fn ($tx) => !$this->isGlBillTransaction($tx));
+            if (! $hasNonGlBill) {
+                $pendingGlOnlyDates[] = $dateStr;
+                $excludedGlBillTotal += (float) $dayTxs->sum('amount');
+            } else {
+                $activeTransactions = $activeTransactions->concat($dayTxs);
+            }
+        }
+
+        if ($activeTransactions->isEmpty()) {
+            return $this->emptyResult($pendingGlOnlyDates, $excludedGlBillTotal);
+        }
+
+        // --- Period-level totals (uses purpose-built columns on active reported days) ---
+        $periodSales   = (float) $activeTransactions->where('affects_income', true)->sum('amount');
+        $periodExpense = (float) $activeTransactions->where('affects_expense', true)->sum('amount');
+        $periodNet     = (float) $activeTransactions->where('affects_pl', true)->sum('pl_delta');
 
         // --- Weekday analysis (7 rows) ---
-        $weekdayAnalysis = $this->buildWeekdayAnalysis($transactions);
+        $weekdayAnalysis = $this->buildWeekdayAnalysis($activeTransactions);
 
         // --- Leakage calculation ---
         $leakageResult = $this->calculateLeakage($weekdayAnalysis);
@@ -103,22 +129,34 @@ final class ShopProfitIntelligenceService
         $riskDay       = collect($leakageResult['flagged_days'])->sortByDesc('excess_ratio')->first();
 
         return [
-            'captured_profit'  => round($capturedProfit, 2),
-            'potential_profit' => round($potentialProfit, 2),
-            'captured_pct'     => $capturedPct,
-            'total_leakage'    => round($totalLeakage, 2),
-            'health_badge'     => $healthBadge,
-            'health_tone'      => $healthTone,
-            'period_sales'     => round($periodSales, 2),
-            'period_expense'   => round($periodExpense, 2),
-            'period_net'       => round($periodNet, 2),
-            'weekday_analysis' => $weekdayAnalysis,
-            'best_profit_day'  => $bestProfitDay,
-            'risk_day'         => $riskDay,
-            'high_sales_day'   => $highSalesDay,
-            'leak_warnings'    => $leakageResult['flagged_days'],
-            'has_data'         => true,
+            'captured_profit'        => round($capturedProfit, 2),
+            'potential_profit'       => round($potentialProfit, 2),
+            'captured_pct'           => $capturedPct,
+            'total_leakage'          => round($totalLeakage, 2),
+            'health_badge'           => $healthBadge,
+            'health_tone'            => $healthTone,
+            'period_sales'           => round($periodSales, 2),
+            'period_expense'         => round($periodExpense, 2),
+            'period_net'             => round($periodNet, 2),
+            'weekday_analysis'       => $weekdayAnalysis,
+            'best_profit_day'        => $bestProfitDay,
+            'risk_day'               => $riskDay,
+            'high_sales_day'         => $highSalesDay,
+            'leak_warnings'          => $leakageResult['flagged_days'],
+            'pending_days_count'     => count($pendingGlOnlyDates),
+            'pending_dates'          => $pendingGlOnlyDates,
+            'excluded_gl_bill_total' => round($excludedGlBillTotal, 2),
+            'has_data'               => true,
         ];
+    }
+
+    /**
+     * Determine if a transaction is a system-synced GL bill.
+     */
+    private function isGlBillTransaction(ShopLedgerTransaction $tx): bool
+    {
+        return $tx->reference_type === 'App\Models\ShopInvoice'
+            || $tx->reference_type === \App\Models\ShopInvoice::class;
     }
 
     /**
@@ -256,25 +294,28 @@ final class ShopProfitIntelligenceService
         return ['Critical', 'rose'];
     }
 
-    /** Returned when the shop has no confirmed transactions in the 30-day window. */
-    private function emptyResult(): array
+    /** Returned when the shop has no confirmed non-GL-bill transactions in the 30-day window. */
+    private function emptyResult(array $pendingDates = [], float $excludedGlBillTotal = 0.0): array
     {
         return [
-            'captured_profit'  => 0.0,
-            'potential_profit' => 0.0,
-            'captured_pct'     => 0.0,
-            'total_leakage'    => 0.0,
-            'health_badge'     => 'No Data',
-            'health_tone'      => 'slate',
-            'period_sales'     => 0.0,
-            'period_expense'   => 0.0,
-            'period_net'       => 0.0,
-            'weekday_analysis' => [],
-            'best_profit_day'  => null,
-            'risk_day'         => null,
-            'high_sales_day'   => null,
-            'leak_warnings'    => [],
-            'has_data'         => false,
+            'captured_profit'        => 0.0,
+            'potential_profit'       => 0.0,
+            'captured_pct'           => 0.0,
+            'total_leakage'          => 0.0,
+            'health_badge'           => 'No Data',
+            'health_tone'            => 'slate',
+            'period_sales'           => 0.0,
+            'period_expense'         => 0.0,
+            'period_net'             => 0.0,
+            'weekday_analysis'       => [],
+            'best_profit_day'        => null,
+            'risk_day'               => null,
+            'high_sales_day'         => null,
+            'leak_warnings'          => [],
+            'pending_days_count'     => count($pendingDates),
+            'pending_dates'          => $pendingDates,
+            'excluded_gl_bill_total' => round($excludedGlBillTotal, 2),
+            'has_data'               => false,
         ];
     }
 }
