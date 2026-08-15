@@ -129,18 +129,8 @@
             </div>
         </div>
 
-        <!-- Bouncing 3-Dot Loader (From Uiverse.io by mahendrameghwal) -->
-        <div x-show="loading" x-cloak class="py-12 flex flex-col items-center justify-center space-y-4 rounded-[28px] border border-slate-100 bg-white shadow-xs">
-            <div class="w-full gap-x-2 flex justify-center items-center">
-                <div class="w-5 h-5 bg-[#d991c2] animate-pulse rounded-full animate-bounce"></div>
-                <div class="w-5 h-5 bg-[#9869b8] animate-pulse rounded-full animate-bounce [animation-delay:0.2s]"></div>
-                <div class="w-5 h-5 bg-[#6756cc] animate-pulse rounded-full animate-bounce [animation-delay:0.4s]"></div>
-            </div>
-            <p class="text-xs font-black tracking-wide text-slate-500">Loading GL Bills &amp; Deliveries...</p>
-        </div>
-
         <!-- GL Bills Data Table Card (Clean 3-Column List: Date & Ref, Shop Outlet, Bill Total) -->
-        <div x-show="!loading" class="rounded-[28px] border border-slate-100 bg-white p-4 sm:p-5 shadow-[0_8px_30px_rgba(0,0,0,0.04)] space-y-4">
+        <div class="rounded-[28px] border border-slate-100 bg-white p-4 sm:p-5 shadow-[0_8px_30px_rgba(0,0,0,0.04)] space-y-4">
             <div class="flex items-center justify-between px-1">
                 <div>
                     <h3 class="text-sm font-black text-slate-900">Daily Invoices &amp; Bills Table</h3>

@@ -77,14 +77,13 @@
     <!-- Toast Notification Container -->
     <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-3 max-w-md w-full pointer-events-none"></div>
 
-    <!-- Global Bouncing 3-Dot Loader Overlay (From Uiverse.io by mahendrameghwal) -->
-    <div id="global-page-loader" class="hidden fixed inset-0 z-[100] flex flex-col items-center justify-center bg-white/90 backdrop-blur-md transition-all duration-200">
+    <!-- Pure Transparent 3-Dot Bouncing Loader (Uiverse.io by mahendrameghwal) -->
+    <div id="global-page-loader" class="hidden fixed inset-0 z-[100] flex items-center justify-center pointer-events-none transition-all duration-200">
         <div class="w-full gap-x-2 flex justify-center items-center">
             <div class="w-5 h-5 bg-[#d991c2] animate-pulse rounded-full animate-bounce"></div>
             <div class="w-5 h-5 bg-[#9869b8] animate-pulse rounded-full animate-bounce [animation-delay:0.2s]"></div>
             <div class="w-5 h-5 bg-[#6756cc] animate-pulse rounded-full animate-bounce [animation-delay:0.4s]"></div>
         </div>
-        <p class="mt-4 text-xs font-black uppercase tracking-wider text-slate-700">Loading Cashbook Reports...</p>
     </div>
 
     <div id="cashbook-layout-shell" class="min-h-screen flex w-full max-w-full overflow-x-hidden" data-sidebar-state="expanded">
