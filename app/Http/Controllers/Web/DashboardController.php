@@ -48,6 +48,10 @@ class DashboardController extends Controller
             return redirect()->to($staffLandingUrl);
         }
 
+        if ($user->hasRole('warehouse_receiver')) {
+            return redirect()->route('warehouse.receiver.checklist');
+        }
+
         if ($user->hasRole('purchaser')) {
             return redirect()->route('purchaser.dashboard');
         }
@@ -56,9 +60,6 @@ class DashboardController extends Controller
             return redirect()->route('purchasing.dashboard');
         }
 
-        if ($user->hasRole('warehouse_receiver')) {
-            return redirect()->route('warehouse.receiver.checklist');
-        }
 
         if ($user->hasAnyPermission(['inventory.product.view', 'inventory.stock.view', 'inventory.sorting.view', 'inventory.wastage.view'])) {
             return redirect()->route('inventory.dashboard');

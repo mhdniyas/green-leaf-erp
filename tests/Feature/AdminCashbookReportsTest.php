@@ -1,0 +1,211 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature;
+
+use App\Models\Cashbook\LedgerEntryType;
+use App\Models\Cashbook\ShopLedgerProfile;
+use App\Models\Cashbook\ShopLedgerTransaction;
+use App\Models\Shop;
+use App\Models\User;
+use Database\Seeders\Cashbook\LedgerEntryTypeSeeder;
+use Database\Seeders\Cashbook\ShopConfigPresetSeeder;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Spatie\Permission\Models\Role;
+use Tests\TestCase;
+
+class AdminCashbookReportsTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->withoutVite();
+
+        config()->set('admin.user_access.main_admin_email', 'admin@greenleaf.com');
+        Role::findOrCreate('admin', 'web');
+
+        $this->seed(LedgerEntryTypeSeeder::class);
+        $this->seed(ShopConfigPresetSeeder::class);
+    }
+
+    public function test_main_admin_can_access_cashbook_reports_hub_cards(): void
+    {
+        $admin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $admin->assignRole('admin');
+
+        $shop = Shop::factory()->create([
+            'name' => 'Downtown Superstore',
+            'code' => 'SHP-DT',
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+
+        ShopLedgerProfile::create([
+            'shop_id' => $shop->id,
+            'name' => $shop->name,
+            'code' => $shop->code,
+            'slug' => 'shp-dt',
+            'enabled' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.cashbook.reports.hub'))
+            ->assertOk()
+            ->assertSee('Owned Shops Financial Cards')
+            ->assertSee('Downtown Superstore')
+            ->assertSee('Total Gross Sales')
+            ->assertSee('Total Expenses');
+    }
+
+    public function test_cashbook_reports_hub_api_returns_accurate_metrics(): void
+    {
+        $admin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $admin->assignRole('admin');
+
+        $shop = Shop::factory()->create([
+            'name' => 'City Fresh',
+            'code' => 'SHP-CF',
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+
+        ShopLedgerProfile::create([
+            'shop_id' => $shop->id,
+            'name' => $shop->name,
+            'code' => $shop->code,
+            'slug' => 'shp-cf',
+            'enabled' => true,
+        ]);
+
+        $incomeType = LedgerEntryType::where('code', 'cash_sales')->first();
+        $expenseType = LedgerEntryType::where('code', 'other_expense')->first();
+
+        ShopLedgerTransaction::create([
+            'shop_id' => $shop->id,
+            'business_date' => today()->toDateString(),
+            'entry_type_id' => $incomeType?->id,
+            'entry_type_code' => 'cash_sales',
+            'direction' => 'income',
+            'amount' => 8000.00,
+            'funding_source' => 'none',
+            'entered_by_user_id' => $admin->id,
+            'status' => 'posted',
+        ]);
+
+        ShopLedgerTransaction::create([
+            'shop_id' => $shop->id,
+            'business_date' => today()->toDateString(),
+            'entry_type_id' => $expenseType?->id,
+            'entry_type_code' => 'other_expense',
+            'direction' => 'expense',
+            'amount' => 2000.00,
+            'funding_source' => 'petty',
+            'entered_by_user_id' => $admin->id,
+            'status' => 'posted',
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->getJson(route('admin.cashbook.reports.api.hub', ['timeframe' => 'today']))
+            ->assertOk();
+
+        $response->assertJsonPath('success', true);
+        $response->assertJsonPath('totals.sales', 8000);
+        $response->assertJsonPath('totals.expense', 2000);
+        $response->assertJsonPath('totals.net', 6000);
+    }
+
+    public function test_single_shop_drilldown_renders_in_admin_cashbook(): void
+    {
+        $admin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $admin->assignRole('admin');
+
+        $shop = Shop::factory()->create([
+            'name' => 'Metro Supercenter',
+            'code' => 'SHP-METRO',
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+
+        ShopLedgerProfile::create([
+            'shop_id' => $shop->id,
+            'name' => $shop->name,
+            'code' => $shop->code,
+            'slug' => 'shp-metro',
+            'enabled' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.cashbook.reports.shop', 'shp-metro'))
+            ->assertOk()
+            ->assertSee('Metro Supercenter')
+            ->assertSee('Category Breakdown')
+            ->assertSee('Daily Ledger Entries');
+    }
+
+    public function test_category_charts_and_analytics_render_in_admin_cashbook(): void
+    {
+        $admin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $admin->assignRole('admin');
+
+        $shop = Shop::factory()->create([
+            'name' => 'Apex Outlet',
+            'code' => 'SHP-APEX',
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+
+        ShopLedgerProfile::create([
+            'shop_id' => $shop->id,
+            'name' => $shop->name,
+            'code' => $shop->code,
+            'slug' => 'shp-apex',
+            'enabled' => true,
+        ]);
+
+        // Charts
+        $this->actingAs($admin)
+            ->get(route('admin.cashbook.reports.charts'))
+            ->assertOk()
+            ->assertSee('Category Distribution');
+
+        // Analytics
+        $this->actingAs($admin)
+            ->get(route('admin.cashbook.reports.analytics'))
+            ->assertOk()
+            ->assertSee('Shop Profitability')
+            ->assertSee('Day-of-Week Profitability Matrix');
+    }
+
+    public function test_mobile_ledger_renders_correctly(): void
+    {
+        $admin = User::factory()->create(['email' => 'admin@greenleaf.com']);
+        $admin->assignRole('admin');
+
+        $shop = Shop::factory()->create([
+            'name' => 'Mobile Outlet',
+            'code' => 'SHP-MOB',
+            'accounting_enabled' => true,
+            'accounting_mode' => 'owned',
+        ]);
+
+        ShopLedgerProfile::create([
+            'shop_id' => $shop->id,
+            'name' => $shop->name,
+            'code' => $shop->code,
+            'slug' => 'shp-mob',
+            'enabled' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.cashbook.reports.mobile-ledger', 'shp-mob'))
+            ->assertOk()
+            ->assertSee('Mobile Shop Ledger')
+            ->assertSee('Mobile Outlet')
+            ->assertSee('Sales (In)')
+            ->assertSee('Expense (Out)');
+    }
+}

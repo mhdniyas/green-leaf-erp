@@ -71,20 +71,29 @@
     </style>
     @stack('styles')
 </head>
-<body class="h-full font-sans text-slate-800 antialiased selection:bg-brand-500 selection:text-white bg-slate-50 custom-scrollbar">
+<body class="h-full w-full overflow-x-hidden font-sans text-slate-800 antialiased selection:bg-brand-500 selection:text-white bg-slate-50 custom-scrollbar">
 
     <!-- Toast Notification Container -->
     <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-3 max-w-md w-full pointer-events-none"></div>
 
-    <div id="cashbook-layout-shell" class="min-h-screen flex" data-sidebar-state="expanded">
+    <div id="cashbook-layout-shell" class="min-h-screen flex w-full max-w-full overflow-x-hidden" data-sidebar-state="expanded">
         @include('admin.cashbook.layouts.partials.sidebar')
 
-        <div id="cashbook-main" class="flex-1 md:pl-64 flex flex-col min-h-screen transition-[padding] duration-300">
+        <div id="cashbook-main" class="w-full max-w-full overflow-x-hidden flex-1 md:pl-64 flex flex-col min-h-screen transition-[padding] duration-300">
             @include('admin.cashbook.layouts.partials.header')
 
-            <main class="flex-1 p-3 sm:p-6 md:p-8 space-y-6 sm:space-y-8">
+            @php
+                $isMobileSection = request()->routeIs('admin.cashbook.reports.hub') ||
+                                   request()->routeIs('admin.cashbook.reports.shop') ||
+                                   request()->routeIs('admin.cashbook.reports.charts') ||
+                                   request()->routeIs('admin.cashbook.reports.analytics') ||
+                                   request()->routeIs('admin.cashbook.reports.mobile-ledger');
+            @endphp
+
+            <main class="flex-1 p-3 sm:p-6 md:p-8 space-y-4 sm:space-y-6 {{ $isMobileSection ? 'pb-28 md:pb-8' : '' }}">
                 @yield('content')
             </main>
+
         </div>
     </div>
 
@@ -178,5 +187,31 @@
         }
     </script>
     @stack('scripts')
+
+    @if($isMobileSection)
+        <!-- Mobile Bottom Navigation Bar (Screenshot Style) -->
+        <div class="fixed bottom-0 left-0 right-0 z-40 block md:hidden bg-white/95 backdrop-blur-md border-t border-slate-100 shadow-[0_-8px_25px_rgba(0,0,0,0.04)] px-4 py-2.5">
+            <div class="flex items-center justify-around max-w-md mx-auto">
+                <a href="{{ route('admin.cashbook.reports.hub') }}" class="flex flex-col items-center justify-center text-[10px] font-extrabold transition-all {{ request()->routeIs('admin.cashbook.reports.hub') || request()->routeIs('admin.cashbook.reports.shop') || request()->routeIs('admin.cashbook.reports.mobile-ledger') ? 'text-slate-900' : 'text-slate-400 hover:text-slate-700' }}">
+                    <div class="p-1 rounded-xl {{ request()->routeIs('admin.cashbook.reports.hub') || request()->routeIs('admin.cashbook.reports.shop') || request()->routeIs('admin.cashbook.reports.mobile-ledger') ? 'bg-slate-100 text-slate-900' : 'text-slate-400' }}">
+                        <i data-lucide="layout-grid" class="w-5 h-5"></i>
+                    </div>
+                    <span class="mt-0.5">Finance</span>
+                </a>
+                <a href="{{ route('admin.cashbook.reports.charts') }}" class="flex flex-col items-center justify-center text-[10px] font-extrabold transition-all {{ request()->routeIs('admin.cashbook.reports.charts') ? 'text-slate-900' : 'text-slate-400 hover:text-slate-700' }}">
+                    <div class="p-1 rounded-xl {{ request()->routeIs('admin.cashbook.reports.charts') ? 'bg-slate-100 text-slate-900' : 'text-slate-400' }}">
+                        <i data-lucide="line-chart" class="w-5 h-5"></i>
+                    </div>
+                    <span class="mt-0.5">Analytics</span>
+                </a>
+                <a href="{{ route('admin.cashbook.reports.analytics') }}" class="flex flex-col items-center justify-center text-[10px] font-extrabold transition-all {{ request()->routeIs('admin.cashbook.reports.analytics') ? 'text-slate-900' : 'text-slate-400 hover:text-slate-700' }}">
+                    <div class="p-1 rounded-xl {{ request()->routeIs('admin.cashbook.reports.analytics') ? 'bg-slate-100 text-slate-900' : 'text-slate-400' }}">
+                        <i data-lucide="target" class="w-5 h-5"></i>
+                    </div>
+                    <span class="mt-0.5">Target</span>
+                </a>
+            </div>
+        </div>
+    @endif
 </body>
 </html>

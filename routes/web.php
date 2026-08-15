@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Web\Admin\ActivityLogController;
 use App\Http\Controllers\Web\Admin\AdminAccountingController;
+use App\Http\Controllers\Web\Admin\AdminCashbookReportsController;
 use App\Http\Controllers\Web\Admin\AdminOverviewController;
 use App\Http\Controllers\Web\Admin\CashbookController;
 use App\Http\Controllers\Web\Admin\CompanySettingsController;
@@ -623,7 +624,13 @@ Route::middleware('auth')->group(function () {
             // ── Page routes ─────────────────────────────────────────────────
             Route::get('/', [CashbookController::class, 'index'])->name('index');
             Route::get('all-shops', [CashbookController::class, 'allShops'])->name('all-shops');
+            Route::get('overview-cards', [AdminCashbookReportsController::class, 'hub'])->name('reports.hub');
             Route::get('reports', [CashbookController::class, 'reports'])->name('reports');
+            Route::get('reports/shop/{shop}', [AdminCashbookReportsController::class, 'detail'])->name('reports.shop');
+            Route::get('reports/charts', [AdminCashbookReportsController::class, 'charts'])->name('reports.charts');
+            Route::get('reports/analytics', [AdminCashbookReportsController::class, 'analytics'])->name('reports.analytics');
+            Route::get('reports/api/hub', [AdminCashbookReportsController::class, 'apiHubData'])->name('reports.api.hub');
+            Route::get('mobile/ledger/{shop}', [AdminCashbookReportsController::class, 'mobileLedger'])->name('reports.mobile-ledger');
             Route::get('reports/export/csv', [CashbookController::class, 'exportReportsCsv'])->name('reports.export.csv');
             Route::get('reports/export/excel', [CashbookController::class, 'exportReportsExcel'])->name('reports.export.excel');
             Route::get('payables', [CashbookController::class, 'payables'])->name('payables');

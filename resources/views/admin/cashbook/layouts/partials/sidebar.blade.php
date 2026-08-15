@@ -100,6 +100,23 @@
                 </a>
             </div>
 
+            <!-- MOBILE CASHBOOK -->
+            <div class="space-y-1">
+                <span data-cashbook-sidebar-label class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">MOBILE CASHBOOK</span>
+                <a href="{{ route('admin.cashbook.reports.hub') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.reports.hub') || request()->routeIs('admin.cashbook.reports.shop') || request()->routeIs('admin.cashbook.reports.mobile-ledger') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="layers" class="w-4 h-4"></i>
+                    <span>Shop Cards Hub</span>
+                </a>
+                <a href="{{ route('admin.cashbook.reports.charts') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.reports.charts') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="pie-chart" class="w-4 h-4"></i>
+                    <span>Category Charts</span>
+                </a>
+                <a href="{{ route('admin.cashbook.reports.analytics') }}" class="sidebar-link {{ request()->routeIs('admin.cashbook.reports.analytics') ? 'active-sidebar' : '' }}">
+                    <i data-lucide="trending-up" class="w-4 h-4"></i>
+                    <span>Profit Analytics</span>
+                </a>
+            </div>
+
             <!-- FINANCE -->
             <div class="space-y-1">
                 <span data-cashbook-sidebar-label class="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">FINANCE</span>

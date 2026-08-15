@@ -13,7 +13,7 @@
     </div>
 
     <div class="flex items-center gap-2 sm:gap-3 ml-auto">
-        <div class="flex items-center gap-2 bg-slate-100 p-1.5 rounded-xl border border-slate-200">
+        <div class="hidden sm:flex items-center gap-2 bg-slate-100 p-1.5 rounded-xl border border-slate-200">
             <i data-lucide="calendar" class="w-4 h-4 text-slate-500 ml-1"></i>
             <input
                 type="date"
