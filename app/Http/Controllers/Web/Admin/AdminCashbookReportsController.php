@@ -146,35 +146,42 @@ class AdminCashbookReportsController extends Controller
         $shops = $ownedShops->isNotEmpty() ? $ownedShops : $shops;
 
         $selectedShopId = $request->filled('shop_id') ? (int) $request->input('shop_id') : null;
+        $selectedShop = $selectedShopId ? $shops->firstWhere('shop_id', $selectedShopId) : null;
+
         $timeframe = (string) $request->input('timeframe', 'monthly');
         $dateRange = $this->resolveDateRange($timeframe, $request);
 
-        $query = ShopInvoice::query()
-            ->with(['shop', 'order', 'items.product']);
-
         if ($selectedShopId) {
-            $query->where('shop_id', $selectedShopId);
+            $query = ShopInvoice::query()
+                ->with(['shop', 'order', 'items.product'])
+                ->where('shop_id', $selectedShopId)
+                ->whereBetween('business_date', [$dateRange['start'], $dateRange['end']]);
+
+            $totalsQuery = clone $query;
+            $totals = [
+                'total_billed' => round((float) $totalsQuery->sum('final_total'), 2),
+                'total_paid' => round((float) $totalsQuery->sum('paid_amount'), 2),
+                'total_balance' => round((float) $totalsQuery->sum('balance_amount'), 2),
+                'count' => $totalsQuery->count(),
+            ];
+
+            $invoices = $query->orderByDesc('business_date')
+                ->orderByDesc('id')
+                ->paginate(15)
+                ->withQueryString();
         } else {
-            $query->whereIn('shop_id', $shops->pluck('shop_id'));
+            $totals = [
+                'total_billed' => 0.00,
+                'total_paid' => 0.00,
+                'total_balance' => 0.00,
+                'count' => 0,
+            ];
+            $invoices = new \Illuminate\Pagination\LengthAwarePaginator([], 0, 15);
         }
-
-        $query->whereBetween('business_date', [$dateRange['start'], $dateRange['end']]);
-
-        $totalsQuery = clone $query;
-        $totals = [
-            'total_billed' => round((float) $totalsQuery->sum('final_total'), 2),
-            'total_paid' => round((float) $totalsQuery->sum('paid_amount'), 2),
-            'total_balance' => round((float) $totalsQuery->sum('balance_amount'), 2),
-            'count' => $totalsQuery->count(),
-        ];
-
-        $invoices = $query->orderByDesc('business_date')
-            ->orderByDesc('id')
-            ->paginate(15)
-            ->withQueryString();
 
         return view('admin.cashbook.reports.gl_bills', [
             'shops' => $shops,
+            'selectedShop' => $selectedShop,
             'selectedShopId' => $selectedShopId,
             'invoices' => $invoices,
             'totals' => $totals,

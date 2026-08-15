@@ -308,7 +308,7 @@ class AdminCashbookReportsTest extends TestCase
         ]);
 
         $this->actingAs($admin)
-            ->get(route('admin.cashbook.reports.gl-bills'))
+            ->get(route('admin.cashbook.reports.gl-bills', ['shop_id' => $shop->id]))
             ->assertOk()
             ->assertSee('GL Bills')
             ->assertSee('INV-TEST-001')

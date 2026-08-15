@@ -263,8 +263,18 @@
             <button type="button" @click="loadData()" class="h-8 shrink-0 rounded-xl bg-slate-900 px-4 text-xs font-bold text-white hover:bg-slate-800">Apply</button>
         </div>
 
+        <!-- Bouncing 3-Dot Loader (From Uiverse.io by mahendrameghwal) -->
+        <div x-show="loading" x-cloak class="py-10 flex flex-col items-center justify-center space-y-3 rounded-[28px] border border-slate-100 bg-white shadow-xs">
+            <div class="w-full gap-x-2 flex justify-center items-center">
+                <div class="w-5 h-5 bg-[#d991c2] animate-pulse rounded-full animate-bounce"></div>
+                <div class="w-5 h-5 bg-[#9869b8] animate-pulse rounded-full animate-bounce [animation-delay:0.2s]"></div>
+                <div class="w-5 h-5 bg-[#6756cc] animate-pulse rounded-full animate-bounce [animation-delay:0.4s]"></div>
+            </div>
+            <p class="text-xs font-black text-slate-500">Updating Cashbook Data...</p>
+        </div>
+
         <!-- Hero Financial Spend Card (Screenshot Match) -->
-        <div class="rounded-[28px] border border-slate-100 bg-white p-4 sm:p-5 shadow-[0_8px_30px_rgba(0,0,0,0.04)]">
+        <div x-show="!loading" class="rounded-[28px] border border-slate-100 bg-white p-4 sm:p-5 shadow-[0_8px_30px_rgba(0,0,0,0.04)]">
             <div class="flex items-center justify-between">
                 <div>
                     <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Consolidated Outlets</span>

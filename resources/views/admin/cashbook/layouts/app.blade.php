@@ -43,6 +43,7 @@
     <script src="https://unpkg.com/lucide@latest"></script>
 
     <style>
+        [x-cloak] { display: none !important; }
         .white-card {
             background: #ffffff;
             border: 1px solid #e2e8f0;
@@ -76,6 +77,16 @@
     <!-- Toast Notification Container -->
     <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-3 max-w-md w-full pointer-events-none"></div>
 
+    <!-- Global Bouncing 3-Dot Loader Overlay (From Uiverse.io by mahendrameghwal) -->
+    <div id="global-page-loader" class="hidden fixed inset-0 z-[100] flex flex-col items-center justify-center bg-white/90 backdrop-blur-md transition-all duration-200">
+        <div class="w-full gap-x-2 flex justify-center items-center">
+            <div class="w-5 h-5 bg-[#d991c2] animate-pulse rounded-full animate-bounce"></div>
+            <div class="w-5 h-5 bg-[#9869b8] animate-pulse rounded-full animate-bounce [animation-delay:0.2s]"></div>
+            <div class="w-5 h-5 bg-[#6756cc] animate-pulse rounded-full animate-bounce [animation-delay:0.4s]"></div>
+        </div>
+        <p class="mt-4 text-xs font-black uppercase tracking-wider text-slate-700">Loading Cashbook Reports...</p>
+    </div>
+
     <div id="cashbook-layout-shell" class="min-h-screen flex w-full max-w-full overflow-x-hidden" data-sidebar-state="expanded">
         @include('admin.cashbook.layouts.partials.sidebar')
 
@@ -102,6 +113,23 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (window.lucide) { lucide.createIcons(); }
+
+            document.querySelectorAll('a[href]').forEach(a => {
+                a.addEventListener('click', (e) => {
+                    const href = a.getAttribute('href');
+                    if (href && !href.startsWith('#') && !href.startsWith('javascript:') && !a.hasAttribute('target')) {
+                        const loader = document.getElementById('global-page-loader');
+                        if (loader) loader.classList.remove('hidden');
+                    }
+                });
+            });
+
+            document.querySelectorAll('form').forEach(f => {
+                f.addEventListener('submit', () => {
+                    const loader = document.getElementById('global-page-loader');
+                    if (loader) loader.classList.remove('hidden');
+                });
+            });
         });
 
         function toggleMobileSidebar() {
