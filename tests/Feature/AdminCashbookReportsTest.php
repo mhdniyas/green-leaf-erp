@@ -177,8 +177,8 @@ class AdminCashbookReportsTest extends TestCase
         $this->actingAs($admin)
             ->get(route('admin.cashbook.reports.analytics'))
             ->assertOk()
-            ->assertSee('Shop Profitability')
-            ->assertSee('Procurement & Profitability Calendar');
+            ->assertSee('Profit Intelligence')
+            ->assertSee('Weekly Action Plan');
     }
 
     public function test_mobile_ledger_renders_correctly(): void
@@ -254,8 +254,8 @@ class AdminCashbookReportsTest extends TestCase
         $this->actingAs($accountUser)
             ->get(route('admin.cashbook.reports.analytics'))
             ->assertOk()
-            ->assertSee('Shop Profitability')
-            ->assertSee('Procurement & Profitability Calendar');
+            ->assertSee('Profit Intelligence')
+            ->assertSee('Weekly Action Plan');
 
         // 5. Can access GL Bills
         $this->actingAs($accountUser)

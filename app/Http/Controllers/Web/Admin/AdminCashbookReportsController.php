@@ -13,6 +13,7 @@ use App\Models\Shop;
 use App\Models\ShopInvoice;
 use App\Models\User;
 use App\Services\Cashbook\CashbookShopSyncService;
+use App\Services\Reports\ShopProfitIntelligenceService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,6 +24,7 @@ class AdminCashbookReportsController extends Controller
 {
     public function __construct(
         private readonly CashbookShopSyncService $shopSyncService,
+        private readonly ShopProfitIntelligenceService $profitIntelligence,
     ) {}
 
     /**
@@ -126,13 +128,17 @@ class AdminCashbookReportsController extends Controller
         $selectedShopId = $request->filled('shop_id') ? (int) $request->input('shop_id') : ($shops->first()?->shop_id);
         $selectedShop = $shops->firstWhere('shop_id', $selectedShopId) ?? $shops->first();
 
-        $analyticsResult = $this->generateAnalyticsReport($selectedShop?->shop_id);
+        // Use new isolated ShopProfitIntelligenceService — uses affects_income/pl_delta columns.
+        // Hub, Detail, Charts pages are untouched.
+        $intelligence = $selectedShop?->shop_id
+            ? $this->profitIntelligence->analyse($selectedShop->shop_id)
+            : $this->profitIntelligence->analyse(0); // returns emptyResult()
 
         return view('admin.cashbook.reports.analytics', [
-            'shops' => $shops,
+            'shops'        => $shops,
             'selectedShop' => $selectedShop,
-            'analytics' => $analyticsResult,
-            'activeTab' => 'analytics',
+            'intelligence' => $intelligence,
+            'activeTab'    => 'analytics',
         ]);
     }
 
